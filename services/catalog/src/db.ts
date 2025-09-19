@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -6,6 +7,23 @@ export type TagKV = {
   key: string;
   value: string;
   source?: string;
+};
+
+export type BuildStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+
+export type BuildRecord = {
+  id: string;
+  repositoryId: string;
+  status: BuildStatus;
+  logs: string | null;
+  imageTag: string | null;
+  errorMessage: string | null;
+  commitSha: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
 };
 
 export type RepositoryRecord = {
@@ -21,6 +39,7 @@ export type RepositoryRecord = {
   ingestError: string | null;
   ingestAttempts: number;
   tags: TagKV[];
+  latestBuild: BuildRecord | null;
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
@@ -42,6 +61,29 @@ export type RepositoryInsert = {
 export type RepositorySearchParams = {
   text?: string;
   tags?: TagKV[];
+  statuses?: IngestStatus[];
+  ingestedAfter?: string | null;
+  ingestedBefore?: string | null;
+};
+
+export type TagFacet = {
+  key: string;
+  value: string;
+  count: number;
+};
+
+export type StatusFacet = {
+  status: IngestStatus;
+  count: number;
+};
+
+export type RepositorySearchResult = {
+  records: RepositoryRecord[];
+  total: number;
+  facets: {
+    tags: TagFacet[];
+    statuses: StatusFacet[];
+  };
 };
 
 export type IngestionEvent = {
@@ -116,6 +158,28 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_ingestion_events_repo_created
     ON ingestion_events(repository_id, datetime(created_at) DESC);
+
+  CREATE TABLE IF NOT EXISTS builds (
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    logs TEXT,
+    image_tag TEXT,
+    error_message TEXT,
+    commit_sha TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_builds_repo_created
+    ON builds(repository_id, datetime(created_at) DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_builds_status
+    ON builds(status);
 `);
 
 function ensureColumn(table: string, column: string, ddl: string) {
@@ -173,6 +237,21 @@ type IngestionEventRow = {
   created_at: string;
 };
 
+type BuildRow = {
+  id: string;
+  repository_id: string;
+  status: BuildStatus;
+  logs: string | null;
+  image_tag: string | null;
+  error_message: string | null;
+  commit_sha: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+};
+
 const insertRepositoryStatement = db.prepare(`
   INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts)
   VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts)
@@ -222,6 +301,73 @@ const selectIngestionEventsStatement = db.prepare(
    LIMIT ?`
 );
 
+const insertBuildStatement = db.prepare(
+  `INSERT INTO builds (
+     id,
+     repository_id,
+     status,
+     logs,
+     image_tag,
+     error_message,
+     commit_sha,
+     created_at,
+     updated_at,
+     started_at,
+     completed_at,
+     duration_ms
+   ) VALUES (
+     @id,
+     @repositoryId,
+     @status,
+     @logs,
+     @imageTag,
+     @errorMessage,
+     @commitSha,
+     @createdAt,
+     @updatedAt,
+     @startedAt,
+     @completedAt,
+     @durationMs
+   )`
+);
+
+const updateBuildStatement = db.prepare(
+  `UPDATE builds
+   SET status = COALESCE(@status, status),
+       logs = COALESCE(@logs, logs),
+       image_tag = COALESCE(@imageTag, image_tag),
+       error_message = COALESCE(@errorMessage, error_message),
+       commit_sha = COALESCE(@commitSha, commit_sha),
+       updated_at = COALESCE(@updatedAt, updated_at),
+       started_at = COALESCE(@startedAt, started_at),
+       completed_at = COALESCE(@completedAt, completed_at),
+       duration_ms = COALESCE(@durationMs, duration_ms)
+   WHERE id = @buildId`
+);
+
+const appendBuildLogStatement = db.prepare(
+  `UPDATE builds
+   SET logs = COALESCE(logs, '') || @chunk,
+       updated_at = @updatedAt
+   WHERE id = @buildId`
+);
+
+const selectBuildByIdStatement = db.prepare('SELECT * FROM builds WHERE id = ?');
+
+const selectLatestBuildByRepositoryStatement = db.prepare(
+  `SELECT * FROM builds
+   WHERE repository_id = ?
+   ORDER BY datetime(created_at) DESC
+   LIMIT 1`
+);
+
+const selectPendingBuildStatement = db.prepare(
+  `SELECT * FROM builds
+   WHERE status = 'pending'
+   ORDER BY datetime(created_at) ASC
+   LIMIT 1`
+);
+
 function attachTags(repositoryId: string, tags: (TagKV & { source?: string })[] = []) {
   for (const tag of tags) {
     const normalized = {
@@ -252,6 +398,23 @@ function rowToEvent(row: IngestionEventRow): IngestionEvent {
   };
 }
 
+function rowToBuild(row: BuildRow): BuildRecord {
+  return {
+    id: row.id,
+    repositoryId: row.repository_id,
+    status: row.status,
+    logs: row.logs,
+    imageTag: row.image_tag,
+    errorMessage: row.error_message && row.error_message.length > 0 ? row.error_message : null,
+    commitSha: row.commit_sha,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms ?? null
+  };
+}
+
 function logIngestionEvent(params: {
   repositoryId: string;
   status: IngestStatus;
@@ -272,25 +435,19 @@ function logIngestionEvent(params: {
   });
 }
 
-function rowToRepository(row: RepositoryRow): RepositoryRecord {
-  const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    repoUrl: row.repo_url,
-    dockerfilePath: row.dockerfile_path,
-    updatedAt: row.updated_at,
-    ingestStatus: row.ingest_status,
-    lastIngestedAt: row.last_ingested_at,
-    createdAt: row.created_at,
-    ingestError: row.ingest_error,
-    ingestAttempts: row.ingest_attempts ?? 0,
-    tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source }))
-  };
-}
+export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processing', 'ready', 'failed'];
 
-export function listRepositories(params: RepositorySearchParams): RepositoryRecord[] {
+type WhereClauseOptions = {
+  includeTags?: boolean;
+  includeStatuses?: boolean;
+};
+
+function buildRepositoryWhereClause(
+  params: RepositorySearchParams,
+  options: WhereClauseOptions = {}
+) {
+  const includeTags = options.includeTags ?? true;
+  const includeStatuses = options.includeStatuses ?? true;
   const conditions: string[] = [];
   const substitutions: unknown[] = [];
 
@@ -300,7 +457,7 @@ export function listRepositories(params: RepositorySearchParams): RepositoryReco
     substitutions.push(pattern, pattern, pattern);
   }
 
-  if (params.tags && params.tags.length > 0) {
+  if (includeTags && params.tags && params.tags.length > 0) {
     for (const tag of params.tags) {
       const normalizedKey = tag.key.toLowerCase();
       const normalizedValue = tag.value.toLowerCase();
@@ -316,11 +473,97 @@ export function listRepositories(params: RepositorySearchParams): RepositoryReco
     }
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const sql = `SELECT * FROM repositories ${whereClause} ORDER BY datetime(updated_at) DESC`;
-  const statement = db.prepare(sql);
-  const rows = statement.all(...substitutions) as RepositoryRow[];
-  return rows.map(rowToRepository);
+  if (includeStatuses && params.statuses && params.statuses.length > 0) {
+    const placeholders = params.statuses.map(() => '?').join(',');
+    conditions.push(`ingest_status IN (${placeholders})`);
+    substitutions.push(...params.statuses);
+  }
+
+  if (params.ingestedAfter) {
+    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) >= datetime(?)');
+    substitutions.push(params.ingestedAfter);
+  }
+
+  if (params.ingestedBefore) {
+    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) <= datetime(?)');
+    substitutions.push(params.ingestedBefore);
+  }
+
+  const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  return { clause, substitutions };
+}
+
+function rowToRepository(row: RepositoryRow): RepositoryRecord {
+  const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
+  const latestBuildRow = selectLatestBuildByRepositoryStatement.get(row.id) as BuildRow | undefined;
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    repoUrl: row.repo_url,
+    dockerfilePath: row.dockerfile_path,
+    updatedAt: row.updated_at,
+    ingestStatus: row.ingest_status,
+    lastIngestedAt: row.last_ingested_at,
+    createdAt: row.created_at,
+    ingestError: row.ingest_error,
+    ingestAttempts: row.ingest_attempts ?? 0,
+    tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source })),
+    latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null
+  };
+}
+
+export function listRepositories(params: RepositorySearchParams): RepositorySearchResult {
+  const baseClause = buildRepositoryWhereClause(params);
+  const sql = `SELECT * FROM repositories ${baseClause.clause} ORDER BY datetime(updated_at) DESC`;
+  const rows = db.prepare(sql).all(...baseClause.substitutions) as RepositoryRow[];
+  const records = rows.map(rowToRepository);
+
+  const statusClause = buildRepositoryWhereClause(params, { includeStatuses: false });
+  const statusRows = db
+    .prepare(
+      `SELECT ingest_status AS status, COUNT(*) AS count
+       FROM repositories ${statusClause.clause}
+       GROUP BY ingest_status`
+    )
+    .all(...statusClause.substitutions) as { status: IngestStatus; count: number }[];
+  const statusCountMap = new Map<IngestStatus, number>();
+  for (const row of statusRows) {
+    statusCountMap.set(row.status, Number(row.count));
+  }
+  const statusFacets = ALL_INGEST_STATUSES.map((status) => ({
+    status,
+    count: statusCountMap.get(status) ?? 0
+  }));
+
+  const tagClause = buildRepositoryWhereClause(params);
+  const tagRows = db
+    .prepare(
+      `SELECT t.key AS key, t.value AS value, COUNT(*) AS count
+       FROM repositories
+       JOIN repository_tags rt ON rt.repository_id = repositories.id
+       JOIN tags t ON t.id = rt.tag_id
+       ${tagClause.clause}
+       GROUP BY t.key, t.value
+       ORDER BY count DESC, t.key ASC, t.value ASC
+       LIMIT 50`
+    )
+    .all(...tagClause.substitutions) as { key: string; value: string; count: number }[];
+
+  const tagFacets = tagRows.map((row) => ({
+    key: row.key,
+    value: row.value,
+    count: Number(row.count)
+  }));
+
+  return {
+    records,
+    total: records.length,
+    facets: {
+      tags: tagFacets,
+      statuses: statusFacets
+    }
+  };
 }
 
 export function getRepositoryById(id: string): RepositoryRecord | null {
@@ -331,6 +574,146 @@ export function getRepositoryById(id: string): RepositoryRecord | null {
 export function getIngestionHistory(repositoryId: string, limit = 25): IngestionEvent[] {
   const rows = selectIngestionEventsStatement.all(repositoryId, limit) as IngestionEventRow[];
   return rows.map(rowToEvent);
+}
+
+export function getBuildById(id: string): BuildRecord | null {
+  const row = selectBuildByIdStatement.get(id) as BuildRow | undefined;
+  return row ? rowToBuild(row) : null;
+}
+
+export function listBuildsForRepository(repositoryId: string, limit = 20): BuildRecord[] {
+  const statement = db.prepare(
+    `SELECT * FROM builds
+     WHERE repository_id = ?
+     ORDER BY datetime(created_at) DESC
+     LIMIT ?`
+  );
+  const rows = statement.all(repositoryId, limit) as BuildRow[];
+  return rows.map(rowToBuild);
+}
+
+export function createBuild(repositoryId: string, options: { commitSha?: string | null } = {}): BuildRecord {
+  const now = new Date().toISOString();
+  const build = {
+    id: randomUUID(),
+    repositoryId,
+    status: 'pending' as BuildStatus,
+    logs: '',
+    imageTag: null,
+    errorMessage: null,
+    commitSha: options.commitSha ?? null,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: null as string | null,
+    completedAt: null as string | null,
+    durationMs: null as number | null
+  } satisfies BuildRecord;
+
+  insertBuildStatement.run({
+    id: build.id,
+    repositoryId: build.repositoryId,
+    status: build.status,
+    logs: build.logs,
+    imageTag: build.imageTag,
+    errorMessage: build.errorMessage,
+    commitSha: build.commitSha,
+    createdAt: build.createdAt,
+    updatedAt: build.updatedAt,
+    startedAt: build.startedAt,
+    completedAt: build.completedAt,
+    durationMs: build.durationMs
+  });
+
+  return getBuildById(build.id) ?? build;
+}
+
+export function startBuild(buildId: string): BuildRecord | null {
+  const transaction = db.transaction(() => {
+    const existing = selectBuildByIdStatement.get(buildId) as BuildRow | undefined;
+    if (!existing) {
+      return null;
+    }
+    if (existing.status === 'running') {
+      return rowToBuild(existing);
+    }
+    if (existing.status !== 'pending') {
+      return null;
+    }
+    const now = new Date().toISOString();
+    updateBuildStatement.run({
+      buildId,
+      status: 'running',
+      logs: undefined,
+      imageTag: undefined,
+      errorMessage: undefined,
+      commitSha: undefined,
+      updatedAt: now,
+      startedAt: existing.started_at ?? now,
+      completedAt: undefined,
+      durationMs: undefined
+    });
+    const refreshed = selectBuildByIdStatement.get(buildId) as BuildRow | undefined;
+    return refreshed ? rowToBuild(refreshed) : null;
+  });
+
+  return transaction();
+}
+
+export function takeNextPendingBuild(): BuildRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectPendingBuildStatement.get() as BuildRow | undefined;
+    if (!row) {
+      return null;
+    }
+    const started = startBuild(row.id);
+    return started;
+  });
+
+  return transaction();
+}
+
+export function appendBuildLog(buildId: string, chunk: string) {
+  const now = new Date().toISOString();
+  appendBuildLogStatement.run({
+    buildId,
+    chunk,
+    updatedAt: now
+  });
+}
+
+export function completeBuild(
+  buildId: string,
+  status: Extract<BuildStatus, 'succeeded' | 'failed'>,
+  extra: {
+    logs?: string | null;
+    imageTag?: string | null;
+    errorMessage?: string | null;
+    commitSha?: string | null;
+    completedAt?: string;
+    durationMs?: number | null;
+  } = {}
+): BuildRecord | null {
+  const existing = getBuildById(buildId);
+  const completedAt = extra.completedAt ?? new Date().toISOString();
+  const durationFromStart = existing?.startedAt
+    ? Math.max(Date.parse(completedAt) - Date.parse(existing.startedAt), 0)
+    : null;
+  const durationMs = extra.durationMs ?? durationFromStart ?? null;
+
+  updateBuildStatement.run({
+    buildId,
+    status,
+    logs: extra.logs ?? undefined,
+    imageTag: extra.imageTag ?? undefined,
+    errorMessage: extra.errorMessage ?? undefined,
+    commitSha: extra.commitSha ?? undefined,
+    updatedAt: completedAt,
+    startedAt: undefined,
+    completedAt,
+    durationMs: durationMs ?? undefined
+  });
+
+  return getBuildById(buildId);
 }
 
 export function upsertRepository(repository: RepositoryInsert): RepositoryRecord {

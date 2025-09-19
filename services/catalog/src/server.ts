@@ -8,14 +8,20 @@ import {
   listRepositories,
   listTagSuggestions,
   setRepositoryStatus,
+  ALL_INGEST_STATUSES,
+  type BuildRecord,
   type RepositoryRecord,
-  type TagKV
+  type TagKV,
+  type IngestStatus
 } from './db';
 import { enqueueRepositoryIngestion } from './queue';
 
 type SearchQuery = {
   q?: string;
   tags?: string[];
+  status?: string[];
+  ingestedAfter?: string;
+  ingestedBefore?: string;
 };
 
 const tagQuerySchema = z
@@ -28,9 +34,37 @@ const tagQuerySchema = z
       .filter(Boolean)
   );
 
+const statusQuerySchema = z
+  .string()
+  .trim()
+  .transform((raw) =>
+    raw
+      .split(/[\s,]+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+  );
+
+const isoDateSchema = z
+  .string()
+  .trim()
+  .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid date');
+
+const INGEST_STATUS_LOOKUP = new Set<IngestStatus>(ALL_INGEST_STATUSES);
+
 const searchQuerySchema = z.object({
   q: z.string().trim().optional(),
-  tags: z.preprocess((val) => (typeof val === 'string' ? val : undefined), tagQuerySchema).optional()
+  tags: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), tagQuerySchema)
+    .optional(),
+  status: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), statusQuerySchema)
+    .optional(),
+  ingestedAfter: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), isoDateSchema)
+    .optional(),
+  ingestedBefore: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), isoDateSchema)
+    .optional()
 });
 
 const suggestQuerySchema = z.object({
@@ -82,6 +116,41 @@ function toTagFilters(tokens: string[] = []): TagKV[] {
   return filters;
 }
 
+function toIngestStatuses(tokens: string[] = []): IngestStatus[] {
+  const normalized = new Set<IngestStatus>();
+  for (const token of tokens) {
+    const lower = token.toLowerCase() as IngestStatus;
+    if (INGEST_STATUS_LOOKUP.has(lower)) {
+      normalized.add(lower);
+    }
+  }
+  return Array.from(normalized);
+}
+
+function normalizeIngestedAfter(raw?: string) {
+  if (!raw) {
+    return undefined;
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function normalizeIngestedBefore(raw?: string) {
+  if (!raw) {
+    return undefined;
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  date.setUTCHours(23, 59, 59, 999);
+  return date.toISOString();
+}
+
 function serializeRepository(record: RepositoryRecord) {
   const {
     id,
@@ -93,7 +162,8 @@ function serializeRepository(record: RepositoryRecord) {
     tags,
     ingestStatus,
     ingestError,
-    ingestAttempts
+    ingestAttempts,
+    latestBuild
   } = record;
   return {
     id,
@@ -105,7 +175,36 @@ function serializeRepository(record: RepositoryRecord) {
     tags: tags.map((tag) => ({ key: tag.key, value: tag.value })),
     ingestStatus,
     ingestError,
-    ingestAttempts
+    ingestAttempts,
+    latestBuild: serializeBuild(latestBuild)
+  };
+}
+
+function serializeBuild(build: BuildRecord | null) {
+  if (!build) {
+    return null;
+  }
+
+  const MAX_LOG_LENGTH = 4000;
+  const trimmedLogs = build.logs
+    ? build.logs.length > MAX_LOG_LENGTH
+      ? build.logs.slice(-MAX_LOG_LENGTH)
+      : build.logs
+    : null;
+
+  return {
+    id: build.id,
+    status: build.status,
+    imageTag: build.imageTag,
+    errorMessage: build.errorMessage,
+    commitSha: build.commitSha,
+    createdAt: build.createdAt,
+    updatedAt: build.updatedAt,
+    startedAt: build.startedAt,
+    completedAt: build.completedAt,
+    durationMs: build.durationMs,
+    logsPreview: trimmedLogs,
+    logsTruncated: Boolean(build.logs && trimmedLogs && trimmedLogs.length < build.logs.length)
   };
 }
 
@@ -127,10 +226,30 @@ async function buildServer() {
 
     const query = parseResult.data as SearchQuery;
     const tags = toTagFilters(query.tags ?? []);
-    const repositories = listRepositories({ text: query.q, tags });
+    const statuses = toIngestStatuses(query.status ?? []);
+    const ingestedAfter = normalizeIngestedAfter(query.ingestedAfter);
+    let ingestedBefore = normalizeIngestedBefore(query.ingestedBefore);
+
+    if (ingestedAfter && ingestedBefore) {
+      const afterTime = Date.parse(ingestedAfter);
+      const beforeTime = Date.parse(ingestedBefore);
+      if (Number.isFinite(afterTime) && Number.isFinite(beforeTime) && beforeTime < afterTime) {
+        ingestedBefore = ingestedAfter;
+      }
+    }
+
+    const searchResult = listRepositories({
+      text: query.q,
+      tags,
+      statuses: statuses.length > 0 ? statuses : undefined,
+      ingestedAfter,
+      ingestedBefore
+    });
 
     return {
-      data: repositories.map(serializeRepository)
+      data: searchResult.records.map(serializeRepository),
+      facets: searchResult.facets,
+      total: searchResult.total
     };
   });
 

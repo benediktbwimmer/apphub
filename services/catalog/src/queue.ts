@@ -20,6 +20,7 @@ function createConnection() {
 const connection = createConnection();
 
 export const INGEST_QUEUE_NAME = process.env.INGEST_QUEUE_NAME ?? 'apphub_queue';
+export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_queue';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -27,6 +28,17 @@ const queue = !inlineMode && connection
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 100
+      }
+    })
+  : null;
+
+const buildQueue = !inlineMode && connection
+  ? new Queue(BUILD_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: 50,
+        attempts: 1
       }
     })
   : null;
@@ -62,4 +74,16 @@ export function getQueueConnection() {
 
 export function isInlineQueueMode() {
   return inlineMode;
+}
+
+export async function enqueueBuildJob(buildId: string, repositoryId: string) {
+  if (inlineMode) {
+    return;
+  }
+
+  if (!buildQueue) {
+    throw new Error('Build queue not initialised');
+  }
+
+  await buildQueue.add('repository-build', { buildId, repositoryId });
 }

@@ -4,13 +4,12 @@
 Build a "YouTube of web applications" where each application is sourced from a Git repository. Every repository contains a `Dockerfile`, allowing the platform to build, catalogue, and sandbox-run the app and surface metadata for discovery via a tag-driven search UI with keyboard-friendly autocomplete.
 
 ## Core Components
-- **Ingestion Service**: Validates repository metadata, clones repos, inspects `Dockerfile`, and triggers container image builds. The prototype uses a BullMQ (Redis-backed) worker that consumes ingestion jobs, verifies the declared Dockerfile (or discovers one), and enriches tags from repo artifacts.
 - **Ingestion Service**: Validates repository metadata, clones repos, inspects `Dockerfile`, and triggers container image builds. The prototype uses a BullMQ (Redis-backed) worker that consumes ingestion jobs, verifies the declared Dockerfile (or discovers one), enriches tags from repo artifacts, and records commit SHA + elapsed time for each attempt.
 - **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. MVP uses SQLite via `better-sqlite3`; production would migrate to Postgres for concurrency and cloud deployments.
 - **Runner Service**: Schedules containerized apps, exposes preview URLs, handles lifecycle (start/stop) with resource quotas.
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
-- **Background Workers**: Handle build pipelines, periodic repo sync (polling webhooks), tag enrichment, and stale build cleanup. The current worker consumes BullMQ jobs for metadata ingestion but is structured to expand into build orchestration.
+- **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, and stale build cleanup. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod).
 
 ## Data Model (Initial Draft)
 - `Repository`
@@ -19,8 +18,8 @@ Build a "YouTube of web applications" where each application is sourced from a G
   - `ingest_status`, `last_ingested_at`, `ingest_error`, `ingest_attempts`
 - `Build`
   - `id`, `repository_id`, `commit_sha`
-  - `status`, `logs_url`, `image_ref`
-  - `started_at`, `completed_at`
+  - `status`, `logs`, `image_tag`, `error_message`
+  - `started_at`, `completed_at`, `duration_ms`
 - `Tag`
   - `id`, `key`, `value`
   - `description`
@@ -41,9 +40,9 @@ Build a "YouTube of web applications" where each application is sourced from a G
 2. **Ingestion & Image Build Pipeline**
    - API enqueues ingestion jobs in BullMQ whenever a repository is registered or refreshed.
    - Ingestion worker consumes jobs, performs shallow clone, validates `Dockerfile` presence, and extracts metadata (`package.json`, `README`, `tags.yaml`, Dockerfile heuristics).
-   - Successful ingestion refreshes tags/runtime hints and marks the repo `ready`; failures capture the error message for operator review and allow queued retries.
+   - Successful ingestion refreshes tags/runtime hints, marks the repo `ready`, and creates a build record that is enqueued for the build worker; failures capture the error message for operator review and allow queued retries.
    - Every transition (queued, processing, failed, ready) is written to `ingestion_events` for timeline auditing.
-   - Build worker pulls repo, runs `docker build`, pushes image to an internal registry (future milestone). Build status updates propagate to the metadata store.
+   - Build worker clones the repo afresh, executes `docker build` via the local Docker daemon, records logs inline in SQLite, and stores the resulting image tag for launch orchestration.
 
 3. **Search & Autocomplete**
    - Search API indexes repositories & tags.

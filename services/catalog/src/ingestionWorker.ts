@@ -4,6 +4,7 @@ import path from 'node:path';
 import simpleGit from 'simple-git';
 import YAML from 'yaml';
 import {
+  createBuild,
   getRepositoryById,
   upsertRepository,
   setRepositoryStatus,
@@ -13,9 +14,11 @@ import {
 } from './db';
 import {
   INGEST_QUEUE_NAME,
+  enqueueBuildJob,
   getQueueConnection,
   isInlineQueueMode
 } from './queue';
+import { runBuildJob } from './buildRunner';
 
 const CLONE_DEPTH = process.env.INGEST_CLONE_DEPTH ?? '1';
 const INGEST_CONCURRENCY = Number(process.env.INGEST_CONCURRENCY ?? 2);
@@ -344,6 +347,15 @@ async function processRepository(repository: RepositoryRecord) {
       commitSha,
       durationMs: Date.now() - startedAt
     });
+
+    const build = createBuild(repository.id, { commitSha });
+    if (useInlineQueue) {
+      log('Running build inline', { repositoryId: repository.id, buildId: build.id });
+      await runBuildJob(build.id);
+    } else {
+      log('Enqueuing build job', { repositoryId: repository.id, buildId: build.id });
+      await enqueueBuildJob(build.id, repository.id);
+    }
 
     log('Repository ingested', { id: repository.id, dockerfilePath });
   } catch (err) {

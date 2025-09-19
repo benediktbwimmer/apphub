@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "ingest": "tsx src/ingestionWorker.ts",
+    "builds": "tsx src/buildWorker.ts",
     "test:e2e": "tsx tests/ingestion.e2e.ts"
   },
   "keywords": [

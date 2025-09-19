@@ -7,6 +7,21 @@ type TagKV = {
   value: string;
 };
 
+type BuildSummary = {
+  id: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed';
+  imageTag: string | null;
+  errorMessage: string | null;
+  commitSha: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  logsPreview: string | null;
+  logsTruncated: boolean;
+};
+
 type AppRecord = {
   id: string;
   name: string;
@@ -18,6 +33,7 @@ type AppRecord = {
   ingestStatus: 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
   ingestError: string | null;
   ingestAttempts: number;
+  latestBuild: BuildSummary | null;
 };
 
 type TagSuggestion = {
@@ -25,6 +41,19 @@ type TagSuggestion = {
   value: string;
   label: string;
 };
+
+type TagFacet = {
+  key: string;
+  value: string;
+  count: number;
+};
+
+type StatusFacet = {
+  status: AppRecord['ingestStatus'];
+  count: number;
+};
+
+const INGEST_STATUSES: AppRecord['ingestStatus'][] = ['seed', 'pending', 'processing', 'ready', 'failed'];
 
 type IngestionEvent = {
   id: number;
@@ -94,12 +123,24 @@ function App() {
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<HistoryState>({});
+  const [statusFilters, setStatusFilters] = useState<AppRecord['ingestStatus'][]>([]);
+  const [ingestedAfter, setIngestedAfter] = useState('');
+  const [ingestedBefore, setIngestedBefore] = useState('');
+  const [tagFacets, setTagFacets] = useState<TagFacet[]>([]);
+  const [statusFacets, setStatusFacets] = useState<StatusFacet[]>(() =>
+    INGEST_STATUSES.map((status) => ({ status, count: 0 }))
+  );
 
   const autocompleteContext = useMemo(() => computeAutocompleteContext(inputValue), [inputValue]);
   const parsedQuery = useMemo(() => parseSearchInput(inputValue), [inputValue]);
+  const statusSignature = useMemo(
+    () => statusFilters.slice().sort().join(','),
+    [statusFilters]
+  );
   const searchSignature = useMemo(
-    () => `${parsedQuery.text}|${parsedQuery.tags.join(',')}`,
-    [parsedQuery.text, parsedQuery.tags]
+    () =>
+      [parsedQuery.text, parsedQuery.tags.join(','), statusSignature, ingestedAfter, ingestedBefore].join('|'),
+    [parsedQuery.text, parsedQuery.tags, statusSignature, ingestedAfter, ingestedBefore]
   );
 
   useEffect(() => {
@@ -115,6 +156,15 @@ function App() {
         if (parsedQuery.tags.length > 0) {
           params.set('tags', parsedQuery.tags.join(' '));
         }
+        if (statusFilters.length > 0) {
+          params.set('status', statusFilters.join(','));
+        }
+        if (ingestedAfter) {
+          params.set('ingestedAfter', ingestedAfter);
+        }
+        if (ingestedBefore) {
+          params.set('ingestedBefore', ingestedBefore);
+        }
         const response = await fetch(`${API_BASE_URL}/apps?${params.toString()}`, {
           signal: controller.signal
         });
@@ -123,6 +173,15 @@ function App() {
         }
         const payload = await response.json();
         setApps(payload.data ?? []);
+        setTagFacets(payload.facets?.tags ?? []);
+        setStatusFacets(() => {
+          const rawStatuses = (payload.facets?.statuses ?? []) as StatusFacet[];
+          const counts = new Map(rawStatuses.map((item) => [item.status, item.count]));
+          return INGEST_STATUSES.map((status) => ({
+            status,
+            count: counts.get(status) ?? 0
+          }));
+        });
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           return;
@@ -137,7 +196,7 @@ function App() {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [searchSignature, parsedQuery]);
+  }, [searchSignature, parsedQuery, statusFilters, ingestedAfter, ingestedBefore]);
 
   useEffect(() => {
     const { activeToken } = autocompleteContext;
@@ -221,6 +280,37 @@ function App() {
     if (event.key === 'Escape') {
       setSuggestions([]);
     }
+  };
+
+  const handleToggleStatus = (status: AppRecord['ingestStatus']) => {
+    setStatusFilters((current) => {
+      if (current.includes(status)) {
+        return current.filter((item) => item !== status);
+      }
+      return [...current, status];
+    });
+  };
+
+  const handleApplyTagFacet = (facet: TagFacet) => {
+    const token = `${facet.key}:${facet.value}`;
+    setInputValue((prev) => {
+      const { tags } = parseSearchInput(prev);
+      if (tags.includes(token)) {
+        return prev;
+      }
+      const needsSpace = prev.length > 0 && !/\s$/.test(prev);
+      return `${prev}${needsSpace ? ' ' : ''}${token} `;
+    });
+    setSuggestions([]);
+  };
+
+  const handleClearDateFilters = () => {
+    setIngestedAfter('');
+    setIngestedBefore('');
+  };
+
+  const handleClearStatusFilters = () => {
+    setStatusFilters([]);
   };
 
   const handleRetry = async (id: string) => {
@@ -333,6 +423,50 @@ function App() {
     </div>
   );
 
+  const renderBuildSection = (build: BuildSummary | null) => {
+    if (!build) {
+      return (
+        <div className="build-section build-section-empty">
+          <span className="status-badge status-pending">build pending</span>
+          <span className="build-note">Awaiting first build run.</span>
+        </div>
+      );
+    }
+
+    const statusClass =
+      build.status === 'succeeded'
+        ? 'status-succeeded'
+        : build.status === 'failed'
+        ? 'status-failed'
+        : build.status === 'running'
+        ? 'status-processing'
+        : 'status-pending';
+
+    const updatedAt = build.completedAt ?? build.startedAt ?? build.updatedAt;
+    return (
+      <div className="build-section">
+        <div className="build-head">
+          <span className={`status-badge ${statusClass}`}>build {build.status}</span>
+          {updatedAt && (
+            <time dateTime={updatedAt}>Updated {new Date(updatedAt).toLocaleString()}</time>
+          )}
+          {build.imageTag && (
+            <code className="build-image-tag">{build.imageTag}</code>
+          )}
+        </div>
+        {build.errorMessage && <p className="build-error">{build.errorMessage}</p>}
+        {build.status === 'pending' && <span className="build-note">Waiting for build worker…</span>}
+        {build.status === 'running' && <span className="build-note">Docker build in progress…</span>}
+        {build.logsPreview && (
+          <pre className="build-logs">
+            {build.logsPreview}
+            {build.logsTruncated ? '\n…' : ''}
+          </pre>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -401,6 +535,99 @@ function App() {
               {!loading && !error && apps.length === 0 && (
                 <div className="status">No apps match your filters yet.</div>
               )}
+              {!error && (
+                <aside className="filter-panel">
+                  <div className="filter-group">
+                    <div className="filter-group-header">
+                      <span>Ingest Status</span>
+                      {statusFilters.length > 0 && (
+                        <button
+                          type="button"
+                          className="filter-clear"
+                          onClick={handleClearStatusFilters}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="filter-chip-row">
+                      {statusFacets.map((facet) => {
+                        const isActive = statusFilters.includes(facet.status);
+                        const isDisabled = facet.count === 0 && !isActive;
+                        return (
+                          <button
+                            key={facet.status}
+                            type="button"
+                            className={`filter-chip${isActive ? ' active' : ''}`}
+                            onClick={() => handleToggleStatus(facet.status)}
+                            disabled={isDisabled}
+                          >
+                            <span className="filter-chip-label">{facet.status}</span>
+                            <span className="filter-chip-count">{facet.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="filter-group">
+                    <div className="filter-group-header">
+                      <span>Ingested Date</span>
+                      {(ingestedAfter || ingestedBefore) && (
+                        <button
+                          type="button"
+                          className="filter-clear"
+                          onClick={handleClearDateFilters}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="filter-date-row">
+                      <label>
+                        From
+                        <input
+                          type="date"
+                          value={ingestedAfter}
+                          onChange={(event) => setIngestedAfter(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        To
+                        <input
+                          type="date"
+                          value={ingestedBefore}
+                          onChange={(event) => setIngestedBefore(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  {tagFacets.length > 0 && (
+                    <div className="filter-group">
+                      <div className="filter-group-header">
+                        <span>Popular Tags</span>
+                      </div>
+                      <div className="facet-tag-row">
+                        {tagFacets.slice(0, 12).map((facet) => {
+                          const token = `${facet.key}:${facet.value}`;
+                          const isActive = parsedQuery.tags.includes(token);
+                          return (
+                            <button
+                              key={token}
+                              type="button"
+                              className={`tag-facet${isActive ? ' active' : ''}`}
+                              onClick={() => handleApplyTagFacet(facet)}
+                              disabled={isActive}
+                            >
+                              <span className="tag-facet-label">{token}</span>
+                              <span className="tag-facet-count">{facet.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </aside>
+              )}
               <div className="grid">
                 {apps.map((app) => {
                   const historyEntry = historyState[app.id];
@@ -422,6 +649,7 @@ function App() {
                         <p className="ingest-error">{app.ingestError}</p>
                       )}
                       {renderTags(app.tags)}
+                      {renderBuildSection(app.latestBuild)}
                       <div className="app-links">
                         <a href={app.repoUrl} target="_blank" rel="noreferrer">
                           View repository
