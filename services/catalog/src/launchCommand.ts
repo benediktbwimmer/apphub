@@ -62,6 +62,14 @@ function tokenizeCommand(input: string): string[] {
     }
 
     if (char === '\\' && quote !== "'") {
+      const nextChar = input[index + 1];
+      if (nextChar === '\n' || nextChar === '\r') {
+        if (nextChar === '\r' && input[index + 2] === '\n') {
+          index += 1;
+        }
+        index += 1;
+        continue;
+      }
       escapeNext = true;
       continue;
     }
