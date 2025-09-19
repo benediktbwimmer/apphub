@@ -53,9 +53,13 @@ function buildPreviewUrl(hostPort: string): string {
 function parseHostPort(output: string, internalPort: number): string | null {
   const lines = output.trim().split(/\r?\n/).filter(Boolean);
   for (const line of lines) {
-    const match = line.match(new RegExp(`${internalPort}\/tcp\s+->\s+[^:]+:(\d+)`));
-    if (match && match[1]) {
-      return match[1];
+    const primary = line.match(new RegExp(`${internalPort}\/tcp\s+->\s+[^:]+:(\d+)`));
+    if (primary?.[1]) {
+      return primary[1];
+    }
+    const fallback = line.match(/:(\d+)\s*$/);
+    if (fallback?.[1]) {
+      return fallback[1];
     }
   }
   return null;

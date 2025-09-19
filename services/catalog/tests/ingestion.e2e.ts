@@ -1,10 +1,25 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  cp,
+  mkdtemp,
+  mkdir,
+  writeFile
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+
+const exec = promisify(execCallback);
+
+const CATALOG_ROOT = path.resolve(__dirname, '..');
+const REAL_REPO_PATH = process.env.APPHUB_E2E_REAL_REPO ?? '/Users/bene/work/frontends/hello-world';
+
+const APP_POLL_INTERVAL_MS = 500;
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 type IngestionEvent = {
   id: number;
@@ -16,11 +31,57 @@ type IngestionEvent = {
   createdAt: string;
 };
 
-const exec = promisify(execCallback);
+type TagPair = { key: string; value: string };
 
-const CATALOG_ROOT = path.resolve(__dirname, '..');
+type BuildSummary = {
+  id: string;
+  status: string;
+  imageTag: string | null;
+  errorMessage: string | null;
+  logs?: string | null;
+};
 
-async function waitForServer(baseUrl: string, timeoutMs = 15000) {
+type LaunchSummary = {
+  id: string;
+  status: string;
+  instanceUrl: string | null;
+  errorMessage: string | null;
+  port: number | null;
+};
+
+type RepositorySummary = {
+  id: string;
+  name: string;
+  description: string;
+  repoUrl: string;
+  dockerfilePath: string;
+  ingestStatus: string;
+  ingestError: string | null;
+  ingestAttempts: number;
+  tags: TagPair[];
+  latestBuild: BuildSummary | null;
+  latestLaunch: LaunchSummary | null;
+};
+
+type FakeDockerPaths = {
+  binDir: string;
+  stateDir: string;
+};
+
+type CatalogTestContext = {
+  baseUrl: string;
+  env: NodeJS.ProcessEnv;
+  tempRoot: string;
+  server: ChildProcess;
+  worker: ChildProcess;
+  fakeDocker: FakeDockerPaths;
+};
+
+async function delay(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForServer(baseUrl: string, timeoutMs = 15_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -28,32 +89,215 @@ async function waitForServer(baseUrl: string, timeoutMs = 15000) {
       if (res.ok) {
         return;
       }
-    } catch (err) {
-      // wait and retry
+    } catch {
+      // server not ready yet
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await delay(250);
   }
   throw new Error('Server did not become healthy in time');
 }
 
-async function pollApp(baseUrl: string, id: string, timeoutMs = 20000) {
+async function pollRepository(
+  baseUrl: string,
+  id: string,
+  desiredStatus: 'ready' | 'stopped' | 'processing' = 'ready',
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<RepositorySummary> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const res = await fetch(`${baseUrl}/apps/${id}`);
     if (!res.ok) {
-      throw new Error(`Failed to fetch app: ${res.status}`);
+      throw new Error(`Failed to fetch repository: ${res.status}`);
     }
-    const payload = await res.json();
-    const app = payload.data;
-    if (app?.ingestStatus === 'ready') {
-      return app;
+    const payload = (await res.json()) as { data: RepositorySummary };
+    const repository = payload.data;
+    if (!repository) {
+      throw new Error('Repository payload missing');
     }
-    if (app?.ingestStatus === 'failed') {
-      throw new Error(`Ingestion failed: ${app.ingestError}`);
+    if (repository.ingestStatus === 'failed') {
+      throw new Error(`Ingestion failed: ${repository.ingestError ?? 'unknown error'}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (repository.ingestStatus === desiredStatus) {
+      return repository;
+    }
+    await delay(APP_POLL_INTERVAL_MS);
   }
-  throw new Error('Timed out waiting for ingestion to complete');
+  throw new Error(`Timed out waiting for repository ${id} to reach status ${desiredStatus}`);
+}
+
+async function pollLaunch(
+  baseUrl: string,
+  repositoryId: string,
+  launchId: string,
+  desiredStatus: 'running' | 'stopped',
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<LaunchSummary> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(`${baseUrl}/apps/${repositoryId}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch repository for launch polling: ${res.status}`);
+    }
+    const payload = (await res.json()) as { data: RepositorySummary };
+    const repo = payload.data;
+    const launch = repo?.latestLaunch;
+    if (launch?.id === launchId) {
+      if (launch.status === 'failed') {
+        throw new Error(`Launch failed: ${launch.errorMessage ?? 'unknown error'}`);
+      }
+      if (launch.status === desiredStatus) {
+        return launch;
+      }
+    }
+    await delay(APP_POLL_INTERVAL_MS);
+  }
+  throw new Error(`Timed out waiting for launch ${launchId} to reach status ${desiredStatus}`);
+}
+
+async function pollLatestBuild(
+  baseUrl: string,
+  repositoryId: string,
+  desiredStatus: 'pending' | 'running' | 'succeeded' | 'failed',
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  expectedBuildId?: string | null
+): Promise<BuildSummary> {
+  const start = Date.now();
+  let targetBuildId = expectedBuildId ?? null;
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(`${baseUrl}/apps/${repositoryId}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch repository for build polling: ${res.status}`);
+    }
+    const payload = (await res.json()) as { data: RepositorySummary };
+    const repo = payload.data;
+    const latestBuild = repo?.latestBuild;
+    if (!latestBuild) {
+      await delay(APP_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    if (targetBuildId && latestBuild.id !== targetBuildId) {
+      await delay(APP_POLL_INTERVAL_MS);
+      continue;
+    }
+    if (!targetBuildId) {
+      targetBuildId = latestBuild.id;
+    }
+
+    if (latestBuild.status === 'failed') {
+      throw new Error(`Build failed: ${latestBuild.errorMessage ?? 'unknown error'}`);
+    }
+    if (latestBuild.status === desiredStatus) {
+      return latestBuild;
+    }
+
+    await delay(APP_POLL_INTERVAL_MS);
+  }
+  throw new Error(
+    `Timed out waiting for build on ${repositoryId} to reach status ${desiredStatus}`
+  );
+}
+
+async function fetchHistory(baseUrl: string, repositoryId: string) {
+  const res = await fetch(`${baseUrl}/apps/${repositoryId}/history`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch history: ${res.status}`);
+  }
+  const payload = (await res.json()) as { data: IngestionEvent[] };
+  return payload.data;
+}
+
+async function collectBuildLogs(baseUrl: string, buildId: string): Promise<string> {
+  const res = await fetch(`${baseUrl}/builds/${buildId}/logs`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch build logs: ${res.status}`);
+  }
+  const payload = (await res.json()) as { data: BuildSummary };
+  return payload.data.logs ?? '';
+}
+
+async function createFakeDocker(tempRoot: string): Promise<FakeDockerPaths> {
+  const root = path.join(tempRoot, 'fake-docker');
+  const binDir = path.join(root, 'bin');
+  const stateDir = path.join(root, 'state');
+  await mkdir(binDir, { recursive: true });
+  await mkdir(stateDir, { recursive: true });
+
+  const scriptPath = path.join(binDir, 'docker');
+  const script = `#!/usr/bin/env node\nconst fs = require('fs');\nconst path = require('path');\nconst crypto = require('crypto');\n\nconst stateDir = process.env.APPHUB_FAKE_DOCKER_STATE;\nif (!stateDir) {\n  console.error('APPHUB_FAKE_DOCKER_STATE is not configured');\n  process.exit(1);\n}\n\nif (process.argv.length < 3) {\n  console.error('No docker command provided');\n  process.exit(1);\n}\n\nconst command = process.argv[2];\nconst args = process.argv.slice(3);\n\nfs.mkdirSync(stateDir, { recursive: true });\n\nfunction statePath(id) {\n  return path.join(stateDir, id + '.json');\n}\n\nfunction readState(id) {\n  try {\n    return JSON.parse(fs.readFileSync(statePath(id), 'utf8'));\n  } catch {\n    return null;\n  }\n}\n\nfunction writeState(id, data) {\n  fs.writeFileSync(statePath(id), JSON.stringify(data));\n}\n\nfunction removeState(id) {\n  try {\n    fs.unlinkSync(statePath(id));\n  } catch {\n    /* noop */\n  }\n}\n\nswitch (command) {\n  case 'build': {\n    console.log('[fake-docker] build success');\n    process.exit(0);\n  }\n  case 'run': {\n    let containerPort = '3000';\n    let containerName = 'apphub-container';\n    for (let i = 0; i < args.length; i++) {\n      const arg = args[i];\n      if (arg === '--name' && args[i + 1]) {\n        containerName = args[i + 1];\n        i += 1;\n        continue;\n      }\n      if (arg === '-p' && args[i + 1]) {\n        const mapping = args[i + 1];\n        const parts = mapping.split(':');\n        containerPort = parts[parts.length - 1] || containerPort;\n        i += 1;\n      }\n    }\n    const containerId = containerName + '-' + crypto.randomUUID().slice(0, 8);\n    const basePort = Number(process.env.APPHUB_FAKE_DOCKER_PORT_BASE || '45000');\n    const hostPort = basePort + Math.floor(Math.random() * 500);\n    writeState(containerId, { containerId, containerName, containerPort, hostPort });\n    process.stdout.write(containerId + '\\n');\n    process.exit(0);\n  }\n  case 'port': {\n    const containerId = args[0];\n    const portSpec = args[1] || '3000/tcp';\n    const state = readState(containerId);\n    if (!state) {\n      console.error('container not found');\n      process.exit(1);\n    }\n    const containerPort = portSpec.split('/')[0] || state.containerPort;\n    console.log(containerPort + '/tcp -> 0.0.0.0:' + state.hostPort);\n    process.exit(0);\n  }\n  case 'stop': {\n    // stop succeeds without side effects\n    process.exit(0);\n  }\n  case 'rm': {\n    const targets = args.filter((arg) => !arg.startsWith('-'));\n    for (const target of targets) {\n      removeState(target);\n    }\n    process.exit(0);\n  }\n  default: {\n    console.warn('[fake-docker] ignoring command', command);\n    process.exit(0);\n  }\n}`;
+
+  await writeFile(scriptPath, script, 'utf8');
+  await chmod(scriptPath, 0o755);
+
+  return { binDir, stateDir };
+}
+
+async function terminateProcess(proc: ChildProcess | undefined) {
+  if (!proc) {
+    return;
+  }
+  if (proc.exitCode !== null) {
+    return;
+  }
+  proc.kill('SIGTERM');
+  await new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 2_000);
+    proc.once('exit', () => {
+      clearTimeout(timeout);
+      resolve(null);
+    });
+  });
+}
+
+async function startCatalog(): Promise<CatalogTestContext> {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'apphub-e2e-'));
+  const fakeDocker = await createFakeDocker(tempRoot);
+  const dbPath = path.join(tempRoot, 'catalog.db');
+  const port = 4200 + Math.floor(Math.random() * 200);
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_ENV: 'test',
+    CATALOG_DB_PATH: dbPath,
+    REDIS_URL: 'inline',
+    INGEST_QUEUE_NAME: 'apphub_e2e',
+    PORT: String(port),
+    HOST: '127.0.0.1',
+    PATH: `${fakeDocker.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    APPHUB_FAKE_DOCKER_STATE: fakeDocker.stateDir,
+    BUILD_CLONE_DEPTH: '1',
+    INGEST_CLONE_DEPTH: '1'
+  };
+
+  const server = spawn('npx', ['tsx', 'src/server.ts'], {
+    cwd: CATALOG_ROOT,
+    env,
+    stdio: 'inherit'
+  });
+
+  await waitForServer(baseUrl);
+
+  const worker = spawn('npx', ['tsx', 'src/ingestionWorker.ts'], {
+    cwd: CATALOG_ROOT,
+    env,
+    stdio: 'inherit'
+  });
+
+  // give the worker a moment to boot
+  await delay(250);
+
+  return { baseUrl, env, tempRoot, server, worker, fakeDocker };
+}
+
+async function withCatalogEnvironment<T>(fn: (context: CatalogTestContext) => Promise<T>) {
+  const context = await startCatalog();
+  try {
+    return await fn(context);
+  } finally {
+    await terminateProcess(context.worker);
+    await terminateProcess(context.server);
+  }
 }
 
 async function createLocalRepo(root: string) {
@@ -79,78 +323,163 @@ async function createLocalRepo(root: string) {
   return { repoDir, commit };
 }
 
-async function run() {
-  const tempRoot = await mkdtemp(path.join(tmpdir(), 'apphub-e2e-'));
-  const dbPath = path.join(tempRoot, 'catalog.db');
-  const port = 4200 + Math.floor(Math.random() * 200);
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  const envBase = {
-    ...process.env,
-    NODE_ENV: 'test',
-    CATALOG_DB_PATH: dbPath,
-    REDIS_URL: 'inline',
-    INGEST_QUEUE_NAME: 'apphub_e2e',
-    PORT: String(port),
-    HOST: '127.0.0.1'
-  };
-
-  const server = spawn('npx', ['tsx', 'src/server.ts'], {
-    cwd: CATALOG_ROOT,
-    env: envBase,
-    stdio: 'inherit'
+async function snapshotRepository(sourcePath: string) {
+  const snapshotRoot = await mkdtemp(path.join(tmpdir(), 'apphub-real-'));
+  const repoDir = path.join(snapshotRoot, 'repo');
+  await cp(sourcePath, repoDir, {
+    recursive: true,
+    filter: (src) => {
+      const relative = path.relative(sourcePath, src);
+      if (!relative || relative === '') {
+        return true;
+      }
+      return !relative.split(path.sep).includes('.git');
+    }
   });
 
-  try {
-    await waitForServer(baseUrl);
+  await exec('git init', { cwd: repoDir });
+  await exec('git config user.name "Test User"', { cwd: repoDir });
+  await exec('git config user.email "test@example.com"', { cwd: repoDir });
+  await exec('git add .', { cwd: repoDir });
+  await exec('git commit -m "Snapshot"', { cwd: repoDir });
 
-    const worker = spawn('npx', ['tsx', 'src/ingestionWorker.ts'], {
-      cwd: CATALOG_ROOT,
-      env: envBase,
-      stdio: 'inherit'
+  return repoDir;
+}
+
+async function testSyntheticRepositoryFlow() {
+  await withCatalogEnvironment(async ({ baseUrl }) => {
+    const tempRepoRoot = await mkdtemp(path.join(tmpdir(), 'apphub-synth-'));
+    const { repoDir, commit } = await createLocalRepo(tempRepoRoot);
+    const appId = `repo-${Date.now()}`;
+
+    const createRes = await fetch(`${baseUrl}/apps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: appId,
+        name: 'E2E App',
+        description: 'End-to-end test application',
+        repoUrl: repoDir,
+        dockerfilePath: 'Dockerfile',
+        tags: [{ key: 'language', value: 'javascript' }]
+      })
     });
 
+    assert.equal(createRes.status, 201, 'Expected app creation to succeed');
+
+    const initialRepository = await pollRepository(baseUrl, appId);
+    assert.equal(initialRepository.ingestStatus, 'ready');
+    assert.equal(initialRepository.ingestAttempts > 0, true);
+
+    const build = await pollLatestBuild(
+      baseUrl,
+      appId,
+      'succeeded',
+      DEFAULT_TIMEOUT_MS,
+      initialRepository.latestBuild?.id
+    );
+    assert(build.imageTag, 'Build image tag should be present');
+
+    const repository = await pollRepository(baseUrl, appId);
+
+    const history = await fetchHistory(baseUrl, appId);
+    assert(history.length >= 3, 'Expected history to include multiple events');
+    const readyEvent = history.find((event) => event.status === 'ready');
+    assert(readyEvent, 'Ready event should be present');
+    assert(readyEvent?.commitSha?.toLowerCase().startsWith(commit.slice(0, 8).toLowerCase()));
+    assert.equal(typeof readyEvent?.durationMs, 'number');
+    assert((readyEvent?.durationMs ?? 0) >= 0);
+
+    const logs = await collectBuildLogs(baseUrl, build.id);
+    assert(logs.includes('[fake-docker] build success'), 'Expected fake docker logs in build output');
+  });
+}
+
+async function testRealRepositoryLaunchFlow() {
+  await withCatalogEnvironment(async ({ baseUrl }) => {
     try {
-      const { repoDir, commit } = await createLocalRepo(tempRoot);
-      const repoUrl = repoDir;
-      const appId = `repo-${Date.now()}`;
-
-      const createRes = await fetch(`${baseUrl}/apps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: appId,
-          name: 'E2E App',
-          description: 'End-to-end test application',
-          repoUrl,
-          dockerfilePath: 'Dockerfile',
-          tags: [{ key: 'language', value: 'javascript' }]
-        })
-      });
-
-      assert.equal(createRes.status, 201, 'Expected app creation to succeed');
-
-      const app = await pollApp(baseUrl, appId);
-      assert.equal(app.ingestStatus, 'ready');
-      assert.equal(app.ingestAttempts > 0, true);
-
-      const historyRes = await fetch(`${baseUrl}/apps/${appId}/history`);
-      assert.equal(historyRes.status, 200, 'History endpoint should respond');
-      const historyPayload = await historyRes.json();
-      const events = historyPayload.data as IngestionEvent[];
-      assert(events.length >= 3, 'Expected at least queue/start/success events');
-      const readyEvent = events.find((e) => e.status === 'ready');
-      assert(readyEvent, 'Expected ready event in history');
-      assert(readyEvent?.commitSha?.toLowerCase().startsWith(commit.slice(0, 8).toLowerCase()), 'Commit SHA should match cloned repo');
-      assert.equal(typeof readyEvent?.durationMs, 'number');
-      assert((readyEvent?.durationMs ?? 0) >= 0);
-    } finally {
-      worker.kill('SIGTERM');
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await access(REAL_REPO_PATH);
+    } catch {
+      throw new Error(`Expected demo repo at ${REAL_REPO_PATH}`);
     }
-  } finally {
-    server.kill('SIGTERM');
-  }
+
+    const repoUrl = await snapshotRepository(REAL_REPO_PATH);
+
+    const appId = `hello-world-${Date.now()}`;
+
+    const createRes = await fetch(`${baseUrl}/apps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: appId,
+        name: 'Hello World Demo',
+        description: 'Express static site demo',
+        repoUrl,
+        dockerfilePath: 'Dockerfile',
+        tags: [{ key: 'category', value: 'demo' }]
+      })
+    });
+
+    assert.equal(createRes.status, 201, 'Real repo submission should succeed');
+
+    const initialRepository = await pollRepository(baseUrl, appId);
+    assert.equal(initialRepository.ingestStatus, 'ready');
+
+    const build = await pollLatestBuild(
+      baseUrl,
+      appId,
+      'succeeded',
+      DEFAULT_TIMEOUT_MS,
+      initialRepository.latestBuild?.id
+    );
+    assert(build.imageTag, 'Real repo build should produce an image');
+
+    const repository = await pollRepository(baseUrl, appId);
+
+    const tagStrings = repository.tags.map((tag) => `${tag.key}:${tag.value}`);
+    assert(tagStrings.includes('language:javascript'), 'Dockerfile-derived language tag expected');
+    assert(tagStrings.some((tag) => tag.startsWith('runtime:node')), 'Runtime tag should include node');
+
+    const buildLogs = await collectBuildLogs(baseUrl, build.id);
+    assert(buildLogs.includes('[fake-docker] build success'), 'Real repo build should run through fake docker');
+
+    const launchRes = await fetch(`${baseUrl}/apps/${appId}/launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+
+    assert.equal(launchRes.status, 202, 'Launch request should be accepted');
+    const launchPayload = (await launchRes.json()) as {
+      data: { repository: RepositorySummary; launch: LaunchSummary };
+    };
+    const launch = launchPayload.data.launch;
+    assert(launch.id, 'Launch identifier should be defined');
+
+    const runningLaunch = await pollLaunch(baseUrl, appId, launch.id, 'running');
+    assert(runningLaunch.instanceUrl, 'Instance URL should be populated');
+    assert.strictEqual(typeof runningLaunch.port, 'number');
+
+    const launchesRes = await fetch(`${baseUrl}/apps/${appId}/launches`);
+    assert.equal(launchesRes.status, 200, 'Launch listing should succeed');
+    const launchesPayload = (await launchesRes.json()) as { data: LaunchSummary[] };
+    assert(launchesPayload.data.some((entry) => entry.id === launch.id), 'Launch should be listed');
+
+    const stopRes = await fetch(`${baseUrl}/apps/${appId}/launches/${launch.id}/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    assert.equal(stopRes.status, 202, 'Launch stop should be accepted');
+
+    const stoppedLaunch = await pollLaunch(baseUrl, appId, launch.id, 'stopped');
+    assert.equal(stoppedLaunch.status, 'stopped');
+  });
+}
+
+async function run() {
+  await testSyntheticRepositoryFlow();
+  await testRealRepositoryLaunchFlow();
 }
 
 run().catch((err) => {
