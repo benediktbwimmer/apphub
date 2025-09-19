@@ -1,9 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import websocket from '@fastify/websocket';
+import websocket, { type SocketStream } from '@fastify/websocket';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
-import type { WebSocket, RawData } from 'ws';
+import WebSocket, { type RawData } from 'ws';
 import {
   addRepository,
   getRepositoryById,
@@ -366,7 +366,7 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
     case 'repository.updated':
       return {
         type: 'repository.updated',
-        data: { repository: serializeRepository(event.data.repository) as SerializedRepository }
+        data: { repository: serializeRepository(event.data.repository) }
       };
     case 'repository.ingestion-event':
       return {
@@ -376,14 +376,14 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
     case 'build.updated':
       return {
         type: 'build.updated',
-        data: { build: serializeBuild(event.data.build) as SerializedBuild }
+        data: { build: serializeBuild(event.data.build) }
       };
     case 'launch.updated':
       return {
         type: 'launch.updated',
         data: {
           repositoryId: event.data.launch.repositoryId,
-          launch: serializeLaunch(event.data.launch) as SerializedLaunch
+          launch: serializeLaunch(event.data.launch)
         }
       };
     default:
@@ -408,7 +408,7 @@ async function buildServer() {
   const broadcast = (payload: OutboundEvent) => {
     const message = JSON.stringify({ ...payload, emittedAt: new Date().toISOString() });
     for (const socket of sockets) {
-      if (socket.readyState === socket.OPEN) {
+      if (socket.readyState === WebSocket.OPEN) {
         socket.send(message);
         continue;
       }
@@ -436,7 +436,8 @@ async function buildServer() {
     sockets.clear();
   });
 
-  app.get('/ws', { websocket: true }, (socket: WebSocket) => {
+  app.get('/ws', { websocket: true }, (connection: SocketStream) => {
+    const { socket } = connection;
     sockets.add(socket);
 
     socket.send(
