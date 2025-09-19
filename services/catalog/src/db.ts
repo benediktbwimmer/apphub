@@ -26,6 +26,31 @@ export type BuildRecord = {
   durationMs: number | null;
 };
 
+export type LaunchStatus =
+  | 'pending'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'failed';
+
+export type LaunchRecord = {
+  id: string;
+  repositoryId: string;
+  buildId: string;
+  status: LaunchStatus;
+  instanceUrl: string | null;
+  containerId: string | null;
+  port: number | null;
+  resourceProfile: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  expiresAt: string | null;
+};
+
 export type RepositoryRecord = {
   id: string;
   name: string;
@@ -40,6 +65,7 @@ export type RepositoryRecord = {
   ingestAttempts: number;
   tags: TagKV[];
   latestBuild: BuildRecord | null;
+  latestLaunch: LaunchRecord | null;
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
@@ -58,12 +84,22 @@ export type RepositoryInsert = {
   tags?: (TagKV & { source?: string })[];
 };
 
+export type RepositorySort = 'updated' | 'name' | 'relevance';
+
+export type RelevanceWeights = {
+  name: number;
+  description: number;
+  tags: number;
+};
+
 export type RepositorySearchParams = {
   text?: string;
   tags?: TagKV[];
   statuses?: IngestStatus[];
   ingestedAfter?: string | null;
   ingestedBefore?: string | null;
+  sort?: RepositorySort;
+  relevanceWeights?: Partial<RelevanceWeights>;
 };
 
 export type TagFacet = {
@@ -77,13 +113,42 @@ export type StatusFacet = {
   count: number;
 };
 
+export type RepositoryRelevanceComponent = {
+  hits: number;
+  score: number;
+  weight: number;
+};
+
+export type RepositoryRelevance = {
+  score: number;
+  normalizedScore: number;
+  components: {
+    name: RepositoryRelevanceComponent;
+    description: RepositoryRelevanceComponent;
+    tags: RepositoryRelevanceComponent;
+  };
+};
+
+export type RepositoryRecordWithRelevance = RepositoryRecord & {
+  relevance?: RepositoryRelevance;
+};
+
+export type RepositorySearchMeta = {
+  tokens: string[];
+  sort: RepositorySort;
+  weights: RelevanceWeights;
+};
+
 export type RepositorySearchResult = {
-  records: RepositoryRecord[];
+  records: RepositoryRecordWithRelevance[];
   total: number;
   facets: {
     tags: TagFacet[];
     statuses: StatusFacet[];
+    owners: TagFacet[];
+    frameworks: TagFacet[];
   };
+  meta: RepositorySearchMeta;
 };
 
 export type IngestionEvent = {
@@ -178,8 +243,55 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_builds_repo_created
     ON builds(repository_id, datetime(created_at) DESC);
 
-  CREATE INDEX IF NOT EXISTS idx_builds_status
+CREATE INDEX IF NOT EXISTS idx_builds_status
     ON builds(status);
+
+  CREATE TABLE IF NOT EXISTS launches (
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    build_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    instance_url TEXT,
+    container_id TEXT,
+    port INTEGER,
+    resource_profile TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    stopped_at TEXT,
+    expires_at TEXT,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+    FOREIGN KEY (build_id) REFERENCES builds(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_launches_repo_created
+    ON launches(repository_id, datetime(created_at) DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_launches_status
+    ON launches(status);
+`);
+
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS repository_search USING fts5(
+    repository_id UNINDEXED,
+    name,
+    description,
+    repo_url,
+    tag_text,
+    tokenize = 'porter'
+  );
+`);
+
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS repository_search USING fts5(
+    repository_id UNINDEXED,
+    name,
+    description,
+    repo_url,
+    tag_text,
+    tokenize = 'porter'
+  );
 `);
 
 function ensureColumn(table: string, column: string, ddl: string) {
@@ -252,6 +364,23 @@ type BuildRow = {
   duration_ms: number | null;
 };
 
+type LaunchRow = {
+  id: string;
+  repository_id: string;
+  build_id: string;
+  status: LaunchStatus;
+  instance_url: string | null;
+  container_id: string | null;
+  port: number | null;
+  resource_profile: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  stopped_at: string | null;
+  expires_at: string | null;
+};
+
 const insertRepositoryStatement = db.prepare(`
   INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts)
   VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts)
@@ -288,6 +417,61 @@ const selectRepositoryTagsStatement = db.prepare(
 const selectRepositoriesStatement = db.prepare('SELECT * FROM repositories ORDER BY datetime(updated_at) DESC');
 
 const selectRepositoryByIdStatement = db.prepare('SELECT * FROM repositories WHERE id = ?');
+
+const insertRepositorySearchStatement = db.prepare(
+  `INSERT INTO repository_search (repository_id, name, description, repo_url, tag_text)
+   VALUES (@repositoryId, @name, @description, @repoUrl, @tagText)`
+);
+
+const deleteRepositorySearchStatement = db.prepare('DELETE FROM repository_search WHERE repository_id = ?');
+
+const countRepositorySearchStatement = db.prepare('SELECT COUNT(*) AS count FROM repository_search');
+
+function buildTagSearchText(tagRows: TagRow[]): string {
+  return tagRows
+    .map((tag) => `${tag.key}:${tag.value}`)
+    .join(' ');
+}
+
+function refreshRepositorySearchIndex(repositoryId: string) {
+  const repository = selectRepositoryByIdStatement.get(repositoryId) as RepositoryRow | undefined;
+  if (!repository) {
+    return;
+  }
+  const tagRows = selectRepositoryTagsStatement.all(repositoryId) as TagRow[];
+  const tagText = buildTagSearchText(tagRows);
+  deleteRepositorySearchStatement.run(repositoryId);
+  insertRepositorySearchStatement.run({
+    repositoryId: repository.id,
+    name: repository.name,
+    description: repository.description,
+    repoUrl: repository.repo_url,
+    tagText
+  });
+}
+
+function rebuildRepositorySearchIndex() {
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM repository_search').run();
+    const rows = db.prepare('SELECT * FROM repositories').all() as RepositoryRow[];
+    for (const row of rows) {
+      const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
+      insertRepositorySearchStatement.run({
+        repositoryId: row.id,
+        name: row.name,
+        description: row.description,
+        repoUrl: row.repo_url,
+        tagText: buildTagSearchText(tagRows)
+      });
+    }
+  });
+  transaction();
+}
+
+const searchIndexCountRow = countRepositorySearchStatement.get() as { count: number };
+if (Number(searchIndexCountRow.count) === 0) {
+  rebuildRepositorySearchIndex();
+}
 
 const insertIngestionEventStatement = db.prepare(
   `INSERT INTO ingestion_events (repository_id, status, message, attempt, commit_sha, duration_ms, created_at)
@@ -374,6 +558,85 @@ const selectBuildCountForRepositoryStatement = db.prepare(
    WHERE repository_id = ?`
 );
 
+const insertLaunchStatement = db.prepare(
+  `INSERT INTO launches (
+     id,
+     repository_id,
+     build_id,
+     status,
+     instance_url,
+     container_id,
+     port,
+     resource_profile,
+     error_message,
+     created_at,
+     updated_at,
+     started_at,
+     stopped_at,
+     expires_at
+   ) VALUES (
+     @id,
+     @repositoryId,
+     @buildId,
+     @status,
+     @instanceUrl,
+     @containerId,
+     @port,
+     @resourceProfile,
+     @errorMessage,
+     @createdAt,
+     @updatedAt,
+     @startedAt,
+     @stoppedAt,
+     @expiresAt
+   )`
+);
+
+const updateLaunchStatement = db.prepare(
+  `UPDATE launches
+   SET status = CASE WHEN @statusSet = 1 THEN @status ELSE status END,
+       instance_url = CASE WHEN @instanceUrlSet = 1 THEN @instanceUrl ELSE instance_url END,
+       container_id = CASE WHEN @containerIdSet = 1 THEN @containerId ELSE container_id END,
+       port = CASE WHEN @portSet = 1 THEN @port ELSE port END,
+       resource_profile = CASE WHEN @resourceProfileSet = 1 THEN @resourceProfile ELSE resource_profile END,
+       error_message = CASE WHEN @errorMessageSet = 1 THEN @errorMessage ELSE error_message END,
+       updated_at = COALESCE(@updatedAt, updated_at),
+       started_at = CASE WHEN @startedAtSet = 1 THEN @startedAt ELSE started_at END,
+       stopped_at = CASE WHEN @stoppedAtSet = 1 THEN @stoppedAt ELSE stopped_at END,
+       expires_at = CASE WHEN @expiresAtSet = 1 THEN @expiresAt ELSE expires_at END
+   WHERE id = @launchId`
+);
+
+const selectLaunchByIdStatement = db.prepare('SELECT * FROM launches WHERE id = ?');
+
+const selectLaunchesByRepositoryStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE repository_id = ?
+   ORDER BY datetime(created_at) DESC
+   LIMIT ?`
+);
+
+const selectLatestLaunchByRepositoryStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE repository_id = ?
+   ORDER BY datetime(created_at) DESC
+   LIMIT 1`
+);
+
+const selectPendingLaunchStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE status = 'pending'
+   ORDER BY datetime(created_at) ASC
+   LIMIT 1`
+);
+
+const selectStoppingLaunchStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE status = 'stopping'
+   ORDER BY datetime(updated_at) ASC
+   LIMIT 1`
+);
+
 function attachTags(repositoryId: string, tags: (TagKV & { source?: string })[] = []) {
   for (const tag of tags) {
     const normalized = {
@@ -421,6 +684,25 @@ function rowToBuild(row: BuildRow): BuildRecord {
   };
 }
 
+function rowToLaunch(row: LaunchRow): LaunchRecord {
+  return {
+    id: row.id,
+    repositoryId: row.repository_id,
+    buildId: row.build_id,
+    status: row.status,
+    instanceUrl: row.instance_url,
+    containerId: row.container_id,
+    port: row.port,
+    resourceProfile: row.resource_profile,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    stoppedAt: row.stopped_at,
+    expiresAt: row.expires_at
+  };
+}
+
 function logIngestionEvent(params: {
   repositoryId: string;
   status: IngestStatus;
@@ -446,6 +728,8 @@ export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processi
 type WhereClauseOptions = {
   includeTags?: boolean;
   includeStatuses?: boolean;
+  includeText?: boolean;
+  tableAlias?: string;
 };
 
 function buildRepositoryWhereClause(
@@ -454,12 +738,20 @@ function buildRepositoryWhereClause(
 ) {
   const includeTags = options.includeTags ?? true;
   const includeStatuses = options.includeStatuses ?? true;
+  const includeText = options.includeText ?? true;
+  const tableAlias = options.tableAlias ?? 'repositories';
   const conditions: string[] = [];
   const substitutions: unknown[] = [];
 
-  if (params.text) {
+  if (params.text && includeText) {
     const pattern = `%${params.text.toLowerCase()}%`;
-    conditions.push('(lower(name) LIKE ? OR lower(description) LIKE ? OR lower(repo_url) LIKE ? )');
+    conditions.push(
+      `(
+        lower(${tableAlias}.name) LIKE ?
+        OR lower(${tableAlias}.description) LIKE ?
+        OR lower(${tableAlias}.repo_url) LIKE ?
+      )`
+    );
     substitutions.push(pattern, pattern, pattern);
   }
 
@@ -471,7 +763,7 @@ function buildRepositoryWhereClause(
         SELECT 1
         FROM repository_tags rt
         JOIN tags t ON t.id = rt.tag_id
-        WHERE rt.repository_id = repositories.id
+        WHERE rt.repository_id = ${tableAlias}.id
           AND lower(t.key) = ?
           AND lower(t.value) = ?
       )`);
@@ -481,17 +773,21 @@ function buildRepositoryWhereClause(
 
   if (includeStatuses && params.statuses && params.statuses.length > 0) {
     const placeholders = params.statuses.map(() => '?').join(',');
-    conditions.push(`ingest_status IN (${placeholders})`);
+    conditions.push(`${tableAlias}.ingest_status IN (${placeholders})`);
     substitutions.push(...params.statuses);
   }
 
   if (params.ingestedAfter) {
-    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) >= datetime(?)');
+    conditions.push(
+      `${tableAlias}.last_ingested_at IS NOT NULL AND datetime(${tableAlias}.last_ingested_at) >= datetime(?)`
+    );
     substitutions.push(params.ingestedAfter);
   }
 
   if (params.ingestedBefore) {
-    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) <= datetime(?)');
+    conditions.push(
+      `${tableAlias}.last_ingested_at IS NOT NULL AND datetime(${tableAlias}.last_ingested_at) <= datetime(?)`
+    );
     substitutions.push(params.ingestedBefore);
   }
 
@@ -499,9 +795,33 @@ function buildRepositoryWhereClause(
   return { clause, substitutions };
 }
 
+function tokenizeSearchText(text?: string): string[] {
+  if (!text) {
+    return [];
+  }
+  const matches = text.toLowerCase().match(/[a-z0-9]+/g);
+  if (!matches) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+  for (const token of matches.slice(0, 12)) {
+    if (!seen.has(token)) {
+      seen.add(token);
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
+function buildFtsQuery(tokens: string[]): string {
+  return tokens.map((token) => `${token}*`).join(' AND ');
+}
+
 function rowToRepository(row: RepositoryRow): RepositoryRecord {
   const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
   const latestBuildRow = selectLatestBuildByRepositoryStatement.get(row.id) as BuildRow | undefined;
+  const latestLaunchRow = selectLatestLaunchByRepositoryStatement.get(row.id) as LaunchRow | undefined;
   return {
     id: row.id,
     name: row.name,
@@ -515,59 +835,185 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
     ingestError: row.ingest_error,
     ingestAttempts: row.ingest_attempts ?? 0,
     tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source })),
-    latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null
+    latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null,
+    latestLaunch: latestLaunchRow ? rowToLaunch(latestLaunchRow) : null
+  };
+}
+
+function computeComponent(
+  hits: number,
+  weight: number
+): RepositoryRelevanceComponent {
+  return {
+    hits,
+    weight,
+    score: hits * weight
   };
 }
 
 export function listRepositories(params: RepositorySearchParams): RepositorySearchResult {
-  const baseClause = buildRepositoryWhereClause(params);
-  const sql = `SELECT * FROM repositories ${baseClause.clause} ORDER BY datetime(updated_at) DESC`;
-  const rows = db.prepare(sql).all(...baseClause.substitutions) as RepositoryRow[];
-  const records = rows.map(rowToRepository);
+  const DEFAULT_WEIGHTS: RelevanceWeights = {
+    name: 4,
+    description: 1.5,
+    tags: 2
+  };
 
-  const statusClause = buildRepositoryWhereClause(params, { includeStatuses: false });
-  const statusRows = db
-    .prepare(
-      `SELECT ingest_status AS status, COUNT(*) AS count
-       FROM repositories ${statusClause.clause}
-       GROUP BY ingest_status`
-    )
-    .all(...statusClause.substitutions) as { status: IngestStatus; count: number }[];
-  const statusCountMap = new Map<IngestStatus, number>();
-  for (const row of statusRows) {
-    statusCountMap.set(row.status, Number(row.count));
+  const tokens = tokenizeSearchText(params.text);
+  const requestedSort: RepositorySort = params.sort ?? (tokens.length > 0 ? 'relevance' : 'updated');
+  const effectiveSort: RepositorySort =
+    tokens.length === 0 && requestedSort === 'relevance' ? 'updated' : requestedSort;
+
+  const weights: RelevanceWeights = {
+    name: params.relevanceWeights?.name ?? DEFAULT_WEIGHTS.name,
+    description: params.relevanceWeights?.description ?? DEFAULT_WEIGHTS.description,
+    tags: params.relevanceWeights?.tags ?? DEFAULT_WEIGHTS.tags
+  };
+
+  const relevanceScores = new Map<string, number>();
+  let rows: RepositoryRow[];
+
+  if (tokens.length > 0) {
+    const ftsQuery = buildFtsQuery(tokens);
+    const filterClause = buildRepositoryWhereClause(params, { includeText: false, tableAlias: 'r' });
+    const filterSql = filterClause.clause ? `AND ${filterClause.clause.replace(/^WHERE\s+/i, '')}` : '';
+    const orderByClause =
+      effectiveSort === 'name'
+        ? 'ORDER BY lower(r.name) ASC'
+        : effectiveSort === 'updated'
+        ? 'ORDER BY datetime(r.updated_at) DESC'
+        : 'ORDER BY relevance_score DESC, datetime(r.updated_at) DESC';
+    const bm25Weights = [0, weights.name, weights.description, 0.2, weights.tags].join(', ');
+    const query = `
+      SELECT r.*, 1.0 / (bm25(repository_search, ${bm25Weights}) + 1.0) AS relevance_score
+      FROM repositories r
+      JOIN repository_search ON repository_search.repository_id = r.id
+      WHERE repository_search MATCH ?
+      ${filterSql}
+      ${orderByClause}
+    `;
+    const searchRows = db
+      .prepare(query)
+      .all(ftsQuery, ...filterClause.substitutions) as (RepositoryRow & { relevance_score: number })[];
+    for (const row of searchRows) {
+      relevanceScores.set(row.id, Number(row.relevance_score ?? 0));
+    }
+    rows = searchRows;
+  } else {
+    const baseClause = buildRepositoryWhereClause(params, { tableAlias: 'repositories' });
+    const orderByClause =
+      effectiveSort === 'name' ? 'ORDER BY lower(name) ASC' : 'ORDER BY datetime(updated_at) DESC';
+    const sql = `SELECT * FROM repositories ${baseClause.clause} ${orderByClause}`;
+    rows = db.prepare(sql).all(...baseClause.substitutions) as RepositoryRow[];
   }
+
+  const records = rows.map((row) => rowToRepository(row) as RepositoryRecordWithRelevance);
+
+  if (tokens.length > 0) {
+    for (const record of records) {
+      const lowerName = record.name.toLowerCase();
+      const lowerDescription = record.description.toLowerCase();
+      const lowerTags = record.tags.map((tag) => `${tag.key}:${tag.value}`).join(' ').toLowerCase();
+
+      let nameHits = 0;
+      let descriptionHits = 0;
+      let tagHits = 0;
+
+      for (const token of tokens) {
+        if (lowerName.includes(token)) {
+          nameHits += 1;
+        }
+        if (lowerDescription.includes(token)) {
+          descriptionHits += 1;
+        }
+        if (lowerTags.includes(token)) {
+          tagHits += 1;
+        }
+      }
+
+      const components = {
+        name: computeComponent(nameHits, weights.name),
+        description: computeComponent(descriptionHits, weights.description),
+        tags: computeComponent(tagHits, weights.tags)
+      } satisfies RepositoryRelevance['components'];
+
+      record.relevance = {
+        score: components.name.score + components.description.score + components.tags.score,
+        normalizedScore: relevanceScores.get(record.id) ?? 0,
+        components
+      } satisfies RepositoryRelevance;
+    }
+  }
+
+  const statusCountMap = new Map<IngestStatus, number>();
+  for (const status of ALL_INGEST_STATUSES) {
+    statusCountMap.set(status, 0);
+  }
+  const tagCountMap = new Map<string, { key: string; value: string; count: number }>();
+  const ownerCountMap = new Map<string, number>();
+  const frameworkCountMap = new Map<string, number>();
+
+  for (const record of records) {
+    statusCountMap.set(record.ingestStatus, (statusCountMap.get(record.ingestStatus) ?? 0) + 1);
+    for (const tag of record.tags) {
+      const tagKey = `${tag.key}:${tag.value}`;
+      const current = tagCountMap.get(tagKey);
+      if (current) {
+        current.count += 1;
+      } else {
+        tagCountMap.set(tagKey, { key: tag.key, value: tag.value, count: 1 });
+      }
+
+      if (tag.key.toLowerCase() === 'owner') {
+        ownerCountMap.set(tag.value, (ownerCountMap.get(tag.value) ?? 0) + 1);
+      }
+      if (tag.key.toLowerCase() === 'framework') {
+        frameworkCountMap.set(tag.value, (frameworkCountMap.get(tag.value) ?? 0) + 1);
+      }
+    }
+  }
+
   const statusFacets = ALL_INGEST_STATUSES.map((status) => ({
     status,
     count: statusCountMap.get(status) ?? 0
   }));
 
-  const tagClause = buildRepositoryWhereClause(params);
-  const tagRows = db
-    .prepare(
-      `SELECT t.key AS key, t.value AS value, COUNT(*) AS count
-       FROM repositories
-       JOIN repository_tags rt ON rt.repository_id = repositories.id
-       JOIN tags t ON t.id = rt.tag_id
-       ${tagClause.clause}
-       GROUP BY t.key, t.value
-       ORDER BY count DESC, t.key ASC, t.value ASC
-       LIMIT 50`
-    )
-    .all(...tagClause.substitutions) as { key: string; value: string; count: number }[];
+  const tagFacets = Array.from(tagCountMap.values())
+    .sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      const keyCompare = a.key.localeCompare(b.key);
+      if (keyCompare !== 0) {
+        return keyCompare;
+      }
+      return a.value.localeCompare(b.value);
+    })
+    .slice(0, 50)
+    .map((row) => ({ key: row.key, value: row.value, count: row.count }));
 
-  const tagFacets = tagRows.map((row) => ({
-    key: row.key,
-    value: row.value,
-    count: Number(row.count)
-  }));
+  const owners = Array.from(ownerCountMap.entries())
+    .map(([value, count]) => ({ key: 'owner', value, count }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.value.localeCompare(b.value)))
+    .slice(0, 10);
+
+  const frameworks = Array.from(frameworkCountMap.entries())
+    .map(([value, count]) => ({ key: 'framework', value, count }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.value.localeCompare(b.value)))
+    .slice(0, 10);
 
   return {
     records,
     total: records.length,
     facets: {
       tags: tagFacets,
-      statuses: statusFacets
+      statuses: statusFacets,
+      owners,
+      frameworks
+    },
+    meta: {
+      tokens,
+      sort: effectiveSort,
+      weights
     }
   };
 }
@@ -733,6 +1179,254 @@ export function completeBuild(
   return getBuildById(buildId);
 }
 
+function updateLaunchRecord(
+  launchId: string,
+  updates: {
+    status?: LaunchStatus;
+    instanceUrl?: string | null;
+    containerId?: string | null;
+    port?: number | null;
+    resourceProfile?: string | null;
+    errorMessage?: string | null;
+    updatedAt?: string;
+    startedAt?: string | null;
+    stoppedAt?: string | null;
+    expiresAt?: string | null;
+  }
+) {
+  updateLaunchStatement.run({
+    launchId,
+    statusSet: updates.status === undefined ? 0 : 1,
+    status: updates.status ?? null,
+    instanceUrlSet: updates.instanceUrl === undefined ? 0 : 1,
+    instanceUrl: updates.instanceUrl ?? null,
+    containerIdSet: updates.containerId === undefined ? 0 : 1,
+    containerId: updates.containerId ?? null,
+    portSet: updates.port === undefined ? 0 : 1,
+    port: updates.port ?? null,
+    resourceProfileSet: updates.resourceProfile === undefined ? 0 : 1,
+    resourceProfile: updates.resourceProfile ?? null,
+    errorMessageSet: updates.errorMessage === undefined ? 0 : 1,
+    errorMessage: updates.errorMessage ?? null,
+    updatedAt: updates.updatedAt ?? new Date().toISOString(),
+    startedAtSet: updates.startedAt === undefined ? 0 : 1,
+    startedAt: updates.startedAt ?? null,
+    stoppedAtSet: updates.stoppedAt === undefined ? 0 : 1,
+    stoppedAt: updates.stoppedAt ?? null,
+    expiresAtSet: updates.expiresAt === undefined ? 0 : 1,
+    expiresAt: updates.expiresAt ?? null
+  });
+  return getLaunchById(launchId);
+}
+
+export function createLaunch(
+  repositoryId: string,
+  buildId: string,
+  options: { resourceProfile?: string | null; expiresAt?: string | null } = {}
+): LaunchRecord {
+  const now = new Date().toISOString();
+  const launch: LaunchRecord = {
+    id: randomUUID(),
+    repositoryId,
+    buildId,
+    status: 'pending',
+    instanceUrl: null,
+    containerId: null,
+    port: null,
+    resourceProfile: options.resourceProfile ?? null,
+    errorMessage: null,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: null,
+    stoppedAt: null,
+    expiresAt: options.expiresAt ?? null
+  };
+
+  insertLaunchStatement.run({
+    id: launch.id,
+    repositoryId: launch.repositoryId,
+    buildId: launch.buildId,
+    status: launch.status,
+    instanceUrl: launch.instanceUrl,
+    containerId: launch.containerId,
+    port: launch.port,
+    resourceProfile: launch.resourceProfile,
+    errorMessage: launch.errorMessage,
+    createdAt: launch.createdAt,
+    updatedAt: launch.updatedAt,
+    startedAt: launch.startedAt,
+    stoppedAt: launch.stoppedAt,
+    expiresAt: launch.expiresAt
+  });
+
+  return getLaunchById(launch.id) ?? launch;
+}
+
+export function getLaunchById(id: string): LaunchRecord | null {
+  const row = selectLaunchByIdStatement.get(id) as LaunchRow | undefined;
+  return row ? rowToLaunch(row) : null;
+}
+
+export function listLaunchesForRepository(repositoryId: string, limit = 20): LaunchRecord[] {
+  const rows = selectLaunchesByRepositoryStatement.all(repositoryId, limit) as LaunchRow[];
+  return rows.map(rowToLaunch);
+}
+
+export function startLaunch(launchId: string): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    if (row.status === 'starting') {
+      return rowToLaunch(row);
+    }
+    if (!['pending', 'failed', 'stopped'].includes(row.status)) {
+      return null;
+    }
+    const updatedAt = new Date().toISOString();
+    updateLaunchStatement.run({
+      launchId,
+      statusSet: 1,
+      status: 'starting',
+      instanceUrlSet: 1,
+      instanceUrl: null,
+      containerIdSet: 1,
+      containerId: null,
+      portSet: 1,
+      port: null,
+      resourceProfileSet: 0,
+      resourceProfile: null,
+      errorMessageSet: 1,
+      errorMessage: null,
+      updatedAt,
+      startedAtSet: 1,
+      startedAt: null,
+      stoppedAtSet: 1,
+      stoppedAt: null,
+      expiresAtSet: 0,
+      expiresAt: null
+    });
+    const refreshed = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    return refreshed ? rowToLaunch(refreshed) : null;
+  });
+
+  return transaction();
+}
+
+export function markLaunchRunning(
+  launchId: string,
+  details: {
+    instanceUrl: string;
+    containerId: string;
+    port?: number | null;
+    startedAt?: string;
+  }
+): LaunchRecord | null {
+  const startedAt = details.startedAt ?? new Date().toISOString();
+  return updateLaunchRecord(launchId, {
+    status: 'running',
+    instanceUrl: details.instanceUrl,
+    containerId: details.containerId,
+    port: details.port ?? null,
+    startedAt,
+    stoppedAt: null,
+    errorMessage: null
+  });
+}
+
+export function failLaunch(launchId: string, message: string): LaunchRecord | null {
+  return updateLaunchRecord(launchId, {
+    status: 'failed',
+    errorMessage: message,
+    containerId: null,
+    instanceUrl: null,
+    port: null,
+    stoppedAt: new Date().toISOString()
+  });
+}
+
+export function requestLaunchStop(launchId: string): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    if (row.status === 'stopping') {
+      return rowToLaunch(row);
+    }
+    if (!['running', 'starting'].includes(row.status)) {
+      return null;
+    }
+    updateLaunchStatement.run({
+      launchId,
+      statusSet: 1,
+      status: 'stopping',
+      instanceUrlSet: 0,
+      instanceUrl: null,
+      containerIdSet: 0,
+      containerId: null,
+      portSet: 0,
+      port: null,
+      resourceProfileSet: 0,
+      resourceProfile: null,
+      errorMessageSet: 0,
+      errorMessage: null,
+      updatedAt: new Date().toISOString(),
+      startedAtSet: 0,
+      startedAt: null,
+      stoppedAtSet: 0,
+      stoppedAt: null,
+      expiresAtSet: 0,
+      expiresAt: null
+    });
+    const refreshed = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    return refreshed ? rowToLaunch(refreshed) : null;
+  });
+
+  return transaction();
+}
+
+export function markLaunchStopped(
+  launchId: string,
+  extra: { stoppedAt?: string; errorMessage?: string | null } = {}
+): LaunchRecord | null {
+  const stoppedAt = extra.stoppedAt ?? new Date().toISOString();
+  return updateLaunchRecord(launchId, {
+    status: extra.errorMessage ? 'failed' : 'stopped',
+    containerId: null,
+    instanceUrl: null,
+    port: null,
+    stoppedAt,
+    errorMessage: extra.errorMessage ?? null
+  });
+}
+
+export function takeNextLaunchToStart(): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectPendingLaunchStatement.get() as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    const started = startLaunch(row.id);
+    return started;
+  });
+
+  return transaction();
+}
+
+export function takeNextLaunchToStop(): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectStoppingLaunchStatement.get() as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    return updateLaunchRecord(row.id, { updatedAt: new Date().toISOString() });
+  });
+
+  return transaction();
+}
+
 export function upsertRepository(repository: RepositoryInsert): RepositoryRecord {
   const transaction = db.transaction(() => {
     const existing = selectRepositoryByIdStatement.get(repository.id) as
@@ -753,6 +1447,7 @@ export function upsertRepository(repository: RepositoryInsert): RepositoryRecord
       deleteRepositoryTagsStatement.run(repository.id);
       attachTags(repository.id, repository.tags);
     }
+    refreshRepositorySearchIndex(repository.id);
     return rowToRepository(selectRepositoryByIdStatement.get(repository.id) as RepositoryRow);
   });
 
@@ -774,6 +1469,7 @@ export function addRepository(repository: RepositoryInsert): RepositoryRecord {
     if (repository.tags && repository.tags.length > 0) {
       attachTags(repository.id, repository.tags.map((tag) => ({ ...tag, source: tag.source ?? 'author' })));
     }
+    refreshRepositorySearchIndex(repository.id);
     return rowToRepository(selectRepositoryByIdStatement.get(repository.id) as RepositoryRow);
   });
 
@@ -802,6 +1498,7 @@ export function replaceRepositoryTags(
     );
   });
   transaction();
+  refreshRepositorySearchIndex(repositoryId);
 }
 
 export function listTagSuggestions(prefix: string, limit: number): TagSuggestion[] {

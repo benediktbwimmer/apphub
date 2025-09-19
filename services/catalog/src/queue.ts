@@ -21,6 +21,7 @@ const connection = createConnection();
 
 export const INGEST_QUEUE_NAME = process.env.INGEST_QUEUE_NAME ?? 'apphub_queue';
 export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_queue';
+export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch_queue';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -39,6 +40,16 @@ const buildQueue = !inlineMode && connection
         removeOnComplete: true,
         removeOnFail: 50,
         attempts: 1
+      }
+    })
+  : null;
+
+const launchQueue = !inlineMode && connection
+  ? new Queue(LAUNCH_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: 25
       }
     })
   : null;
@@ -86,4 +97,28 @@ export async function enqueueBuildJob(buildId: string, repositoryId: string) {
   }
 
   await buildQueue.add('repository-build', { buildId, repositoryId });
+}
+
+export async function enqueueLaunchStart(launchId: string) {
+  if (inlineMode) {
+    return;
+  }
+
+  if (!launchQueue) {
+    throw new Error('Launch queue not initialised');
+  }
+
+  await launchQueue.add('launch-start', { launchId });
+}
+
+export async function enqueueLaunchStop(launchId: string) {
+  if (inlineMode) {
+    return;
+  }
+
+  if (!launchQueue) {
+    throw new Error('Launch queue not initialised');
+  }
+
+  await launchQueue.add('launch-stop', { launchId });
 }

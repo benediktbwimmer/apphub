@@ -779,6 +779,184 @@ main {
   cursor: wait;
 }
 
+.launch-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: rgba(209, 250, 229, 0.35);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 12px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.84rem;
+  margin-top: 0.75rem;
+}
+
+.launch-section-empty {
+  background: rgba(236, 253, 245, 0.6);
+}
+
+.launch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.launch-head time {
+  font-size: 0.76rem;
+  color: #0f766e;
+}
+
+.launch-preview-link {
+  font-size: 0.75rem;
+  color: #0d9488;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.launch-preview-link:hover {
+  text-decoration: underline;
+}
+
+.launch-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.82rem;
+}
+
+.launch-note {
+  margin: 0;
+  color: #0f766e;
+  font-size: 0.8rem;
+}
+
+.launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.launch-button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.launch-button.secondary {
+  background: rgba(14, 116, 144, 0.14);
+  color: #0f172a;
+}
+
+.launch-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.launch-preview-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  align-items: center;
+}
+
+.launch-preview-row a {
+  color: #0f766e;
+  word-break: break-all;
+}
+
+.launch-history {
+  margin-top: 0.6rem;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  background: rgba(236, 253, 245, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.launch-status {
+  font-size: 0.78rem;
+  color: #0f766e;
+}
+
+.launch-status.error {
+  color: #b91c1c;
+}
+
+.launch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.launch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.launch-status-pill {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: rgba(15, 118, 110, 0.2);
+  color: #0f766e;
+}
+
+.launch-status-pill.status-failed {
+  background: rgba(220, 38, 38, 0.18);
+  color: #b91c1c;
+}
+
+.launch-status-pill.status-running {
+  background: rgba(34, 197, 94, 0.2);
+  color: #047857;
+}
+
+.launch-status-pill.status-starting,
+.launch-status-pill.status-stopping {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+
+.launch-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.launch-error-text {
+  color: #b91c1c;
+}
+
+.launch-profile {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.launch-build {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  background: rgba(15, 23, 42, 0.05);
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+}
+
 .history-section {
   margin-top: 0.9rem;
   padding: 0.85rem 1rem;
