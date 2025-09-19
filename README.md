@@ -89,6 +89,23 @@ INGEST_JOB_BACKOFF_MS=10000
 INGEST_CLONE_DEPTH=1
 ```
 
+### Run Everything Locally
+
+From the repository root you can start Redis, the catalog API, the ingestion worker, and the frontend dev server in a single command:
+
+```bash
+npm install
+npm run dev
+```
+
+This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis`). The script launches:
+- Redis (`redis-server --save "" --appendonly no`)
+- Catalog API on `http://127.0.0.1:4000`
+- Ingestion worker
+- Frontend on `http://localhost:5173`
+
+Stop the stack with `Ctrl+C`.
+
 ## Testing
 
 End-to-end suite spins up the catalog API, BullMQ worker (using an in-memory Redis mock), and a temporary Git repository to verify the full ingestion loop:

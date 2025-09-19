@@ -173,75 +173,6 @@ type IngestionEventRow = {
   created_at: string;
 };
 
-const seedApps: RepositoryInsert[] = [
-  {
-    id: 'astro-notebook',
-    name: 'Astro Notebook',
-    description:
-      'Interactive notebook for Astro projects with live preview and docs integration.',
-    repoUrl: 'https://github.com/example/astro-notebook',
-    dockerfilePath: 'Dockerfile',
-    updatedAt: new Date('2024-04-20T10:15:00Z').toISOString(),
-    ingestStatus: 'ready',
-    lastIngestedAt: new Date('2024-04-20T10:15:00Z').toISOString(),
-    tags: [
-      { key: 'framework', value: 'astro' },
-      { key: 'category', value: 'docs' },
-      { key: 'language', value: 'typescript' },
-      { key: 'runtime', value: 'node18' }
-    ]
-  },
-  {
-    id: 'stream-sync',
-    name: 'Stream Sync',
-    description:
-      'Collaborative video room with synchronized playback and chat overlay.',
-    repoUrl: 'https://github.com/example/stream-sync',
-    dockerfilePath: 'deploy/docker/Dockerfile',
-    updatedAt: new Date('2024-04-19T14:42:00Z').toISOString(),
-    ingestStatus: 'ready',
-    lastIngestedAt: new Date('2024-04-19T14:42:00Z').toISOString(),
-    tags: [
-      { key: 'framework', value: 'nextjs' },
-      { key: 'category', value: 'media' },
-      { key: 'language', value: 'typescript' },
-      { key: 'runtime', value: 'node18' }
-    ]
-  },
-  {
-    id: 'ml-dashboard',
-    name: 'ML Dashboard',
-    description: 'Monitor ML experiments with charts, alerts, and artifact browser.',
-    repoUrl: 'https://github.com/example/ml-dashboard',
-    dockerfilePath: 'Dockerfile',
-    updatedAt: new Date('2024-04-17T09:00:00Z').toISOString(),
-    ingestStatus: 'ready',
-    lastIngestedAt: new Date('2024-04-17T09:00:00Z').toISOString(),
-    tags: [
-      { key: 'framework', value: 'streamlit' },
-      { key: 'category', value: 'analytics' },
-      { key: 'language', value: 'python' },
-      { key: 'runtime', value: 'python3.11' }
-    ]
-  },
-  {
-    id: 'kanban-live',
-    name: 'Kanban Live',
-    description: 'Real-time kanban board with multiplayer cursors and Slack integration.',
-    repoUrl: 'https://github.com/example/kanban-live',
-    dockerfilePath: 'ops/Dockerfile',
-    updatedAt: new Date('2024-04-16T11:30:00Z').toISOString(),
-    ingestStatus: 'ready',
-    lastIngestedAt: new Date('2024-04-16T11:30:00Z').toISOString(),
-    tags: [
-      { key: 'framework', value: 'remix' },
-      { key: 'category', value: 'productivity' },
-      { key: 'language', value: 'typescript' },
-      { key: 'runtime', value: 'node20' }
-    ]
-  }
-];
-
 const insertRepositoryStatement = db.prepare(`
   INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts)
   VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts)
@@ -340,33 +271,6 @@ function logIngestionEvent(params: {
     createdAt: params.createdAt ?? new Date().toISOString()
   });
 }
-
-export function seedDatabase() {
-  const countRow = db.prepare('SELECT COUNT(*) as count FROM repositories').get() as
-    | { count: number }
-    | undefined;
-  if ((countRow?.count ?? 0) > 0) {
-    return;
-  }
-
-  const seedTransaction = db.transaction(() => {
-    for (const repository of seedApps) {
-      insertRepositoryStatement.run({
-        ...repository,
-        ingestStatus: repository.ingestStatus ?? 'seed',
-        updatedAt: repository.updatedAt ?? new Date().toISOString(),
-        lastIngestedAt: repository.lastIngestedAt ?? null,
-        ingestError: repository.ingestError ?? null,
-        ingestAttempts: repository.ingestAttempts ?? 0
-      });
-      attachTags(repository.id, repository.tags ?? []);
-    }
-  });
-
-  seedTransaction();
-}
-
-seedDatabase();
 
 function rowToRepository(row: RepositoryRow): RepositoryRecord {
   const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
