@@ -26,6 +26,31 @@ export type BuildRecord = {
   durationMs: number | null;
 };
 
+export type LaunchStatus =
+  | 'pending'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'failed';
+
+export type LaunchRecord = {
+  id: string;
+  repositoryId: string;
+  buildId: string;
+  status: LaunchStatus;
+  instanceUrl: string | null;
+  containerId: string | null;
+  port: number | null;
+  resourceProfile: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  expiresAt: string | null;
+};
+
 export type RepositoryRecord = {
   id: string;
   name: string;
@@ -40,6 +65,7 @@ export type RepositoryRecord = {
   ingestAttempts: number;
   tags: TagKV[];
   latestBuild: BuildRecord | null;
+  latestLaunch: LaunchRecord | null;
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
@@ -180,6 +206,31 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_builds_status
     ON builds(status);
+
+  CREATE TABLE IF NOT EXISTS launches (
+    id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    build_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    instance_url TEXT,
+    container_id TEXT,
+    port INTEGER,
+    resource_profile TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    stopped_at TEXT,
+    expires_at TEXT,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+    FOREIGN KEY (build_id) REFERENCES builds(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_launches_repo_created
+    ON launches(repository_id, datetime(created_at) DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_launches_status
+    ON launches(status);
 `);
 
 function ensureColumn(table: string, column: string, ddl: string) {
@@ -250,6 +301,23 @@ type BuildRow = {
   started_at: string | null;
   completed_at: string | null;
   duration_ms: number | null;
+};
+
+type LaunchRow = {
+  id: string;
+  repository_id: string;
+  build_id: string;
+  status: LaunchStatus;
+  instance_url: string | null;
+  container_id: string | null;
+  port: number | null;
+  resource_profile: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  stopped_at: string | null;
+  expires_at: string | null;
 };
 
 const insertRepositoryStatement = db.prepare(`
@@ -368,6 +436,85 @@ const selectPendingBuildStatement = db.prepare(
    LIMIT 1`
 );
 
+const insertLaunchStatement = db.prepare(
+  `INSERT INTO launches (
+     id,
+     repository_id,
+     build_id,
+     status,
+     instance_url,
+     container_id,
+     port,
+     resource_profile,
+     error_message,
+     created_at,
+     updated_at,
+     started_at,
+     stopped_at,
+     expires_at
+   ) VALUES (
+     @id,
+     @repositoryId,
+     @buildId,
+     @status,
+     @instanceUrl,
+     @containerId,
+     @port,
+     @resourceProfile,
+     @errorMessage,
+     @createdAt,
+     @updatedAt,
+     @startedAt,
+     @stoppedAt,
+     @expiresAt
+   )`
+);
+
+const updateLaunchStatement = db.prepare(
+  `UPDATE launches
+   SET status = CASE WHEN @statusSet = 1 THEN @status ELSE status END,
+       instance_url = CASE WHEN @instanceUrlSet = 1 THEN @instanceUrl ELSE instance_url END,
+       container_id = CASE WHEN @containerIdSet = 1 THEN @containerId ELSE container_id END,
+       port = CASE WHEN @portSet = 1 THEN @port ELSE port END,
+       resource_profile = CASE WHEN @resourceProfileSet = 1 THEN @resourceProfile ELSE resource_profile END,
+       error_message = CASE WHEN @errorMessageSet = 1 THEN @errorMessage ELSE error_message END,
+       updated_at = COALESCE(@updatedAt, updated_at),
+       started_at = CASE WHEN @startedAtSet = 1 THEN @startedAt ELSE started_at END,
+       stopped_at = CASE WHEN @stoppedAtSet = 1 THEN @stoppedAt ELSE stopped_at END,
+       expires_at = CASE WHEN @expiresAtSet = 1 THEN @expiresAt ELSE expires_at END
+   WHERE id = @launchId`
+);
+
+const selectLaunchByIdStatement = db.prepare('SELECT * FROM launches WHERE id = ?');
+
+const selectLaunchesByRepositoryStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE repository_id = ?
+   ORDER BY datetime(created_at) DESC
+   LIMIT ?`
+);
+
+const selectLatestLaunchByRepositoryStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE repository_id = ?
+   ORDER BY datetime(created_at) DESC
+   LIMIT 1`
+);
+
+const selectPendingLaunchStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE status = 'pending'
+   ORDER BY datetime(created_at) ASC
+   LIMIT 1`
+);
+
+const selectStoppingLaunchStatement = db.prepare(
+  `SELECT * FROM launches
+   WHERE status = 'stopping'
+   ORDER BY datetime(updated_at) ASC
+   LIMIT 1`
+);
+
 function attachTags(repositoryId: string, tags: (TagKV & { source?: string })[] = []) {
   for (const tag of tags) {
     const normalized = {
@@ -412,6 +559,25 @@ function rowToBuild(row: BuildRow): BuildRecord {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     durationMs: row.duration_ms ?? null
+  };
+}
+
+function rowToLaunch(row: LaunchRow): LaunchRecord {
+  return {
+    id: row.id,
+    repositoryId: row.repository_id,
+    buildId: row.build_id,
+    status: row.status,
+    instanceUrl: row.instance_url,
+    containerId: row.container_id,
+    port: row.port,
+    resourceProfile: row.resource_profile,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    stoppedAt: row.stopped_at,
+    expiresAt: row.expires_at
   };
 }
 
@@ -496,6 +662,7 @@ function buildRepositoryWhereClause(
 function rowToRepository(row: RepositoryRow): RepositoryRecord {
   const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
   const latestBuildRow = selectLatestBuildByRepositoryStatement.get(row.id) as BuildRow | undefined;
+  const latestLaunchRow = selectLatestLaunchByRepositoryStatement.get(row.id) as LaunchRow | undefined;
   return {
     id: row.id,
     name: row.name,
@@ -509,7 +676,8 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
     ingestError: row.ingest_error,
     ingestAttempts: row.ingest_attempts ?? 0,
     tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source })),
-    latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null
+    latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null,
+    latestLaunch: latestLaunchRow ? rowToLaunch(latestLaunchRow) : null
   };
 }
 
@@ -714,6 +882,254 @@ export function completeBuild(
   });
 
   return getBuildById(buildId);
+}
+
+function updateLaunchRecord(
+  launchId: string,
+  updates: {
+    status?: LaunchStatus;
+    instanceUrl?: string | null;
+    containerId?: string | null;
+    port?: number | null;
+    resourceProfile?: string | null;
+    errorMessage?: string | null;
+    updatedAt?: string;
+    startedAt?: string | null;
+    stoppedAt?: string | null;
+    expiresAt?: string | null;
+  }
+) {
+  updateLaunchStatement.run({
+    launchId,
+    statusSet: updates.status === undefined ? 0 : 1,
+    status: updates.status ?? null,
+    instanceUrlSet: updates.instanceUrl === undefined ? 0 : 1,
+    instanceUrl: updates.instanceUrl ?? null,
+    containerIdSet: updates.containerId === undefined ? 0 : 1,
+    containerId: updates.containerId ?? null,
+    portSet: updates.port === undefined ? 0 : 1,
+    port: updates.port ?? null,
+    resourceProfileSet: updates.resourceProfile === undefined ? 0 : 1,
+    resourceProfile: updates.resourceProfile ?? null,
+    errorMessageSet: updates.errorMessage === undefined ? 0 : 1,
+    errorMessage: updates.errorMessage ?? null,
+    updatedAt: updates.updatedAt ?? new Date().toISOString(),
+    startedAtSet: updates.startedAt === undefined ? 0 : 1,
+    startedAt: updates.startedAt ?? null,
+    stoppedAtSet: updates.stoppedAt === undefined ? 0 : 1,
+    stoppedAt: updates.stoppedAt ?? null,
+    expiresAtSet: updates.expiresAt === undefined ? 0 : 1,
+    expiresAt: updates.expiresAt ?? null
+  });
+  return getLaunchById(launchId);
+}
+
+export function createLaunch(
+  repositoryId: string,
+  buildId: string,
+  options: { resourceProfile?: string | null; expiresAt?: string | null } = {}
+): LaunchRecord {
+  const now = new Date().toISOString();
+  const launch: LaunchRecord = {
+    id: randomUUID(),
+    repositoryId,
+    buildId,
+    status: 'pending',
+    instanceUrl: null,
+    containerId: null,
+    port: null,
+    resourceProfile: options.resourceProfile ?? null,
+    errorMessage: null,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: null,
+    stoppedAt: null,
+    expiresAt: options.expiresAt ?? null
+  };
+
+  insertLaunchStatement.run({
+    id: launch.id,
+    repositoryId: launch.repositoryId,
+    buildId: launch.buildId,
+    status: launch.status,
+    instanceUrl: launch.instanceUrl,
+    containerId: launch.containerId,
+    port: launch.port,
+    resourceProfile: launch.resourceProfile,
+    errorMessage: launch.errorMessage,
+    createdAt: launch.createdAt,
+    updatedAt: launch.updatedAt,
+    startedAt: launch.startedAt,
+    stoppedAt: launch.stoppedAt,
+    expiresAt: launch.expiresAt
+  });
+
+  return getLaunchById(launch.id) ?? launch;
+}
+
+export function getLaunchById(id: string): LaunchRecord | null {
+  const row = selectLaunchByIdStatement.get(id) as LaunchRow | undefined;
+  return row ? rowToLaunch(row) : null;
+}
+
+export function listLaunchesForRepository(repositoryId: string, limit = 20): LaunchRecord[] {
+  const rows = selectLaunchesByRepositoryStatement.all(repositoryId, limit) as LaunchRow[];
+  return rows.map(rowToLaunch);
+}
+
+export function startLaunch(launchId: string): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    if (row.status === 'starting') {
+      return rowToLaunch(row);
+    }
+    if (!['pending', 'failed', 'stopped'].includes(row.status)) {
+      return null;
+    }
+    const updatedAt = new Date().toISOString();
+    updateLaunchStatement.run({
+      launchId,
+      statusSet: 1,
+      status: 'starting',
+      instanceUrlSet: 1,
+      instanceUrl: null,
+      containerIdSet: 1,
+      containerId: null,
+      portSet: 1,
+      port: null,
+      resourceProfileSet: 0,
+      resourceProfile: null,
+      errorMessageSet: 1,
+      errorMessage: null,
+      updatedAt,
+      startedAtSet: 1,
+      startedAt: null,
+      stoppedAtSet: 1,
+      stoppedAt: null,
+      expiresAtSet: 0,
+      expiresAt: null
+    });
+    const refreshed = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    return refreshed ? rowToLaunch(refreshed) : null;
+  });
+
+  return transaction();
+}
+
+export function markLaunchRunning(
+  launchId: string,
+  details: {
+    instanceUrl: string;
+    containerId: string;
+    port?: number | null;
+    startedAt?: string;
+  }
+): LaunchRecord | null {
+  const startedAt = details.startedAt ?? new Date().toISOString();
+  return updateLaunchRecord(launchId, {
+    status: 'running',
+    instanceUrl: details.instanceUrl,
+    containerId: details.containerId,
+    port: details.port ?? null,
+    startedAt,
+    stoppedAt: null,
+    errorMessage: null
+  });
+}
+
+export function failLaunch(launchId: string, message: string): LaunchRecord | null {
+  return updateLaunchRecord(launchId, {
+    status: 'failed',
+    errorMessage: message,
+    containerId: null,
+    instanceUrl: null,
+    port: null,
+    stoppedAt: new Date().toISOString()
+  });
+}
+
+export function requestLaunchStop(launchId: string): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    if (row.status === 'stopping') {
+      return rowToLaunch(row);
+    }
+    if (!['running', 'starting'].includes(row.status)) {
+      return null;
+    }
+    updateLaunchStatement.run({
+      launchId,
+      statusSet: 1,
+      status: 'stopping',
+      instanceUrlSet: 0,
+      instanceUrl: null,
+      containerIdSet: 0,
+      containerId: null,
+      portSet: 0,
+      port: null,
+      resourceProfileSet: 0,
+      resourceProfile: null,
+      errorMessageSet: 0,
+      errorMessage: null,
+      updatedAt: new Date().toISOString(),
+      startedAtSet: 0,
+      startedAt: null,
+      stoppedAtSet: 0,
+      stoppedAt: null,
+      expiresAtSet: 0,
+      expiresAt: null
+    });
+    const refreshed = selectLaunchByIdStatement.get(launchId) as LaunchRow | undefined;
+    return refreshed ? rowToLaunch(refreshed) : null;
+  });
+
+  return transaction();
+}
+
+export function markLaunchStopped(
+  launchId: string,
+  extra: { stoppedAt?: string; errorMessage?: string | null } = {}
+): LaunchRecord | null {
+  const stoppedAt = extra.stoppedAt ?? new Date().toISOString();
+  return updateLaunchRecord(launchId, {
+    status: extra.errorMessage ? 'failed' : 'stopped',
+    containerId: null,
+    instanceUrl: null,
+    port: null,
+    stoppedAt,
+    errorMessage: extra.errorMessage ?? null
+  });
+}
+
+export function takeNextLaunchToStart(): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectPendingLaunchStatement.get() as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    const started = startLaunch(row.id);
+    return started;
+  });
+
+  return transaction();
+}
+
+export function takeNextLaunchToStop(): LaunchRecord | null {
+  const transaction = db.transaction(() => {
+    const row = selectStoppingLaunchStatement.get() as LaunchRow | undefined;
+    if (!row) {
+      return null;
+    }
+    return updateLaunchRecord(row.id, { updatedAt: new Date().toISOString() });
+  });
+
+  return transaction();
 }
 
 export function upsertRepository(repository: RepositoryInsert): RepositoryRecord {

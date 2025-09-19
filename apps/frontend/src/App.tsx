@@ -22,6 +22,21 @@ type BuildSummary = {
   logsTruncated: boolean;
 };
 
+type LaunchSummary = {
+  id: string;
+  status: 'pending' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+  buildId: string;
+  instanceUrl: string | null;
+  resourceProfile: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  expiresAt: string | null;
+  port: number | null;
+};
+
 type AppRecord = {
   id: string;
   name: string;
@@ -34,6 +49,7 @@ type AppRecord = {
   ingestError: string | null;
   ingestAttempts: number;
   latestBuild: BuildSummary | null;
+  latestLaunch: LaunchSummary | null;
 };
 
 type TagSuggestion = {
@@ -72,6 +88,16 @@ type HistoryState = Record<
     loading: boolean;
     error: string | null;
     events: IngestionEvent[] | null;
+  }
+>;
+
+type LaunchListState = Record<
+  string,
+  {
+    open: boolean;
+    loading: boolean;
+    error: string | null;
+    launches: LaunchSummary[] | null;
   }
 >;
 
@@ -123,6 +149,10 @@ function App() {
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<HistoryState>({});
+  const [launchLists, setLaunchLists] = useState<LaunchListState>({});
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [stoppingLaunchId, setStoppingLaunchId] = useState<string | null>(null);
+  const [launchErrors, setLaunchErrors] = useState<Record<string, string | null>>({});
   const [statusFilters, setStatusFilters] = useState<AppRecord['ingestStatus'][]>([]);
   const [ingestedAfter, setIngestedAfter] = useState('');
   const [ingestedBefore, setIngestedBefore] = useState('');
@@ -378,6 +408,46 @@ function App() {
     }
   };
 
+  const fetchLaunches = async (id: string, force = false) => {
+    setLaunchLists((prev) => ({
+      ...prev,
+      [id]: {
+        open: true,
+        loading: true,
+        error: null,
+        launches: force ? null : prev[id]?.launches ?? null
+      }
+    }));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/apps/${id}/launches`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error ?? `Failed to load launches (${response.status})`);
+      }
+      const payload = await response.json();
+      setLaunchLists((prev) => ({
+        ...prev,
+        [id]: {
+          open: true,
+          loading: false,
+          error: null,
+          launches: payload?.data ?? []
+        }
+      }));
+    } catch (err) {
+      setLaunchLists((prev) => ({
+        ...prev,
+        [id]: {
+          open: true,
+          loading: false,
+          error: (err as Error).message,
+          launches: null
+        }
+      }));
+    }
+  };
+
   const handleToggleHistory = async (id: string) => {
     const existing = historyState[id];
     const nextOpen = !(existing?.open ?? false);
@@ -409,6 +479,93 @@ function App() {
     }
 
     await fetchHistory(id);
+  };
+
+  const handleToggleLaunches = async (id: string) => {
+    const existing = launchLists[id];
+    const nextOpen = !(existing?.open ?? false);
+
+    if (!nextOpen) {
+      setLaunchLists((prev) => ({
+        ...prev,
+        [id]: {
+          open: false,
+          loading: false,
+          error: existing?.error ?? null,
+          launches: existing?.launches ?? null
+        }
+      }));
+      return;
+    }
+
+    if (existing?.launches) {
+      setLaunchLists((prev) => ({
+        ...prev,
+        [id]: {
+          ...existing,
+          open: true,
+          loading: false,
+          error: null
+        }
+      }));
+      return;
+    }
+
+    await fetchLaunches(id);
+  };
+
+  const handleLaunch = async (id: string) => {
+    setLaunchingId(id);
+    setLaunchErrors((prev) => ({ ...prev, [id]: null }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/apps/${id}/launch`, {
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Launch failed with status ${response.status}`);
+      }
+      if (payload?.data?.repository) {
+        setApps((prev) =>
+          prev.map((app) => (app.id === id ? (payload.data.repository as AppRecord) : app))
+        );
+      }
+      if (launchLists[id]?.open) {
+        await fetchLaunches(id, true);
+      }
+      setLaunchErrors((prev) => ({ ...prev, [id]: null }));
+    } catch (err) {
+      setLaunchErrors((prev) => ({ ...prev, [id]: (err as Error).message }));
+    } finally {
+      setLaunchingId(null);
+    }
+  };
+
+  const handleStopLaunch = async (appId: string, launchId: string) => {
+    setStoppingLaunchId(launchId);
+    setLaunchErrors((prev) => ({ ...prev, [appId]: null }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/apps/${appId}/launches/${launchId}/stop`, {
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Stop failed with status ${response.status}`);
+      }
+      if (payload?.data?.repository) {
+        setApps((prev) =>
+          prev.map((app) => (app.id === appId ? (payload.data.repository as AppRecord) : app))
+        );
+      }
+      if (launchLists[appId]?.open) {
+        await fetchLaunches(appId, true);
+      }
+      setLaunchErrors((prev) => ({ ...prev, [appId]: null }));
+    } catch (err) {
+      setLaunchErrors((prev) => ({ ...prev, [appId]: (err as Error).message }));
+    } finally {
+      setStoppingLaunchId(null);
+    }
   };
 
   const renderTags = (tags: TagKV[]) => (
@@ -462,6 +619,87 @@ function App() {
             {build.logsPreview}
             {build.logsTruncated ? '\n…' : ''}
           </pre>
+        )}
+      </div>
+    );
+  };
+
+  const renderLaunchSection = (app: AppRecord) => {
+    const launch = app.latestLaunch;
+    const statusClass = launch
+      ? launch.status === 'running'
+        ? 'status-succeeded'
+        : launch.status === 'failed'
+        ? 'status-failed'
+        : launch.status === 'starting' || launch.status === 'stopping'
+        ? 'status-processing'
+        : 'status-pending'
+      : 'status-pending';
+    const updatedAt = launch?.updatedAt ?? null;
+    const isLaunching = launchingId === app.id;
+    const isStopping = launch ? stoppingLaunchId === launch.id : false;
+    const canLaunch = app.latestBuild?.status === 'succeeded';
+    const canStop = launch ? ['running', 'starting', 'stopping'].includes(launch.status) : false;
+    const launchError = launchErrors[app.id] ?? null;
+
+    return (
+      <div className={`launch-section${launch ? '' : ' launch-section-empty'}`}>
+        <div className="launch-head">
+          <span className={`status-badge ${statusClass}`}>
+            {launch ? `launch ${launch.status}` : 'launch pending'}
+          </span>
+          {updatedAt && (
+            <time dateTime={updatedAt}>Updated {new Date(updatedAt).toLocaleString()}</time>
+          )}
+          {launch?.instanceUrl && (
+            <a className="launch-preview-link" href={launch.instanceUrl} target="_blank" rel="noreferrer">
+              Preview
+            </a>
+          )}
+        </div>
+        {(launchError || launch?.errorMessage) && (
+          <p className="launch-error">{launchError ?? launch?.errorMessage}</p>
+        )}
+        {!canLaunch && (
+          <p className="launch-note">Launch requires a successful build.</p>
+        )}
+        {launch?.status === 'starting' && <p className="launch-note">Container starting…</p>}
+        {launch?.status === 'stopping' && <p className="launch-note">Stopping container…</p>}
+        {launch?.status === 'stopped' && <p className="launch-note">Last launch has ended.</p>}
+        <div className="launch-actions">
+          <button
+            type="button"
+            className="launch-button"
+            onClick={() => {
+              void handleLaunch(app.id);
+            }}
+            disabled={isLaunching || !canLaunch || canStop}
+          >
+            {isLaunching ? 'Launching…' : 'Launch app'}
+          </button>
+          <button
+            type="button"
+            className="launch-button secondary"
+            onClick={() => {
+              if (launch) {
+                void handleStopLaunch(app.id, launch.id);
+              }
+            }}
+            disabled={!launch || !canStop || isStopping}
+          >
+            {isStopping ? 'Stopping…' : 'Stop launch'}
+          </button>
+        </div>
+        {launch?.instanceUrl && (
+          <div className="launch-preview-row">
+            <span>Preview URL:</span>
+            <a href={launch.instanceUrl} target="_blank" rel="noreferrer">
+              {launch.instanceUrl}
+            </a>
+          </div>
+        )}
+        {launch?.resourceProfile && (
+          <div className="launch-note">Profile: {launch.resourceProfile}</div>
         )}
       </div>
     );
@@ -633,6 +871,9 @@ function App() {
                   const historyEntry = historyState[app.id];
                   const events = historyEntry?.events ?? [];
                   const showHistory = historyEntry?.open ?? false;
+                  const launchEntry = launchLists[app.id];
+                  const launches = launchEntry?.launches ?? [];
+                  const showLaunches = launchEntry?.open ?? false;
 
                   return (
                     <article key={app.id} className="app-card">
@@ -650,6 +891,7 @@ function App() {
                       )}
                       {renderTags(app.tags)}
                       {renderBuildSection(app.latestBuild)}
+                      {renderLaunchSection(app)}
                       <div className="app-links">
                         <a href={app.repoUrl} target="_blank" rel="noreferrer">
                           View repository
@@ -668,11 +910,69 @@ function App() {
                         <button
                           type="button"
                           className="history-button"
+                          onClick={() => handleToggleLaunches(app.id)}
+                        >
+                          {showLaunches ? 'Hide launches' : 'View launches'}
+                        </button>
+                        <button
+                          type="button"
+                          className="history-button"
                           onClick={() => handleToggleHistory(app.id)}
                         >
                           {showHistory ? 'Hide history' : 'View history'}
                         </button>
                       </div>
+                      {showLaunches && (
+                        <div className="launch-history">
+                          {launchEntry?.loading && (
+                            <div className="launch-status">Loading launches…</div>
+                          )}
+                          {launchEntry?.error && (
+                            <div className="launch-status error">{launchEntry.error}</div>
+                          )}
+                          {launchEntry && !launchEntry.loading && !launchEntry.error && launches.length === 0 && (
+                            <div className="launch-status">No launches recorded yet.</div>
+                          )}
+                          {launches.length > 0 && (
+                            <ul className="launch-list">
+                              {launches.map((launchItem) => {
+                                const timestamp = launchItem.updatedAt ?? launchItem.createdAt;
+                                return (
+                                  <li key={launchItem.id}>
+                                    <div className="launch-row">
+                                      <span className={`launch-status-pill status-${launchItem.status}`}>
+                                        {launchItem.status}
+                                      </span>
+                                      <time dateTime={timestamp}>
+                                        {new Date(timestamp).toLocaleString()}
+                                      </time>
+                                      <code className="launch-build">{launchItem.buildId.slice(0, 8)}</code>
+                                    </div>
+                                    <div className="launch-detail">
+                                      {launchItem.instanceUrl && (
+                                        <a
+                                          href={launchItem.instanceUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="launch-preview-link"
+                                        >
+                                          Open preview
+                                        </a>
+                                      )}
+                                      {launchItem.errorMessage && (
+                                        <div className="launch-error-text">{launchItem.errorMessage}</div>
+                                      )}
+                                      {launchItem.resourceProfile && (
+                                        <span className="launch-profile">{launchItem.resourceProfile}</span>
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                       {showHistory && (
                         <div className="history-section">
                           {historyEntry?.loading && <div className="history-status">Loading history…</div>}

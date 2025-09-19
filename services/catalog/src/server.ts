@@ -12,9 +12,17 @@ import {
   type BuildRecord,
   type RepositoryRecord,
   type TagKV,
-  type IngestStatus
+  type IngestStatus,
+  createLaunch,
+  listLaunchesForRepository,
+  getLaunchById,
+  requestLaunchStop,
+  type LaunchRecord,
+  getBuildById,
+  failLaunch
 } from './db';
-import { enqueueRepositoryIngestion } from './queue';
+import { enqueueRepositoryIngestion, enqueueLaunchStart, enqueueLaunchStop, isInlineQueueMode } from './queue';
+import { runLaunchStart, runLaunchStop } from './launchRunner';
 
 type SearchQuery = {
   q?: string;
@@ -104,6 +112,21 @@ const createRepositorySchema = z.object({
     .default([])
 });
 
+const launchRequestSchema = z
+  .object({
+    buildId: z.string().min(1).optional(),
+    resourceProfile: z.string().min(1).optional()
+  })
+  .strict()
+  .partial();
+
+const launchListQuerySchema = z
+  .object({
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(50).optional())
+  })
+  .partial();
+
 function toTagFilters(tokens: string[] = []): TagKV[] {
   const filters: TagKV[] = [];
   for (const token of tokens) {
@@ -163,7 +186,8 @@ function serializeRepository(record: RepositoryRecord) {
     ingestStatus,
     ingestError,
     ingestAttempts,
-    latestBuild
+    latestBuild,
+    latestLaunch
   } = record;
   return {
     id,
@@ -176,7 +200,8 @@ function serializeRepository(record: RepositoryRecord) {
     ingestStatus,
     ingestError,
     ingestAttempts,
-    latestBuild: serializeBuild(latestBuild)
+    latestBuild: serializeBuild(latestBuild),
+    latestLaunch: serializeLaunch(latestLaunch)
   };
 }
 
@@ -205,6 +230,27 @@ function serializeBuild(build: BuildRecord | null) {
     durationMs: build.durationMs,
     logsPreview: trimmedLogs,
     logsTruncated: Boolean(build.logs && trimmedLogs && trimmedLogs.length < build.logs.length)
+  };
+}
+
+function serializeLaunch(launch: LaunchRecord | null) {
+  if (!launch) {
+    return null;
+  }
+
+  return {
+    id: launch.id,
+    status: launch.status,
+    buildId: launch.buildId,
+    instanceUrl: launch.instanceUrl,
+    resourceProfile: launch.resourceProfile,
+    errorMessage: launch.errorMessage,
+    createdAt: launch.createdAt,
+    updatedAt: launch.updatedAt,
+    startedAt: launch.startedAt,
+    stoppedAt: launch.stoppedAt,
+    expiresAt: launch.expiresAt,
+    port: launch.port
   };
 }
 
@@ -289,6 +335,174 @@ async function buildServer() {
     const history = getIngestionHistory(repository.id);
     return {
       data: history
+    };
+  });
+
+  app.get('/apps/:id/launches', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = launchListQuerySchema.safeParse(request.query);
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    const limit = parseQuery.data?.limit ?? 10;
+    const launches = listLaunchesForRepository(repository.id, limit);
+    return {
+      data: launches.map(serializeLaunch)
+    };
+  });
+
+  app.post('/apps/:id/launch', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    const body = (request.body as unknown) ?? {};
+    const parseBody = launchRequestSchema.safeParse(body);
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data ?? {};
+
+    let build = payload.buildId ? getBuildById(payload.buildId) : null;
+    if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
+      reply.status(400);
+      return { error: 'build does not belong to app' };
+    }
+
+    if (!build && repository.latestBuild) {
+      build = repository.latestBuild;
+    }
+
+    if (!build || build.repositoryId !== repository.id || build.status !== 'succeeded' || !build.imageTag) {
+      reply.status(409);
+      return { error: 'no successful build available for launch' };
+    }
+
+    const launch = createLaunch(repository.id, build.id, {
+      resourceProfile: payload.resourceProfile ?? null
+    });
+
+    try {
+      if (isInlineQueueMode()) {
+        await runLaunchStart(launch.id);
+      } else {
+        await enqueueLaunchStart(launch.id);
+      }
+    } catch (err) {
+      const message = `Failed to schedule launch: ${(err as Error).message ?? 'unknown error'}`;
+      request.log.error({ err }, 'Failed to schedule launch');
+      failLaunch(launch.id, message.slice(0, 500));
+      reply.status(502);
+      const currentRepo = getRepositoryById(repository.id) ?? repository;
+      const currentLaunch = getLaunchById(launch.id);
+      return {
+        error: message,
+        data: {
+          repository: serializeRepository(currentRepo),
+          launch: serializeLaunch(currentLaunch ?? launch)
+        }
+      };
+    }
+
+    const refreshedRepo = getRepositoryById(repository.id) ?? repository;
+    const refreshedLaunch = getLaunchById(launch.id) ?? launch;
+
+    reply.status(202);
+    return {
+      data: {
+        repository: serializeRepository(refreshedRepo),
+        launch: serializeLaunch(refreshedLaunch)
+      }
+    };
+  });
+
+  app.post('/apps/:id/launches/:launchId/stop', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1), launchId: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    const launch = getLaunchById(parseParams.data.launchId);
+    if (!launch || launch.repositoryId !== repository.id) {
+      reply.status(404);
+      return { error: 'launch not found' };
+    }
+
+    if (!['running', 'starting', 'stopping'].includes(launch.status)) {
+      reply.status(409);
+      return { error: 'launch is not running' };
+    }
+
+    const pendingStop = launch.status === 'stopping' ? launch : requestLaunchStop(launch.id);
+    if (!pendingStop) {
+      reply.status(409);
+      return { error: 'launch is not running' };
+    }
+
+    try {
+      if (isInlineQueueMode()) {
+        await runLaunchStop(launch.id);
+      } else {
+        await enqueueLaunchStop(launch.id);
+      }
+    } catch (err) {
+      const message = `Failed to schedule stop: ${(err as Error).message ?? 'unknown error'}`;
+      request.log.error({ err }, 'Failed to schedule launch stop');
+      failLaunch(launch.id, message.slice(0, 500));
+      reply.status(502);
+      const currentRepo = getRepositoryById(repository.id) ?? repository;
+      const currentLaunch = getLaunchById(launch.id) ?? pendingStop;
+      return {
+        error: message,
+        data: {
+          repository: serializeRepository(currentRepo),
+          launch: serializeLaunch(currentLaunch)
+        }
+      };
+    }
+
+    const refreshedRepo = getRepositoryById(repository.id) ?? repository;
+    const refreshedLaunch = getLaunchById(launch.id) ?? pendingStop;
+
+    reply.status(202);
+    return {
+      data: {
+        repository: serializeRepository(refreshedRepo),
+        launch: serializeLaunch(refreshedLaunch)
+      }
     };
   });
 
