@@ -10,6 +10,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, and stale build cleanup. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod).
+- **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, and ingestion timeline changes. Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
 ## Data Model (Initial Draft)
 - `Repository`
@@ -41,8 +42,8 @@ Build a "YouTube of web applications" where each application is sourced from a G
    - API enqueues ingestion jobs in BullMQ whenever a repository is registered or refreshed.
    - Ingestion worker consumes jobs, performs shallow clone, validates `Dockerfile` presence, and extracts metadata (`package.json`, `README`, `tags.yaml`, Dockerfile heuristics).
    - Successful ingestion refreshes tags/runtime hints, marks the repo `ready`, and creates a build record that is enqueued for the build worker; failures capture the error message for operator review and allow queued retries.
-   - Every transition (queued, processing, failed, ready) is written to `ingestion_events` for timeline auditing.
-   - Build worker clones the repo afresh, executes `docker build` via the local Docker daemon, records logs inline in SQLite, and stores the resulting image tag for launch orchestration.
+   - Every transition (queued, processing, failed, ready) is written to `ingestion_events` for timeline auditing and streamed to clients over the WebSocket channel.
+   - Build worker clones the repo afresh, executes `docker build` via the local Docker daemon, records logs inline in SQLite, stores the resulting image tag for launch orchestration, and emits build status updates to the event stream.
 
 3. **Search & Autocomplete**
    - Search API indexes repositories & tags.
@@ -69,6 +70,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - Search API limited to metadata + tags.
 - Frontend renders searchable list with app cards, displays status, links to preview (stub).
 - Autocomplete driven by stored tag vocabulary with key/pair suggestions.
+- WebSocket-connected frontend reacts to event stream updates for repository, build, and launch status without manual refresh.
 
 ## Future Enhancements
 - User accounts, favorites, comments.

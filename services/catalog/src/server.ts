@@ -1,7 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import websocket from '@fastify/websocket';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import type { WebSocket, RawData } from 'ws';
 import {
   addRepository,
   getRepositoryById,
@@ -17,6 +19,7 @@ import {
   type RepositorySort,
   type RelevanceWeights,
   type TagKV,
+  type IngestionEvent,
   type IngestStatus,
   createLaunch,
   listBuildsForRepository,
@@ -38,6 +41,7 @@ import {
 } from './queue';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { runBuildJob } from './buildRunner';
+import { subscribeToApphubEvents, type ApphubEvent } from './events';
 
 type SearchQuery = {
   q?: string;
@@ -347,11 +351,126 @@ function serializeLaunch(launch: LaunchRecord | null) {
   };
 }
 
+type SerializedRepository = ReturnType<typeof serializeRepository>;
+type SerializedBuild = ReturnType<typeof serializeBuild>;
+type SerializedLaunch = ReturnType<typeof serializeLaunch>;
+
+type OutboundEvent =
+  | { type: 'repository.updated'; data: { repository: SerializedRepository } }
+  | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
+  | { type: 'build.updated'; data: { build: SerializedBuild } }
+  | { type: 'launch.updated'; data: { repositoryId: string; launch: SerializedLaunch } };
+
+function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
+  switch (event.type) {
+    case 'repository.updated':
+      return {
+        type: 'repository.updated',
+        data: { repository: serializeRepository(event.data.repository) as SerializedRepository }
+      };
+    case 'repository.ingestion-event':
+      return {
+        type: 'repository.ingestion-event',
+        data: { event: event.data.event }
+      };
+    case 'build.updated':
+      return {
+        type: 'build.updated',
+        data: { build: serializeBuild(event.data.build) as SerializedBuild }
+      };
+    case 'launch.updated':
+      return {
+        type: 'launch.updated',
+        data: {
+          repositoryId: event.data.launch.repositoryId,
+          launch: serializeLaunch(event.data.launch) as SerializedLaunch
+        }
+      };
+    default:
+      return null;
+  }
+}
+
 async function buildServer() {
   const app = Fastify();
 
   await app.register(cors, {
     origin: true
+  });
+
+  await app.register(websocket, {
+    options: {
+      maxPayload: 1_048_576
+    }
+  });
+
+  const sockets = new Set<WebSocket>();
+  const broadcast = (payload: OutboundEvent) => {
+    const message = JSON.stringify({ ...payload, emittedAt: new Date().toISOString() });
+    for (const socket of sockets) {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(message);
+        continue;
+      }
+      sockets.delete(socket);
+    }
+  };
+
+  const unsubscribe = subscribeToApphubEvents((event) => {
+    const outbound = toOutboundEvent(event);
+    if (!outbound) {
+      return;
+    }
+    broadcast(outbound);
+  });
+
+  app.addHook('onClose', async () => {
+    unsubscribe();
+    for (const socket of sockets) {
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+    }
+    sockets.clear();
+  });
+
+  app.get('/ws', { websocket: true }, (socket: WebSocket) => {
+    sockets.add(socket);
+
+    socket.send(
+      JSON.stringify({ type: 'connection.ack', data: { now: new Date().toISOString() } })
+    );
+
+    const cleanup = () => {
+      sockets.delete(socket);
+    };
+
+    socket.on('close', cleanup);
+    socket.on('error', cleanup);
+    socket.on('message', (data: RawData) => {
+      let text: string | null = null;
+      if (typeof data === 'string') {
+        text = data;
+      } else if (data instanceof Buffer) {
+        text = data.toString('utf8');
+      } else if (Array.isArray(data)) {
+        text = Buffer.concat(data).toString('utf8');
+      } else if (data instanceof ArrayBuffer) {
+        text = Buffer.from(data).toString('utf8');
+      }
+
+      if (!text) {
+        return;
+      }
+
+      if (text === 'ping') {
+        socket.send(
+          JSON.stringify({ type: 'pong', data: { now: new Date().toISOString() } })
+        );
+      }
+    });
   });
 
   app.get('/health', async () => ({ status: 'ok' }));

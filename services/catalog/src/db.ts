@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { emitApphubEvent } from './events';
 
 export type TagKV = {
   key: string;
@@ -575,6 +576,10 @@ const selectIngestionEventsStatement = db.prepare(
    LIMIT ?`
 );
 
+const selectIngestionEventByIdStatement = db.prepare(
+  `SELECT * FROM ingestion_events WHERE id = ?`
+);
+
 const insertBuildStatement = db.prepare(
   `INSERT INTO builds (
      id,
@@ -818,8 +823,8 @@ function logIngestionEvent(params: {
   commitSha?: string | null;
   durationMs?: number | null;
   createdAt?: string;
-}) {
-  insertIngestionEventStatement.run({
+}): IngestionEvent | null {
+  const info = insertIngestionEventStatement.run({
     repositoryId: params.repositoryId,
     status: params.status,
     message: params.message ?? null,
@@ -828,6 +833,45 @@ function logIngestionEvent(params: {
     durationMs: params.durationMs ?? null,
     createdAt: params.createdAt ?? new Date().toISOString()
   });
+
+  const eventId = Number(info.lastInsertRowid);
+  if (!Number.isFinite(eventId)) {
+    return null;
+  }
+
+  const row = selectIngestionEventByIdStatement.get(eventId) as IngestionEventRow | undefined;
+  return row ? rowToEvent(row) : null;
+}
+
+function notifyRepositoryChanged(repositoryId: string) {
+  const repository = getRepositoryById(repositoryId);
+  if (!repository) {
+    return;
+  }
+  emitApphubEvent({ type: 'repository.updated', data: { repository } });
+}
+
+function notifyBuildChanged(build: BuildRecord | null) {
+  if (!build) {
+    return;
+  }
+  emitApphubEvent({ type: 'build.updated', data: { build } });
+  notifyRepositoryChanged(build.repositoryId);
+}
+
+function notifyLaunchChanged(launch: LaunchRecord | null) {
+  if (!launch) {
+    return;
+  }
+  emitApphubEvent({ type: 'launch.updated', data: { launch } });
+  notifyRepositoryChanged(launch.repositoryId);
+}
+
+function notifyIngestion(event: IngestionEvent | null) {
+  if (!event) {
+    return;
+  }
+  emitApphubEvent({ type: 'repository.ingestion-event', data: { event } });
 }
 
 export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processing', 'ready', 'failed'];
@@ -1196,7 +1240,9 @@ export function createBuild(repositoryId: string, options: { commitSha?: string 
     durationMs: build.durationMs
   });
 
-  return getBuildById(build.id) ?? build;
+  const persisted = getBuildById(build.id) ?? build;
+  notifyBuildChanged(persisted);
+  return persisted;
 }
 
 export function startBuild(buildId: string): BuildRecord | null {
@@ -1228,7 +1274,9 @@ export function startBuild(buildId: string): BuildRecord | null {
     return refreshed ? rowToBuild(refreshed) : null;
   });
 
-  return transaction();
+  const result = transaction();
+  notifyBuildChanged(result);
+  return result;
 }
 
 export function takeNextPendingBuild(): BuildRecord | null {
@@ -1285,7 +1333,9 @@ export function completeBuild(
     durationMs: durationMs ?? undefined
   });
 
-  return getBuildById(buildId);
+  const updated = getBuildById(buildId);
+  notifyBuildChanged(updated);
+  return updated;
 }
 
 function updateLaunchRecord(
@@ -1325,7 +1375,9 @@ function updateLaunchRecord(
     expiresAtSet: updates.expiresAt === undefined ? 0 : 1,
     expiresAt: updates.expiresAt ?? null
   });
-  return getLaunchById(launchId);
+  const updated = getLaunchById(launchId);
+  notifyLaunchChanged(updated);
+  return updated;
 }
 
 export function createLaunch(
@@ -1368,7 +1420,9 @@ export function createLaunch(
     expiresAt: launch.expiresAt
   });
 
-  return getLaunchById(launch.id) ?? launch;
+  const persisted = getLaunchById(launch.id) ?? launch;
+  notifyLaunchChanged(persisted);
+  return persisted;
 }
 
 export function getLaunchById(id: string): LaunchRecord | null {
@@ -1420,7 +1474,9 @@ export function startLaunch(launchId: string): LaunchRecord | null {
     return refreshed ? rowToLaunch(refreshed) : null;
   });
 
-  return transaction();
+  const result = transaction();
+  notifyLaunchChanged(result);
+  return result;
 }
 
 export function markLaunchRunning(
@@ -1493,7 +1549,9 @@ export function requestLaunchStop(launchId: string): LaunchRecord | null {
     return refreshed ? rowToLaunch(refreshed) : null;
   });
 
-  return transaction();
+  const result = transaction();
+  notifyLaunchChanged(result);
+  return result;
 }
 
 export function markLaunchStopped(
@@ -1560,7 +1618,9 @@ export function upsertRepository(repository: RepositoryInsert): RepositoryRecord
     return rowToRepository(selectRepositoryByIdStatement.get(repository.id) as RepositoryRow);
   });
 
-  return transaction();
+  const record = transaction();
+  notifyRepositoryChanged(record.id);
+  return record;
 }
 
 export function addRepository(repository: RepositoryInsert): RepositoryRecord {
@@ -1608,6 +1668,7 @@ export function replaceRepositoryTags(
   });
   transaction();
   refreshRepositorySearchIndex(repositoryId);
+  notifyRepositoryChanged(repositoryId);
 }
 
 export type RepositoryPreviewInput = {
@@ -1645,6 +1706,7 @@ export function replaceRepositoryPreviews(repositoryId: string, previews: Reposi
     }
   });
   transaction();
+  notifyRepositoryChanged(repositoryId);
 }
 
 export function getRepositoryPreviews(repositoryId: string): RepositoryPreview[] {
@@ -1746,7 +1808,7 @@ export function setRepositoryStatus(
   const row = selectRepositoryByIdStatement.get(repositoryId) as RepositoryRow | undefined;
   if (row) {
     const message = extra.eventMessage ?? extra.ingestError ?? row.ingest_error ?? null;
-    logIngestionEvent({
+    const ingestionEvent = logIngestionEvent({
       repositoryId,
       status,
       message,
@@ -1755,7 +1817,10 @@ export function setRepositoryStatus(
       commitSha: extra.commitSha ?? null,
       durationMs: extra.durationMs ?? null
     });
+    notifyIngestion(ingestionEvent);
   }
+
+  notifyRepositoryChanged(repositoryId);
 }
 
 export function takeNextPendingRepository(): RepositoryRecord | null {
