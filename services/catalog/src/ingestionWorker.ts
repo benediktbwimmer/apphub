@@ -183,23 +183,137 @@ function extractTagsFromStructure(data: unknown): DiscoveredTag[] {
   return [];
 }
 
-async function detectDockerfilePath(projectDir: string, preferredPath?: string) {
-  const candidates = new Set<string>();
-  if (preferredPath) {
-    candidates.add(preferredPath);
+function normalizeDockerfileCandidate(raw?: string | null) {
+  if (!raw) {
+    return null;
   }
-  ['Dockerfile', 'docker/Dockerfile', 'deploy/Dockerfile', 'ops/Dockerfile', 'Dockerfile.prod'].forEach((candidate) =>
-    candidates.add(candidate)
-  );
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const unixLike = trimmed.replace(/\\/g, '/');
+  const normalized = path.posix.normalize(unixLike.replace(/^\.\/?/, ''));
+  if (!normalized || normalized === '.') {
+    return null;
+  }
+  if (normalized.startsWith('..')) {
+    return null;
+  }
+  return normalized.replace(/^\/+/g, '');
+}
 
-  for (const candidate of candidates) {
-    const absolute = path.join(projectDir, candidate);
-    if (await fileExists(absolute)) {
-      return path.relative(projectDir, absolute).split(path.sep).join('/');
+function toRelativePosix(baseDir: string, target: string) {
+  const relative = path.relative(baseDir, target);
+  return relative.split(path.sep).join('/');
+}
+
+function isDockerfileFileName(name: string) {
+  const lower = name.toLowerCase();
+  return (
+    lower === 'dockerfile' ||
+    lower.startsWith('dockerfile.') ||
+    lower.endsWith('.dockerfile') ||
+    lower === 'containerfile'
+  );
+}
+
+function shouldSkipDirectory(name: string) {
+  const lower = name.toLowerCase();
+  return (
+    lower === '.git' ||
+    lower === '.hg' ||
+    lower === '.svn' ||
+    lower === 'node_modules' ||
+    lower === '.next' ||
+    lower === 'dist' ||
+    lower === 'build' ||
+    lower === 'out' ||
+    lower === '.cache'
+  );
+}
+
+async function findDockerfileFallback(projectDir: string, maxDepth = 6, maxEntries = 5000) {
+  const queue: { absolute: string; relative: string; depth: number }[] = [
+    { absolute: projectDir, relative: '', depth: 0 }
+  ];
+  let visited = 0;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      break;
+    }
+    if (visited > maxEntries) {
+      break;
+    }
+
+    let entries: import('fs').Dirent[];
+    try {
+      entries = await fs.readdir(current.absolute, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      visited += 1;
+      if (visited > maxEntries) {
+        break;
+      }
+      const relative = current.relative ? `${current.relative}/${entry.name}` : entry.name;
+      const absolute = path.join(current.absolute, entry.name);
+      if (entry.isDirectory()) {
+        if (current.depth >= maxDepth) {
+          continue;
+        }
+        if (shouldSkipDirectory(entry.name)) {
+          continue;
+        }
+        queue.push({ absolute, relative, depth: current.depth + 1 });
+        continue;
+      }
+      if (entry.isFile() || entry.isSymbolicLink()) {
+        if (isDockerfileFileName(entry.name)) {
+          return toRelativePosix(projectDir, absolute);
+        }
+      }
     }
   }
 
   return null;
+}
+
+async function detectDockerfilePath(projectDir: string, preferredPath?: string) {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  const pushCandidate = (value?: string | null) => {
+    const normalized = normalizeDockerfileCandidate(value ?? null);
+    if (!normalized) {
+      return;
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      candidates.push(normalized);
+    }
+  };
+
+  pushCandidate(preferredPath);
+  ['Dockerfile', 'docker/Dockerfile', 'deploy/Dockerfile', 'ops/Dockerfile', 'Dockerfile.prod', 'Dockerfile.release', 'Containerfile'].forEach((candidate) =>
+    pushCandidate(candidate)
+  );
+
+  for (const candidate of candidates) {
+    const absolute = path.resolve(projectDir, candidate);
+    const relative = path.relative(projectDir, absolute);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      continue;
+    }
+    if (await fileExists(absolute)) {
+      return toRelativePosix(projectDir, absolute);
+    }
+  }
+
+  return findDockerfileFallback(projectDir);
 }
 
 async function detectTagsFromDockerfile(projectDir: string, relativePath: string | null) {
