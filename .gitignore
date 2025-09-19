@@ -10,6 +10,9 @@ yarn-error.log*
 # Service specific
 services/catalog/data/*.db
 services/catalog/data/*.db-*
+services/catalog/tests/fixtures/*.db
+services/data/*.db
+services/data/*.db-*
 services/catalog/dist/
 
 # Frontend build outputs
