@@ -90,27 +90,29 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
             onApplyFacet={handlers.applyTagFacet}
           />
         )}
-        <AppGrid
-          apps={apps}
-          activeTokens={activeTokens}
-          highlightEnabled={highlightEnabled}
-          retryingId={retryingId}
-          onRetry={handlers.retryIngestion}
-          historyState={historyState}
-          onToggleHistory={handlers.toggleHistory}
-          buildState={buildState}
-          onToggleBuilds={handlers.toggleBuilds}
-          onLoadMoreBuilds={handlers.loadMoreBuilds}
-          onToggleLogs={handlers.toggleLogs}
-          onRetryBuild={handlers.retryBuild}
-          launchLists={launchLists}
-          onToggleLaunches={handlers.toggleLaunches}
-          onLaunch={handlers.launchApp}
-          onStopLaunch={handlers.stopLaunch}
-          launchingId={launchingId}
-          stoppingLaunchId={stoppingLaunchId}
-          launchErrors={launchErrors}
-        />
+        <div className="channel-feed">
+          <AppGrid
+            apps={apps}
+            activeTokens={activeTokens}
+            highlightEnabled={highlightEnabled}
+            retryingId={retryingId}
+            onRetry={handlers.retryIngestion}
+            historyState={historyState}
+            onToggleHistory={handlers.toggleHistory}
+            buildState={buildState}
+            onToggleBuilds={handlers.toggleBuilds}
+            onLoadMoreBuilds={handlers.loadMoreBuilds}
+            onToggleLogs={handlers.toggleLogs}
+            onRetryBuild={handlers.retryBuild}
+            launchLists={launchLists}
+            onToggleLaunches={handlers.toggleLaunches}
+            onLaunch={handlers.launchApp}
+            onStopLaunch={handlers.stopLaunch}
+            launchingId={launchingId}
+            stoppingLaunchId={stoppingLaunchId}
+            launchErrors={launchErrors}
+          />
+        </div>
       </section>
     </>
   );

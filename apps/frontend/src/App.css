@@ -424,8 +424,21 @@ main {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 1.75rem;
+}
+
+.channel-feed {
+  margin-top: 1.5rem;
+  padding: 1.5rem 1.25rem 1.25rem;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.05) 0%, rgba(15, 23, 42, 0.12) 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.channel-feed .grid {
+  gap: 2rem;
 }
 
 .app-card {
@@ -436,6 +449,126 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+.preview-stage {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.28), rgba(15, 23, 42, 0.85));
+  margin-bottom: 1.1rem;
+}
+
+.preview-stage video,
+.preview-stage img,
+.preview-stage iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border: none;
+  background: transparent;
+}
+
+.preview-stage iframe {
+  background: #0f172a;
+}
+
+.preview-stage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #e2e8f0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+.preview-placeholder-initial {
+  font-size: 2.6rem;
+  font-weight: 700;
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.preview-placeholder-copy {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.preview-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.82) 100%);
+  color: #e2e8f0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.preview-overlay-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.preview-overlay-kind {
+  background: rgba(226, 232, 240, 0.18);
+  color: #f8fafc;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+
+.preview-overlay-source {
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.preview-overlay-body h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.preview-overlay-body p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.preview-controls {
+  position: absolute;
+  display: flex;
+  gap: 0.4rem;
+  right: 0.9rem;
+  bottom: 0.75rem;
+}
+
+.preview-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(148, 163, 184, 0.4);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.preview-dot-active,
+.preview-dot:hover {
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.preview-dot:focus-visible {
+  outline: 2px solid rgba(248, 250, 252, 0.95);
+  outline-offset: 2px;
 }
 
 .app-card-header {

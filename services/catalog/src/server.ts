@@ -231,7 +231,8 @@ function serializeRepository(record: RepositoryRecordWithRelevance) {
     ingestError,
     ingestAttempts,
     latestBuild,
-    latestLaunch
+    latestLaunch,
+    previewTiles
   } = record;
   return {
     id,
@@ -246,6 +247,19 @@ function serializeRepository(record: RepositoryRecordWithRelevance) {
     ingestAttempts,
     latestBuild: serializeBuild(latestBuild),
     latestLaunch: serializeLaunch(latestLaunch),
+    previewTiles: previewTiles.map((tile) => ({
+      id: tile.id,
+      kind: tile.kind,
+      title: tile.title,
+      description: tile.description,
+      src: tile.src,
+      embedUrl: tile.embedUrl,
+      posterUrl: tile.posterUrl,
+      width: tile.width,
+      height: tile.height,
+      sortOrder: tile.sortOrder,
+      source: tile.source
+    })),
     relevance: record.relevance ?? null
   };
 }

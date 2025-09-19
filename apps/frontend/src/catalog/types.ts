@@ -42,6 +42,22 @@ export type LaunchSummary = {
   port: number | null;
 };
 
+export type PreviewTileKind = 'gif' | 'image' | 'video' | 'storybook' | 'embed';
+
+export type PreviewTile = {
+  id: number;
+  kind: PreviewTileKind;
+  title: string | null;
+  description: string | null;
+  src: string | null;
+  embedUrl: string | null;
+  posterUrl: string | null;
+  width: number | null;
+  height: number | null;
+  sortOrder: number;
+  source: string;
+};
+
 export type BuildListMeta = {
   total: number;
   count: number;
@@ -87,6 +103,7 @@ export type AppRecord = {
   latestBuild: BuildSummary | null;
   latestLaunch: LaunchSummary | null;
   relevance: RelevanceSummary | null;
+  previewTiles: PreviewTile[];
 };
 
 export type RelevanceComponent = {

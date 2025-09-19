@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../constants';
 import {
   formatBytes,
@@ -66,6 +67,113 @@ function TagList({ tags, activeTokens, highlightEnabled }: { tags: TagKV[]; acti
           </span>
         );
       })}
+    </div>
+  );
+}
+
+function PreviewMedia({ tile }: { tile: AppRecord['previewTiles'][number] }) {
+  if ((tile.kind === 'image' || tile.kind === 'gif') && tile.src) {
+    return <img src={tile.src} alt={tile.title ?? 'Application preview frame'} loading="lazy" />;
+  }
+  if (tile.kind === 'video' && tile.src) {
+    return (
+      <video
+        muted
+        autoPlay
+        loop
+        playsInline
+        poster={tile.posterUrl ?? undefined}
+        src={tile.src}
+      >
+        Your browser does not support the video tag.
+      </video>
+    );
+  }
+  if ((tile.kind === 'storybook' || tile.kind === 'embed') && tile.embedUrl) {
+    return (
+      <iframe
+        src={tile.embedUrl}
+        title={tile.title ?? 'Interactive preview'}
+        loading="lazy"
+        allow="autoplay; fullscreen"
+        sandbox="allow-scripts allow-same-origin allow-popups"
+      />
+    );
+  }
+  if (tile.src) {
+    return <img src={tile.src} alt={tile.title ?? 'Preview still'} loading="lazy" />;
+  }
+  return null;
+}
+
+function ChannelPreview({ tiles, appName }: { tiles: AppRecord['previewTiles']; appName: string }) {
+  const usableTiles = useMemo(
+    () => tiles.filter((tile) => Boolean(tile.src || tile.embedUrl)),
+    [tiles]
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [usableTiles.length]);
+
+  useEffect(() => {
+    if (usableTiles.length <= 1) {
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (mediaQuery.matches) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % usableTiles.length);
+    }, 7000);
+    return () => window.clearInterval(interval);
+  }, [usableTiles]);
+
+  if (usableTiles.length === 0) {
+    const initial = appName.trim().slice(0, 1).toUpperCase() || 'A';
+    return (
+      <div className="preview-stage preview-stage-empty">
+        <span className="preview-placeholder-initial">{initial}</span>
+        <span className="preview-placeholder-copy">Live preview pending</span>
+      </div>
+    );
+  }
+
+  const activeTile = usableTiles[Math.min(activeIndex, usableTiles.length - 1)];
+
+  return (
+    <div className="preview-stage">
+      <PreviewMedia tile={activeTile} />
+      <div className="preview-overlay">
+        <div className="preview-overlay-head">
+          <span className="preview-overlay-kind">{activeTile.kind}</span>
+          {activeTile.source && <span className="preview-overlay-source">{activeTile.source.replace('ingestion:', '')}</span>}
+        </div>
+        {(activeTile.title || activeTile.description) && (
+          <div className="preview-overlay-body">
+            {activeTile.title && <h3>{activeTile.title}</h3>}
+            {activeTile.description && <p>{activeTile.description}</p>}
+          </div>
+        )}
+      </div>
+      {usableTiles.length > 1 && (
+        <div className="preview-controls">
+          {usableTiles.map((tile, index) => (
+            <button
+              key={tile.id ?? `${tile.kind}-${index}`}
+              type="button"
+              className={`preview-dot${activeIndex === index ? ' preview-dot-active' : ''}`}
+              onClick={() => setActiveIndex(index)}
+              aria-label={`Show preview ${index + 1}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -431,6 +539,7 @@ function AppCard({
 
   return (
     <article className="app-card">
+      <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} />
       <div className="app-card-header">
         <h2>{highlightSegments(app.name, activeTokens, highlightEnabled)}</h2>
         <div className="app-card-meta">
