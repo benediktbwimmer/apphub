@@ -188,6 +188,27 @@ const buildLogsQuerySchema = z.object({
     .default(false)
 });
 
+const buildTriggerSchema = z.object({
+  branch: z
+    .preprocess((val) => {
+      if (typeof val !== 'string') {
+        return undefined;
+      }
+      const trimmed = val.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }, z.string().min(1).max(200))
+    .optional(),
+  ref: z
+    .preprocess((val) => {
+      if (typeof val !== 'string') {
+        return undefined;
+      }
+      const trimmed = val.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }, z.string().min(1).max(200))
+    .optional()
+});
+
 function toTagFilters(tokens: string[] = []): TagKV[] {
   const filters: TagKV[] = [];
   for (const token of tokens) {
@@ -353,6 +374,8 @@ function serializeBuild(build: BuildRecord | null) {
     imageTag: build.imageTag,
     errorMessage: build.errorMessage,
     commitSha: build.commitSha,
+    gitBranch: build.gitBranch,
+    gitRef: build.gitRef,
     createdAt: build.createdAt,
     updatedAt: build.updatedAt,
     startedAt: build.startedAt,
@@ -632,6 +655,53 @@ export async function buildServer() {
     };
   });
 
+  app.post('/apps/:id/builds', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    const parseBody = buildTriggerSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const branch = parseBody.data.branch ?? null;
+    const gitRef = parseBody.data.ref ?? null;
+
+    const newBuild = createBuild(repository.id, {
+      gitBranch: branch,
+      gitRef
+    });
+
+    try {
+      if (isInlineQueueMode()) {
+        await runBuildJob(newBuild.id);
+      } else {
+        await enqueueBuildJob(newBuild.id, repository.id);
+      }
+    } catch (err) {
+      request.log.error({ err }, 'Failed to enqueue build');
+      reply.status(502);
+      const message = `Failed to enqueue build: ${(err as Error).message ?? 'unknown error'}`;
+      return { error: message, data: serializeBuild(newBuild) };
+    }
+
+    const persisted = getBuildById(newBuild.id) ?? newBuild;
+
+    reply.status(202);
+    return { data: serializeBuild(persisted) };
+  });
+
   app.get('/apps/:id/launches', async (request, reply) => {
     const paramsSchema = z.object({ id: z.string().min(1) });
     const parseParams = paramsSchema.safeParse(request.params);
@@ -892,7 +962,11 @@ export async function buildServer() {
       return { error: 'repository missing for build' };
     }
 
-    const newBuild = createBuild(repository.id, { commitSha: existing.commitSha });
+    const newBuild = createBuild(repository.id, {
+      commitSha: existing.commitSha,
+      gitBranch: existing.gitBranch,
+      gitRef: existing.gitRef
+    });
 
     try {
       if (isInlineQueueMode()) {

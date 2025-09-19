@@ -20,6 +20,7 @@ type AppGridProps = {
   onLoadMoreBuilds: (id: string) => void;
   onToggleLogs: (appId: string, buildId: string) => void;
   onRetryBuild: (appId: string, buildId: string) => void;
+  onTriggerBuild: (appId: string, options: { branch?: string; ref?: string }) => Promise<boolean>;
   launchLists: LaunchListState;
   onToggleLaunches: (id: string) => void;
   onLaunch: (id: string, draft: LaunchRequestDraft) => void;
@@ -42,6 +43,7 @@ function AppGrid({
   onLoadMoreBuilds,
   onToggleLogs,
   onRetryBuild,
+  onTriggerBuild,
   launchLists,
   onToggleLaunches,
   onLaunch,
@@ -67,6 +69,7 @@ function AppGrid({
           onLoadMoreBuilds={onLoadMoreBuilds}
           onToggleLogs={onToggleLogs}
           onRetryBuild={onRetryBuild}
+          onTriggerBuild={onTriggerBuild}
           launchEntry={launchLists[app.id]}
           onToggleLaunches={onToggleLaunches}
           onLaunch={onLaunch}

@@ -34,7 +34,9 @@ function createDefaultBuildTimelineState(): BuildTimelineState {
     builds: [],
     meta: null,
     logs: {},
-    retrying: {}
+    retrying: {},
+    creating: false,
+    createError: null
   };
 }
 
@@ -83,6 +85,7 @@ export type UseCatalogResult = {
     loadMoreBuilds: (id: string) => Promise<void>;
     toggleLogs: (appId: string, buildId: string) => Promise<void>;
     retryBuild: (appId: string, buildId: string) => Promise<void>;
+    triggerBuild: (appId: string, options: { branch?: string; ref?: string }) => Promise<boolean>;
     toggleLaunches: (id: string) => Promise<void>;
     launchApp: (id: string, draft: LaunchRequestDraft) => Promise<void>;
   stopLaunch: (appId: string, launchId: string) => Promise<void>;
@@ -739,6 +742,78 @@ export function useCatalog(): UseCatalogResult {
         };
       });
     },
+      [fetchBuilds]
+  );
+
+  const triggerBuild = useCallback(
+    async (appId: string, options: { branch?: string; ref?: string } = {}) => {
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            creating: true,
+            createError: null
+          }
+        };
+      });
+
+      try {
+        const body: Record<string, string> = {};
+        if (options.branch) {
+          body.branch = options.branch;
+        }
+        if (options.ref) {
+          body.ref = options.ref;
+        }
+        const response = await fetch(`${API_BASE_URL}/apps/${appId}/builds`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.error ?? `Failed to trigger build (${response.status})`);
+        }
+
+        const newBuild = payload?.data as BuildSummary | undefined;
+        if (newBuild) {
+          setApps((prev) =>
+            prev.map((app) => (app.id === appId ? { ...app, latestBuild: newBuild } : app))
+          );
+        }
+
+        await fetchBuilds(appId);
+
+        setBuildState((prev) => {
+          const current = prev[appId] ?? createDefaultBuildTimelineState();
+          return {
+            ...prev,
+            [appId]: {
+              ...current,
+              creating: false,
+              createError: null
+            }
+          };
+        });
+
+        return true;
+      } catch (err) {
+        setBuildState((prev) => {
+          const current = prev[appId] ?? createDefaultBuildTimelineState();
+          return {
+            ...prev,
+            [appId]: {
+              ...current,
+              creating: false,
+              createError: formatFetchError(err, 'Failed to trigger build', API_BASE_URL)
+            }
+          };
+        });
+        return false;
+      }
+    },
     [fetchBuilds]
   );
 
@@ -1217,6 +1292,7 @@ export function useCatalog(): UseCatalogResult {
       loadMoreBuilds,
       toggleLogs,
       retryBuild,
+      triggerBuild,
       toggleLaunches,
       launchApp,
       stopLaunch

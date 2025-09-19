@@ -20,6 +20,8 @@ export type BuildRecord = {
   imageTag: string | null;
   errorMessage: string | null;
   commitSha: string | null;
+  gitBranch: string | null;
+  gitRef: string | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -258,6 +260,8 @@ db.exec(`
     image_tag TEXT,
     error_message TEXT,
     commit_sha TEXT,
+    branch TEXT,
+    git_ref TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     started_at TEXT,
@@ -367,6 +371,8 @@ ensureColumn(
 );
 ensureColumn('launches', 'env_vars', 'ALTER TABLE launches ADD COLUMN env_vars TEXT');
 ensureColumn('launches', 'command', 'ALTER TABLE launches ADD COLUMN command TEXT');
+ensureColumn('builds', 'branch', 'ALTER TABLE builds ADD COLUMN branch TEXT');
+ensureColumn('builds', 'git_ref', 'ALTER TABLE builds ADD COLUMN git_ref TEXT');
 
 type RepositoryRow = {
   id: string;
@@ -422,6 +428,8 @@ type BuildRow = {
   image_tag: string | null;
   error_message: string | null;
   commit_sha: string | null;
+  branch: string | null;
+  git_ref: string | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -602,6 +610,8 @@ const insertBuildStatement = db.prepare(
      image_tag,
      error_message,
      commit_sha,
+     branch,
+     git_ref,
      created_at,
      updated_at,
      started_at,
@@ -615,6 +625,8 @@ const insertBuildStatement = db.prepare(
      @imageTag,
      @errorMessage,
      @commitSha,
+    @gitBranch,
+    @gitRef,
      @createdAt,
      @updatedAt,
      @startedAt,
@@ -630,6 +642,8 @@ const updateBuildStatement = db.prepare(
        image_tag = COALESCE(@imageTag, image_tag),
        error_message = COALESCE(@errorMessage, error_message),
        commit_sha = COALESCE(@commitSha, commit_sha),
+       branch = COALESCE(@gitBranch, branch),
+       git_ref = COALESCE(@gitRef, git_ref),
        updated_at = COALESCE(@updatedAt, updated_at),
        started_at = COALESCE(@startedAt, started_at),
        completed_at = COALESCE(@completedAt, completed_at),
@@ -790,6 +804,8 @@ function rowToBuild(row: BuildRow): BuildRecord {
     imageTag: row.image_tag,
     errorMessage: row.error_message && row.error_message.length > 0 ? row.error_message : null,
     commitSha: row.commit_sha,
+    gitBranch: row.branch,
+    gitRef: row.git_ref,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,
@@ -1256,8 +1272,13 @@ export function countBuildsForRepository(repositoryId: string): number {
   return row?.count ?? 0;
 }
 
-export function createBuild(repositoryId: string, options: { commitSha?: string | null } = {}): BuildRecord {
+export function createBuild(
+  repositoryId: string,
+  options: { commitSha?: string | null; gitBranch?: string | null; gitRef?: string | null } = {}
+): BuildRecord {
   const now = new Date().toISOString();
+  const gitBranch = options.gitBranch?.trim() ?? null;
+  const gitRef = options.gitRef?.trim() ?? null;
   const build = {
     id: randomUUID(),
     repositoryId,
@@ -1266,6 +1287,8 @@ export function createBuild(repositoryId: string, options: { commitSha?: string 
     imageTag: null,
     errorMessage: null,
     commitSha: options.commitSha ?? null,
+    gitBranch,
+    gitRef,
     createdAt: now,
     updatedAt: now,
     startedAt: null as string | null,
@@ -1281,6 +1304,8 @@ export function createBuild(repositoryId: string, options: { commitSha?: string 
     imageTag: build.imageTag,
     errorMessage: build.errorMessage,
     commitSha: build.commitSha,
+    gitBranch: build.gitBranch,
+    gitRef: build.gitRef,
     createdAt: build.createdAt,
     updatedAt: build.updatedAt,
     startedAt: build.startedAt,
@@ -1357,6 +1382,8 @@ export function completeBuild(
     imageTag?: string | null;
     errorMessage?: string | null;
     commitSha?: string | null;
+    gitBranch?: string | null;
+    gitRef?: string | null;
     completedAt?: string;
     durationMs?: number | null;
   } = {}
@@ -1375,6 +1402,8 @@ export function completeBuild(
     imageTag: extra.imageTag ?? undefined,
     errorMessage: extra.errorMessage ?? undefined,
     commitSha: extra.commitSha ?? undefined,
+    gitBranch: extra.gitBranch ?? undefined,
+    gitRef: extra.gitRef ?? undefined,
     updatedAt: completedAt,
     startedAt: undefined,
     completedAt,

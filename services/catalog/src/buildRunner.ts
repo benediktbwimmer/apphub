@@ -95,21 +95,44 @@ export async function runBuildJob(buildId: string) {
   const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-build-'));
   let combinedLogs = pending.logs ?? '';
 
+  let resolvedCommitSha: string | null = pending.commitSha ?? null;
+
   try {
     const startLine = `Starting build for ${repository.id}...\n`;
     appendBuildLog(buildId, startLine);
     combinedLogs += startLine;
 
-    log('Cloning repository for build', { buildId, repositoryId: repository.id });
-    await git.clone(repository.repoUrl, workingDir, ['--depth', BUILD_CLONE_DEPTH, '--single-branch']);
+    const cloneArgs = ['--depth', BUILD_CLONE_DEPTH];
+    if (pending.gitBranch) {
+      cloneArgs.push('--branch', pending.gitBranch);
+    }
+    cloneArgs.push('--single-branch');
+    log('Cloning repository for build', {
+      buildId,
+      repositoryId: repository.id,
+      branch: pending.gitBranch ?? undefined
+    });
+    await git.clone(repository.repoUrl, workingDir, cloneArgs);
 
-    if (pending.commitSha) {
+    const repoGit = simpleGit(workingDir);
+    const checkoutTarget = pending.gitRef ?? pending.commitSha;
+    if (checkoutTarget) {
       try {
-        await simpleGit(workingDir).checkout(pending.commitSha);
+        await repoGit.checkout(checkoutTarget);
       } catch (err) {
-        const message = (err as Error).message ?? 'failed to checkout commit';
+        const message = (err as Error).message ?? 'failed to checkout reference';
         combinedLogs += `Checkout warning: ${message}\n`;
       }
+    }
+
+    try {
+      const headSha = await repoGit.revparse(['HEAD']);
+      if (headSha) {
+        resolvedCommitSha = headSha.trim();
+      }
+    } catch (err) {
+      const message = (err as Error).message ?? 'failed to resolve HEAD commit';
+      combinedLogs += `Commit resolution warning: ${message}\n`;
     }
 
     const dockerfilePath = path.join(workingDir, repository.dockerfilePath);
@@ -118,12 +141,15 @@ export async function runBuildJob(buildId: string) {
       combinedLogs += `${message}\n`;
       completeBuild(buildId, 'failed', {
         logs: combinedLogs,
-        errorMessage: message
+        errorMessage: message,
+        commitSha: resolvedCommitSha,
+        gitBranch: pending.gitBranch,
+        gitRef: pending.gitRef
       });
       return;
     }
 
-    const imageTag = buildImageTag(repository.id, pending.commitSha);
+    const imageTag = buildImageTag(repository.id, resolvedCommitSha);
     const args = ['build', '-f', dockerfilePath, '-t', imageTag, workingDir];
     log('Running docker build', { buildId, imageTag });
     const commandLine = `$ docker ${args.join(' ')}\n`;
@@ -140,7 +166,10 @@ export async function runBuildJob(buildId: string) {
       completeBuild(buildId, 'succeeded', {
         logs: combinedLogs,
         imageTag,
-        errorMessage: ''
+        errorMessage: '',
+        commitSha: resolvedCommitSha,
+        gitBranch: pending.gitBranch,
+        gitRef: pending.gitRef
       });
       log('Build succeeded', { buildId, imageTag });
     } else {
@@ -148,17 +177,23 @@ export async function runBuildJob(buildId: string) {
       combinedLogs += `${message}\n`;
       completeBuild(buildId, 'failed', {
         logs: combinedLogs,
-        errorMessage: message
+        errorMessage: message,
+        commitSha: resolvedCommitSha,
+        gitBranch: pending.gitBranch,
+        gitRef: pending.gitRef
       });
       log('Build failed', { buildId, exitCode });
     }
   } catch (err) {
     const message = (err as Error).message ?? 'unknown build error';
     combinedLogs += `Unexpected error: ${message}\n`;
-    completeBuild(buildId, 'failed', {
-      logs: combinedLogs,
-      errorMessage: message
-    });
+      completeBuild(buildId, 'failed', {
+        logs: combinedLogs,
+        errorMessage: message,
+        commitSha: resolvedCommitSha,
+        gitBranch: pending.gitBranch,
+        gitRef: pending.gitRef
+      });
     log('Build crashed', { buildId, error: message });
   } finally {
     await fs.rm(workingDir, { recursive: true, force: true }).catch(() => undefined);
