@@ -163,7 +163,16 @@ function PreviewMedia({ tile }: { tile: AppRecord['previewTiles'][number] }) {
   return null;
 }
 
-function ChannelPreview({ tiles, appName }: { tiles: AppRecord['previewTiles']; appName: string }) {
+function ChannelPreview({
+  tiles,
+  appName,
+  launch
+}: {
+  tiles: AppRecord['previewTiles'];
+  appName: string;
+  launch: AppRecord['latestLaunch'];
+}) {
+  const livePreviewUrl = launch?.status === 'running' && launch.instanceUrl ? launch.instanceUrl : null;
   const usableTiles = useMemo(
     () => tiles.filter((tile) => Boolean(tile.src || tile.embedUrl)),
     [tiles]
@@ -171,10 +180,16 @@ function ChannelPreview({ tiles, appName }: { tiles: AppRecord['previewTiles']; 
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
+    if (livePreviewUrl) {
+      return;
+    }
     setActiveIndex(0);
-  }, [usableTiles.length]);
+  }, [usableTiles.length, livePreviewUrl]);
 
   useEffect(() => {
+    if (livePreviewUrl) {
+      return;
+    }
     if (usableTiles.length <= 1) {
       return;
     }
@@ -189,7 +204,25 @@ function ChannelPreview({ tiles, appName }: { tiles: AppRecord['previewTiles']; 
       setActiveIndex((prev) => (prev + 1) % usableTiles.length);
     }, 7000);
     return () => window.clearInterval(interval);
-  }, [usableTiles]);
+  }, [usableTiles, livePreviewUrl]);
+
+  if (livePreviewUrl) {
+    return (
+      <div className="relative aspect-video overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50">
+        <iframe
+          src={livePreviewUrl}
+          title={`${appName} live preview`}
+          className="h-full w-full border-0 bg-white"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+        <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-100 shadow-lg">
+          Live preview
+        </div>
+      </div>
+    );
+  }
 
   if (usableTiles.length === 0) {
     const initial = appName.trim().slice(0, 1).toUpperCase() || 'A';
@@ -708,7 +741,7 @@ function AppCard({
 
   return (
     <article className="flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-      <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} />
+      <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} launch={app.latestLaunch} />
       <div className="flex flex-col gap-3">
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           {highlightSegments(app.name, activeTokens, highlightEnabled)}
