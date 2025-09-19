@@ -11,6 +11,10 @@ import {
   ALL_INGEST_STATUSES,
   type BuildRecord,
   type RepositoryRecord,
+  type RepositoryRecordWithRelevance,
+  type RepositorySearchMeta,
+  type RepositorySort,
+  type RelevanceWeights,
   type TagKV,
   type IngestStatus
 } from './db';
@@ -22,6 +26,8 @@ type SearchQuery = {
   status?: string[];
   ingestedAfter?: string;
   ingestedBefore?: string;
+  sort?: RepositorySort;
+  relevance?: string;
 };
 
 const tagQuerySchema = z
@@ -64,6 +70,12 @@ const searchQuerySchema = z.object({
     .optional(),
   ingestedBefore: z
     .preprocess((val) => (typeof val === 'string' ? val : undefined), isoDateSchema)
+    .optional(),
+  sort: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), z.enum(['relevance', 'updated', 'name']))
+    .optional(),
+  relevance: z
+    .preprocess((val) => (typeof val === 'string' ? val : undefined), z.string().trim())
     .optional()
 });
 
@@ -151,7 +163,7 @@ function normalizeIngestedBefore(raw?: string) {
   return date.toISOString();
 }
 
-function serializeRepository(record: RepositoryRecord) {
+function serializeRepository(record: RepositoryRecordWithRelevance) {
   const {
     id,
     name,
@@ -176,8 +188,37 @@ function serializeRepository(record: RepositoryRecord) {
     ingestStatus,
     ingestError,
     ingestAttempts,
-    latestBuild: serializeBuild(latestBuild)
+    latestBuild: serializeBuild(latestBuild),
+    relevance: record.relevance ?? null
   };
+}
+
+function parseRelevanceWeights(raw?: string): Partial<RelevanceWeights> | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const parts = raw
+    .split(',')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return undefined;
+  }
+  const weights: Partial<RelevanceWeights> = {};
+  for (const part of parts) {
+    const [key, value] = part.split(':').map((piece) => piece.trim());
+    if (!key || value === undefined) {
+      continue;
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      continue;
+    }
+    if (key === 'name' || key === 'description' || key === 'tags') {
+      weights[key] = numeric;
+    }
+  }
+  return Object.keys(weights).length > 0 ? weights : undefined;
 }
 
 function serializeBuild(build: BuildRecord | null) {
@@ -238,18 +279,23 @@ async function buildServer() {
       }
     }
 
+    const relevanceWeights = parseRelevanceWeights(query.relevance);
+
     const searchResult = listRepositories({
       text: query.q,
       tags,
       statuses: statuses.length > 0 ? statuses : undefined,
       ingestedAfter,
-      ingestedBefore
+      ingestedBefore,
+      sort: query.sort,
+      relevanceWeights
     });
 
     return {
       data: searchResult.records.map(serializeRepository),
       facets: searchResult.facets,
-      total: searchResult.total
+      total: searchResult.total,
+      meta: searchResult.meta satisfies RepositorySearchMeta
     };
   });
 

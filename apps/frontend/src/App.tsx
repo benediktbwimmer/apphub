@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
+import { Fragment, useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
 import './App.css';
 import SubmitApp from './SubmitApp';
 
@@ -34,6 +34,23 @@ type AppRecord = {
   ingestError: string | null;
   ingestAttempts: number;
   latestBuild: BuildSummary | null;
+  relevance: RelevanceSummary | null;
+};
+
+type RelevanceComponent = {
+  hits: number;
+  weight: number;
+  score: number;
+};
+
+type RelevanceSummary = {
+  score: number;
+  normalizedScore: number;
+  components: {
+    name: RelevanceComponent;
+    description: RelevanceComponent;
+    tags: RelevanceComponent;
+  };
 };
 
 type TagSuggestion = {
@@ -54,6 +71,16 @@ type StatusFacet = {
 };
 
 const INGEST_STATUSES: AppRecord['ingestStatus'][] = ['seed', 'pending', 'processing', 'ready', 'failed'];
+
+type SearchMeta = {
+  tokens: string[];
+  sort: 'relevance' | 'updated' | 'name';
+  weights: {
+    name: number;
+    description: number;
+    tags: number;
+  };
+};
 
 type IngestionEvent = {
   id: number;
@@ -113,6 +140,37 @@ function computeAutocompleteContext(input: string) {
   return { base: basePart, activeToken: token };
 }
 
+function escapeRegexToken(token: string) {
+  return token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightSegments(text: string, tokens: string[], enabled: boolean) {
+  if (!enabled || tokens.length === 0) {
+    return text;
+  }
+  const escaped = tokens.map(escapeRegexToken).filter(Boolean);
+  if (escaped.length === 0) {
+    return text;
+  }
+  const regex = new RegExp(`(${escaped.join('|')})`, 'gi');
+  const segments = text.split(regex);
+  const tokenSet = new Set(tokens.map((token) => token.toLowerCase()));
+  return segments.map((segment, index) => {
+    if (!segment) {
+      return null;
+    }
+    const lower = segment.toLowerCase();
+    if (tokenSet.has(lower)) {
+      return (
+        <mark key={`match-${index}`}>{segment}</mark>
+      );
+    }
+    return (
+      <Fragment key={`text-${index}`}>{segment}</Fragment>
+    );
+  });
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<'catalog' | 'submit'>('catalog');
   const [inputValue, setInputValue] = useState('');
@@ -130,6 +188,12 @@ function App() {
   const [statusFacets, setStatusFacets] = useState<StatusFacet[]>(() =>
     INGEST_STATUSES.map((status) => ({ status, count: 0 }))
   );
+  const [ownerFacets, setOwnerFacets] = useState<TagFacet[]>([]);
+  const [frameworkFacets, setFrameworkFacets] = useState<TagFacet[]>([]);
+  const [searchMeta, setSearchMeta] = useState<SearchMeta | null>(null);
+  const [sortMode, setSortMode] = useState<SearchMeta['sort']>('relevance');
+  const [sortManuallySet, setSortManuallySet] = useState(false);
+  const [showHighlights, setShowHighlights] = useState(false);
 
   const autocompleteContext = useMemo(() => computeAutocompleteContext(inputValue), [inputValue]);
   const parsedQuery = useMemo(() => parseSearchInput(inputValue), [inputValue]);
@@ -139,9 +203,28 @@ function App() {
   );
   const searchSignature = useMemo(
     () =>
-      [parsedQuery.text, parsedQuery.tags.join(','), statusSignature, ingestedAfter, ingestedBefore].join('|'),
-    [parsedQuery.text, parsedQuery.tags, statusSignature, ingestedAfter, ingestedBefore]
+      [
+        parsedQuery.text,
+        parsedQuery.tags.join(','),
+        statusSignature,
+        ingestedAfter,
+        ingestedBefore,
+        sortMode
+      ].join('|'),
+    [parsedQuery.text, parsedQuery.tags, statusSignature, ingestedAfter, ingestedBefore, sortMode]
   );
+
+  useEffect(() => {
+    if (!parsedQuery.text) {
+      setSortManuallySet(false);
+    }
+    if (parsedQuery.text && !sortManuallySet && sortMode !== 'relevance') {
+      setSortMode('relevance');
+    }
+    if (!parsedQuery.text && !sortManuallySet && sortMode !== 'updated') {
+      setSortMode('updated');
+    }
+  }, [parsedQuery.text, sortMode, sortManuallySet]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -165,6 +248,7 @@ function App() {
         if (ingestedBefore) {
           params.set('ingestedBefore', ingestedBefore);
         }
+        params.set('sort', sortMode);
         const response = await fetch(`${API_BASE_URL}/apps?${params.toString()}`, {
           signal: controller.signal
         });
@@ -182,6 +266,13 @@ function App() {
             count: counts.get(status) ?? 0
           }));
         });
+        setOwnerFacets(payload.facets?.owners ?? []);
+        setFrameworkFacets(payload.facets?.frameworks ?? []);
+        setSearchMeta(payload.meta ?? null);
+        if (payload.meta?.sort && payload.meta.sort !== sortMode) {
+          setSortMode(payload.meta.sort);
+          setSortManuallySet(false);
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           return;
@@ -196,7 +287,7 @@ function App() {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [searchSignature, parsedQuery, statusFilters, ingestedAfter, ingestedBefore]);
+  }, [searchSignature, parsedQuery, statusFilters, ingestedAfter, ingestedBefore, sortMode]);
 
   useEffect(() => {
     const { activeToken } = autocompleteContext;
@@ -240,6 +331,12 @@ function App() {
       setHighlightIndex((current) => Math.min(current, suggestions.length - 1));
     }
   }, [suggestions]);
+
+  const activeTokens = useMemo(() => searchMeta?.tokens ?? [], [searchMeta]);
+  const highlightEnabled = showHighlights && activeTokens.length > 0;
+  const formatScore = (value: number) => value.toFixed(2);
+  const formatNormalizedScore = (value: number) => value.toFixed(3);
+  const formatWeight = (value: number) => value.toFixed(1);
 
   const applySuggestion = (suggestion: TagSuggestion) => {
     setInputValue((prev) => {
@@ -311,6 +408,11 @@ function App() {
 
   const handleClearStatusFilters = () => {
     setStatusFilters([]);
+  };
+
+  const handleSortChange = (next: SearchMeta['sort']) => {
+    setSortMode(next);
+    setSortManuallySet(true);
   };
 
   const handleRetry = async (id: string) => {
@@ -415,9 +517,9 @@ function App() {
     <div className="tag-row">
       {tags.map((tag) => (
         <span key={`${tag.key}:${tag.value}`} className="tag-chip">
-          <span className="tag-key">{tag.key}</span>
+          <span className="tag-key">{highlightSegments(tag.key, activeTokens, highlightEnabled)}</span>
           <span className="tag-separator">:</span>
-          <span>{tag.value}</span>
+          <span>{highlightSegments(tag.value, activeTokens, highlightEnabled)}</span>
         </span>
       ))}
     </div>
@@ -525,6 +627,56 @@ function App() {
                   </ul>
                 )}
               </div>
+              <div className="search-controls">
+                <div className="sort-controls">
+                  <span className="controls-label">Sort by</span>
+                  <div className="sort-options">
+                    {(
+                      [
+                        { key: 'relevance', label: 'Relevance' },
+                        { key: 'updated', label: 'Recently updated' },
+                        { key: 'name', label: 'Name A→Z' }
+                      ] as { key: SearchMeta['sort']; label: string }[]
+                    ).map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`sort-option${sortMode === option.key ? ' active' : ''}`}
+                        onClick={() => handleSortChange(option.key)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className={`highlight-toggle${activeTokens.length === 0 ? ' disabled' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={showHighlights}
+                    onChange={(event) => setShowHighlights(event.target.checked)}
+                    disabled={activeTokens.length === 0}
+                  />
+                  Highlight matches
+                </label>
+              </div>
+              {activeTokens.length > 0 && (
+                <div className="search-meta-row">
+                  <div className="token-chip-row">
+                    {activeTokens.map((token) => (
+                      <span key={token} className="token-chip">
+                        {token}
+                      </span>
+                    ))}
+                  </div>
+                  {searchMeta && (
+                    <div className="weight-chip-row">
+                      <span className="weight-chip">name × {formatWeight(searchMeta.weights.name)}</span>
+                      <span className="weight-chip">description × {formatWeight(searchMeta.weights.description)}</span>
+                      <span className="weight-chip">tags × {formatWeight(searchMeta.weights.tags)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="search-hints">
                 <span>Tab</span> accepts highlighted suggestion · <span>Esc</span> clears suggestions
               </div>
@@ -626,6 +778,56 @@ function App() {
                       </div>
                     </div>
                   )}
+                  {ownerFacets.length > 0 && (
+                    <div className="filter-group">
+                      <div className="filter-group-header">
+                        <span>Top Owners</span>
+                      </div>
+                      <div className="facet-tag-row">
+                        {ownerFacets.slice(0, 10).map((facet) => {
+                          const token = `${facet.key}:${facet.value}`;
+                          const isActive = parsedQuery.tags.includes(token);
+                          return (
+                            <button
+                              key={token}
+                              type="button"
+                              className={`tag-facet${isActive ? ' active' : ''}`}
+                              onClick={() => handleApplyTagFacet(facet)}
+                              disabled={isActive}
+                            >
+                              <span className="tag-facet-label">{token}</span>
+                              <span className="tag-facet-count">{facet.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {frameworkFacets.length > 0 && (
+                    <div className="filter-group">
+                      <div className="filter-group-header">
+                        <span>Top Frameworks</span>
+                      </div>
+                      <div className="facet-tag-row">
+                        {frameworkFacets.slice(0, 10).map((facet) => {
+                          const token = `${facet.key}:${facet.value}`;
+                          const isActive = parsedQuery.tags.includes(token);
+                          return (
+                            <button
+                              key={token}
+                              type="button"
+                              className={`tag-facet${isActive ? ' active' : ''}`}
+                              onClick={() => handleApplyTagFacet(facet)}
+                              disabled={isActive}
+                            >
+                              <span className="tag-facet-label">{token}</span>
+                              <span className="tag-facet-count">{facet.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </aside>
               )}
               <div className="grid">
@@ -637,16 +839,49 @@ function App() {
                   return (
                     <article key={app.id} className="app-card">
                       <div className="app-card-header">
-                        <h2>{app.name}</h2>
+                        <h2>{highlightSegments(app.name, activeTokens, highlightEnabled)}</h2>
                         <div className="app-card-meta">
                           <span className={`status-badge status-${app.ingestStatus}`}>{app.ingestStatus}</span>
                           <time dateTime={app.updatedAt}>Updated {new Date(app.updatedAt).toLocaleDateString()}</time>
                           <span className="attempts-pill">Attempts {app.ingestAttempts}</span>
                         </div>
+                        {app.relevance && (
+                          <div className="relevance-panel">
+                            <div className="relevance-score-row">
+                              <span className="relevance-score">
+                                Score {formatScore(app.relevance.score)}
+                              </span>
+                              <span className="relevance-score secondary">
+                                Normalized {formatNormalizedScore(app.relevance.normalizedScore)}
+                              </span>
+                            </div>
+                            <div className="relevance-breakdown">
+                              <span
+                                title={`${app.relevance.components.name.hits} name hits × ${app.relevance.components.name.weight}`}
+                              >
+                                Name {formatScore(app.relevance.components.name.score)}
+                              </span>
+                              <span
+                                title={`${app.relevance.components.description.hits} description hits × ${app.relevance.components.description.weight}`}
+                              >
+                                Description {formatScore(app.relevance.components.description.score)}
+                              </span>
+                              <span
+                                title={`${app.relevance.components.tags.hits} tag hits × ${app.relevance.components.tags.weight}`}
+                              >
+                                Tags {formatScore(app.relevance.components.tags.score)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <p className="app-description">{app.description}</p>
+                      <p className="app-description">
+                        {highlightSegments(app.description, activeTokens, highlightEnabled)}
+                      </p>
                       {app.ingestError && (
-                        <p className="ingest-error">{app.ingestError}</p>
+                        <p className="ingest-error">
+                          {highlightSegments(app.ingestError, activeTokens, highlightEnabled)}
+                        </p>
                       )}
                       {renderTags(app.tags)}
                       {renderBuildSection(app.latestBuild)}
@@ -654,7 +889,7 @@ function App() {
                         <a href={app.repoUrl} target="_blank" rel="noreferrer">
                           View repository
                         </a>
-                        <code>{app.dockerfilePath}</code>
+                        <code>{highlightSegments(app.dockerfilePath, activeTokens, highlightEnabled)}</code>
                         {app.ingestStatus === 'failed' && (
                           <button
                             type="button"

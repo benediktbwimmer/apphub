@@ -58,12 +58,22 @@ export type RepositoryInsert = {
   tags?: (TagKV & { source?: string })[];
 };
 
+export type RepositorySort = 'updated' | 'name' | 'relevance';
+
+export type RelevanceWeights = {
+  name: number;
+  description: number;
+  tags: number;
+};
+
 export type RepositorySearchParams = {
   text?: string;
   tags?: TagKV[];
   statuses?: IngestStatus[];
   ingestedAfter?: string | null;
   ingestedBefore?: string | null;
+  sort?: RepositorySort;
+  relevanceWeights?: Partial<RelevanceWeights>;
 };
 
 export type TagFacet = {
@@ -77,13 +87,42 @@ export type StatusFacet = {
   count: number;
 };
 
+export type RepositoryRelevanceComponent = {
+  hits: number;
+  score: number;
+  weight: number;
+};
+
+export type RepositoryRelevance = {
+  score: number;
+  normalizedScore: number;
+  components: {
+    name: RepositoryRelevanceComponent;
+    description: RepositoryRelevanceComponent;
+    tags: RepositoryRelevanceComponent;
+  };
+};
+
+export type RepositoryRecordWithRelevance = RepositoryRecord & {
+  relevance?: RepositoryRelevance;
+};
+
+export type RepositorySearchMeta = {
+  tokens: string[];
+  sort: RepositorySort;
+  weights: RelevanceWeights;
+};
+
 export type RepositorySearchResult = {
-  records: RepositoryRecord[];
+  records: RepositoryRecordWithRelevance[];
   total: number;
   facets: {
     tags: TagFacet[];
     statuses: StatusFacet[];
+    owners: TagFacet[];
+    frameworks: TagFacet[];
   };
+  meta: RepositorySearchMeta;
 };
 
 export type IngestionEvent = {
@@ -178,8 +217,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_builds_repo_created
     ON builds(repository_id, datetime(created_at) DESC);
 
-  CREATE INDEX IF NOT EXISTS idx_builds_status
+CREATE INDEX IF NOT EXISTS idx_builds_status
     ON builds(status);
+`);
+
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS repository_search USING fts5(
+    repository_id UNINDEXED,
+    name,
+    description,
+    repo_url,
+    tag_text,
+    tokenize = 'porter'
+  );
 `);
 
 function ensureColumn(table: string, column: string, ddl: string) {
@@ -288,6 +338,61 @@ const selectRepositoryTagsStatement = db.prepare(
 const selectRepositoriesStatement = db.prepare('SELECT * FROM repositories ORDER BY datetime(updated_at) DESC');
 
 const selectRepositoryByIdStatement = db.prepare('SELECT * FROM repositories WHERE id = ?');
+
+const insertRepositorySearchStatement = db.prepare(
+  `INSERT INTO repository_search (repository_id, name, description, repo_url, tag_text)
+   VALUES (@repositoryId, @name, @description, @repoUrl, @tagText)`
+);
+
+const deleteRepositorySearchStatement = db.prepare('DELETE FROM repository_search WHERE repository_id = ?');
+
+const countRepositorySearchStatement = db.prepare('SELECT COUNT(*) AS count FROM repository_search');
+
+function buildTagSearchText(tagRows: TagRow[]): string {
+  return tagRows
+    .map((tag) => `${tag.key}:${tag.value}`)
+    .join(' ');
+}
+
+function refreshRepositorySearchIndex(repositoryId: string) {
+  const repository = selectRepositoryByIdStatement.get(repositoryId) as RepositoryRow | undefined;
+  if (!repository) {
+    return;
+  }
+  const tagRows = selectRepositoryTagsStatement.all(repositoryId) as TagRow[];
+  const tagText = buildTagSearchText(tagRows);
+  deleteRepositorySearchStatement.run(repositoryId);
+  insertRepositorySearchStatement.run({
+    repositoryId: repository.id,
+    name: repository.name,
+    description: repository.description,
+    repoUrl: repository.repo_url,
+    tagText
+  });
+}
+
+function rebuildRepositorySearchIndex() {
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM repository_search').run();
+    const rows = db.prepare('SELECT * FROM repositories').all() as RepositoryRow[];
+    for (const row of rows) {
+      const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
+      insertRepositorySearchStatement.run({
+        repositoryId: row.id,
+        name: row.name,
+        description: row.description,
+        repoUrl: row.repo_url,
+        tagText: buildTagSearchText(tagRows)
+      });
+    }
+  });
+  transaction();
+}
+
+const searchIndexCountRow = countRepositorySearchStatement.get() as { count: number };
+if (Number(searchIndexCountRow.count) === 0) {
+  rebuildRepositorySearchIndex();
+}
 
 const insertIngestionEventStatement = db.prepare(
   `INSERT INTO ingestion_events (repository_id, status, message, attempt, commit_sha, duration_ms, created_at)
@@ -440,6 +545,8 @@ export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processi
 type WhereClauseOptions = {
   includeTags?: boolean;
   includeStatuses?: boolean;
+  includeText?: boolean;
+  tableAlias?: string;
 };
 
 function buildRepositoryWhereClause(
@@ -448,12 +555,20 @@ function buildRepositoryWhereClause(
 ) {
   const includeTags = options.includeTags ?? true;
   const includeStatuses = options.includeStatuses ?? true;
+  const includeText = options.includeText ?? true;
+  const tableAlias = options.tableAlias ?? 'repositories';
   const conditions: string[] = [];
   const substitutions: unknown[] = [];
 
-  if (params.text) {
+  if (params.text && includeText) {
     const pattern = `%${params.text.toLowerCase()}%`;
-    conditions.push('(lower(name) LIKE ? OR lower(description) LIKE ? OR lower(repo_url) LIKE ? )');
+    conditions.push(
+      `(
+        lower(${tableAlias}.name) LIKE ?
+        OR lower(${tableAlias}.description) LIKE ?
+        OR lower(${tableAlias}.repo_url) LIKE ?
+      )`
+    );
     substitutions.push(pattern, pattern, pattern);
   }
 
@@ -465,7 +580,7 @@ function buildRepositoryWhereClause(
         SELECT 1
         FROM repository_tags rt
         JOIN tags t ON t.id = rt.tag_id
-        WHERE rt.repository_id = repositories.id
+        WHERE rt.repository_id = ${tableAlias}.id
           AND lower(t.key) = ?
           AND lower(t.value) = ?
       )`);
@@ -475,22 +590,49 @@ function buildRepositoryWhereClause(
 
   if (includeStatuses && params.statuses && params.statuses.length > 0) {
     const placeholders = params.statuses.map(() => '?').join(',');
-    conditions.push(`ingest_status IN (${placeholders})`);
+    conditions.push(`${tableAlias}.ingest_status IN (${placeholders})`);
     substitutions.push(...params.statuses);
   }
 
   if (params.ingestedAfter) {
-    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) >= datetime(?)');
+    conditions.push(
+      `${tableAlias}.last_ingested_at IS NOT NULL AND datetime(${tableAlias}.last_ingested_at) >= datetime(?)`
+    );
     substitutions.push(params.ingestedAfter);
   }
 
   if (params.ingestedBefore) {
-    conditions.push('last_ingested_at IS NOT NULL AND datetime(last_ingested_at) <= datetime(?)');
+    conditions.push(
+      `${tableAlias}.last_ingested_at IS NOT NULL AND datetime(${tableAlias}.last_ingested_at) <= datetime(?)`
+    );
     substitutions.push(params.ingestedBefore);
   }
 
   const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   return { clause, substitutions };
+}
+
+function tokenizeSearchText(text?: string): string[] {
+  if (!text) {
+    return [];
+  }
+  const matches = text.toLowerCase().match(/[a-z0-9]+/g);
+  if (!matches) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+  for (const token of matches.slice(0, 12)) {
+    if (!seen.has(token)) {
+      seen.add(token);
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
+function buildFtsQuery(tokens: string[]): string {
+  return tokens.map((token) => `${token}*`).join(' AND ');
 }
 
 function rowToRepository(row: RepositoryRow): RepositoryRecord {
@@ -513,55 +655,180 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
   };
 }
 
-export function listRepositories(params: RepositorySearchParams): RepositorySearchResult {
-  const baseClause = buildRepositoryWhereClause(params);
-  const sql = `SELECT * FROM repositories ${baseClause.clause} ORDER BY datetime(updated_at) DESC`;
-  const rows = db.prepare(sql).all(...baseClause.substitutions) as RepositoryRow[];
-  const records = rows.map(rowToRepository);
+function computeComponent(
+  hits: number,
+  weight: number
+): RepositoryRelevanceComponent {
+  return {
+    hits,
+    weight,
+    score: hits * weight
+  };
+}
 
-  const statusClause = buildRepositoryWhereClause(params, { includeStatuses: false });
-  const statusRows = db
-    .prepare(
-      `SELECT ingest_status AS status, COUNT(*) AS count
-       FROM repositories ${statusClause.clause}
-       GROUP BY ingest_status`
-    )
-    .all(...statusClause.substitutions) as { status: IngestStatus; count: number }[];
-  const statusCountMap = new Map<IngestStatus, number>();
-  for (const row of statusRows) {
-    statusCountMap.set(row.status, Number(row.count));
+export function listRepositories(params: RepositorySearchParams): RepositorySearchResult {
+  const DEFAULT_WEIGHTS: RelevanceWeights = {
+    name: 4,
+    description: 1.5,
+    tags: 2
+  };
+
+  const tokens = tokenizeSearchText(params.text);
+  const requestedSort: RepositorySort = params.sort ?? (tokens.length > 0 ? 'relevance' : 'updated');
+  const effectiveSort: RepositorySort =
+    tokens.length === 0 && requestedSort === 'relevance' ? 'updated' : requestedSort;
+
+  const weights: RelevanceWeights = {
+    name: params.relevanceWeights?.name ?? DEFAULT_WEIGHTS.name,
+    description: params.relevanceWeights?.description ?? DEFAULT_WEIGHTS.description,
+    tags: params.relevanceWeights?.tags ?? DEFAULT_WEIGHTS.tags
+  };
+
+  const relevanceScores = new Map<string, number>();
+  let rows: RepositoryRow[];
+
+  if (tokens.length > 0) {
+    const ftsQuery = buildFtsQuery(tokens);
+    const filterClause = buildRepositoryWhereClause(params, { includeText: false, tableAlias: 'r' });
+    const filterSql = filterClause.clause ? `AND ${filterClause.clause.replace(/^WHERE\s+/i, '')}` : '';
+    const orderByClause =
+      effectiveSort === 'name'
+        ? 'ORDER BY lower(r.name) ASC'
+        : effectiveSort === 'updated'
+        ? 'ORDER BY datetime(r.updated_at) DESC'
+        : 'ORDER BY relevance_score DESC, datetime(r.updated_at) DESC';
+    const bm25Weights = [0, weights.name, weights.description, 0.2, weights.tags].join(', ');
+    const query = `
+      SELECT r.*, 1.0 / (bm25(repository_search, ${bm25Weights}) + 1.0) AS relevance_score
+      FROM repositories r
+      JOIN repository_search ON repository_search.repository_id = r.id
+      WHERE repository_search MATCH ?
+      ${filterSql}
+      ${orderByClause}
+    `;
+    const searchRows = db
+      .prepare(query)
+      .all(ftsQuery, ...filterClause.substitutions) as (RepositoryRow & { relevance_score: number })[];
+    for (const row of searchRows) {
+      relevanceScores.set(row.id, Number(row.relevance_score ?? 0));
+    }
+    rows = searchRows;
+  } else {
+    const baseClause = buildRepositoryWhereClause(params, { tableAlias: 'repositories' });
+    const orderByClause =
+      effectiveSort === 'name' ? 'ORDER BY lower(name) ASC' : 'ORDER BY datetime(updated_at) DESC';
+    const sql = `SELECT * FROM repositories ${baseClause.clause} ${orderByClause}`;
+    rows = db.prepare(sql).all(...baseClause.substitutions) as RepositoryRow[];
   }
+
+  const records = rows.map((row) => rowToRepository(row) as RepositoryRecordWithRelevance);
+
+  if (tokens.length > 0) {
+    for (const record of records) {
+      const lowerName = record.name.toLowerCase();
+      const lowerDescription = record.description.toLowerCase();
+      const lowerTags = record.tags.map((tag) => `${tag.key}:${tag.value}`).join(' ').toLowerCase();
+
+      let nameHits = 0;
+      let descriptionHits = 0;
+      let tagHits = 0;
+
+      for (const token of tokens) {
+        if (lowerName.includes(token)) {
+          nameHits += 1;
+        }
+        if (lowerDescription.includes(token)) {
+          descriptionHits += 1;
+        }
+        if (lowerTags.includes(token)) {
+          tagHits += 1;
+        }
+      }
+
+      const components = {
+        name: computeComponent(nameHits, weights.name),
+        description: computeComponent(descriptionHits, weights.description),
+        tags: computeComponent(tagHits, weights.tags)
+      } satisfies RepositoryRelevance['components'];
+
+      record.relevance = {
+        score: components.name.score + components.description.score + components.tags.score,
+        normalizedScore: relevanceScores.get(record.id) ?? 0,
+        components
+      } satisfies RepositoryRelevance;
+    }
+  }
+
+  const statusCountMap = new Map<IngestStatus, number>();
+  for (const status of ALL_INGEST_STATUSES) {
+    statusCountMap.set(status, 0);
+  }
+  const tagCountMap = new Map<string, { key: string; value: string; count: number }>();
+  const ownerCountMap = new Map<string, number>();
+  const frameworkCountMap = new Map<string, number>();
+
+  for (const record of records) {
+    statusCountMap.set(record.ingestStatus, (statusCountMap.get(record.ingestStatus) ?? 0) + 1);
+    for (const tag of record.tags) {
+      const tagKey = `${tag.key}:${tag.value}`;
+      const current = tagCountMap.get(tagKey);
+      if (current) {
+        current.count += 1;
+      } else {
+        tagCountMap.set(tagKey, { key: tag.key, value: tag.value, count: 1 });
+      }
+
+      if (tag.key.toLowerCase() === 'owner') {
+        ownerCountMap.set(tag.value, (ownerCountMap.get(tag.value) ?? 0) + 1);
+      }
+      if (tag.key.toLowerCase() === 'framework') {
+        frameworkCountMap.set(tag.value, (frameworkCountMap.get(tag.value) ?? 0) + 1);
+      }
+    }
+  }
+
   const statusFacets = ALL_INGEST_STATUSES.map((status) => ({
     status,
     count: statusCountMap.get(status) ?? 0
   }));
 
-  const tagClause = buildRepositoryWhereClause(params);
-  const tagRows = db
-    .prepare(
-      `SELECT t.key AS key, t.value AS value, COUNT(*) AS count
-       FROM repositories
-       JOIN repository_tags rt ON rt.repository_id = repositories.id
-       JOIN tags t ON t.id = rt.tag_id
-       ${tagClause.clause}
-       GROUP BY t.key, t.value
-       ORDER BY count DESC, t.key ASC, t.value ASC
-       LIMIT 50`
-    )
-    .all(...tagClause.substitutions) as { key: string; value: string; count: number }[];
+  const tagFacets = Array.from(tagCountMap.values())
+    .sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      const keyCompare = a.key.localeCompare(b.key);
+      if (keyCompare !== 0) {
+        return keyCompare;
+      }
+      return a.value.localeCompare(b.value);
+    })
+    .slice(0, 50)
+    .map((row) => ({ key: row.key, value: row.value, count: row.count }));
 
-  const tagFacets = tagRows.map((row) => ({
-    key: row.key,
-    value: row.value,
-    count: Number(row.count)
-  }));
+  const owners = Array.from(ownerCountMap.entries())
+    .map(([value, count]) => ({ key: 'owner', value, count }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.value.localeCompare(b.value)))
+    .slice(0, 10);
+
+  const frameworks = Array.from(frameworkCountMap.entries())
+    .map(([value, count]) => ({ key: 'framework', value, count }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.value.localeCompare(b.value)))
+    .slice(0, 10);
 
   return {
     records,
     total: records.length,
     facets: {
       tags: tagFacets,
-      statuses: statusFacets
+      statuses: statusFacets,
+      owners,
+      frameworks
+    },
+    meta: {
+      tokens,
+      sort: effectiveSort,
+      weights
     }
   };
 }
@@ -736,6 +1003,7 @@ export function upsertRepository(repository: RepositoryInsert): RepositoryRecord
       deleteRepositoryTagsStatement.run(repository.id);
       attachTags(repository.id, repository.tags);
     }
+    refreshRepositorySearchIndex(repository.id);
     return rowToRepository(selectRepositoryByIdStatement.get(repository.id) as RepositoryRow);
   });
 
@@ -757,6 +1025,7 @@ export function addRepository(repository: RepositoryInsert): RepositoryRecord {
     if (repository.tags && repository.tags.length > 0) {
       attachTags(repository.id, repository.tags.map((tag) => ({ ...tag, source: tag.source ?? 'author' })));
     }
+    refreshRepositorySearchIndex(repository.id);
     return rowToRepository(selectRepositoryByIdStatement.get(repository.id) as RepositoryRow);
   });
 
@@ -785,6 +1054,7 @@ export function replaceRepositoryTags(
     );
   });
   transaction();
+  refreshRepositorySearchIndex(repositoryId);
 }
 
 export function listTagSuggestions(prefix: string, limit: number): TagSuggestion[] {
