@@ -72,6 +72,84 @@ main {
   gap: 0.75rem;
 }
 
+.search-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.sort-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.controls-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.sort-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.sort-option {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sort-option.active {
+  background: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 10px 25px -18px rgba(29, 78, 216, 0.9);
+}
+
+.sort-option:not(.active):hover {
+  background: rgba(59, 130, 246, 0.18);
+  color: #1d4ed8;
+}
+
+.highlight-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.85rem;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.highlight-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #1d4ed8;
+  cursor: pointer;
+}
+
+.highlight-toggle.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.highlight-toggle.disabled input {
+  cursor: not-allowed;
+}
+
 .search-box {
   position: relative;
 }
@@ -461,10 +539,10 @@ main {
   gap: 0.25rem;
   padding: 0.22rem 0.55rem;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.12);
-  color: #1e3a8a;
+  border: 1px solid transparent;
   font-size: 0.8rem;
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .tag-key {

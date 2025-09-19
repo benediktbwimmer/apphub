@@ -1,4 +1,4 @@
-# AppHub
+# Osiris AppHub
 
 "YouTube of web applications" prototype that catalogs container-ready repositories, surfaces searchable metadata, and offers a keyboard-first tag experience.
 

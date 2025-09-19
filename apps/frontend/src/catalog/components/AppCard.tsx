@@ -8,6 +8,24 @@ import {
 } from '../utils';
 import type { AppRecord, BuildTimelineState, HistoryState, LaunchListState, TagKV } from '../types';
 
+const TAG_COLOR_PALETTE: { background: string; border: string; color: string }[] = [
+  { background: 'rgba(59, 130, 246, 0.16)', border: 'rgba(37, 99, 235, 0.35)', color: '#1e3a8a' },
+  { background: 'rgba(139, 92, 246, 0.16)', border: 'rgba(124, 58, 237, 0.35)', color: '#5b21b6' },
+  { background: 'rgba(16, 185, 129, 0.18)', border: 'rgba(5, 150, 105, 0.35)', color: '#065f46' },
+  { background: 'rgba(245, 158, 11, 0.2)', border: 'rgba(217, 119, 6, 0.38)', color: '#92400e' },
+  { background: 'rgba(248, 113, 113, 0.2)', border: 'rgba(239, 68, 68, 0.38)', color: '#b91c1c' },
+  { background: 'rgba(14, 116, 144, 0.18)', border: 'rgba(8, 145, 178, 0.35)', color: '#0f766e' }
+];
+
+const getTagColors = (key: string) => {
+  if (key.length === 0) {
+    return TAG_COLOR_PALETTE[0];
+  }
+
+  const paletteIndex = [...key].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) % TAG_COLOR_PALETTE.length, 0);
+  return TAG_COLOR_PALETTE[paletteIndex];
+};
+
 type AppCardProps = {
   app: AppRecord;
   activeTokens: string[];
@@ -33,13 +51,21 @@ type AppCardProps = {
 function TagList({ tags, activeTokens, highlightEnabled }: { tags: TagKV[]; activeTokens: string[]; highlightEnabled: boolean }) {
   return (
     <div className="tag-row">
-      {tags.map((tag) => (
-        <span key={`${tag.key}:${tag.value}`} className="tag-chip">
+      {tags.map((tag) => {
+        const { background, border, color } = getTagColors(tag.key);
+
+        return (
+          <span
+            key={`${tag.key}:${tag.value}`}
+            className="tag-chip"
+            style={{ backgroundColor: background, borderColor: border, color }}
+          >
           <span className="tag-key">{highlightSegments(tag.key, activeTokens, highlightEnabled)}</span>
           <span className="tag-separator">:</span>
           <span>{highlightSegments(tag.value, activeTokens, highlightEnabled)}</span>
-        </span>
-      ))}
+          </span>
+        );
+      })}
     </div>
   );
 }
