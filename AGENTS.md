@@ -18,3 +18,7 @@ TypeScript is used end-to-end with strict mode enabled. Follow the existing 2-sp
 
 ## Commit & Pull Request Guidelines
 Keep commit messages short, imperative, and scoped (e.g., `catalog: fix tag suggestions`, `frontend: tidy search input`). Group related changes into a single commit to ease revertability. Pull requests should describe the change, list the commands you ran (`npm run test:e2e`, `npm run lint`), mention config or data migrations, and attach screenshots or curl examples when touching UI or HTTP responses. Link to relevant issues or RFC notes in `docs/` when available.
+
+Usually you will be located in a new empty directory. To get started, clone the repository given by the user. Then checkout a new feature branch named `feature/your-feature-name` (replace `your-feature-name` with a descriptive name for your feature). Make sure to install any dependencies and set up the development environment as described in the project's README or documentation.
+
+While working on your feature, make sure to commit your changes frequently with clear and descriptive commit messages. Follow the project's coding style and guidelines to ensure consistency.
