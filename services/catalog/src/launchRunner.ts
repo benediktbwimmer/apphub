@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import {
   failLaunch,
   getBuildById,
@@ -8,35 +7,16 @@ import {
   requestLaunchStop,
   startLaunch
 } from './db';
-import { buildDockerRunCommand, parseDockerCommand } from './launchCommand';
+import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } from './launchCommand';
+import {
+  DEFAULT_LAUNCH_INTERNAL_PORT,
+  resolveLaunchInternalPort,
+  runDockerCommand
+} from './docker';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
   console.log(`[launch] ${message}${payload}`);
-}
-
-function runDocker(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('docker', args, { env: process.env });
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on('close', (code) => {
-      resolve({ exitCode: code, stdout, stderr });
-    });
-
-    child.on('error', (err) => {
-      const message = (err as Error).message ?? 'process error';
-      resolve({ exitCode: null, stdout, stderr: `${stderr}\n${message}` });
-    });
-  });
 }
 
 function buildPreviewUrl(hostPort: string): string {
@@ -70,6 +50,97 @@ function parseHostPort(output: string, internalPort: number): string | null {
   return null;
 }
 
+function parseContainerPortFromMapping(mapping: string): number | null {
+  if (!mapping) {
+    return null;
+  }
+  const parts = mapping.split(':');
+  if (parts.length === 0) {
+    return null;
+  }
+  const containerPart = parts[parts.length - 1]?.split('/')[0] ?? '';
+  const parsed = Number(containerPart);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function adjustPublishArgs(args: string[], desiredPort: number): { args: string[]; changed: boolean } {
+  let changed = false;
+  const updated = [...args];
+  for (let index = 0; index < updated.length; index += 1) {
+    const token = updated[index];
+    if (token === '-p' || token === '--publish') {
+      const mappingIndex = index + 1;
+      if (mappingIndex >= updated.length) {
+        continue;
+      }
+      const mapping = updated[mappingIndex];
+      const containerPort = parseContainerPortFromMapping(mapping);
+      if (
+        containerPort === DEFAULT_LAUNCH_INTERNAL_PORT &&
+        desiredPort !== DEFAULT_LAUNCH_INTERNAL_PORT
+      ) {
+        updated[mappingIndex] = `0:${desiredPort}`;
+        changed = true;
+      }
+      continue;
+    }
+
+    const inlineMatch = token.match(/^(-p|--publish)=(.+)$/);
+    if (inlineMatch) {
+      const containerPort = parseContainerPortFromMapping(inlineMatch[2]);
+      if (
+        containerPort === DEFAULT_LAUNCH_INTERNAL_PORT &&
+        desiredPort !== DEFAULT_LAUNCH_INTERNAL_PORT
+      ) {
+        updated[index] = `${inlineMatch[1]}=0:${desiredPort}`;
+        changed = true;
+      }
+    }
+  }
+
+  return { args: updated, changed };
+}
+
+function extractContainerPort(args: string[]): number | null {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '-p' || token === '--publish') {
+      const mapping = args[index + 1];
+      const parsed = parseContainerPortFromMapping(mapping ?? '');
+      if (parsed) {
+        return parsed;
+      }
+      continue;
+    }
+
+    const inlineMatch = token.match(/^(-p|--publish)=(.+)$/);
+    if (inlineMatch) {
+      const parsed = parseContainerPortFromMapping(inlineMatch[2]);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function extractContainerName(args: string[]): string | null {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--name') {
+      return args[index + 1] ?? null;
+    }
+    const inlineMatch = token.match(/^--name=(.+)$/);
+    if (inlineMatch) {
+      return inlineMatch[1];
+    }
+  }
+  return null;
+}
+
 export async function runLaunchStart(launchId: string) {
   const launch = startLaunch(launchId);
   if (!launch) {
@@ -85,11 +156,20 @@ export async function runLaunchStart(launchId: string) {
     return;
   }
 
-  const containerPort = Number(process.env.LAUNCH_INTERNAL_PORT ?? 3000);
+  const containerPort = await resolveLaunchInternalPort(build.imageTag);
   const commandSource = launch.command?.trim() ?? '';
   let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
   let commandLabel = commandSource;
   let containerName: string | null = null;
+
+  if (runArgs) {
+    const adjusted = adjustPublishArgs(runArgs, containerPort);
+    runArgs = adjusted.args;
+    if (adjusted.changed || !commandLabel) {
+      commandLabel = stringifyDockerCommand(runArgs);
+    }
+    containerName = extractContainerName(runArgs) ?? containerName;
+  }
 
   if (!runArgs) {
     const fallback = buildDockerRunCommand({
@@ -104,13 +184,16 @@ export async function runLaunchStart(launchId: string) {
     containerName = fallback.containerName;
   }
 
+  const containerPortForLookup = extractContainerPort(runArgs) ?? containerPort;
+  const effectiveCommand = commandLabel || stringifyDockerCommand(runArgs);
+
   log('Starting container', {
     launchId,
     buildId: launch.buildId,
     imageTag: build.imageTag,
     containerName,
-    command: commandLabel,
-    containerPort
+    command: effectiveCommand,
+    containerPort: containerPortForLookup
   });
 
   if (!runArgs || runArgs.length === 0) {
@@ -119,7 +202,7 @@ export async function runLaunchStart(launchId: string) {
     log('Launch command missing', { launchId, command: commandSource });
     return;
   }
-  const runResult = await runDocker(runArgs);
+  const runResult = await runDockerCommand(runArgs);
   if (runResult.exitCode !== 0 || runResult.stdout.trim().length === 0) {
     const message = runResult.stderr || 'docker run failed';
     failLaunch(launch.id, message.trim().slice(0, 500));
@@ -129,21 +212,21 @@ export async function runLaunchStart(launchId: string) {
 
   const containerId = runResult.stdout.trim().split(/\s+/)[0];
 
-  const portResult = await runDocker(['port', containerId, `${containerPort}/tcp`]);
+  const portResult = await runDockerCommand(['port', containerId, `${containerPortForLookup}/tcp`]);
   if (portResult.exitCode !== 0) {
     const message = portResult.stderr || 'Failed to determine mapped port';
     failLaunch(launch.id, message.trim().slice(0, 500));
     log('Launch port discovery failed', { launchId, error: message.trim() });
-    void runDocker(['rm', '-f', containerId]);
+    void runDockerCommand(['rm', '-f', containerId]);
     return;
   }
 
-  const hostPort = parseHostPort(portResult.stdout, containerPort);
+  const hostPort = parseHostPort(portResult.stdout, containerPortForLookup);
   if (!hostPort) {
     const message = 'Unable to parse docker port output';
     failLaunch(launch.id, message);
     log('Launch port parse failed', { launchId, output: portResult.stdout });
-    void runDocker(['rm', '-f', containerId]);
+    void runDockerCommand(['rm', '-f', containerId]);
     return;
   }
 
@@ -151,7 +234,8 @@ export async function runLaunchStart(launchId: string) {
   markLaunchRunning(launch.id, {
     instanceUrl,
     containerId,
-    port: Number(hostPort)
+    port: Number(hostPort),
+    command: effectiveCommand
   });
 
   log('Launch running', { launchId, containerId, instanceUrl });
@@ -180,13 +264,13 @@ export async function runLaunchStop(launchId: string) {
     return;
   }
 
-  const stopResult = await runDocker(['stop', '--time', '5', current.containerId]);
+  const stopResult = await runDockerCommand(['stop', '--time', '5', current.containerId]);
   if (stopResult.exitCode !== 0) {
     const message = stopResult.stderr || 'docker stop failed';
     log('Launch docker stop failed', { launchId, error: message.trim() });
   }
 
-  await runDocker(['rm', '-f', current.containerId]);
+  await runDockerCommand(['rm', '-f', current.containerId]);
   markLaunchStopped(launchId);
   log('Launch stopped', { launchId });
 }

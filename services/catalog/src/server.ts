@@ -41,6 +41,7 @@ import {
   enqueueBuildJob,
   isInlineQueueMode
 } from './queue';
+import { resolveLaunchInternalPort } from './docker';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { runBuildJob } from './buildRunner';
 import { subscribeToApphubEvents, type ApphubEvent } from './events';
@@ -709,7 +710,7 @@ export async function buildServer() {
     }
 
     const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
-    const internalPort = Number(process.env.LAUNCH_INTERNAL_PORT ?? 3000);
+    const internalPort = await resolveLaunchInternalPort(build.imageTag);
     const commandFallback = buildDockerRunCommand({
       repositoryId: repository.id,
       launchId,
@@ -1014,7 +1015,7 @@ export async function buildServer() {
 
 if (require.main === module) {
   const port = Number(process.env.PORT ?? 4000);
-  const host = process.env.HOST ?? '0.0.0.0';
+  const host = process.env.HOST ?? '::';
 
   buildServer()
     .then((app) => {
