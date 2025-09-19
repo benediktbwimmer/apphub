@@ -17,6 +17,7 @@ import {
 } from './db';
 import {
   INGEST_QUEUE_NAME,
+  closeQueueConnection,
   enqueueBuildJob,
   getQueueConnection,
   isInlineQueueMode
@@ -1035,7 +1036,7 @@ async function runWorker() {
     log('Shutdown signal received');
     await worker.close();
     try {
-      await connection.quit();
+      await closeQueueConnection(connection);
     } catch (err) {
       log('Error closing Redis connection', { error: (err as Error).message });
     }

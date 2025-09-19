@@ -1,7 +1,12 @@
 import { Worker } from 'bullmq';
 import { runBuildJob } from './buildRunner';
 import { takeNextPendingBuild, type BuildRecord } from './db';
-import { BUILD_QUEUE_NAME, getQueueConnection, isInlineQueueMode } from './queue';
+import {
+  BUILD_QUEUE_NAME,
+  closeQueueConnection,
+  getQueueConnection,
+  isInlineQueueMode
+} from './queue';
 
 const BUILD_CONCURRENCY = Number(process.env.BUILD_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
@@ -84,7 +89,7 @@ async function runQueuedBuildWorker() {
     log('Shutdown signal received');
     await worker.close();
     try {
-      await connection.quit();
+      await closeQueueConnection(connection);
     } catch (err) {
       log('Error closing Redis connection', { error: (err as Error).message });
     }

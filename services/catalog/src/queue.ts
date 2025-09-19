@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
+import IORedis, { type Redis } from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -85,6 +85,31 @@ export function getQueueConnection() {
 
 export function isInlineQueueMode() {
   return inlineMode;
+}
+
+function connectionIsClosed(instance: Redis) {
+  return instance.status === 'end' || instance.status === 'close';
+}
+
+export async function closeQueueConnection(instance?: Redis | null) {
+  const target = instance ?? connection;
+
+  if (!target) {
+    return;
+  }
+
+  if (connectionIsClosed(target)) {
+    return;
+  }
+
+  try {
+    await target.quit();
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Connection is closed')) {
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function enqueueBuildJob(buildId: string, repositoryId: string) {

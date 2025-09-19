@@ -5,7 +5,12 @@ import {
   type LaunchRecord
 } from './db';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
-import { getQueueConnection, isInlineQueueMode, LAUNCH_QUEUE_NAME } from './queue';
+import {
+  LAUNCH_QUEUE_NAME,
+  closeQueueConnection,
+  getQueueConnection,
+  isInlineQueueMode
+} from './queue';
 
 const LAUNCH_CONCURRENCY = Number(process.env.LAUNCH_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
@@ -96,7 +101,7 @@ async function runQueuedLaunchWorker() {
     log('Shutdown signal received');
     await worker.close();
     try {
-      await connection.quit();
+      await closeQueueConnection(connection);
     } catch (err) {
       log('Error closing Redis connection', { error: (err as Error).message });
     }
