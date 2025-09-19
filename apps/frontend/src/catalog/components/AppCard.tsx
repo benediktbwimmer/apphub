@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import Navbar from '../../components/Navbar';
 import { Editor } from '../../components';
@@ -183,6 +183,7 @@ type AppCardProps = {
   onLoadMoreBuilds: (id: string) => void;
   onToggleLogs: (appId: string, buildId: string) => void;
   onRetryBuild: (appId: string, buildId: string) => void;
+  onTriggerBuild: (appId: string, options: { branch?: string; ref?: string }) => Promise<boolean>;
   launchEntry?: LaunchListState[string];
   onToggleLaunches: (id: string) => void;
   onLaunch: (id: string, draft: LaunchRequestDraft) => void;
@@ -677,6 +678,21 @@ function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
             Updated {new Date(updatedAt).toLocaleString()}
           </time>
         )}
+        {build.gitBranch && (
+          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+            branch: {build.gitBranch}
+          </code>
+        )}
+        {build.gitRef && (
+          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+            ref: {build.gitRef.length > 18 ? `${build.gitRef.slice(0, 18)}…` : build.gitRef}
+          </code>
+        )}
+        {build.commitSha && (
+          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs tracking-wider text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+            {build.commitSha.slice(0, 10)}
+          </code>
+        )}
         {build.imageTag && (
           <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
             {build.imageTag}
@@ -1062,22 +1078,79 @@ function BuildTimeline({
   entry,
   onToggleLogs,
   onRetryBuild,
+  onTriggerBuild,
   onLoadMore
 }: {
   appId: string;
   entry?: BuildTimelineState;
   onToggleLogs: (appId: string, buildId: string) => void;
   onRetryBuild: (appId: string, buildId: string) => void;
+  onTriggerBuild: (appId: string, options: { branch?: string; ref?: string }) => Promise<boolean>;
   onLoadMore: (appId: string) => void;
 }) {
+  const [branchValue, setBranchValue] = useState('');
+  const [refValue, setRefValue] = useState('');
+
   if (!entry) {
     return null;
   }
 
   const builds = entry.builds ?? [];
 
+  const handleTriggerBuild = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const branch = branchValue.trim();
+    const ref = refValue.trim();
+    const success = await onTriggerBuild(appId, {
+      branch: branch.length > 0 ? branch : undefined,
+      ref: ref.length > 0 ? ref : undefined
+    });
+    if (success) {
+      setBranchValue('');
+      setRefValue('');
+    }
+  };
+
   return (
     <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+      <form
+        className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/60 dark:bg-slate-800/60"
+        onSubmit={handleTriggerBuild}
+      >
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            placeholder="Branch (optional)"
+            value={branchValue}
+            onChange={(event) => setBranchValue(event.target.value)}
+            disabled={entry.creating}
+          />
+          <input
+            type="text"
+            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            placeholder="Tag or commit (optional)"
+            value={refValue}
+            onChange={(event) => setRefValue(event.target.value)}
+            disabled={entry.creating}
+          />
+          <button
+            type="submit"
+            className={SMALL_BUTTON_GHOST}
+            disabled={entry.creating}
+          >
+            {entry.creating ? 'Triggering…' : 'Trigger build'}
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Leave branch empty to use the default. Provide a git tag or commit SHA to pin the build.
+        </p>
+        {entry.createError && (
+          <div className="rounded-xl border border-rose-300/70 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/20 dark:text-rose-200">
+            {entry.createError}
+          </div>
+        )}
+      </form>
       {entry.loading && (
         <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
           Loading builds…
@@ -1111,6 +1184,16 @@ function BuildTimeline({
           >
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className={getStatusBadgeClasses(build.status)}>build {build.status}</span>
+              {build.gitBranch && (
+                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                  branch: {build.gitBranch}
+                </code>
+              )}
+              {build.gitRef && (
+                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                  ref: {build.gitRef.length > 18 ? `${build.gitRef.slice(0, 18)}…` : build.gitRef}
+                </code>
+              )}
               {build.commitSha && (
                 <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] tracking-wider text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
                   {build.commitSha.slice(0, 10)}
@@ -1368,6 +1451,7 @@ function AppCard({
   onLoadMoreBuilds,
   onToggleLogs,
   onRetryBuild,
+  onTriggerBuild,
   launchEntry,
   onToggleLaunches,
   onLaunch,
@@ -1492,6 +1576,7 @@ function AppCard({
           entry={buildEntry}
           onToggleLogs={onToggleLogs}
           onRetryBuild={onRetryBuild}
+          onTriggerBuild={onTriggerBuild}
           onLoadMore={onLoadMoreBuilds}
         />
       )}

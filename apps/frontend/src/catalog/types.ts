@@ -14,6 +14,8 @@ export type BuildSummary = {
   imageTag: string | null;
   errorMessage: string | null;
   commitSha: string | null;
+  gitBranch: string | null;
+  gitRef: string | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -98,6 +100,8 @@ export type BuildTimelineState = {
   meta: BuildListMeta | null;
   logs: Record<string, BuildLogState>;
   retrying: Record<string, boolean>;
+  creating: boolean;
+  createError: string | null;
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';

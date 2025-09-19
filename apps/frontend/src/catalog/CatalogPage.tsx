@@ -114,6 +114,7 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
             onLoadMoreBuilds={handlers.loadMoreBuilds}
             onToggleLogs={handlers.toggleLogs}
             onRetryBuild={handlers.retryBuild}
+            onTriggerBuild={handlers.triggerBuild}
             launchLists={launchLists}
             onToggleLaunches={handlers.toggleLaunches}
             onLaunch={handlers.launchApp}
