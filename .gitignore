@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+.DS_Store
+
+# Service specific
+services/catalog/data/*.db
+services/catalog/data/*.db-*
+services/catalog/dist/
+
+# Frontend build outputs
+apps/frontend/dist/
+apps/frontend/node_modules/
+
+# Local env files
+apps/frontend/.env.local
+services/catalog/.env

@@ -1,0 +1,294 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import { z } from 'zod';
+import {
+  addRepository,
+  getRepositoryById,
+  getIngestionHistory,
+  listRepositories,
+  listTagSuggestions,
+  setRepositoryStatus,
+  type RepositoryRecord,
+  type TagKV
+} from './db';
+import { enqueueRepositoryIngestion } from './queue';
+
+type SearchQuery = {
+  q?: string;
+  tags?: string[];
+};
+
+const tagQuerySchema = z
+  .string()
+  .trim()
+  .transform((raw) =>
+    raw
+      .split(/[\s,]+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+  );
+
+const searchQuerySchema = z.object({
+  q: z.string().trim().optional(),
+  tags: z.preprocess((val) => (typeof val === 'string' ? val : undefined), tagQuerySchema).optional()
+});
+
+const suggestQuerySchema = z.object({
+  prefix: z
+    .preprocess((val) => (typeof val === 'string' ? val : ''), z.string())
+    .transform((val) => val.trim()),
+  limit: z
+    .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(50).default(10))
+});
+
+const createRepositorySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  repoUrl: z
+    .string()
+    .min(1)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        if (url.protocol === 'file:') {
+          return true;
+        }
+        return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'git:';
+      } catch (err) {
+        return value.startsWith('/');
+      }
+    }, 'repoUrl must be an absolute path or a valid URL'),
+  dockerfilePath: z.string().min(1),
+  tags: z
+    .array(
+      z.object({
+        key: z.string().min(1),
+        value: z.string().min(1)
+      })
+    )
+    .default([])
+});
+
+function toTagFilters(tokens: string[] = []): TagKV[] {
+  const filters: TagKV[] = [];
+  for (const token of tokens) {
+    const [key, value] = token.split(':');
+    if (!key || !value) {
+      continue;
+    }
+    filters.push({ key, value });
+  }
+  return filters;
+}
+
+function serializeRepository(record: RepositoryRecord) {
+  const {
+    id,
+    name,
+    description,
+    repoUrl,
+    dockerfilePath,
+    updatedAt,
+    tags,
+    ingestStatus,
+    ingestError,
+    ingestAttempts
+  } = record;
+  return {
+    id,
+    name,
+    description,
+    repoUrl,
+    dockerfilePath,
+    updatedAt,
+    tags: tags.map((tag) => ({ key: tag.key, value: tag.value })),
+    ingestStatus,
+    ingestError,
+    ingestAttempts
+  };
+}
+
+async function buildServer() {
+  const app = Fastify();
+
+  await app.register(cors, {
+    origin: true
+  });
+
+  app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/apps', async (request, reply) => {
+    const parseResult = searchQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      reply.status(400);
+      return { error: parseResult.error.flatten() };
+    }
+
+    const query = parseResult.data as SearchQuery;
+    const tags = toTagFilters(query.tags ?? []);
+    const repositories = listRepositories({ text: query.q, tags });
+
+    return {
+      data: repositories.map(serializeRepository)
+    };
+  });
+
+  app.get('/apps/:id', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseResult = paramsSchema.safeParse(request.params);
+    if (!parseResult.success) {
+      reply.status(400);
+      return { error: parseResult.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseResult.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    return {
+      data: serializeRepository(repository)
+    };
+  });
+
+  app.get('/apps/:id/history', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    const history = getIngestionHistory(repository.id);
+    return {
+      data: history
+    };
+  });
+
+  app.get('/tags/suggest', async (request, reply) => {
+    const parseResult = suggestQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      reply.status(400);
+      return { error: parseResult.error.flatten() };
+    }
+
+    const { prefix, limit } = parseResult.data;
+    const suggestions = listTagSuggestions(prefix, limit);
+
+    return { data: suggestions };
+  });
+
+  app.post('/apps', async (request, reply) => {
+    const parseResult = createRepositorySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      reply.status(400);
+      return { error: parseResult.error.flatten() };
+    }
+
+    const payload = parseResult.data;
+
+    let repository = addRepository({
+      id: payload.id,
+      name: payload.name,
+      description: payload.description,
+      repoUrl: payload.repoUrl,
+      dockerfilePath: payload.dockerfilePath,
+      tags: payload.tags.map((tag) => ({ ...tag, source: 'author' })),
+      ingestStatus: 'pending'
+    });
+
+    try {
+      await enqueueRepositoryIngestion(repository.id);
+    } catch (err) {
+      request.log.error({ err }, 'Failed to enqueue ingestion job');
+      const message = `Failed to enqueue ingestion job: ${(err as Error).message ?? 'unknown error'}`;
+      const now = new Date().toISOString();
+      setRepositoryStatus(repository.id, 'failed', {
+        updatedAt: now,
+        ingestError: message.slice(0, 500),
+        eventMessage: message
+      });
+      repository = getRepositoryById(repository.id) ?? repository;
+    }
+
+    reply.status(201);
+    return { data: serializeRepository(repository) };
+  });
+
+  app.post('/apps/:id/retry', async (request, reply) => {
+    const paramsSchema = z.object({ id: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const repository = getRepositoryById(parseParams.data.id);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
+
+    if (repository.ingestStatus === 'processing' || repository.ingestStatus === 'pending') {
+      reply.status(409);
+      return { error: 'ingestion already in progress' };
+    }
+
+    const now = new Date().toISOString();
+    setRepositoryStatus(repository.id, 'pending', {
+      updatedAt: now,
+      ingestError: null,
+      eventMessage: 'Re-queued for ingestion'
+    });
+
+    try {
+      await enqueueRepositoryIngestion(repository.id);
+    } catch (err) {
+      request.log.error({ err }, 'Failed to enqueue retry');
+      const message = `Failed to enqueue retry: ${(err as Error).message ?? 'unknown error'}`;
+      setRepositoryStatus(repository.id, 'failed', {
+        updatedAt: new Date().toISOString(),
+        ingestError: message.slice(0, 500),
+        eventMessage: message
+      });
+      reply.status(502);
+      const current = getRepositoryById(repository.id);
+      return { error: message, data: current ? serializeRepository(current) : undefined };
+    }
+
+    const refreshed = getRepositoryById(repository.id);
+
+    reply.status(202);
+    return { data: refreshed ? serializeRepository(refreshed) : null };
+  });
+
+  return app;
+}
+
+const port = Number(process.env.PORT ?? 4000);
+const host = process.env.HOST ?? '0.0.0.0';
+
+buildServer()
+  .then((app) => {
+    app
+      .listen({ port, host })
+      .then(() => {
+        app.log.info(`Catalog API listening on http://${host}:${port}`);
+      })
+      .catch((err) => {
+        app.log.error(err);
+        process.exit(1);
+      });
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

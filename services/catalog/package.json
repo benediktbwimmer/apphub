@@ -1,0 +1,38 @@
+{
+  "name": "catalog",
+  "version": "0.1.0",
+  "description": "Metadata and search API for containerized web applications",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "ingest": "tsx src/ingestionWorker.ts",
+    "test:e2e": "tsx tests/ingestion.e2e.ts"
+  },
+  "keywords": [
+    "webapps",
+    "catalog",
+    "search"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "better-sqlite3": "^12.2.0",
+    "bullmq": "^5.9.2",
+    "fastify": "^4.27.2",
+    "ioredis": "^5.4.1",
+    "simple-git": "^3.26.0",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.11.30",
+    "ioredis-mock": "^8.9.0",
+    "redis-server": "^1.2.2",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
