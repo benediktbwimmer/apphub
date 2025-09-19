@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
+import Navbar from '../../components/Navbar';
 import { Editor } from '../../components';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
@@ -541,16 +542,23 @@ function FullscreenOverlay({
       return undefined;
     }
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' || event.key === 'Esc') {
+      if (
+        event.key === 'Escape' ||
+        event.key === 'Esc' ||
+        event.code === 'Escape' ||
+        event.keyCode === 27
+      ) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeydown, true);
+    document.addEventListener('keydown', handleKeydown, true);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     containerRef.current?.focus({ preventScroll: true });
     return () => {
       window.removeEventListener('keydown', handleKeydown, true);
+      document.removeEventListener('keydown', handleKeydown, true);
       document.body.style.overflow = previousOverflow;
     };
   }, [onClose]);
@@ -612,23 +620,15 @@ function FullscreenOverlay({
       aria-modal="true"
       onClick={onClose}
     >
-      <button
-        type="button"
-        aria-label="Close fullscreen preview"
-        className="absolute right-6 top-6 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700/60 bg-slate-900/70 text-slate-100 shadow-lg transition-colors hover:bg-slate-900/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-      >
-        <CloseIcon />
-      </button>
-      <div className="relative flex-1" onClick={(event) => event.stopPropagation()}>
-        {content ?? (
-          <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-300">
-            Preview unavailable. Try opening the app preview in a new tab from the card instead.
-          </div>
-        )}
+      <div className="flex h-full w-full flex-col gap-6 px-6 pb-6 pt-6" onClick={(event) => event.stopPropagation()}>
+        <Navbar variant="overlay" onExitFullscreen={onClose} />
+        <div className="relative flex-1 overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-950/60 shadow-[inset_0_0_40px_rgba(15,23,42,0.85)]">
+          {content ?? (
+            <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-300">
+              Preview unavailable. Try opening the app preview in a new tab from the card instead.
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body
@@ -647,27 +647,6 @@ function FullscreenIcon() {
     >
       <path
         d="M6.5 3H3v3.5M13.5 3H17v3.5M3 13.5V17h3.5M17 13.5V17h-3.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      className="h-4 w-4"
-      viewBox="0 0 20 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M5 5l10 10M15 5L5 15"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
