@@ -40,8 +40,8 @@ function SearchSection({
   const highlightToggleDisabled = activeTokens.length === 0;
 
   return (
-    <section className="search-area">
-      <div className="search-box">
+    <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.7)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+      <div className="relative">
         <input
           type="text"
           value={inputValue}
@@ -50,34 +50,45 @@ function SearchSection({
           placeholder="Type tags like framework:nextjs runtime:node18 or free text"
           spellCheck={false}
           autoFocus
+          className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
         />
         {suggestions.length > 0 && (
-          <ul className="suggestion-list">
+          <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
             {suggestions.map((suggestion, index) => (
               <li
                 key={`${suggestion.type}-${suggestion.value}`}
-                className={index === highlightIndex ? 'active' : ''}
+                className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-blue-500/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
+                  index === highlightIndex ? 'bg-blue-500/10 text-blue-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
+                }`}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   onApplySuggestion(suggestion);
                 }}
               >
-                <span className="suggestion-label">{suggestion.label}</span>
-                <span className="suggestion-type">{suggestion.type === 'key' ? 'key' : 'tag'}</span>
+                <span className="font-mono text-sm">{suggestion.label}</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                  {suggestion.type === 'key' ? 'key' : 'tag'}
+                </span>
               </li>
             ))}
           </ul>
         )}
       </div>
-      <div className="search-controls">
-        <div className="sort-controls">
-          <span className="controls-label">Sort by</span>
-          <div className="sort-options">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Sort by
+          </span>
+          <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
             {SORT_OPTIONS.map((option) => (
               <button
                 key={option.key}
                 type="button"
-                className={`sort-option${sortMode === option.key ? ' active' : ''}`}
+                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                  sortMode === option.key
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
+                    : 'text-slate-600 hover:bg-blue-600/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                }`}
                 onClick={() => onSortChange(option.key)}
               >
                 {option.label}
@@ -85,36 +96,57 @@ function SearchSection({
             ))}
           </div>
         </div>
-        <label className={`highlight-toggle${highlightToggleDisabled ? ' disabled' : ''}`}>
+        <label
+          className={`flex items-center gap-3 text-sm font-medium text-slate-600 transition-opacity dark:text-slate-300 ${
+            highlightToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+          }`}
+        >
           <input
             type="checkbox"
             checked={showHighlights}
             onChange={(event) => onToggleHighlights(event.target.checked)}
             disabled={highlightToggleDisabled}
+            className="size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed dark:border-slate-600 dark:bg-slate-800"
           />
           Highlight matches
         </label>
       </div>
       {activeTokens.length > 0 && (
-        <div className="search-meta-row">
-          <div className="token-chip-row">
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/60 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
+          <div className="flex flex-wrap gap-2">
             {activeTokens.map((token) => (
-              <span key={token} className="token-chip">
+              <span
+                key={token}
+                className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-700 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100"
+              >
                 {token}
               </span>
             ))}
           </div>
           {searchMeta && (
-            <div className="weight-chip-row">
-              <span className="weight-chip">name × {formatWeight(searchMeta.weights.name)}</span>
-              <span className="weight-chip">description × {formatWeight(searchMeta.weights.description)}</span>
-              <span className="weight-chip">tags × {formatWeight(searchMeta.weights.tags)}</span>
+            <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+                name × {formatWeight(searchMeta.weights.name)}
+              </span>
+              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+                description × {formatWeight(searchMeta.weights.description)}
+              </span>
+              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+                tags × {formatWeight(searchMeta.weights.tags)}
+              </span>
             </div>
           )}
         </div>
       )}
-      <div className="search-hints">
-        <span>Tab</span> accepts highlighted suggestion · <span>Esc</span> clears suggestions
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <span className="inline-flex items-center justify-center rounded-md bg-slate-200/70 px-2 py-1 font-mono text-[11px] uppercase tracking-widest dark:bg-slate-700/60">
+          Tab
+        </span>
+        accepts highlighted suggestion ·
+        <span className="inline-flex items-center justify-center rounded-md bg-slate-200/70 px-2 py-1 font-mono text-[11px] uppercase tracking-widest dark:bg-slate-700/60">
+          Esc
+        </span>
+        clears suggestions
       </div>
     </section>
   );

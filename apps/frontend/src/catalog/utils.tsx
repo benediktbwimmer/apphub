@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactElement } from 'react';
 import type { AutocompleteContext, SearchParseResult, TagSuggestion } from './types';
 
 export function parseSearchInput(input: string): SearchParseResult {
@@ -84,7 +84,7 @@ export function highlightSegments(
   text: string,
   tokens: string[],
   enabled: boolean
-): Array<string | JSX.Element | null> | string {
+): Array<string | ReactElement | null> | string {
   if (!enabled || tokens.length === 0) {
     return text;
   }

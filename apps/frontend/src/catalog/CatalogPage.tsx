@@ -66,11 +66,21 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
         activeTokens={activeTokens}
         searchMeta={searchMeta}
       />
-      <section className="results">
-        {loading && <div className="status">Loading apps…</div>}
-        {error && !loading && <div className="status error">{error}</div>}
+      <section className="flex flex-col gap-6">
+        {loading && (
+          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+            Loading apps…
+          </div>
+        )}
+        {error && !loading && (
+          <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-5 py-4 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+            {error}
+          </div>
+        )}
         {!loading && !error && apps.length === 0 && (
-          <div className="status">No apps match your filters yet.</div>
+          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+            No apps match your filters yet.
+          </div>
         )}
         {!error && (
           <FilterPanel
@@ -90,7 +100,7 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
             onApplyFacet={handlers.applyTagFacet}
           />
         )}
-        <div className="channel-feed">
+        <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
           <AppGrid
             apps={apps}
             activeTokens={activeTokens}

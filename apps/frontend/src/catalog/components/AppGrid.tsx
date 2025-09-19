@@ -50,7 +50,7 @@ function AppGrid({
   launchErrors
 }: AppGridProps) {
   return (
-    <div className="grid">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {apps.map((app) => (
         <AppCard
           key={app.id}
