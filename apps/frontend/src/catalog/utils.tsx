@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import type { JSX } from 'react';
 import type { AutocompleteContext, SearchParseResult, TagSuggestion } from './types';
 
 export function parseSearchInput(input: string): SearchParseResult {

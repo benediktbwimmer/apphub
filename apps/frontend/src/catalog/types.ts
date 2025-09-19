@@ -153,6 +153,7 @@ export type SearchMeta = {
 
 export type IngestionEvent = {
   id: number;
+  repositoryId: string;
   status: string;
   message: string | null;
   attempt: number | null;
@@ -180,6 +181,14 @@ export type LaunchListState = Record<
     launches: LaunchSummary[] | null;
   }
 >;
+
+export type CatalogSocketEvent =
+  | { type: 'connection.ack'; data: { now: string } }
+  | { type: 'pong'; data: { now: string } }
+  | { type: 'repository.updated'; data: { repository: AppRecord } }
+  | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
+  | { type: 'build.updated'; data: { build: BuildSummary } }
+  | { type: 'launch.updated'; data: { repositoryId: string; launch: LaunchSummary } };
 
 export type SearchParseResult = {
   tags: string[];
