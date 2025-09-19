@@ -22,3 +22,5 @@ Keep commit messages short, imperative, and scoped (e.g., `catalog: fix tag sugg
 Usually you will be located in a new empty directory. To get started, clone the repository given by the user. Then checkout a new feature branch named `feature/your-feature-name` (replace `your-feature-name` with a descriptive name for your feature). Make sure to install any dependencies and set up the development environment as described in the project's README or documentation.
 
 While working on your feature, make sure to commit your changes frequently with clear and descriptive commit messages. Follow the project's coding style and guidelines to ensure consistency.
+
+When you have completed your feature, run the project's tests to ensure everything is working correctly. If all tests pass, push your feature branch to the remote repository and create a pull request (PR) for review. In the PR description, provide a summary of the changes you made, any relevant issue numbers, and any additional context that might be helpful for reviewers.
