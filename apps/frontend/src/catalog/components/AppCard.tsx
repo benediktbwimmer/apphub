@@ -80,9 +80,10 @@ const ACTIVE_LAUNCH_STATUSES = new Set(['pending', 'starting', 'running', 'stopp
 type LaunchEnvRow = LaunchEnvVar & { id: string };
 
 function createEnvRow(entry?: LaunchEnvVar, id?: string): LaunchEnvRow {
-  const fallbackId = `env-${Math.random().toString(36).slice(2, 10)}-${Math.random()
-    .toString(36)
-    .slice(2, 6)}`;
+  const fallbackId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `env-${crypto.randomUUID()}`
+      : `env-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 6)}`;
   return {
     id: id ?? fallbackId,
     key: entry?.key ?? '',
@@ -92,7 +93,7 @@ function createEnvRow(entry?: LaunchEnvVar, id?: string): LaunchEnvRow {
 
 function rowsFromEnv(env: LaunchEnvVar[] = []): LaunchEnvRow[] {
   return env.map((entry, index) =>
-    createEnvRow(entry, `existing-${index}-${entry.key}-${entry.value}`)
+    createEnvRow(entry, `existing-${index}`)
   );
 }
 

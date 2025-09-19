@@ -155,8 +155,6 @@ const launchRequestSchema = z
   })
   .strict();
 
-type LaunchRequest = z.infer<typeof launchRequestSchema>;
-
 const launchListQuerySchema = z
   .object({
     limit: z
@@ -676,7 +674,7 @@ async function buildServer() {
       return { error: parseBody.error.flatten() };
     }
 
-    const payload = parseBody.data as LaunchRequest;
+    const payload = parseBody.data;
 
     let build = payload.buildId ? getBuildById(payload.buildId) : null;
     if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
