@@ -5,8 +5,11 @@ import type {
   BuildListMeta,
   BuildSummary,
   BuildTimelineState,
+  CatalogSocketEvent,
   HistoryState,
+  IngestionEvent,
   LaunchListState,
+  LaunchSummary,
   SearchMeta,
   SearchParseResult,
   SearchSort,
@@ -908,6 +911,249 @@ export function useCatalog(): UseCatalogResult {
     },
     [fetchHistory, historyState]
   );
+
+  const handleRepositoryUpdate = useCallback((repository: AppRecord) => {
+    setApps((prev) => {
+      const index = prev.findIndex((item) => item.id === repository.id);
+      if (index === -1) {
+        return prev;
+      }
+      const next = prev.slice();
+      next[index] = repository;
+      return next;
+    });
+  }, []);
+
+  const handleIngestionEvent = useCallback((event: IngestionEvent) => {
+    setHistoryState((prev) => {
+      const current = prev[event.repositoryId];
+      if (!current) {
+        return prev;
+      }
+      const existingEvents = current.events ?? [];
+      const eventIndex = existingEvents.findIndex((item) => item.id === event.id);
+      const nextEvents = eventIndex === -1
+        ? [event, ...existingEvents]
+        : existingEvents.map((item, idx) => (idx === eventIndex ? event : item));
+      return {
+        ...prev,
+        [event.repositoryId]: {
+          ...current,
+          events: nextEvents
+        }
+      };
+    });
+  }, []);
+
+  const handleBuildUpdate = useCallback((build: BuildSummary) => {
+    setApps((prev) =>
+      prev.map((app) => (app.id === build.repositoryId && app.latestBuild?.id === build.id
+        ? { ...app, latestBuild: build }
+        : app))
+    );
+
+    setBuildState((prev) => {
+      const current = prev[build.repositoryId];
+      if (!current) {
+        return prev;
+      }
+      const existingIndex = current.builds.findIndex((item) => item.id === build.id);
+      const merged = existingIndex === -1
+        ? [build, ...current.builds]
+        : current.builds.map((item, idx) => (idx === existingIndex ? build : item));
+
+      const limit = current.meta?.limit ?? BUILD_PAGE_SIZE;
+      const trimmed = merged.slice(0, limit);
+
+      const nextMeta = current.meta
+        ? {
+            ...current.meta,
+            total: current.meta.total + (existingIndex === -1 ? 1 : 0),
+            count: trimmed.length,
+            hasMore: current.meta.hasMore || merged.length > trimmed.length
+          }
+        : current.meta;
+
+      return {
+        ...prev,
+        [build.repositoryId]: {
+          ...current,
+          builds: trimmed,
+          meta: nextMeta ?? null
+        }
+      };
+    });
+  }, []);
+
+  const handleLaunchUpdate = useCallback((repositoryId: string, launch: LaunchSummary) => {
+    setApps((prev) =>
+      prev.map((app) => {
+        if (app.id !== repositoryId) {
+          return app;
+        }
+        if (!app.latestLaunch || app.latestLaunch.id === launch.id) {
+          return { ...app, latestLaunch: launch };
+        }
+        const currentTimestamp = Date.parse(app.latestLaunch.updatedAt ?? app.latestLaunch.createdAt);
+        const nextTimestamp = Date.parse(launch.updatedAt ?? launch.createdAt);
+        if (!Number.isFinite(currentTimestamp) || !Number.isFinite(nextTimestamp) || nextTimestamp >= currentTimestamp) {
+          return { ...app, latestLaunch: launch };
+        }
+        return app;
+      })
+    );
+
+    setLaunchLists((prev) => {
+      const current = prev[repositoryId];
+      if (!current || !current.launches) {
+        return prev;
+      }
+      const index = current.launches.findIndex((item) => item.id === launch.id);
+      const launches = index === -1
+        ? [launch, ...current.launches]
+        : current.launches.map((item, idx) => (idx === index ? launch : item));
+      return {
+        ...prev,
+        [repositoryId]: {
+          ...current,
+          launches
+        }
+      };
+    });
+
+    setLaunchErrors((prev) => {
+      const currentError = prev[repositoryId] ?? null;
+      if (launch.status === 'failed') {
+        const nextMessage = launch.errorMessage ?? 'Launch failed';
+        if (currentError === nextMessage) {
+          return prev;
+        }
+        return { ...prev, [repositoryId]: nextMessage };
+      }
+      if (currentError === null || currentError === undefined) {
+        return prev;
+      }
+      const next = { ...prev };
+      next[repositoryId] = null;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
+    let attempt = 0;
+
+    const resolveWebsocketUrl = () => {
+      try {
+        const apiUrl = new URL(API_BASE_URL);
+        const wsUrl = new URL(apiUrl.toString());
+        wsUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl.hash = '';
+        wsUrl.search = '';
+        wsUrl.pathname = `${apiUrl.pathname.replace(/\/$/, '')}/ws`;
+        return wsUrl.toString();
+      } catch {
+        const sanitized = API_BASE_URL.replace(/^https?:\/\//, '');
+        const protocol = API_BASE_URL.startsWith('https') ? 'wss://' : 'ws://';
+        return `${protocol}${sanitized.replace(/\/$/, '')}/ws`;
+      }
+    };
+
+    const connect = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      const url = resolveWebsocketUrl();
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        attempt = 0;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+      };
+
+      socket.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          return;
+        }
+
+        let payload: unknown;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        const envelope = payload as CatalogSocketEvent;
+
+        switch (envelope.type) {
+          case 'connection.ack':
+          case 'pong':
+            return;
+          case 'repository.updated':
+            if (envelope.data?.repository) {
+              handleRepositoryUpdate(envelope.data.repository);
+            }
+            return;
+          case 'repository.ingestion-event':
+            if (envelope.data?.event) {
+              handleIngestionEvent(envelope.data.event);
+            }
+            return;
+          case 'build.updated':
+            if (envelope.data?.build) {
+              handleBuildUpdate(envelope.data.build);
+            }
+            return;
+          case 'launch.updated':
+            if (envelope.data?.launch && envelope.data?.repositoryId) {
+              handleLaunchUpdate(envelope.data.repositoryId, envelope.data.launch);
+            }
+            return;
+          default:
+            return;
+        }
+      };
+
+      const scheduleReconnect = (delay: number) => {
+        if (closed) {
+          return;
+        }
+        reconnectTimer = setTimeout(connect, delay);
+      };
+
+      socket.onclose = () => {
+        if (closed) {
+          return;
+        }
+        attempt += 1;
+        const delay = Math.min(10_000, 500 * 2 ** attempt);
+        scheduleReconnect(delay);
+        socket = null;
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [handleRepositoryUpdate, handleIngestionEvent, handleBuildUpdate, handleLaunchUpdate]);
 
   return {
     inputValue,
