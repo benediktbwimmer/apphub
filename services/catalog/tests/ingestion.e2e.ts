@@ -41,12 +41,17 @@ type BuildSummary = {
   logs?: string | null;
 };
 
+type LaunchEnvVar = { key: string; value: string };
+
 type LaunchSummary = {
   id: string;
   status: string;
   instanceUrl: string | null;
   errorMessage: string | null;
   port: number | null;
+  resourceProfile: string | null;
+  buildId: string;
+  env: LaunchEnvVar[];
 };
 
 type RepositorySummary = {
@@ -453,7 +458,12 @@ async function testRealRepositoryLaunchFlow() {
     const launchRes = await fetch(`${baseUrl}/apps/${appId}/launch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        env: [
+          { key: 'HELLO', value: 'world' },
+          { key: 'FOO', value: 'bar' }
+        ]
+      })
     });
 
     assert.equal(launchRes.status, 202, 'Launch request should be accepted');
@@ -462,10 +472,12 @@ async function testRealRepositoryLaunchFlow() {
     };
     const launch = launchPayload.data.launch;
     assert(launch.id, 'Launch identifier should be defined');
+    assert(launch.env.some((entry) => entry.key === 'HELLO' && entry.value === 'world'));
 
     const runningLaunch = await pollLaunch(baseUrl, appId, launch.id, 'running');
     assert(runningLaunch.instanceUrl, 'Instance URL should be populated');
     assert.strictEqual(typeof runningLaunch.port, 'number');
+    assert(runningLaunch.env.some((entry) => entry.key === 'FOO' && entry.value === 'bar'));
 
     const launchesRes = await fetch(`${baseUrl}/apps/${appId}/launches`);
     assert.equal(launchesRes.status, 200, 'Launch listing should succeed');

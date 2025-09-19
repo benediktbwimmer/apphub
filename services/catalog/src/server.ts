@@ -28,6 +28,7 @@ import {
   getLaunchById,
   requestLaunchStop,
   type LaunchRecord,
+  type LaunchEnvVar,
   getBuildById,
   createBuild,
   failLaunch
@@ -139,13 +140,22 @@ const createRepositorySchema = z.object({
     .default([])
 });
 
+const launchEnvEntrySchema = z
+  .object({
+    key: z.string().min(1).max(128),
+    value: z.string().max(4096)
+  })
+  .strict();
+
 const launchRequestSchema = z
   .object({
     buildId: z.string().min(1).optional(),
-    resourceProfile: z.string().min(1).optional()
+    resourceProfile: z.string().min(1).optional(),
+    env: z.array(launchEnvEntrySchema).max(32).optional()
   })
-  .strict()
-  .partial();
+  .strict();
+
+type LaunchRequest = z.infer<typeof launchRequestSchema>;
 
 const launchListQuerySchema = z
   .object({
@@ -220,6 +230,28 @@ function normalizeIngestedBefore(raw?: string) {
   }
   date.setUTCHours(23, 59, 59, 999);
   return date.toISOString();
+}
+
+function normalizeLaunchEnv(entries?: LaunchEnvVar[]): LaunchEnvVar[] {
+  if (!entries || entries.length === 0) {
+    return [];
+  }
+  const seen = new Map<string, string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (key.length === 0) {
+      continue;
+    }
+    const value = typeof entry.value === 'string' ? entry.value : '';
+    seen.set(key, value);
+    if (seen.size >= 32) {
+      break;
+    }
+  }
+  return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
 
 function serializeRepository(record: RepositoryRecordWithRelevance) {
@@ -341,6 +373,7 @@ function serializeLaunch(launch: LaunchRecord | null) {
     buildId: launch.buildId,
     instanceUrl: launch.instanceUrl,
     resourceProfile: launch.resourceProfile,
+    env: launch.env,
     errorMessage: launch.errorMessage,
     createdAt: launch.createdAt,
     updatedAt: launch.updatedAt,
@@ -643,7 +676,7 @@ async function buildServer() {
       return { error: parseBody.error.flatten() };
     }
 
-    const payload = parseBody.data ?? {};
+    const payload = parseBody.data as LaunchRequest;
 
     let build = payload.buildId ? getBuildById(payload.buildId) : null;
     if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
@@ -660,8 +693,11 @@ async function buildServer() {
       return { error: 'no successful build available for launch' };
     }
 
+    const env = normalizeLaunchEnv(payload.env);
+
     const launch = createLaunch(repository.id, build.id, {
-      resourceProfile: payload.resourceProfile ?? null
+      resourceProfile: payload.resourceProfile ?? null,
+      env
     });
 
     try {

@@ -8,7 +8,14 @@ import {
   formatScore,
   highlightSegments
 } from '../utils';
-import type { AppRecord, BuildTimelineState, HistoryState, LaunchListState, TagKV } from '../types';
+import type {
+  AppRecord,
+  BuildTimelineState,
+  HistoryState,
+  LaunchEnvVar,
+  LaunchListState,
+  TagKV
+} from '../types';
 
 const TAG_COLOR_PALETTE: { background: string; border: string; color: string }[] = [
   { background: 'rgba(59, 130, 246, 0.16)', border: 'rgba(37, 99, 235, 0.35)', color: '#1e3a8a' },
@@ -67,6 +74,28 @@ const getTagColors = (key: string) => {
   return TAG_COLOR_PALETTE[paletteIndex];
 };
 
+const MAX_LAUNCH_ENV_ROWS = 32;
+const ACTIVE_LAUNCH_STATUSES = new Set(['pending', 'starting', 'running', 'stopping']);
+
+type LaunchEnvRow = LaunchEnvVar & { id: string };
+
+function createEnvRow(entry?: LaunchEnvVar, id?: string): LaunchEnvRow {
+  const fallbackId = `env-${Math.random().toString(36).slice(2, 10)}-${Math.random()
+    .toString(36)
+    .slice(2, 6)}`;
+  return {
+    id: id ?? fallbackId,
+    key: entry?.key ?? '',
+    value: entry?.value ?? ''
+  };
+}
+
+function rowsFromEnv(env: LaunchEnvVar[] = []): LaunchEnvRow[] {
+  return env.map((entry, index) =>
+    createEnvRow(entry, `existing-${index}-${entry.key}-${entry.value}`)
+  );
+}
+
 type AppCardProps = {
   app: AppRecord;
   activeTokens: string[];
@@ -82,7 +111,7 @@ type AppCardProps = {
   onRetryBuild: (appId: string, buildId: string) => void;
   launchEntry?: LaunchListState[string];
   onToggleLaunches: (id: string) => void;
-  onLaunch: (id: string) => void;
+  onLaunch: (id: string, env: LaunchEnvVar[]) => void;
   onStopLaunch: (appId: string, launchId: string) => void;
   launchingId: string | null;
   stoppingLaunchId: string | null;
@@ -523,7 +552,7 @@ function LaunchSummarySection({
   highlightEnabled: boolean;
   launchingId: string | null;
   stoppingLaunchId: string | null;
-  onLaunch: (id: string) => void;
+  onLaunch: (id: string, env: LaunchEnvVar[]) => void;
   onStop: (appId: string, launchId: string) => void;
   launchErrors: Record<string, string | null>;
 }) {
@@ -534,6 +563,56 @@ function LaunchSummarySection({
   const canLaunch = app.latestBuild?.status === 'succeeded';
   const canStop = launch ? ['running', 'starting', 'stopping'].includes(launch.status) : false;
   const launchError = launchErrors[app.id] ?? null;
+
+  const [envRows, setEnvRows] = useState<LaunchEnvRow[]>(() => rowsFromEnv(launch?.env ?? []));
+  const [lastLaunchId, setLastLaunchId] = useState<string | null>(launch?.id ?? null);
+
+  useEffect(() => {
+    const currentId = launch?.id ?? null;
+    if (currentId === lastLaunchId) {
+      return;
+    }
+    setEnvRows(rowsFromEnv(launch?.env ?? []));
+    setLastLaunchId(currentId);
+  }, [launch, lastLaunchId]);
+
+  const envForLaunch = useMemo<LaunchEnvVar[]>(() => envRows.map(({ key, value }) => ({ key, value })), [envRows]);
+
+  const editingDisabled =
+    isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
+
+  const handleAddEnvRow = () => {
+    if (editingDisabled) {
+      return;
+    }
+    setEnvRows((prev) => {
+      if (prev.length >= MAX_LAUNCH_ENV_ROWS) {
+        return prev;
+      }
+      return [...prev, createEnvRow()];
+    });
+  };
+
+  const handleEnvKeyChange = (id: string, value: string) => {
+    if (editingDisabled) {
+      return;
+    }
+    setEnvRows((prev) => prev.map((row) => (row.id === id ? { ...row, key: value } : row)));
+  };
+
+  const handleEnvValueChange = (id: string, value: string) => {
+    if (editingDisabled) {
+      return;
+    }
+    setEnvRows((prev) => prev.map((row) => (row.id === id ? { ...row, value } : row)));
+  };
+
+  const handleEnvRemove = (id: string) => {
+    if (editingDisabled) {
+      return;
+    }
+    setEnvRows((prev) => prev.filter((row) => row.id !== id));
+  };
 
   return (
     <div
@@ -580,11 +659,67 @@ function LaunchSummarySection({
       {launch?.status === 'stopped' && (
         <p className="text-sm text-slate-500 dark:text-slate-400">Last launch has ended.</p>
       )}
+      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+            Environment
+          </span>
+          {!editingDisabled && (
+            <button
+              type="button"
+              className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+              onClick={handleAddEnvRow}
+              disabled={envRows.length >= MAX_LAUNCH_ENV_ROWS}
+            >
+              Add variable
+            </button>
+          )}
+        </div>
+        {envRows.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {envRows.map((row) => (
+              <div key={row.id} className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="KEY"
+                  className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                  value={row.key}
+                  onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
+                  disabled={editingDisabled}
+                />
+                <input
+                  type="text"
+                  placeholder="value"
+                  className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                  value={row.value}
+                  onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
+                  disabled={editingDisabled}
+                />
+                <button
+                  type="button"
+                  className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+                  onClick={() => handleEnvRemove(row.id)}
+                  disabled={editingDisabled}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {editingDisabled && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Environment variables are locked while a launch is active.
+          </p>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className={PRIMARY_BUTTON_CLASSES}
-          onClick={() => onLaunch(app.id)}
+          onClick={() => onLaunch(app.id, envForLaunch)}
           disabled={isLaunching || !canLaunch || canStop}
         >
           {isLaunching ? 'Launching…' : 'Launch app'}
@@ -829,6 +964,18 @@ function LaunchTimeline({
                   {launchItem.errorMessage && (
                     <div className="text-sm font-medium text-rose-600 dark:text-rose-300">
                       {highlightSegments(launchItem.errorMessage, activeTokens, highlightEnabled)}
+                    </div>
+                  )}
+                  {launchItem.env && launchItem.env.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {launchItem.env.map((entry, index) => (
+                        <code
+                          key={`${launchItem.id}-env-${entry.key}-${index}`}
+                          className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
+                        >
+                          {entry.key}={entry.value}
+                        </code>
+                      ))}
                     </div>
                   )}
                   {launchItem.resourceProfile && (
