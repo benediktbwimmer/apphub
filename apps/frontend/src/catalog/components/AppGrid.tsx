@@ -3,8 +3,8 @@ import type {
   AppRecord,
   BuildTimelineState,
   HistoryState,
-  LaunchEnvVar,
-  LaunchListState
+  LaunchListState,
+  LaunchRequestDraft
 } from '../types';
 
 type AppGridProps = {
@@ -22,7 +22,7 @@ type AppGridProps = {
   onRetryBuild: (appId: string, buildId: string) => void;
   launchLists: LaunchListState;
   onToggleLaunches: (id: string) => void;
-  onLaunch: (id: string, env: LaunchEnvVar[]) => void;
+  onLaunch: (id: string, draft: LaunchRequestDraft) => void;
   onStopLaunch: (appId: string, launchId: string) => void;
   launchingId: string | null;
   stoppingLaunchId: string | null;

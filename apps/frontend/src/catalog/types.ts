@@ -32,6 +32,12 @@ export type LaunchEnvVar = {
   value: string;
 };
 
+export type LaunchRequestDraft = {
+  env: LaunchEnvVar[];
+  command: string;
+  launchId: string;
+};
+
 export type LaunchSummary = {
   id: string;
   status: LaunchStatus;
@@ -39,6 +45,7 @@ export type LaunchSummary = {
   instanceUrl: string | null;
   resourceProfile: string | null;
   env: LaunchEnvVar[];
+  command: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;

@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
+import { Editor } from '../../components';
+import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
 import {
   formatBytes,
@@ -13,6 +15,7 @@ import type {
   BuildTimelineState,
   HistoryState,
   LaunchEnvVar,
+  LaunchRequestDraft,
   LaunchListState,
   TagKV
 } from '../types';
@@ -112,7 +115,7 @@ type AppCardProps = {
   onRetryBuild: (appId: string, buildId: string) => void;
   launchEntry?: LaunchListState[string];
   onToggleLaunches: (id: string) => void;
-  onLaunch: (id: string, env: LaunchEnvVar[]) => void;
+  onLaunch: (id: string, draft: LaunchRequestDraft) => void;
   onStopLaunch: (appId: string, launchId: string) => void;
   launchingId: string | null;
   stoppingLaunchId: string | null;
@@ -374,7 +377,7 @@ function FullscreenOverlay({
     return null;
   }
 
-  let content: JSX.Element | null = null;
+  let content: ReactElement | null = null;
 
   if (preview.type === 'live') {
     content = (
@@ -553,7 +556,7 @@ function LaunchSummarySection({
   highlightEnabled: boolean;
   launchingId: string | null;
   stoppingLaunchId: string | null;
-  onLaunch: (id: string, env: LaunchEnvVar[]) => void;
+  onLaunch: (id: string, draft: LaunchRequestDraft) => void;
   onStop: (appId: string, launchId: string) => void;
   launchErrors: Record<string, string | null>;
 }) {
@@ -565,7 +568,31 @@ function LaunchSummarySection({
   const canStop = launch ? ['running', 'starting', 'stopping'].includes(launch.status) : false;
   const launchError = launchErrors[app.id] ?? null;
 
-  const [envRows, setEnvRows] = useState<LaunchEnvRow[]>(() => rowsFromEnv(launch?.env ?? []));
+  const initialLaunchIdRef = useRef<string>('');
+  if (!initialLaunchIdRef.current) {
+    initialLaunchIdRef.current = createLaunchId();
+  }
+
+  const initialEnvRowsRef = useRef<LaunchEnvRow[]>(rowsFromEnv(launch?.env ?? []));
+
+  const initialDefaultCommandRef = useRef<string>('');
+  if (!initialDefaultCommandRef.current) {
+    initialDefaultCommandRef.current = buildDockerRunCommandString({
+      repositoryId: app.id,
+      launchId: initialLaunchIdRef.current,
+      imageTag: app.latestBuild?.imageTag ?? null,
+      env: initialEnvRowsRef.current.map(({ key, value }) => ({ key, value }))
+    });
+  }
+
+  const [envRows, setEnvRows] = useState<LaunchEnvRow[]>(initialEnvRowsRef.current);
+  const [generatedDefaultCommand, setGeneratedDefaultCommand] = useState<string>(
+    initialDefaultCommandRef.current
+  );
+  const [commandValue, setCommandValue] = useState<string>(
+    launch?.command ?? initialDefaultCommandRef.current
+  );
+  const [pendingLaunchId, setPendingLaunchId] = useState<string>(initialLaunchIdRef.current);
   const [lastLaunchId, setLastLaunchId] = useState<string | null>(launch?.id ?? null);
 
   useEffect(() => {
@@ -573,14 +600,66 @@ function LaunchSummarySection({
     if (currentId === lastLaunchId) {
       return;
     }
-    setEnvRows(rowsFromEnv(launch?.env ?? []));
+    const nextEnvRows = rowsFromEnv(launch?.env ?? []);
+    setEnvRows(nextEnvRows);
     setLastLaunchId(currentId);
-  }, [launch, lastLaunchId]);
+    if (launch?.command) {
+      setCommandValue(launch.command);
+    }
+    const nextPendingId = createLaunchId();
+    setPendingLaunchId(nextPendingId);
+    const nextDefault = buildDockerRunCommandString({
+      repositoryId: app.id,
+      launchId: nextPendingId,
+      imageTag: app.latestBuild?.imageTag ?? null,
+      env: nextEnvRows.map(({ key, value }) => ({ key, value }))
+    });
+    setGeneratedDefaultCommand(nextDefault);
+    if (!launch?.command) {
+      setCommandValue(nextDefault);
+    }
+  }, [app.id, app.latestBuild?.imageTag, launch, lastLaunchId]);
 
   const envForLaunch = useMemo<LaunchEnvVar[]>(() => envRows.map(({ key, value }) => ({ key, value })), [envRows]);
 
+  useEffect(() => {
+    const nextDefault = buildDockerRunCommandString({
+      repositoryId: app.id,
+      launchId: pendingLaunchId,
+      imageTag: app.latestBuild?.imageTag ?? null,
+      env: envForLaunch
+    });
+    setGeneratedDefaultCommand((prev) => (prev === nextDefault ? prev : nextDefault));
+    setCommandValue((current) => (current === generatedDefaultCommand ? nextDefault : current));
+  }, [app.id, app.latestBuild?.imageTag, envForLaunch, pendingLaunchId, generatedDefaultCommand]);
+
   const editingDisabled =
     isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
+
+  const commandIsBlank = commandValue.trim().length === 0;
+
+  const handleCommandChange = (value: string) => {
+    if (editingDisabled) {
+      return;
+    }
+    setCommandValue(value);
+  };
+
+  const handleResetCommand = () => {
+    if (editingDisabled) {
+      return;
+    }
+    const nextPendingId = createLaunchId();
+    setPendingLaunchId(nextPendingId);
+    const nextDefault = buildDockerRunCommandString({
+      repositoryId: app.id,
+      launchId: nextPendingId,
+      imageTag: app.latestBuild?.imageTag ?? null,
+      env: envForLaunch
+    });
+    setGeneratedDefaultCommand(nextDefault);
+    setCommandValue(nextDefault);
+  };
 
   const handleAddEnvRow = () => {
     if (editingDisabled) {
@@ -663,6 +742,42 @@ function LaunchSummarySection({
       <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+            Docker Command
+          </span>
+          <button
+            type="button"
+            className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+            onClick={handleResetCommand}
+            disabled={editingDisabled}
+          >
+            Reset to default
+          </button>
+        </div>
+        <Editor
+          value={commandValue}
+          onChange={handleCommandChange}
+          language="shell"
+          height={220}
+          readOnly={editingDisabled}
+          ariaLabel="Docker run command"
+        />
+        {commandIsBlank && (
+          <p className="text-xs text-rose-600 dark:text-rose-300">
+            Command defaults to the generated value if left empty.
+          </p>
+        )}
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          This command executes exactly as shown when launching.
+        </p>
+        {editingDisabled && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Command editing is locked while a launch is active.
+          </p>
+        )}
+      </div>
+      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
             Environment
           </span>
           {!editingDisabled && (
@@ -720,7 +835,29 @@ function LaunchSummarySection({
         <button
           type="button"
           className={PRIMARY_BUTTON_CLASSES}
-          onClick={() => onLaunch(app.id, envForLaunch)}
+          onClick={() => {
+            const trimmed = commandValue.trim();
+            const commandToSend = trimmed.length > 0 ? trimmed : generatedDefaultCommand;
+            const usedDefault = commandToSend === generatedDefaultCommand;
+            setCommandValue(commandToSend);
+            onLaunch(app.id, {
+              env: envForLaunch,
+              command: commandToSend,
+              launchId: pendingLaunchId
+            });
+            const nextPendingId = createLaunchId();
+            setPendingLaunchId(nextPendingId);
+            const nextDefault = buildDockerRunCommandString({
+              repositoryId: app.id,
+              launchId: nextPendingId,
+              imageTag: app.latestBuild?.imageTag ?? null,
+              env: envForLaunch
+            });
+            setGeneratedDefaultCommand(nextDefault);
+            if (usedDefault) {
+              setCommandValue(nextDefault);
+            }
+          }}
           disabled={isLaunching || !canLaunch || canStop}
         >
           {isLaunching ? 'Launching…' : 'Launch app'}

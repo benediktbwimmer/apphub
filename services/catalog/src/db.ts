@@ -50,6 +50,7 @@ export type LaunchRecord = {
   port: number | null;
   resourceProfile: string | null;
   env: LaunchEnvVar[];
+  command: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -280,6 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_builds_status
     container_id TEXT,
     port INTEGER,
     resource_profile TEXT,
+    command TEXT,
     env_vars TEXT,
     error_message TEXT,
     created_at TEXT NOT NULL,
@@ -364,6 +366,7 @@ ensureColumn(
   'ALTER TABLE ingestion_events ADD COLUMN duration_ms INTEGER'
 );
 ensureColumn('launches', 'env_vars', 'ALTER TABLE launches ADD COLUMN env_vars TEXT');
+ensureColumn('launches', 'command', 'ALTER TABLE launches ADD COLUMN command TEXT');
 
 type RepositoryRow = {
   id: string;
@@ -435,6 +438,7 @@ type LaunchRow = {
   container_id: string | null;
   port: number | null;
   resource_profile: string | null;
+  command: string | null;
   env_vars: string | null;
   error_message: string | null;
   created_at: string;
@@ -672,6 +676,7 @@ const insertLaunchStatement = db.prepare(
      container_id,
      port,
      resource_profile,
+     command,
      env_vars,
      error_message,
      created_at,
@@ -688,6 +693,7 @@ const insertLaunchStatement = db.prepare(
      @containerId,
      @port,
      @resourceProfile,
+     @command,
      @env,
      @errorMessage,
      @createdAt,
@@ -705,6 +711,7 @@ const updateLaunchStatement = db.prepare(
        container_id = CASE WHEN @containerIdSet = 1 THEN @containerId ELSE container_id END,
        port = CASE WHEN @portSet = 1 THEN @port ELSE port END,
        resource_profile = CASE WHEN @resourceProfileSet = 1 THEN @resourceProfile ELSE resource_profile END,
+       command = CASE WHEN @commandSet = 1 THEN @command ELSE command END,
        env_vars = CASE WHEN @envSet = 1 THEN @env ELSE env_vars END,
        error_message = CASE WHEN @errorMessageSet = 1 THEN @errorMessage ELSE error_message END,
        updated_at = COALESCE(@updatedAt, updated_at),
@@ -829,6 +836,7 @@ function rowToLaunch(row: LaunchRow): LaunchRecord {
     port: row.port,
     resourceProfile: row.resource_profile,
     env: parseLaunchEnv(row.env_vars),
+    command: row.command ?? null,
     errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1387,6 +1395,7 @@ function updateLaunchRecord(
     port?: number | null;
     resourceProfile?: string | null;
     env?: LaunchEnvVar[] | null;
+    command?: string | null;
     errorMessage?: string | null;
     updatedAt?: string;
     startedAt?: string | null;
@@ -1406,6 +1415,8 @@ function updateLaunchRecord(
     port: updates.port ?? null,
     resourceProfileSet: updates.resourceProfile === undefined ? 0 : 1,
     resourceProfile: updates.resourceProfile ?? null,
+    commandSet: updates.command === undefined ? 0 : 1,
+    command: updates.command ?? null,
     envSet: updates.env === undefined ? 0 : 1,
     env: JSON.stringify(updates.env ?? []),
     errorMessageSet: updates.errorMessage === undefined ? 0 : 1,
@@ -1426,11 +1437,20 @@ function updateLaunchRecord(
 export function createLaunch(
   repositoryId: string,
   buildId: string,
-  options: { resourceProfile?: string | null; expiresAt?: string | null; env?: LaunchEnvVar[] | null } = {}
+  options: {
+    id?: string;
+    resourceProfile?: string | null;
+    expiresAt?: string | null;
+    env?: LaunchEnvVar[] | null;
+    command?: string | null;
+  } = {}
 ): LaunchRecord {
   const now = new Date().toISOString();
+  const providedId = typeof options.id === 'string' ? options.id.trim() : '';
+  const launchId = providedId.length > 0 ? providedId : randomUUID();
+  const trimmedCommand = typeof options.command === 'string' ? options.command.trim() : '';
   const launch: LaunchRecord = {
-    id: randomUUID(),
+    id: launchId,
     repositoryId,
     buildId,
     status: 'pending',
@@ -1446,6 +1466,7 @@ export function createLaunch(
             value: typeof entry.value === 'string' ? entry.value : ''
           }))
       : [],
+    command: trimmedCommand.length > 0 ? trimmedCommand : null,
     errorMessage: null,
     createdAt: now,
     updatedAt: now,
@@ -1463,6 +1484,7 @@ export function createLaunch(
     containerId: launch.containerId,
     port: launch.port,
     resourceProfile: launch.resourceProfile,
+    command: launch.command,
     env: JSON.stringify(launch.env),
     errorMessage: launch.errorMessage,
     createdAt: launch.createdAt,

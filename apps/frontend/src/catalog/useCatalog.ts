@@ -9,7 +9,7 @@ import type {
   HistoryState,
   IngestionEvent,
   LaunchListState,
-  LaunchEnvVar,
+  LaunchRequestDraft,
   LaunchSummary,
   SearchMeta,
   SearchParseResult,
@@ -84,8 +84,8 @@ export type UseCatalogResult = {
     toggleLogs: (appId: string, buildId: string) => Promise<void>;
     retryBuild: (appId: string, buildId: string) => Promise<void>;
     toggleLaunches: (id: string) => Promise<void>;
-    launchApp: (id: string, env: LaunchEnvVar[]) => Promise<void>;
-    stopLaunch: (appId: string, launchId: string) => Promise<void>;
+    launchApp: (id: string, draft: LaunchRequestDraft) => Promise<void>;
+  stopLaunch: (appId: string, launchId: string) => Promise<void>;
   };
 };
 
@@ -822,16 +822,23 @@ export function useCatalog(): UseCatalogResult {
   );
 
   const launchApp = useCallback(
-    async (id: string, env: LaunchEnvVar[] = []) => {
+    async (id: string, request: LaunchRequestDraft) => {
       setLaunchingId(id);
       setLaunchErrors((prev) => ({ ...prev, [id]: null }));
       try {
-        const normalizedEnv = env
+        const normalizedEnv = request.env
           .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
           .filter((entry) => entry.key.length > 0);
         const requestPayload: Record<string, unknown> = {};
         if (normalizedEnv.length > 0) {
           requestPayload.env = normalizedEnv;
+        }
+        const command = request.command.trim();
+        if (command.length > 0) {
+          requestPayload.command = command;
+        }
+        if (request.launchId) {
+          requestPayload.launchId = request.launchId;
         }
         const response = await fetch(`${API_BASE_URL}/apps/${id}/launch`, {
           method: 'POST',
