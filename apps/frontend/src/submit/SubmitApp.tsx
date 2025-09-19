@@ -1,170 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
-
-type TagInput = {
-  key: string;
-  value: string;
-};
-
-type IngestionEvent = {
-  id: number;
-  status: string;
-  message: string | null;
-  attempt: number | null;
-  commitSha: string | null;
-  durationMs: number | null;
-  createdAt: string;
-};
-
-type AppRecord = {
-  id: string;
-  name: string;
-  description: string;
-  repoUrl: string;
-  dockerfilePath: string;
-  ingestStatus: 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
-  ingestError: string | null;
-  ingestAttempts: number;
-  updatedAt: string;
-  tags: TagInput[];
-};
+import { useSubmitApp } from './useSubmitApp';
 
 interface SubmitAppProps {
   onAppRegistered?: (id: string) => void;
 }
 
-function slugify(input: string) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '')
-    .slice(0, 32) || `app-${Date.now()}`;
-}
-
 function SubmitApp({ onAppRegistered }: SubmitAppProps) {
-  const [form, setForm] = useState({
-    id: '',
-    name: '',
-    description: '',
-    repoUrl: '',
-    dockerfilePath: 'Dockerfile',
-    tags: [{ key: 'language', value: 'javascript' } as TagInput]
-  });
-  const [sourceType, setSourceType] = useState<'remote' | 'local'>('remote');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [currentApp, setCurrentApp] = useState<AppRecord | null>(null);
-  const [history, setHistory] = useState<IngestionEvent[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-
-  const appId = useMemo(() => currentApp?.id ?? null, [currentApp]);
-
-  useEffect(() => {
-    if (!appId) {
-      return;
-    }
-    const controller = new AbortController();
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/apps/${appId}`, { signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`Failed to load app status (${res.status})`);
-        }
-        const payload = await res.json();
-        setCurrentApp(payload.data);
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') {
-          return;
-        }
-      }
-    }, 1000);
-
-    return () => {
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, [appId]);
-
-  const handleTagChange = (index: number, key: keyof TagInput, value: string) => {
-    setForm((prev) => {
-      const next = [...prev.tags];
-      next[index] = { ...next[index], [key]: value };
-      return { ...prev, tags: next };
-    });
-  };
-
-  const addTagField = () => {
-    setForm((prev) => ({ ...prev, tags: [...prev.tags, { key: '', value: '' }] }));
-  };
-
-  const removeTagField = (index: number) => {
-    setForm((prev) => ({ ...prev, tags: prev.tags.filter((_, i) => i !== index) }));
-  };
-
-  const fetchHistory = async (id: string) => {
-    setHistoryLoading(true);
-    setHistoryError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/apps/${id}/history`);
-      if (!res.ok) {
-        throw new Error(`Failed to load history (${res.status})`);
-      }
-      const payload = await res.json();
-      setHistory(payload.data ?? []);
-    } catch (err) {
-      setHistoryError((err as Error).message);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (event) => {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const id = form.id || slugify(form.name);
-      const body = {
-        id,
-        name: form.name,
-        description: form.description,
-        repoUrl: sourceType === 'local' && form.repoUrl && !form.repoUrl.startsWith('file://')
-          ? form.repoUrl
-          : form.repoUrl,
-        dockerfilePath: form.dockerfilePath,
-        tags: form.tags.filter((tag) => tag.key && tag.value)
-      };
-
-      const response = await fetch(`${API_BASE_URL}/apps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error ?? `Submission failed with status ${response.status}`);
-      }
-
-      const payload = await response.json();
-      setCurrentApp(payload.data);
-      setHistory([]);
-      if (onAppRegistered) {
-        onAppRegistered(id);
-      }
-      await fetchHistory(id);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const disableSubmit =
-    submitting || !form.name || !form.description || !form.repoUrl || !form.dockerfilePath;
+  const {
+    form,
+    setForm,
+    sourceType,
+    setSourceType,
+    submitting,
+    error,
+    currentApp,
+    history,
+    historyLoading,
+    historyError,
+    disableSubmit,
+    handleSubmit,
+    handleTagChange,
+    addTagField,
+    removeTagField,
+    fetchHistory
+  } = useSubmitApp(onAppRegistered);
 
   return (
     <section className="submit-shell">
@@ -224,7 +82,9 @@ function SubmitApp({ onAppRegistered }: SubmitAppProps) {
             id="repo-url"
             value={form.repoUrl}
             onChange={(event) => setForm((prev) => ({ ...prev, repoUrl: event.target.value }))}
-            placeholder={sourceType === 'local' ? '/absolute/path/to/repo' : 'https://github.com/user/project.git'}
+            placeholder={
+              sourceType === 'local' ? '/absolute/path/to/repo' : 'https://github.com/user/project.git'
+            }
             required
           />
           <p className="field-hint">
