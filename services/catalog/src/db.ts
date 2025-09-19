@@ -35,6 +35,11 @@ export type LaunchStatus =
   | 'stopped'
   | 'failed';
 
+export type LaunchEnvVar = {
+  key: string;
+  value: string;
+};
+
 export type LaunchRecord = {
   id: string;
   repositoryId: string;
@@ -44,6 +49,7 @@ export type LaunchRecord = {
   containerId: string | null;
   port: number | null;
   resourceProfile: string | null;
+  env: LaunchEnvVar[];
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -274,6 +280,7 @@ CREATE INDEX IF NOT EXISTS idx_builds_status
     container_id TEXT,
     port INTEGER,
     resource_profile TEXT,
+    env_vars TEXT,
     error_message TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -356,6 +363,7 @@ ensureColumn(
   'duration_ms',
   'ALTER TABLE ingestion_events ADD COLUMN duration_ms INTEGER'
 );
+ensureColumn('launches', 'env_vars', 'ALTER TABLE launches ADD COLUMN env_vars TEXT');
 
 type RepositoryRow = {
   id: string;
@@ -427,6 +435,7 @@ type LaunchRow = {
   container_id: string | null;
   port: number | null;
   resource_profile: string | null;
+  env_vars: string | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;
@@ -663,6 +672,7 @@ const insertLaunchStatement = db.prepare(
      container_id,
      port,
      resource_profile,
+     env_vars,
      error_message,
      created_at,
      updated_at,
@@ -678,6 +688,7 @@ const insertLaunchStatement = db.prepare(
      @containerId,
      @port,
      @resourceProfile,
+     @env,
      @errorMessage,
      @createdAt,
      @updatedAt,
@@ -694,6 +705,7 @@ const updateLaunchStatement = db.prepare(
        container_id = CASE WHEN @containerIdSet = 1 THEN @containerId ELSE container_id END,
        port = CASE WHEN @portSet = 1 THEN @port ELSE port END,
        resource_profile = CASE WHEN @resourceProfileSet = 1 THEN @resourceProfile ELSE resource_profile END,
+       env_vars = CASE WHEN @envSet = 1 THEN @env ELSE env_vars END,
        error_message = CASE WHEN @errorMessageSet = 1 THEN @errorMessage ELSE error_message END,
        updated_at = COALESCE(@updatedAt, updated_at),
        started_at = CASE WHEN @startedAtSet = 1 THEN @startedAt ELSE started_at END,
@@ -779,6 +791,33 @@ function rowToBuild(row: BuildRow): BuildRecord {
   };
 }
 
+function parseLaunchEnv(raw: string | null): LaunchEnvVar[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const env: LaunchEnvVar[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const key = typeof (entry as { key?: unknown }).key === 'string' ? (entry as { key: string }).key : '';
+      const value = typeof (entry as { value?: unknown }).value === 'string' ? (entry as { value: string }).value : '';
+      if (!key) {
+        continue;
+      }
+      env.push({ key, value });
+    }
+    return env;
+  } catch {
+    return [];
+  }
+}
+
 function rowToLaunch(row: LaunchRow): LaunchRecord {
   return {
     id: row.id,
@@ -789,6 +828,7 @@ function rowToLaunch(row: LaunchRow): LaunchRecord {
     containerId: row.container_id,
     port: row.port,
     resourceProfile: row.resource_profile,
+    env: parseLaunchEnv(row.env_vars),
     errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1346,6 +1386,7 @@ function updateLaunchRecord(
     containerId?: string | null;
     port?: number | null;
     resourceProfile?: string | null;
+    env?: LaunchEnvVar[] | null;
     errorMessage?: string | null;
     updatedAt?: string;
     startedAt?: string | null;
@@ -1365,6 +1406,8 @@ function updateLaunchRecord(
     port: updates.port ?? null,
     resourceProfileSet: updates.resourceProfile === undefined ? 0 : 1,
     resourceProfile: updates.resourceProfile ?? null,
+    envSet: updates.env === undefined ? 0 : 1,
+    env: JSON.stringify(updates.env ?? []),
     errorMessageSet: updates.errorMessage === undefined ? 0 : 1,
     errorMessage: updates.errorMessage ?? null,
     updatedAt: updates.updatedAt ?? new Date().toISOString(),
@@ -1383,7 +1426,7 @@ function updateLaunchRecord(
 export function createLaunch(
   repositoryId: string,
   buildId: string,
-  options: { resourceProfile?: string | null; expiresAt?: string | null } = {}
+  options: { resourceProfile?: string | null; expiresAt?: string | null; env?: LaunchEnvVar[] | null } = {}
 ): LaunchRecord {
   const now = new Date().toISOString();
   const launch: LaunchRecord = {
@@ -1395,6 +1438,14 @@ export function createLaunch(
     containerId: null,
     port: null,
     resourceProfile: options.resourceProfile ?? null,
+    env: Array.isArray(options.env)
+      ? options.env
+          .filter((entry): entry is LaunchEnvVar => Boolean(entry && typeof entry.key === 'string'))
+          .map((entry) => ({
+            key: entry.key,
+            value: typeof entry.value === 'string' ? entry.value : ''
+          }))
+      : [],
     errorMessage: null,
     createdAt: now,
     updatedAt: now,
@@ -1412,6 +1463,7 @@ export function createLaunch(
     containerId: launch.containerId,
     port: launch.port,
     resourceProfile: launch.resourceProfile,
+    env: JSON.stringify(launch.env),
     errorMessage: launch.errorMessage,
     createdAt: launch.createdAt,
     updatedAt: launch.updatedAt,
@@ -1460,6 +1512,8 @@ export function startLaunch(launchId: string): LaunchRecord | null {
       port: null,
       resourceProfileSet: 0,
       resourceProfile: null,
+      envSet: 0,
+      env: null,
       errorMessageSet: 1,
       errorMessage: null,
       updatedAt,
@@ -1535,6 +1589,8 @@ export function requestLaunchStop(launchId: string): LaunchRecord | null {
       port: null,
       resourceProfileSet: 0,
       resourceProfile: null,
+      envSet: 0,
+      env: null,
       errorMessageSet: 0,
       errorMessage: null,
       updatedAt: new Date().toISOString(),

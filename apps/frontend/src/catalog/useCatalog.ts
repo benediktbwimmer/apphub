@@ -9,6 +9,7 @@ import type {
   HistoryState,
   IngestionEvent,
   LaunchListState,
+  LaunchEnvVar,
   LaunchSummary,
   SearchMeta,
   SearchParseResult,
@@ -83,7 +84,7 @@ export type UseCatalogResult = {
     toggleLogs: (appId: string, buildId: string) => Promise<void>;
     retryBuild: (appId: string, buildId: string) => Promise<void>;
     toggleLaunches: (id: string) => Promise<void>;
-    launchApp: (id: string) => Promise<void>;
+    launchApp: (id: string, env: LaunchEnvVar[]) => Promise<void>;
     stopLaunch: (appId: string, launchId: string) => Promise<void>;
   };
 };
@@ -821,12 +822,21 @@ export function useCatalog(): UseCatalogResult {
   );
 
   const launchApp = useCallback(
-    async (id: string) => {
+    async (id: string, env: LaunchEnvVar[] = []) => {
       setLaunchingId(id);
       setLaunchErrors((prev) => ({ ...prev, [id]: null }));
       try {
+        const normalizedEnv = env
+          .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
+          .filter((entry) => entry.key.length > 0);
+        const requestPayload: Record<string, unknown> = {};
+        if (normalizedEnv.length > 0) {
+          requestPayload.env = normalizedEnv;
+        }
         const response = await fetch(`${API_BASE_URL}/apps/${id}/launch`, {
-          method: 'POST'
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload)
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {

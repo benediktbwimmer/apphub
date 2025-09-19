@@ -91,7 +91,11 @@ export async function runLaunchStart(launchId: string) {
     containerPort
   });
 
-  const runArgs = ['run', '-d', '--name', containerName, '-p', `0:${containerPort}`, build.imageTag];
+  const runArgs = ['run', '-d', '--name', containerName, '-p', `0:${containerPort}`];
+  for (const entry of launch.env) {
+    runArgs.push('-e', `${entry.key}=${entry.value}`);
+  }
+  runArgs.push(build.imageTag);
   const runResult = await runDocker(runArgs);
   if (runResult.exitCode !== 0 || runResult.stdout.trim().length === 0) {
     const message = runResult.stderr || 'docker run failed';

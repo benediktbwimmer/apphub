@@ -27,12 +27,18 @@ export type BuildSummary = {
 
 export type LaunchStatus = 'pending' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
 
+export type LaunchEnvVar = {
+  key: string;
+  value: string;
+};
+
 export type LaunchSummary = {
   id: string;
   status: LaunchStatus;
   buildId: string;
   instanceUrl: string | null;
   resourceProfile: string | null;
+  env: LaunchEnvVar[];
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
