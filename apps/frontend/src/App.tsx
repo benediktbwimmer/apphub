@@ -17,7 +17,7 @@ function App() {
       <header className="hero">
         <div className="hero-heading">
           <div>
-            <h1>Web App Atlas</h1>
+            <h1>Osiris AppHub</h1>
             <p>Discover and launch containerized web apps with tag-driven search.</p>
           </div>
           <nav className="hero-tabs">
