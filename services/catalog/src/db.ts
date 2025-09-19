@@ -1564,6 +1564,7 @@ export function markLaunchRunning(
     containerId: string;
     port?: number | null;
     startedAt?: string;
+    command?: string;
   }
 ): LaunchRecord | null {
   const startedAt = details.startedAt ?? new Date().toISOString();
@@ -1572,6 +1573,7 @@ export function markLaunchRunning(
     instanceUrl: details.instanceUrl,
     containerId: details.containerId,
     port: details.port ?? null,
+    command: details.command,
     startedAt,
     stoppedAt: null,
     errorMessage: null

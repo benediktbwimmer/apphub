@@ -68,6 +68,75 @@ const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-slate-200/70 bg-w
 
 const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_BASE} border border-rose-300/70 bg-rose-500/5 text-rose-600 hover:border-rose-400 hover:bg-rose-500/15 hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20`;
 
+const LOOPBACK_HOST_PREFIX = /^127\./;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  return LOOPBACK_HOSTS.has(normalized) || LOOPBACK_HOST_PREFIX.test(normalized);
+}
+
+function getPreviewBaseCandidates(): URL[] {
+  const bases: URL[] = [];
+
+  try {
+    bases.push(new URL(API_BASE_URL));
+  } catch {
+    // ignore invalid API base URL
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    try {
+      bases.push(new URL(window.location.origin));
+    } catch {
+      // ignore invalid browser origin
+    }
+  }
+
+  return bases;
+}
+
+function normalizeInstanceUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) {
+    return null;
+  }
+
+  const trimmedUrl = rawUrl.trim();
+  if (!trimmedUrl) {
+    return null;
+  }
+
+  const candidates = getPreviewBaseCandidates();
+  let parsed: URL;
+
+  try {
+    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+      parsed = new URL(trimmedUrl);
+    } else if (candidates.length > 0) {
+      parsed = new URL(trimmedUrl, candidates[0]);
+    } else if (typeof window !== 'undefined' && window.location?.origin) {
+      parsed = new URL(trimmedUrl, window.location.origin);
+    } else {
+      parsed = new URL(trimmedUrl);
+    }
+  } catch {
+    return trimmedUrl;
+  }
+
+  if (!isLoopbackHost(parsed.hostname)) {
+    return parsed.toString();
+  }
+
+  for (const base of candidates) {
+    if (!isLoopbackHost(base.hostname)) {
+      parsed.hostname = base.hostname;
+      return parsed.toString();
+    }
+  }
+
+  return parsed.toString();
+}
+
 const getTagColors = (key: string) => {
   if (key.length === 0) {
     return TAG_COLOR_PALETTE[0];
@@ -212,23 +281,26 @@ function ChannelPreview({
   appName: string;
   launch: AppRecord['latestLaunch'];
 }) {
-  const livePreviewUrl = launch?.status === 'running' && launch.instanceUrl ? launch.instanceUrl : null;
+  const livePreviewSourceUrl = launch?.status === 'running' ? launch.instanceUrl : null;
+  const livePreviewUrl = useMemo(() => normalizeInstanceUrl(livePreviewSourceUrl), [livePreviewSourceUrl]);
   const usableTiles = useMemo(
     () => tiles.filter((tile) => Boolean(tile.src || tile.embedUrl)),
     [tiles]
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [fullscreenPreview, setFullscreenPreview] = useState<FullscreenPreviewState | null>(null);
+  const [livePreviewStatus, setLivePreviewStatus] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const [livePreviewRetryToken, setLivePreviewRetryToken] = useState(0);
 
   useEffect(() => {
-    if (livePreviewUrl) {
+    if (livePreviewUrl && livePreviewStatus !== 'failed') {
       return;
     }
     setActiveIndex(0);
-  }, [usableTiles.length, livePreviewUrl]);
+  }, [usableTiles.length, livePreviewUrl, livePreviewStatus]);
 
   useEffect(() => {
-    if (livePreviewUrl) {
+    if (livePreviewUrl && livePreviewStatus !== 'failed') {
       return;
     }
     if (usableTiles.length <= 1) {
@@ -245,9 +317,70 @@ function ChannelPreview({
       setActiveIndex((prev) => (prev + 1) % usableTiles.length);
     }, 7000);
     return () => window.clearInterval(interval);
-  }, [usableTiles, livePreviewUrl]);
+  }, [usableTiles, livePreviewUrl, livePreviewStatus]);
 
-  if (livePreviewUrl) {
+  useEffect(() => {
+    if (!livePreviewUrl) {
+      setLivePreviewStatus('idle');
+      return;
+    }
+
+    let cancelled = false;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+    setLivePreviewStatus((current) => (current === 'ready' ? current : 'loading'));
+
+    if (typeof fetch !== 'function') {
+      return () => {
+        cancelled = true;
+        controller?.abort();
+      };
+    }
+
+    const requestOptions: RequestInit = {
+      method: 'HEAD',
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: controller?.signal
+    };
+
+    fetch(livePreviewUrl, requestOptions).catch(() => {
+      if (cancelled) {
+        return;
+      }
+      setLivePreviewStatus((current) => (current === 'ready' ? current : 'failed'));
+    });
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+    };
+  }, [livePreviewUrl, livePreviewRetryToken]);
+
+  useEffect(() => {
+    if (!fullscreenPreview || fullscreenPreview.type !== 'live') {
+      return;
+    }
+    if (livePreviewUrl && livePreviewStatus !== 'failed') {
+      return;
+    }
+    setFullscreenPreview(null);
+  }, [fullscreenPreview, livePreviewUrl, livePreviewStatus]);
+
+  const hasLivePreview = Boolean(livePreviewUrl);
+  const livePreviewAvailable = hasLivePreview && livePreviewStatus !== 'failed';
+
+  const handleRetryLivePreview = () => {
+    if (!hasLivePreview) {
+      return;
+    }
+    setLivePreviewStatus('loading');
+    setLivePreviewRetryToken((token) => token + 1);
+  };
+
+  const livePreviewBannerText = livePreviewStatus === 'loading' ? 'Connecting' : 'Live preview';
+
+  if (livePreviewAvailable && livePreviewUrl) {
     return (
       <>
         <div className="relative aspect-video overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50">
@@ -258,9 +391,17 @@ function ChannelPreview({
             loading="lazy"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
             allowFullScreen
+            onLoad={() => setLivePreviewStatus('ready')}
+            onError={() => setLivePreviewStatus('failed')}
           />
+          {livePreviewStatus !== 'ready' && (
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/70 text-slate-200">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-transparent" aria-hidden="true" />
+              <span className="text-xs font-semibold uppercase tracking-[0.3em]">Connecting...</span>
+            </div>
+          )}
           <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-100 shadow-lg">
-            Live preview
+            {livePreviewBannerText}
           </div>
           <button
             type="button"
@@ -278,13 +419,48 @@ function ChannelPreview({
     );
   }
 
+  const offlineNotice = hasLivePreview && !livePreviewAvailable ? (
+    <div className="mt-3 rounded-2xl border border-amber-300/60 bg-amber-50/70 p-4 text-sm text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-700 dark:text-amber-100">
+          Live preview unavailable
+        </p>
+        <p className="text-xs text-amber-600/90 dark:text-amber-100/80">
+          We couldn't reach the running instance. It may have stopped or be blocking embeds.
+        </p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={SMALL_BUTTON_GHOST}
+          onClick={handleRetryLivePreview}
+        >
+          Retry connection
+        </button>
+        <a
+          className={SMALL_BUTTON_GHOST}
+          href={livePreviewUrl ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open in new tab
+        </a>
+      </div>
+    </div>
+  ) : null;
+
   if (usableTiles.length === 0) {
     const initial = appName.trim().slice(0, 1).toUpperCase() || 'A';
     return (
-      <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-300/70 bg-slate-50/70 text-slate-400 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-500">
-        <span className="text-5xl font-semibold tracking-tight">{initial}</span>
-        <span className="text-xs uppercase tracking-[0.3em]">Live preview pending</span>
-      </div>
+      <>
+        <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-300/70 bg-slate-50/70 text-slate-400 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-500">
+          <span className="text-5xl font-semibold tracking-tight">{initial}</span>
+          <span className="text-xs uppercase tracking-[0.3em]">
+            {hasLivePreview ? 'Live preview unavailable' : 'Live preview pending'}
+          </span>
+        </div>
+        {offlineNotice}
+      </>
     );
   }
 
@@ -296,6 +472,11 @@ function ChannelPreview({
     <>
       <div className="relative aspect-video overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70">
         <PreviewMedia tile={activeTile} />
+        {hasLivePreview && !livePreviewAvailable && (
+          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200/70 bg-amber-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-100 shadow-lg">
+            Preview offline
+          </div>
+        )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-4 text-slate-100">
           <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.3em]">
             <span className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em]">
@@ -338,6 +519,7 @@ function ChannelPreview({
           </div>
         )}
       </div>
+      {offlineNotice}
       {fullscreenPreview && (
         <FullscreenOverlay preview={fullscreenPreview} onClose={() => setFullscreenPreview(null)} />
       )}
@@ -561,6 +743,7 @@ function LaunchSummarySection({
   launchErrors: Record<string, string | null>;
 }) {
   const launch = app.latestLaunch;
+  const normalizedInstanceUrl = normalizeInstanceUrl(launch?.instanceUrl);
   const updatedAt = launch?.updatedAt ?? null;
   const isLaunching = launchingId === app.id;
   const isStopping = launch ? stoppingLaunchId === launch.id : false;
@@ -716,10 +899,10 @@ function LaunchSummarySection({
             Updated {new Date(updatedAt).toLocaleString()}
           </time>
         )}
-        {launch?.instanceUrl && (
+        {normalizedInstanceUrl && (
           <a
             className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
-            href={launch.instanceUrl}
+            href={normalizedInstanceUrl}
             target="_blank"
             rel="noreferrer"
           >
@@ -880,11 +1063,11 @@ function LaunchSummarySection({
           {isStopping ? 'Stopping…' : 'Stop launch'}
         </button>
       </div>
-      {launch?.instanceUrl && (
+      {normalizedInstanceUrl && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-blue-600 dark:text-slate-200">
           <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
-          <a className="break-all underline-offset-4 hover:underline" href={launch.instanceUrl} target="_blank" rel="noreferrer">
-            {launch.instanceUrl}
+          <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
+            {normalizedInstanceUrl}
           </a>
         </div>
       )}
@@ -1082,6 +1265,7 @@ function LaunchTimeline({
         <ul className="flex flex-col gap-3">
           {launches.map((launchItem) => {
             const timestamp = launchItem.updatedAt ?? launchItem.createdAt;
+            const normalizedInstanceUrl = normalizeInstanceUrl(launchItem.instanceUrl);
             return (
               <li key={launchItem.id}>
                 <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -1094,9 +1278,9 @@ function LaunchTimeline({
                   </code>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                  {launchItem.instanceUrl && (
+                  {normalizedInstanceUrl && (
                     <a
-                      href={launchItem.instanceUrl}
+                      href={normalizedInstanceUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"

@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:frontend\"",
     "dev:redis": "redis-server --save \"\" --appendonly no",
-    "dev:api": "cd services/catalog && PORT=4000 HOST=127.0.0.1 npm run dev",
+    "dev:api": "cd services/catalog && PORT=4000 HOST=:: npm run dev",
     "dev:worker": "cd services/catalog && npm run ingest",
     "dev:builds": "cd services/catalog && npm run builds",
     "dev:frontend": "cd apps/frontend && npm run dev",
