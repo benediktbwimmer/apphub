@@ -9,6 +9,7 @@ type TagKV = {
 
 type BuildSummary = {
   id: string;
+  repositoryId: string;
   status: 'pending' | 'running' | 'succeeded' | 'failed';
   imageTag: string | null;
   errorMessage: string | null;
@@ -20,6 +21,37 @@ type BuildSummary = {
   durationMs: number | null;
   logsPreview: string | null;
   logsTruncated: boolean;
+  hasLogs: boolean;
+  logsSize: number;
+};
+
+type BuildListMeta = {
+  total: number;
+  count: number;
+  limit: number;
+  offset: number;
+  nextOffset: number | null;
+  hasMore: boolean;
+};
+
+type BuildLogState = {
+  open: boolean;
+  loading: boolean;
+  error: string | null;
+  content: string | null;
+  size: number;
+  updatedAt: string | null;
+};
+
+type BuildTimelineState = {
+  open: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  builds: BuildSummary[];
+  meta: BuildListMeta | null;
+  logs: Record<string, BuildLogState>;
+  retrying: Record<string, boolean>;
 };
 
 type AppRecord = {
@@ -76,6 +108,29 @@ type HistoryState = Record<
 >;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+const BUILD_PAGE_SIZE = 5;
+
+function formatFetchError(err: unknown, fallback: string) {
+  if (err instanceof Error) {
+    const message = err.message ?? '';
+    const lower = message.toLowerCase();
+    const looksLikeNetworkIssue =
+      err.name === 'TypeError' ||
+      lower.includes('failed to fetch') ||
+      lower.includes('networkerror') ||
+      lower.includes('fetch failed') ||
+      lower.includes('load failed');
+
+    if (looksLikeNetworkIssue) {
+      const base = API_BASE_URL.replace(/\/$/, '');
+      return `${fallback}. Unable to reach the catalog API at ${base}. Start the API server (npm run dev:api) or set VITE_API_BASE_URL.`;
+    }
+
+    return message || fallback;
+  }
+
+  return fallback;
+}
 
 function parseSearchInput(input: string) {
   const tokens = input
@@ -113,6 +168,51 @@ function computeAutocompleteContext(input: string) {
   return { base: basePart, activeToken: token };
 }
 
+function createDefaultBuildTimelineState(): BuildTimelineState {
+  return {
+    open: false,
+    loading: false,
+    loadingMore: false,
+    error: null,
+    builds: [],
+    meta: null,
+    logs: {},
+    retrying: {}
+  };
+}
+
+function formatDuration(durationMs: number | null) {
+  if (durationMs === null || Number.isNaN(durationMs)) {
+    return null;
+  }
+  if (durationMs < 1000) {
+    return `${Math.max(durationMs, 0)} ms`;
+  }
+  const seconds = durationMs / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  const secondsPart = remainingSeconds > 0 ? `${remainingSeconds}s` : '';
+  return `${minutes}m${secondsPart ? ` ${secondsPart}` : ''}`;
+}
+
+function formatBytes(size: number) {
+  if (!size || Number.isNaN(size)) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<'catalog' | 'submit'>('catalog');
   const [inputValue, setInputValue] = useState('');
@@ -123,6 +223,7 @@ function App() {
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<HistoryState>({});
+  const [buildState, setBuildState] = useState<Record<string, BuildTimelineState>>({});
   const [statusFilters, setStatusFilters] = useState<AppRecord['ingestStatus'][]>([]);
   const [ingestedAfter, setIngestedAfter] = useState('');
   const [ingestedBefore, setIngestedBefore] = useState('');
@@ -186,7 +287,7 @@ function App() {
         if ((err as Error).name === 'AbortError') {
           return;
         }
-        setError((err as Error).message);
+        setError(formatFetchError(err, 'Failed to load apps'));
       } finally {
         setLoading(false);
       }
@@ -332,7 +433,7 @@ function App() {
         }
       }
     } catch (err) {
-      setError((err as Error).message);
+      setError(formatFetchError(err, 'Failed to queue ingestion retry'));
     } finally {
       setRetryingId(null);
     }
@@ -371,7 +472,7 @@ function App() {
         [id]: {
           open: true,
           loading: false,
-          error: (err as Error).message,
+          error: formatFetchError(err, 'Failed to load history'),
           events: null
         }
       }));
@@ -409,6 +510,315 @@ function App() {
     }
 
     await fetchHistory(id);
+  };
+
+  const fetchBuilds = async (
+    id: string,
+    options: { offset?: number; append?: boolean; limit?: number } = {}
+  ) => {
+    const append = options.append ?? false;
+    const limit = options.limit ?? BUILD_PAGE_SIZE;
+    const offset = options.offset ?? (append ? buildState[id]?.builds.length ?? 0 : 0);
+
+    setBuildState((prev) => {
+      const current = prev[id] ?? createDefaultBuildTimelineState();
+      return {
+        ...prev,
+        [id]: {
+          ...current,
+          open: true,
+          loading: append ? current.loading : true,
+          loadingMore: append,
+          error: null
+        }
+      };
+    });
+
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', String(limit));
+      if (offset > 0) {
+        params.set('offset', String(offset));
+      }
+      const response = await fetch(`${API_BASE_URL}/apps/${id}/builds?${params.toString()}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Failed to load builds (${response.status})`);
+      }
+
+      const builds = Array.isArray(payload?.data) ? (payload.data as BuildSummary[]) : [];
+      const meta = payload?.meta as BuildListMeta | undefined;
+
+      setBuildState((prev) => {
+        const current = prev[id] ?? createDefaultBuildTimelineState();
+        const mergedBuilds = append ? [...current.builds, ...builds] : builds;
+        return {
+          ...prev,
+          [id]: {
+            ...current,
+            open: true,
+            loading: false,
+            loadingMore: false,
+            error: null,
+            builds: mergedBuilds,
+            meta:
+              meta ?? {
+                total: mergedBuilds.length,
+                count: mergedBuilds.length,
+                limit,
+                offset,
+                nextOffset: null,
+                hasMore: false
+              },
+            logs: { ...current.logs },
+            retrying: { ...current.retrying }
+          }
+        };
+      });
+    } catch (err) {
+      setBuildState((prev) => {
+        const current = prev[id] ?? createDefaultBuildTimelineState();
+        return {
+          ...prev,
+          [id]: {
+            ...current,
+            open: true,
+            loading: false,
+            loadingMore: false,
+            error: formatFetchError(err, 'Failed to load builds')
+          }
+        };
+      });
+    }
+  };
+
+  const handleToggleBuilds = async (id: string) => {
+    const state = buildState[id];
+    const nextOpen = !(state?.open ?? false);
+
+    if (!nextOpen) {
+      setBuildState((prev) => {
+        const current = prev[id] ?? createDefaultBuildTimelineState();
+        return {
+          ...prev,
+          [id]: {
+            ...current,
+            open: false
+          }
+        };
+      });
+      return;
+    }
+
+    if (!state || state.builds.length === 0 || state.error) {
+      await fetchBuilds(id);
+      return;
+    }
+
+    setBuildState((prev) => {
+      const current = prev[id] ?? createDefaultBuildTimelineState();
+      return {
+        ...prev,
+        [id]: {
+          ...current,
+          open: true
+        }
+      };
+    });
+  };
+
+  const handleLoadMoreBuilds = async (id: string) => {
+    const state = buildState[id];
+    if (!state || state.loadingMore || !state.meta || !state.meta.hasMore) {
+      return;
+    }
+    const nextOffset = state.meta.nextOffset ?? state.builds.length;
+    await fetchBuilds(id, { offset: nextOffset, append: true });
+  };
+
+  const fetchBuildLogs = async (appId: string, buildId: string) => {
+    setBuildState((prev) => {
+      const current = prev[appId] ?? createDefaultBuildTimelineState();
+      const existingLog = current.logs[buildId];
+      return {
+        ...prev,
+        [appId]: {
+          ...current,
+          logs: {
+            ...current.logs,
+            [buildId]: {
+              open: true,
+              loading: true,
+              error: null,
+              content: existingLog?.content ?? null,
+              size: existingLog?.size ?? 0,
+              updatedAt: existingLog?.updatedAt ?? null
+            }
+          }
+        }
+      };
+    });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/builds/${buildId}/logs`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Failed to load logs (${response.status})`);
+      }
+
+      const data = payload?.data as
+        | { logs?: string; size?: number; updatedAt?: string | null }
+        | undefined;
+      const logs = typeof data?.logs === 'string' ? data.logs : '';
+      const size = typeof data?.size === 'number' ? data.size : logs.length;
+      const updatedAt = data?.updatedAt ?? null;
+
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            logs: {
+              ...current.logs,
+              [buildId]: {
+                open: true,
+                loading: false,
+                error: null,
+                content: logs,
+                size,
+                updatedAt
+              }
+            }
+          }
+        };
+      });
+    } catch (err) {
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        const existingLog = current.logs[buildId];
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            logs: {
+              ...current.logs,
+              [buildId]: {
+                open: true,
+                loading: false,
+                error: formatFetchError(err, 'Failed to load logs'),
+                content: existingLog?.content ?? null,
+                size: existingLog?.size ?? 0,
+                updatedAt: existingLog?.updatedAt ?? null
+              }
+            }
+          }
+        };
+      });
+    }
+  };
+
+  const handleToggleLogs = async (appId: string, buildId: string) => {
+    const state = buildState[appId] ?? createDefaultBuildTimelineState();
+    const logEntry = state.logs[buildId];
+    const nextOpen = !(logEntry?.open ?? false);
+
+    if (!nextOpen) {
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        const currentLog = current.logs[buildId];
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            logs: {
+              ...current.logs,
+              [buildId]: currentLog
+                ? { ...currentLog, open: false }
+                : { open: false, loading: false, error: null, content: null, size: 0, updatedAt: null }
+            }
+          }
+        };
+      });
+      return;
+    }
+
+    if (logEntry?.content && !logEntry.error) {
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        const currentLog = current.logs[buildId];
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            logs: {
+              ...current.logs,
+              [buildId]: currentLog ? { ...currentLog, open: true } : currentLog
+            }
+          }
+        };
+      });
+      return;
+    }
+
+    await fetchBuildLogs(appId, buildId);
+  };
+
+  const handleRetryBuild = async (appId: string, buildId: string) => {
+    setBuildState((prev) => {
+      const current = prev[appId] ?? createDefaultBuildTimelineState();
+      return {
+        ...prev,
+        [appId]: {
+          ...current,
+          error: null,
+          retrying: { ...current.retrying, [buildId]: true }
+        }
+      };
+    });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/builds/${buildId}/retry`, {
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error ?? `Failed to retry build (${response.status})`);
+      }
+
+      const newBuild = payload?.data as BuildSummary | undefined;
+      if (newBuild) {
+        setApps((prev) =>
+          prev.map((app) => (app.id === appId ? { ...app, latestBuild: newBuild } : app))
+        );
+      }
+
+      await fetchBuilds(appId);
+    } catch (err) {
+      setBuildState((prev) => {
+        const current = prev[appId] ?? createDefaultBuildTimelineState();
+        return {
+          ...prev,
+          [appId]: {
+            ...current,
+            retrying: { ...current.retrying, [buildId]: false },
+            error: formatFetchError(err, 'Failed to retry build')
+          }
+        };
+      });
+      return;
+    }
+
+    setBuildState((prev) => {
+      const current = prev[appId] ?? createDefaultBuildTimelineState();
+      return {
+        ...prev,
+        [appId]: {
+          ...current,
+          retrying: { ...current.retrying, [buildId]: false }
+        }
+      };
+    });
   };
 
   const renderTags = (tags: TagKV[]) => (
@@ -633,6 +1043,8 @@ function App() {
                   const historyEntry = historyState[app.id];
                   const events = historyEntry?.events ?? [];
                   const showHistory = historyEntry?.open ?? false;
+                  const buildEntry = buildState[app.id];
+                  const showBuilds = buildEntry?.open ?? false;
 
                   return (
                     <article key={app.id} className="app-card">
@@ -667,12 +1079,125 @@ function App() {
                         )}
                         <button
                           type="button"
+                          className="timeline-button"
+                          onClick={() => handleToggleBuilds(app.id)}
+                        >
+                          {showBuilds ? 'Hide builds' : 'View builds'}
+                        </button>
+                        <button
+                          type="button"
                           className="history-button"
                           onClick={() => handleToggleHistory(app.id)}
                         >
                           {showHistory ? 'Hide history' : 'View history'}
                         </button>
                       </div>
+                      {showBuilds && (
+                        <div className="build-timeline">
+                          {buildEntry?.loading && <div className="build-status">Loading builds…</div>}
+                          {buildEntry?.error && !buildEntry.loading && (
+                            <div className="build-status error">{buildEntry.error}</div>
+                          )}
+                          {!buildEntry?.loading && !buildEntry?.error && (buildEntry?.builds.length ?? 0) === 0 && (
+                            <div className="build-status">No builds recorded yet.</div>
+                          )}
+                          {buildEntry?.builds.map((build) => {
+                            const logState = buildEntry.logs[build.id];
+                            const logOpen = logState?.open ?? false;
+                            const logLoading = logState?.loading ?? false;
+                            const logError = logState?.error ?? null;
+                            const logSize = logState?.size ?? build.logsSize;
+                            const logUpdatedAt = logState?.updatedAt ?? null;
+                            const isRetryingBuild = buildEntry.retrying?.[build.id] ?? false;
+                            const completedAt = build.completedAt ?? build.startedAt ?? build.updatedAt;
+                            const durationLabel = formatDuration(build.durationMs);
+                            const downloadUrl = `${API_BASE_URL}/builds/${build.id}/logs?download=1`;
+                            return (
+                              <div key={build.id} className="build-timeline-item">
+                                <div className="build-timeline-header">
+                                  <span className={`status-badge status-${build.status}`}>build {build.status}</span>
+                                  {build.commitSha && (
+                                    <code className="build-commit">{build.commitSha.slice(0, 10)}</code>
+                                  )}
+                                  {completedAt && (
+                                    <time dateTime={completedAt}>
+                                      {new Date(completedAt).toLocaleString()}
+                                    </time>
+                                  )}
+                                  {durationLabel && <span className="build-duration">{durationLabel}</span>}
+                                  {build.imageTag && (
+                                    <code className="build-image-tag">{build.imageTag}</code>
+                                  )}
+                                </div>
+                                {build.errorMessage && (
+                                  <p className="build-error">{build.errorMessage}</p>
+                                )}
+                                {build.logsPreview && (
+                                  <pre className="build-logs-preview">
+                                    {build.logsPreview}
+                                    {build.logsTruncated ? '\n…' : ''}
+                                  </pre>
+                                )}
+                                <div className="build-timeline-actions">
+                                  <button
+                                    type="button"
+                                    className="log-toggle"
+                                    onClick={() => handleToggleLogs(app.id, build.id)}
+                                  >
+                                    {logOpen ? 'Hide logs' : 'View logs'}
+                                  </button>
+                                  <a className="log-download" href={downloadUrl} target="_blank" rel="noreferrer">
+                                    Download logs
+                                  </a>
+                                  {build.status === 'failed' && (
+                                    <button
+                                      type="button"
+                                      className="retry-button"
+                                      disabled={isRetryingBuild}
+                                      onClick={() => handleRetryBuild(app.id, build.id)}
+                                    >
+                                      {isRetryingBuild ? 'Retrying…' : 'Retry build'}
+                                    </button>
+                                  )}
+                                </div>
+                                {logOpen && (
+                                  <div className="build-log-viewer">
+                                    {logLoading && <div className="build-log-status">Loading logs…</div>}
+                                    {logError && !logLoading && (
+                                      <div className="build-log-status error">{logError}</div>
+                                    )}
+                                    {!logLoading && !logError && (
+                                      <>
+                                        <div className="build-log-meta">
+                                          <span>Size {formatBytes(logSize)}</span>
+                                          {logUpdatedAt && (
+                                            <time dateTime={logUpdatedAt}>
+                                              Updated {new Date(logUpdatedAt).toLocaleString()}
+                                            </time>
+                                          )}
+                                        </div>
+                                        <pre className="build-log-output">
+                                          {logState?.content ?? 'No logs available yet.'}
+                                        </pre>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {buildEntry?.meta?.hasMore && (
+                            <button
+                              type="button"
+                              className="build-load-more"
+                              onClick={() => handleLoadMoreBuilds(app.id)}
+                              disabled={buildEntry.loadingMore}
+                            >
+                              {buildEntry.loadingMore ? 'Loading…' : 'Load more builds'}
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {showHistory && (
                         <div className="history-section">
                           {historyEntry?.loading && <div className="history-status">Loading history…</div>}

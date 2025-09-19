@@ -544,7 +544,7 @@ main {
   font-size: 0.85rem;
 }
 
-.app-links .retry-button {
+.app-links .retry-button { 
   border: none;
   border-radius: 999px;
   background: rgba(59, 130, 246, 0.2);
@@ -554,6 +554,23 @@ main {
   padding: 0.35rem 0.8rem;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.app-links .timeline-button {
+  border: none;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.2);
+  color: #065f46;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.app-links .timeline-button:hover {
+  background: rgba(34, 197, 94, 0.35);
+  transform: translateY(-1px);
 }
 
 .app-links .history-button {
@@ -590,6 +607,176 @@ main {
   border-radius: 6px;
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   font-size: 0.8rem;
+}
+
+.build-timeline {
+  margin-top: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(240, 249, 255, 0.6);
+  border: 1px solid rgba(191, 219, 254, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.build-status {
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.build-status.error {
+  color: #b91c1c;
+}
+
+.build-timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.45);
+}
+
+.build-timeline-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.build-timeline-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.build-duration {
+  font-size: 0.75rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.build-commit {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  background: rgba(15, 23, 42, 0.06);
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+.build-logs-preview {
+  margin: 0;
+  max-height: 140px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.05);
+  padding: 0.55rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  color: #0f172a;
+}
+
+.build-timeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.log-toggle {
+  border: none;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.log-toggle:hover {
+  background: rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
+.log-download {
+  font-size: 0.75rem;
+  color: #0f172a;
+  text-decoration: none;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.05);
+  transition: background 0.2s ease;
+}
+
+.log-download:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.build-log-viewer {
+  background: rgba(15, 23, 42, 0.05);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.build-log-status {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.build-log-status.error {
+  color: #b91c1c;
+}
+
+.build-log-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.build-log-output {
+  margin: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  padding: 0.55rem;
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.build-load-more {
+  align-self: center;
+  border: none;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #312e81;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.build-load-more:hover {
+  background: rgba(99, 102, 241, 0.32);
+  transform: translateY(-1px);
+}
+
+.build-load-more:disabled {
+  background: rgba(148, 163, 184, 0.35);
+  color: #475569;
+  cursor: wait;
 }
 
 .history-section {

@@ -368,6 +368,12 @@ const selectPendingBuildStatement = db.prepare(
    LIMIT 1`
 );
 
+const selectBuildCountForRepositoryStatement = db.prepare(
+  `SELECT COUNT(*) as count
+   FROM builds
+   WHERE repository_id = ?`
+);
+
 function attachTags(repositoryId: string, tags: (TagKV & { source?: string })[] = []) {
   for (const tag of tags) {
     const normalized = {
@@ -581,15 +587,26 @@ export function getBuildById(id: string): BuildRecord | null {
   return row ? rowToBuild(row) : null;
 }
 
-export function listBuildsForRepository(repositoryId: string, limit = 20): BuildRecord[] {
+export function listBuildsForRepository(
+  repositoryId: string,
+  options: { limit?: number; offset?: number } = {}
+): BuildRecord[] {
+  const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+  const offset = Math.max(0, options.offset ?? 0);
   const statement = db.prepare(
     `SELECT * FROM builds
      WHERE repository_id = ?
      ORDER BY datetime(created_at) DESC
-     LIMIT ?`
+     LIMIT ?
+     OFFSET ?`
   );
-  const rows = statement.all(repositoryId, limit) as BuildRow[];
+  const rows = statement.all(repositoryId, limit, offset) as BuildRow[];
   return rows.map(rowToBuild);
+}
+
+export function countBuildsForRepository(repositoryId: string): number {
+  const row = selectBuildCountForRepositoryStatement.get(repositoryId) as { count: number } | undefined;
+  return row?.count ?? 0;
 }
 
 export function createBuild(repositoryId: string, options: { commitSha?: string | null } = {}): BuildRecord {
