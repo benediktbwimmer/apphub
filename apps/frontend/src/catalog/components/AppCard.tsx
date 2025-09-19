@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { API_BASE_URL } from '../constants';
 import {
   formatBytes,
@@ -163,6 +164,12 @@ function PreviewMedia({ tile }: { tile: AppRecord['previewTiles'][number] }) {
   return null;
 }
 
+type PreviewTile = NonNullable<AppRecord['previewTiles']>[number];
+
+type FullscreenPreviewState =
+  | { type: 'live'; url: string; title: string }
+  | { type: 'tile'; tile: PreviewTile; title: string };
+
 function ChannelPreview({
   tiles,
   appName,
@@ -178,6 +185,7 @@ function ChannelPreview({
     [tiles]
   );
   const [activeIndex, setActiveIndex] = useState(0);
+  const [fullscreenPreview, setFullscreenPreview] = useState<FullscreenPreviewState | null>(null);
 
   useEffect(() => {
     if (livePreviewUrl) {
@@ -208,19 +216,32 @@ function ChannelPreview({
 
   if (livePreviewUrl) {
     return (
-      <div className="relative aspect-video overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50">
-        <iframe
-          src={livePreviewUrl}
-          title={`${appName} live preview`}
-          className="h-full w-full border-0 bg-white"
-          loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-        <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-100 shadow-lg">
-          Live preview
+      <>
+        <div className="relative aspect-video overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50">
+          <iframe
+            src={livePreviewUrl}
+            title={`${appName} live preview`}
+            className="h-full w-full border-0 bg-white"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-100 shadow-lg">
+            Live preview
+          </div>
+          <button
+            type="button"
+            aria-label="Open fullscreen preview"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            onClick={() => setFullscreenPreview({ type: 'live', url: livePreviewUrl, title: `${appName} live preview` })}
+          >
+            <FullscreenIcon />
+          </button>
         </div>
-      </div>
+        {fullscreenPreview && (
+          <FullscreenOverlay preview={fullscreenPreview} onClose={() => setFullscreenPreview(null)} />
+        )}
+      </>
     );
   }
 
@@ -235,42 +256,209 @@ function ChannelPreview({
   }
 
   const activeTile = usableTiles[Math.min(activeIndex, usableTiles.length - 1)];
+  const tileTitle = activeTile.title ?? `${appName} preview`;
+  const supportsFullscreen = ['embed', 'storybook'].includes(activeTile.kind ?? '') && Boolean(activeTile.embedUrl);
 
   return (
-    <div className="relative aspect-video overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70">
-      <PreviewMedia tile={activeTile} />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-4 text-slate-100">
-        <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.3em]">
-          <span className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em]">
-            {activeTile.kind}
-          </span>
-          {activeTile.source && (
-            <span className="opacity-80">{activeTile.source.replace('ingestion:', '')}</span>
+    <>
+      <div className="relative aspect-video overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70">
+        <PreviewMedia tile={activeTile} />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-4 text-slate-100">
+          <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.3em]">
+            <span className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em]">
+              {activeTile.kind}
+            </span>
+            {activeTile.source && (
+              <span className="opacity-80">{activeTile.source.replace('ingestion:', '')}</span>
+            )}
+          </div>
+          {(activeTile.title || activeTile.description) && (
+            <div className="space-y-1 text-left text-sm">
+              {activeTile.title && <h3 className="text-sm font-semibold">{activeTile.title}</h3>}
+              {activeTile.description && <p className="text-xs font-medium text-slate-200/80">{activeTile.description}</p>}
+            </div>
           )}
         </div>
-        {(activeTile.title || activeTile.description) && (
-          <div className="space-y-1 text-left text-sm">
-            {activeTile.title && <h3 className="text-sm font-semibold">{activeTile.title}</h3>}
-            {activeTile.description && <p className="text-xs font-medium text-slate-200/80">{activeTile.description}</p>}
+        {supportsFullscreen && activeTile.embedUrl && (
+          <button
+            type="button"
+            aria-label="Open fullscreen preview"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            onClick={() => setFullscreenPreview({ type: 'tile', tile: activeTile, title: tileTitle })}
+          >
+            <FullscreenIcon />
+          </button>
+        )}
+        {usableTiles.length > 1 && (
+          <div className="absolute inset-x-0 bottom-3 flex justify-center gap-2">
+            {usableTiles.map((tile, index) => (
+              <button
+                key={tile.id ?? `${tile.kind}-${index}`}
+                type="button"
+                className={`h-2.5 w-2.5 rounded-full border border-white/30 transition-all ${
+                  activeIndex === index ? 'scale-110 bg-white/90' : 'bg-white/30 hover:bg-white/70'
+                }`}
+                onClick={() => setActiveIndex(index)}
+                aria-label={`Show preview ${index + 1}`}
+              />
+            ))}
           </div>
         )}
       </div>
-      {usableTiles.length > 1 && (
-        <div className="absolute inset-x-0 bottom-3 flex justify-center gap-2">
-          {usableTiles.map((tile, index) => (
-            <button
-              key={tile.id ?? `${tile.kind}-${index}`}
-              type="button"
-              className={`h-2.5 w-2.5 rounded-full border border-white/30 transition-all ${
-                activeIndex === index ? 'scale-110 bg-white/90' : 'bg-white/30 hover:bg-white/70'
-              }`}
-              onClick={() => setActiveIndex(index)}
-              aria-label={`Show preview ${index + 1}`}
-            />
-          ))}
-        </div>
+      {fullscreenPreview && (
+        <FullscreenOverlay preview={fullscreenPreview} onClose={() => setFullscreenPreview(null)} />
       )}
-    </div>
+    </>
+  );
+}
+
+function FullscreenOverlay({
+  preview,
+  onClose
+}: {
+  preview: FullscreenPreviewState;
+  onClose: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return undefined;
+    }
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeydown, true);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    containerRef.current?.focus({ preventScroll: true });
+    return () => {
+      window.removeEventListener('keydown', handleKeydown, true);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  let content: JSX.Element | null = null;
+
+  if (preview.type === 'live') {
+    content = (
+      <iframe
+        key={preview.url}
+        src={preview.url}
+        title={preview.title}
+        className="h-full w-full border-0 bg-white"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+    );
+  } else {
+    const tile = preview.tile;
+    if (tile.kind === 'embed' || tile.kind === 'storybook') {
+      if (!tile.embedUrl) {
+        content = null;
+      } else {
+        content = (
+          <iframe
+            key={tile.embedUrl}
+            src={tile.embedUrl}
+            title={tile.title ?? preview.title}
+            className="h-full w-full border-0 bg-white"
+            loading="lazy"
+            allow="autoplay; fullscreen"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+            allowFullScreen
+          />
+        );
+      }
+    } else {
+      content = tile.src ? (
+        <img
+          key={tile.src}
+          src={tile.src}
+          alt={tile.title ?? preview.title}
+          className="h-full w-full object-contain"
+        />
+      ) : null;
+    }
+  }
+
+  return createPortal(
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        aria-label="Close fullscreen preview"
+        className="absolute right-6 top-6 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700/60 bg-slate-900/70 text-slate-100 shadow-lg transition-colors hover:bg-slate-900/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+      >
+        <CloseIcon />
+      </button>
+      <div className="relative flex-1" onClick={(event) => event.stopPropagation()}>
+        {content ?? (
+          <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-300">
+            Preview unavailable. Try opening the app preview in a new tab from the card instead.
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function FullscreenIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className="h-3.5 w-3.5"
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M6.5 3H3v3.5M13.5 3H17v3.5M3 13.5V17h3.5M17 13.5V17h-3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className="h-4 w-4"
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M5 5l10 10M15 5L5 15"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
