@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
 import './App.css';
+import SubmitApp from './SubmitApp';
 
 type TagKV = {
   key: string;
@@ -84,6 +85,7 @@ function computeAutocompleteContext(input: string) {
 }
 
 function App() {
+  const [activeTab, setActiveTab] = useState<'catalog' | 'submit'>('catalog');
   const [inputValue, setInputValue] = useState('');
   const [apps, setApps] = useState<AppRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -334,141 +336,170 @@ function App() {
   return (
     <div className="app-shell">
       <header className="hero">
-        <div>
-          <h1>Web App Atlas</h1>
-          <p>Search containerized web apps by descriptive tags. Use `framework:`, `category:`, `runtime:` and more.</p>
+        <div className="hero-heading">
+          <div>
+            <h1>Web App Atlas</h1>
+            <p>Discover and launch containerized web apps with tag-driven search.</p>
+          </div>
+          <nav className="hero-tabs">
+            <button
+              type="button"
+              className={activeTab === 'catalog' ? 'active' : ''}
+              onClick={() => setActiveTab('catalog')}
+            >
+              Catalog
+            </button>
+            <button
+              type="button"
+              className={activeTab === 'submit' ? 'active' : ''}
+              onClick={() => setActiveTab('submit')}
+            >
+              Submit App
+            </button>
+          </nav>
         </div>
       </header>
       <main>
-        <section className="search-area">
-          <div className="search-box">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type tags like framework:nextjs runtime:node18 or free text"
-              spellCheck={false}
-              autoFocus
-            />
-            {suggestions.length > 0 && (
-              <ul className="suggestion-list">
-                {suggestions.map((suggestion, index) => (
-                  <li
-                    key={`${suggestion.type}-${suggestion.value}`}
-                    className={index === highlightIndex ? 'active' : ''}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      applySuggestion(suggestion);
-                    }}
-                  >
-                    <span className="suggestion-label">{suggestion.label}</span>
-                    <span className="suggestion-type">{suggestion.type === 'key' ? 'key' : 'tag'}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="search-hints">
-            <span>Tab</span> accepts highlighted suggestion · <span>Esc</span> clears suggestions
-          </div>
-        </section>
-        <section className="results">
-          {loading && <div className="status">Loading apps…</div>}
-          {error && !loading && <div className="status error">{error}</div>}
-          {!loading && !error && apps.length === 0 && (
-            <div className="status">No apps match your filters yet.</div>
-          )}
-          <div className="grid">
-            {apps.map((app) => {
-              const historyEntry = historyState[app.id];
-              const events = historyEntry?.events ?? [];
-              const showHistory = historyEntry?.open ?? false;
+        {activeTab === 'catalog' ? (
+          <>
+            <section className="search-area">
+              <div className="search-box">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(event) => setInputValue(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type tags like framework:nextjs runtime:node18 or free text"
+                  spellCheck={false}
+                  autoFocus
+                />
+                {suggestions.length > 0 && (
+                  <ul className="suggestion-list">
+                    {suggestions.map((suggestion, index) => (
+                      <li
+                        key={`${suggestion.type}-${suggestion.value}`}
+                        className={index === highlightIndex ? 'active' : ''}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          applySuggestion(suggestion);
+                        }}
+                      >
+                        <span className="suggestion-label">{suggestion.label}</span>
+                        <span className="suggestion-type">{suggestion.type === 'key' ? 'key' : 'tag'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="search-hints">
+                <span>Tab</span> accepts highlighted suggestion · <span>Esc</span> clears suggestions
+              </div>
+            </section>
+            <section className="results">
+              {loading && <div className="status">Loading apps…</div>}
+              {error && !loading && <div className="status error">{error}</div>}
+              {!loading && !error && apps.length === 0 && (
+                <div className="status">No apps match your filters yet.</div>
+              )}
+              <div className="grid">
+                {apps.map((app) => {
+                  const historyEntry = historyState[app.id];
+                  const events = historyEntry?.events ?? [];
+                  const showHistory = historyEntry?.open ?? false;
 
-              return (
-                <article key={app.id} className="app-card">
-                  <div className="app-card-header">
-                    <h2>{app.name}</h2>
-                    <div className="app-card-meta">
-                      <span className={`status-badge status-${app.ingestStatus}`}>{app.ingestStatus}</span>
-                      <time dateTime={app.updatedAt}>Updated {new Date(app.updatedAt).toLocaleDateString()}</time>
-                    <span className="attempts-pill">Attempts {app.ingestAttempts}</span>
-                  </div>
-                </div>
-                <p className="app-description">{app.description}</p>
-                {app.ingestError && (
-                  <p className="ingest-error">{app.ingestError}</p>
-                )}
-                {renderTags(app.tags)}
-                <div className="app-links">
-                  <a href={app.repoUrl} target="_blank" rel="noreferrer">
-                    View repository
-                  </a>
-                  <code>{app.dockerfilePath}</code>
-                  {app.ingestStatus === 'failed' && (
-                    <button
-                      type="button"
-                      className="retry-button"
-                      disabled={retryingId === app.id}
-                      onClick={() => handleRetry(app.id)}
-                    >
-                      {retryingId === app.id ? 'Retrying…' : 'Retry ingest'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="history-button"
-                    onClick={() => handleToggleHistory(app.id)}
-                  >
-                    {showHistory ? 'Hide history' : 'View history'}
-                  </button>
-                </div>
-                {showHistory && (
-                  <div className="history-section">
-                    {historyEntry?.loading && <div className="history-status">Loading history…</div>}
-                    {historyEntry?.error && (
-                      <div className="history-status error">{historyEntry.error}</div>
-                    )}
-                    {historyEntry && !historyEntry.loading && !historyEntry.error && events.length === 0 && (
-                      <div className="history-status">No events recorded yet.</div>
-                    )}
-                    {events.length > 0 && (
-                      <ul className="history-list">
-                        {events.map((event) => (
-                          <li key={event.id}>
-                            <div className="history-row">
-                              <span className={`history-status-pill status-${event.status}`}>
-                                {event.status}
-                              </span>
-                              <time dateTime={event.createdAt}>
-                                {new Date(event.createdAt).toLocaleString()}
-                              </time>
-                            </div>
-                            <div className="history-detail">
-                              <div className="history-message">{event.message ?? 'No additional message'}</div>
-                              <div className="history-meta">
-                                {event.attempt !== null && (
-                                  <span className="history-attempt">Attempt {event.attempt}</span>
-                                )}
-                                {typeof event.durationMs === 'number' && (
-                                  <span className="history-duration">{`${Math.max(event.durationMs, 0)} ms`}</span>
-                                )}
-                                {event.commitSha && (
-                                  <code className="history-commit">{event.commitSha.slice(0, 10)}</code>
-                                )}
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </article>
-              );
-            })}
-          </div>
-        </section>
+                  return (
+                    <article key={app.id} className="app-card">
+                      <div className="app-card-header">
+                        <h2>{app.name}</h2>
+                        <div className="app-card-meta">
+                          <span className={`status-badge status-${app.ingestStatus}`}>{app.ingestStatus}</span>
+                          <time dateTime={app.updatedAt}>Updated {new Date(app.updatedAt).toLocaleDateString()}</time>
+                          <span className="attempts-pill">Attempts {app.ingestAttempts}</span>
+                        </div>
+                      </div>
+                      <p className="app-description">{app.description}</p>
+                      {app.ingestError && (
+                        <p className="ingest-error">{app.ingestError}</p>
+                      )}
+                      {renderTags(app.tags)}
+                      <div className="app-links">
+                        <a href={app.repoUrl} target="_blank" rel="noreferrer">
+                          View repository
+                        </a>
+                        <code>{app.dockerfilePath}</code>
+                        {app.ingestStatus === 'failed' && (
+                          <button
+                            type="button"
+                            className="retry-button"
+                            disabled={retryingId === app.id}
+                            onClick={() => handleRetry(app.id)}
+                          >
+                            {retryingId === app.id ? 'Retrying…' : 'Retry ingest'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="history-button"
+                          onClick={() => handleToggleHistory(app.id)}
+                        >
+                          {showHistory ? 'Hide history' : 'View history'}
+                        </button>
+                      </div>
+                      {showHistory && (
+                        <div className="history-section">
+                          {historyEntry?.loading && <div className="history-status">Loading history…</div>}
+                          {historyEntry?.error && (
+                            <div className="history-status error">{historyEntry.error}</div>
+                          )}
+                          {historyEntry && !historyEntry.loading && !historyEntry.error && events.length === 0 && (
+                            <div className="history-status">No events recorded yet.</div>
+                          )}
+                          {events.length > 0 && (
+                            <ul className="history-list">
+                              {events.map((event) => (
+                                <li key={event.id}>
+                                  <div className="history-row">
+                                    <span className={`history-status-pill status-${event.status}`}>
+                                      {event.status}
+                                    </span>
+                                    <time dateTime={event.createdAt}>
+                                      {new Date(event.createdAt).toLocaleString()}
+                                    </time>
+                                  </div>
+                                  <div className="history-detail">
+                                    <div className="history-message">{event.message ?? 'No additional message'}</div>
+                                    <div className="history-meta">
+                                      {event.attempt !== null && (
+                                        <span className="history-attempt">Attempt {event.attempt}</span>
+                                      )}
+                                      {typeof event.durationMs === 'number' && (
+                                        <span className="history-duration">{`${Math.max(event.durationMs, 0)} ms`}</span>
+                                      )}
+                                      {event.commitSha && (
+                                        <code className="history-commit">{event.commitSha.slice(0, 10)}</code>
+                                      )}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          </>
+        ) : (
+          <SubmitApp
+            onAppRegistered={(id: string) => {
+              setActiveTab('catalog');
+              setInputValue(id);
+            }}
+          />
+        )}
       </main>
     </div>
   );
