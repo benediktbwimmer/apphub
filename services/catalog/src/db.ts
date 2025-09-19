@@ -51,6 +51,23 @@ export type LaunchRecord = {
   expiresAt: string | null;
 };
 
+export type RepositoryPreviewKind = 'gif' | 'image' | 'video' | 'storybook' | 'embed';
+
+export type RepositoryPreview = {
+  id: number;
+  repositoryId: string;
+  kind: RepositoryPreviewKind;
+  title: string | null;
+  description: string | null;
+  src: string | null;
+  embedUrl: string | null;
+  posterUrl: string | null;
+  width: number | null;
+  height: number | null;
+  sortOrder: number;
+  source: string;
+};
+
 export type RepositoryRecord = {
   id: string;
   name: string;
@@ -66,6 +83,7 @@ export type RepositoryRecord = {
   tags: TagKV[];
   latestBuild: BuildRecord | null;
   latestLaunch: LaunchRecord | null;
+  previewTiles: RepositoryPreview[];
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
@@ -270,6 +288,26 @@ CREATE INDEX IF NOT EXISTS idx_builds_status
 
   CREATE INDEX IF NOT EXISTS idx_launches_status
     ON launches(status);
+
+  CREATE TABLE IF NOT EXISTS repository_previews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    src TEXT,
+    embed_url TEXT,
+    poster_url TEXT,
+    width INTEGER,
+    height INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_repository_previews_repo_sort
+    ON repository_previews(repository_id, sort_order);
 `);
 
 db.exec(`
@@ -336,6 +374,21 @@ type TagRow = {
   key: string;
   value: string;
   source: string;
+};
+
+type PreviewRow = {
+  id: number;
+  repository_id: string;
+  kind: string;
+  source: string;
+  title: string | null;
+  description: string | null;
+  src: string | null;
+  embed_url: string | null;
+  poster_url: string | null;
+  width: number | null;
+  height: number | null;
+  sort_order: number;
 };
 
 type IngestionEventRow = {
@@ -412,6 +465,43 @@ const selectRepositoryTagsStatement = db.prepare(
    JOIN repository_tags rt ON rt.tag_id = t.id
    WHERE rt.repository_id = ?
    ORDER BY t.key ASC, t.value ASC`
+);
+
+const deleteRepositoryPreviewsStatement = db.prepare('DELETE FROM repository_previews WHERE repository_id = ?');
+
+const insertRepositoryPreviewStatement = db.prepare(
+  `INSERT INTO repository_previews (
+     repository_id,
+     kind,
+     source,
+     title,
+     description,
+     src,
+     embed_url,
+     poster_url,
+     width,
+     height,
+     sort_order
+   ) VALUES (
+     @repositoryId,
+     @kind,
+     @source,
+     @title,
+     @description,
+     @src,
+     @embedUrl,
+     @posterUrl,
+     @width,
+     @height,
+     @sortOrder
+   )`
+);
+
+const selectRepositoryPreviewsStatement = db.prepare(
+  `SELECT *
+     FROM repository_previews
+    WHERE repository_id = ?
+    ORDER BY sort_order ASC, id ASC`
 );
 
 const selectRepositoriesStatement = db.prepare('SELECT * FROM repositories ORDER BY datetime(updated_at) DESC');
@@ -703,6 +793,23 @@ function rowToLaunch(row: LaunchRow): LaunchRecord {
   };
 }
 
+function rowToPreview(row: PreviewRow): RepositoryPreview {
+  return {
+    id: row.id,
+    repositoryId: row.repository_id,
+    kind: row.kind as RepositoryPreviewKind,
+    title: row.title ?? null,
+    description: row.description ?? null,
+    src: row.src ?? null,
+    embedUrl: row.embed_url ?? null,
+    posterUrl: row.poster_url ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
+    sortOrder: row.sort_order ?? 0,
+    source: row.source
+  };
+}
+
 function logIngestionEvent(params: {
   repositoryId: string;
   status: IngestStatus;
@@ -822,6 +929,7 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
   const tagRows = selectRepositoryTagsStatement.all(row.id) as TagRow[];
   const latestBuildRow = selectLatestBuildByRepositoryStatement.get(row.id) as BuildRow | undefined;
   const latestLaunchRow = selectLatestLaunchByRepositoryStatement.get(row.id) as LaunchRow | undefined;
+  const previewRows = selectRepositoryPreviewsStatement.all(row.id) as PreviewRow[];
   return {
     id: row.id,
     name: row.name,
@@ -836,7 +944,8 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
     ingestAttempts: row.ingest_attempts ?? 0,
     tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source })),
     latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null,
-    latestLaunch: latestLaunchRow ? rowToLaunch(latestLaunchRow) : null
+    latestLaunch: latestLaunchRow ? rowToLaunch(latestLaunchRow) : null,
+    previewTiles: previewRows.map((preview) => rowToPreview(preview))
   };
 }
 
@@ -1499,6 +1608,48 @@ export function replaceRepositoryTags(
   });
   transaction();
   refreshRepositorySearchIndex(repositoryId);
+}
+
+export type RepositoryPreviewInput = {
+  kind: RepositoryPreviewKind;
+  source: string;
+  title?: string | null;
+  description?: string | null;
+  src?: string | null;
+  embedUrl?: string | null;
+  posterUrl?: string | null;
+  width?: number | null;
+  height?: number | null;
+  sortOrder?: number;
+};
+
+export function replaceRepositoryPreviews(repositoryId: string, previews: RepositoryPreviewInput[]) {
+  const transaction = db.transaction(() => {
+    deleteRepositoryPreviewsStatement.run(repositoryId);
+    let order = 0;
+    for (const preview of previews) {
+      insertRepositoryPreviewStatement.run({
+        repositoryId,
+        kind: preview.kind,
+        source: preview.source,
+        title: preview.title ?? null,
+        description: preview.description ?? null,
+        src: preview.src ?? null,
+        embedUrl: preview.embedUrl ?? null,
+        posterUrl: preview.posterUrl ?? null,
+        width: preview.width ?? null,
+        height: preview.height ?? null,
+        sortOrder: preview.sortOrder ?? order
+      });
+      order += 1;
+    }
+  });
+  transaction();
+}
+
+export function getRepositoryPreviews(repositoryId: string): RepositoryPreview[] {
+  const rows = selectRepositoryPreviewsStatement.all(repositoryId) as PreviewRow[];
+  return rows.map((row) => rowToPreview(row));
 }
 
 export function listTagSuggestions(prefix: string, limit: number): TagSuggestion[] {

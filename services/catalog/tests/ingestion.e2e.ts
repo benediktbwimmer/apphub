@@ -312,7 +312,9 @@ async function createLocalRepo(root: string) {
     version: '0.0.1',
     scripts: { start: 'node index.js' }
   };
-  await writeFile(path.join(repoDir, 'Dockerfile'), dockerfile, 'utf8');
+  const dockerfileRelativePath = path.join('containers', 'web', 'Dockerfile');
+  await mkdir(path.join(repoDir, 'containers', 'web'), { recursive: true });
+  await writeFile(path.join(repoDir, dockerfileRelativePath), dockerfile, 'utf8');
   await writeFile(path.join(repoDir, 'package.json'), JSON.stringify(packageJson, null, 2), 'utf8');
   await writeFile(path.join(repoDir, 'index.js'), 'console.log("hello apphub")\n', 'utf8');
 
@@ -320,7 +322,7 @@ async function createLocalRepo(root: string) {
   await exec('git commit -m "Initial commit"', { cwd: repoDir });
 
   const commit = (await exec('git rev-parse HEAD', { cwd: repoDir })).stdout.trim();
-  return { repoDir, commit };
+  return { repoDir, commit, dockerfilePath: dockerfileRelativePath.split(path.sep).join('/') };
 }
 
 async function snapshotRepository(sourcePath: string) {
@@ -349,7 +351,7 @@ async function snapshotRepository(sourcePath: string) {
 async function testSyntheticRepositoryFlow() {
   await withCatalogEnvironment(async ({ baseUrl }) => {
     const tempRepoRoot = await mkdtemp(path.join(tmpdir(), 'apphub-synth-'));
-    const { repoDir, commit } = await createLocalRepo(tempRepoRoot);
+    const { repoDir, commit, dockerfilePath: detectedDockerfile } = await createLocalRepo(tempRepoRoot);
     const appId = `repo-${Date.now()}`;
 
     const createRes = await fetch(`${baseUrl}/apps`, {
@@ -381,6 +383,11 @@ async function testSyntheticRepositoryFlow() {
     assert(build.imageTag, 'Build image tag should be present');
 
     const repository = await pollRepository(baseUrl, appId);
+    assert.equal(
+      repository.dockerfilePath,
+      detectedDockerfile,
+      'Repository should record detected Dockerfile path'
+    );
 
     const history = await fetchHistory(baseUrl, appId);
     assert(history.length >= 3, 'Expected history to include multiple events');

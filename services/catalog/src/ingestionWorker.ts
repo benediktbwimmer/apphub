@@ -9,8 +9,11 @@ import {
   upsertRepository,
   setRepositoryStatus,
   takeNextPendingRepository,
+  replaceRepositoryPreviews,
   type RepositoryRecord,
-  type TagKV
+  type TagKV,
+  type RepositoryPreviewInput,
+  type RepositoryPreviewKind
 } from './db';
 import {
   INGEST_QUEUE_NAME,
@@ -23,6 +26,19 @@ import { runBuildJob } from './buildRunner';
 const CLONE_DEPTH = process.env.INGEST_CLONE_DEPTH ?? '1';
 const INGEST_CONCURRENCY = Number(process.env.INGEST_CONCURRENCY ?? 2);
 const useInlineQueue = isInlineQueueMode();
+const MAX_INLINE_PREVIEW_BYTES = Number(process.env.INGEST_MAX_INLINE_PREVIEW_BYTES ?? 1_500_000);
+
+const PREVIEW_MANIFEST_FILES = [
+  '.apphub/previews.json',
+  '.apphub/previews.yaml',
+  '.apphub/previews.yml',
+  'apphub.previews.json',
+  'apphub.previews.yaml',
+  'apphub.previews.yml',
+  'previews.json',
+  'previews.yaml',
+  'previews.yml'
+];
 
 const git = simpleGit();
 
@@ -181,6 +197,442 @@ function extractTagsFromStructure(data: unknown): DiscoveredTag[] {
   }
 
   return [];
+}
+
+function isHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function isDataUrl(value: string) {
+  return value.startsWith('data:');
+}
+
+function sanitizeRelativePreviewPath(raw: string) {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim().replace(/"/g, '');
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = trimmed.replace(/^\.\/+/, '').replace(/\\/g, '/');
+  if (!normalized || normalized.startsWith('..')) {
+    return null;
+  }
+  return normalized;
+}
+
+function extractRepoHostAndPath(repoUrl: string) {
+  const trimmed = repoUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith('git@')) {
+    const match = trimmed.match(/^git@([^:]+):(.+?)(\.git)?$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      host: match[1],
+      path: match[2].replace(/\.git$/, '')
+    };
+  }
+  try {
+    const url = new URL(trimmed);
+    return {
+      host: url.hostname,
+      path: url.pathname.replace(/^\/+/, '').replace(/\.git$/, '')
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function toRawContentUrl(repoUrl: string, commitSha: string | null, relativePath: string) {
+  if (!commitSha) {
+    return null;
+  }
+  const parts = extractRepoHostAndPath(repoUrl);
+  if (!parts) {
+    return null;
+  }
+  const { host, path } = parts;
+  if (!path) {
+    return null;
+  }
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  const normalizedRelative = relativePath.replace(/^\/+/, '');
+  if (host === 'github.com') {
+    if (segments.length < 2) {
+      return null;
+    }
+    const [owner, repo] = segments;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${commitSha}/${normalizedRelative}`;
+  }
+  if (host === 'gitlab.com') {
+    const projectPath = segments.join('/');
+    return `https://gitlab.com/${projectPath}/-/raw/${commitSha}/${normalizedRelative}`;
+  }
+  if (host === 'bitbucket.org') {
+    if (segments.length < 2) {
+      return null;
+    }
+    const [owner, repo, ...rest] = segments;
+    const repoPath = [owner, repo, ...rest].join('/');
+    return `https://bitbucket.org/${repoPath}/raw/${commitSha}/${normalizedRelative}`;
+  }
+  return null;
+}
+
+function guessMimeType(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.gif') {
+    return 'image/gif';
+  }
+  if (ext === '.png') {
+    return 'image/png';
+  }
+  if (ext === '.jpg' || ext === '.jpeg') {
+    return 'image/jpeg';
+  }
+  if (ext === '.webp') {
+    return 'image/webp';
+  }
+  if (ext === '.apng') {
+    return 'image/apng';
+  }
+  if (ext === '.svg') {
+    return 'image/svg+xml';
+  }
+  if (ext === '.mp4') {
+    return 'video/mp4';
+  }
+  if (ext === '.webm') {
+    return 'video/webm';
+  }
+  return null;
+}
+
+async function inlineLocalAsset(filePath: string) {
+  try {
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile()) {
+      return null;
+    }
+    if (stats.size > MAX_INLINE_PREVIEW_BYTES) {
+      return null;
+    }
+    const mime = guessMimeType(filePath);
+    if (!mime || !mime.startsWith('image/')) {
+      return null;
+    }
+    const buffer = await fs.readFile(filePath);
+    const base64 = buffer.toString('base64');
+    return `data:${mime};base64,${base64}`;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function resolvePreviewReference(
+  value: unknown,
+  options: { projectDir: string; repoUrl: string; commitSha: string | null }
+) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (isHttpUrl(trimmed) || isDataUrl(trimmed)) {
+    return trimmed;
+  }
+  const relative = sanitizeRelativePreviewPath(trimmed);
+  if (!relative) {
+    return null;
+  }
+  const remote = toRawContentUrl(options.repoUrl, options.commitSha, relative);
+  if (remote) {
+    return remote;
+  }
+  const absolute = path.resolve(options.projectDir, relative);
+  if (!(await fileExists(absolute))) {
+    return null;
+  }
+  return inlineLocalAsset(absolute);
+}
+
+function coerceNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function normalizePreviewKind(rawType: string, src: string | null): RepositoryPreviewKind {
+  const normalized = rawType.trim().toLowerCase();
+  if (normalized === 'gif') {
+    return 'gif';
+  }
+  if (normalized === 'storybook') {
+    return 'storybook';
+  }
+  if (normalized === 'video') {
+    return 'video';
+  }
+  if (normalized === 'embed' || normalized === 'iframe' || normalized === 'external') {
+    return 'embed';
+  }
+  if (normalized === 'image' || normalized === 'picture') {
+    return 'image';
+  }
+  if (src && src.toLowerCase().endsWith('.gif')) {
+    return 'gif';
+  }
+  if (src && (src.toLowerCase().endsWith('.mp4') || src.toLowerCase().endsWith('.webm'))) {
+    return 'video';
+  }
+  return 'image';
+}
+
+function buildStorybookEmbedUrl(baseUrl: string, storyId: string) {
+  const trimmedBase = baseUrl.replace(/\/iframe\.html.*$/, '').replace(/\/$/, '');
+  const normalizedBase = trimmedBase.endsWith('/iframe.html') ? trimmedBase : `${trimmedBase}/iframe.html`;
+  const params = new URLSearchParams({ id: storyId, viewMode: 'story' });
+  return `${normalizedBase}?${params.toString()}`;
+}
+
+function extractManifestEntries(raw: unknown) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  if (raw && typeof raw === 'object') {
+    const container = raw as Record<string, unknown>;
+    for (const key of ['tiles', 'previews', 'items', 'cards']) {
+      const value = container[key];
+      if (Array.isArray(value)) {
+        return value;
+      }
+    }
+  }
+  return [] as unknown[];
+}
+
+async function normalizeManifestPreview(
+  entry: Record<string, unknown>,
+  ctx: { projectDir: string; repoUrl: string; commitSha: string | null; defaultOrder: number }
+) {
+  const rawType = typeof entry.type === 'string' ? entry.type : typeof entry.kind === 'string' ? entry.kind : '';
+  const title = typeof entry.title === 'string' ? entry.title.trim() : undefined;
+  const description = typeof entry.description === 'string' ? entry.description.trim() : undefined;
+  const rawSrc = typeof entry.src === 'string' ? entry.src : typeof entry.url === 'string' ? entry.url : typeof entry.href === 'string' ? entry.href : undefined;
+  const rawPoster = typeof entry.poster === 'string' ? entry.poster : typeof entry.posterUrl === 'string' ? entry.posterUrl : undefined;
+  const rawEmbed =
+    typeof entry.embed === 'string'
+      ? entry.embed
+      : typeof entry.embedUrl === 'string'
+      ? entry.embedUrl
+      : typeof entry.iframe === 'string'
+      ? entry.iframe
+      : undefined;
+  const resolvedSrc = await resolvePreviewReference(rawSrc, ctx);
+  const resolvedPoster = await resolvePreviewReference(rawPoster, ctx);
+
+  let embedUrl = await resolvePreviewReference(rawEmbed, ctx);
+  if (!embedUrl) {
+    const storyId = typeof entry.storyId === 'string' ? entry.storyId : typeof entry.story === 'string' ? entry.story : null;
+    const baseUrl = typeof entry.storybookUrl === 'string' ? entry.storybookUrl : typeof entry.baseUrl === 'string' ? entry.baseUrl : null;
+    if (storyId && baseUrl) {
+      embedUrl = buildStorybookEmbedUrl(baseUrl, storyId);
+    }
+  }
+
+  const kind = normalizePreviewKind(rawType ?? '', resolvedSrc ?? rawSrc ?? null);
+  const width = coerceNumber(entry.width);
+  const height = coerceNumber(entry.height);
+  const orderValue = coerceNumber(entry.order ?? entry.sortOrder) ?? ctx.defaultOrder;
+
+  if (kind === 'storybook' || kind === 'embed') {
+    if (!embedUrl) {
+      return null;
+    }
+    return {
+      kind,
+      source: 'ingestion:previews-manifest',
+      title: title ?? null,
+      description: description ?? null,
+      embedUrl,
+      posterUrl: resolvedPoster ?? null,
+      src: resolvedSrc ?? null,
+      width,
+      height,
+      sortOrder: orderValue
+    } satisfies RepositoryPreviewInput;
+  }
+
+  if ((kind === 'image' || kind === 'gif' || kind === 'video') && !resolvedSrc) {
+    return null;
+  }
+
+  return {
+    kind,
+    source: 'ingestion:previews-manifest',
+    title: title ?? null,
+    description: description ?? null,
+    src: resolvedSrc ?? null,
+    embedUrl: embedUrl ?? null,
+    posterUrl: resolvedPoster ?? null,
+    width,
+    height,
+    sortOrder: orderValue
+  } satisfies RepositoryPreviewInput;
+}
+
+async function readPreviewManifest(options: {
+  projectDir: string;
+  repoUrl: string;
+  commitSha: string | null;
+}): Promise<RepositoryPreviewInput[]> {
+  for (const candidate of PREVIEW_MANIFEST_FILES) {
+    const manifestPath = path.join(options.projectDir, candidate);
+    if (!(await fileExists(manifestPath))) {
+      continue;
+    }
+    try {
+      const raw = await fs.readFile(manifestPath, 'utf8');
+      const parsed = candidate.endsWith('.json')
+        ? JSON.parse(raw)
+        : (YAML.parse(raw) as unknown);
+      const entries = extractManifestEntries(parsed);
+      const results: RepositoryPreviewInput[] = [];
+      let index = 0;
+      for (const value of entries) {
+        if (!value || typeof value !== 'object') {
+          continue;
+        }
+        const normalized = await normalizeManifestPreview(value as Record<string, unknown>, {
+          projectDir: options.projectDir,
+          repoUrl: options.repoUrl,
+          commitSha: options.commitSha,
+          defaultOrder: index
+        });
+        if (normalized) {
+          results.push(normalized);
+          index += 1;
+        }
+      }
+      if (results.length > 0) {
+        return results;
+      }
+    } catch (err) {
+      log('Failed to parse preview manifest', { fileName: candidate, error: (err as Error).message });
+    }
+  }
+  return [];
+}
+
+async function readReadmeMetadata(
+  projectDir: string,
+  repoUrl: string,
+  commitSha: string | null
+): Promise<{ summary: string | null; previews: RepositoryPreviewInput[] }> {
+  const readmePath = path.join(projectDir, 'README.md');
+  if (!(await fileExists(readmePath))) {
+    return { summary: null, previews: [] };
+  }
+  try {
+    const raw = await fs.readFile(readmePath, 'utf8');
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'));
+    const summary = lines[0] ?? null;
+    const previews: RepositoryPreviewInput[] = [];
+    const imagePattern = /!\[(.*?)\]\(([^\s)]+)(?:\s+".*?")?\)/g;
+    const seen = new Set<string>();
+    let match: RegExpExecArray | null;
+    let index = 0;
+    while ((match = imagePattern.exec(raw))) {
+      const alt = match[1] ?? '';
+      const ref = match[2] ?? '';
+      if (seen.has(ref)) {
+        continue;
+      }
+      seen.add(ref);
+      const resolved = await resolvePreviewReference(ref, { projectDir, repoUrl, commitSha });
+      if (!resolved) {
+        continue;
+      }
+      const kind = resolved.toLowerCase().endsWith('.gif') || ref.toLowerCase().endsWith('.gif') ? 'gif' : 'image';
+      previews.push({
+        kind,
+        source: 'ingestion:readme',
+        title: alt.trim() || null,
+        description: null,
+        src: resolved,
+        embedUrl: null,
+        posterUrl: null,
+        sortOrder: index
+      });
+      index += 1;
+      if (previews.length >= 6) {
+        break;
+      }
+    }
+    return { summary, previews };
+  } catch (err) {
+    log('Failed to read README', { error: (err as Error).message });
+    return { summary: null, previews: [] };
+  }
+}
+
+function mergePreviewInputs(
+  primary: RepositoryPreviewInput[],
+  secondary: RepositoryPreviewInput[],
+  limit = 6
+) {
+  const combined: RepositoryPreviewInput[] = [];
+  const seen = new Set<string>();
+  const pushPreview = (preview: RepositoryPreviewInput) => {
+    const signature = preview.embedUrl ?? preview.src;
+    if (!signature || seen.has(signature)) {
+      return;
+    }
+    seen.add(signature);
+    combined.push(preview);
+  };
+
+  const sortedPrimary = primary
+    .slice()
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (const item of sortedPrimary) {
+    if (combined.length >= limit) {
+      break;
+    }
+    pushPreview(item);
+  }
+
+  for (const item of secondary) {
+    if (combined.length >= limit) {
+      break;
+    }
+    pushPreview(item);
+  }
+
+  return combined.slice(0, limit).map((preview, index) => ({
+    ...preview,
+    sortOrder: index
+  }));
 }
 
 function normalizeDockerfileCandidate(raw?: string | null) {
@@ -360,24 +812,6 @@ async function detectTagsFromDockerfile(projectDir: string, relativePath: string
   }
 }
 
-async function readReadmeSummary(projectDir: string) {
-  const readmePath = path.join(projectDir, 'README.md');
-  if (!(await fileExists(readmePath))) {
-    return null;
-  }
-  try {
-    const raw = await fs.readFile(readmePath, 'utf8');
-    const lines = raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !line.startsWith('#'));
-    return lines[0] ?? null;
-  } catch (err) {
-    log('Failed to read README', { error: (err as Error).message });
-    return null;
-  }
-}
-
 function createTagMap(initial: DiscoveredTag[]) {
   const map = new Map<string, DiscoveredTag>();
   for (const tag of initial) {
@@ -438,13 +872,19 @@ async function processRepository(repository: RepositoryRecord) {
       addTag(tagMap, tag.key, tag.value, tag.source);
     }
 
-    const readmeSummary = await readReadmeSummary(workingDir);
+    const readmeMetadata = await readReadmeMetadata(workingDir, repository.repoUrl, commitSha);
+    const manifestPreviews = await readPreviewManifest({
+      projectDir: workingDir,
+      repoUrl: repository.repoUrl,
+      commitSha
+    });
+    const previewTiles = mergePreviewInputs(manifestPreviews, readmeMetadata.previews);
 
     const now = new Date().toISOString();
     upsertRepository({
       id: repository.id,
       name: packageMeta.name ?? repository.name,
-      description: readmeSummary ?? repository.description,
+      description: readmeMetadata.summary ?? repository.description,
       repoUrl: repository.repoUrl,
       dockerfilePath,
       ingestStatus: 'ready',
@@ -453,6 +893,7 @@ async function processRepository(repository: RepositoryRecord) {
       ingestError: null,
       tags: Array.from(tagMap.values())
     });
+    replaceRepositoryPreviews(repository.id, previewTiles);
     setRepositoryStatus(repository.id, 'ready', {
       updatedAt: now,
       lastIngestedAt: now,
