@@ -27,7 +27,7 @@ function renderFacetButtons(
     return null;
   }
   return (
-    <div className="facet-tag-row">
+    <div className="flex flex-wrap gap-2">
       {facets.slice(0, limit).map((facet) => {
         const token = `${facet.key}:${facet.value}`;
         const isActive = appliedTokens.includes(token);
@@ -35,12 +35,18 @@ function renderFacetButtons(
           <button
             key={token}
             type="button"
-            className={`tag-facet${isActive ? ' active' : ''}`}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+              isActive
+                ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50'
+                : 'border-slate-200/70 bg-slate-100/60 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+            }`}
             onClick={() => onApplyFacet(facet)}
             disabled={isActive}
           >
-            <span className="tag-facet-label">{token}</span>
-            <span className="tag-facet-count">{facet.count}</span>
+            <span className="font-mono text-xs uppercase tracking-widest">{token}</span>
+            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-900/60 dark:text-slate-300">
+              {facet.count}
+            </span>
           </button>
         );
       })}
@@ -65,17 +71,21 @@ function FilterPanel({
   onApplyFacet
 }: FilterPanelProps) {
   return (
-    <aside className="filter-panel">
-      <div className="filter-group">
-        <div className="filter-group-header">
-          <span>Ingest Status</span>
+    <aside className="flex flex-col gap-6 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className="uppercase tracking-[0.2em] text-xs text-slate-500 dark:text-slate-400">Ingest Status</span>
           {statusFilters.length > 0 && (
-            <button type="button" className="filter-clear" onClick={onClearStatusFilters}>
+            <button
+              type="button"
+              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 transition-colors hover:bg-blue-500/10 dark:text-slate-200 dark:hover:bg-slate-200/10"
+              onClick={onClearStatusFilters}
+            >
               Clear
             </button>
           )}
         </div>
-        <div className="filter-chip-row">
+        <div className="flex flex-wrap gap-2">
           {statusFacets.map((facet) => {
             const isActive = statusFilters.includes(facet.status);
             const isDisabled = facet.count === 0 && !isActive;
@@ -83,65 +93,77 @@ function FilterPanel({
               <button
                 key={facet.status}
                 type="button"
-                className={`filter-chip${isActive ? ' active' : ''}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  isActive
+                    ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50'
+                    : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                }`}
                 onClick={() => onToggleStatus(facet.status)}
                 disabled={isDisabled}
               >
-                <span className="filter-chip-label">{facet.status}</span>
-                <span className="filter-chip-count">{facet.count}</span>
+                <span className="capitalize">{facet.status}</span>
+                <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+                  {facet.count}
+                </span>
               </button>
             );
           })}
         </div>
       </div>
-      <div className="filter-group">
-        <div className="filter-group-header">
-          <span>Ingested Date</span>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className="uppercase tracking-[0.2em] text-xs text-slate-500 dark:text-slate-400">Ingested Date</span>
           {(ingestedAfter || ingestedBefore) && (
-            <button type="button" className="filter-clear" onClick={onClearDateFilters}>
+            <button
+              type="button"
+              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 transition-colors hover:bg-blue-500/10 dark:text-slate-200 dark:hover:bg-slate-200/10"
+              onClick={onClearDateFilters}
+            >
               Clear
             </button>
           )}
         </div>
-        <div className="filter-date-row">
-          <label>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
             From
             <input
               type="date"
               value={ingestedAfter}
               onChange={(event) => onChangeIngestedAfter(event.target.value)}
+              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
             />
           </label>
-          <label>
+          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
             To
             <input
               type="date"
               value={ingestedBefore}
               onChange={(event) => onChangeIngestedBefore(event.target.value)}
+              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
             />
           </label>
         </div>
       </div>
       {tagFacets.length > 0 && (
-        <div className="filter-group">
-          <div className="filter-group-header">
-            <span>Popular Tags</span>
+        <div className="flex flex-col gap-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Popular Tags
           </div>
           {renderFacetButtons(tagFacets, appliedTagTokens, onApplyFacet, 12)}
         </div>
       )}
       {ownerFacets.length > 0 && (
-        <div className="filter-group">
-          <div className="filter-group-header">
-            <span>Top Owners</span>
+        <div className="flex flex-col gap-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Top Owners
           </div>
           {renderFacetButtons(ownerFacets, appliedTagTokens, onApplyFacet, 10)}
         </div>
       )}
       {frameworkFacets.length > 0 && (
-        <div className="filter-group">
-          <div className="filter-group-header">
-            <span>Top Frameworks</span>
+        <div className="flex flex-col gap-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Top Frameworks
           </div>
           {renderFacetButtons(frameworkFacets, appliedTagTokens, onApplyFacet, 10)}
         </div>
