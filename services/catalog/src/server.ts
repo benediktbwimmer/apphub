@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket, { type SocketStream } from '@fastify/websocket';
 import { Buffer } from 'node:buffer';
@@ -32,7 +32,15 @@ import {
   type LaunchEnvVar,
   getBuildById,
   createBuild,
-  failLaunch
+  failLaunch,
+  listServices,
+  getServiceBySlug,
+  upsertService,
+  setServiceStatus,
+  type ServiceRecord,
+  type ServiceStatusUpdate,
+  type ServiceUpsertInput,
+  type JsonValue
 } from './db';
 import {
   enqueueRepositoryIngestion,
@@ -46,6 +54,7 @@ import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { runBuildJob } from './buildRunner';
 import { subscribeToApphubEvents, type ApphubEvent } from './events';
 import { buildDockerRunCommand } from './launchCommand';
+import { initializeServiceRegistry } from './serviceRegistry';
 
 type SearchQuery = {
   q?: string;
@@ -173,6 +182,40 @@ const buildListQuerySchema = z.object({
   offset: z
     .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).default(0))
 });
+
+const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
+);
+
+const serviceRegistrationSchema = z
+  .object({
+    slug: z.string().min(1),
+    displayName: z.string().min(1),
+    kind: z.string().min(1),
+    baseUrl: z.string().min(1).url(),
+    status: serviceStatusSchema.optional(),
+    statusMessage: z.string().nullable().optional(),
+    capabilities: jsonValueSchema.optional(),
+    metadata: jsonValueSchema.optional()
+  })
+  .strict();
+
+const servicePatchSchema = z
+  .object({
+    baseUrl: z.string().min(1).url().optional(),
+    status: serviceStatusSchema.optional(),
+    statusMessage: z.string().nullable().optional(),
+    capabilities: jsonValueSchema.optional(),
+    metadata: jsonValueSchema.optional(),
+    lastHealthyAt: z
+      .string()
+      .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid ISO timestamp')
+      .nullable()
+      .optional()
+  })
+  .strict();
 
 const buildLogsQuerySchema = z.object({
   download: z
@@ -411,15 +454,34 @@ function serializeLaunch(launch: LaunchRecord | null) {
   };
 }
 
+function serializeService(service: ServiceRecord) {
+  return {
+    id: service.id,
+    slug: service.slug,
+    displayName: service.displayName,
+    kind: service.kind,
+    baseUrl: service.baseUrl,
+    status: service.status,
+    statusMessage: service.statusMessage,
+    capabilities: service.capabilities,
+    metadata: service.metadata,
+    lastHealthyAt: service.lastHealthyAt,
+    createdAt: service.createdAt,
+    updatedAt: service.updatedAt
+  };
+}
+
 type SerializedRepository = ReturnType<typeof serializeRepository>;
 type SerializedBuild = ReturnType<typeof serializeBuild>;
 type SerializedLaunch = ReturnType<typeof serializeLaunch>;
+type SerializedService = ReturnType<typeof serializeService>;
 
 type OutboundEvent =
   | { type: 'repository.updated'; data: { repository: SerializedRepository } }
   | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
   | { type: 'build.updated'; data: { build: SerializedBuild } }
-  | { type: 'launch.updated'; data: { repositoryId: string; launch: SerializedLaunch } };
+  | { type: 'launch.updated'; data: { repositoryId: string; launch: SerializedLaunch } }
+  | { type: 'service.updated'; data: { service: SerializedService } };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   switch (event.type) {
@@ -446,9 +508,59 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
           launch: serializeLaunch(event.data.launch)
         }
       };
+    case 'service.updated':
+      return {
+        type: 'service.updated',
+        data: { service: serializeService(event.data.service) }
+      };
     default:
       return null;
   }
+}
+
+function toMetadataObject(value: JsonValue | null): Record<string, JsonValue> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, JsonValue>) };
+  }
+  return {};
+}
+
+function mergeRuntimeMetadata(existing: JsonValue | null, incoming: JsonValue | null | undefined): JsonValue | null {
+  const base = toMetadataObject(existing);
+  if (incoming !== undefined) {
+    base.runtime = incoming;
+  }
+  return Object.keys(base).length > 0 ? (base as JsonValue) : null;
+}
+
+function extractBearerToken(header: unknown): string | null {
+  if (typeof header !== 'string') {
+    return null;
+  }
+  const match = header.trim().match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  return match[1]?.trim() ?? null;
+}
+
+const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
+
+function ensureServiceRegistryAuthorized(request: FastifyRequest, reply: FastifyReply) {
+  if (!SERVICE_REGISTRY_TOKEN) {
+    reply.status(503);
+    return false;
+  }
+  const token = extractBearerToken(request.headers.authorization);
+  if (!token) {
+    reply.status(401);
+    return false;
+  }
+  if (token !== SERVICE_REGISTRY_TOKEN) {
+    reply.status(403);
+    return false;
+  }
+  return true;
 }
 
 export async function buildServer() {
@@ -462,6 +574,12 @@ export async function buildServer() {
     options: {
       maxPayload: 1_048_576
     }
+  });
+
+  const registry = await initializeServiceRegistry();
+
+  app.addHook('onClose', async () => {
+    registry.stop();
   });
 
   const sockets = new Set<WebSocket>();
@@ -535,6 +653,120 @@ export async function buildServer() {
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/services', async () => {
+    const services = listServices();
+    const healthyCount = services.filter((service) => service.status === 'healthy').length;
+    const unhealthyCount = services.length - healthyCount;
+    return {
+      data: services.map((service) => serializeService(service)),
+      meta: {
+        total: services.length,
+        healthyCount,
+        unhealthyCount
+      }
+    };
+  });
+
+  app.post('/services', async (request, reply) => {
+    if (!ensureServiceRegistryAuthorized(request, reply)) {
+      return { error: 'service registry disabled' };
+    }
+
+    const parseBody = serviceRegistrationSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const existing = getServiceBySlug(payload.slug);
+    const mergedMetadata = mergeRuntimeMetadata(existing?.metadata ?? null, payload.metadata);
+
+    const upsertPayload: ServiceUpsertInput = {
+      slug: payload.slug,
+      displayName: payload.displayName,
+      kind: payload.kind,
+      baseUrl: payload.baseUrl,
+      metadata: mergedMetadata
+    };
+
+    if (payload.status !== undefined) {
+      upsertPayload.status = payload.status;
+    }
+    if (payload.statusMessage !== undefined) {
+      upsertPayload.statusMessage = payload.statusMessage;
+    }
+    if (payload.capabilities !== undefined) {
+      upsertPayload.capabilities = payload.capabilities;
+    }
+
+    const record = upsertService(upsertPayload);
+    if (!existing) {
+      reply.status(201);
+    }
+    return { data: serializeService(record) };
+  });
+
+  app.patch('/services/:slug', async (request, reply) => {
+    if (!ensureServiceRegistryAuthorized(request, reply)) {
+      return { error: 'service registry disabled' };
+    }
+
+    const paramsSchema = z.object({ slug: z.string().min(1) });
+    const parseParams = paramsSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const slug = parseParams.data.slug;
+    const existing = getServiceBySlug(slug);
+    if (!existing) {
+      reply.status(404);
+      return { error: 'service not found' };
+    }
+
+    const parseBody = servicePatchSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    let metadataUpdate: JsonValue | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(payload, 'metadata')) {
+      metadataUpdate = mergeRuntimeMetadata(existing.metadata, payload.metadata ?? null);
+    }
+
+    const update: ServiceStatusUpdate = {};
+    if (payload.baseUrl) {
+      update.baseUrl = payload.baseUrl;
+    }
+    if (payload.status !== undefined) {
+      update.status = payload.status;
+    }
+    if (payload.statusMessage !== undefined) {
+      update.statusMessage = payload.statusMessage;
+    }
+    if (payload.capabilities !== undefined) {
+      update.capabilities = payload.capabilities;
+    }
+    if (metadataUpdate !== undefined) {
+      update.metadata = metadataUpdate;
+    }
+    if (payload.lastHealthyAt !== undefined) {
+      update.lastHealthyAt = payload.lastHealthyAt;
+    }
+
+    const updated = setServiceStatus(slug, update);
+    if (!updated) {
+      reply.status(500);
+      return { error: 'failed to update service' };
+    }
+
+    return { data: serializeService(updated) };
+  });
 
   app.get('/apps', async (request, reply) => {
     const parseResult = searchQuerySchema.safeParse(request.query);

@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+let concurrently;
+try {
+  concurrently = require('concurrently');
+} catch (err) {
+  console.error('[dev-services] Failed to load "concurrently". Install it with `npm install` at repo root.');
+  process.exit(1);
+}
+
+const ROOT_DIR = path.resolve(__dirname, '..');
+const DEFAULT_MANIFEST_PATH = path.join(ROOT_DIR, 'services', 'service-manifest.json');
+
+function resolveManifestPaths() {
+  const configured = process.env.SERVICE_MANIFEST_PATH ?? '';
+  const extras = configured
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(ROOT_DIR, entry)));
+  const paths = [DEFAULT_MANIFEST_PATH, ...extras];
+  const seen = new Set();
+  const deduped = [];
+  for (const manifestPath of paths) {
+    if (seen.has(manifestPath)) {
+      continue;
+    }
+    seen.add(manifestPath);
+    deduped.push(manifestPath);
+  }
+  return deduped;
+}
+
+function readManifest(filePath) {
+  try {
+    const contents = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(contents);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    if (parsed && Array.isArray(parsed.services)) {
+      return parsed.services;
+    }
+    console.warn(`[dev-services] Manifest ${filePath} does not include a "services" array.`);
+    return [];
+  } catch (err) {
+    console.warn(`[dev-services] Failed to read manifest ${filePath}: ${(err && err.message) || err}`);
+    return [];
+  }
+}
+
+function loadServiceDefinitions() {
+  const paths = resolveManifestPaths();
+  const definitions = new Map();
+  for (const manifestPath of paths) {
+    if (!fs.existsSync(manifestPath)) {
+      continue;
+    }
+    const entries = readManifest(manifestPath);
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const slug = typeof entry.slug === 'string' ? entry.slug.trim().toLowerCase() : '';
+      if (!slug) {
+        continue;
+      }
+      const existing = definitions.get(slug) ?? {};
+      definitions.set(slug, {
+        ...existing,
+        ...entry,
+        slug
+      });
+    }
+  }
+  return Array.from(definitions.values());
+}
+
+function buildCommands(definitions) {
+  const commands = [];
+  for (const definition of definitions) {
+    const devCommand = typeof definition.devCommand === 'string' ? definition.devCommand.trim() : '';
+    const workingDir = typeof definition.workingDir === 'string' ? definition.workingDir.trim() : '';
+    if (!devCommand || !workingDir) {
+      continue;
+    }
+    const absWorkingDir = path.isAbsolute(workingDir)
+      ? workingDir
+      : path.resolve(ROOT_DIR, workingDir);
+    commands.push({
+      name: definition.slug,
+      command: devCommand,
+      cwd: absWorkingDir,
+      env: process.env
+    });
+  }
+  return commands;
+}
+
+async function main() {
+  const definitions = loadServiceDefinitions();
+  const commands = buildCommands(definitions);
+
+  if (commands.length === 0) {
+    console.log('[dev-services] No service dev commands defined in manifest.');
+    return;
+  }
+
+  const result = await concurrently(commands, {
+    killOthers: ['failure', 'success'],
+    prefix: 'name',
+    restartTries: 0,
+    cwd: ROOT_DIR
+  });
+
+  if (result.success) {
+    return;
+  }
+
+  process.exit(result.success ? 0 : 1);
+}
+
+main().catch((err) => {
+  console.error('[dev-services] Unexpected error', err);
+  process.exit(1);
+});

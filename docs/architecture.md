@@ -10,6 +10,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, and stale build cleanup. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod).
+- **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in SQLite. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, and ingestion timeline changes. Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
 ## Data Model (Initial Draft)
@@ -54,6 +55,11 @@ Build a "YouTube of web applications" where each application is sourced from a G
    - User selects an app, requests launch.
    - Runner schedules container, wires frontend proxy route, returns preview URL.
    - Optional warm pool for popular apps.
+
+5. **Service Discovery & Health Tracking**
+   - On startup the catalog ingests one or more JSON manifests describing external services and stores them via the registry helpers.
+   - A background poller probes each service's health endpoint, updates status/metadata in SQLite, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
+   - Operators or services themselves can register/patch definitions at runtime using `POST /services` and `PATCH /services/:slug` with a shared token, enabling dynamic onboarding without code changes.
 
 ## Tech Stack Proposal (MVP)
 - **Backend / API**: TypeScript + Fastify or NestJS, backed by PostgreSQL for metadata, Redis for job queues. MVP ships with SQLite (`better-sqlite3`) to keep local development light-weight.

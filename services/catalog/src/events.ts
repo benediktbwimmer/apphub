@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import IORedis, { type Redis } from 'ioredis';
-import type { BuildRecord, IngestionEvent, LaunchRecord, RepositoryRecord } from './db';
+import type { BuildRecord, IngestionEvent, LaunchRecord, RepositoryRecord, ServiceRecord } from './db';
 
 export type ApphubEvent =
   | { type: 'repository.updated'; data: { repository: RepositoryRecord } }
   | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
   | { type: 'build.updated'; data: { build: BuildRecord } }
-  | { type: 'launch.updated'; data: { launch: LaunchRecord } };
+  | { type: 'launch.updated'; data: { launch: LaunchRecord } }
+  | { type: 'service.updated'; data: { service: ServiceRecord } };
 
 type EventEnvelope = {
   origin: string;
