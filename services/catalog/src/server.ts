@@ -149,7 +149,7 @@ const launchEnvEntrySchema = z
   })
   .strict();
 
-const launchRequestSchema = z
+export const launchRequestSchema = z
   .object({
     buildId: z.string().min(1).optional(),
     resourceProfile: z.string().min(1).optional(),
@@ -427,7 +427,7 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   }
 }
 
-async function buildServer() {
+export async function buildServer() {
   const app = Fastify();
 
   await app.register(cors, {
@@ -1012,22 +1012,24 @@ async function buildServer() {
   return app;
 }
 
-const port = Number(process.env.PORT ?? 4000);
-const host = process.env.HOST ?? '0.0.0.0';
+if (require.main === module) {
+  const port = Number(process.env.PORT ?? 4000);
+  const host = process.env.HOST ?? '0.0.0.0';
 
-buildServer()
-  .then((app) => {
-    app
-      .listen({ port, host })
-      .then(() => {
-        app.log.info(`Catalog API listening on http://${host}:${port}`);
-      })
-      .catch((err) => {
-        app.log.error(err);
-        process.exit(1);
-      });
-  })
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  buildServer()
+    .then((app) => {
+      app
+        .listen({ port, host })
+        .then(() => {
+          app.log.info(`Catalog API listening on http://${host}:${port}`);
+        })
+        .catch((err) => {
+          app.log.error(err);
+          process.exit(1);
+        });
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
