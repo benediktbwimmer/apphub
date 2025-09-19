@@ -283,6 +283,17 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS repository_search USING fts5(
+    repository_id UNINDEXED,
+    name,
+    description,
+    repo_url,
+    tag_text,
+    tokenize = 'porter'
+  );
+`);
+
 function ensureColumn(table: string, column: string, ddl: string) {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!rows.some((row) => row.name === column)) {
