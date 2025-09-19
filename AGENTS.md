@@ -24,3 +24,6 @@ Usually you will be located in a new empty directory. To get started, clone the 
 While working on your feature, make sure to commit your changes frequently with clear and descriptive commit messages. Follow the project's coding style and guidelines to ensure consistency.
 
 When you have completed your feature, run the project's tests to ensure everything is working correctly. If all tests pass, push your feature branch to the remote repository and create a pull request (PR) for review. In the PR description, provide a summary of the changes you made, any relevant issue numbers, and any additional context that might be helpful for reviewers.
+
+## Command Execution 
+Note that when you want to run commands that run indefinitely (like `npm run dev`), should use nohup and a redirection of stdout and stderr to a file, so that the command continues and you can check on the output at any time. 
