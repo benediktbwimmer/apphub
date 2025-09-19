@@ -119,7 +119,10 @@ The script creates an isolated SQLite database, registers a sample repo, waits f
 
 ## Current Functionality
 
-- Seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18` stored in SQLite.
+- Optional seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. Generate
+  a local copy by loading `services/catalog/tests/fixtures/seeded-catalog.sql` into SQLite (e.g.
+  `sqlite3 tmp.db < services/catalog/tests/fixtures/seeded-catalog.sql`) and point `CATALOG_DB_PATH` at the resulting file.
+  The application now starts with an empty catalog by default.
 - Tag-aware search (AND semantics) plus free-text filtering on app name/description.
 - Keyboard-friendly autocomplete (`Tab` to accept, arrow keys to navigate, `Esc` to dismiss).
 - Styled card grid highlighting repo link + Dockerfile path.
