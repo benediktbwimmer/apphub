@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket, { type SocketStream } from '@fastify/websocket';
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import WebSocket, { type RawData } from 'ws';
 import {
@@ -43,6 +44,7 @@ import {
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { runBuildJob } from './buildRunner';
 import { subscribeToApphubEvents, type ApphubEvent } from './events';
+import { buildDockerRunCommand } from './launchCommand';
 
 type SearchQuery = {
   q?: string;
@@ -151,7 +153,9 @@ const launchRequestSchema = z
   .object({
     buildId: z.string().min(1).optional(),
     resourceProfile: z.string().min(1).optional(),
-    env: z.array(launchEnvEntrySchema).max(32).optional()
+    env: z.array(launchEnvEntrySchema).max(32).optional(),
+    command: z.string().min(1).max(4000).optional(),
+    launchId: z.string().min(1).max(64).optional()
   })
   .strict();
 
@@ -372,6 +376,7 @@ function serializeLaunch(launch: LaunchRecord | null) {
     instanceUrl: launch.instanceUrl,
     resourceProfile: launch.resourceProfile,
     env: launch.env,
+    command: launch.command,
     errorMessage: launch.errorMessage,
     createdAt: launch.createdAt,
     updatedAt: launch.updatedAt,
@@ -692,10 +697,33 @@ async function buildServer() {
     }
 
     const env = normalizeLaunchEnv(payload.env);
+    const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
+    const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
+
+    if (requestedLaunchId.length > 0) {
+      const existingLaunch = getLaunchById(launchId);
+      if (existingLaunch) {
+        reply.status(409);
+        return { error: 'launch already exists' };
+      }
+    }
+
+    const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
+    const internalPort = Number(process.env.LAUNCH_INTERNAL_PORT ?? 3000);
+    const commandFallback = buildDockerRunCommand({
+      repositoryId: repository.id,
+      launchId,
+      imageTag: build.imageTag,
+      env,
+      internalPort
+    }).command;
+    const launchCommand = commandInput.length > 0 ? commandInput : commandFallback;
 
     const launch = createLaunch(repository.id, build.id, {
+      id: launchId,
       resourceProfile: payload.resourceProfile ?? null,
-      env
+      env,
+      command: launchCommand
     });
 
     try {

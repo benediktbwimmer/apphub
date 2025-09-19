@@ -1,13 +1,18 @@
 import { spawn } from 'node:child_process';
-import { failLaunch, getBuildById, getLaunchById, markLaunchRunning, markLaunchStopped, requestLaunchStop, startLaunch } from './db';
+import {
+  failLaunch,
+  getBuildById,
+  getLaunchById,
+  markLaunchRunning,
+  markLaunchStopped,
+  requestLaunchStop,
+  startLaunch
+} from './db';
+import { buildDockerRunCommand, parseDockerCommand } from './launchCommand';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
   console.log(`[launch] ${message}${payload}`);
-}
-
-function sanitizeName(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
 }
 
 function runDocker(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
@@ -81,21 +86,39 @@ export async function runLaunchStart(launchId: string) {
   }
 
   const containerPort = Number(process.env.LAUNCH_INTERNAL_PORT ?? 3000);
-  const containerName = `apphub-${sanitizeName(launch.repositoryId)}-${launch.id.slice(0, 8)}`;
+  const commandSource = launch.command?.trim() ?? '';
+  let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
+  let commandLabel = commandSource;
+  let containerName: string | null = null;
+
+  if (!runArgs) {
+    const fallback = buildDockerRunCommand({
+      repositoryId: launch.repositoryId,
+      launchId: launch.id,
+      imageTag: build.imageTag,
+      env: launch.env,
+      internalPort: containerPort
+    });
+    runArgs = fallback.args;
+    commandLabel = fallback.command;
+    containerName = fallback.containerName;
+  }
 
   log('Starting container', {
     launchId,
     buildId: launch.buildId,
     imageTag: build.imageTag,
     containerName,
+    command: commandLabel,
     containerPort
   });
 
-  const runArgs = ['run', '-d', '--name', containerName, '-p', `0:${containerPort}`];
-  for (const entry of launch.env) {
-    runArgs.push('-e', `${entry.key}=${entry.value}`);
+  if (!runArgs || runArgs.length === 0) {
+    const message = 'Launch command invalid';
+    failLaunch(launch.id, message);
+    log('Launch command missing', { launchId, command: commandSource });
+    return;
   }
-  runArgs.push(build.imageTag);
   const runResult = await runDocker(runArgs);
   if (runResult.exitCode !== 0 || runResult.stdout.trim().length === 0) {
     const message = runResult.stderr || 'docker run failed';

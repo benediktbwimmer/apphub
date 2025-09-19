@@ -629,9 +629,14 @@ function LaunchSummarySection({
       imageTag: app.latestBuild?.imageTag ?? null,
       env: envForLaunch
     });
-    setGeneratedDefaultCommand((prev) => (prev === nextDefault ? prev : nextDefault));
-    setCommandValue((current) => (current === generatedDefaultCommand ? nextDefault : current));
-  }, [app.id, app.latestBuild?.imageTag, envForLaunch, pendingLaunchId, generatedDefaultCommand]);
+    setGeneratedDefaultCommand((prevDefault) => {
+      if (prevDefault === nextDefault) {
+        return prevDefault;
+      }
+      setCommandValue((current) => (current === prevDefault ? nextDefault : current));
+      return nextDefault;
+    });
+  }, [app.id, app.latestBuild?.imageTag, envForLaunch, pendingLaunchId]);
 
   const editingDisabled =
     isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);

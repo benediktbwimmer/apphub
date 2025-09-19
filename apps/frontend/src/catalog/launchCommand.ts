@@ -17,8 +17,19 @@ export function sanitizeLaunchName(value: string): string {
 }
 
 export function createLaunchId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined') {
+    if (typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(8);
+      crypto.getRandomValues(bytes);
+      const random = Array.from(bytes)
+        .map((byte) => byte.toString(36).padStart(2, '0'))
+        .join('');
+      const now = Date.now().toString(36);
+      return `${now}-${random}`;
+    }
   }
   const now = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 10);

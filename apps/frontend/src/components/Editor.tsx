@@ -21,6 +21,8 @@ export type EditorProps = BaseEditorProps;
 
 type EditorTheme = 'vs-light' | 'vs-dark';
 
+let themesRegistered = false;
+
 function resolveTheme(): EditorTheme {
   if (typeof document === 'undefined') {
     return 'vs-light';
@@ -43,6 +45,31 @@ const BASE_OPTIONS: MonacoEditorProps['options'] = {
 
 function noop() {
   // noop placeholder for SSR guards
+}
+
+function registerThemes(monaco: Monaco) {
+  if (themesRegistered) {
+    return;
+  }
+  monaco.editor.defineTheme('apphub-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#0f172a',
+      'editorLineNumber.foreground': '#64748b'
+    }
+  });
+  monaco.editor.defineTheme('apphub-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#ffffff',
+      'editorLineNumber.foreground': '#94a3b8'
+    }
+  });
+  themesRegistered = true;
 }
 
 export function Editor({
@@ -83,24 +110,7 @@ export function Editor({
     if (readOnly) {
       editor.updateOptions({ renderLineHighlight: 'none' });
     }
-    monaco.editor.defineTheme('apphub-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#0f172a',
-        'editorLineNumber.foreground': '#64748b'
-      }
-    });
-    monaco.editor.defineTheme('apphub-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': '#ffffff',
-        'editorLineNumber.foreground': '#94a3b8'
-      }
-    });
+    registerThemes(monaco);
     monaco.editor.setTheme(theme === 'vs-dark' ? 'apphub-dark' : 'apphub-light');
   };
 
