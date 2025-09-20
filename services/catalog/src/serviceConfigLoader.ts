@@ -63,6 +63,12 @@ export type ServiceConfigLoadResult = {
   usedConfigs: string[];
 };
 
+export type ClearServiceConfigImportsResult = {
+  cleared: string[];
+  skipped: string[];
+  errors: { path: string; error: Error }[];
+};
+
 type VisitedModules = Map<string, string>;
 
 type ConfigLoadResult = {
@@ -101,6 +107,53 @@ function resolveConfiguredPaths(envValue: string | undefined, defaults: string[]
 
 export function resolveServiceConfigPaths(): string[] {
   return resolveConfiguredPaths(process.env.SERVICE_CONFIG_PATH, [DEFAULT_SERVICE_CONFIG_PATH]);
+}
+
+function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
+  return Boolean(value && typeof value === 'object' && 'code' in value);
+}
+
+export async function clearServiceConfigImports(
+  configPaths: string[] = resolveServiceConfigPaths()
+): Promise<ClearServiceConfigImportsResult> {
+  const cleared: string[] = [];
+  const skipped: string[] = [];
+  const errors: { path: string; error: Error }[] = [];
+
+  for (const configPath of configPaths) {
+    let config: ServiceConfig;
+    try {
+      config = await readServiceConfig(configPath);
+    } catch (err) {
+      if (isErrnoException(err) && err.code === 'ENOENT') {
+        skipped.push(configPath);
+        continue;
+      }
+      errors.push({ path: configPath, error: err as Error });
+      continue;
+    }
+
+    if (!config.imports || config.imports.length === 0) {
+      skipped.push(configPath);
+      continue;
+    }
+
+    const updated: ServiceConfig = {
+      module: config.module,
+      manifestPath: config.manifestPath,
+      services: config.services,
+      networks: config.networks
+    };
+
+    try {
+      await fs.writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
+      cleared.push(configPath);
+    } catch (err) {
+      errors.push({ path: configPath, error: err as Error });
+    }
+  }
+
+  return { cleared, skipped, errors };
 }
 
 function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[] | undefined {

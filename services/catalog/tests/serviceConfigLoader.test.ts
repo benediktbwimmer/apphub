@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadServiceConfigurations } from '../src/serviceConfigLoader';
+import { clearServiceConfigImports, loadServiceConfigurations } from '../src/serviceConfigLoader';
 
 async function createTempConfig() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-test-'));
@@ -83,6 +83,35 @@ async function createTempConfig() {
     assert.equal(network.services[0]?.serviceSlug, 'example-service');
     assert.deepEqual(network.services[0]?.env, [{ key: 'SERVICE_TOKEN', value: 'secret' }]);
     assert.deepEqual(network.env, [{ key: 'NETWORK_MODE', value: 'demo' }]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+})();
+
+(async () => {
+  const { dir, configPath } = await createTempConfig();
+  try {
+    const configWithImports = {
+      module: 'github.com/apphub/test-module',
+      manifestPath: './service-manifest.json',
+      imports: [
+        {
+          module: 'github.com/apphub/another-module',
+          repo: 'https://example.com/another.git',
+          commit: '0123456789abcdef0123456789abcdef01234567'
+        }
+      ]
+    };
+    await fs.writeFile(configPath, JSON.stringify(configWithImports, null, 2), 'utf8');
+
+    const result = await clearServiceConfigImports([configPath]);
+    assert.deepEqual(result.cleared, [configPath]);
+    assert.equal(result.errors.length, 0);
+
+    const updated = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    assert.ok(!('imports' in updated), 'imports should be removed');
+    assert.equal(updated.module, 'github.com/apphub/test-module');
+    assert.equal(updated.manifestPath, './service-manifest.json');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
