@@ -27,7 +27,7 @@
       "baseUrl": "http://127.0.0.1:5103",
       "healthEndpoint": "/healthz",
       "openapiPath": "/openapi.json",
-      "devCommand": "TS_NODE_TRANSPILE_ONLY=1 PORT=5103 REDIS_URL=redis://127.0.0.1:6379 REDIS_EVENTS_CHANNEL=apphub:events CATALOG_BASE_URL=http://127.0.0.1:4000 CATALOG_TOKEN=dev-token FILE_EXPLORER_BASE_URL=http://127.0.0.1:4174 AI_CONNECTOR_BASE_URL=http://127.0.0.1:8300 AI_CONNECTOR_MODEL=gpt-4o-mini WORKSPACE_ROOT=./workspace DATABASE_PATH=./data/tagging-service.sqlite npm run start:dev",
+      "devCommand": "TS_NODE_TRANSPILE_ONLY=1 PORT=5103 REDIS_URL=redis://host.docker.internal:6379 REDIS_EVENTS_CHANNEL=apphub:events CATALOG_BASE_URL=http://127.0.0.1:4000 CATALOG_TOKEN=dev-token FILE_EXPLORER_BASE_URL=http://127.0.0.1:4174 AI_CONNECTOR_BASE_URL=http://127.0.0.1:8300 AI_CONNECTOR_MODEL=gpt-4o-mini WORKSPACE_ROOT=./workspace DATABASE_PATH=./data/tagging-service.sqlite npm run start:dev",
       "workingDir": "services/external/tagging-service"
     }
   ]

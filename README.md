@@ -139,6 +139,30 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 
 Stop the stack with `Ctrl+C`.
 
+### Docker Image
+
+A single container image can run Redis, the catalog API, background workers, and the static frontend:
+
+```bash
+docker build -t apphub .
+docker run \
+  --rm \
+  -p 4000:4000 \
+  -p 4173:4173 \
+  -p 6379:6379 \
+  -v apphub-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  apphub
+```
+
+Notes:
+- The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
+- Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`.
+- `apphub-data` persists the SQLite catalog database; remove the volume for a clean slate.
+- The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
+
+Stop the container with `Ctrl+C` or `docker stop` when running detached.
+
 ## Testing
 
 End-to-end suite spins up the catalog API, BullMQ worker (using an in-memory Redis mock), and a temporary Git repository to verify the full ingestion loop:
