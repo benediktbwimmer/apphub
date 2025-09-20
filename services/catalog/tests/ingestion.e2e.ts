@@ -434,9 +434,8 @@ async function prepareRealRepository(): Promise<string> {
 }
 
 async function testRealRepositoryLaunchFlow() {
-  await withCatalogEnvironment(async (context) => {
-    const { baseUrl } = context;
-    const previewSecret = context.env.LAUNCH_PREVIEW_TOKEN_SECRET ?? '';
+  await withCatalogEnvironment(async ({ baseUrl, env }) => {
+    const previewSecret = env.LAUNCH_PREVIEW_TOKEN_SECRET ?? '';
     const sourceRepoPath = await prepareRealRepository();
     const repoUrl = await snapshotRepository(sourceRepoPath);
 
