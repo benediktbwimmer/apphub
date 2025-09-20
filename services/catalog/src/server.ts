@@ -176,6 +176,10 @@ const launchListQuerySchema = z
   })
   .partial();
 
+const createLaunchSchema = launchRequestSchema.extend({
+  repositoryId: z.string().min(1)
+});
+
 const buildListQuerySchema = z.object({
   limit: z
     .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).default(10)),
@@ -320,6 +324,8 @@ function normalizeLaunchEnv(entries?: LaunchEnvVar[]): LaunchEnvVar[] {
   }
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
+
+type LaunchRequestPayload = z.infer<typeof launchRequestSchema>;
 
 function serializeRepository(record: RepositoryRecordWithRelevance) {
   const {
@@ -561,6 +567,93 @@ function ensureServiceRegistryAuthorized(request: FastifyRequest, reply: Fastify
     return false;
   }
   return true;
+}
+
+async function scheduleLaunch(options: {
+  repository: RepositoryRecord;
+  payload: LaunchRequestPayload;
+  request: FastifyRequest;
+}): Promise<{ status: number; body: unknown }> {
+  const { repository, payload, request } = options;
+
+  let build = payload.buildId ? getBuildById(payload.buildId) : null;
+  if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
+    return { status: 400, body: { error: 'build does not belong to app' } };
+  }
+
+  if (!build && repository.latestBuild) {
+    build = repository.latestBuild;
+  }
+
+  if (!build || build.repositoryId !== repository.id || build.status !== 'succeeded' || !build.imageTag) {
+    return { status: 409, body: { error: 'no successful build available for launch' } };
+  }
+
+  const env = normalizeLaunchEnv(payload.env);
+  const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
+  const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
+
+  if (requestedLaunchId.length > 0) {
+    const existingLaunch = getLaunchById(launchId);
+    if (existingLaunch) {
+      return { status: 409, body: { error: 'launch already exists' } };
+    }
+  }
+
+  const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
+  const internalPort = await resolveLaunchInternalPort(build.imageTag);
+  const commandFallback = buildDockerRunCommand({
+    repositoryId: repository.id,
+    launchId,
+    imageTag: build.imageTag,
+    env,
+    internalPort
+  }).command;
+  const launchCommand = commandInput.length > 0 ? commandInput : commandFallback;
+
+  const launch = createLaunch(repository.id, build.id, {
+    id: launchId,
+    resourceProfile: payload.resourceProfile ?? null,
+    env,
+    command: launchCommand
+  });
+
+  try {
+    if (isInlineQueueMode()) {
+      await runLaunchStart(launch.id);
+    } else {
+      await enqueueLaunchStart(launch.id);
+    }
+  } catch (err) {
+    const message = `Failed to schedule launch: ${(err as Error).message ?? 'unknown error'}`;
+    request.log.error({ err }, 'Failed to schedule launch');
+    failLaunch(launch.id, message.slice(0, 500));
+    const currentRepo = getRepositoryById(repository.id) ?? repository;
+    const currentLaunch = getLaunchById(launch.id);
+    return {
+      status: 502,
+      body: {
+        error: message,
+        data: {
+          repository: serializeRepository(currentRepo),
+          launch: serializeLaunch(currentLaunch ?? launch)
+        }
+      }
+    };
+  }
+
+  const refreshedRepo = getRepositoryById(repository.id) ?? repository;
+  const refreshedLaunch = getLaunchById(launch.id) ?? launch;
+
+  return {
+    status: 202,
+    body: {
+      data: {
+        repository: serializeRepository(refreshedRepo),
+        launch: serializeLaunch(refreshedLaunch)
+      }
+    }
+  };
 }
 
 export async function buildServer() {
@@ -982,85 +1075,39 @@ export async function buildServer() {
       return { error: parseBody.error.flatten() };
     }
 
-    const payload = parseBody.data;
-
-    let build = payload.buildId ? getBuildById(payload.buildId) : null;
-    if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
-      reply.status(400);
-      return { error: 'build does not belong to app' };
-    }
-
-    if (!build && repository.latestBuild) {
-      build = repository.latestBuild;
-    }
-
-    if (!build || build.repositoryId !== repository.id || build.status !== 'succeeded' || !build.imageTag) {
-      reply.status(409);
-      return { error: 'no successful build available for launch' };
-    }
-
-    const env = normalizeLaunchEnv(payload.env);
-    const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
-    const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
-
-    if (requestedLaunchId.length > 0) {
-      const existingLaunch = getLaunchById(launchId);
-      if (existingLaunch) {
-        reply.status(409);
-        return { error: 'launch already exists' };
-      }
-    }
-
-    const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
-    const internalPort = await resolveLaunchInternalPort(build.imageTag);
-    const commandFallback = buildDockerRunCommand({
-      repositoryId: repository.id,
-      launchId,
-      imageTag: build.imageTag,
-      env,
-      internalPort
-    }).command;
-    const launchCommand = commandInput.length > 0 ? commandInput : commandFallback;
-
-    const launch = createLaunch(repository.id, build.id, {
-      id: launchId,
-      resourceProfile: payload.resourceProfile ?? null,
-      env,
-      command: launchCommand
+    const result = await scheduleLaunch({
+      repository,
+      payload: parseBody.data,
+      request
     });
 
-    try {
-      if (isInlineQueueMode()) {
-        await runLaunchStart(launch.id);
-      } else {
-        await enqueueLaunchStart(launch.id);
-      }
-    } catch (err) {
-      const message = `Failed to schedule launch: ${(err as Error).message ?? 'unknown error'}`;
-      request.log.error({ err }, 'Failed to schedule launch');
-      failLaunch(launch.id, message.slice(0, 500));
-      reply.status(502);
-      const currentRepo = getRepositoryById(repository.id) ?? repository;
-      const currentLaunch = getLaunchById(launch.id);
-      return {
-        error: message,
-        data: {
-          repository: serializeRepository(currentRepo),
-          launch: serializeLaunch(currentLaunch ?? launch)
-        }
-      };
+    reply.status(result.status);
+    return result.body;
+  });
+
+  app.post('/launches', async (request, reply) => {
+    const body = (request.body as unknown) ?? {};
+    const parseBody = createLaunchSchema.safeParse(body);
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
     }
 
-    const refreshedRepo = getRepositoryById(repository.id) ?? repository;
-    const refreshedLaunch = getLaunchById(launch.id) ?? launch;
+    const { repositoryId, ...rest } = parseBody.data;
+    const repository = getRepositoryById(repositoryId);
+    if (!repository) {
+      reply.status(404);
+      return { error: 'app not found' };
+    }
 
-    reply.status(202);
-    return {
-      data: {
-        repository: serializeRepository(refreshedRepo),
-        launch: serializeLaunch(refreshedLaunch)
-      }
-    };
+    const result = await scheduleLaunch({
+      repository,
+      payload: rest as LaunchRequestPayload,
+      request
+    });
+
+    reply.status(result.status);
+    return result.body;
   });
 
   app.post('/apps/:id/launches/:launchId/stop', async (request, reply) => {

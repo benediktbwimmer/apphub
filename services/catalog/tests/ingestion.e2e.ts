@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import {
   access,
   chmod,
@@ -12,6 +13,7 @@ import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+import WebSocket from 'ws';
 
 const exec = promisify(execCallback);
 
@@ -272,7 +274,11 @@ async function startCatalog(): Promise<CatalogTestContext> {
     PATH: `${fakeDocker.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
     APPHUB_FAKE_DOCKER_STATE: fakeDocker.stateDir,
     BUILD_CLONE_DEPTH: '1',
-    INGEST_CLONE_DEPTH: '1'
+    INGEST_CLONE_DEPTH: '1',
+    LAUNCH_RUNNER_MODE: 'stub',
+    LAUNCH_PREVIEW_BASE_URL: 'https://preview.apphub.local',
+    LAUNCH_PREVIEW_TOKEN_SECRET: 'e2e-preview-secret',
+    LAUNCH_PREVIEW_PORT: '443'
   };
 
   const server = spawn('npx', ['tsx', 'src/server.ts'], {
@@ -408,7 +414,9 @@ async function testSyntheticRepositoryFlow() {
 }
 
 async function testRealRepositoryLaunchFlow() {
-  await withCatalogEnvironment(async ({ baseUrl }) => {
+  await withCatalogEnvironment(async (context) => {
+    const { baseUrl } = context;
+    const previewSecret = context.env.LAUNCH_PREVIEW_TOKEN_SECRET ?? '';
     try {
       await access(REAL_REPO_PATH);
     } catch {
@@ -455,44 +463,113 @@ async function testRealRepositoryLaunchFlow() {
     const buildLogs = await collectBuildLogs(baseUrl, build.id);
     assert(buildLogs.includes('[fake-docker] build success'), 'Real repo build should run through fake docker');
 
-    const launchRes = await fetch(`${baseUrl}/apps/${appId}/launch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        env: [
-          { key: 'HELLO', value: 'world' },
-          { key: 'FOO', value: 'bar' }
-        ]
-      })
+    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws';
+    const socket = new WebSocket(wsUrl);
+    const launchEvents: LaunchSummary[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const handleOpen = () => {
+        socket.off('error', handleError);
+        resolve();
+      };
+      const handleError = (err: Error) => {
+        socket.off('open', handleOpen);
+        reject(err);
+      };
+      socket.once('open', handleOpen);
+      socket.once('error', handleError);
     });
 
-    assert.equal(launchRes.status, 202, 'Launch request should be accepted');
-    const launchPayload = (await launchRes.json()) as {
-      data: { repository: RepositorySummary; launch: LaunchSummary };
-    };
-    const launch = launchPayload.data.launch;
-    assert(launch.id, 'Launch identifier should be defined');
-    assert(launch.env.some((entry) => entry.key === 'HELLO' && entry.value === 'world'));
-
-    const runningLaunch = await pollLaunch(baseUrl, appId, launch.id, 'running');
-    assert(runningLaunch.instanceUrl, 'Instance URL should be populated');
-    assert.strictEqual(typeof runningLaunch.port, 'number');
-    assert(runningLaunch.env.some((entry) => entry.key === 'FOO' && entry.value === 'bar'));
-
-    const launchesRes = await fetch(`${baseUrl}/apps/${appId}/launches`);
-    assert.equal(launchesRes.status, 200, 'Launch listing should succeed');
-    const launchesPayload = (await launchesRes.json()) as { data: LaunchSummary[] };
-    assert(launchesPayload.data.some((entry) => entry.id === launch.id), 'Launch should be listed');
-
-    const stopRes = await fetch(`${baseUrl}/apps/${appId}/launches/${launch.id}/stop`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+    socket.on('message', (raw) => {
+      let text: string | null = null;
+      if (typeof raw === 'string') {
+        text = raw;
+      } else if (raw instanceof Buffer) {
+        text = raw.toString('utf8');
+      } else if (Array.isArray(raw)) {
+        text = Buffer.concat(raw).toString('utf8');
+      }
+      if (!text) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(text) as {
+          type?: string;
+          data?: { repositoryId?: string; launch?: LaunchSummary };
+        };
+        if (parsed.type === 'launch.updated' && parsed.data?.launch) {
+          launchEvents.push(parsed.data.launch);
+        }
+      } catch {
+        // ignore malformed frames
+      }
     });
-    assert.equal(stopRes.status, 202, 'Launch stop should be accepted');
 
-    const stoppedLaunch = await pollLaunch(baseUrl, appId, launch.id, 'stopped');
-    assert.equal(stoppedLaunch.status, 'stopped');
+    try {
+      const launchRes = await fetch(`${baseUrl}/launches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repositoryId: appId,
+          env: [
+            { key: 'HELLO', value: 'world' },
+            { key: 'FOO', value: 'bar' }
+          ]
+        })
+      });
+
+      assert.equal(launchRes.status, 202, 'Launch request should be accepted');
+      const launchPayload = (await launchRes.json()) as {
+        data: { repository: RepositorySummary; launch: LaunchSummary };
+      };
+      const launch = launchPayload.data.launch;
+      assert(launch.id, 'Launch identifier should be defined');
+      assert(launch.env.some((entry) => entry.key === 'HELLO' && entry.value === 'world'));
+
+      const runningLaunch = await pollLaunch(baseUrl, appId, launch.id, 'running');
+      assert(runningLaunch.instanceUrl, 'Instance URL should be populated');
+      assert.strictEqual(typeof runningLaunch.port, 'number');
+      assert(runningLaunch.env.some((entry) => entry.key === 'FOO' && entry.value === 'bar'));
+
+      await delay(300);
+
+      const previewUrl = new URL(runningLaunch.instanceUrl ?? '');
+      assert.equal(previewUrl.origin, 'https://preview.apphub.local');
+      assert.equal(previewUrl.searchParams.get('repositoryId'), appId);
+      const token = previewUrl.searchParams.get('token');
+      assert(token, 'Preview URL should include a token');
+      const expectedToken = createHmac('sha256', previewSecret)
+        .update(`${launch.id}:${appId}`)
+        .digest('hex');
+      assert.equal(token, expectedToken, 'Preview token should be signed');
+
+      const launchesRes = await fetch(`${baseUrl}/apps/${appId}/launches`);
+      assert.equal(launchesRes.status, 200, 'Launch listing should succeed');
+      const launchesPayload = (await launchesRes.json()) as { data: LaunchSummary[] };
+      assert(launchesPayload.data.some((entry) => entry.id === launch.id), 'Launch should be listed');
+
+      const stopRes = await fetch(`${baseUrl}/apps/${appId}/launches/${launch.id}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      assert.equal(stopRes.status, 202, 'Launch stop should be accepted');
+
+      const stoppedLaunch = await pollLaunch(baseUrl, appId, launch.id, 'stopped');
+      assert.equal(stoppedLaunch.status, 'stopped');
+
+      await delay(300);
+
+      const relevantEvents = launchEvents.filter((event) => event.id === launch.id);
+      const statusSet = new Set(relevantEvents.map((event) => event.status));
+      assert(statusSet.has('starting'), 'Launch should emit starting event');
+      assert(statusSet.has('running'), 'Launch should emit running event');
+      assert(statusSet.has('stopping'), 'Launch should emit stopping event');
+      assert(statusSet.has('stopped'), 'Launch should emit stopped event');
+      const runningEvent = relevantEvents.find((event) => event.status === 'running');
+      assert(runningEvent?.instanceUrl, 'Running event should include preview URL');
+    } finally {
+      socket.close();
+    }
   });
 }
 
