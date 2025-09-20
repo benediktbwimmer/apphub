@@ -482,6 +482,13 @@ export async function previewServiceConfigImport(
   const visitedModules: VisitedModules = new Map();
   const result = await loadConfigImport(importConfig, visitedModules, expectedModule);
   if (!result.moduleId) {
+    const firstError = result.errors[0];
+    if (firstError) {
+      const sourceHint = firstError.source ? `${firstError.source}: ` : '';
+      throw new Error(
+        `${sourceHint}${firstError.error.message || 'failed to resolve module id from service configuration'}`
+      );
+    }
     throw new Error('failed to resolve module id from service configuration');
   }
 
