@@ -24,7 +24,8 @@ import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } fro
 import {
   DEFAULT_LAUNCH_INTERNAL_PORT,
   resolveLaunchInternalPort,
-  runDockerCommand
+  runDockerCommand,
+  parseEnvPort
 } from './docker';
 import { enqueueLaunchStart, enqueueLaunchStop, isInlineQueueMode } from './queue';
 import type { ManifestEnvVarInput } from './serviceManifestTypes';
@@ -166,6 +167,26 @@ function extractContainerName(args: string[]): string | null {
     const inlineMatch = token.match(/^--name=(.+)$/);
     if (inlineMatch) {
       return inlineMatch[1];
+    }
+  }
+  return null;
+}
+
+function resolvePortFromLaunchEnv(entries: LaunchEnvVar[] | null | undefined): number | null {
+  if (!entries || entries.length === 0) {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim().toLowerCase();
+    if (key !== 'port') {
+      continue;
+    }
+    const parsed = parseEnvPort(typeof entry.value === 'string' ? entry.value : undefined);
+    if (parsed) {
+      return parsed;
     }
   }
   return null;
@@ -513,7 +534,8 @@ export async function runLaunchStart(launchId: string) {
     return;
   }
 
-  const containerPort = await resolveLaunchInternalPort(build.imageTag);
+  const envDefinedPort = resolvePortFromLaunchEnv(launch.env);
+  const containerPort = envDefinedPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandSource = launch.command?.trim() ?? '';
   let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
   let commandLabel = commandSource;
