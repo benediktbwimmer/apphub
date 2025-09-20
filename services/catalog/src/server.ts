@@ -59,6 +59,7 @@ import { buildDockerRunCommand } from './launchCommand';
 import { initializeServiceRegistry } from './serviceRegistry';
 import {
   appendServiceConfigImport,
+  clearServiceConfigImports,
   previewServiceConfigImport,
   resolveServiceConfigPaths,
   DEFAULT_SERVICE_CONFIG_PATH,
@@ -1564,15 +1565,35 @@ export async function buildServer() {
   app.post('/admin/catalog/nuke', async (request, reply) => {
     try {
       const result = nukeCatalogDatabase();
+      const importClearResult = await clearServiceConfigImports();
+
+      if (importClearResult.errors.length > 0) {
+        for (const entry of importClearResult.errors) {
+          request.log.error(
+            { path: entry.path, error: entry.error.message },
+            'Failed to clear imported service manifest'
+          );
+        }
+        reply.status(500);
+        return { error: 'Failed to clear imported service manifests' };
+      }
+
       request.log.warn(
         {
           repositoriesDeleted: result.repositoriesDeleted,
-          servicesDeleted: result.servicesDeleted
+          servicesDeleted: result.servicesDeleted,
+          serviceConfigImportsCleared: importClearResult.cleared.length
         },
         'Catalog database nuked'
       );
       reply.status(200);
-      return { data: result };
+      return {
+        data: {
+          ...result,
+          serviceConfigImportsCleared: importClearResult.cleared.length,
+          serviceConfigImportsSkipped: importClearResult.skipped.length
+        }
+      };
     } catch (err) {
       request.log.error({ err }, 'Failed to nuke catalog database');
       reply.status(500);
