@@ -137,11 +137,15 @@ The script creates an isolated SQLite database, registers a sample repo, waits f
 
 ## Next Steps
 
-1. **Persistent Metadata Store** – Replace in-memory arrays with Postgres tables from the data model in `docs/architecture.md`.
-2. **Repository Ingestion Pipeline** – Clone repos, validate `Dockerfile`, extract tags (`tags.yaml`, README heuristics), enqueue builds.
-3. **Build & Runtime Orchestration** – Use a worker queue (BullMQ/Celery) with BuildKit, publish containers to an internal registry, and surface preview URLs.
-4. **Enhanced Search** – Index descriptions/tags in Postgres or dedicated search (Meilisearch/OpenSearch) for fuzzy matches & ranking.
-5. **User Features** – Profiles with customizable key bindings, saved collections, launch history.
+See [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md) for the living roadmap that outlines upcoming implementation, testing, and developer-experience work.
+
+Highlighted priorities:
+
+1. **Persistent Metadata Store** – Replace in-memory arrays with Postgres-ready migrations derived from the schema in `docs/architecture.md`.
+2. **Repository Ingestion Pipeline** – Harden cloning, Dockerfile validation, and tag enrichment so the worker can promote repositories without manual intervention.
+3. **Build & Runtime Orchestration** – Introduce a build worker that publishes images to an internal registry and expose preview URLs through the runner service.
+4. **Enhanced Search** – Index descriptions and tags in Postgres or a dedicated search service (Meilisearch/OpenSearch) for fuzzy matches & ranking.
+5. **User Features** – Profiles with customizable key bindings, saved collections, and launch history for power users.
 
 ## Open Questions
 

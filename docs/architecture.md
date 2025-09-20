@@ -13,6 +13,33 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in SQLite. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, and ingestion timeline changes. Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
+## System Overview
+
+```mermaid
+graph TD
+  User((User))
+  Frontend["Frontend (Vite + React)"]
+  API["Catalog API (Fastify)"]
+  Worker["Ingestion Worker (BullMQ)"]
+  Redis[("Redis Queue")]
+  SQLite[("SQLite Catalog DB")]
+  Repo[("Git Repositories")]
+  Services[("Service Manifest / Registry")]
+  Events[["WebSocket Event Stream"]]
+
+  User --> Frontend
+  Frontend -->|REST| API
+  Frontend -->|WebSocket| Events
+  API --> SQLite
+  API --> Redis
+  API --> Services
+  Worker -->|Jobs| Redis
+  Worker --> Repo
+  Worker --> SQLite
+  Worker --> Events
+  Services --> SQLite
+```
+
 ## Data Model (Initial Draft)
 - `Repository`
   - `id`, `name`, `git_url`, `default_branch`
