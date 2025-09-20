@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { URL } from 'node:url';
-import { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
 import {
   getServiceBySlug,
@@ -13,6 +12,12 @@ import {
   type ServiceRecord,
   type ServiceUpsertInput
 } from './db';
+import {
+  loadServiceConfigurations,
+  resolveServiceConfigPaths,
+  type LoadedManifestEntry
+} from './serviceConfigLoader';
+import { manifestFileSchema, type ManifestLoadError } from './serviceManifestTypes';
 
 const DEFAULT_MANIFEST_PATH = path.resolve(__dirname, '..', '..', 'service-manifest.json');
 
@@ -20,47 +25,13 @@ const HEALTH_INTERVAL_MS = Number(process.env.SERVICE_HEALTH_INTERVAL_MS ?? 30_0
 const HEALTH_TIMEOUT_MS = Number(process.env.SERVICE_HEALTH_TIMEOUT_MS ?? 5_000);
 const OPENAPI_REFRESH_INTERVAL_MS = Number(process.env.SERVICE_OPENAPI_REFRESH_INTERVAL_MS ?? 15 * 60_000);
 
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(jsonValueSchema)
-  ])
-);
-
-const manifestEntrySchema = z
-  .object({
-    slug: z.string().min(1),
-    displayName: z.string().min(1),
-    kind: z.string().min(1),
-    baseUrl: z.string().min(1),
-    capabilities: jsonValueSchema.optional(),
-    metadata: jsonValueSchema.optional(),
-    healthEndpoint: z.string().optional(),
-    openapiPath: z.string().optional(),
-    devCommand: z.string().optional(),
-    workingDir: z.string().optional()
-  })
-  .strict();
-
-const manifestFileSchema = z.union([
-  z.object({ services: z.array(manifestEntrySchema) }).strict(),
-  z.array(manifestEntrySchema)
-]);
-
-type ManifestEntry = z.infer<typeof manifestEntrySchema> & {
-  sources: string[];
-  baseUrlSource: 'manifest' | 'env';
-};
+type ManifestEntry = LoadedManifestEntry;
 
 type ManifestMap = Map<string, ManifestEntry>;
 
 type ManifestLoadResult = {
   entries: ManifestMap;
-  errors: { path: string; error: Error }[];
+  errors: ManifestLoadError[];
 };
 
 type HealthCheckOutcome = {
@@ -115,14 +86,16 @@ const log = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
   }
 };
 
-function resolveManifestPaths(): string[] {
+function resolveManifestPaths(options?: { includeDefault?: boolean }): string[] {
+  const includeDefault = options?.includeDefault ?? true;
   const configured = process.env.SERVICE_MANIFEST_PATH ?? '';
   const extras = configured
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => path.resolve(entry));
-  const paths = [DEFAULT_MANIFEST_PATH, ...extras];
+  const defaults = includeDefault ? [DEFAULT_MANIFEST_PATH] : [];
+  const paths = [...defaults, ...extras];
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const manifestPath of paths) {
@@ -135,12 +108,17 @@ function resolveManifestPaths(): string[] {
   return deduped;
 }
 
-async function readManifestFile(manifestPath: string) {
+async function readManifestFile(manifestPath: string): Promise<ManifestEntry[]> {
   try {
     const contents = await fs.readFile(manifestPath, 'utf8');
     const parsed = manifestFileSchema.parse(JSON.parse(contents));
     const entries = Array.isArray(parsed) ? parsed : parsed.services;
-    return entries.map((entry) => ({ ...entry, sources: [manifestPath], baseUrlSource: 'manifest' as const }));
+    return entries.map((entry) => ({
+      ...entry,
+      slug: entry.slug.trim().toLowerCase(),
+      sources: [manifestPath],
+      baseUrlSource: 'manifest' as const
+    }));
   } catch (err) {
     throw new Error(`Failed to load manifest at ${manifestPath}: ${(err as Error).message}`);
   }
@@ -278,18 +256,32 @@ async function applyManifestToDatabase(entries: ManifestMap) {
 }
 
 async function loadManifest(): Promise<ManifestLoadResult> {
-  const paths = resolveManifestPaths();
   const collected: ManifestEntry[] = [];
-  const errors: { path: string; error: Error }[] = [];
+  const errors: ManifestLoadError[] = [];
 
-  for (const manifestPath of paths) {
+  const configPaths = resolveServiceConfigPaths();
+  const configResult = await loadServiceConfigurations(configPaths);
+  collected.push(...configResult.entries.map((entry) => ({ ...entry })));
+  errors.push(...configResult.errors);
+  for (const error of configResult.errors) {
+    log('warn', 'failed to load service manifest', {
+      path: error.source,
+      error: error.error.message
+    });
+  }
+
+  const includeDefaultManifest = configResult.usedConfigs.length === 0;
+  const manifestPaths = resolveManifestPaths({ includeDefault: includeDefaultManifest });
+
+  for (const manifestPath of manifestPaths) {
     try {
       const entries = await readManifestFile(manifestPath);
       for (const entry of entries) {
         collected.push({ ...entry });
       }
     } catch (err) {
-      errors.push({ path: manifestPath, error: err as Error });
+      const loadError: ManifestLoadError = { source: manifestPath, error: err as Error };
+      errors.push(loadError);
       log('warn', 'failed to load service manifest', { path: manifestPath, error: (err as Error).message });
     }
   }

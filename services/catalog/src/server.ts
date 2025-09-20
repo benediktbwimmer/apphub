@@ -2,6 +2,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket, { type SocketStream } from '@fastify/websocket';
 import { Buffer } from 'node:buffer';
+import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import WebSocket, { type RawData } from 'ws';
@@ -55,6 +56,13 @@ import { runBuildJob } from './buildRunner';
 import { subscribeToApphubEvents, type ApphubEvent } from './events';
 import { buildDockerRunCommand } from './launchCommand';
 import { initializeServiceRegistry } from './serviceRegistry';
+import {
+  appendServiceConfigImport,
+  previewServiceConfigImport,
+  resolveServiceConfigPaths,
+  DEFAULT_SERVICE_CONFIG_PATH,
+  DuplicateModuleImportError
+} from './serviceConfigLoader';
 
 type SearchQuery = {
   q?: string;
@@ -218,6 +226,21 @@ const servicePatchSchema = z
       .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid ISO timestamp')
       .nullable()
       .optional()
+  })
+  .strict();
+
+const gitShaSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{7,40}$/i, 'commit must be a git SHA');
+
+const serviceConfigImportSchema = z
+  .object({
+    repo: z.string().min(1),
+    ref: z.string().min(1).optional(),
+    commit: gitShaSchema.optional(),
+    configPath: z.string().min(1).optional(),
+    module: z.string().min(1).optional()
   })
   .strict();
 
@@ -799,6 +822,94 @@ export async function buildServer() {
       reply.status(201);
     }
     return { data: serializeService(record) };
+  });
+
+  app.post('/service-config/import', async (request, reply) => {
+    if (!ensureServiceRegistryAuthorized(request, reply)) {
+      return { error: 'service registry disabled' };
+    }
+
+    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const repo = payload.repo.trim();
+    const ref = payload.ref?.trim() || undefined;
+    const commit = payload.commit?.trim() || undefined;
+    const configPath = payload.configPath?.trim() || undefined;
+    const moduleHint = payload.module?.trim() || undefined;
+
+    let preview;
+    try {
+      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint });
+    } catch (err) {
+      reply.status(400);
+      return { error: (err as Error).message };
+    }
+
+    if (preview.errors.length > 0) {
+      reply.status(400);
+      return {
+        error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
+      };
+    }
+
+    const configPaths = resolveServiceConfigPaths();
+    let targetConfigPath: string | null = null;
+    for (const candidate of configPaths) {
+      try {
+        await fs.access(candidate);
+        targetConfigPath = candidate;
+        break;
+      } catch {
+        continue;
+      }
+    }
+
+    if (!targetConfigPath) {
+      targetConfigPath = configPaths[0] ?? DEFAULT_SERVICE_CONFIG_PATH;
+      try {
+        await fs.access(targetConfigPath);
+      } catch (err) {
+        reply.status(500);
+        return {
+          error: `service config not found at ${targetConfigPath}: ${(err as Error).message}`
+        };
+      }
+    }
+
+    try {
+      await appendServiceConfigImport(targetConfigPath, {
+        module: preview.moduleId,
+        repo,
+        ref,
+        commit,
+        configPath,
+        resolvedCommit: preview.resolvedCommit
+      });
+    } catch (err) {
+      if (err instanceof DuplicateModuleImportError) {
+        reply.status(409);
+        return { error: err.message };
+      }
+      reply.status(500);
+      return { error: (err as Error).message };
+    }
+
+    await registry.refreshManifest();
+
+    reply.status(201);
+    return {
+      data: {
+        module: preview.moduleId,
+        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
+        servicesDiscovered: preview.entries.length,
+        configPath: targetConfigPath
+      }
+    };
   });
 
   app.patch('/services/:slug', async (request, reply) => {
