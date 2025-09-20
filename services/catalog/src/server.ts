@@ -913,6 +913,91 @@ export async function buildServer() {
     };
   });
 
+  app.post('/service-networks/import', async (request, reply) => {
+    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const repo = payload.repo.trim();
+    const ref = payload.ref?.trim() || undefined;
+    const commit = payload.commit?.trim() || undefined;
+    const configPath = payload.configPath?.trim() || undefined;
+    const moduleHint = payload.module?.trim() || undefined;
+
+    let preview;
+    try {
+      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint });
+    } catch (err) {
+      reply.status(400);
+      return { error: (err as Error).message };
+    }
+
+    if (preview.errors.length > 0) {
+      reply.status(400);
+      return {
+        error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
+      };
+    }
+
+    const configPaths = resolveServiceConfigPaths();
+    let targetConfigPath: string | null = null;
+    for (const candidate of configPaths) {
+      try {
+        await fs.access(candidate);
+        targetConfigPath = candidate;
+        break;
+      } catch {
+        continue;
+      }
+    }
+
+    if (!targetConfigPath) {
+      targetConfigPath = configPaths[0] ?? DEFAULT_SERVICE_CONFIG_PATH;
+      try {
+        await fs.access(targetConfigPath);
+      } catch (err) {
+        reply.status(500);
+        return {
+          error: `service config not found at ${targetConfigPath}: ${(err as Error).message}`
+        };
+      }
+    }
+
+    try {
+      await appendServiceConfigImport(targetConfigPath, {
+        module: preview.moduleId,
+        repo,
+        ref,
+        commit,
+        configPath,
+        resolvedCommit: preview.resolvedCommit
+      });
+    } catch (err) {
+      if (err instanceof DuplicateModuleImportError) {
+        reply.status(409);
+        return { error: err.message };
+      }
+      reply.status(500);
+      return { error: (err as Error).message };
+    }
+
+    await registry.refreshManifest();
+
+    reply.status(201);
+    return {
+      data: {
+        module: preview.moduleId,
+        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
+        servicesDiscovered: preview.entries.length,
+        networksDiscovered: preview.networks.length,
+        configPath: targetConfigPath
+      }
+    };
+  });
+
   app.patch('/services/:slug', async (request, reply) => {
     if (!ensureServiceRegistryAuthorized(request, reply)) {
       return { error: 'service registry disabled' };

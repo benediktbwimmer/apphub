@@ -6,6 +6,7 @@ import {
   cp,
   mkdtemp,
   mkdir,
+  rm,
   writeFile
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -163,6 +164,34 @@ async function pollLaunch(
   throw new Error(`Timed out waiting for launch ${launchId} to reach status ${desiredStatus}`);
 }
 
+async function waitForLatestLaunch(
+  baseUrl: string,
+  repositoryId: string,
+  desiredStatus: 'running' | 'stopped',
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<LaunchSummary> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(`${baseUrl}/apps/${repositoryId}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch repository for launch polling: ${res.status}`);
+    }
+    const payload = (await res.json()) as { data: RepositorySummary };
+    const repo = payload.data;
+    const launch = repo?.latestLaunch;
+    if (launch) {
+      if (launch.status === 'failed') {
+        throw new Error(`Launch failed: ${launch.errorMessage ?? 'unknown error'}`);
+      }
+      if (launch.status === desiredStatus) {
+        return launch;
+      }
+    }
+    await delay(APP_POLL_INTERVAL_MS);
+  }
+  throw new Error(`Timed out waiting for repository ${repositoryId} latest launch to reach ${desiredStatus}`);
+}
+
 async function pollLatestBuild(
   baseUrl: string,
   repositoryId: string,
@@ -258,7 +287,11 @@ async function terminateProcess(proc: ChildProcess | undefined) {
   });
 }
 
-async function startCatalog(): Promise<CatalogTestContext> {
+type CatalogStartOptions = {
+  env?: Record<string, string | undefined>;
+};
+
+async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogTestContext> {
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'apphub-e2e-'));
   const fakeDocker = await createFakeDocker(tempRoot);
   const dbPath = path.join(tempRoot, 'catalog.db');
@@ -280,7 +313,8 @@ async function startCatalog(): Promise<CatalogTestContext> {
     LAUNCH_RUNNER_MODE: 'stub',
     LAUNCH_PREVIEW_BASE_URL: 'https://preview.apphub.local',
     LAUNCH_PREVIEW_TOKEN_SECRET: 'e2e-preview-secret',
-    LAUNCH_PREVIEW_PORT: '443'
+    LAUNCH_PREVIEW_PORT: '443',
+    ...options.env
   };
 
   const server = spawn('npx', ['tsx', 'src/server.ts'], {
@@ -303,8 +337,11 @@ async function startCatalog(): Promise<CatalogTestContext> {
   return { baseUrl, env, tempRoot, server, worker, fakeDocker };
 }
 
-async function withCatalogEnvironment<T>(fn: (context: CatalogTestContext) => Promise<T>) {
-  const context = await startCatalog();
+async function withCatalogEnvironment<T>(
+  fn: (context: CatalogTestContext) => Promise<T>,
+  options: CatalogStartOptions = {}
+) {
+  const context = await startCatalog(options);
   try {
     return await fn(context);
   } finally {
@@ -587,9 +624,278 @@ async function testRealRepositoryLaunchFlow() {
   });
 }
 
+async function cloneRepository(url: string, label: string) {
+  const root = await mkdtemp(path.join(tmpdir(), `apphub-service-${label}-`));
+  const dest = path.join(root, label);
+  await exec(`git clone --depth 1 ${url} ${dest}`);
+  return { root, path: dest };
+}
+
+async function createNetworkModuleRepo(options: {
+  networkId: string;
+  networkName: string;
+  networkDescription: string;
+  networkRepo: { path: string; dockerfilePath: string };
+  services: Array<{
+    slug: string;
+    displayName: string;
+    kind: string;
+    baseUrl: string;
+    repositoryId: string;
+    repoUrl: string;
+    dockerfilePath: string;
+    launchOrder: number;
+    waitForBuild?: boolean;
+    env?: LaunchEnvVar[];
+    dependsOn?: string[];
+  }>;
+}) {
+  const moduleRoot = await mkdtemp(path.join(tmpdir(), 'apphub-network-module-'));
+  const repoDir = path.join(moduleRoot, 'module');
+  await mkdir(repoDir, { recursive: true });
+
+  const manifest = {
+    services: options.services.map((service) => ({
+      slug: service.slug,
+      displayName: service.displayName,
+      kind: service.kind,
+      baseUrl: service.baseUrl
+    })),
+    networks: [
+      {
+        id: options.networkId,
+        name: options.networkName,
+        description: options.networkDescription,
+        repoUrl: options.networkRepo.path,
+        dockerfilePath: options.networkRepo.dockerfilePath,
+        env: [{ key: 'NETWORK_MODE', value: 'e2e' }],
+        services: options.services.map((service) => ({
+          serviceSlug: service.slug,
+          launchOrder: service.launchOrder,
+          waitForBuild: service.waitForBuild ?? true,
+          env: service.env,
+          dependsOn: service.dependsOn,
+          app: {
+            id: service.repositoryId,
+            name: service.displayName,
+            description: `${service.displayName} repository`,
+            repoUrl: service.repoUrl,
+            dockerfilePath: service.dockerfilePath,
+            launchEnv: service.env
+          }
+        }))
+      }
+    ]
+  };
+
+  const manifestPath = path.join(repoDir, 'service-manifest.json');
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+
+  const moduleId = `github.com/apphub/network-${Date.now()}`;
+  const serviceConfig = {
+    module: moduleId,
+    manifestPath: './service-manifest.json'
+  };
+  await writeFile(path.join(repoDir, 'service-config.json'), JSON.stringify(serviceConfig, null, 2), 'utf8');
+
+  await exec('git init', { cwd: repoDir });
+  await exec('git config user.name "Test User"', { cwd: repoDir });
+  await exec('git config user.email "test@example.com"', { cwd: repoDir });
+  await exec('git add .', { cwd: repoDir });
+  await exec('git commit -m "Add service network"', { cwd: repoDir });
+
+  return { moduleId, repoDir, manifestPath, root: moduleRoot };
+}
+
+async function testServiceNetworkManifestFlow() {
+  const serviceConfigRoot = await mkdtemp(path.join(tmpdir(), 'apphub-service-config-'));
+  const serviceConfigPath = path.join(serviceConfigRoot, 'service-config.json');
+  await writeFile(serviceConfigPath, JSON.stringify({ module: 'github.com/apphub/test-root' }, null, 2), 'utf8');
+
+  const networkRepoRoot = await mkdtemp(path.join(tmpdir(), 'apphub-network-repo-'));
+  const { repoDir: networkRepoDir, dockerfilePath: networkDockerfile } = await createLocalRepo(networkRepoRoot);
+
+  const networkId = `service-network-${Date.now()}`;
+  const betterRepo = await cloneRepository(
+    'https://github.com/benediktbwimmer/better-fileexplorer.git',
+    'better-fileexplorer'
+  );
+  const aiRepo = await cloneRepository(
+    'https://github.com/benediktbwimmer/ai-connector.git',
+    'ai-connector'
+  );
+  const taggingRepo = await cloneRepository(
+    'https://github.com/benediktbwimmer/tagging-service.git',
+    'tagging-service'
+  );
+
+  const module = await createNetworkModuleRepo({
+    networkId,
+    networkName: 'E2E Service Network',
+    networkDescription: 'End-to-end service network covering explorer, AI connector, and tagging services.',
+    networkRepo: { path: networkRepoDir, dockerfilePath: networkDockerfile },
+    services: [
+      {
+        slug: 'better-fileexplorer',
+        displayName: 'Better File Explorer',
+        kind: 'file-system',
+        baseUrl: 'http://127.0.0.1:4174',
+        repositoryId: 'better-fileexplorer-service',
+        repoUrl: betterRepo.path,
+        dockerfilePath: 'Dockerfile',
+        launchOrder: 0,
+        env: [{ key: 'PORT', value: '4174' }]
+      },
+      {
+        slug: 'ai-connector',
+        displayName: 'AI Connector',
+        kind: 'ai-connector',
+        baseUrl: 'http://127.0.0.1:8300',
+        repositoryId: 'ai-connector-service',
+        repoUrl: aiRepo.path,
+        dockerfilePath: 'Dockerfile',
+        launchOrder: 1,
+        env: [{ key: 'PORT', value: '8300' }],
+        dependsOn: ['better-fileexplorer-service']
+      },
+      {
+        slug: 'tagging-service',
+        displayName: 'Tagging Service',
+        kind: 'file-tagging',
+        baseUrl: 'http://127.0.0.1:5103',
+        repositoryId: 'tagging-service-app',
+        repoUrl: taggingRepo.path,
+        dockerfilePath: 'Dockerfile',
+        launchOrder: 2,
+        env: [{ key: 'PORT', value: '5103' }],
+        dependsOn: ['better-fileexplorer-service', 'ai-connector-service']
+      }
+    ]
+  });
+
+  try {
+    await withCatalogEnvironment(
+      async ({ baseUrl }) => {
+        const importRes = await fetch(`${baseUrl}/service-networks/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo: module.repoDir, module: module.moduleId })
+        });
+
+        assert.equal(importRes.status, 201, 'Manifest import should succeed');
+        const importPayload = (await importRes.json()) as {
+          data: { networksDiscovered: number; servicesDiscovered: number };
+        };
+        assert.equal(importPayload.data.networksDiscovered, 1);
+        assert(importPayload.data.servicesDiscovered >= 0);
+
+        const memberIds = ['better-fileexplorer-service', 'ai-connector-service', 'tagging-service-app'];
+
+        const networkRepository = await pollRepository(baseUrl, networkId, 'ready', 120_000);
+        const memberRepositories = await Promise.all(
+          memberIds.map((id) => pollRepository(baseUrl, id, 'ready', 160_000))
+        );
+
+        const networkTags = new Map(networkRepository.tags.map((tag) => [`${tag.key}:${tag.value}`, tag]));
+        assert(networkTags.has('category:service-network'));
+
+        for (const repo of memberRepositories) {
+          const pairs = repo.tags.map((tag) => `${tag.key}:${tag.value}`);
+          assert(
+            pairs.includes(`service-network:${networkId}`),
+            `Expected ${repo.id} to include service-network tag`
+          );
+        }
+
+        await pollLatestBuild(
+          baseUrl,
+          networkId,
+          'succeeded',
+          160_000,
+          networkRepository.latestBuild?.id
+        );
+        for (const repo of memberRepositories) {
+          await pollLatestBuild(baseUrl, repo.id, 'succeeded', 160_000, repo.latestBuild?.id);
+        }
+
+        const launchRes = await fetch(`${baseUrl}/apps/${networkId}/launch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        assert.equal(launchRes.status, 202, 'Network launch should be accepted');
+        const launchPayload = (await launchRes.json()) as {
+          data: { launch: LaunchSummary };
+        };
+        const networkLaunchId = launchPayload.data.launch.id;
+
+        const runningNetworkLaunch = await pollLaunch(
+          baseUrl,
+          networkId,
+          networkLaunchId,
+          'running',
+          180_000
+        );
+        assert.equal(runningNetworkLaunch.status, 'running');
+        assert.equal(runningNetworkLaunch.command, 'service-network');
+
+        const memberLaunches: Array<{ repositoryId: string; launch: LaunchSummary }> = [];
+        for (const memberId of memberIds) {
+          const launch = await waitForLatestLaunch(baseUrl, memberId, 'running', 180_000);
+          memberLaunches.push({ repositoryId: memberId, launch });
+          assert.equal(launch.status, 'running');
+        }
+
+        const stopRes = await fetch(`${baseUrl}/apps/${networkId}/launches/${networkLaunchId}/stop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        assert.equal(stopRes.status, 202, 'Service network stop should be accepted');
+
+        const stoppedNetworkLaunch = await pollLaunch(
+          baseUrl,
+          networkId,
+          networkLaunchId,
+          'stopped',
+          180_000
+        );
+        assert.equal(stoppedNetworkLaunch.status, 'stopped');
+
+        for (const entry of memberLaunches) {
+          const stoppedMemberLaunch = await pollLaunch(
+            baseUrl,
+            entry.repositoryId,
+            entry.launch.id,
+            'stopped',
+            180_000
+          );
+          assert.equal(stoppedMemberLaunch.status, 'stopped');
+        }
+      },
+      {
+        env: {
+          SERVICE_CONFIG_PATH: serviceConfigPath,
+          LAUNCH_RUNNER_MODE: 'docker'
+        }
+      }
+    );
+  } finally {
+    await Promise.allSettled([
+      rm(serviceConfigRoot, { recursive: true, force: true }),
+      rm(networkRepoRoot, { recursive: true, force: true }),
+      rm(betterRepo.root, { recursive: true, force: true }),
+      rm(aiRepo.root, { recursive: true, force: true }),
+      rm(taggingRepo.root, { recursive: true, force: true }),
+      rm(module.root, { recursive: true, force: true })
+    ]);
+  }
+}
+
 async function run() {
   await testSyntheticRepositoryFlow();
   await testRealRepositoryLaunchFlow();
+  await testServiceNetworkManifestFlow();
 }
 
 run().catch((err) => {

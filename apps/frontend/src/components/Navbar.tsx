@@ -7,7 +7,8 @@ interface NavbarProps {
 
 const TAB_LABELS: Record<ActiveTab, string> = {
   catalog: 'Catalog',
-  submit: 'Submit App'
+  submit: 'Submit App',
+  'import-manifest': 'Import Manifest'
 };
 
 export default function Navbar({ variant = 'default', onExitFullscreen }: NavbarProps) {
@@ -106,4 +107,3 @@ function ExitFullscreenIcon() {
     </svg>
   );
 }
-
