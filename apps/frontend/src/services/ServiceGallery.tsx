@@ -23,7 +23,12 @@ type ServicesResponse = {
 };
 
 const REFRESH_INTERVAL_MS = 15000;
-const ACTIVE_STATUSES = new Set(['healthy', 'degraded']);
+const STATUS_ORDER = ['healthy', 'degraded', 'unknown', 'unreachable'] as const;
+const STATUS_PRIORITY = STATUS_ORDER.reduce<Record<string, number>>((acc, status, index) => {
+  acc[status] = index;
+  return acc;
+}, {});
+const UNKNOWN_STATUS_PRIORITY = STATUS_ORDER.length;
 
 function extractRuntimeUrl(service: ServiceSummary): string | null {
   const metadata = service.metadata;
@@ -106,17 +111,30 @@ export default function ServiceGallery() {
     };
   }, []);
 
-  const activeServices = useMemo(() => {
-    return services
-      .filter((service) => ACTIVE_STATUSES.has(service.status))
-      .map((service) => ({
-        service,
-        embedUrl: normalizePreviewUrl(extractRuntimeUrl(service))
-      }))
+  const previewableServices = useMemo(() => {
+    const entries = services
+      .map((service) => {
+        const embedUrl = normalizePreviewUrl(extractRuntimeUrl(service));
+        if (!embedUrl) {
+          return null;
+        }
+        return { service, embedUrl };
+      })
       .filter(
-        (entry): entry is { service: ServiceSummary; embedUrl: string } =>
-          typeof entry.embedUrl === 'string' && entry.embedUrl.length > 0
+        (entry): entry is { service: ServiceSummary; embedUrl: string } => entry !== null
       );
+
+    entries.sort((a, b) => {
+      // Prioritize healthy services so working previews appear first.
+      const priorityA = STATUS_PRIORITY[a.service.status] ?? UNKNOWN_STATUS_PRIORITY;
+      const priorityB = STATUS_PRIORITY[b.service.status] ?? UNKNOWN_STATUS_PRIORITY;
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      return a.service.displayName.localeCompare(b.service.displayName);
+    });
+
+    return entries;
   }, [services]);
 
   return (
@@ -130,13 +148,13 @@ export default function ServiceGallery() {
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
             Loading services…
           </div>
-        ) : activeServices.length === 0 ? (
+        ) : previewableServices.length === 0 ? (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
-            No running services detected.
+            No services with previews available yet.
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {activeServices.map(({ service, embedUrl }) => (
+            {previewableServices.map(({ service, embedUrl }) => (
               <article
                 key={service.id}
                 className="overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/60 shadow-lg shadow-slate-900/30 transition-transform duration-300 ease-out hover:-translate-y-1 hover:shadow-2xl dark:border-slate-700/60 dark:bg-slate-900/80"
