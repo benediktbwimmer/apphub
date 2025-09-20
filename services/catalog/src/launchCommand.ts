@@ -1,4 +1,42 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import type { LaunchEnvVar } from './db';
+
+function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
+  if (!envVars || envVars.length === 0) {
+    return [];
+  }
+  const mounts: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of envVars) {
+    if (!entry || typeof entry.key !== 'string' || typeof entry.value !== 'string') {
+      continue;
+    }
+    if (entry.key.trim().toLowerCase() !== 'start_path') {
+      continue;
+    }
+    const hostPath = entry.value.trim();
+    if (!hostPath || !hostPath.startsWith('/') || !path.isAbsolute(hostPath)) {
+      continue;
+    }
+    try {
+      if (!statSync(hostPath).isDirectory()) {
+        continue;
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        continue;
+      }
+    }
+    if (seen.has(hostPath)) {
+      continue;
+    }
+    seen.add(hostPath);
+    mounts.push(`${hostPath}:${hostPath}:ro`);
+  }
+  return mounts;
+}
 
 const SAFE_ARG_PATTERN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
@@ -30,6 +68,9 @@ export function buildDockerRunCommand(options: {
   const envVars = Array.isArray(options.env) ? options.env : [];
   const containerName = `apphub-${sanitizeLaunchName(options.repositoryId)}-${options.launchId.slice(0, 8)}`;
   const args: string[] = ['run', '-d', '--name', containerName, '-p', `0:${options.internalPort}`];
+  for (const mount of resolveVolumeMounts(envVars)) {
+    args.push('-v', mount);
+  }
   for (const entry of envVars) {
     if (!entry || typeof entry.key !== 'string') {
       continue;
