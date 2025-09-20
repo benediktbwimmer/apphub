@@ -2924,3 +2924,42 @@ export function setServiceStatus(slug: string, update: ServiceStatusUpdate): Ser
   notifyServiceUpdated(updated);
   return updated;
 }
+
+export function nukeCatalogDatabase(): {
+  repositoriesDeleted: number;
+  servicesDeleted: number;
+} {
+  const getRepositoryCount = db.prepare('SELECT COUNT(*) AS count FROM repositories');
+  const getServiceCount = db.prepare('SELECT COUNT(*) AS count FROM services');
+
+  const repoCountRow = getRepositoryCount.get() as { count: number };
+  const serviceCountRow = getServiceCount.get() as { count: number };
+
+  const transaction = db.transaction(() => {
+    db.exec(`
+      DELETE FROM service_network_launch_members;
+      DELETE FROM service_network_members;
+      DELETE FROM service_networks;
+      DELETE FROM launches;
+      DELETE FROM builds;
+      DELETE FROM ingestion_events;
+      DELETE FROM repository_previews;
+      DELETE FROM repository_tags;
+      DELETE FROM repository_search;
+      DELETE FROM tags;
+      DELETE FROM repositories;
+      DELETE FROM services;
+      DELETE FROM sqlite_sequence WHERE name IN (
+        'ingestion_events',
+        'repository_previews'
+      );
+    `);
+  });
+
+  transaction();
+
+  return {
+    repositoriesDeleted: Number(repoCountRow.count) || 0,
+    servicesDeleted: Number(serviceCountRow.count) || 0
+  };
+}
