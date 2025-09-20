@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import { NavigationContext, type ActiveTab } from './components/NavigationContext';
 import ImportServiceManifest from './import/ImportServiceManifest';
 import SubmitApp from './submit/SubmitApp';
+import ServiceGallery from './services/ServiceGallery';
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('catalog');
@@ -30,6 +31,7 @@ function App() {
           {activeTab === 'catalog' && (
             <CatalogPage searchSeed={searchSeed} onSeedApplied={() => setSearchSeed(undefined)} />
           )}
+          {activeTab === 'apps' && <ServiceGallery />}
           {activeTab === 'submit' && <SubmitApp onAppRegistered={handleAppRegistered} />}
           {activeTab === 'import-manifest' && <ImportServiceManifest onImported={handleManifestImported} />}
         </main>

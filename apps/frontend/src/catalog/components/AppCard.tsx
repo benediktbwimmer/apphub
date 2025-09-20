@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Navbar from '../../components/Navbar';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
+import { normalizePreviewUrl } from '../../utils/url';
 import {
   formatBytes,
   formatDuration,
@@ -68,74 +69,6 @@ const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-slate-200/70 bg-w
 
 const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_BASE} border border-rose-300/70 bg-rose-500/5 text-rose-600 hover:border-rose-400 hover:bg-rose-500/15 hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20`;
 
-const LOOPBACK_HOST_PREFIX = /^127\./;
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
-
-function isLoopbackHost(host: string): boolean {
-  const normalized = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
-  return LOOPBACK_HOSTS.has(normalized) || LOOPBACK_HOST_PREFIX.test(normalized);
-}
-
-function getPreviewBaseCandidates(): URL[] {
-  const bases: URL[] = [];
-
-  try {
-    bases.push(new URL(API_BASE_URL));
-  } catch {
-    // ignore invalid API base URL
-  }
-
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    try {
-      bases.push(new URL(window.location.origin));
-    } catch {
-      // ignore invalid browser origin
-    }
-  }
-
-  return bases;
-}
-
-function normalizeInstanceUrl(rawUrl: string | null | undefined): string | null {
-  if (!rawUrl) {
-    return null;
-  }
-
-  const trimmedUrl = rawUrl.trim();
-  if (!trimmedUrl) {
-    return null;
-  }
-
-  const candidates = getPreviewBaseCandidates();
-  let parsed: URL;
-
-  try {
-    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-      parsed = new URL(trimmedUrl);
-    } else if (candidates.length > 0) {
-      parsed = new URL(trimmedUrl, candidates[0]);
-    } else if (typeof window !== 'undefined' && window.location?.origin) {
-      parsed = new URL(trimmedUrl, window.location.origin);
-    } else {
-      parsed = new URL(trimmedUrl);
-    }
-  } catch {
-    return trimmedUrl;
-  }
-
-  if (!isLoopbackHost(parsed.hostname)) {
-    return parsed.toString();
-  }
-
-  for (const base of candidates) {
-    if (!isLoopbackHost(base.hostname)) {
-      parsed.hostname = base.hostname;
-      return parsed.toString();
-    }
-  }
-
-  return parsed.toString();
-}
 
 const getTagColors = (key: string) => {
   if (key.length === 0) {
@@ -389,7 +322,7 @@ function ChannelPreview({
   launch: AppRecord['latestLaunch'];
 }) {
   const livePreviewSourceUrl = launch?.status === 'running' ? launch.instanceUrl : null;
-  const livePreviewUrl = useMemo(() => normalizeInstanceUrl(livePreviewSourceUrl), [livePreviewSourceUrl]);
+  const livePreviewUrl = useMemo(() => normalizePreviewUrl(livePreviewSourceUrl), [livePreviewSourceUrl]);
   const usableTiles = useMemo(
     () => tiles.filter((tile) => Boolean(tile.src || tile.embedUrl)),
     [tiles]
@@ -843,7 +776,7 @@ function LaunchSummarySection({
   launchErrors: Record<string, string | null>;
 }) {
   const launch = app.latestLaunch;
-  const normalizedInstanceUrl = normalizeInstanceUrl(launch?.instanceUrl);
+  const normalizedInstanceUrl = normalizePreviewUrl(launch?.instanceUrl);
   const updatedAt = launch?.updatedAt ?? null;
   const isLaunching = launchingId === app.id;
   const isStopping = launch ? stoppingLaunchId === launch.id : false;
@@ -1411,7 +1344,7 @@ function LaunchTimeline({
         <ul className="flex flex-col gap-3">
           {launches.map((launchItem) => {
             const timestamp = launchItem.updatedAt ?? launchItem.createdAt;
-            const normalizedInstanceUrl = normalizeInstanceUrl(launchItem.instanceUrl);
+            const normalizedInstanceUrl = normalizePreviewUrl(launchItem.instanceUrl);
             return (
               <li key={launchItem.id}>
                 <div className="flex flex-wrap items-center gap-3 text-xs">
