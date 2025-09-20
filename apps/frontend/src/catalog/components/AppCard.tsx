@@ -169,6 +169,112 @@ function rowsFromEnv(env: LaunchEnvVar[] = []): LaunchEnvRow[] {
   );
 }
 
+const ENV_TAG_KEYS = new Set(['env', 'launch:env', 'launch-env', 'launch_env', 'env-var', 'envvar']);
+
+function normalizeEnvEntries(entries?: LaunchEnvVar[] | null): LaunchEnvVar[] {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+  const normalized: LaunchEnvVar[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+    const value = typeof entry.value === 'string' ? entry.value : '';
+    normalized.push({ key, value });
+  }
+  return normalized;
+}
+
+function parseEnvTagValue(rawValue: string): LaunchEnvVar | null {
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return null;
+  }
+  for (const separator of ['=', ':']) {
+    const separatorIndex = trimmed.indexOf(separator);
+    if (separatorIndex > 0) {
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const value = trimmed.slice(separatorIndex + 1).trim();
+      if (!key) {
+        return null;
+      }
+      return { key, value };
+    }
+  }
+  return { key: trimmed, value: '' };
+}
+
+function extractEnvFromTags(tags: TagKV[] = []): LaunchEnvVar[] {
+  const envVars: LaunchEnvVar[] = [];
+  for (const tag of tags) {
+    if (!tag || typeof tag.key !== 'string' || typeof tag.value !== 'string') {
+      continue;
+    }
+    const normalizedKey = tag.key.trim().toLowerCase();
+    if (!ENV_TAG_KEYS.has(normalizedKey)) {
+      continue;
+    }
+    const parsed = parseEnvTagValue(tag.value);
+    if (parsed) {
+      envVars.push(parsed);
+    }
+  }
+  return envVars;
+}
+
+function mergeEnvSources(primary: LaunchEnvVar[] = [], available: LaunchEnvVar[] = []): LaunchEnvVar[] {
+  const normalizedPrimary = normalizeEnvEntries(primary);
+  const normalizedAvailable = normalizeEnvEntries(available);
+  const seen = new Set<string>();
+  const merged: LaunchEnvVar[] = [];
+
+  for (const entry of normalizedPrimary) {
+    if (seen.has(entry.key)) {
+      continue;
+    }
+    seen.add(entry.key);
+    merged.push(entry);
+    if (merged.length >= MAX_LAUNCH_ENV_ROWS) {
+      return merged;
+    }
+  }
+
+  for (const entry of normalizedAvailable) {
+    if (seen.has(entry.key)) {
+      continue;
+    }
+    seen.add(entry.key);
+    merged.push(entry);
+    if (merged.length >= MAX_LAUNCH_ENV_ROWS) {
+      break;
+    }
+  }
+
+  return merged;
+}
+
+type EnvHints = {
+  tags: TagKV[];
+  availableEnv?: LaunchEnvVar[] | null;
+  availableLaunchEnv?: LaunchEnvVar[] | null;
+  launchEnvTemplates?: LaunchEnvVar[] | null;
+};
+
+function collectAvailableEnvVars(hints: EnvHints): LaunchEnvVar[] {
+  const storedHints = [
+    ...normalizeEnvEntries(hints.availableEnv),
+    ...normalizeEnvEntries(hints.availableLaunchEnv),
+    ...normalizeEnvEntries(hints.launchEnvTemplates)
+  ];
+  const tagEnv = extractEnvFromTags(hints.tags);
+  return mergeEnvSources(storedHints, tagEnv);
+}
+
 type AppCardProps = {
   app: AppRecord;
   activeTokens: string[];
@@ -745,12 +851,27 @@ function LaunchSummarySection({
   const canStop = launch ? ['running', 'starting', 'stopping'].includes(launch.status) : false;
   const launchError = launchErrors[app.id] ?? null;
 
+  const availableEnvVars = useMemo(
+    () =>
+      collectAvailableEnvVars({
+        tags: app.tags,
+        availableEnv: app.availableEnv,
+        availableLaunchEnv: app.availableLaunchEnv,
+        launchEnvTemplates: app.launchEnvTemplates
+      }),
+    [app.availableEnv, app.availableLaunchEnv, app.launchEnvTemplates, app.tags]
+  );
+  const mergedEnvForLaunch = useMemo(
+    () => mergeEnvSources(launch?.env ?? [], availableEnvVars),
+    [availableEnvVars, launch]
+  );
+
   const initialLaunchIdRef = useRef<string>('');
   if (!initialLaunchIdRef.current) {
     initialLaunchIdRef.current = createLaunchId();
   }
 
-  const initialEnvRowsRef = useRef<LaunchEnvRow[]>(rowsFromEnv(launch?.env ?? []));
+  const initialEnvRowsRef = useRef<LaunchEnvRow[]>(rowsFromEnv(mergedEnvForLaunch));
 
   const initialDefaultCommandRef = useRef<string>('');
   if (!initialDefaultCommandRef.current) {
@@ -771,22 +892,58 @@ function LaunchSummarySection({
 
   useEffect(() => {
     const currentId = launch?.id ?? null;
-    if (currentId === lastLaunchId) {
+    if (currentId !== lastLaunchId) {
+      const nextEnvRows = rowsFromEnv(mergedEnvForLaunch);
+      initialEnvRowsRef.current = nextEnvRows;
+      setEnvRows(nextEnvRows);
+      setLastLaunchId(currentId);
+      const nextPendingId = createLaunchId();
+      setPendingLaunchId(nextPendingId);
+      const nextDefault = buildDockerRunCommandString({
+        repositoryId: app.id,
+        launchId: nextPendingId,
+        imageTag: app.latestBuild?.imageTag ?? null,
+        env: nextEnvRows.map(({ key, value }) => ({ key, value }))
+      });
+      setGeneratedDefaultCommand(nextDefault);
       return;
     }
-    const nextEnvRows = rowsFromEnv(launch?.env ?? []);
-    setEnvRows(nextEnvRows);
-    setLastLaunchId(currentId);
-    const nextPendingId = createLaunchId();
-    setPendingLaunchId(nextPendingId);
-    const nextDefault = buildDockerRunCommandString({
-      repositoryId: app.id,
-      launchId: nextPendingId,
-      imageTag: app.latestBuild?.imageTag ?? null,
-      env: nextEnvRows.map(({ key, value }) => ({ key, value }))
+
+    const existingKeys = new Set(
+      envRows
+        .map((row) => row.key.trim())
+        .filter((key) => key.length > 0)
+    );
+    const additions = mergedEnvForLaunch.filter(
+      (entry) => entry.key.length > 0 && !existingKeys.has(entry.key)
+    );
+    if (additions.length === 0) {
+      return;
+    }
+    setEnvRows((prevRows) => {
+      if (prevRows.length >= MAX_LAUNCH_ENV_ROWS) {
+        return prevRows;
+      }
+      const remaining = MAX_LAUNCH_ENV_ROWS - prevRows.length;
+      if (remaining <= 0) {
+        return prevRows;
+      }
+      const toAdd = additions
+        .slice(0, remaining)
+        .map((entry) => createEnvRow(entry));
+      if (toAdd.length === 0) {
+        return prevRows;
+      }
+      return [...prevRows, ...toAdd];
     });
-    setGeneratedDefaultCommand(nextDefault);
-  }, [app.id, app.latestBuild?.imageTag, launch, lastLaunchId]);
+  }, [
+    app.id,
+    app.latestBuild?.imageTag,
+    envRows,
+    launch,
+    lastLaunchId,
+    mergedEnvForLaunch
+  ]);
 
   const envForLaunch = useMemo<LaunchEnvVar[]>(() => envRows.map(({ key, value }) => ({ key, value })), [envRows]);
 

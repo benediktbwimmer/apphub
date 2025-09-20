@@ -121,6 +121,9 @@ export type AppRecord = {
   latestLaunch: LaunchSummary | null;
   relevance: RelevanceSummary | null;
   previewTiles: PreviewTile[];
+  availableEnv?: LaunchEnvVar[];
+  availableLaunchEnv?: LaunchEnvVar[];
+  launchEnvTemplates?: LaunchEnvVar[];
 };
 
 export type RelevanceComponent = {
