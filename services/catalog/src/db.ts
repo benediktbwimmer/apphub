@@ -95,6 +95,7 @@ export type RepositoryRecord = {
   latestBuild: BuildRecord | null;
   latestLaunch: LaunchRecord | null;
   previewTiles: RepositoryPreview[];
+  launchEnvTemplates: LaunchEnvVar[];
 };
 
 export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed';
@@ -111,6 +112,7 @@ export type RepositoryInsert = {
   ingestError?: string | null;
   ingestAttempts?: number;
   tags?: (TagKV & { source?: string })[];
+  launchEnvTemplates?: LaunchEnvVar[];
 };
 
 export type RepositorySort = 'updated' | 'name' | 'relevance';
@@ -267,6 +269,7 @@ db.exec(`
     last_ingested_at TEXT,
     ingest_error TEXT,
     ingest_attempts INTEGER NOT NULL DEFAULT 0,
+    launch_env_templates TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -410,6 +413,11 @@ ensureColumn(
   'ALTER TABLE repositories ADD COLUMN ingest_attempts INTEGER NOT NULL DEFAULT 0'
 );
 ensureColumn(
+  'repositories',
+  'launch_env_templates',
+  'ALTER TABLE repositories ADD COLUMN launch_env_templates TEXT'
+);
+ensureColumn(
   'ingestion_events',
   'commit_sha',
   'ALTER TABLE ingestion_events ADD COLUMN commit_sha TEXT'
@@ -435,6 +443,7 @@ type RepositoryRow = {
   last_ingested_at: string | null;
   ingest_error: string | null;
   ingest_attempts: number;
+  launch_env_templates: string | null;
   created_at: string;
 };
 
@@ -522,8 +531,8 @@ type ServiceRow = {
 };
 
 const insertRepositoryStatement = db.prepare(`
-  INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts)
-  VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts)
+  INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, launch_env_templates)
+  VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts, @launchEnvTemplates)
   ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     description = excluded.description,
@@ -533,7 +542,8 @@ const insertRepositoryStatement = db.prepare(`
     updated_at = excluded.updated_at,
     last_ingested_at = excluded.last_ingested_at,
     ingest_error = excluded.ingest_error,
-    ingest_attempts = excluded.ingest_attempts
+    ingest_attempts = excluded.ingest_attempts,
+    launch_env_templates = excluded.launch_env_templates
 `);
 
 const findTagStatement = db.prepare('SELECT id FROM tags WHERE key = ? AND value = ?');
@@ -582,6 +592,13 @@ const insertRepositoryPreviewStatement = db.prepare(
      @height,
      @sortOrder
    )`
+);
+
+const updateRepositoryEnvTemplatesStatement = db.prepare(
+  `UPDATE repositories
+     SET launch_env_templates = @launchEnvTemplates,
+         updated_at = @updatedAt
+   WHERE id = @repositoryId`
 );
 
 const selectRepositoryPreviewsStatement = db.prepare(
@@ -1002,6 +1019,42 @@ function parseLaunchEnv(raw: string | null): LaunchEnvVar[] {
   }
 }
 
+function normalizeLaunchEnvEntries(entries?: LaunchEnvVar[] | null): LaunchEnvVar[] {
+  if (!entries || entries.length === 0) {
+    return [];
+  }
+  const seen = new Map<string, string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+    const value = typeof entry.value === 'string' ? entry.value : '';
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.set(key, value);
+    if (seen.size >= 32) {
+      break;
+    }
+  }
+  return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
+}
+
+function prepareLaunchEnvForUpsert(
+  entries: LaunchEnvVar[] | undefined,
+  existing: string | null
+): string | null {
+  if (entries === undefined) {
+    return existing;
+  }
+  const normalized = normalizeLaunchEnvEntries(entries);
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
 function rowToLaunch(row: LaunchRow): LaunchRecord {
   return {
     id: row.id,
@@ -1221,7 +1274,8 @@ function rowToRepository(row: RepositoryRow): RepositoryRecord {
     tags: tagRows.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source })),
     latestBuild: latestBuildRow ? rowToBuild(latestBuildRow) : null,
     latestLaunch: latestLaunchRow ? rowToLaunch(latestLaunchRow) : null,
-    previewTiles: previewRows.map((preview) => rowToPreview(preview))
+    previewTiles: previewRows.map((preview) => rowToPreview(preview)),
+    launchEnvTemplates: parseLaunchEnv(row.launch_env_templates)
   };
 }
 
@@ -1889,7 +1943,11 @@ export function upsertRepository(repository: RepositoryInsert): RepositoryRecord
       updatedAt: repository.updatedAt ?? new Date().toISOString(),
       lastIngestedAt: repository.lastIngestedAt ?? existing?.last_ingested_at ?? null,
       ingestError: repository.ingestError ?? existing?.ingest_error ?? null,
-      ingestAttempts: repository.ingestAttempts ?? existing?.ingest_attempts ?? 0
+      ingestAttempts: repository.ingestAttempts ?? existing?.ingest_attempts ?? 0,
+      launchEnvTemplates: prepareLaunchEnvForUpsert(
+        repository.launchEnvTemplates,
+        existing?.launch_env_templates ?? null
+      )
     };
 
     insertRepositoryStatement.run(payload);
@@ -1913,7 +1971,8 @@ export function addRepository(repository: RepositoryInsert): RepositoryRecord {
     updatedAt: repository.updatedAt ?? new Date().toISOString(),
     lastIngestedAt: repository.lastIngestedAt ?? null,
     ingestError: repository.ingestError ?? null,
-    ingestAttempts: repository.ingestAttempts ?? 0
+    ingestAttempts: repository.ingestAttempts ?? 0,
+    launchEnvTemplates: prepareLaunchEnvForUpsert(repository.launchEnvTemplates, null)
   };
 
   const transaction = db.transaction(() => {
@@ -1990,6 +2049,32 @@ export function replaceRepositoryPreviews(repositoryId: string, previews: Reposi
   });
   transaction();
   notifyRepositoryChanged(repositoryId);
+}
+
+export function updateRepositoryLaunchEnvTemplates(
+  repositoryId: string,
+  templates: LaunchEnvVar[]
+): RepositoryRecord | null {
+  const existing = selectRepositoryByIdStatement.get(repositoryId) as RepositoryRow | undefined;
+  if (!existing) {
+    return null;
+  }
+
+  const normalized = normalizeLaunchEnvEntries(templates);
+  const encoded = normalized.length > 0 ? JSON.stringify(normalized) : null;
+
+  if (encoded === existing.launch_env_templates) {
+    return rowToRepository(existing);
+  }
+
+  updateRepositoryEnvTemplatesStatement.run({
+    repositoryId,
+    launchEnvTemplates: encoded,
+    updatedAt: new Date().toISOString()
+  });
+
+  notifyRepositoryChanged(repositoryId);
+  return getRepositoryById(repositoryId);
 }
 
 export function getRepositoryPreviews(repositoryId: string): RepositoryPreview[] {
