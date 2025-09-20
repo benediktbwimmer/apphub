@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { migrateIfNeeded } from './dbMigrations';
 import { emitApphubEvent } from './events';
 
 export type TagKV = {
@@ -196,6 +197,53 @@ export type TagSuggestion = {
   label: string;
 };
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
+
+export type ServiceKind = string;
+
+export type ServiceRecord = {
+  id: string;
+  slug: string;
+  displayName: string;
+  kind: ServiceKind;
+  baseUrl: string;
+  status: ServiceStatus;
+  statusMessage: string | null;
+  capabilities: JsonValue | null;
+  metadata: JsonValue | null;
+  lastHealthyAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceUpsertInput = {
+  slug: string;
+  displayName: string;
+  kind: ServiceKind;
+  baseUrl: string;
+  status?: ServiceStatus;
+  statusMessage?: string | null;
+  capabilities?: JsonValue | null;
+  metadata?: JsonValue | null;
+};
+
+export type ServiceStatusUpdate = {
+  status?: ServiceStatus;
+  statusMessage?: string | null;
+  metadata?: JsonValue | null;
+  baseUrl?: string;
+  lastHealthyAt?: string | null;
+  capabilities?: JsonValue | null;
+};
+
 const DEFAULT_DB_PATH = path.resolve(__dirname, '..', '..', 'data', 'catalog.db');
 
 const dbPath = process.env.CATALOG_DB_PATH ? path.resolve(process.env.CATALOG_DB_PATH) : DEFAULT_DB_PATH;
@@ -204,6 +252,8 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+migrateIfNeeded(db);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS repositories (
@@ -456,6 +506,21 @@ type LaunchRow = {
   expires_at: string | null;
 };
 
+type ServiceRow = {
+  id: string;
+  slug: string;
+  display_name: string;
+  kind: string;
+  base_url: string;
+  status: ServiceStatus;
+  status_message: string | null;
+  capabilities: string | null;
+  metadata: string | null;
+  last_healthy_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const insertRepositoryStatement = db.prepare(`
   INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts)
   VALUES (@id, @name, @description, @repoUrl, @dockerfilePath, @ingestStatus, @updatedAt, @lastIngestedAt, @ingestError, @ingestAttempts)
@@ -530,6 +595,56 @@ const selectRepositoriesStatement = db.prepare('SELECT * FROM repositories ORDER
 
 const selectRepositoryByIdStatement = db.prepare('SELECT * FROM repositories WHERE id = ?');
 
+const selectServicesStatement = db.prepare(
+  'SELECT * FROM services ORDER BY display_name ASC, datetime(updated_at) DESC'
+);
+
+const selectServiceBySlugStatement = db.prepare('SELECT * FROM services WHERE slug = ?');
+
+const insertServiceStatement = db.prepare(
+  `INSERT INTO services (
+     id,
+     slug,
+     display_name,
+     kind,
+     base_url,
+     status,
+     status_message,
+     capabilities,
+     metadata,
+     last_healthy_at,
+     created_at,
+     updated_at
+   ) VALUES (
+     @id,
+     @slug,
+     @displayName,
+     @kind,
+     @baseUrl,
+     @status,
+     @statusMessage,
+     @capabilities,
+     @metadata,
+     @lastHealthyAt,
+     @createdAt,
+     @updatedAt
+   )`
+);
+
+const updateServiceStatement = db.prepare(
+  `UPDATE services
+     SET display_name = @displayName,
+         kind = @kind,
+         base_url = @baseUrl,
+         status = @status,
+         status_message = @statusMessage,
+         capabilities = @capabilities,
+         metadata = @metadata,
+         last_healthy_at = @lastHealthyAt,
+         updated_at = @updatedAt
+   WHERE slug = @slug`
+);
+
 const insertRepositorySearchStatement = db.prepare(
   `INSERT INTO repository_search (repository_id, name, description, repo_url, tag_text)
    VALUES (@repositoryId, @name, @description, @repoUrl, @tagText)`
@@ -560,6 +675,52 @@ function refreshRepositorySearchIndex(repositoryId: string) {
     repoUrl: repository.repo_url,
     tagText
   });
+}
+
+function hasOwn<T extends object>(obj: T, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function jsonEquals(a: JsonValue | null, b: JsonValue | null): boolean {
+  if (a === b) {
+    return true;
+  }
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function parseJsonColumn(value: string | null): JsonValue | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch {
+    return null;
+  }
+}
+
+function serializeJsonColumn(value: JsonValue | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return JSON.stringify(value);
+}
+
+function serviceRowToRecord(row: ServiceRow): ServiceRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    displayName: row.display_name,
+    kind: row.kind,
+    baseUrl: row.base_url,
+    status: row.status,
+    statusMessage: row.status_message,
+    capabilities: parseJsonColumn(row.capabilities),
+    metadata: parseJsonColumn(row.metadata),
+    lastHealthyAt: row.last_healthy_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
 }
 
 function rebuildRepositorySearchIndex() {
@@ -625,8 +786,8 @@ const insertBuildStatement = db.prepare(
      @imageTag,
      @errorMessage,
      @commitSha,
-    @gitBranch,
-    @gitRef,
+     @gitBranch,
+     @gitRef,
      @createdAt,
      @updatedAt,
      @startedAt,
@@ -936,6 +1097,13 @@ function notifyIngestion(event: IngestionEvent | null) {
     return;
   }
   emitApphubEvent({ type: 'repository.ingestion-event', data: { event } });
+}
+
+function notifyServiceUpdated(service: ServiceRecord | null) {
+  if (!service) {
+    return;
+  }
+  emitApphubEvent({ type: 'service.updated', data: { service } });
 }
 
 export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processing', 'ready', 'failed'];
@@ -1338,6 +1506,8 @@ export function startBuild(buildId: string): BuildRecord | null {
       imageTag: undefined,
       errorMessage: undefined,
       commitSha: undefined,
+      gitBranch: undefined,
+      gitRef: undefined,
       updatedAt: now,
       startedAt: existing.started_at ?? now,
       completedAt: undefined,
@@ -1968,4 +2138,180 @@ export function takeNextPendingRepository(): RepositoryRecord | null {
 
 export function getAllRepositories(): RepositoryRecord[] {
   return (selectRepositoriesStatement.all() as RepositoryRow[]).map(rowToRepository);
+}
+
+export function listServices(): ServiceRecord[] {
+  const rows = selectServicesStatement.all() as ServiceRow[];
+  return rows.map((row) => serviceRowToRecord(row));
+}
+
+export function getServiceBySlug(slug: string): ServiceRecord | null {
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  const row = selectServiceBySlugStatement.get(normalized) as ServiceRow | undefined;
+  return row ? serviceRowToRecord(row) : null;
+}
+
+export function upsertService(input: ServiceUpsertInput): ServiceRecord {
+  const slug = input.slug.trim().toLowerCase();
+  if (!slug) {
+    throw new Error('Service slug must be provided');
+  }
+  const baseUrl = input.baseUrl.trim();
+  if (!baseUrl) {
+    throw new Error('Service baseUrl must be provided');
+  }
+  const displayName = input.displayName.trim();
+  const kind = input.kind.trim() as ServiceKind;
+  const now = new Date().toISOString();
+
+  const existingRow = selectServiceBySlugStatement.get(slug) as ServiceRow | undefined;
+  const existing = existingRow ? serviceRowToRecord(existingRow) : null;
+
+  const resolvedDisplayName =
+    displayName.length > 0 ? displayName : existing?.displayName ?? slug;
+
+  const statusMessage = hasOwn(input, 'statusMessage')
+    ? input.statusMessage ?? null
+    : existing?.statusMessage ?? null;
+  const capabilities = hasOwn(input, 'capabilities')
+    ? input.capabilities ?? null
+    : existing?.capabilities ?? null;
+  const metadata = hasOwn(input, 'metadata')
+    ? input.metadata ?? null
+    : existing?.metadata ?? null;
+
+  const record: ServiceRecord = {
+    id: existing?.id ?? randomUUID(),
+    slug,
+    displayName: resolvedDisplayName,
+    kind,
+    baseUrl,
+    status: input.status ?? existing?.status ?? 'unknown',
+    statusMessage,
+    capabilities,
+    metadata,
+    lastHealthyAt: existing?.lastHealthyAt ?? null,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+
+  if (existing) {
+    const unchanged =
+      record.displayName === existing.displayName &&
+      record.kind === existing.kind &&
+      record.baseUrl === existing.baseUrl &&
+      record.status === existing.status &&
+      record.statusMessage === existing.statusMessage &&
+      record.lastHealthyAt === existing.lastHealthyAt &&
+      jsonEquals(record.capabilities, existing.capabilities) &&
+      jsonEquals(record.metadata, existing.metadata);
+    if (unchanged) {
+      return existing;
+    }
+  }
+
+  const payload = {
+    id: record.id,
+    slug: record.slug,
+    displayName: record.displayName,
+    kind: record.kind,
+    baseUrl: record.baseUrl,
+    status: record.status,
+    statusMessage: record.statusMessage ?? null,
+    capabilities: serializeJsonColumn(record.capabilities),
+    metadata: serializeJsonColumn(record.metadata),
+    lastHealthyAt: record.lastHealthyAt ?? null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  };
+
+  if (existing) {
+    updateServiceStatement.run(payload);
+  } else {
+    insertServiceStatement.run(payload);
+  }
+
+  const updatedRow = selectServiceBySlugStatement.get(slug) as ServiceRow | undefined;
+  const updated = updatedRow ? serviceRowToRecord(updatedRow) : record;
+  notifyServiceUpdated(updated);
+  return updated;
+}
+
+export function setServiceStatus(slug: string, update: ServiceStatusUpdate): ServiceRecord | null {
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const existingRow = selectServiceBySlugStatement.get(normalized) as ServiceRow | undefined;
+  if (!existingRow) {
+    return null;
+  }
+
+  const existing = serviceRowToRecord(existingRow);
+  const now = new Date().toISOString();
+  const baseUrl = update.baseUrl ? update.baseUrl.trim() : existing.baseUrl;
+  const nextStatus = update.status ?? existing.status;
+  const statusMessage = hasOwn(update, 'statusMessage')
+    ? update.statusMessage ?? null
+    : existing.statusMessage ?? null;
+  const capabilities = hasOwn(update, 'capabilities')
+    ? update.capabilities ?? null
+    : existing.capabilities ?? null;
+  const metadata = hasOwn(update, 'metadata')
+    ? update.metadata ?? null
+    : existing.metadata ?? null;
+  let lastHealthyAt = existing.lastHealthyAt;
+  if (update.lastHealthyAt !== undefined) {
+    lastHealthyAt = update.lastHealthyAt;
+  } else if (nextStatus === 'healthy' && existing.status !== 'healthy') {
+    lastHealthyAt = now;
+  }
+
+  const record: ServiceRecord = {
+    ...existing,
+    baseUrl,
+    status: nextStatus,
+    statusMessage,
+    capabilities,
+    metadata,
+    lastHealthyAt,
+    updatedAt: now
+  };
+
+  const unchanged =
+    record.status === existing.status &&
+    record.statusMessage === existing.statusMessage &&
+    record.baseUrl === existing.baseUrl &&
+    record.lastHealthyAt === existing.lastHealthyAt &&
+    jsonEquals(record.capabilities, existing.capabilities) &&
+    jsonEquals(record.metadata, existing.metadata);
+
+  if (unchanged) {
+    return existing;
+  }
+
+  const payload = {
+    id: record.id,
+    slug: record.slug,
+    displayName: record.displayName,
+    kind: record.kind,
+    baseUrl: record.baseUrl,
+    status: record.status,
+    statusMessage: record.statusMessage ?? null,
+    capabilities: serializeJsonColumn(record.capabilities),
+    metadata: serializeJsonColumn(record.metadata),
+    lastHealthyAt: record.lastHealthyAt ?? null,
+    updatedAt: record.updatedAt
+  };
+
+  updateServiceStatement.run(payload);
+
+  const updatedRow = selectServiceBySlugStatement.get(normalized) as ServiceRow | undefined;
+  const updated = updatedRow ? serviceRowToRecord(updatedRow) : record;
+  notifyServiceUpdated(updated);
+  return updated;
 }

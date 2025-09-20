@@ -30,6 +30,7 @@ The API listens on `http://localhost:4000` by default and serves:
 - `POST /apps` for registering new repositories (creates a pending ingest job)
 - `POST /apps/:id/retry` to manually requeue ingestion for an existing repository
 - `GET /apps/:id/history` to inspect recent ingestion events and attempt counts
+- `GET /services` to inspect dynamically registered auxiliary services and their health status
 
 Metadata persists to a local SQLite database at `services/catalog/data/catalog.db`. Set `CATALOG_DB_PATH=/custom/path.db` if you want to relocate it.
 
@@ -87,6 +88,11 @@ INGEST_CONCURRENCY=2
 INGEST_JOB_ATTEMPTS=3
 INGEST_JOB_BACKOFF_MS=10000
 INGEST_CLONE_DEPTH=1
+SERVICE_MANIFEST_PATH=services/service-manifest.json   # Defaults to bundled manifest; comma-separated list supported
+SERVICE_REGISTRY_TOKEN=                                # Shared secret for POST/PATCH /services (disabled when empty)
+SERVICE_HEALTH_INTERVAL_MS=30000                       # Health poll cadence
+SERVICE_HEALTH_TIMEOUT_MS=5000                         # Health request timeout
+SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000             # How often to refresh cached OpenAPI metadata
 ```
 
 ### Run Everything Locally
@@ -102,6 +108,7 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 - Redis (`redis-server --save "" --appendonly no`)
 - Catalog API on `http://127.0.0.1:4000`
 - Ingestion worker
+- Service orchestrator (`npm run dev:services`) that reads `services/service-manifest.json` and spawns any configured dev commands
 - Frontend on `http://localhost:5173`
 
 Stop the stack with `Ctrl+C`.
