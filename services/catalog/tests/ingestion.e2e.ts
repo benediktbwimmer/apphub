@@ -16,7 +16,9 @@ import { promisify } from 'node:util';
 const exec = promisify(execCallback);
 
 const CATALOG_ROOT = path.resolve(__dirname, '..');
-const REAL_REPO_PATH = process.env.APPHUB_E2E_REAL_REPO ?? '/Users/bene/work/frontends/hello-world';
+const REAL_REPO_PATH = process.env.APPHUB_E2E_REAL_REPO;
+const REAL_REPO_GIT_URL =
+  process.env.APPHUB_E2E_REAL_REPO_URL ?? 'https://github.com/benediktbwimmer/better-fileexplorer.git';
 
 const APP_POLL_INTERVAL_MS = 500;
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -407,25 +409,38 @@ async function testSyntheticRepositoryFlow() {
   });
 }
 
+async function prepareRealRepository(): Promise<string> {
+  if (REAL_REPO_PATH) {
+    await access(REAL_REPO_PATH);
+    return REAL_REPO_PATH;
+  }
+
+  const cloneRoot = await mkdtemp(path.join(tmpdir(), 'apphub-real-src-'));
+  const repoDir = path.join(cloneRoot, 'better-fileexplorer');
+
+  try {
+    await exec(`git clone --depth 1 ${REAL_REPO_GIT_URL} ${repoDir}`);
+  } catch (err) {
+    throw new Error(`Failed to clone real repo from ${REAL_REPO_GIT_URL}: ${String(err)}`);
+  }
+
+  return repoDir;
+}
+
 async function testRealRepositoryLaunchFlow() {
   await withCatalogEnvironment(async ({ baseUrl }) => {
-    try {
-      await access(REAL_REPO_PATH);
-    } catch {
-      throw new Error(`Expected demo repo at ${REAL_REPO_PATH}`);
-    }
+    const sourceRepoPath = await prepareRealRepository();
+    const repoUrl = await snapshotRepository(sourceRepoPath);
 
-    const repoUrl = await snapshotRepository(REAL_REPO_PATH);
-
-    const appId = `hello-world-${Date.now()}`;
+    const appId = `better-fileexplorer-${Date.now()}`;
 
     const createRes = await fetch(`${baseUrl}/apps`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: appId,
-        name: 'Hello World Demo',
-        description: 'Express static site demo',
+        name: 'Better File Explorer',
+        description: 'Static file explorer demo',
         repoUrl,
         dockerfilePath: 'Dockerfile',
         tags: [{ key: 'category', value: 'demo' }]

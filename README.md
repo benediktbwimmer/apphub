@@ -89,11 +89,36 @@ INGEST_JOB_ATTEMPTS=3
 INGEST_JOB_BACKOFF_MS=10000
 INGEST_CLONE_DEPTH=1
 SERVICE_MANIFEST_PATH=services/service-manifest.json   # Defaults to bundled manifest; comma-separated list supported
+SERVICE_CONFIG_PATH=services/service-config.json       # Declarative service config + git imports (comma-separated list)
 SERVICE_REGISTRY_TOKEN=                                # Shared secret for POST/PATCH /services (disabled when empty)
 SERVICE_HEALTH_INTERVAL_MS=30000                       # Health poll cadence
 SERVICE_HEALTH_TIMEOUT_MS=5000                         # Health request timeout
 SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000             # How often to refresh cached OpenAPI metadata
 ```
+
+### Service Configuration
+
+The service registry consumes `services/service-config.json`, a declarative module file inspired by Go's dependency management system.
+It can point at the bundled `service-manifest.json`, inline service definitions, and declare `imports` that pull additional
+service manifests from Git repositories. Each import records the remote repository, an optional tag/branch `ref`, and an optional
+`commit` SHA. The registry clones every module, walks the dependency DAG, and merges the resulting service entries with any extra
+JSON manifests referenced via `SERVICE_MANIFEST_PATH`.
+
+To add a new module at runtime, call `POST /service-config/import` with your `SERVICE_REGISTRY_TOKEN`. The API validates the
+remote configuration, resolves the effective commit, appends the import to `services/service-config.json`, and refreshes the
+registry in-place.
+
+```bash
+curl -X POST http://127.0.0.1:4000/service-config/import \
+  -H "Authorization: Bearer $SERVICE_REGISTRY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "repo": "https://github.com/example/service-module.git",
+        "ref": "v1.2.0"
+      }'
+```
+
+The response includes the module identifier, resolved commit SHA, and number of discovered services.
 
 ### Run Everything Locally
 
@@ -108,7 +133,8 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 - Redis (`redis-server --save "" --appendonly no`)
 - Catalog API on `http://127.0.0.1:4000`
 - Ingestion worker
-- Service orchestrator (`npm run dev:services`) that reads `services/service-manifest.json` and spawns any configured dev commands
+- Service orchestrator (`npm run dev:services`) that reads the bundled `services/service-manifest.json` (referenced by
+  `services/service-config.json`) and spawns any configured dev commands
 - Frontend on `http://localhost:5173`
 
 Stop the stack with `Ctrl+C`.

@@ -1,0 +1,5 @@
+{
+  "module": "github.com/apphub/local-services",
+  "manifestPath": "./service-manifest.json",
+  "imports": []
+}
