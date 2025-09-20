@@ -392,6 +392,7 @@ function serializeRepository(record: RepositoryRecordWithRelevance) {
       sortOrder: tile.sortOrder,
       source: tile.source
     })),
+    launchEnvTemplates: record.launchEnvTemplates,
     relevance: record.relevance ?? null
   };
 }
