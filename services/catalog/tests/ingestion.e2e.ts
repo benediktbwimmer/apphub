@@ -14,7 +14,9 @@ import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { exec as execCallback } from 'node:child_process';
 import { promisify } from 'node:util';
+import net from 'node:net';
 import WebSocket from 'ws';
+import EmbeddedPostgres from 'embedded-postgres';
 
 const exec = promisify(execCallback);
 
@@ -25,6 +27,75 @@ const REAL_REPO_GIT_URL =
 
 const APP_POLL_INTERVAL_MS = 500;
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+let embeddedPostgres: EmbeddedPostgres | null = null;
+let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
+
+async function findAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (typeof address === 'object' && address) {
+        const { port } = address;
+        server.close(() => resolve(port));
+      } else {
+        server.close(() => reject(new Error('Failed to determine available port')));
+      }
+    });
+  });
+}
+
+async function ensureEmbeddedPostgres(): Promise<void> {
+  if (embeddedPostgres) {
+    return;
+  }
+
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'apphub-pg-'));
+  const port = await findAvailablePort();
+  const postgres = new EmbeddedPostgres({
+    databaseDir: dataRoot,
+    port,
+    user: 'postgres',
+    password: 'postgres',
+    persistent: false,
+    onLog(message) {
+      if (process.env.APPHUB_E2E_PG_LOGS) {
+        console.log('[embedded-postgres]', message);
+      }
+    },
+    onError(error) {
+      console.error('[embedded-postgres:error]', error);
+    }
+  });
+
+  await postgres.initialise();
+  await postgres.start();
+  await postgres.createDatabase('apphub');
+
+  process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
+  process.env.PGPOOL_MAX = '8';
+
+  embeddedPostgresCleanup = async () => {
+    try {
+      await postgres.stop();
+    } finally {
+      await rm(dataRoot, { recursive: true, force: true });
+    }
+  };
+  embeddedPostgres = postgres;
+}
+
+async function shutdownEmbeddedPostgres(): Promise<void> {
+  const cleanup = embeddedPostgresCleanup;
+  embeddedPostgres = null;
+  embeddedPostgresCleanup = null;
+  if (cleanup) {
+    await cleanup();
+  }
+}
 
 type IngestionEvent = {
   id: number;
@@ -297,6 +368,12 @@ async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogT
   const dbPath = path.join(tempRoot, 'catalog.db');
   const port = 4200 + Math.floor(Math.random() * 200);
   const baseUrl = `http://127.0.0.1:${port}`;
+  const serviceConfigPath = path.join(tempRoot, 'service-config.json');
+  await writeFile(
+    serviceConfigPath,
+    `${JSON.stringify({ module: 'github.com/apphub/e2e-root' }, null, 2)}\n`,
+    'utf8'
+  );
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -316,6 +393,10 @@ async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogT
     LAUNCH_PREVIEW_PORT: '443',
     ...options.env
   };
+
+  if (!env.SERVICE_CONFIG_PATH) {
+    env.SERVICE_CONFIG_PATH = `!${serviceConfigPath}`;
+  }
 
   const server = spawn('npx', ['tsx', 'src/server.ts'], {
     cwd: CATALOG_ROOT,
@@ -896,7 +977,7 @@ async function testServiceNetworkManifestFlow() {
       },
       {
         env: {
-          SERVICE_CONFIG_PATH: serviceConfigPath,
+          SERVICE_CONFIG_PATH: `!${serviceConfigPath}`,
           LAUNCH_RUNNER_MODE: 'docker'
         }
       }
@@ -914,9 +995,14 @@ async function testServiceNetworkManifestFlow() {
 }
 
 async function run() {
-  await testSyntheticRepositoryFlow();
-  await testRealRepositoryLaunchFlow();
-  await testServiceNetworkManifestFlow();
+  await ensureEmbeddedPostgres();
+  try {
+    await testSyntheticRepositoryFlow();
+    await testRealRepositoryLaunchFlow();
+    await testServiceNetworkManifestFlow();
+  } finally {
+    await shutdownEmbeddedPostgres();
+  }
 }
 
 run().catch((err) => {

@@ -87,12 +87,22 @@ type ConfigLoadOptions = {
 };
 
 function resolveConfiguredPaths(envValue: string | undefined, defaults: string[]): string[] {
-  const extras = (envValue ?? '')
+  let includeDefaults = true;
+  let configured = envValue ? envValue.trim() : '';
+
+  if (configured.startsWith('!')) {
+    includeDefaults = false;
+    configured = configured.slice(1).trimStart();
+  }
+
+  const extras = configured
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(entry)));
-  const paths = [...defaults, ...extras];
+
+  const basePaths = includeDefaults ? defaults : [];
+  const paths = [...basePaths, ...extras];
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const item of paths) {

@@ -19,11 +19,11 @@ import type {
   ServiceNetworkRow
 } from './rowTypes';
 
-function serializeManifestEnv(entries: ManifestEnvVarInput[] | undefined): unknown {
+function serializeManifestEnv(entries: ManifestEnvVarInput[] | undefined): string {
   if (!entries || entries.length === 0) {
-    return [];
+    return '[]';
   }
-  return entries
+  const serialized = entries
     .filter((entry) => Boolean(entry && typeof entry.key === 'string'))
     .map((entry) => {
       const key = entry.key.trim();
@@ -43,12 +43,13 @@ function serializeManifestEnv(entries: ManifestEnvVarInput[] | undefined): unkno
       }
       return clone;
     })
-    .filter(Boolean);
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  return JSON.stringify(serialized);
 }
 
-function serializeDependsOn(dependsOn: string[] | undefined): unknown {
+function serializeDependsOn(dependsOn: string[] | undefined): string {
   if (!dependsOn || dependsOn.length === 0) {
-    return [];
+    return '[]';
   }
   const seen = new Set<string>();
   const values: string[] = [];
@@ -60,7 +61,7 @@ function serializeDependsOn(dependsOn: string[] | undefined): unknown {
     seen.add(trimmed);
     values.push(trimmed);
   }
-  return values;
+  return JSON.stringify(values);
 }
 
 async function fetchServiceNetwork(
@@ -138,7 +139,7 @@ export async function replaceServiceNetworkMembers(
            depends_on,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NOW(), NOW())`,
         [
           networkRepositoryId,
           memberId,

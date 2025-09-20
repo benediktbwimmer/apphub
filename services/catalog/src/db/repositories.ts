@@ -550,7 +550,7 @@ async function notifyRepositoryChanged(repositoryId: string): Promise<void> {
 
 export async function addRepository(repository: RepositoryInsert): Promise<RepositoryRecord> {
   const now = new Date().toISOString();
-  const launchEnvTemplates = normalizeLaunchEnvEntries(repository.launchEnvTemplates);
+  const launchEnvTemplates = JSON.stringify(normalizeLaunchEnvEntries(repository.launchEnvTemplates));
 
   await useTransaction(async (client) => {
     await client.query(
@@ -558,7 +558,7 @@ export async function addRepository(repository: RepositoryInsert): Promise<Repos
          id, name, description, repo_url, dockerfile_path,
          ingest_status, updated_at, last_ingested_at, ingest_error,
          ingest_attempts, launch_env_templates, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
        ON CONFLICT (id) DO NOTHING`,
       [
         repository.id,
@@ -598,7 +598,9 @@ export async function addRepository(repository: RepositoryInsert): Promise<Repos
 
 export async function upsertRepository(repository: RepositoryInsert): Promise<RepositoryRecord> {
   const now = new Date().toISOString();
-  const launchEnvTemplates = normalizeLaunchEnvEntries(repository.launchEnvTemplates);
+  const launchEnvTemplates = JSON.stringify(normalizeLaunchEnvEntries(repository.launchEnvTemplates));
+  const preserveAttempts = repository.ingestAttempts === undefined;
+  const ingestAttempts = repository.ingestAttempts ?? 0;
 
   await useTransaction(async (client) => {
     await client.query(
@@ -606,7 +608,7 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
          id, name, description, repo_url, dockerfile_path,
          ingest_status, updated_at, last_ingested_at, ingest_error,
          ingest_attempts, launch_env_templates, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
@@ -616,7 +618,7 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
          ingest_status = EXCLUDED.ingest_status,
          last_ingested_at = COALESCE(EXCLUDED.last_ingested_at, repositories.last_ingested_at),
          ingest_error = EXCLUDED.ingest_error,
-         ingest_attempts = EXCLUDED.ingest_attempts,
+         ingest_attempts = CASE WHEN $13 THEN repositories.ingest_attempts ELSE EXCLUDED.ingest_attempts END,
          launch_env_templates = EXCLUDED.launch_env_templates
        `,
       [
@@ -629,9 +631,10 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
         repository.updatedAt ?? now,
         repository.lastIngestedAt ?? null,
         repository.ingestError ?? null,
-        repository.ingestAttempts ?? 0,
+        ingestAttempts,
         launchEnvTemplates,
-        now
+        now,
+        preserveAttempts
       ]
     );
 
@@ -710,12 +713,17 @@ export async function updateRepositoryLaunchEnvTemplates(
   repositoryId: string,
   templates: LaunchEnvVar[]
 ): Promise<void> {
+  const normalized = normalizeLaunchEnvEntries(templates);
+  if (process.env.APPHUB_E2E_DEBUG_TEMPLATES) {
+    console.log('[debug] normalized launch env templates', normalized);
+  }
+  const payload = JSON.stringify(normalized);
   await useTransaction(async (client) => {
     await client.query(
       `UPDATE repositories
-       SET launch_env_templates = $2, updated_at = NOW()
+       SET launch_env_templates = $2::jsonb, updated_at = NOW()
        WHERE id = $1`,
-      [repositoryId, normalizeLaunchEnvEntries(templates)]
+      [repositoryId, payload]
     );
     await refreshRepositorySearchIndex(client, repositoryId);
   });

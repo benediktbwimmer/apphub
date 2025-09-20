@@ -11,6 +11,7 @@ import {
   setRepositoryStatus,
   takeNextPendingRepository,
   replaceRepositoryPreviews,
+  replaceRepositoryTags,
   type RepositoryRecord,
   type TagKV,
   type RepositoryPreviewInput,
@@ -898,9 +899,11 @@ async function processRepository(repository: RepositoryRecord) {
       updatedAt: now,
       lastIngestedAt: now,
       ingestError: null,
-      tags: Array.from(tagMap.values())
+      tags: Array.from(tagMap.values()),
+      ingestAttempts: repository.ingestAttempts
     });
     await replaceRepositoryPreviews(repository.id, previewTiles);
+    await replaceRepositoryTags(repository.id, Array.from(tagMap.values()), { clearExisting: true });
     await setRepositoryStatus(repository.id, 'ready', {
       updatedAt: now,
       lastIngestedAt: now,

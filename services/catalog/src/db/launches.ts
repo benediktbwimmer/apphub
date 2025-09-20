@@ -35,8 +35,9 @@ function normalizeEnv(entries: LaunchEnvVar[] | null | undefined): LaunchEnvVar[
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
 
-function serializeEnv(entries: LaunchEnvVar[]): unknown {
-  return entries.map((entry) => ({ key: entry.key, value: entry.value }));
+function serializeEnv(entries: LaunchEnvVar[]): string {
+  const normalized = entries.map((entry) => ({ key: entry.key, value: entry.value }));
+  return JSON.stringify(normalized);
 }
 
 async function emitLaunchChanged(launch: LaunchRecord | null): Promise<void> {
@@ -84,14 +85,14 @@ async function updateLaunchRecord(
   const updatedAt = updates.updatedAt ?? new Date().toISOString();
 
   const { rows: updatedRows } = await client.query<LaunchRow>(
-    `UPDATE launches
+     `UPDATE launches
      SET status = $2,
          instance_url = $3,
          container_id = $4,
          port = $5,
          resource_profile = $6,
          command = $7,
-         env_vars = $8,
+         env_vars = $8::jsonb,
          error_message = $9,
          updated_at = $10,
          started_at = $11,
@@ -143,7 +144,7 @@ export async function createLaunch(
          updated_at, started_at, stopped_at, expires_at
        ) VALUES (
          $1, $2, $3, 'pending', NULL, NULL, NULL,
-         $4, $5, $6, NULL, NOW(), NOW(), NULL, NULL, $7
+         $4, $5, $6::jsonb, NULL, NOW(), NOW(), NULL, NULL, $7
        )
        ON CONFLICT (id) DO NOTHING`,
       [id, repositoryId, buildId, options.resourceProfile ?? null, command, serializeEnv(envEntries), options.expiresAt ?? null]
