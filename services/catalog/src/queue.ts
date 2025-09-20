@@ -133,7 +133,7 @@ export async function enqueueLaunchStart(launchId: string) {
     throw new Error('Launch queue not initialised');
   }
 
-  await launchQueue.add('launch-start', { launchId });
+  await launchQueue.add('launch-start', { launchId, type: 'start' });
 }
 
 export async function enqueueLaunchStop(launchId: string) {
@@ -145,5 +145,5 @@ export async function enqueueLaunchStop(launchId: string) {
     throw new Error('Launch queue not initialised');
   }
 
-  await launchQueue.add('launch-stop', { launchId });
+  await launchQueue.add('launch-stop', { launchId, type: 'stop' });
 }
