@@ -84,7 +84,7 @@ graph TD
    - Optional warm pool for popular apps.
 
 5. **Service Discovery & Health Tracking**
-   - On startup the catalog ingests one or more JSON manifests describing external services and stores them via the registry helpers.
+   - Operators sync JSON manifests describing external services through registry import endpoints; the catalog does not auto-ingest manifests at startup.
    - A background poller probes each service's health endpoint, updates status/metadata in SQLite, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
    - Operators or services themselves can register/patch definitions at runtime using `POST /services` and `PATCH /services/:slug` with a shared token, enabling dynamic onboarding without code changes.
 

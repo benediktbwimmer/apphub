@@ -1,3 +1,4 @@
 {
-  "module": "github.com/apphub/runtime"
+  "module": "github.com/apphub/runtime",
+  "manifestPath": "./service-manifest.json"
 }

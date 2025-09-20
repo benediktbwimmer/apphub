@@ -88,7 +88,7 @@ INGEST_CONCURRENCY=2
 INGEST_JOB_ATTEMPTS=3
 INGEST_JOB_BACKOFF_MS=10000
 INGEST_CLONE_DEPTH=1
-SERVICE_MANIFEST_PATH=services/service-manifest.json   # Defaults to bundled manifest; comma-separated list supported
+SERVICE_MANIFEST_PATH=services/service-manifest.json   # Optional manifest paths consumed when you refresh/import
 SERVICE_CONFIG_PATH=services/service-config.json       # Declarative service config + git imports (comma-separated list)
 SERVICE_REGISTRY_TOKEN=                                # Shared secret for POST/PATCH /services (disabled when empty)
 SERVICE_HEALTH_INTERVAL_MS=30000                       # Health poll cadence
@@ -102,7 +102,7 @@ The service registry consumes `services/service-config.json`, a declarative modu
 It can point at the bundled `service-manifest.json`, inline service definitions, and declare `imports` that pull additional
 service manifests from Git repositories. Each import records the remote repository, an optional tag/branch `ref`, and an optional
 `commit` SHA. The registry clones every module, walks the dependency DAG, and merges the resulting service entries with any extra
-JSON manifests referenced via `SERVICE_MANIFEST_PATH`.
+JSON manifests referenced via `SERVICE_MANIFEST_PATH` when you explicitly trigger a refresh.
 
 To add a new module at runtime, call `POST /service-config/import` with your `SERVICE_REGISTRY_TOKEN`. The API validates the
 remote configuration, resolves the effective commit, appends the import to `services/service-config.json`, and refreshes the
@@ -118,7 +118,9 @@ curl -X POST http://127.0.0.1:4000/service-config/import \
       }'
 ```
 
-The response includes the module identifier, resolved commit SHA, and number of discovered services.
+The response includes the module identifier, resolved commit SHA, and number of discovered services. The catalog no longer
+ingests manifests automatically on boot—invoke one of the import endpoints (or call the `refreshManifest` helper in code)
+whenever you want to sync declarative definitions into the registry.
 
 ### Run Everything Locally
 

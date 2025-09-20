@@ -1068,7 +1068,6 @@ function startPolling(): PollerController {
 }
 
 export async function initializeServiceRegistry(options?: { enablePolling?: boolean }) {
-  await loadManifest();
   if (options?.enablePolling === false) {
     poller?.stop();
     poller = null;

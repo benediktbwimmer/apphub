@@ -37,7 +37,7 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     CATALOG_DB_PATH=/app/data/catalog.db \
     REDIS_URL=redis://127.0.0.1:6379 \
-    SERVICE_MANIFEST_PATH=services/service-manifest.empty.json \
+    SERVICE_MANIFEST_PATH=services/service-manifest.json \
     SERVICE_CONFIG_PATH=services/service-config.docker.json \
     FRONTEND_PORT=4173 \
     DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
@@ -48,7 +48,7 @@ ENV NODE_ENV=production \
     PGDATA=/app/data/postgres
 
 COPY services/service-config.docker.json services/service-config.docker.json
-COPY services/service-manifest.empty.json services/service-manifest.empty.json
+COPY services/service-manifest.json services/service-manifest.json
 COPY --from=catalog-build /app/services/catalog/package.json services/catalog/package.json
 COPY --from=catalog-build /app/services/catalog/package-lock.json services/catalog/package-lock.json
 COPY --from=catalog-build /app/services/catalog/node_modules services/catalog/node_modules

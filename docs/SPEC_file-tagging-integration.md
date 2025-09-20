@@ -26,7 +26,7 @@ We need to treat external microservices (Better File Explorer, AI Connector, and
    - Emit Redis events (`service.updated`) via `emitApphubEvent` in `services/catalog/src/events.ts` so other processes can subscribe.
 
 2. **Registration Paths**
-   - **Declarative Manifest**: Add `services/service-manifest.json` which lists default service definitions. On catalog boot, parse the manifest and upsert entries.
+   - **Declarative Manifest**: Add `services/service-manifest.json` which lists default service definitions. Operators trigger manifest ingestion manually (e.g., via `/service-config/import`) instead of relying on catalog startup to apply the file.
    - **Runtime API**: Add `POST /services` and `PATCH /services/:slug` endpoints in `services/catalog/src/server.ts` with zod validation, guarded by shared secret (`SERVICE_REGISTRY_TOKEN`). This allows the file-tagging service to self-register when it boots in another repo.
 
 3. **Health & Capability Checks**
@@ -34,7 +34,7 @@ We need to treat external microservices (Better File Explorer, AI Connector, and
    - When a service exposes OpenAPI metadata (both external repos do), fetch and cache `openapi.yaml` upon successful health check; persist hash/version in `metadata` for change detection.
 
 4. **Configuration Surface**
-   - Allow overriding or adding services via environment variable `SERVICE_MANIFEST_PATH` (supports absolute path or comma-separated list). Merge additional entries on startup.
+   - Allow overriding or adding services via environment variable `SERVICE_MANIFEST_PATH` (supports absolute path or comma-separated list). Consume the configured manifests when an operator issues a registry refresh.
    - Support runtime overrides of service base URLs through `.env.local` to accommodate port differences in development.
 
 5. **Catalog → Service Clients**
@@ -72,7 +72,7 @@ Detailed zod schemas will live in `services/catalog/src/server.ts`.
 ## Configuration Matrix
 | Variable | Description | Default |
 | --- | --- | --- |
-| `SERVICE_MANIFEST_PATH` | Path(s) to JSON manifest describing services | `services/service-manifest.json` |
+| `SERVICE_MANIFEST_PATH` | Path(s) to JSON manifest describing services; consumed when a refresh is requested | `services/service-manifest.json` |
 | `SERVICE_REGISTRY_TOKEN` | Shared secret required for POST/PATCH on `/services` | none (disabled when unset) |
 | `SERVICE_HEALTH_INTERVAL_MS` | Polling interval for health checks | 30000 |
 
@@ -90,4 +90,3 @@ Detailed zod schemas will live in `services/catalog/src/server.ts`.
 2. Add manifest + dev orchestration; verify in local dev.
 3. Enable ingestion hook for tagging once the file-tagging service is implemented and healthy.
 4. Document setup in `docs/architecture.md` and README.
-
