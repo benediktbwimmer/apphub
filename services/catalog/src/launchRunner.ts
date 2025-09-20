@@ -27,7 +27,6 @@ import {
   runDockerCommand,
   parseEnvPort
 } from './docker';
-import { enqueueLaunchStart, enqueueLaunchStop, isInlineQueueMode } from './queue';
 import type { ManifestEnvVarInput } from './serviceManifestTypes';
 
 function log(message: string, meta?: Record<string, unknown>) {
@@ -363,11 +362,7 @@ async function stopServiceLaunches(launchIds: string[]) {
         continue;
       }
       requestLaunchStop(launchId);
-      if (isInlineQueueMode()) {
-        await runLaunchStop(launchId);
-      } else {
-        await enqueueLaunchStop(launchId);
-      }
+      await runLaunchStop(launchId);
       const result = await waitForLaunchStoppedStatus(launchId);
       if (result.status === 'failed') {
         log('network member launch failed during stop', {
@@ -428,11 +423,7 @@ async function runServiceNetworkLaunch(
         memberRepositoryId: member.memberRepositoryId,
         launchOrder: member.launchOrder
       });
-      if (isInlineQueueMode()) {
-        await runLaunchStart(childLaunch.id);
-      } else {
-        await enqueueLaunchStart(childLaunch.id);
-      }
+      await runLaunchStart(childLaunch.id);
       await waitForLaunchRunningStatus(childLaunch.id);
       log('network member launch running', {
         networkLaunchId: launch.id,

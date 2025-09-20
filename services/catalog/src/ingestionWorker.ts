@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import {
   createBuild,
   getRepositoryById,
+  listNetworksForMemberRepository,
   upsertRepository,
   setRepositoryStatus,
   takeNextPendingRepository,
@@ -871,6 +872,11 @@ async function processRepository(repository: RepositoryRecord) {
     const dockerTags = await detectTagsFromDockerfile(workingDir, dockerfilePath);
     for (const tag of dockerTags) {
       addTag(tagMap, tag.key, tag.value, tag.source);
+    }
+
+    const networkMemberships = listNetworksForMemberRepository(repository.id);
+    for (const networkId of networkMemberships) {
+      addTag(tagMap, 'service-network', networkId, 'manifest:service-network');
     }
 
     const readmeMetadata = await readReadmeMetadata(workingDir, repository.repoUrl, commitSha);

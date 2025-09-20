@@ -12,6 +12,7 @@ import {
   listServices,
   replaceRepositoryTags,
   replaceServiceNetworkMembers,
+  setRepositoryStatus,
   setServiceStatus,
   upsertRepository,
   upsertService,
@@ -461,6 +462,11 @@ async function ensureRepositoryFromManifest(options: {
     return record;
   }
 
+  const repoUrlChanged = existing.repoUrl !== options.repoUrl;
+  const dockerfileChanged = existing.dockerfilePath !== options.dockerfilePath;
+  const statusNeedsRecovery = existing.ingestStatus === 'failed' || existing.ingestStatus === 'seed';
+  const shouldTriggerIngestion = repoUrlChanged || dockerfileChanged || statusNeedsRecovery;
+
   const updated = upsertRepository({
     id: repositoryId,
     name: options.name,
@@ -476,6 +482,25 @@ async function ensureRepositoryFromManifest(options: {
 
   if (envTemplates.length > 0) {
     updateRepositoryLaunchEnvTemplates(repositoryId, envTemplates);
+  }
+
+  if (shouldTriggerIngestion) {
+    const now = new Date().toISOString();
+    if (existing.ingestStatus !== 'pending' || repoUrlChanged || dockerfileChanged) {
+      setRepositoryStatus(repositoryId, 'pending', {
+        updatedAt: now,
+        ingestError: null,
+        eventMessage: 'Queued for ingestion by manifest sync'
+      });
+    }
+    try {
+      await enqueueRepositoryIngestion(repositoryId);
+    } catch (err) {
+      log('warn', 'failed to re-enqueue ingestion for manifest repository', {
+        repositoryId,
+        error: (err as Error).message
+      });
+    }
   }
 
   return updated;
