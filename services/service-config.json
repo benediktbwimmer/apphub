@@ -4,7 +4,7 @@
   "imports": [
     {
       "module": "github.com/apphub/examples/three-service-network",
-      "repo": "../manifests/three-service-network",
+      "repo": "https://github.com/benediktbwimmer/three-services-network",
       "commit": "f19a91b40c2be1af5cd59cf5b8d88236208b3159"
     }
   ]
