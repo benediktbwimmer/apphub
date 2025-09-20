@@ -38,6 +38,7 @@ import {
   getServiceBySlug,
   upsertService,
   setServiceStatus,
+  nukeCatalogDatabase,
   type ServiceRecord,
   type ServiceStatusUpdate,
   type ServiceUpsertInput,
@@ -1558,6 +1559,25 @@ export async function buildServer() {
 
     reply.status(202);
     return { data: refreshed ? serializeRepository(refreshed) : null };
+  });
+
+  app.post('/admin/catalog/nuke', async (request, reply) => {
+    try {
+      const result = nukeCatalogDatabase();
+      request.log.warn(
+        {
+          repositoriesDeleted: result.repositoriesDeleted,
+          servicesDeleted: result.servicesDeleted
+        },
+        'Catalog database nuked'
+      );
+      reply.status(200);
+      return { data: result };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to nuke catalog database');
+      reply.status(500);
+      return { error: 'Failed to nuke catalog database' };
+    }
   });
 
   return app;
