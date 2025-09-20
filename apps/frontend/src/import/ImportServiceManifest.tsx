@@ -17,10 +17,21 @@ const SUBMIT_BUTTON =
   'inline-flex items-center justify-center rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
 
 const SECONDARY_BUTTON =
-  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
 
 function ImportServiceManifest({ onImported }: ImportServiceManifestProps) {
-  const { form, updateField, submitting, error, result, handleSubmit, resetResult } = useImportServiceManifest();
+  const {
+    form,
+    updateField,
+    submitting,
+    error,
+    result,
+    handleSubmit,
+    resetResult,
+    reimporting,
+    canReimport,
+    handleReimport
+  } = useImportServiceManifest();
 
   useEffect(() => {
     if (!result) {
@@ -154,6 +165,16 @@ function ImportServiceManifest({ onImported }: ImportServiceManifestProps) {
               <button type="button" className={SECONDARY_BUTTON} onClick={resetResult}>
                 Import another manifest
               </button>
+              {canReimport && result.networksDiscovered > 0 && (
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON}
+                  onClick={handleReimport}
+                  disabled={reimporting}
+                >
+                  {reimporting ? 'Reimporting…' : 'Reimport service network manifest'}
+                </button>
+              )}
               {onImported && (
                 <button type="button" className={SUBMIT_BUTTON} onClick={onImported}>
                   View catalog

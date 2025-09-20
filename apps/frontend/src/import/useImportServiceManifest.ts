@@ -62,8 +62,31 @@ export function useImportServiceManifest() {
     module: ''
   });
   const [submitting, setSubmitting] = useState(false);
+  const [reimporting, setReimporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportManifestResult | null>(null);
+  const [lastRequestBody, setLastRequestBody] = useState<NormalizedRequestBody | null>(null);
+
+  const importManifest = useCallback(
+    async (body: NormalizedRequestBody) => {
+      const response = await fetch(`${API_BASE_URL}/service-networks/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const message = payload?.error ?? `Import failed with status ${response.status}`;
+        throw new Error(typeof message === 'string' ? message : 'Import failed');
+      }
+
+      const payload = await response.json();
+      setResult(payload.data as ImportManifestResult);
+      setLastRequestBody(body);
+    },
+    []
+  );
 
   const updateField = useCallback((field: keyof ImportManifestForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -85,20 +108,7 @@ export function useImportServiceManifest() {
           throw new Error('Repository URL is required');
         }
 
-        const response = await fetch(`${API_BASE_URL}/service-networks/import`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          const message = payload?.error ?? `Import failed with status ${response.status}`;
-          throw new Error(typeof message === 'string' ? message : 'Import failed');
-        }
-
-        const payload = await response.json();
-        setResult(payload.data as ImportManifestResult);
+        await importManifest(body);
       } catch (err) {
         setError((err as Error).message);
         setResult(null);
@@ -106,21 +116,40 @@ export function useImportServiceManifest() {
         setSubmitting(false);
       }
     },
-    [form, submitting]
+    [form, importManifest, submitting]
   );
 
   const resetResult = useCallback(() => {
     setResult(null);
   }, []);
 
+  const handleReimport = useCallback(async () => {
+    if (reimporting || submitting || !lastRequestBody) {
+      return;
+    }
+
+    setReimporting(true);
+    setError(null);
+    try {
+      await importManifest(lastRequestBody);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setReimporting(false);
+    }
+  }, [importManifest, lastRequestBody, reimporting, submitting]);
+
   return {
     form,
     updateField,
     setForm,
     submitting,
+    reimporting,
     error,
     result,
     handleSubmit,
-    resetResult
+    resetResult,
+    handleReimport,
+    canReimport: lastRequestBody !== null
   };
 }
