@@ -28,6 +28,10 @@ import {
   parseEnvPort
 } from './docker';
 import type { ManifestEnvVarInput } from './serviceManifestTypes';
+import {
+  updateServiceRuntimeForRepository,
+  clearServiceRuntimeForRepository
+} from './serviceRegistry';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -442,6 +446,18 @@ async function runServiceNetworkLaunch(
         host
       };
       runtimeContext.set(member.memberRepositoryId.trim().toLowerCase(), context);
+      if (runningLaunch && (context.instanceUrl || context.baseUrl)) {
+        updateServiceRuntimeForRepository(member.memberRepositoryId, {
+          repositoryId: member.memberRepositoryId,
+          launchId: childLaunch.id,
+          instanceUrl: context.instanceUrl,
+          baseUrl: context.baseUrl,
+          previewUrl: context.instanceUrl ?? context.baseUrl,
+          host: context.host,
+          port: context.port,
+          source: 'service-network'
+        });
+      }
     }
 
     recordServiceNetworkLaunchMembers(launch.id, recorded);
@@ -463,26 +479,45 @@ async function runServiceNetworkLaunch(
     if (reverseLaunchIds.length > 0) {
       await stopServiceLaunches(reverseLaunchIds);
     }
+    for (const entry of recorded) {
+      clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+        launchId: entry.memberLaunchId
+      });
+    }
     deleteServiceNetworkLaunchMembers(launch.id);
     failLaunch(launch.id, (err as Error).message ?? 'service network launch failed');
   }
 }
 
 async function runServiceNetworkStop(launch: LaunchRecord) {
+  let members: ReturnType<typeof getServiceNetworkLaunchMembers> = [];
   try {
-    const members = getServiceNetworkLaunchMembers(launch.id);
+    members = getServiceNetworkLaunchMembers(launch.id);
     if (members.length > 0) {
       const launchIds = members
         .slice()
         .sort((a, b) => b.launchOrder - a.launchOrder)
         .map((entry) => entry.memberLaunchId);
-      await stopServiceLaunches(launchIds);
+      try {
+        await stopServiceLaunches(launchIds);
+      } finally {
+        for (const entry of members) {
+          clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+            launchId: entry.memberLaunchId
+          });
+        }
+      }
     }
     deleteServiceNetworkLaunchMembers(launch.id);
     markLaunchStopped(launch.id);
     log('service network launch stopped', { launchId: launch.id });
   } catch (err) {
     deleteServiceNetworkLaunchMembers(launch.id);
+    for (const entry of members) {
+      clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+        launchId: entry.memberLaunchId
+      });
+    }
     markLaunchStopped(launch.id, { errorMessage: (err as Error).message });
     log('error stopping service network', {
       launchId: launch.id,

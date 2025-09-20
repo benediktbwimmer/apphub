@@ -79,6 +79,7 @@ let manifestEntries: ManifestMap = new Map();
 let manifestNetworks: LoadedServiceNetwork[] = [];
 let poller: PollerController | null = null;
 let isPolling = false;
+const repositoryToServiceSlug = new Map<string, string>();
 
 const log = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) => {
   const payload = meta ? { ...meta } : undefined;
@@ -351,6 +352,17 @@ function removeUndefined<T extends Record<string, unknown>>(input: T): Record<st
   }
   return result;
 }
+
+export type ServiceRuntimeSnapshot = {
+  repositoryId: string;
+  launchId: string | null;
+  instanceUrl: string | null;
+  baseUrl: string | null;
+  previewUrl?: string | null;
+  host: string | null;
+  port: number | null;
+  source?: string;
+};
 
 function buildManifestMetadata(entry: ManifestEntry) {
   return removeUndefined({
@@ -632,6 +644,13 @@ function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
     }
   }
 
+  repositoryToServiceSlug.clear();
+  for (const [slug, apps] of serviceToApps) {
+    for (const appId of apps) {
+      repositoryToServiceSlug.set(appId, slug);
+    }
+  }
+
   const slugs = new Set<string>([...manifestEntries.keys(), ...serviceToApps.keys()]);
   for (const slug of slugs) {
     const service = getServiceBySlug(slug);
@@ -656,6 +675,125 @@ function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
     }
     setServiceStatus(slug, { metadata: nextMetadata });
   }
+}
+
+function normalizeRepositoryId(id: string | null | undefined): string | null {
+  if (!id || typeof id !== 'string') {
+    return null;
+  }
+  const normalized = id.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getServiceSlugForRepository(repositoryId: string): string | null {
+  const normalized = normalizeRepositoryId(repositoryId);
+  if (!normalized) {
+    return null;
+  }
+
+  const cached = repositoryToServiceSlug.get(normalized);
+  if (cached) {
+    return cached;
+  }
+
+  for (const network of manifestNetworks) {
+    for (const service of network.services) {
+      const memberId = normalizeRepositoryId(service.app.id);
+      if (memberId === normalized) {
+        repositoryToServiceSlug.set(normalized, service.serviceSlug);
+        return service.serviceSlug;
+      }
+    }
+  }
+
+  const services = listServices();
+  for (const service of services) {
+    const metadata = toMetadataObject(service.metadata ?? null);
+    const manifestMeta = toPlainObject(metadata.manifest as JsonValue | null | undefined);
+    const apps = manifestMeta.apps;
+    if (!Array.isArray(apps)) {
+      continue;
+    }
+    for (const appId of apps) {
+      if (typeof appId !== 'string') {
+        continue;
+      }
+      if (normalizeRepositoryId(appId) === normalized) {
+        repositoryToServiceSlug.set(normalized, service.slug);
+        return service.slug;
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildRuntimeMetadata(runtime: ServiceRuntimeSnapshot) {
+  return removeUndefined({
+    repositoryId: runtime.repositoryId,
+    launchId: runtime.launchId ?? null,
+    instanceUrl: runtime.instanceUrl ?? null,
+    baseUrl: runtime.baseUrl ?? null,
+    previewUrl: runtime.previewUrl ?? runtime.instanceUrl ?? runtime.baseUrl ?? null,
+    host: runtime.host ?? null,
+    port: runtime.port ?? null,
+    source: runtime.source ?? 'service-network',
+    status: 'running',
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export function updateServiceRuntimeForRepository(
+  repositoryId: string,
+  runtime: ServiceRuntimeSnapshot
+) {
+  const slug = getServiceSlugForRepository(repositoryId);
+  if (!slug) {
+    log('warn', 'no service mapping for runtime update', { repositoryId });
+    return;
+  }
+
+  const service = getServiceBySlug(slug);
+  if (!service) {
+    log('warn', 'service missing for runtime update', { repositoryId, slug });
+    return;
+  }
+
+  const metadata = toMetadataObject(service.metadata ?? null);
+  metadata.runtime = buildRuntimeMetadata(runtime);
+  const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+  setServiceStatus(slug, { metadata: nextMetadata });
+}
+
+export function clearServiceRuntimeForRepository(
+  repositoryId: string,
+  options?: { launchId?: string | null }
+) {
+  const slug = getServiceSlugForRepository(repositoryId);
+  if (!slug) {
+    return;
+  }
+
+  const service = getServiceBySlug(slug);
+  if (!service) {
+    return;
+  }
+
+  const metadata = toMetadataObject(service.metadata ?? null);
+  const runtimeMeta = toPlainObject(metadata.runtime as JsonValue | null | undefined);
+  if (Object.keys(runtimeMeta).length === 0) {
+    return;
+  }
+
+  const currentLaunchId = typeof runtimeMeta.launchId === 'string' ? runtimeMeta.launchId.trim() : '';
+  const expectedLaunchId = options?.launchId ?? null;
+  if (expectedLaunchId && currentLaunchId && currentLaunchId !== expectedLaunchId) {
+    return;
+  }
+
+  delete metadata.runtime;
+  const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+  setServiceStatus(slug, { metadata: nextMetadata });
 }
 
 async function loadManifest(): Promise<ManifestLoadResult> {
