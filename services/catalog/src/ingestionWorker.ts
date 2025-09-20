@@ -874,7 +874,7 @@ async function processRepository(repository: RepositoryRecord) {
       addTag(tagMap, tag.key, tag.value, tag.source);
     }
 
-    const networkMemberships = listNetworksForMemberRepository(repository.id);
+    const networkMemberships = await listNetworksForMemberRepository(repository.id);
     for (const networkId of networkMemberships) {
       addTag(tagMap, 'service-network', networkId, 'manifest:service-network');
     }
@@ -888,7 +888,7 @@ async function processRepository(repository: RepositoryRecord) {
     const previewTiles = mergePreviewInputs(manifestPreviews, readmeMetadata.previews);
 
     const now = new Date().toISOString();
-    upsertRepository({
+    await upsertRepository({
       id: repository.id,
       name: packageMeta.name ?? repository.name,
       description: readmeMetadata.summary ?? repository.description,
@@ -900,8 +900,8 @@ async function processRepository(repository: RepositoryRecord) {
       ingestError: null,
       tags: Array.from(tagMap.values())
     });
-    replaceRepositoryPreviews(repository.id, previewTiles);
-    setRepositoryStatus(repository.id, 'ready', {
+    await replaceRepositoryPreviews(repository.id, previewTiles);
+    await setRepositoryStatus(repository.id, 'ready', {
       updatedAt: now,
       lastIngestedAt: now,
       ingestError: null,
@@ -910,7 +910,7 @@ async function processRepository(repository: RepositoryRecord) {
       durationMs: Date.now() - startedAt
     });
 
-    const build = createBuild(repository.id, { commitSha });
+    const build = await createBuild(repository.id, { commitSha });
     if (useInlineQueue) {
       log('Running build inline', { repositoryId: repository.id, buildId: build.id });
       await runBuildJob(build.id);
@@ -923,7 +923,7 @@ async function processRepository(repository: RepositoryRecord) {
   } catch (err) {
     const now = new Date().toISOString();
     const message = (err as Error).message ?? 'Unknown error';
-    setRepositoryStatus(repository.id, 'failed', {
+    await setRepositoryStatus(repository.id, 'failed', {
       updatedAt: now,
       lastIngestedAt: now,
       ingestError: message.slice(0, 500),
@@ -946,21 +946,21 @@ async function runWorker() {
   });
 
   const handleJob = async ({ repositoryId }: { repositoryId: string }) => {
-    const repository = getRepositoryById(repositoryId);
+    const repository = await getRepositoryById(repositoryId);
     if (!repository) {
       log('Repository missing for job', { repositoryId });
       return;
     }
 
     const now = new Date().toISOString();
-    setRepositoryStatus(repositoryId, 'processing', {
+    await setRepositoryStatus(repositoryId, 'processing', {
       updatedAt: now,
       ingestError: null,
       incrementAttempts: true,
       eventMessage: 'Ingestion started'
     });
 
-    const refreshed = getRepositoryById(repositoryId);
+    const refreshed = await getRepositoryById(repositoryId);
     await processRepository(
       refreshed ?? {
         ...repository,
@@ -976,8 +976,11 @@ async function runWorker() {
 
     const poll = async () => {
       try {
-        let pending: RepositoryRecord | null;
-        while ((pending = takeNextPendingRepository())) {
+        while (true) {
+          const pending = await takeNextPendingRepository();
+          if (!pending) {
+            break;
+          }
           await handleJob({ repositoryId: pending.id });
         }
       } catch (err) {

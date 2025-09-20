@@ -1,0 +1,126 @@
+export type RepositoryRow = {
+  id: string;
+  name: string;
+  description: string;
+  repo_url: string;
+  dockerfile_path: string;
+  ingest_status: string;
+  updated_at: string;
+  last_ingested_at: string | null;
+  ingest_error: string | null;
+  ingest_attempts: number;
+  launch_env_templates: unknown;
+  created_at: string;
+};
+
+export type TagRow = {
+  repository_id: string;
+  key: string;
+  value: string;
+  source: string;
+};
+
+export type BuildRow = {
+  id: string;
+  repository_id: string;
+  status: string;
+  logs: string | null;
+  image_tag: string | null;
+  error_message: string | null;
+  commit_sha: string | null;
+  branch: string | null;
+  git_ref: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+};
+
+export type LaunchRow = {
+  id: string;
+  repository_id: string;
+  build_id: string;
+  status: string;
+  instance_url: string | null;
+  container_id: string | null;
+  port: number | null;
+  resource_profile: string | null;
+  command: string | null;
+  env_vars: unknown;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  stopped_at: string | null;
+  expires_at: string | null;
+};
+
+export type RepositoryPreviewRow = {
+  id: number;
+  repository_id: string;
+  kind: string;
+  source: string;
+  title: string | null;
+  description: string | null;
+  src: string | null;
+  embed_url: string | null;
+  poster_url: string | null;
+  width: number | null;
+  height: number | null;
+  sort_order: number;
+  created_at: string;
+};
+
+export type IngestionEventRow = {
+  id: number;
+  repository_id: string;
+  status: string;
+  message: string | null;
+  attempt: number | null;
+  commit_sha: string | null;
+  duration_ms: number | null;
+  created_at: string;
+};
+
+export type ServiceNetworkRow = {
+  repository_id: string;
+  manifest_source: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceNetworkMemberRow = {
+  network_repository_id: string;
+  member_repository_id: string;
+  launch_order: number;
+  wait_for_build: boolean;
+  env_vars: unknown;
+  depends_on: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceNetworkLaunchMemberRow = {
+  network_launch_id: string;
+  member_launch_id: string;
+  member_repository_id: string;
+  launch_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceRow = {
+  id: string;
+  slug: string;
+  display_name: string;
+  kind: string;
+  base_url: string;
+  status: string;
+  status_message: string | null;
+  capabilities: unknown;
+  metadata: unknown;
+  last_healthy_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -55,16 +55,16 @@ function log(message: string, meta?: Record<string, unknown>) {
 }
 
 export async function runStubLaunchStart(launchId: string) {
-  const launch = startLaunch(launchId);
+  const launch = await startLaunch(launchId);
   if (!launch) {
     log('Launch not pending for stub start', { launchId });
     return;
   }
 
-  const build = getBuildById(launch.buildId);
+  const build = await getBuildById(launch.buildId);
   if (!build || build.status !== 'succeeded' || !build.imageTag) {
     const message = 'Launch unavailable: build image missing';
-    failLaunch(launch.id, message);
+    await failLaunch(launch.id, message);
     log('Launch failed - build unavailable', { launchId, buildId: launch.buildId });
     return;
   }
@@ -73,7 +73,7 @@ export async function runStubLaunchStart(launchId: string) {
   const port = parsePort(process.env.LAUNCH_PREVIEW_PORT);
   const startedAt = new Date().toISOString();
 
-  markLaunchRunning(launch.id, {
+  await markLaunchRunning(launch.id, {
     instanceUrl,
     containerId: `stub-${launch.id}`,
     port,
@@ -85,16 +85,16 @@ export async function runStubLaunchStart(launchId: string) {
 }
 
 export async function runStubLaunchStop(launchId: string) {
-  const launch = getLaunchById(launchId);
+  const launch = await getLaunchById(launchId);
   if (!launch) {
     log('Launch missing for stub stop', { launchId });
     return;
   }
 
   if (launch.status !== 'stopping') {
-    requestLaunchStop(launchId);
+    await requestLaunchStop(launchId);
   }
 
-  markLaunchStopped(launchId);
+  await markLaunchStopped(launchId);
   log('Launch stopped (stub)', { launchId });
 }

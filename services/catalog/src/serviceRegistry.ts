@@ -388,7 +388,7 @@ function stripAppliedAt(value: JsonValue | undefined): Record<string, JsonValue>
 
 async function applyManifestToDatabase(entries: ManifestMap) {
   for (const entry of entries.values()) {
-    const existing = getServiceBySlug(entry.slug);
+    const existing = await getServiceBySlug(entry.slug);
     const metadata = toMetadataObject(existing?.metadata ?? null);
     const previousManifest = metadata.manifest;
     const manifestMeta = buildManifestMetadata(entry);
@@ -423,7 +423,7 @@ async function applyManifestToDatabase(entries: ManifestMap) {
       upsertPayload.capabilities = entry.capabilities ?? null;
     }
 
-    const record = upsertService(upsertPayload);
+    const record = await upsertService(upsertPayload);
     const action = existing ? 'updated' : 'registered';
     log('info', `service manifest ${action}`, {
       slug: record.slug,
@@ -446,7 +446,7 @@ async function ensureRepositoryFromManifest(options: {
   const repositoryId = options.id;
   const envTemplates = options.envTemplates;
   const tagsWithSource = options.tags.map((tag) => ({ ...tag, source: 'manifest' as const }));
-  const existing = getRepositoryById(repositoryId);
+  const existing = await getRepositoryById(repositoryId);
 
   if (!existing) {
     log('info', 'registering manifest repository', {
@@ -454,7 +454,7 @@ async function ensureRepositoryFromManifest(options: {
       repoUrl: options.repoUrl,
       source: options.sourceLabel ?? null
     });
-    const record = addRepository({
+    const record = await addRepository({
       id: repositoryId,
       name: options.name,
       description: options.description,
@@ -479,7 +479,7 @@ async function ensureRepositoryFromManifest(options: {
   const statusNeedsRecovery = existing.ingestStatus === 'failed' || existing.ingestStatus === 'seed';
   const shouldTriggerIngestion = repoUrlChanged || dockerfileChanged || statusNeedsRecovery;
 
-  const updated = upsertRepository({
+  const updated = await upsertRepository({
     id: repositoryId,
     name: options.name,
     description: options.description,
@@ -489,17 +489,17 @@ async function ensureRepositoryFromManifest(options: {
   });
 
   if (options.tags.length > 0) {
-    replaceRepositoryTags(repositoryId, options.tags, { clearExisting: false, source: 'manifest' });
+    await replaceRepositoryTags(repositoryId, options.tags, { clearExisting: false, source: 'manifest' });
   }
 
   if (envTemplates.length > 0) {
-    updateRepositoryLaunchEnvTemplates(repositoryId, envTemplates);
+    await updateRepositoryLaunchEnvTemplates(repositoryId, envTemplates);
   }
 
   if (shouldTriggerIngestion) {
     const now = new Date().toISOString();
     if (existing.ingestStatus !== 'pending' || repoUrlChanged || dockerfileChanged) {
-      setRepositoryStatus(repositoryId, 'pending', {
+      await setRepositoryStatus(repositoryId, 'pending', {
         updatedAt: now,
         ingestError: null,
         eventMessage: 'Queued for ingestion by manifest sync'
@@ -541,7 +541,7 @@ async function ensureNetworkFromManifest(network: LoadedServiceNetwork) {
     sourceLabel: manifestSource
   });
 
-  upsertServiceNetwork({ repositoryId: networkId, manifestSource });
+  await upsertServiceNetwork({ repositoryId: networkId, manifestSource });
 
   const memberInputs: ServiceNetworkMemberInput[] = [];
   let defaultOrder = 0;
@@ -589,7 +589,7 @@ async function ensureNetworkFromManifest(network: LoadedServiceNetwork) {
     defaultOrder += 1;
   }
 
-  replaceServiceNetworkMembers(networkId, memberInputs);
+  await replaceServiceNetworkMembers(networkId, memberInputs);
 }
 
 async function syncNetworksFromManifest(networks: LoadedServiceNetwork[]) {
@@ -609,12 +609,12 @@ async function syncNetworksFromManifest(networks: LoadedServiceNetwork[]) {
     }
   }
 
-  const existing = listServiceNetworkRepositoryIds();
+  const existing = await listServiceNetworkRepositoryIds();
   for (const repositoryId of existing) {
     if (desired.has(repositoryId)) {
       continue;
     }
-    deleteServiceNetwork(repositoryId);
+    await deleteServiceNetwork(repositoryId);
     log('info', 'removed service network not present in manifest', { networkId: repositoryId });
   }
 }
@@ -626,7 +626,7 @@ function toPlainObject(value: JsonValue | null | undefined): Record<string, Json
   return {};
 }
 
-function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
+async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
   const serviceToApps = new Map<string, Set<string>>();
   for (const network of networks) {
     for (const service of network.services) {
@@ -653,7 +653,7 @@ function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
 
   const slugs = new Set<string>([...manifestEntries.keys(), ...serviceToApps.keys()]);
   for (const slug of slugs) {
-    const service = getServiceBySlug(slug);
+    const service = await getServiceBySlug(slug);
     if (!service) {
       continue;
     }
@@ -673,7 +673,7 @@ function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
     if (JSON.stringify(nextMetadata) === JSON.stringify(previous)) {
       continue;
     }
-    setServiceStatus(slug, { metadata: nextMetadata });
+    await setServiceStatus(slug, { metadata: nextMetadata });
   }
 }
 
@@ -685,7 +685,7 @@ function normalizeRepositoryId(id: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function getServiceSlugForRepository(repositoryId: string): string | null {
+async function getServiceSlugForRepository(repositoryId: string): Promise<string | null> {
   const normalized = normalizeRepositoryId(repositoryId);
   if (!normalized) {
     return null;
@@ -706,7 +706,7 @@ function getServiceSlugForRepository(repositoryId: string): string | null {
     }
   }
 
-  const services = listServices();
+  const services = await listServices();
   for (const service of services) {
     const metadata = toMetadataObject(service.metadata ?? null);
     const manifestMeta = toPlainObject(metadata.manifest as JsonValue | null | undefined);
@@ -743,17 +743,17 @@ function buildRuntimeMetadata(runtime: ServiceRuntimeSnapshot) {
   });
 }
 
-export function updateServiceRuntimeForRepository(
+export async function updateServiceRuntimeForRepository(
   repositoryId: string,
   runtime: ServiceRuntimeSnapshot
 ) {
-  const slug = getServiceSlugForRepository(repositoryId);
+  const slug = await getServiceSlugForRepository(repositoryId);
   if (!slug) {
     log('warn', 'no service mapping for runtime update', { repositoryId });
     return;
   }
 
-  const service = getServiceBySlug(slug);
+  const service = await getServiceBySlug(slug);
   if (!service) {
     log('warn', 'service missing for runtime update', { repositoryId, slug });
     return;
@@ -762,19 +762,19 @@ export function updateServiceRuntimeForRepository(
   const metadata = toMetadataObject(service.metadata ?? null);
   metadata.runtime = buildRuntimeMetadata(runtime);
   const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
-  setServiceStatus(slug, { metadata: nextMetadata });
+  await setServiceStatus(slug, { metadata: nextMetadata });
 }
 
-export function clearServiceRuntimeForRepository(
+export async function clearServiceRuntimeForRepository(
   repositoryId: string,
   options?: { launchId?: string | null }
 ) {
-  const slug = getServiceSlugForRepository(repositoryId);
+  const slug = await getServiceSlugForRepository(repositoryId);
   if (!slug) {
     return;
   }
 
-  const service = getServiceBySlug(slug);
+  const service = await getServiceBySlug(slug);
   if (!service) {
     return;
   }
@@ -793,7 +793,7 @@ export function clearServiceRuntimeForRepository(
 
   delete metadata.runtime;
   const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
-  setServiceStatus(slug, { metadata: nextMetadata });
+  await setServiceStatus(slug, { metadata: nextMetadata });
 }
 
 async function loadManifest(): Promise<ManifestLoadResult> {
@@ -837,7 +837,7 @@ async function loadManifest(): Promise<ManifestLoadResult> {
   manifestNetworks = collectedNetworks;
   await applyManifestToDatabase(merged);
   await syncNetworksFromManifest(manifestNetworks);
-  updateServiceManifestAppReferences(manifestNetworks);
+  await updateServiceManifestAppReferences(manifestNetworks);
 
   return { entries: merged, networks: manifestNetworks, errors };
 }
@@ -1012,7 +1012,7 @@ async function checkServiceHealth(service: ServiceRecord) {
     statusUpdate.capabilities = manifest.capabilities ?? null;
   }
 
-  const updated = setServiceStatus(service.slug, statusUpdate);
+  const updated = await setServiceStatus(service.slug, statusUpdate);
 
   if (updated && service.status !== updated.status) {
     if (updated.status === 'healthy') {
@@ -1033,7 +1033,7 @@ async function pollServicesOnce() {
   }
   isPolling = true;
   try {
-    const services = listServices();
+    const services = await listServices();
     for (const service of services) {
       try {
         await checkServiceHealth(service);

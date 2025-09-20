@@ -166,16 +166,16 @@ function collectProcessOutput(command: string, args: string[], options: { cwd: s
 }
 
 export async function runBuildJob(buildId: string) {
-  const pending = startBuild(buildId);
+  const pending = await startBuild(buildId);
   if (!pending) {
     log('No build to start or already handled', { buildId });
     return;
   }
 
-  const repository = getRepositoryById(pending.repositoryId);
+  const repository = await getRepositoryById(pending.repositoryId);
   if (!repository) {
     log('Repository missing for build', { buildId, repositoryId: pending.repositoryId });
-    completeBuild(buildId, 'failed', {
+    await completeBuild(buildId, 'failed', {
       logs: 'Repository metadata no longer available. Build aborted.\n',
       errorMessage: 'repository missing'
     });
@@ -189,7 +189,7 @@ export async function runBuildJob(buildId: string) {
 
   try {
     const startLine = `Starting build for ${repository.id}...\n`;
-    appendBuildLog(buildId, startLine);
+    await appendBuildLog(buildId, startLine);
     combinedLogs += startLine;
 
     const cloneArgs = ['--depth', BUILD_CLONE_DEPTH];
@@ -227,14 +227,14 @@ export async function runBuildJob(buildId: string) {
 
     const envTemplates = await discoverEnvTemplates(workingDir);
     if (envTemplates !== null) {
-      updateRepositoryLaunchEnvTemplates(repository.id, envTemplates);
+      await updateRepositoryLaunchEnvTemplates(repository.id, envTemplates);
     }
 
     const dockerfilePath = path.join(workingDir, repository.dockerfilePath);
     if (!(await fileExists(dockerfilePath))) {
       const message = `Dockerfile missing at ${repository.dockerfilePath}`;
       combinedLogs += `${message}\n`;
-      completeBuild(buildId, 'failed', {
+      await completeBuild(buildId, 'failed', {
         logs: combinedLogs,
         errorMessage: message,
         commitSha: resolvedCommitSha,
@@ -248,17 +248,17 @@ export async function runBuildJob(buildId: string) {
     const args = ['build', '-f', dockerfilePath, '-t', imageTag, workingDir];
     log('Running docker build', { buildId, imageTag });
     const commandLine = `$ docker ${args.join(' ')}\n`;
-    appendBuildLog(buildId, commandLine);
+    await appendBuildLog(buildId, commandLine);
     combinedLogs += commandLine;
 
     const { exitCode, output } = await collectProcessOutput('docker', args, { cwd: workingDir });
     if (output) {
-      appendBuildLog(buildId, output);
+      await appendBuildLog(buildId, output);
       combinedLogs += output;
     }
 
     if (exitCode === 0) {
-      completeBuild(buildId, 'succeeded', {
+      await completeBuild(buildId, 'succeeded', {
         logs: combinedLogs,
         imageTag,
         errorMessage: '',
@@ -270,7 +270,7 @@ export async function runBuildJob(buildId: string) {
     } else {
       const message = exitCode === null ? 'docker build failed to execute' : `docker build exited with code ${exitCode}`;
       combinedLogs += `${message}\n`;
-      completeBuild(buildId, 'failed', {
+      await completeBuild(buildId, 'failed', {
         logs: combinedLogs,
         errorMessage: message,
         commitSha: resolvedCommitSha,
@@ -282,13 +282,13 @@ export async function runBuildJob(buildId: string) {
   } catch (err) {
     const message = (err as Error).message ?? 'unknown build error';
     combinedLogs += `Unexpected error: ${message}\n`;
-      completeBuild(buildId, 'failed', {
-        logs: combinedLogs,
-        errorMessage: message,
-        commitSha: resolvedCommitSha,
-        gitBranch: pending.gitBranch,
-        gitRef: pending.gitRef
-      });
+    await completeBuild(buildId, 'failed', {
+      logs: combinedLogs,
+      errorMessage: message,
+      commitSha: resolvedCommitSha,
+      gitBranch: pending.gitBranch,
+      gitRef: pending.gitRef
+    });
     log('Build crashed', { buildId, error: message });
   } finally {
     await fs.rm(workingDir, { recursive: true, force: true }).catch(() => undefined);

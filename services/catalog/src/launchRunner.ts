@@ -14,6 +14,7 @@ import {
   getServiceNetworkLaunchMembers,
   type LaunchEnvVar,
   type ServiceNetworkLaunchMemberInput,
+  type ServiceNetworkLaunchMemberRecord,
   type LaunchRecord,
   type RepositoryRecord,
   type ServiceNetworkRecord,
@@ -282,7 +283,7 @@ function sortNetworkMembers(network: ServiceNetworkRecord): ServiceNetworkMember
 }
 
 async function resolveBuildIdForMember(member: ServiceNetworkMemberRecord): Promise<string> {
-  let repository = getRepositoryById(member.memberRepositoryId);
+  let repository = await getRepositoryById(member.memberRepositoryId);
   if (!repository) {
     throw new Error(`repository ${member.memberRepositoryId} not found`);
   }
@@ -301,7 +302,7 @@ async function resolveBuildIdForMember(member: ServiceNetworkMemberRecord): Prom
   });
   while (Date.now() < deadline) {
     await delay(SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS);
-    repository = getRepositoryById(member.memberRepositoryId);
+    repository = await getRepositoryById(member.memberRepositoryId);
     if (!repository) {
       continue;
     }
@@ -321,7 +322,7 @@ async function resolveBuildIdForMember(member: ServiceNetworkMemberRecord): Prom
 async function waitForLaunchRunningStatus(launchId: string): Promise<LaunchRecord> {
   const deadline = Date.now() + SERVICE_NETWORK_LAUNCH_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const record = getLaunchById(launchId);
+    const record = await getLaunchById(launchId);
     if (!record) {
       throw new Error(`launch ${launchId} not found`);
     }
@@ -343,7 +344,7 @@ async function waitForLaunchRunningStatus(launchId: string): Promise<LaunchRecor
 async function waitForLaunchStoppedStatus(launchId: string): Promise<LaunchRecord> {
   const deadline = Date.now() + SERVICE_NETWORK_LAUNCH_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const record = getLaunchById(launchId);
+    const record = await getLaunchById(launchId);
     if (!record) {
       throw new Error(`launch ${launchId} not found`);
     }
@@ -358,14 +359,14 @@ async function waitForLaunchStoppedStatus(launchId: string): Promise<LaunchRecor
 async function stopServiceLaunches(launchIds: string[]) {
   for (const launchId of launchIds) {
     try {
-      const current = getLaunchById(launchId);
+      const current = await getLaunchById(launchId);
       if (!current) {
         continue;
       }
       if (!['running', 'starting', 'pending'].includes(current.status)) {
         continue;
       }
-      requestLaunchStop(launchId);
+      await requestLaunchStop(launchId);
       await runLaunchStop(launchId);
       const result = await waitForLaunchStoppedStatus(launchId);
       if (result.status === 'failed') {
@@ -391,10 +392,10 @@ async function runServiceNetworkLaunch(
   network: ServiceNetworkRecord
 ) {
   const members = sortNetworkMembers(network);
-  deleteServiceNetworkLaunchMembers(launch.id);
+  await deleteServiceNetworkLaunchMembers(launch.id);
   if (members.length === 0) {
-    recordServiceNetworkLaunchMembers(launch.id, []);
-    markLaunchRunning(launch.id, {
+    await recordServiceNetworkLaunchMembers(launch.id, []);
+    await markLaunchRunning(launch.id, {
       instanceUrl: null,
       containerId: null,
       command: 'service-network'
@@ -418,7 +419,7 @@ async function runServiceNetworkLaunch(
       });
       const buildId = await resolveBuildIdForMember(member);
       const resolvedEnv = resolveEnvEntries(member.env, runtimeContext);
-      const childLaunch = createLaunch(member.memberRepositoryId, buildId, {
+      const childLaunch = await createLaunch(member.memberRepositoryId, buildId, {
         env: resolvedEnv,
         command: null
       });
@@ -434,7 +435,7 @@ async function runServiceNetworkLaunch(
         memberLaunchId: childLaunch.id
       });
 
-      const runningLaunch = getLaunchById(childLaunch.id);
+      const runningLaunch = await getLaunchById(childLaunch.id);
       const port = runningLaunch?.port ?? null;
       const host = '127.0.0.1';
       const baseUrl = port ? `http://${host}:${port}` : runningLaunch?.instanceUrl ?? null;
@@ -447,7 +448,7 @@ async function runServiceNetworkLaunch(
       };
       runtimeContext.set(member.memberRepositoryId.trim().toLowerCase(), context);
       if (runningLaunch && (context.instanceUrl || context.baseUrl)) {
-        updateServiceRuntimeForRepository(member.memberRepositoryId, {
+        await updateServiceRuntimeForRepository(member.memberRepositoryId, {
           repositoryId: member.memberRepositoryId,
           launchId: childLaunch.id,
           instanceUrl: context.instanceUrl,
@@ -460,8 +461,8 @@ async function runServiceNetworkLaunch(
       }
     }
 
-    recordServiceNetworkLaunchMembers(launch.id, recorded);
-    markLaunchRunning(launch.id, {
+    await recordServiceNetworkLaunchMembers(launch.id, recorded);
+    await markLaunchRunning(launch.id, {
       instanceUrl: null,
       containerId: null,
       command: 'service-network'
@@ -480,19 +481,19 @@ async function runServiceNetworkLaunch(
       await stopServiceLaunches(reverseLaunchIds);
     }
     for (const entry of recorded) {
-      clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+      await clearServiceRuntimeForRepository(entry.memberRepositoryId, {
         launchId: entry.memberLaunchId
       });
     }
-    deleteServiceNetworkLaunchMembers(launch.id);
-    failLaunch(launch.id, (err as Error).message ?? 'service network launch failed');
+    await deleteServiceNetworkLaunchMembers(launch.id);
+    await failLaunch(launch.id, (err as Error).message ?? 'service network launch failed');
   }
 }
 
 async function runServiceNetworkStop(launch: LaunchRecord) {
-  let members: ReturnType<typeof getServiceNetworkLaunchMembers> = [];
+  let members: ServiceNetworkLaunchMemberRecord[] = [];
   try {
-    members = getServiceNetworkLaunchMembers(launch.id);
+    members = await getServiceNetworkLaunchMembers(launch.id);
     if (members.length > 0) {
       const launchIds = members
         .slice()
@@ -502,19 +503,19 @@ async function runServiceNetworkStop(launch: LaunchRecord) {
         await stopServiceLaunches(launchIds);
       } finally {
         for (const entry of members) {
-          clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+          await clearServiceRuntimeForRepository(entry.memberRepositoryId, {
             launchId: entry.memberLaunchId
           });
         }
       }
     }
-    deleteServiceNetworkLaunchMembers(launch.id);
-    markLaunchStopped(launch.id);
+    await deleteServiceNetworkLaunchMembers(launch.id);
+    await markLaunchStopped(launch.id);
     log('service network launch stopped', { launchId: launch.id });
   } catch (err) {
-    deleteServiceNetworkLaunchMembers(launch.id);
+    await deleteServiceNetworkLaunchMembers(launch.id);
     for (const entry of members) {
-      clearServiceRuntimeForRepository(entry.memberRepositoryId, {
+      await clearServiceRuntimeForRepository(entry.memberRepositoryId, {
         launchId: entry.memberLaunchId
       });
     }
@@ -532,30 +533,30 @@ export async function runLaunchStart(launchId: string) {
     return;
   }
 
-  const launch = startLaunch(launchId);
+  const launch = await startLaunch(launchId);
   if (!launch) {
     log('Launch not pending', { launchId });
     return;
   }
 
-  const repository = getRepositoryById(launch.repositoryId);
+  const repository = await getRepositoryById(launch.repositoryId);
   if (!repository) {
     const message = 'Launch unavailable: app not found';
-    failLaunch(launch.id, message);
+    await failLaunch(launch.id, message);
     log('Launch failed - repository missing', { launchId, repositoryId: launch.repositoryId });
     return;
   }
 
-  const serviceNetwork = getServiceNetworkByRepositoryId(repository.id);
+  const serviceNetwork = await getServiceNetworkByRepositoryId(repository.id);
   if (serviceNetwork) {
     await runServiceNetworkLaunch(launch, repository, serviceNetwork);
     return;
   }
 
-  const build = getBuildById(launch.buildId);
+  const build = await getBuildById(launch.buildId);
   if (!build || build.status !== 'succeeded' || !build.imageTag) {
     const message = 'Launch unavailable: build image missing';
-    failLaunch(launch.id, message);
+    await failLaunch(launch.id, message);
     log('Launch failed - build unavailable', { launchId, buildId: launch.buildId });
     return;
   }
@@ -636,7 +637,7 @@ export async function runLaunchStart(launchId: string) {
   }
 
   const instanceUrl = buildPreviewUrl(hostPort);
-  markLaunchRunning(launch.id, {
+  await markLaunchRunning(launch.id, {
     instanceUrl,
     containerId,
     port: Number(hostPort),
@@ -652,7 +653,7 @@ export async function runLaunchStop(launchId: string) {
     return;
   }
 
-  const launch = getLaunchById(launchId);
+  const launch = await getLaunchById(launchId);
   if (!launch) {
     log('Launch missing for stop', { launchId });
     return;
@@ -660,7 +661,7 @@ export async function runLaunchStop(launchId: string) {
 
   let current = launch;
   if (launch.status !== 'stopping') {
-    const requested = requestLaunchStop(launchId);
+    const requested = await requestLaunchStop(launchId);
     if (!requested) {
       log('Launch not in stopping state', { launchId, status: launch.status });
       return;
@@ -668,15 +669,16 @@ export async function runLaunchStop(launchId: string) {
     current = requested;
   }
 
-  const repository = getRepositoryById(current.repositoryId);
-  const networkConfig = repository ? getServiceNetworkByRepositoryId(repository.id) : null;
-  if (networkConfig || getServiceNetworkLaunchMembers(launchId).length > 0) {
+  const repository = await getRepositoryById(current.repositoryId);
+  const networkConfig = repository ? await getServiceNetworkByRepositoryId(repository.id) : null;
+  const launchMembers = await getServiceNetworkLaunchMembers(launchId);
+  if (networkConfig || launchMembers.length > 0) {
     await runServiceNetworkStop(current);
     return;
   }
 
   if (!current.containerId) {
-    markLaunchStopped(launchId);
+    await markLaunchStopped(launchId);
     log('Launch stop with no container id', { launchId });
     return;
   }
@@ -688,6 +690,6 @@ export async function runLaunchStop(launchId: string) {
   }
 
   await runDockerCommand(['rm', '-f', current.containerId]);
-  markLaunchStopped(launchId);
+  await markLaunchStopped(launchId);
   log('Launch stopped', { launchId });
 }

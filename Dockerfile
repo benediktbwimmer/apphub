@@ -27,7 +27,7 @@ RUN apt-get update \
   && chmod a+r /etc/apt/keyrings/docker.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends git redis-server docker-ce-cli supervisor \
+  && apt-get install -y --no-install-recommends git redis-server docker-ce-cli supervisor postgresql postgresql-contrib \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g serve \
   && mkdir -p /app/data /app/services
@@ -39,7 +39,13 @@ ENV NODE_ENV=production \
     REDIS_URL=redis://127.0.0.1:6379 \
     SERVICE_MANIFEST_PATH=services/service-manifest.empty.json \
     SERVICE_CONFIG_PATH=services/service-config.docker.json \
-    FRONTEND_PORT=4173
+    FRONTEND_PORT=4173 \
+    DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
+    POSTGRES_USER=apphub \
+    POSTGRES_PASSWORD=apphub \
+    POSTGRES_DB=apphub \
+    POSTGRES_PORT=5432 \
+    PGDATA=/app/data/postgres
 
 COPY services/service-config.docker.json services/service-config.docker.json
 COPY services/service-manifest.empty.json services/service-manifest.empty.json
@@ -48,12 +54,24 @@ COPY --from=catalog-build /app/services/catalog/package-lock.json services/catal
 COPY --from=catalog-build /app/services/catalog/node_modules services/catalog/node_modules
 COPY --from=catalog-build /app/services/catalog/dist services/catalog/dist
 COPY --from=frontend-build /app/apps/frontend/dist apps/frontend/dist
+COPY scripts/postgres-start.sh scripts/postgres-start.sh
+RUN chmod +x scripts/postgres-start.sh
 
 RUN cat <<'SUPERVISOR' > /etc/supervisor/conf.d/apphub.conf
 [supervisord]
 nodaemon=true
 logfile=/dev/stdout
 logfile_maxbytes=0
+
+[program:postgres]
+command=/app/scripts/postgres-start.sh
+priority=5
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
 
 [program:redis]
 command=redis-server --protected-mode no --save "" --appendonly no --bind 0.0.0.0

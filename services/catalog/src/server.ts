@@ -602,7 +602,7 @@ async function scheduleLaunch(options: {
 }): Promise<{ status: number; body: unknown }> {
   const { repository, payload, request } = options;
 
-  let build = payload.buildId ? getBuildById(payload.buildId) : null;
+  let build = payload.buildId ? await getBuildById(payload.buildId) : null;
   if (payload.buildId && (!build || build.repositoryId !== repository.id)) {
     return { status: 400, body: { error: 'build does not belong to app' } };
   }
@@ -620,7 +620,7 @@ async function scheduleLaunch(options: {
   const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
 
   if (requestedLaunchId.length > 0) {
-    const existingLaunch = getLaunchById(launchId);
+    const existingLaunch = await getLaunchById(launchId);
     if (existingLaunch) {
       return { status: 409, body: { error: 'launch already exists' } };
     }
@@ -637,7 +637,7 @@ async function scheduleLaunch(options: {
   }).command;
   const launchCommand = commandInput.length > 0 ? commandInput : commandFallback;
 
-  const launch = createLaunch(repository.id, build.id, {
+  const launch = await createLaunch(repository.id, build.id, {
     id: launchId,
     resourceProfile: payload.resourceProfile ?? null,
     env,
@@ -653,9 +653,9 @@ async function scheduleLaunch(options: {
   } catch (err) {
     const message = `Failed to schedule launch: ${(err as Error).message ?? 'unknown error'}`;
     request.log.error({ err }, 'Failed to schedule launch');
-    failLaunch(launch.id, message.slice(0, 500));
-    const currentRepo = getRepositoryById(repository.id) ?? repository;
-    const currentLaunch = getLaunchById(launch.id);
+    await failLaunch(launch.id, message.slice(0, 500));
+    const currentRepo = (await getRepositoryById(repository.id)) ?? repository;
+    const currentLaunch = await getLaunchById(launch.id);
     return {
       status: 502,
       body: {
@@ -668,8 +668,8 @@ async function scheduleLaunch(options: {
     };
   }
 
-  const refreshedRepo = getRepositoryById(repository.id) ?? repository;
-  const refreshedLaunch = getLaunchById(launch.id) ?? launch;
+  const refreshedRepo = (await getRepositoryById(repository.id)) ?? repository;
+  const refreshedLaunch = (await getLaunchById(launch.id)) ?? launch;
 
   return {
     status: 202,
@@ -774,7 +774,7 @@ export async function buildServer() {
   app.get('/health', async () => ({ status: 'ok' }));
 
   app.get('/services', async () => {
-    const services = listServices();
+    const services = await listServices();
     const healthyCount = services.filter((service) => service.status === 'healthy').length;
     const unhealthyCount = services.length - healthyCount;
     return {
@@ -799,7 +799,7 @@ export async function buildServer() {
     }
 
     const payload = parseBody.data;
-    const existing = getServiceBySlug(payload.slug);
+    const existing = await getServiceBySlug(payload.slug);
     const mergedMetadata = mergeRuntimeMetadata(existing?.metadata ?? null, payload.metadata);
 
     const upsertPayload: ServiceUpsertInput = {
@@ -820,7 +820,7 @@ export async function buildServer() {
       upsertPayload.capabilities = payload.capabilities;
     }
 
-    const record = upsertService(upsertPayload);
+    const record = await upsertService(upsertPayload);
     if (!existing) {
       reply.status(201);
     }
@@ -1013,7 +1013,7 @@ export async function buildServer() {
     }
 
     const slug = parseParams.data.slug;
-    const existing = getServiceBySlug(slug);
+    const existing = await getServiceBySlug(slug);
     if (!existing) {
       reply.status(404);
       return { error: 'service not found' };
@@ -1051,7 +1051,7 @@ export async function buildServer() {
       update.lastHealthyAt = payload.lastHealthyAt;
     }
 
-    const updated = setServiceStatus(slug, update);
+    const updated = await setServiceStatus(slug, update);
     if (!updated) {
       reply.status(500);
       return { error: 'failed to update service' };
@@ -1083,7 +1083,7 @@ export async function buildServer() {
 
     const relevanceWeights = parseRelevanceWeights(query.relevance);
 
-    const searchResult = listRepositories({
+    const searchResult = await listRepositories({
       text: query.q,
       tags,
       statuses: statuses.length > 0 ? statuses : undefined,
@@ -1109,7 +1109,7 @@ export async function buildServer() {
       return { error: parseResult.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseResult.data.id);
+    const repository = await getRepositoryById(parseResult.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1128,13 +1128,13 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
     }
 
-    const history = getIngestionHistory(repository.id);
+    const history = await getIngestionHistory(repository.id);
     return {
       data: history
     };
@@ -1148,7 +1148,7 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1161,8 +1161,8 @@ export async function buildServer() {
     }
 
     const { limit, offset } = parseQuery.data;
-    const builds = listBuildsForRepository(repository.id, { limit, offset });
-    const total = countBuildsForRepository(repository.id);
+    const builds = await listBuildsForRepository(repository.id, { limit, offset });
+    const total = await countBuildsForRepository(repository.id);
     const nextOffset = offset + builds.length;
     const hasMore = nextOffset < total;
 
@@ -1187,7 +1187,7 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1202,7 +1202,7 @@ export async function buildServer() {
     const branch = parseBody.data.branch ?? null;
     const gitRef = parseBody.data.ref ?? null;
 
-    const newBuild = createBuild(repository.id, {
+    const newBuild = await createBuild(repository.id, {
       gitBranch: branch,
       gitRef
     });
@@ -1220,7 +1220,7 @@ export async function buildServer() {
       return { error: message, data: serializeBuild(newBuild) };
     }
 
-    const persisted = getBuildById(newBuild.id) ?? newBuild;
+    const persisted = (await getBuildById(newBuild.id)) ?? newBuild;
 
     reply.status(202);
     return { data: serializeBuild(persisted) };
@@ -1240,14 +1240,14 @@ export async function buildServer() {
       return { error: parseQuery.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
     }
 
     const limit = parseQuery.data?.limit ?? 10;
-    const launches = listLaunchesForRepository(repository.id, limit);
+    const launches = await listLaunchesForRepository(repository.id, limit);
     return {
       data: launches.map(serializeLaunch)
     };
@@ -1261,7 +1261,7 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1293,7 +1293,7 @@ export async function buildServer() {
     }
 
     const { repositoryId, ...rest } = parseBody.data;
-    const repository = getRepositoryById(repositoryId);
+    const repository = await getRepositoryById(repositoryId);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1317,13 +1317,13 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
     }
 
-    const launch = getLaunchById(parseParams.data.launchId);
+    const launch = await getLaunchById(parseParams.data.launchId);
     if (!launch || launch.repositoryId !== repository.id) {
       reply.status(404);
       return { error: 'launch not found' };
@@ -1334,7 +1334,8 @@ export async function buildServer() {
       return { error: 'launch is not running' };
     }
 
-    const pendingStop = launch.status === 'stopping' ? launch : requestLaunchStop(launch.id);
+    const pendingStop =
+      launch.status === 'stopping' ? launch : await requestLaunchStop(launch.id);
     if (!pendingStop) {
       reply.status(409);
       return { error: 'launch is not running' };
@@ -1349,10 +1350,10 @@ export async function buildServer() {
     } catch (err) {
       const message = `Failed to schedule stop: ${(err as Error).message ?? 'unknown error'}`;
       request.log.error({ err }, 'Failed to schedule launch stop');
-      failLaunch(launch.id, message.slice(0, 500));
+      await failLaunch(launch.id, message.slice(0, 500));
       reply.status(502);
-      const currentRepo = getRepositoryById(repository.id) ?? repository;
-      const currentLaunch = getLaunchById(launch.id) ?? pendingStop;
+      const currentRepo = (await getRepositoryById(repository.id)) ?? repository;
+      const currentLaunch = (await getLaunchById(launch.id)) ?? pendingStop;
       return {
         error: message,
         data: {
@@ -1362,8 +1363,8 @@ export async function buildServer() {
       };
     }
 
-    const refreshedRepo = getRepositoryById(repository.id) ?? repository;
-    const refreshedLaunch = getLaunchById(launch.id) ?? pendingStop;
+    const refreshedRepo = (await getRepositoryById(repository.id)) ?? repository;
+    const refreshedLaunch = (await getLaunchById(launch.id)) ?? pendingStop;
 
     reply.status(202);
     return {
@@ -1388,7 +1389,7 @@ export async function buildServer() {
       return { error: parseQuery.error.flatten() };
     }
 
-    const build = getBuildById(parseParams.data.id);
+    const build = await getBuildById(parseParams.data.id);
     if (!build) {
       reply.status(404);
       return { error: 'build not found' };
@@ -1423,7 +1424,7 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const existing = getBuildById(parseParams.data.id);
+    const existing = await getBuildById(parseParams.data.id);
     if (!existing) {
       reply.status(404);
       return { error: 'build not found' };
@@ -1434,13 +1435,13 @@ export async function buildServer() {
       return { error: 'only failed builds can be retried' };
     }
 
-    const repository = getRepositoryById(existing.repositoryId);
+    const repository = await getRepositoryById(existing.repositoryId);
     if (!repository) {
       reply.status(404);
       return { error: 'repository missing for build' };
     }
 
-    const newBuild = createBuild(repository.id, {
+    const newBuild = await createBuild(repository.id, {
       commitSha: existing.commitSha,
       gitBranch: existing.gitBranch,
       gitRef: existing.gitRef
@@ -1459,7 +1460,7 @@ export async function buildServer() {
       return { error: message, data: serializeBuild(newBuild) };
     }
 
-    const persisted = getBuildById(newBuild.id) ?? newBuild;
+    const persisted = (await getBuildById(newBuild.id)) ?? newBuild;
 
     reply.status(202);
     return { data: serializeBuild(persisted) };
@@ -1473,7 +1474,7 @@ export async function buildServer() {
     }
 
     const { prefix, limit } = parseResult.data;
-    const suggestions = listTagSuggestions(prefix, limit);
+    const suggestions = await listTagSuggestions(prefix, limit);
 
     return { data: suggestions };
   });
@@ -1487,7 +1488,7 @@ export async function buildServer() {
 
     const payload = parseResult.data;
 
-    let repository = addRepository({
+    let repository = await addRepository({
       id: payload.id,
       name: payload.name,
       description: payload.description,
@@ -1503,12 +1504,12 @@ export async function buildServer() {
       request.log.error({ err }, 'Failed to enqueue ingestion job');
       const message = `Failed to enqueue ingestion job: ${(err as Error).message ?? 'unknown error'}`;
       const now = new Date().toISOString();
-      setRepositoryStatus(repository.id, 'failed', {
+      await setRepositoryStatus(repository.id, 'failed', {
         updatedAt: now,
         ingestError: message.slice(0, 500),
         eventMessage: message
       });
-      repository = getRepositoryById(repository.id) ?? repository;
+      repository = (await getRepositoryById(repository.id)) ?? repository;
     }
 
     reply.status(201);
@@ -1523,7 +1524,7 @@ export async function buildServer() {
       return { error: parseParams.error.flatten() };
     }
 
-    const repository = getRepositoryById(parseParams.data.id);
+    const repository = await getRepositoryById(parseParams.data.id);
     if (!repository) {
       reply.status(404);
       return { error: 'app not found' };
@@ -1535,7 +1536,7 @@ export async function buildServer() {
     }
 
     const now = new Date().toISOString();
-    setRepositoryStatus(repository.id, 'pending', {
+    await setRepositoryStatus(repository.id, 'pending', {
       updatedAt: now,
       ingestError: null,
       eventMessage: 'Re-queued for ingestion'
@@ -1546,17 +1547,17 @@ export async function buildServer() {
     } catch (err) {
       request.log.error({ err }, 'Failed to enqueue retry');
       const message = `Failed to enqueue retry: ${(err as Error).message ?? 'unknown error'}`;
-      setRepositoryStatus(repository.id, 'failed', {
+      await setRepositoryStatus(repository.id, 'failed', {
         updatedAt: new Date().toISOString(),
         ingestError: message.slice(0, 500),
         eventMessage: message
       });
       reply.status(502);
-      const current = getRepositoryById(repository.id);
+      const current = await getRepositoryById(repository.id);
       return { error: message, data: current ? serializeRepository(current) : undefined };
     }
 
-    const refreshed = getRepositoryById(repository.id);
+    const refreshed = await getRepositoryById(repository.id);
 
     reply.status(202);
     return { data: refreshed ? serializeRepository(refreshed) : null };
@@ -1564,7 +1565,7 @@ export async function buildServer() {
 
   app.post('/admin/catalog/nuke', async (request, reply) => {
     try {
-      const result = nukeCatalogDatabase();
+      const result = await nukeCatalogDatabase();
       const importClearResult = await clearServiceConfigImports();
 
       if (importClearResult.errors.length > 0) {
@@ -1580,8 +1581,10 @@ export async function buildServer() {
 
       request.log.warn(
         {
-          repositoriesDeleted: result.repositoriesDeleted,
-          servicesDeleted: result.servicesDeleted,
+          repositoriesDeleted: result.repositories,
+          buildsDeleted: result.builds,
+          launchesDeleted: result.launches,
+          tagsDeleted: result.tags,
           serviceConfigImportsCleared: importClearResult.cleared.length
         },
         'Catalog database nuked'

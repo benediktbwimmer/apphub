@@ -66,11 +66,13 @@ function compareServices(a: ServiceRecord, b: ServiceRecord) {
   return 0;
 }
 
-export function getResolvedService(kind: ServiceKind, options?: { requireHealthy?: boolean }): ResolvedService | null {
+export async function getResolvedService(
+  kind: ServiceKind,
+  options?: { requireHealthy?: boolean }
+): Promise<ResolvedService | null> {
   const requireHealthy = options?.requireHealthy ?? false;
-  const candidates = listServices()
-    .filter((service) => service.kind === kind)
-    .sort(compareServices);
+  const services = await listServices();
+  const candidates = services.filter((service) => service.kind === kind).sort(compareServices);
 
   if (candidates.length === 0) {
     return null;
@@ -90,8 +92,11 @@ export function getResolvedService(kind: ServiceKind, options?: { requireHealthy
   };
 }
 
-export function requireResolvedService(kind: ServiceKind, options?: { requireHealthy?: boolean }): ResolvedService {
-  const resolved = getResolvedService(kind, options);
+export async function requireResolvedService(
+  kind: ServiceKind,
+  options?: { requireHealthy?: boolean }
+): Promise<ResolvedService> {
+  const resolved = await getResolvedService(kind, options);
   if (!resolved) {
     const reason: 'missing' | 'unhealthy' = options?.requireHealthy ? 'unhealthy' : 'missing';
     throw new ServiceUnavailableError(kind, reason);

@@ -31,12 +31,19 @@ async function runInlineLaunchLoop() {
       return;
     }
     try {
-      let launch: LaunchRecord | null;
-      while (running && (launch = takeNextLaunchToStop())) {
-        await runLaunchStop(launch.id);
+      while (running) {
+        const launchToStop: LaunchRecord | null = await takeNextLaunchToStop();
+        if (!launchToStop) {
+          break;
+        }
+        await runLaunchStop(launchToStop.id);
       }
-      while (running && (launch = takeNextLaunchToStart())) {
-        await runLaunchStart(launch.id);
+      while (running) {
+        const launchToStart: LaunchRecord | null = await takeNextLaunchToStart();
+        if (!launchToStart) {
+          break;
+        }
+        await runLaunchStart(launchToStart.id);
       }
     } catch (err) {
       log('Inline launch error', { error: (err as Error).message });

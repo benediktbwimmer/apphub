@@ -22,8 +22,11 @@ async function runInlineBuildLoop() {
 
   const poll = async () => {
     try {
-      let build: BuildRecord | null;
-      while (running && (build = takeNextPendingBuild())) {
+      while (running) {
+        const build: BuildRecord | null = await takeNextPendingBuild();
+        if (!build) {
+          break;
+        }
         await runBuildJob(build.id);
       }
     } catch (err) {
