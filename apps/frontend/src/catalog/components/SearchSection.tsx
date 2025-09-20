@@ -41,8 +41,9 @@ function SearchSection({
 
   return (
     <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.7)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-      <div className="relative">
-        <input
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+        <div className="relative flex-1">
+          <input
           type="text"
           value={inputValue}
           onChange={(event) => onInputChange(event.target.value)}
@@ -51,32 +52,31 @@ function SearchSection({
           spellCheck={false}
           autoFocus
           className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
-        />
-        {suggestions.length > 0 && (
-          <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
-            {suggestions.map((suggestion, index) => (
-              <li
-                key={`${suggestion.type}-${suggestion.value}`}
-                className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-blue-500/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
-                  index === highlightIndex ? 'bg-blue-500/10 text-blue-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
-                }`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  onApplySuggestion(suggestion);
-                }}
-              >
-                <span className="font-mono text-sm">{suggestion.label}</span>
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                  {suggestion.type === 'key' ? 'key' : 'tag'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+          />
+          {suggestions.length > 0 && (
+            <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
+              {suggestions.map((suggestion, index) => (
+                <li
+                  key={`${suggestion.type}-${suggestion.value}`}
+                  className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-blue-500/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
+                    index === highlightIndex ? 'bg-blue-500/10 text-blue-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
+                  }`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onApplySuggestion(suggestion);
+                  }}
+                >
+                  <span className="font-mono text-sm">{suggestion.label}</span>
+                  <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                    {suggestion.type === 'key' ? 'key' : 'tag'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 md:w-auto md:flex-none md:items-end">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 md:hidden">
             Sort by
           </span>
           <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
@@ -96,6 +96,8 @@ function SearchSection({
             ))}
           </div>
         </div>
+      </div>
+      <div className="flex justify-end">
         <label
           className={`flex items-center gap-3 text-sm font-medium text-slate-600 transition-opacity dark:text-slate-300 ${
             highlightToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'

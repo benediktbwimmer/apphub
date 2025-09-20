@@ -50,8 +50,6 @@ export type UseCatalogResult = {
   highlightIndex: number;
   parsedQuery: SearchParseResult;
   statusFilters: AppRecord['ingestStatus'][];
-  ingestedAfter: string;
-  ingestedBefore: string;
   tagFacets: TagFacet[];
   statusFacets: StatusFacet[];
   ownerFacets: TagFacet[];
@@ -74,9 +72,6 @@ export type UseCatalogResult = {
     toggleStatus: (status: AppRecord['ingestStatus']) => void;
     clearStatusFilters: () => void;
     applyTagFacet: (facet: TagFacet) => void;
-    clearDateFilters: () => void;
-    setIngestedAfter: (value: string) => void;
-    setIngestedBefore: (value: string) => void;
     setSortMode: (sort: SearchSort) => void;
     toggleHighlights: (enabled: boolean) => void;
     retryIngestion: (id: string) => Promise<void>;
@@ -88,7 +83,7 @@ export type UseCatalogResult = {
     triggerBuild: (appId: string, options: { branch?: string; ref?: string }) => Promise<boolean>;
     toggleLaunches: (id: string) => Promise<void>;
     launchApp: (id: string, draft: LaunchRequestDraft) => Promise<void>;
-  stopLaunch: (appId: string, launchId: string) => Promise<void>;
+    stopLaunch: (appId: string, launchId: string) => Promise<void>;
   };
 };
 
@@ -107,8 +102,6 @@ export function useCatalog(): UseCatalogResult {
   const [stoppingLaunchId, setStoppingLaunchId] = useState<string | null>(null);
   const [launchErrors, setLaunchErrors] = useState<Record<string, string | null>>({});
   const [statusFilters, setStatusFilters] = useState<AppRecord['ingestStatus'][]>([]);
-  const [ingestedAfter, setIngestedAfter] = useState('');
-  const [ingestedBefore, setIngestedBefore] = useState('');
   const [tagFacets, setTagFacets] = useState<TagFacet[]>([]);
   const [statusFacets, setStatusFacets] = useState<StatusFacet[]>(() =>
     INGEST_STATUSES.map((status) => ({ status, count: 0 }))
@@ -132,11 +125,9 @@ export function useCatalog(): UseCatalogResult {
         parsedQuery.text,
         parsedQuery.tags.join(','),
         statusSignature,
-        ingestedAfter,
-        ingestedBefore,
         sortMode
       ].join('|'),
-    [parsedQuery.text, parsedQuery.tags, statusSignature, ingestedAfter, ingestedBefore, sortMode]
+    [parsedQuery.text, parsedQuery.tags, statusSignature, sortMode]
   );
   const activeTokens = useMemo(() => searchMeta?.tokens ?? [], [searchMeta]);
   const highlightEnabled = showHighlights && activeTokens.length > 0;
@@ -168,12 +159,6 @@ export function useCatalog(): UseCatalogResult {
         }
         if (statusFilters.length > 0) {
           params.set('status', statusFilters.join(','));
-        }
-        if (ingestedAfter) {
-          params.set('ingestedAfter', ingestedAfter);
-        }
-        if (ingestedBefore) {
-          params.set('ingestedBefore', ingestedBefore);
         }
         params.set('sort', sortMode);
         const response = await fetch(`${API_BASE_URL}/apps?${params.toString()}`, {
@@ -214,7 +199,7 @@ export function useCatalog(): UseCatalogResult {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [searchSignature, parsedQuery, statusFilters, ingestedAfter, ingestedBefore, sortMode]);
+  }, [searchSignature, parsedQuery, statusFilters, sortMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -319,11 +304,6 @@ export function useCatalog(): UseCatalogResult {
       return `${prev}${needsSpace ? ' ' : ''}${token} `;
     });
     setSuggestions([]);
-  }, []);
-
-  const clearDateFilters = useCallback(() => {
-    setIngestedAfter('');
-    setIngestedBefore('');
   }, []);
 
   const clearStatusFilters = useCallback(() => {
@@ -1257,8 +1237,6 @@ export function useCatalog(): UseCatalogResult {
     highlightIndex,
     parsedQuery,
     statusFilters,
-    ingestedAfter,
-    ingestedBefore,
     tagFacets,
     statusFacets,
     ownerFacets,
@@ -1281,9 +1259,6 @@ export function useCatalog(): UseCatalogResult {
       toggleStatus,
       clearStatusFilters,
       applyTagFacet,
-      clearDateFilters,
-      setIngestedAfter,
-      setIngestedBefore,
       setSortMode,
       toggleHighlights,
       retryIngestion,
