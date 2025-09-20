@@ -148,7 +148,7 @@ export default function ServiceGallery() {
                     title={service.displayName}
                     loading="lazy"
                     allow="autoplay; fullscreen; clipboard-read; clipboard-write"
-                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+                    sandbox="allow-scripts"
                     className="h-full w-full border-0"
                   />
                 </div>

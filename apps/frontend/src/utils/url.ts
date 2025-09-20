@@ -52,7 +52,7 @@ export function normalizePreviewUrl(rawUrl: string | null | undefined): string |
       parsed = new URL(trimmedUrl);
     }
   } catch {
-    return trimmedUrl;
+    return null;
   }
 
   if (!isLoopbackHost(parsed.hostname)) {
@@ -61,7 +61,9 @@ export function normalizePreviewUrl(rawUrl: string | null | undefined): string |
 
   for (const base of candidates) {
     if (!isLoopbackHost(base.hostname)) {
+      parsed.protocol = base.protocol;
       parsed.hostname = base.hostname;
+      parsed.port = base.port;
       return parsed.toString();
     }
   }
