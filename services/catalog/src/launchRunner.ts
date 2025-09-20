@@ -7,6 +7,7 @@ import {
   requestLaunchStop,
   startLaunch
 } from './db';
+import { isStubRunnerEnabled, runStubLaunchStart, runStubLaunchStop } from './launchPreviewStub';
 import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } from './launchCommand';
 import {
   DEFAULT_LAUNCH_INTERNAL_PORT,
@@ -142,6 +143,11 @@ function extractContainerName(args: string[]): string | null {
 }
 
 export async function runLaunchStart(launchId: string) {
+  if (isStubRunnerEnabled) {
+    await runStubLaunchStart(launchId);
+    return;
+  }
+
   const launch = startLaunch(launchId);
   if (!launch) {
     log('Launch not pending', { launchId });
@@ -242,6 +248,11 @@ export async function runLaunchStart(launchId: string) {
 }
 
 export async function runLaunchStop(launchId: string) {
+  if (isStubRunnerEnabled) {
+    await runStubLaunchStop(launchId);
+    return;
+  }
+
   const launch = getLaunchById(launchId);
   if (!launch) {
     log('Launch missing for stop', { launchId });
