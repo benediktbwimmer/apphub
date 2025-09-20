@@ -240,10 +240,12 @@ async function loadConfigImport(
     const baseLabel = `git:${importConfig.repo}`;
     const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
     const sourceLabel = joinSourceLabel(`${baseLabel}#${commitLabel}`, configPathRelative);
+    const expectedModule =
+      expectedModuleOverride === undefined ? importConfig.module : expectedModuleOverride;
     const result = await loadConfigRecursive({
       filePath: configFilePath,
       sourceLabel,
-      expectedModule: expectedModuleOverride ?? importConfig.module,
+      expectedModule,
       visitedModules,
       repoRoot: tempDir
     });
