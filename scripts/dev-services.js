@@ -123,18 +123,31 @@ async function main() {
     return;
   }
 
-  const result = await concurrently(commands, {
+  const run = concurrently(commands, {
     killOthers: ['failure', 'success'],
     prefix: 'name',
     restartTries: 0,
     cwd: ROOT_DIR
   });
 
-  if (result.success) {
-    return;
+  try {
+    await run.result;
+  } catch (err) {
+    if (Array.isArray(err)) {
+      const failed = err
+        .filter((event) => event && event.exitCode !== 0)
+        .map((event) => {
+          const command = run.commands[event.index];
+          return command?.name || command?.command || `command-${event.index}`;
+        });
+      if (failed.length > 0) {
+        console.error(`[dev-services] Service command failed: ${failed.join(', ')}`);
+      }
+    } else {
+      console.error('[dev-services] Unexpected error while running services', err);
+    }
+    process.exit(1);
   }
-
-  process.exit(result.success ? 0 : 1);
 }
 
 main().catch((err) => {

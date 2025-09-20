@@ -582,6 +582,57 @@ async function syncNetworksFromManifest(networks: LoadedServiceNetwork[]) {
   }
 }
 
+function toPlainObject(value: JsonValue | null | undefined): Record<string, JsonValue> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, JsonValue>) };
+  }
+  return {};
+}
+
+function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
+  const serviceToApps = new Map<string, Set<string>>();
+  for (const network of networks) {
+    for (const service of network.services) {
+      const slug = service.serviceSlug.trim().toLowerCase();
+      const appId = service.app.id.trim().toLowerCase();
+      if (!slug || !appId) {
+        continue;
+      }
+      const existing = serviceToApps.get(slug);
+      if (existing) {
+        existing.add(appId);
+      } else {
+        serviceToApps.set(slug, new Set([appId]));
+      }
+    }
+  }
+
+  const slugs = new Set<string>([...manifestEntries.keys(), ...serviceToApps.keys()]);
+  for (const slug of slugs) {
+    const service = getServiceBySlug(slug);
+    if (!service) {
+      continue;
+    }
+
+    const metadata = toMetadataObject(service.metadata ?? null);
+    const manifestMeta = toPlainObject(metadata.manifest as JsonValue | null | undefined);
+    const apps = serviceToApps.get(slug);
+    if (apps && apps.size > 0) {
+      manifestMeta.apps = Array.from(apps).sort();
+    } else {
+      delete manifestMeta.apps;
+    }
+    metadata.manifest = manifestMeta;
+
+    const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+    const previous = service.metadata ?? null;
+    if (JSON.stringify(nextMetadata) === JSON.stringify(previous)) {
+      continue;
+    }
+    setServiceStatus(slug, { metadata: nextMetadata });
+  }
+}
+
 async function loadManifest(): Promise<ManifestLoadResult> {
   const collected: ManifestEntry[] = [];
   const collectedNetworks: LoadedServiceNetwork[] = [];
@@ -623,6 +674,7 @@ async function loadManifest(): Promise<ManifestLoadResult> {
   manifestNetworks = collectedNetworks;
   await applyManifestToDatabase(merged);
   await syncNetworksFromManifest(manifestNetworks);
+  updateServiceManifestAppReferences(manifestNetworks);
 
   return { entries: merged, networks: manifestNetworks, errors };
 }

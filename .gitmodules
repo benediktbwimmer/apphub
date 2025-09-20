@@ -1,0 +1,12 @@
+[submodule "services/external/ai-connector"]
+	path = services/external/ai-connector
+	url = https://github.com/benediktbwimmer/ai-connector.git
+[submodule "services/external/better-fileexplorer"]
+	path = services/external/better-fileexplorer
+	url = https://github.com/benediktbwimmer/better-fileexplorer.git
+[submodule "services/external/tagging-service"]
+	path = services/external/tagging-service
+	url = https://github.com/benediktbwimmer/tagging-service.git
+[submodule "services/manifests/three-service-network"]
+	path = services/manifests/three-service-network
+	url = https://github.com/benediktbwimmer/three-services-network.git

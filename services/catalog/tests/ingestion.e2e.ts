@@ -807,6 +807,27 @@ async function testServiceNetworkManifestFlow() {
           );
         }
 
+        const servicesRes = await fetch(`${baseUrl}/services`);
+        assert.equal(servicesRes.status, 200, 'Service list request should succeed');
+        const servicesPayload = (await servicesRes.json()) as {
+          data: Array<{ slug: string; metadata: unknown }>;
+        };
+        const manifestAppsFor = (slug: string) => {
+          const entry = servicesPayload.data.find((service) => service.slug === slug);
+          assert(entry, `Expected service ${slug} to be present`);
+          const metadata = entry.metadata as Record<string, unknown> | null | undefined;
+          const manifestMeta = (metadata?.manifest as Record<string, unknown> | null | undefined) ?? {};
+          const apps =
+            manifestMeta && typeof manifestMeta === 'object'
+              ? (manifestMeta.apps as string[] | undefined)
+              : undefined;
+          return apps ?? [];
+        };
+
+        assert.deepEqual(manifestAppsFor('better-fileexplorer'), ['better-fileexplorer-service']);
+        assert.deepEqual(manifestAppsFor('ai-connector'), ['ai-connector-service']);
+        assert.deepEqual(manifestAppsFor('tagging-service'), ['tagging-service-app']);
+
         await pollLatestBuild(
           baseUrl,
           networkId,

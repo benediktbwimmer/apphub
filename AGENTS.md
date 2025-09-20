@@ -3,6 +3,9 @@
 ## Project Structure & Module Organization
 The repo is a focused monorepo. `services/catalog` houses the Fastify API and background workers written in TypeScript, with compiled output in `dist` and seed data in `data`. Persistent SQLite artifacts are stored in `services/data`. The React UI lives under `apps/frontend`, where `public` serves static assets and Vite writes builds to `dist`. Architecture notes reside in `docs/architecture.md`, and end-to-end specs currently live in `services/catalog/tests`.
 
+## External Service Submodules
+The external services and service-network manifests are tracked as Git submodules under `services/external/*` and `services/manifests/*`. After cloning the repo run `git submodule update --init --recursive` (or clone with `--recurse-submodules`) so these directories are populated. When pulling later updates, run `git submodule update --remote --merge` if you need the latest upstream revisions. Each submodule manages its own dependencies—install them inside the submodule directory (`npm install`, `pip install`, etc.) before running the local dev stack.
+
 ## Build, Test, and Development Commands
 - `npm run dev` (root) launches Redis, the catalog API, ingestion worker, build worker, and frontend together; ensure `redis-server` is available on your `PATH`.
 - `npm run dev` in `apps/frontend` starts the Vite dev server on `http://localhost:5173`; adjust `VITE_API_BASE_URL` in `.env.local` if the API runs elsewhere.

@@ -3,14 +3,9 @@
   "manifestPath": "./service-manifest.json",
   "imports": [
     {
-      "module": "github.com/apphub/network-1758352002244",
-      "repo": "/var/folders/rx/5hlslx1n781dxtf02gx1hyvw0000gn/T/apphub-network-module-efCjEO/module",
-      "commit": "a4cf8d2989b9e51b55d0e9bad527626e0e1e4fbd"
-    },
-    {
-      "module": "github.com/apphub/network-1758352060432",
-      "repo": "/var/folders/rx/5hlslx1n781dxtf02gx1hyvw0000gn/T/apphub-network-module-2fJVQe/module",
-      "commit": "ea9e6e0ff8bc76e1180553febd0e540b23bb857b"
+      "module": "github.com/apphub/examples/three-service-network",
+      "repo": "../manifests/three-service-network",
+      "commit": "f19a91b40c2be1af5cd59cf5b8d88236208b3159"
     }
   ]
 }
