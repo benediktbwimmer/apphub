@@ -90,11 +90,25 @@ function buildCommands(definitions) {
     const absWorkingDir = path.isAbsolute(workingDir)
       ? workingDir
       : path.resolve(ROOT_DIR, workingDir);
+    const manifestEnv = Array.isArray(definition.env)
+      ? definition.env
+          .filter((entry) => entry && typeof entry.key === 'string')
+          .reduce((acc, entry) => {
+            const key = entry.key.trim();
+            if (!key) {
+              return acc;
+            }
+            if (typeof entry.value === 'string') {
+              acc[key] = entry.value;
+            }
+            return acc;
+          }, {})
+      : {};
     commands.push({
       name: definition.slug,
       command: devCommand,
       cwd: absWorkingDir,
-      env: process.env
+      env: { ...process.env, ...manifestEnv }
     });
   }
   return commands;

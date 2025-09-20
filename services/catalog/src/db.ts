@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { migrateIfNeeded } from './dbMigrations';
 import { emitApphubEvent } from './events';
+import type { ManifestEnvVarInput } from './serviceManifestTypes';
 
 export type TagKV = {
   key: string;
@@ -60,6 +61,53 @@ export type LaunchRecord = {
   startedAt: string | null;
   stoppedAt: string | null;
   expiresAt: string | null;
+};
+
+export type ServiceNetworkMemberRecord = {
+  networkRepositoryId: string;
+  memberRepositoryId: string;
+  launchOrder: number;
+  waitForBuild: boolean;
+  env: ManifestEnvVarInput[];
+  dependsOn: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceNetworkRecord = {
+  repositoryId: string;
+  manifestSource: string | null;
+  createdAt: string;
+  updatedAt: string;
+  members: ServiceNetworkMemberRecord[];
+};
+
+export type ServiceNetworkMemberInput = {
+  memberRepositoryId: string;
+  launchOrder?: number;
+  waitForBuild?: boolean;
+  env?: ManifestEnvVarInput[];
+  dependsOn?: string[];
+};
+
+export type ServiceNetworkUpsertInput = {
+  repositoryId: string;
+  manifestSource?: string | null;
+};
+
+export type ServiceNetworkLaunchMemberRecord = {
+  networkLaunchId: string;
+  memberLaunchId: string;
+  memberRepositoryId: string;
+  launchOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceNetworkLaunchMemberInput = {
+  memberLaunchId: string;
+  memberRepositoryId: string;
+  launchOrder: number;
 };
 
 export type RepositoryPreviewKind = 'gif' | 'image' | 'video' | 'storybook' | 'embed';
@@ -356,6 +404,41 @@ CREATE INDEX IF NOT EXISTS idx_builds_status
   CREATE INDEX IF NOT EXISTS idx_launches_status
     ON launches(status);
 
+  CREATE TABLE IF NOT EXISTS service_networks (
+    repository_id TEXT PRIMARY KEY,
+    manifest_source TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS service_network_members (
+    network_repository_id TEXT NOT NULL,
+    member_repository_id TEXT NOT NULL,
+    launch_order INTEGER NOT NULL DEFAULT 0,
+    wait_for_build INTEGER NOT NULL DEFAULT 1,
+    env_vars TEXT,
+    depends_on TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (network_repository_id, member_repository_id),
+    FOREIGN KEY (network_repository_id) REFERENCES service_networks(repository_id) ON DELETE CASCADE,
+    FOREIGN KEY (member_repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS service_network_launch_members (
+    network_launch_id TEXT NOT NULL,
+    member_launch_id TEXT NOT NULL,
+    member_repository_id TEXT NOT NULL,
+    launch_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (network_launch_id, member_repository_id),
+    FOREIGN KEY (network_launch_id) REFERENCES launches(id) ON DELETE CASCADE,
+    FOREIGN KEY (member_launch_id) REFERENCES launches(id) ON DELETE CASCADE,
+    FOREIGN KEY (member_repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS repository_previews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     repository_id TEXT NOT NULL,
@@ -515,6 +598,33 @@ type LaunchRow = {
   expires_at: string | null;
 };
 
+type ServiceNetworkRow = {
+  repository_id: string;
+  manifest_source: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ServiceNetworkMemberRow = {
+  network_repository_id: string;
+  member_repository_id: string;
+  launch_order: number;
+  wait_for_build: number;
+  env_vars: string | null;
+  depends_on: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ServiceNetworkLaunchMemberRow = {
+  network_launch_id: string;
+  member_launch_id: string;
+  member_repository_id: string;
+  launch_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 type ServiceRow = {
   id: string;
   slug: string;
@@ -660,6 +770,93 @@ const updateServiceStatement = db.prepare(
          last_healthy_at = @lastHealthyAt,
          updated_at = @updatedAt
    WHERE slug = @slug`
+);
+
+const upsertServiceNetworkStatement = db.prepare(
+  `INSERT INTO service_networks (
+     repository_id,
+     manifest_source,
+     created_at,
+     updated_at
+   ) VALUES (
+     @repositoryId,
+     @manifestSource,
+     @createdAt,
+     @updatedAt
+   )
+   ON CONFLICT(repository_id) DO UPDATE SET
+     manifest_source = excluded.manifest_source,
+     updated_at = excluded.updated_at`
+);
+
+const deleteServiceNetworkStatement = db.prepare('DELETE FROM service_networks WHERE repository_id = ?');
+
+const selectServiceNetworkByIdStatement = db.prepare(
+  'SELECT * FROM service_networks WHERE repository_id = ?'
+);
+
+const selectAllServiceNetworkIdsStatement = db.prepare(
+  'SELECT repository_id FROM service_networks'
+);
+
+const insertServiceNetworkMemberStatement = db.prepare(
+  `INSERT INTO service_network_members (
+     network_repository_id,
+     member_repository_id,
+     launch_order,
+     wait_for_build,
+     env_vars,
+     depends_on,
+     created_at,
+     updated_at
+   ) VALUES (
+     @networkRepositoryId,
+     @memberRepositoryId,
+     @launchOrder,
+     @waitForBuild,
+     @envVars,
+     @dependsOn,
+     @createdAt,
+     @updatedAt
+   )`
+);
+
+const deleteServiceNetworkMembersStatement = db.prepare(
+  'DELETE FROM service_network_members WHERE network_repository_id = ?'
+);
+
+const selectServiceNetworkMembersStatement = db.prepare(
+  'SELECT * FROM service_network_members WHERE network_repository_id = ? ORDER BY launch_order ASC, member_repository_id ASC'
+);
+
+const selectNetworksForMemberStatement = db.prepare(
+  'SELECT network_repository_id FROM service_network_members WHERE member_repository_id = ?'
+);
+
+const insertServiceNetworkLaunchMemberStatement = db.prepare(
+  `INSERT INTO service_network_launch_members (
+     network_launch_id,
+     member_launch_id,
+     member_repository_id,
+     launch_order,
+     created_at,
+     updated_at
+   ) VALUES (
+     @networkLaunchId,
+     @memberLaunchId,
+     @memberRepositoryId,
+     @launchOrder,
+     @createdAt,
+     @updatedAt
+   )`
+);
+
+const deleteServiceNetworkLaunchMembersStatement = db.prepare(
+  'DELETE FROM service_network_launch_members WHERE network_launch_id = ?'
+);
+
+const selectServiceNetworkLaunchMembersStatement = db.prepare(
+  'SELECT * FROM service_network_launch_members WHERE network_launch_id = ? ORDER BY launch_order ASC, member_repository_id ASC'
 );
 
 const insertRepositorySearchStatement = db.prepare(
@@ -1044,6 +1241,37 @@ function normalizeLaunchEnvEntries(entries?: LaunchEnvVar[] | null): LaunchEnvVa
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
 
+function parseDependsOn(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : ''))
+      .filter((entry): entry is string => entry.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function prepareDependsOn(entries?: string[] | null): string | null {
+  if (!entries) {
+    return null;
+  }
+  const normalized = Array.from(
+    new Set(
+      entries
+        .map((entry) => (typeof entry === 'string' ? entry.trim().toLowerCase() : ''))
+        .filter((entry) => entry.length > 0)
+    )
+  );
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
 function prepareLaunchEnvForUpsert(
   entries: LaunchEnvVar[] | undefined,
   existing: string | null
@@ -1053,6 +1281,114 @@ function prepareLaunchEnvForUpsert(
   }
   const normalized = normalizeLaunchEnvEntries(entries);
   return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+const VALID_ENV_PROPERTIES = new Set(['instanceurl', 'baseurl', 'host', 'port']);
+type ManifestEnvReference = NonNullable<ManifestEnvVarInput['fromService']>;
+
+function toCanonicalEnvProperty(raw: string): ManifestEnvReference['property'] | null {
+  switch (raw.toLowerCase()) {
+    case 'instanceurl':
+      return 'instanceUrl';
+    case 'baseurl':
+      return 'baseUrl';
+    case 'host':
+      return 'host';
+    case 'port':
+      return 'port';
+    default:
+      return null;
+  }
+}
+
+function encodeManifestEnv(entries?: ManifestEnvVarInput[] | null): string | null {
+  if (!entries || entries.length === 0) {
+    return null;
+  }
+  const normalized: ManifestEnvVarInput[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+    const clone: ManifestEnvVarInput = { key };
+    if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+      clone.value = entry.value;
+    }
+    const fromService = entry.fromService;
+    if (fromService && typeof fromService.service === 'string') {
+      const serviceRef = fromService.service.trim().toLowerCase();
+      const property =
+        typeof fromService.property === 'string'
+          ? toCanonicalEnvProperty(fromService.property)
+          : null;
+      if (serviceRef && property) {
+        clone.fromService = {
+          service: serviceRef,
+          property,
+          fallback: fromService.fallback
+        };
+      }
+    }
+    normalized.push(clone);
+  }
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+function parseManifestEnv(raw: string | null): ManifestEnvVarInput[] {
+  if (!raw) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const result: ManifestEnvVarInput[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const keyRaw = (item as { key?: unknown }).key;
+    const key = typeof keyRaw === 'string' ? keyRaw.trim() : '';
+    if (!key) {
+      continue;
+    }
+    const entry: ManifestEnvVarInput = { key };
+    if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+      const valueRaw = (item as { value?: unknown }).value;
+      if (typeof valueRaw === 'string') {
+        entry.value = valueRaw;
+      } else if (valueRaw !== undefined && valueRaw !== null) {
+        entry.value = String(valueRaw);
+      }
+    }
+    const refRaw = (item as { fromService?: unknown }).fromService;
+    if (refRaw && typeof refRaw === 'object') {
+      const serviceRaw = (refRaw as { service?: unknown }).service;
+      const propertyRaw = (refRaw as { property?: unknown }).property;
+      const fallbackRaw = (refRaw as { fallback?: unknown }).fallback;
+    const service = typeof serviceRaw === 'string' ? serviceRaw.trim().toLowerCase() : '';
+    const property =
+      typeof propertyRaw === 'string' ? toCanonicalEnvProperty(propertyRaw) : null;
+    if (service && property) {
+      entry.fromService = {
+        service,
+        property,
+        fallback: typeof fallbackRaw === 'string' ? fallbackRaw : undefined
+      };
+    }
+    }
+    result.push(entry);
+  }
+  return result;
 }
 
 function rowToLaunch(row: LaunchRow): LaunchRecord {
@@ -1073,6 +1409,42 @@ function rowToLaunch(row: LaunchRow): LaunchRecord {
     startedAt: row.started_at,
     stoppedAt: row.stopped_at,
     expiresAt: row.expires_at
+  };
+}
+
+function rowToServiceNetwork(row: ServiceNetworkRow, members: ServiceNetworkMemberRecord[] = []): ServiceNetworkRecord {
+  return {
+    repositoryId: row.repository_id,
+    manifestSource: row.manifest_source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    members
+  };
+}
+
+function rowToServiceNetworkMember(row: ServiceNetworkMemberRow): ServiceNetworkMemberRecord {
+  return {
+    networkRepositoryId: row.network_repository_id,
+    memberRepositoryId: row.member_repository_id,
+    launchOrder: row.launch_order ?? 0,
+    waitForBuild: row.wait_for_build === 0 ? false : true,
+    env: parseManifestEnv(row.env_vars),
+    dependsOn: parseDependsOn(row.depends_on),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function rowToServiceNetworkLaunchMember(
+  row: ServiceNetworkLaunchMemberRow
+): ServiceNetworkLaunchMemberRecord {
+  return {
+    networkLaunchId: row.network_launch_id,
+    memberLaunchId: row.member_launch_id,
+    memberRepositoryId: row.member_repository_id,
+    launchOrder: row.launch_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -1813,8 +2185,8 @@ export function startLaunch(launchId: string): LaunchRecord | null {
 export function markLaunchRunning(
   launchId: string,
   details: {
-    instanceUrl: string;
-    containerId: string;
+    instanceUrl?: string | null;
+    containerId?: string | null;
     port?: number | null;
     startedAt?: string;
     command?: string;
@@ -1823,8 +2195,8 @@ export function markLaunchRunning(
   const startedAt = details.startedAt ?? new Date().toISOString();
   return updateLaunchRecord(launchId, {
     status: 'running',
-    instanceUrl: details.instanceUrl,
-    containerId: details.containerId,
+    instanceUrl: details.instanceUrl ?? null,
+    containerId: details.containerId ?? null,
     port: details.port ?? null,
     command: details.command,
     startedAt,
@@ -2049,6 +2421,158 @@ export function replaceRepositoryPreviews(repositoryId: string, previews: Reposi
   });
   transaction();
   notifyRepositoryChanged(repositoryId);
+}
+
+export function upsertServiceNetwork(input: ServiceNetworkUpsertInput): ServiceNetworkRecord {
+  const now = new Date().toISOString();
+  const manifestSource = input.manifestSource ?? null;
+  const transaction = db.transaction(() => {
+    const existing = selectServiceNetworkByIdStatement.get(input.repositoryId) as
+      | ServiceNetworkRow
+      | undefined;
+    const createdAt = existing?.created_at ?? now;
+    upsertServiceNetworkStatement.run({
+      repositoryId: input.repositoryId,
+      manifestSource,
+      createdAt,
+      updatedAt: now
+    });
+    const refreshed = selectServiceNetworkByIdStatement.get(input.repositoryId) as
+      | ServiceNetworkRow
+      | undefined;
+    if (!refreshed) {
+      return rowToServiceNetwork({
+        repository_id: input.repositoryId,
+        manifest_source: manifestSource,
+        created_at: createdAt,
+        updated_at: now
+      });
+    }
+    const memberRows = selectServiceNetworkMembersStatement.all(input.repositoryId) as ServiceNetworkMemberRow[];
+    return rowToServiceNetwork(refreshed, memberRows.map(rowToServiceNetworkMember));
+  });
+  return transaction();
+}
+
+export function replaceServiceNetworkMembers(
+  networkRepositoryId: string,
+  members: ServiceNetworkMemberInput[]
+): ServiceNetworkRecord | null {
+  const now = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    const networkRow = selectServiceNetworkByIdStatement.get(networkRepositoryId) as
+      | ServiceNetworkRow
+      | undefined;
+    if (!networkRow) {
+      return null;
+    }
+    deleteServiceNetworkMembersStatement.run(networkRepositoryId);
+    let fallbackOrder = 0;
+    for (const member of members) {
+      if (!member || typeof member.memberRepositoryId !== 'string') {
+        continue;
+      }
+      const memberId = member.memberRepositoryId.trim().toLowerCase();
+      if (!memberId) {
+        continue;
+      }
+      const providedOrder = Number(member.launchOrder);
+      const launchOrder = Number.isFinite(providedOrder) && providedOrder >= 0 ? providedOrder : fallbackOrder;
+      insertServiceNetworkMemberStatement.run({
+        networkRepositoryId,
+        memberRepositoryId: memberId,
+        launchOrder,
+        waitForBuild: member.waitForBuild === false ? 0 : 1,
+        envVars: encodeManifestEnv(member.env),
+        dependsOn: prepareDependsOn(member.dependsOn),
+        createdAt: now,
+        updatedAt: now
+      });
+      fallbackOrder += 1;
+    }
+    upsertServiceNetworkStatement.run({
+      repositoryId: networkRepositoryId,
+      manifestSource: networkRow.manifest_source,
+      createdAt: networkRow.created_at,
+      updatedAt: now
+    });
+    const refreshedRow = selectServiceNetworkByIdStatement.get(networkRepositoryId) as
+      | ServiceNetworkRow
+      | undefined;
+    if (!refreshedRow) {
+      return null;
+    }
+    const refreshedMembers = selectServiceNetworkMembersStatement.all(networkRepositoryId) as ServiceNetworkMemberRow[];
+    return rowToServiceNetwork(refreshedRow, refreshedMembers.map(rowToServiceNetworkMember));
+  });
+  return transaction();
+}
+
+export function getServiceNetworkByRepositoryId(repositoryId: string): ServiceNetworkRecord | null {
+  const row = selectServiceNetworkByIdStatement.get(repositoryId) as ServiceNetworkRow | undefined;
+  if (!row) {
+    return null;
+  }
+  const memberRows = selectServiceNetworkMembersStatement.all(repositoryId) as ServiceNetworkMemberRow[];
+  return rowToServiceNetwork(row, memberRows.map(rowToServiceNetworkMember));
+}
+
+export function deleteServiceNetwork(repositoryId: string) {
+  const transaction = db.transaction(() => {
+    deleteServiceNetworkMembersStatement.run(repositoryId);
+    deleteServiceNetworkStatement.run(repositoryId);
+  });
+  transaction();
+}
+
+export function listServiceNetworkRepositoryIds(): string[] {
+  const rows = selectAllServiceNetworkIdsStatement.all() as { repository_id: string }[];
+  return rows.map((row) => row.repository_id);
+}
+
+export function isServiceNetworkRepository(repositoryId: string): boolean {
+  const row = selectServiceNetworkByIdStatement.get(repositoryId) as ServiceNetworkRow | undefined;
+  return Boolean(row);
+}
+
+export function listNetworksForMemberRepository(memberRepositoryId: string): string[] {
+  const rows = selectNetworksForMemberStatement.all(memberRepositoryId) as { network_repository_id: string }[];
+  return rows.map((row) => row.network_repository_id);
+}
+
+export function recordServiceNetworkLaunchMembers(
+  networkLaunchId: string,
+  members: ServiceNetworkLaunchMemberInput[]
+) {
+  const now = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    deleteServiceNetworkLaunchMembersStatement.run(networkLaunchId);
+    for (const member of members) {
+      if (!member || typeof member.memberLaunchId !== 'string') {
+        continue;
+      }
+      insertServiceNetworkLaunchMemberStatement.run({
+        networkLaunchId,
+        memberLaunchId: member.memberLaunchId,
+        memberRepositoryId: member.memberRepositoryId,
+        launchOrder: member.launchOrder,
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+  });
+  transaction();
+}
+
+export function getServiceNetworkLaunchMembers(
+  networkLaunchId: string
+): ServiceNetworkLaunchMemberRecord[] {
+  const rows = selectServiceNetworkLaunchMembersStatement.all(networkLaunchId) as ServiceNetworkLaunchMemberRow[];
+  return rows.map(rowToServiceNetworkLaunchMember);
+}
+
+export function deleteServiceNetworkLaunchMembers(networkLaunchId: string) {
+  deleteServiceNetworkLaunchMembersStatement.run(networkLaunchId);
 }
 
 export function updateRepositoryLaunchEnvTemplates(

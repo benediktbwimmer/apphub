@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 
-export type ActiveTab = 'catalog' | 'submit';
+export type ActiveTab = 'catalog' | 'submit' | 'import-manifest';
 
 export interface NavigationContextValue {
   activeTab: ActiveTab;
@@ -18,4 +18,3 @@ export function useNavigation() {
 
   return context;
 }
-

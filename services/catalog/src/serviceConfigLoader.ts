@@ -7,8 +7,11 @@ import {
   joinSourceLabel,
   manifestEntrySchema,
   manifestFileSchema,
+  serviceNetworkSchema,
   type ManifestEntryInput,
-  type ManifestLoadError
+  type ManifestEnvVarInput,
+  type ManifestLoadError,
+  type ManifestServiceNetworkInput
 } from './serviceManifestTypes';
 
 const DEFAULT_SERVICE_CONFIG_PATH = path.resolve(__dirname, '..', '..', 'service-config.json');
@@ -36,6 +39,7 @@ const serviceConfigSchema = z
   .object({
     module: z.string().min(1),
     services: z.array(manifestEntrySchema).optional(),
+    networks: z.array(serviceNetworkSchema).optional(),
     manifestPath: z.string().min(1).optional(),
     imports: z.array(serviceConfigImportSchema).optional()
   })
@@ -48,8 +52,13 @@ export type LoadedManifestEntry = ManifestEntryInput & {
   baseUrlSource: 'manifest' | 'env';
 };
 
+export type LoadedServiceNetwork = ManifestServiceNetworkInput & {
+  sources: string[];
+};
+
 export type ServiceConfigLoadResult = {
   entries: LoadedManifestEntry[];
+  networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
   usedConfigs: string[];
 };
@@ -59,6 +68,7 @@ type VisitedModules = Map<string, string>;
 type ConfigLoadResult = {
   moduleId: string | null;
   entries: LoadedManifestEntry[];
+  networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
 };
 
@@ -93,6 +103,44 @@ export function resolveServiceConfigPaths(): string[] {
   return resolveConfiguredPaths(process.env.SERVICE_CONFIG_PATH, [DEFAULT_SERVICE_CONFIG_PATH]);
 }
 
+function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[] | undefined {
+  if (!env || !Array.isArray(env)) {
+    return undefined;
+  }
+  return env
+    .filter((entry): entry is ManifestEnvVarInput => Boolean(entry && typeof entry.key === 'string'))
+    .map((entry) => {
+      const key = entry.key.trim();
+      if (!key) {
+        return { key: '' } as ManifestEnvVarInput;
+      }
+      const clone: ManifestEnvVarInput = { key };
+      if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+        clone.value = entry.value;
+      }
+      if (entry.fromService) {
+        clone.fromService = {
+          service: entry.fromService.service.trim().toLowerCase(),
+          property: entry.fromService.property,
+          fallback: entry.fromService.fallback
+        };
+      }
+      return clone;
+    })
+    .filter((entry) => entry.key.length > 0);
+}
+
+type TagInput = { key: string; value: string };
+
+function cloneTags(tags?: TagInput[] | null): TagInput[] | undefined {
+  if (!tags || !Array.isArray(tags)) {
+    return undefined;
+  }
+  return tags
+    .filter((tag): tag is TagInput => Boolean(tag && typeof tag.key === 'string' && typeof tag.value === 'string'))
+    .map((tag) => ({ key: tag.key, value: tag.value }));
+}
+
 async function readJsonFile<T>(filePath: string, parser: (value: unknown) => T): Promise<T> {
   const contents = await fs.readFile(filePath, 'utf8');
   let parsed: unknown;
@@ -104,11 +152,23 @@ async function readJsonFile<T>(filePath: string, parser: (value: unknown) => T):
   return parser(parsed);
 }
 
-async function readManifestEntries(manifestPath: string): Promise<ManifestEntryInput[]> {
+type ManifestDescriptorSet = {
+  entries: ManifestEntryInput[];
+  networks: ManifestServiceNetworkInput[];
+};
+
+async function readManifestDescriptors(manifestPath: string): Promise<ManifestDescriptorSet> {
   return readJsonFile(manifestPath, (value) => {
     const parsed = manifestFileSchema.parse(value);
-    const entries = Array.isArray(parsed) ? parsed : parsed.services;
-    return entries.map((entry) => ({ ...entry }));
+    if (Array.isArray(parsed)) {
+      return {
+        entries: parsed.map((entry) => ({ ...entry })),
+        networks: []
+      };
+    }
+    const services = parsed.services?.map((entry) => ({ ...entry })) ?? [];
+    const networks = parsed.networks?.map((network) => ({ ...network })) ?? [];
+    return { entries: services, networks };
   });
 }
 
@@ -131,11 +191,47 @@ function addManifestEntries(
   sourceLabel: string
 ) {
   for (const entry of entries) {
+    const slug = entry.slug.trim().toLowerCase();
     target.push({
       ...entry,
-      slug: entry.slug.trim().toLowerCase(),
+      slug,
+      env: cloneEnvVars(entry.env),
       sources: [moduleSource, sourceLabel],
       baseUrlSource: 'manifest'
+    });
+  }
+}
+
+function addManifestNetworks(
+  target: LoadedServiceNetwork[],
+  networks: ManifestServiceNetworkInput[],
+  moduleSource: string,
+  sourceLabel: string
+) {
+  for (const network of networks) {
+    const normalizedServices = network.services.map((service) => {
+      const slug = service.serviceSlug.trim().toLowerCase();
+      return {
+        ...service,
+        serviceSlug: slug,
+        dependsOn: service.dependsOn?.map((dep) => dep.trim().toLowerCase()) ?? undefined,
+        env: cloneEnvVars(service.env),
+        app: {
+          ...service.app,
+          id: service.app.id.trim().toLowerCase(),
+          tags: cloneTags(service.app.tags),
+          launchEnv: cloneEnvVars(service.app.launchEnv)
+        }
+      };
+    });
+
+    target.push({
+      ...network,
+      id: network.id.trim().toLowerCase(),
+      services: normalizedServices,
+      env: cloneEnvVars(network.env),
+      tags: cloneTags(network.tags),
+      sources: [moduleSource, sourceLabel]
     });
   }
 }
@@ -149,7 +245,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     config = await readServiceConfig(filePath);
   } catch (err) {
     errors.push({ source: sourceLabel, error: err as Error });
-    return { moduleId: null, entries: [], errors };
+    return { moduleId: null, entries: [], networks: [], errors };
   }
 
   const moduleId = config.module.trim();
@@ -161,16 +257,21 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   }
 
   if (visitedModules.has(moduleId)) {
-    return { moduleId, entries: [], errors };
+    return { moduleId, entries: [], networks: [], errors };
   }
 
   visitedModules.set(moduleId, sourceLabel);
 
   const entries: LoadedManifestEntry[] = [];
+  const networks: LoadedServiceNetwork[] = [];
   const moduleSource = `module:${moduleId}`;
 
   if (config.services?.length) {
     addManifestEntries(entries, config.services, moduleSource, sourceLabel);
+  }
+
+  if (config.networks?.length) {
+    addManifestNetworks(networks, config.networks, moduleSource, sourceLabel);
   }
 
   if (config.manifestPath) {
@@ -178,8 +279,9 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     const manifestFullPath = path.resolve(configDir, config.manifestPath);
     const manifestSourceLabel = joinSourceLabel(sourceLabel, toRepoRelativePath(manifestFullPath, repoRoot));
     try {
-      const manifestEntries = await readManifestEntries(manifestFullPath);
-      addManifestEntries(entries, manifestEntries, moduleSource, manifestSourceLabel);
+      const manifestDescriptors = await readManifestDescriptors(manifestFullPath);
+      addManifestEntries(entries, manifestDescriptors.entries, moduleSource, manifestSourceLabel);
+      addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel);
     } catch (err) {
       errors.push({ source: manifestSourceLabel, error: err as Error });
     }
@@ -191,10 +293,11 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     }
     const childResult = await loadConfigImport(child, visitedModules);
     entries.push(...childResult.entries);
+    networks.push(...childResult.networks);
     errors.push(...childResult.errors);
   }
 
-  return { moduleId, entries, errors };
+  return { moduleId, entries, networks, errors };
 }
 
 async function loadConfigImport(
@@ -206,6 +309,7 @@ async function loadConfigImport(
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-'));
   let moduleId: string | null = null;
   let entries: LoadedManifestEntry[] = [];
+  let networks: LoadedServiceNetwork[] = [];
   let resolvedCommit: string | null = null;
   try {
     const cloneArgs: string[] = [];
@@ -251,6 +355,7 @@ async function loadConfigImport(
     });
     moduleId = result.moduleId;
     entries = result.entries;
+    networks = result.networks;
     errors.push(...result.errors);
   } catch (err) {
     errors.push({
@@ -261,12 +366,13 @@ async function loadConfigImport(
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 
-  return { moduleId, entries, errors, resolvedCommit };
+  return { moduleId, entries, networks, errors, resolvedCommit };
 }
 
 export async function loadServiceConfigurations(configPaths: string[]): Promise<ServiceConfigLoadResult> {
   const visitedModules: VisitedModules = new Map();
   const entries: LoadedManifestEntry[] = [];
+  const networks: LoadedServiceNetwork[] = [];
   const errors: ManifestLoadError[] = [];
   const usedConfigs: string[] = [];
 
@@ -285,10 +391,11 @@ export async function loadServiceConfigurations(configPaths: string[]): Promise<
     });
     usedConfigs.push(configPath);
     entries.push(...result.entries);
+    networks.push(...result.networks);
     errors.push(...result.errors);
   }
 
-  return { entries, errors, usedConfigs };
+  return { entries, networks, errors, usedConfigs };
 }
 
 export type ServiceConfigImportRequest = {
@@ -303,6 +410,7 @@ export type ServiceConfigImportPreview = {
   moduleId: string;
   resolvedCommit: string | null;
   entries: LoadedManifestEntry[];
+  networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
 };
 
@@ -335,6 +443,7 @@ export async function previewServiceConfigImport(
     moduleId: result.moduleId,
     resolvedCommit: result.resolvedCommit ?? null,
     entries: result.entries,
+    networks: result.networks,
     errors: result.errors
   };
 }

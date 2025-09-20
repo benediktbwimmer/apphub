@@ -1,11 +1,23 @@
 import {
+  createLaunch,
   failLaunch,
   getBuildById,
   getLaunchById,
+  getRepositoryById,
+  getServiceNetworkByRepositoryId,
   markLaunchRunning,
   markLaunchStopped,
+  recordServiceNetworkLaunchMembers,
   requestLaunchStop,
-  startLaunch
+  startLaunch,
+  deleteServiceNetworkLaunchMembers,
+  getServiceNetworkLaunchMembers,
+  type LaunchEnvVar,
+  type ServiceNetworkLaunchMemberInput,
+  type LaunchRecord,
+  type RepositoryRecord,
+  type ServiceNetworkRecord,
+  type ServiceNetworkMemberRecord
 } from './db';
 import { isStubRunnerEnabled, runStubLaunchStart, runStubLaunchStop } from './launchPreviewStub';
 import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } from './launchCommand';
@@ -14,10 +26,27 @@ import {
   resolveLaunchInternalPort,
   runDockerCommand
 } from './docker';
+import { enqueueLaunchStart, enqueueLaunchStop, isInlineQueueMode } from './queue';
+import type { ManifestEnvVarInput } from './serviceManifestTypes';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
   console.log(`[launch] ${message}${payload}`);
+}
+
+const SERVICE_NETWORK_BUILD_TIMEOUT_MS = Number(process.env.SERVICE_NETWORK_BUILD_TIMEOUT_MS ?? 10 * 60_000);
+const SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS = Number(
+  process.env.SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS ?? 2000
+);
+const SERVICE_NETWORK_LAUNCH_TIMEOUT_MS = Number(
+  process.env.SERVICE_NETWORK_LAUNCH_TIMEOUT_MS ?? 5 * 60_000
+);
+const SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS = Number(
+  process.env.SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS ?? 2000
+);
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildPreviewUrl(hostPort: string): string {
@@ -142,6 +171,314 @@ function extractContainerName(args: string[]): string | null {
   return null;
 }
 
+type ServiceRuntimeInfo = {
+  repositoryId: string;
+  instanceUrl: string | null;
+  baseUrl: string | null;
+  port: number | null;
+  host: string;
+};
+
+type RuntimeContext = Map<string, ServiceRuntimeInfo>;
+
+function resolveEnvValueFromService(
+  ref: NonNullable<ManifestEnvVarInput['fromService']>,
+  runtime: RuntimeContext
+): string | undefined {
+  const target = ref.service.trim().toLowerCase();
+  if (!target) {
+    return undefined;
+  }
+  const context = runtime.get(target);
+  if (!context) {
+    return undefined;
+  }
+  switch (ref.property) {
+    case 'instanceUrl':
+      return context.instanceUrl ?? context.baseUrl ?? ref.fallback;
+    case 'baseUrl':
+      return context.baseUrl ?? context.instanceUrl ?? ref.fallback;
+    case 'host':
+      return context.host ?? ref.fallback;
+    case 'port':
+      return context.port !== null && context.port !== undefined
+        ? String(context.port)
+        : ref.fallback;
+    default:
+      return ref.fallback;
+  }
+}
+
+function resolveEnvEntries(
+  entries: ManifestEnvVarInput[] | undefined,
+  runtime: RuntimeContext
+): LaunchEnvVar[] {
+  if (!entries || entries.length === 0) {
+    return [];
+  }
+  const resolved: LaunchEnvVar[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+
+    let value: string | undefined;
+
+    if (entry.fromService) {
+      value = resolveEnvValueFromService(entry.fromService, runtime);
+      if (value === undefined && entry.value !== undefined) {
+        value = entry.value;
+      }
+      if (value === undefined && entry.fromService.fallback !== undefined) {
+        value = entry.fromService.fallback;
+      }
+    } else if (entry.value !== undefined) {
+      value = entry.value;
+    }
+
+    if (value === undefined) {
+      continue;
+    }
+    resolved.push({ key, value });
+  }
+  return resolved;
+}
+
+function sortNetworkMembers(network: ServiceNetworkRecord): ServiceNetworkMemberRecord[] {
+  return [...network.members].sort((a, b) => {
+    if (a.launchOrder === b.launchOrder) {
+      return a.memberRepositoryId.localeCompare(b.memberRepositoryId);
+    }
+    return a.launchOrder - b.launchOrder;
+  });
+}
+
+async function resolveBuildIdForMember(member: ServiceNetworkMemberRecord): Promise<string> {
+  let repository = getRepositoryById(member.memberRepositoryId);
+  if (!repository) {
+    throw new Error(`repository ${member.memberRepositoryId} not found`);
+  }
+  const latest = repository.latestBuild;
+  if (latest && latest.status === 'succeeded' && latest.imageTag) {
+    return latest.id;
+  }
+  if (!member.waitForBuild) {
+    throw new Error(`no successful build available for ${member.memberRepositoryId}`);
+  }
+
+  const deadline = Date.now() + SERVICE_NETWORK_BUILD_TIMEOUT_MS;
+  log('waiting for member build', {
+    repositoryId: member.memberRepositoryId,
+    timeoutMs: SERVICE_NETWORK_BUILD_TIMEOUT_MS
+  });
+  while (Date.now() < deadline) {
+    await delay(SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS);
+    repository = getRepositoryById(member.memberRepositoryId);
+    if (!repository) {
+      continue;
+    }
+    const current = repository.latestBuild;
+    if (current && current.status === 'succeeded' && current.imageTag) {
+      return current.id;
+    }
+    if (current && current.status === 'failed') {
+      const message = current.errorMessage ? current.errorMessage.slice(0, 160) : 'build failed';
+      throw new Error(`build failed for ${member.memberRepositoryId}: ${message}`);
+    }
+  }
+
+  throw new Error(`timed out waiting for build for ${member.memberRepositoryId}`);
+}
+
+async function waitForLaunchRunningStatus(launchId: string): Promise<LaunchRecord> {
+  const deadline = Date.now() + SERVICE_NETWORK_LAUNCH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const record = getLaunchById(launchId);
+    if (!record) {
+      throw new Error(`launch ${launchId} not found`);
+    }
+    if (record.status === 'running') {
+      return record;
+    }
+    if (record.status === 'failed') {
+      const message = record.errorMessage ? record.errorMessage.slice(0, 160) : 'launch failed';
+      throw new Error(message);
+    }
+    if (record.status === 'stopped') {
+      throw new Error('launch stopped before reaching running state');
+    }
+    await delay(SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS);
+  }
+  throw new Error(`timed out waiting for launch ${launchId} to start`);
+}
+
+async function waitForLaunchStoppedStatus(launchId: string): Promise<LaunchRecord> {
+  const deadline = Date.now() + SERVICE_NETWORK_LAUNCH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const record = getLaunchById(launchId);
+    if (!record) {
+      throw new Error(`launch ${launchId} not found`);
+    }
+    if (record.status === 'stopped' || record.status === 'failed') {
+      return record;
+    }
+    await delay(SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS);
+  }
+  throw new Error(`timed out waiting for launch ${launchId} to stop`);
+}
+
+async function stopServiceLaunches(launchIds: string[]) {
+  for (const launchId of launchIds) {
+    try {
+      const current = getLaunchById(launchId);
+      if (!current) {
+        continue;
+      }
+      if (!['running', 'starting', 'pending'].includes(current.status)) {
+        continue;
+      }
+      requestLaunchStop(launchId);
+      if (isInlineQueueMode()) {
+        await runLaunchStop(launchId);
+      } else {
+        await enqueueLaunchStop(launchId);
+      }
+      const result = await waitForLaunchStoppedStatus(launchId);
+      if (result.status === 'failed') {
+        log('network member launch failed during stop', {
+          launchId,
+          error: result.errorMessage ?? null
+        });
+      } else {
+        log('network member stopped', { launchId });
+      }
+    } catch (err) {
+      log('failed to stop network member launch', {
+        launchId,
+        error: (err as Error).message
+      });
+    }
+  }
+}
+
+async function runServiceNetworkLaunch(
+  launch: LaunchRecord,
+  repository: RepositoryRecord,
+  network: ServiceNetworkRecord
+) {
+  const members = sortNetworkMembers(network);
+  deleteServiceNetworkLaunchMembers(launch.id);
+  if (members.length === 0) {
+    recordServiceNetworkLaunchMembers(launch.id, []);
+    markLaunchRunning(launch.id, {
+      instanceUrl: null,
+      containerId: null,
+      command: 'service-network'
+    });
+    log('service network launch running with no members', {
+      launchId: launch.id,
+      repositoryId: repository.id
+    });
+    return;
+  }
+
+  const recorded: ServiceNetworkLaunchMemberInput[] = [];
+  const runtimeContext: RuntimeContext = new Map();
+
+  try {
+    for (const member of members) {
+      log('starting network member launch', {
+        networkLaunchId: launch.id,
+        memberRepositoryId: member.memberRepositoryId,
+        launchOrder: member.launchOrder
+      });
+      const buildId = await resolveBuildIdForMember(member);
+      const resolvedEnv = resolveEnvEntries(member.env, runtimeContext);
+      const childLaunch = createLaunch(member.memberRepositoryId, buildId, {
+        env: resolvedEnv,
+        command: null
+      });
+      recorded.push({
+        memberLaunchId: childLaunch.id,
+        memberRepositoryId: member.memberRepositoryId,
+        launchOrder: member.launchOrder
+      });
+      if (isInlineQueueMode()) {
+        await runLaunchStart(childLaunch.id);
+      } else {
+        await enqueueLaunchStart(childLaunch.id);
+      }
+      await waitForLaunchRunningStatus(childLaunch.id);
+      log('network member launch running', {
+        networkLaunchId: launch.id,
+        memberLaunchId: childLaunch.id
+      });
+
+      const runningLaunch = getLaunchById(childLaunch.id);
+      const port = runningLaunch?.port ?? null;
+      const host = '127.0.0.1';
+      const baseUrl = port ? `http://${host}:${port}` : runningLaunch?.instanceUrl ?? null;
+      const context: ServiceRuntimeInfo = {
+        repositoryId: member.memberRepositoryId,
+        instanceUrl: runningLaunch?.instanceUrl ?? null,
+        baseUrl,
+        port,
+        host
+      };
+      runtimeContext.set(member.memberRepositoryId.trim().toLowerCase(), context);
+    }
+
+    recordServiceNetworkLaunchMembers(launch.id, recorded);
+    markLaunchRunning(launch.id, {
+      instanceUrl: null,
+      containerId: null,
+      command: 'service-network'
+    });
+    log('service network launch running', { launchId: launch.id, repositoryId: repository.id });
+  } catch (err) {
+    log('error launching service network', {
+      launchId: launch.id,
+      error: (err as Error).message
+    });
+    const reverseLaunchIds = recorded
+      .slice()
+      .sort((a, b) => b.launchOrder - a.launchOrder)
+      .map((entry) => entry.memberLaunchId);
+    if (reverseLaunchIds.length > 0) {
+      await stopServiceLaunches(reverseLaunchIds);
+    }
+    deleteServiceNetworkLaunchMembers(launch.id);
+    failLaunch(launch.id, (err as Error).message ?? 'service network launch failed');
+  }
+}
+
+async function runServiceNetworkStop(launch: LaunchRecord) {
+  try {
+    const members = getServiceNetworkLaunchMembers(launch.id);
+    if (members.length > 0) {
+      const launchIds = members
+        .slice()
+        .sort((a, b) => b.launchOrder - a.launchOrder)
+        .map((entry) => entry.memberLaunchId);
+      await stopServiceLaunches(launchIds);
+    }
+    deleteServiceNetworkLaunchMembers(launch.id);
+    markLaunchStopped(launch.id);
+    log('service network launch stopped', { launchId: launch.id });
+  } catch (err) {
+    deleteServiceNetworkLaunchMembers(launch.id);
+    markLaunchStopped(launch.id, { errorMessage: (err as Error).message });
+    log('error stopping service network', {
+      launchId: launch.id,
+      error: (err as Error).message
+    });
+  }
+}
+
 export async function runLaunchStart(launchId: string) {
   if (isStubRunnerEnabled) {
     await runStubLaunchStart(launchId);
@@ -151,6 +488,20 @@ export async function runLaunchStart(launchId: string) {
   const launch = startLaunch(launchId);
   if (!launch) {
     log('Launch not pending', { launchId });
+    return;
+  }
+
+  const repository = getRepositoryById(launch.repositoryId);
+  if (!repository) {
+    const message = 'Launch unavailable: app not found';
+    failLaunch(launch.id, message);
+    log('Launch failed - repository missing', { launchId, repositoryId: launch.repositoryId });
+    return;
+  }
+
+  const serviceNetwork = getServiceNetworkByRepositoryId(repository.id);
+  if (serviceNetwork) {
+    await runServiceNetworkLaunch(launch, repository, serviceNetwork);
     return;
   }
 
@@ -267,6 +618,13 @@ export async function runLaunchStop(launchId: string) {
       return;
     }
     current = requested;
+  }
+
+  const repository = getRepositoryById(current.repositoryId);
+  const networkConfig = repository ? getServiceNetworkByRepositoryId(repository.id) : null;
+  if (networkConfig || getServiceNetworkLaunchMembers(launchId).length > 0) {
+    await runServiceNetworkStop(current);
+    return;
   }
 
   if (!current.containerId) {
