@@ -695,6 +695,23 @@ function FullscreenIcon() {
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className="h-4 w-4"
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 9.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="10" cy="6" r="0.85" fill="currentColor" />
+    </svg>
+  );
+}
+
 function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
   if (!build) {
     return (
@@ -764,7 +781,9 @@ function LaunchSummarySection({
   stoppingLaunchId,
   onLaunch,
   onStop,
-  launchErrors
+  launchErrors,
+  detailsOpen,
+  onToggleDetails
 }: {
   app: AppRecord;
   activeTokens: string[];
@@ -774,6 +793,8 @@ function LaunchSummarySection({
   onLaunch: (id: string, draft: LaunchRequestDraft) => void;
   onStop: (appId: string, launchId: string) => void;
   launchErrors: Record<string, string | null>;
+  detailsOpen: boolean;
+  onToggleDetails: () => void;
 }) {
   const launch = app.latestLaunch;
   const normalizedInstanceUrl = normalizePreviewUrl(launch?.instanceUrl);
@@ -934,25 +955,34 @@ function LaunchSummarySection({
           : 'flex flex-col gap-3 rounded-2xl border border-dashed border-slate-300/70 bg-slate-50/50 p-4 text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/30 dark:text-slate-300'
       }
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={getStatusBadgeClasses(launch ? launch.status : 'pending')}>
-          {launch ? `launch ${launch.status}` : 'launch pending'}
-        </span>
-        {updatedAt && (
-          <time className="text-xs text-slate-500 dark:text-slate-400" dateTime={updatedAt}>
-            Updated {new Date(updatedAt).toLocaleString()}
-          </time>
-        )}
-        {normalizedInstanceUrl && (
-          <a
-            className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
-            href={normalizedInstanceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Preview
-          </a>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={getStatusBadgeClasses(launch ? launch.status : 'pending')}>
+            {launch ? `launch ${launch.status}` : 'launch pending'}
+          </span>
+          {updatedAt && (
+            <time className="text-xs text-slate-500 dark:text-slate-400" dateTime={updatedAt}>
+              Updated {new Date(updatedAt).toLocaleString()}
+            </time>
+          )}
+          {detailsOpen && normalizedInstanceUrl && (
+            <a
+              className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+              href={normalizedInstanceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Preview
+            </a>
+          )}
+        </div>
+        <button
+          type="button"
+          className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+          onClick={onToggleDetails}
+        >
+          {detailsOpen ? 'Hide launch info' : 'Show launch info'}
+        </button>
       </div>
       {(launchError || launch?.errorMessage) && (
         <p className="text-sm font-medium text-rose-600 dark:text-rose-300">
@@ -971,73 +1001,6 @@ function LaunchSummarySection({
       {launch?.status === 'stopped' && (
         <p className="text-sm text-slate-500 dark:text-slate-400">Last launch has ended.</p>
       )}
-      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
-        <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-          Docker Command
-        </span>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Custom Docker commands are temporarily disabled. Launches will use the generated command below.
-        </p>
-        <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
-          {generatedDefaultCommand}
-        </pre>
-      </div>
-      <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-            Environment
-          </span>
-          {!editingDisabled && (
-            <button
-              type="button"
-              className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
-              onClick={handleAddEnvRow}
-              disabled={envRows.length >= MAX_LAUNCH_ENV_ROWS}
-            >
-              Add variable
-            </button>
-          )}
-        </div>
-        {envRows.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {envRows.map((row) => (
-              <div key={row.id} className="flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="KEY"
-                  className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
-                  value={row.key}
-                  onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
-                  disabled={editingDisabled}
-                />
-                <input
-                  type="text"
-                  placeholder="value"
-                  className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
-                  value={row.value}
-                  onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
-                  disabled={editingDisabled}
-                />
-                <button
-                  type="button"
-                  className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
-                  onClick={() => handleEnvRemove(row.id)}
-                  disabled={editingDisabled}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {editingDisabled && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Environment variables are locked while a launch is active.
-          </p>
-        )}
-      </div>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -1075,7 +1038,7 @@ function LaunchSummarySection({
           {isStopping ? 'Stopping…' : 'Stop launch'}
         </button>
       </div>
-      {normalizedInstanceUrl && (
+      {detailsOpen && normalizedInstanceUrl && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-blue-600 dark:text-slate-200">
           <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
           <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
@@ -1083,8 +1046,79 @@ function LaunchSummarySection({
           </a>
         </div>
       )}
-      {launch?.resourceProfile && (
+      {detailsOpen && launch?.resourceProfile && (
         <div className="text-sm text-slate-500 dark:text-slate-400">Profile: {launch.resourceProfile}</div>
+      )}
+      {detailsOpen && (
+        <>
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+              Docker Command
+            </span>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Custom Docker commands are temporarily disabled. Launches will use the generated command below.
+            </p>
+            <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
+              {generatedDefaultCommand}
+            </pre>
+          </div>
+          <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Environment
+              </span>
+              {!editingDisabled && (
+                <button
+                  type="button"
+                  className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+                  onClick={handleAddEnvRow}
+                  disabled={envRows.length >= MAX_LAUNCH_ENV_ROWS}
+                >
+                  Add variable
+                </button>
+              )}
+            </div>
+            {envRows.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {envRows.map((row) => (
+                  <div key={row.id} className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="KEY"
+                      className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                      value={row.key}
+                      onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
+                      disabled={editingDisabled}
+                    />
+                    <input
+                      type="text"
+                      placeholder="value"
+                      className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                      value={row.value}
+                      onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
+                      disabled={editingDisabled}
+                    />
+                    <button
+                      type="button"
+                      className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+                      onClick={() => handleEnvRemove(row.id)}
+                      disabled={editingDisabled}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {editingDisabled && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Environment variables are locked while a launch is active.
+              </p>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1477,17 +1511,91 @@ function AppCard({
   stoppingLaunchId,
   launchErrors
 }: AppCardProps) {
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [showBuildSummary, setShowBuildSummary] = useState(false);
+  const [showLaunchDetails, setShowLaunchDetails] = useState(false);
   const showHistory = historyEntry?.open ?? false;
   const showBuilds = buildEntry?.open ?? false;
   const showLaunches = launchEntry?.open ?? false;
+
+  useEffect(() => {
+    if (!infoOpen) {
+      return undefined;
+    }
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!infoPopoverRef.current) {
+        return;
+      }
+      if (!infoPopoverRef.current.contains(event.target as Node)) {
+        setInfoOpen(false);
+      }
+    };
+
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setInfoOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeydown, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeydown, true);
+    };
+  }, [infoOpen]);
+
+  const hasDescription = app.description.trim().length > 0;
+  const hasTags = app.tags.length > 0;
 
   return (
     <article className="flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
       <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} launch={app.latestLaunch} />
       <div className="flex flex-col gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-          {highlightSegments(app.name, activeTokens, highlightEnabled)}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            {highlightSegments(app.name, activeTokens, highlightEnabled)}
+          </h2>
+          <div className="relative" ref={infoPopoverRef}>
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={infoOpen}
+              aria-label={infoOpen ? 'Hide app info' : 'Show app info'}
+              className="inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 p-2 text-slate-500 transition-colors hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+              onClick={() => setInfoOpen((open) => !open)}
+            >
+              <InfoIcon />
+            </button>
+            {infoOpen && (
+              <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-left shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
+                <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                  {hasDescription ? (
+                    <p className="leading-6">{highlightSegments(app.description, activeTokens, highlightEnabled)}</p>
+                  ) : (
+                    <p className="text-sm italic text-slate-500 dark:text-slate-400">No description available.</p>
+                  )}
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                      Tags
+                    </span>
+                    {hasTags ? (
+                      <TagList tags={app.tags} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
+                    ) : (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">No tags available.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-3 text-xs">
           <span className={getStatusBadgeClasses(app.ingestStatus)}>{app.ingestStatus}</span>
           <time className="text-slate-500 dark:text-slate-400" dateTime={app.updatedAt}>
@@ -1523,16 +1631,12 @@ function AppCard({
           </div>
         )}
       </div>
-      <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-        {highlightSegments(app.description, activeTokens, highlightEnabled)}
-      </p>
       {app.ingestError && (
         <p className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm font-medium text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300">
           {highlightSegments(app.ingestError, activeTokens, highlightEnabled)}
         </p>
       )}
-      <TagList tags={app.tags} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
-      <BuildSummarySection build={app.latestBuild} />
+      {showBuildSummary && <BuildSummarySection build={app.latestBuild} />}
       <LaunchSummarySection
         app={app}
         activeTokens={activeTokens}
@@ -1542,6 +1646,8 @@ function AppCard({
         onLaunch={onLaunch}
         onStop={onStopLaunch}
         launchErrors={launchErrors}
+        detailsOpen={showLaunchDetails}
+        onToggleDetails={() => setShowLaunchDetails((open) => !open)}
       />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <a
@@ -1565,6 +1671,13 @@ function AppCard({
             {retryingId === app.id ? 'Retrying…' : 'Retry ingest'}
           </button>
         )}
+        <button
+          type="button"
+          className={SMALL_BUTTON_GHOST}
+          onClick={() => setShowBuildSummary((open) => !open)}
+        >
+          {showBuildSummary ? 'Hide build info' : 'Show build info'}
+        </button>
         <button
           type="button"
           className={SMALL_BUTTON_GHOST}

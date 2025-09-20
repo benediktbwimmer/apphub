@@ -20,8 +20,6 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
     highlightIndex,
     parsedQuery,
     statusFilters,
-    ingestedAfter,
-    ingestedBefore,
     tagFacets,
     statusFacets,
     ownerFacets,
@@ -88,11 +86,6 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
             statusFacets={statusFacets}
             onToggleStatus={handlers.toggleStatus}
             onClearStatusFilters={handlers.clearStatusFilters}
-            ingestedAfter={ingestedAfter}
-            ingestedBefore={ingestedBefore}
-            onChangeIngestedAfter={handlers.setIngestedAfter}
-            onChangeIngestedBefore={handlers.setIngestedBefore}
-            onClearDateFilters={handlers.clearDateFilters}
             tagFacets={tagFacets}
             ownerFacets={ownerFacets}
             frameworkFacets={frameworkFacets}

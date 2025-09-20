@@ -5,11 +5,6 @@ type FilterPanelProps = {
   statusFacets: StatusFacet[];
   onToggleStatus: (status: IngestStatus) => void;
   onClearStatusFilters: () => void;
-  ingestedAfter: string;
-  ingestedBefore: string;
-  onChangeIngestedAfter: (value: string) => void;
-  onChangeIngestedBefore: (value: string) => void;
-  onClearDateFilters: () => void;
   tagFacets: TagFacet[];
   ownerFacets: TagFacet[];
   frameworkFacets: TagFacet[];
@@ -59,11 +54,6 @@ function FilterPanel({
   statusFacets,
   onToggleStatus,
   onClearStatusFilters,
-  ingestedAfter,
-  ingestedBefore,
-  onChangeIngestedAfter,
-  onChangeIngestedBefore,
-  onClearDateFilters,
   tagFacets,
   ownerFacets,
   frameworkFacets,
@@ -108,40 +98,6 @@ function FilterPanel({
               </button>
             );
           })}
-        </div>
-      </div>
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700 dark:text-slate-200">
-          <span className="uppercase tracking-[0.2em] text-xs text-slate-500 dark:text-slate-400">Ingested Date</span>
-          {(ingestedAfter || ingestedBefore) && (
-            <button
-              type="button"
-              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 transition-colors hover:bg-blue-500/10 dark:text-slate-200 dark:hover:bg-slate-200/10"
-              onClick={onClearDateFilters}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-            From
-            <input
-              type="date"
-              value={ingestedAfter}
-              onChange={(event) => onChangeIngestedAfter(event.target.value)}
-              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-            To
-            <input
-              type="date"
-              value={ingestedBefore}
-              onChange={(event) => onChangeIngestedBefore(event.target.value)}
-              className="rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
-            />
-          </label>
         </div>
       </div>
       {tagFacets.length > 0 && (
