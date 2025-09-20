@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import type { LaunchEnvVar } from './db';
+import type { LaunchEnvVar } from './db/index';
 
 function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
   if (!envVars || envVars.length === 0) {

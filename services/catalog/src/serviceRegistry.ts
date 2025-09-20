@@ -25,7 +25,7 @@ import {
   type ServiceUpsertInput,
   type TagKV,
   type ServiceNetworkMemberInput
-} from './db';
+} from './db/index';
 import { enqueueRepositoryIngestion } from './queue';
 import {
   loadServiceConfigurations,

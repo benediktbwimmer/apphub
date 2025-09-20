@@ -3,7 +3,7 @@ import {
   takeNextLaunchToStart,
   takeNextLaunchToStop,
   type LaunchRecord
-} from './db';
+} from './db/index';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import {
   LAUNCH_QUEUE_NAME,

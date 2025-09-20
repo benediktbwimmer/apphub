@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq';
 import { runBuildJob } from './buildRunner';
-import { takeNextPendingBuild, type BuildRecord } from './db';
+import { takeNextPendingBuild, type BuildRecord } from './db/index';
 import {
   BUILD_QUEUE_NAME,
   closeQueueConnection,

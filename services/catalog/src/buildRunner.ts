@@ -12,7 +12,7 @@ import {
   updateRepositoryLaunchEnvTemplates,
   type BuildRecord,
   type LaunchEnvVar
-} from './db';
+} from './db/index';
 
 const BUILD_CLONE_DEPTH = process.env.BUILD_CLONE_DEPTH ?? '1';
 

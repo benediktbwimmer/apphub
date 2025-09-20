@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { type JsonValue } from './db';
+import { type JsonValue } from './db/index';
 
 const manifestEnvReferenceSchema = z
   .object({

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import IORedis, { type Redis } from 'ioredis';
-import type { BuildRecord, IngestionEvent, LaunchRecord, RepositoryRecord, ServiceRecord } from './db';
+import type { BuildRecord, IngestionEvent, LaunchRecord, RepositoryRecord, ServiceRecord } from './db/index';
 
 export type ApphubEvent =
   | { type: 'repository.updated'; data: { repository: RepositoryRecord } }

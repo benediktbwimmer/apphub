@@ -43,7 +43,7 @@ import {
   type ServiceStatusUpdate,
   type ServiceUpsertInput,
   type JsonValue
-} from './db';
+} from './db/index';
 import {
   enqueueRepositoryIngestion,
   enqueueLaunchStart,

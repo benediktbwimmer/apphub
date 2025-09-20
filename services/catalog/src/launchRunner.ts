@@ -19,7 +19,7 @@ import {
   type RepositoryRecord,
   type ServiceNetworkRecord,
   type ServiceNetworkMemberRecord
-} from './db';
+} from './db/index';
 import { isStubRunnerEnabled, runStubLaunchStart, runStubLaunchStop } from './launchPreviewStub';
 import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } from './launchCommand';
 import {

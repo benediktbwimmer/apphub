@@ -16,7 +16,7 @@ import {
   type TagKV,
   type RepositoryPreviewInput,
   type RepositoryPreviewKind
-} from './db';
+} from './db/index';
 import {
   INGEST_QUEUE_NAME,
   closeQueueConnection,

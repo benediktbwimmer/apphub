@@ -7,7 +7,7 @@ import {
   markLaunchStopped,
   requestLaunchStop,
   startLaunch
-} from './db';
+} from './db/index';
 
 const RUNNER_MODE = (process.env.LAUNCH_RUNNER_MODE ?? 'docker').toLowerCase();
 export const isStubRunnerEnabled = RUNNER_MODE === 'stub';
