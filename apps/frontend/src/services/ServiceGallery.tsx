@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
@@ -48,6 +48,74 @@ function extractRuntimeUrl(service: ServiceSummary): string | null {
     return service.baseUrl.trim();
   }
   return null;
+}
+
+type ServicePreviewCardProps = {
+  service: ServiceSummary;
+  embedUrl: string;
+};
+
+function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const container = containerRef.current;
+      setIsFullscreen(container !== null && document.fullscreenElement === container);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const exitFullscreen = document.exitFullscreen?.bind(document);
+    if (document.fullscreenElement === container) {
+      await exitFullscreen?.();
+      return;
+    }
+
+    await container.requestFullscreen?.();
+  }, []);
+
+  return (
+    <article
+      ref={containerRef}
+      className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/60 shadow-lg shadow-slate-900/30 dark:border-slate-700/60 dark:bg-slate-900/80"
+      aria-label={service.displayName}
+    >
+      <div className="absolute right-3 top-3 z-10">
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-pressed={isFullscreen}
+          className="rounded-full bg-slate-900/80 px-3 py-1 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-slate-100/80 focus:ring-offset-2 focus:ring-offset-slate-900/80 dark:bg-slate-800/90"
+        >
+          {isFullscreen ? 'Exit full screen' : 'Full screen'}
+        </button>
+      </div>
+      <div className="aspect-video">
+        <iframe
+          src={embedUrl ?? undefined}
+          title={service.displayName}
+          loading="lazy"
+          allow="autoplay; fullscreen; clipboard-read; clipboard-write"
+          allowFullScreen
+          sandbox="allow-scripts"
+          className="h-full w-full border-0"
+        />
+      </div>
+      <span className="sr-only">{service.displayName}</span>
+    </article>
+  );
 }
 
 export default function ServiceGallery() {
@@ -155,23 +223,7 @@ export default function ServiceGallery() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
             {previewableServices.map(({ service, embedUrl }) => (
-              <article
-                key={service.id}
-                className="overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/60 shadow-lg shadow-slate-900/30 transition-transform duration-300 ease-out hover:-translate-y-1 hover:shadow-2xl dark:border-slate-700/60 dark:bg-slate-900/80"
-                aria-label={service.displayName}
-              >
-                <div className="aspect-video">
-                  <iframe
-                    src={embedUrl ?? undefined}
-                    title={service.displayName}
-                    loading="lazy"
-                    allow="autoplay; fullscreen; clipboard-read; clipboard-write"
-                    sandbox="allow-scripts"
-                    className="h-full w-full border-0"
-                  />
-                </div>
-                <span className="sr-only">{service.displayName}</span>
-              </article>
+              <ServicePreviewCard key={service.id} service={service} embedUrl={embedUrl} />
             ))}
           </div>
         )}
