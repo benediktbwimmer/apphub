@@ -5,12 +5,12 @@ Build a "YouTube of web applications" where each application is sourced from a G
 
 ## Core Components
 - **Ingestion Service**: Validates repository metadata, clones repos, inspects `Dockerfile`, and triggers container image builds. The prototype uses a BullMQ (Redis-backed) worker that consumes ingestion jobs, verifies the declared Dockerfile (or discovers one), enriches tags from repo artifacts, and records commit SHA + elapsed time for each attempt.
-- **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. MVP uses SQLite via `better-sqlite3`; production would migrate to Postgres for concurrency and cloud deployments.
+- **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. The catalog now runs on PostgreSQL (via the `pg` connection pool) for concurrency and cloud deployments.
 - **Runner Service**: Schedules containerized apps, exposes preview URLs, handles lifecycle (start/stop) with resource quotas.
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, and stale build cleanup. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod).
-- **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in SQLite. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
+- **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, and ingestion timeline changes. Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
 ## System Overview
@@ -22,7 +22,7 @@ graph TD
   API["Catalog API (Fastify)"]
   Worker["Ingestion Worker (BullMQ)"]
   Redis[("Redis Queue")]
-  SQLite[("SQLite Catalog DB")]
+  Postgres[("PostgreSQL Catalog DB")]
   Repo[("Git Repositories")]
   Services[("Service Manifest / Registry")]
   Events[["WebSocket Event Stream"]]
@@ -30,14 +30,14 @@ graph TD
   User --> Frontend
   Frontend -->|REST| API
   Frontend -->|WebSocket| Events
-  API --> SQLite
+  API --> Postgres
   API --> Redis
   API --> Services
   Worker -->|Jobs| Redis
   Worker --> Repo
-  Worker --> SQLite
+  Worker --> Postgres
   Worker --> Events
-  Services --> SQLite
+  Services --> Postgres
 ```
 
 ## Data Model (Initial Draft)
@@ -71,7 +71,7 @@ graph TD
    - Ingestion worker consumes jobs, performs shallow clone, validates `Dockerfile` presence, and extracts metadata (`package.json`, `README`, `tags.yaml`, Dockerfile heuristics).
    - Successful ingestion refreshes tags/runtime hints, marks the repo `ready`, and creates a build record that is enqueued for the build worker; failures capture the error message for operator review and allow queued retries.
    - Every transition (queued, processing, failed, ready) is written to `ingestion_events` for timeline auditing and streamed to clients over the WebSocket channel.
-   - Build worker clones the repo afresh, executes `docker build` via the local Docker daemon, records logs inline in SQLite, stores the resulting image tag for launch orchestration, and emits build status updates to the event stream.
+   - Build worker clones the repo afresh, executes `docker build` via the local Docker daemon, records logs inline in PostgreSQL, stores the resulting image tag for launch orchestration, and emits build status updates to the event stream.
 
 3. **Search & Autocomplete**
    - Search API indexes repositories & tags.
@@ -85,11 +85,11 @@ graph TD
 
 5. **Service Discovery & Health Tracking**
    - Operators sync JSON manifests describing external services through registry import endpoints; the catalog does not auto-ingest manifests at startup.
-   - A background poller probes each service's health endpoint, updates status/metadata in SQLite, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
+   - A background poller probes each service's health endpoint, updates status/metadata in PostgreSQL, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
    - Operators or services themselves can register/patch definitions at runtime using `POST /services` and `PATCH /services/:slug` with a shared token, enabling dynamic onboarding without code changes.
 
 ## Tech Stack Proposal (MVP)
-- **Backend / API**: TypeScript + Fastify or NestJS, backed by PostgreSQL for metadata, Redis for job queues. MVP ships with SQLite (`better-sqlite3`) to keep local development light-weight.
+- **Backend / API**: TypeScript + Fastify or NestJS, backed by PostgreSQL for metadata, Redis for job queues.
 - **Workers**: Node.js or Python workers orchestrated via BullMQ / Celery. Prototype worker already uses BullMQ + Redis with `simple-git` for repo cloning.
 - **Container Builds**: BuildKit via Docker or remote builder; images stored in an internal registry (e.g., registry:2 or GHCR).
 - **Search**: Postgres full-text with GIN for MVP; upgrade to OpenSearch/Meilisearch when necessary.
@@ -98,7 +98,7 @@ graph TD
 
 ## MVP Scope
 - Manual repo registration with webhook-based update (optional).
-- SQLite-backed metadata store with migration path to Postgres.
+- PostgreSQL-backed metadata store with versioned migrations.
 - BullMQ-driven ingestion worker that hydrates metadata/tag landscape before builds are available.
 - Search API limited to metadata + tags.
 - Frontend renders searchable list with app cards, displays status, links to preview (stub).

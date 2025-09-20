@@ -2,12 +2,43 @@ import { statSync } from 'node:fs';
 import path from 'node:path';
 import type { LaunchEnvVar } from './db/index';
 
+function getHostRootFallback(): string | null {
+  const raw = process.env.APPHUB_HOST_ROOT;
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return path.resolve(trimmed);
+}
+
+function buildFallbackPath(hostRoot: string, hostPath: string): string {
+  const normalized = path.resolve('/', hostPath);
+  if (normalized === '/') {
+    return hostRoot;
+  }
+  const relative = normalized.replace(/^\/+/, '');
+  return path.join(hostRoot, relative);
+}
+
+function statDirectory(targetPath: string): { exists: boolean; isDirectory: boolean } {
+  try {
+    const stats = statSync(targetPath);
+    return { exists: true, isDirectory: stats.isDirectory() };
+  } catch {
+    return { exists: false, isDirectory: false };
+  }
+}
+
 function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
   if (!envVars || envVars.length === 0) {
     return [];
   }
   const mounts: string[] = [];
   const seen = new Set<string>();
+  const hostRootFallback = getHostRootFallback();
   for (const entry of envVars) {
     if (!entry || typeof entry.key !== 'string' || typeof entry.value !== 'string') {
       continue;
@@ -19,15 +50,19 @@ function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
     if (!hostPath || !hostPath.startsWith('/') || !path.isAbsolute(hostPath)) {
       continue;
     }
-    try {
-      if (!statSync(hostPath).isDirectory()) {
-        continue;
+    let isValidDirectory = false;
+    const directStat = statDirectory(hostPath);
+    if (directStat.exists) {
+      isValidDirectory = directStat.isDirectory;
+    } else if (hostRootFallback) {
+      const fallbackPath = buildFallbackPath(hostRootFallback, hostPath);
+      const fallbackStat = statDirectory(fallbackPath);
+      if (fallbackStat.exists) {
+        isValidDirectory = fallbackStat.isDirectory;
       }
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        continue;
-      }
+    }
+    if (!isValidDirectory) {
+      continue;
     }
     if (seen.has(hostPath)) {
       continue;

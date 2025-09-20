@@ -32,7 +32,7 @@ The API listens on `http://localhost:4000` by default and serves:
 - `GET /apps/:id/history` to inspect recent ingestion events and attempt counts
 - `GET /services` to inspect dynamically registered auxiliary services and their health status
 
-Metadata persists to a local SQLite database at `services/catalog/data/catalog.db`. Set `CATALOG_DB_PATH=/custom/path.db` if you want to relocate it.
+Metadata persists in PostgreSQL. By default the API connects to `postgres://apphub:apphub@127.0.0.1:5432/apphub`; set `DATABASE_URL` if you run Postgres elsewhere. Create the database before starting the service (for example, `createdb apphub && psql -d apphub -c "CREATE ROLE apphub WITH LOGIN PASSWORD 'apphub'; GRANT ALL PRIVILEGES ON DATABASE apphub TO apphub;"`).
 
 ### Ingestion Worker
 
@@ -81,7 +81,10 @@ Update as needed for different deployment targets.
 ```bash
 PORT=4000
 HOST=0.0.0.0
-CATALOG_DB_PATH=./data/catalog.db
+DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub
+PGPOOL_MAX=20
+PGPOOL_IDLE_TIMEOUT_MS=30000
+PGPOOL_CONNECTION_TIMEOUT_MS=10000
 REDIS_URL=redis://127.0.0.1:6379
 INGEST_QUEUE_NAME=apphub:repo-ingest
 INGEST_CONCURRENCY=2
@@ -139,6 +142,8 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
   `services/service-config.json`) and spawns any configured dev commands
 - Frontend on `http://localhost:5173`
 
+Ensure a PostgreSQL instance is reachable at the connection string in `DATABASE_URL` before launching the dev stack; the script does not start Postgres automatically.
+
 Stop the stack with `Ctrl+C`.
 
 ### Docker Image
@@ -154,13 +159,16 @@ docker run \
   -p 6379:6379 \
   -v apphub-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /:/root-fs:ro \
+  -e APPHUB_HOST_ROOT=/root-fs \
   apphub
 ```
 
 Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
 - Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`.
-- `apphub-data` persists the SQLite catalog database; remove the volume for a clean slate.
+- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch worker can validate `START_PATH` values before wiring bind mounts for downstream services. The example above binds `/` read-only to `/root-fs`; alternatively, provide narrower directories like `-v /Users:/root-fs/Users:ro`.
+- `apphub-data` persists the PostgreSQL data directory; remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
 
 Stop the container with `Ctrl+C` or `docker stop` when running detached.
@@ -174,14 +182,13 @@ cd services/catalog
 npm run test:e2e
 ```
 
-The script creates an isolated SQLite database, registers a sample repo, waits for ingestion to finish, and asserts that history events capture status transitions, attempt counts, commit SHA, and duration.
+The script launches an embedded PostgreSQL instance, registers a sample repo, waits for ingestion to finish, and asserts that history events capture status transitions, attempt counts, commit SHA, and duration.
 
 ## Current Functionality
 
-- Optional seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. Generate
-  a local copy by loading `services/catalog/tests/fixtures/seeded-catalog.sql` into SQLite (e.g.
-  `sqlite3 tmp.db < services/catalog/tests/fixtures/seeded-catalog.sql`) and point `CATALOG_DB_PATH` at the resulting file.
-  The application now starts with an empty catalog by default.
+- Optional seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. A
+  Postgres-compatible seed script is planned; the legacy SQLite fixture at
+  `services/catalog/tests/fixtures/seeded-catalog.sql` remains for reference only. The application now starts with an empty catalog by default.
 - Tag-aware search (AND semantics) plus free-text filtering on app name/description.
 - Keyboard-friendly autocomplete (`Tab` to accept, arrow keys to navigate, `Esc` to dismiss).
 - Styled card grid highlighting repo link + Dockerfile path.
