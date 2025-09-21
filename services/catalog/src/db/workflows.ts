@@ -4,6 +4,7 @@ import { emitApphubEvent } from '../events';
 import {
   type WorkflowDefinitionCreateInput,
   type WorkflowDefinitionRecord,
+  type WorkflowDefinitionUpdateInput,
   type WorkflowRunCreateInput,
   type WorkflowRunRecord,
   type WorkflowRunStatus,
@@ -191,6 +192,81 @@ export async function createWorkflowDefinition(
   }
 
   emitWorkflowDefinitionEvent(definition);
+  return definition;
+}
+
+export async function updateWorkflowDefinition(
+  slug: string,
+  updates: WorkflowDefinitionUpdateInput
+): Promise<WorkflowDefinitionRecord | null> {
+  let definition: WorkflowDefinitionRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const existing = await fetchWorkflowDefinitionBySlug(client, slug);
+    if (!existing) {
+      return;
+    }
+
+    const hasDescription = Object.prototype.hasOwnProperty.call(updates, 'description');
+    const hasTriggers = Object.prototype.hasOwnProperty.call(updates, 'triggers');
+    const hasDefaultParameters = Object.prototype.hasOwnProperty.call(updates, 'defaultParameters');
+    const hasMetadata = Object.prototype.hasOwnProperty.call(updates, 'metadata');
+
+    const nextSteps = updates.steps ?? existing.steps;
+    const triggerCandidates = hasTriggers ? updates.triggers ?? [] : existing.triggers;
+    const nextTriggers = hasTriggers
+      ? triggerCandidates.length > 0
+        ? triggerCandidates
+        : [MANUAL_TRIGGER]
+      : triggerCandidates;
+    const nextParametersSchema = updates.parametersSchema ?? existing.parametersSchema;
+    const nextDefaultParameters = hasDefaultParameters
+      ? updates.defaultParameters ?? null
+      : existing.defaultParameters;
+    const nextMetadata = hasMetadata ? updates.metadata ?? null : existing.metadata;
+    const nextDescription = hasDescription ? updates.description ?? null : existing.description;
+
+    const stepsJson = JSON.stringify(nextSteps);
+    const triggersJson = JSON.stringify(nextTriggers);
+    const parametersSchemaJson = JSON.stringify(nextParametersSchema ?? {});
+    const defaultParametersJson = JSON.stringify(nextDefaultParameters ?? null);
+    const metadataJson = JSON.stringify(nextMetadata ?? null);
+
+    const { rows } = await client.query<WorkflowDefinitionRow>(
+      `UPDATE workflow_definitions
+       SET name = $2,
+           version = $3,
+           description = $4,
+           steps = $5::jsonb,
+           triggers = $6::jsonb,
+           parameters_schema = $7::jsonb,
+           default_parameters = $8::jsonb,
+           metadata = $9::jsonb,
+           updated_at = NOW()
+       WHERE slug = $1
+       RETURNING *`,
+      [
+        slug,
+        updates.name ?? existing.name,
+        updates.version ?? existing.version,
+        nextDescription,
+        stepsJson,
+        triggersJson,
+        parametersSchemaJson,
+        defaultParametersJson,
+        metadataJson
+      ]
+    );
+    if (rows.length === 0) {
+      return;
+    }
+    definition = mapWorkflowDefinitionRow(rows[0]);
+  });
+
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
   return definition;
 }
 
