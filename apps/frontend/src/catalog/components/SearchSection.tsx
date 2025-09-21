@@ -55,15 +55,15 @@ function SearchSection({
             placeholder="Type tags like framework:nextjs runtime:node18 or free text"
             spellCheck={false}
             autoFocus
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
+            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
           />
           {suggestions.length > 0 && (
             <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
               {suggestions.map((suggestion, index) => (
                 <li
                   key={`${suggestion.type}-${suggestion.value}`}
-                  className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-blue-500/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
-                    index === highlightIndex ? 'bg-blue-500/10 text-blue-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
+                  className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-violet-500/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
+                    index === highlightIndex ? 'bg-violet-500/10 text-violet-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
                   }`}
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -89,10 +89,10 @@ function SearchSection({
                 <button
                   key={option.key}
                   type="button"
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                     sortMode === option.key
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
-                      : 'text-slate-600 hover:bg-blue-600/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                      ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
+                      : 'text-slate-600 hover:bg-violet-600/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
                   }`}
                   onClick={() => onSortChange(option.key)}
                 >
@@ -104,10 +104,10 @@ function SearchSection({
           <div className="inline-flex rounded-full border border-slate-200/70 bg-white/70 p-1 text-xs font-semibold text-slate-500 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
             <button
               type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                 viewMode === 'preview'
-                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-blue-600 dark:hover:text-slate-100'
+                  ? 'bg-violet-600 text-white shadow hover:bg-violet-500 dark:bg-slate-200/30 dark:text-slate-900'
+                  : 'hover:text-violet-600 dark:hover:text-slate-100'
               }`}
               onClick={() => onViewModeChange('preview')}
             >
@@ -115,10 +115,10 @@ function SearchSection({
             </button>
             <button
               type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                 viewMode === 'list'
-                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-blue-600 dark:hover:text-slate-100'
+                  ? 'bg-violet-600 text-white shadow hover:bg-violet-500 dark:bg-slate-200/30 dark:text-slate-900'
+                  : 'hover:text-violet-600 dark:hover:text-slate-100'
               }`}
               onClick={() => onViewModeChange('list')}
             >
@@ -138,7 +138,7 @@ function SearchSection({
             checked={showHighlights}
             onChange={(event) => onToggleHighlights(event.target.checked)}
             disabled={highlightToggleDisabled}
-            className="size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed dark:border-slate-600 dark:bg-slate-800"
+            className="size-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:cursor-not-allowed dark:border-slate-600 dark:bg-slate-800"
           />
           Highlight matches
         </label>
@@ -149,7 +149,7 @@ function SearchSection({
             {activeTokens.map((token) => (
               <span
                 key={token}
-                className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-700 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100"
+                className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-500/10 px-3 py-1 text-sm font-medium text-violet-700 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100"
               >
                 {token}
               </span>

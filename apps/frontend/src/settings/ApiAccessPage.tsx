@@ -97,7 +97,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
 
   return (
     <li
-      className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 shadow-sm transition-colors sm:flex-row sm:items-start sm:justify-between sm:gap-6 ${active ? 'border-blue-400 bg-blue-50/60 dark:border-blue-500/60 dark:bg-blue-500/10' : 'border-slate-200/70 bg-white/80 dark:border-slate-700/70 dark:bg-slate-900/60'}`}
+      className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 shadow-sm transition-colors sm:flex-row sm:items-start sm:justify-between sm:gap-6 ${active ? 'border-violet-400 bg-violet-50/60 dark:border-violet-500/60 dark:bg-violet-500/10' : 'border-slate-200/70 bg-white/80 dark:border-slate-700/70 dark:bg-slate-900/60'}`}
     >
       <div className="flex flex-1 flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -105,7 +105,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
             {maskToken(token)}
           </span>
           {active ? (
-            <span className="rounded-full bg-blue-600/15 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">
+            <span className="rounded-full bg-violet-600/15 px-3 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
               Active
             </span>
           ) : null}
@@ -124,7 +124,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
                 type="text"
                 value={draftLabel}
                 onChange={(event) => setDraftLabel(event.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -133,7 +133,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
                 type="text"
                 value={draftToken}
                 onChange={(event) => setDraftToken(event.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
                 autoComplete="off"
               />
             </label>
@@ -145,7 +145,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
                 onClick={handleSaveEdit}
               >
                 Save changes
@@ -193,7 +193,7 @@ function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onU
           {!active ? (
             <button
               type="button"
-              className="rounded-full border border-blue-400 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 dark:border-blue-400/70 dark:text-blue-200 dark:hover:bg-blue-500/20"
+              className="rounded-full border border-violet-400 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 dark:border-violet-400/70 dark:text-violet-200 dark:hover:bg-violet-500/20"
               onClick={onActivate}
             >
               Make active
@@ -257,7 +257,7 @@ export default function ApiAccessPage() {
               value={form.label}
               onChange={(event) => handleFormFieldChange('label', event.target.value)}
               placeholder="Platform Ops"
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -267,7 +267,7 @@ export default function ApiAccessPage() {
               value={form.token}
               onChange={(event) => handleFormFieldChange('token', event.target.value)}
               placeholder="apphub_..."
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
               required
             />
           </label>
@@ -284,7 +284,7 @@ export default function ApiAccessPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              className="rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
             >
               Save token
             </button>

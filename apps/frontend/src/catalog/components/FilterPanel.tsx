@@ -32,8 +32,8 @@ function renderFacetButtons(
             type="button"
             className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               isActive
-                ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50'
-                : 'border-slate-200/70 bg-slate-100/60 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                ? 'border-violet-500 bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50'
+                : 'border-slate-200/70 bg-slate-100/60 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
             }`}
             onClick={() => onApplyFacet(facet)}
             disabled={isActive}
@@ -68,7 +68,7 @@ function FilterPanel({
           {statusFilters.length > 0 && (
             <button
               type="button"
-              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 transition-colors hover:bg-blue-500/10 dark:text-slate-200 dark:hover:bg-slate-200/10"
+              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-violet-600 transition-colors hover:bg-violet-500/10 dark:text-slate-200 dark:hover:bg-slate-200/10"
               onClick={onClearStatusFilters}
             >
               Clear
@@ -85,8 +85,8 @@ function FilterPanel({
                 type="button"
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   isActive
-                    ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50'
-                    : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                    ? 'border-violet-500 bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50'
+                    : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
                 }`}
                 onClick={() => onToggleStatus(facet.status)}
                 disabled={isDisabled}

@@ -955,7 +955,7 @@ export default function WorkflowsPage() {
         </div>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
           onClick={handleRefresh}
         >
           Refresh
@@ -1013,9 +1013,9 @@ export default function WorkflowsPage() {
                     key={workflow.id}
                     type="button"
                     onClick={() => setSelectedSlug(workflow.slug)}
-                    className={`flex flex-col gap-1 rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                    className={`flex flex-col gap-1 rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                       isActive
-                        ? 'border-blue-500 bg-blue-500/10 text-blue-700 dark:border-slate-300 dark:bg-slate-800/70 dark:text-slate-100'
+                        ? 'border-violet-500 bg-violet-500/10 text-violet-700 dark:border-slate-300 dark:bg-slate-800/70 dark:text-slate-100'
                         : 'border-slate-200/60 bg-white/70 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200'
                     }`}
                   >
@@ -1123,7 +1123,7 @@ export default function WorkflowsPage() {
               {selectedSlug && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                   onClick={() => void loadWorkflowDetail(selectedSlug)}
                 >
                   Refresh runs
@@ -1169,7 +1169,7 @@ export default function WorkflowsPage() {
                           key={run.id}
                           className={`cursor-pointer transition-colors ${
                             isActive
-                              ? 'bg-blue-500/5 dark:bg-blue-500/10'
+                              ? 'bg-violet-500/5 dark:bg-violet-500/10'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/70'
                           }`}
                           onClick={() => setSelectedRunId(run.id)}
@@ -1270,7 +1270,7 @@ export default function WorkflowsPage() {
                             {step.logsUrl ? (
                               <a
                                 href={step.logsUrl}
-                                className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-300"
+                                className="text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
                                 target="_blank"
                                 rel="noreferrer"
                               >
