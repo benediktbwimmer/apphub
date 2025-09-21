@@ -13,7 +13,12 @@ import {
   type LaunchStatus,
   type ServiceNetworkMemberRecord,
   type ServiceNetworkRecord,
-  type ServiceNetworkLaunchMemberRecord
+  type ServiceNetworkLaunchMemberRecord,
+  type JobDefinitionRecord,
+  type JobType,
+  type JobRetryPolicy,
+  type JobRunRecord,
+  type JobRunStatus
 } from './types';
 import type {
   BuildRow,
@@ -25,7 +30,9 @@ import type {
   ServiceNetworkMemberRow,
   ServiceNetworkRow,
   ServiceRow,
-  TagRow
+  TagRow,
+  JobDefinitionRow,
+  JobRunRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -134,6 +141,43 @@ export function parseStringArray(value: unknown): string[] {
     }
   }
   return [];
+}
+
+function toJsonValue(value: unknown): JsonValue | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value as JsonValue;
+  }
+  if (typeof value === 'object') {
+    return value as JsonValue;
+  }
+  return null;
+}
+
+function ensureJsonValue(value: unknown, fallback: JsonValue): JsonValue {
+  const parsed = toJsonValue(value);
+  return parsed === null ? fallback : parsed;
+}
+
+function ensureJsonObject(value: unknown): JsonValue {
+  const parsed = toJsonValue(value);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed;
+  }
+  return {};
+}
+
+function toJsonObjectOrNull(value: unknown): JsonValue | null {
+  const parsed = toJsonValue(value);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed;
+  }
+  return null;
 }
 
 export function mapRepositoryRow(
@@ -281,6 +325,47 @@ export function mapServiceNetworkLaunchMemberRow(
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies ServiceNetworkLaunchMemberRecord;
+}
+
+export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    version: row.version,
+    type: row.type as JobType,
+    entryPoint: row.entry_point,
+    parametersSchema: ensureJsonObject(row.parameters_schema),
+    defaultParameters: ensureJsonObject(row.default_parameters),
+    timeoutMs: row.timeout_ms ?? null,
+    retryPolicy: (toJsonObjectOrNull(row.retry_policy) as JobRetryPolicy | null) ?? null,
+    metadata: toJsonValue(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies JobDefinitionRecord;
+}
+
+export function mapJobRunRow(row: JobRunRow): JobRunRecord {
+  return {
+    id: row.id,
+    jobDefinitionId: row.job_definition_id,
+    status: row.status as JobRunStatus,
+    parameters: ensureJsonValue(row.parameters, {}),
+    result: toJsonValue(row.result),
+    errorMessage: row.error_message ?? null,
+    logsUrl: row.logs_url ?? null,
+    metrics: toJsonValue(row.metrics),
+    context: toJsonValue(row.context),
+    timeoutMs: row.timeout_ms ?? null,
+    attempt: row.attempt ?? 1,
+    maxAttempts: row.max_attempts ?? null,
+    durationMs: row.duration_ms ?? null,
+    scheduledAt: row.scheduled_at,
+    startedAt: row.started_at ?? null,
+    completedAt: row.completed_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies JobRunRecord;
 }
 
 function parseJsonColumn(value: unknown): JsonValue | null {

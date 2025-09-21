@@ -11,8 +11,10 @@ import {
   startBuild,
   updateRepositoryLaunchEnvTemplates,
   type BuildRecord,
-  type LaunchEnvVar
+  type LaunchEnvVar,
+  type JsonValue
 } from './db/index';
+import { registerJobHandler, type JobRunContext, type JobResult } from './jobs/runtime';
 
 const BUILD_CLONE_DEPTH = process.env.BUILD_CLONE_DEPTH ?? '1';
 
@@ -165,11 +167,28 @@ function collectProcessOutput(command: string, args: string[], options: { cwd: s
   });
 }
 
-export async function runBuildJob(buildId: string) {
+export async function runBuildJob(
+  buildId: string,
+  options: { jobContext?: JobRunContext } = {}
+): Promise<JobResult> {
+  const jobContext = options.jobContext ?? null;
+  const startedAt = Date.now();
+
   const pending = await startBuild(buildId);
   if (!pending) {
     log('No build to start or already handled', { buildId });
-    return;
+    const metrics: Record<string, JsonValue> = {
+      buildId,
+      status: 'skipped'
+    };
+    if (jobContext) {
+      await jobContext.update({ metrics });
+    }
+    return {
+      status: 'succeeded',
+      result: { buildId, skipped: true },
+      metrics
+    };
   }
 
   const repository = await getRepositoryById(pending.repositoryId);
@@ -179,13 +198,29 @@ export async function runBuildJob(buildId: string) {
       logs: 'Repository metadata no longer available. Build aborted.\n',
       errorMessage: 'repository missing'
     });
-    return;
+    const metrics: Record<string, JsonValue> = {
+      buildId,
+      repositoryId: pending.repositoryId,
+      status: 'failed'
+    };
+    if (jobContext) {
+      await jobContext.update({ metrics });
+    }
+    return {
+      status: 'failed',
+      errorMessage: 'repository missing',
+      metrics
+    };
   }
 
   const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-build-'));
   let combinedLogs = pending.logs ?? '';
 
   let resolvedCommitSha: string | null = pending.commitSha ?? null;
+  let finalResult: JobResult = {
+    status: 'failed',
+    errorMessage: 'build failed'
+  };
 
   try {
     const startLine = `Starting build for ${repository.id}...\n`;
@@ -241,7 +276,20 @@ export async function runBuildJob(buildId: string) {
         gitBranch: pending.gitBranch,
         gitRef: pending.gitRef
       });
-      return;
+      const metrics: Record<string, JsonValue> = {
+        buildId,
+        repositoryId: repository.id,
+        status: 'failed',
+        reason: 'missing_dockerfile'
+      };
+      if (jobContext) {
+        await jobContext.update({ metrics });
+      }
+      return {
+        status: 'failed',
+        errorMessage: message,
+        metrics
+      };
     }
 
     const imageTag = buildImageTag(repository.id, resolvedCommitSha);
@@ -257,8 +305,10 @@ export async function runBuildJob(buildId: string) {
       combinedLogs += output;
     }
 
+    const durationMs = Date.now() - startedAt;
+
     if (exitCode === 0) {
-      await completeBuild(buildId, 'succeeded', {
+      const completed = await completeBuild(buildId, 'succeeded', {
         logs: combinedLogs,
         imageTag,
         errorMessage: '',
@@ -266,7 +316,32 @@ export async function runBuildJob(buildId: string) {
         gitBranch: pending.gitBranch,
         gitRef: pending.gitRef
       });
-      log('Build succeeded', { buildId, imageTag });
+      const metrics: Record<string, JsonValue> = {
+        buildId,
+        repositoryId: repository.id,
+        status: 'succeeded',
+        durationMs
+      };
+      if (resolvedCommitSha) {
+        metrics.commitSha = resolvedCommitSha;
+      }
+      if (completed?.imageTag ?? imageTag) {
+        metrics.imageTag = (completed?.imageTag ?? imageTag) as JsonValue;
+      }
+      if (jobContext) {
+        await jobContext.update({ metrics });
+      }
+      finalResult = {
+        status: 'succeeded',
+        result: {
+          buildId,
+          repositoryId: repository.id,
+          imageTag: completed?.imageTag ?? imageTag,
+          commitSha: resolvedCommitSha
+        },
+        metrics
+      };
+      log('Build succeeded', { buildId, imageTag: completed?.imageTag ?? imageTag });
     } else {
       const message = exitCode === null ? 'docker build failed to execute' : `docker build exited with code ${exitCode}`;
       combinedLogs += `${message}\n`;
@@ -277,6 +352,24 @@ export async function runBuildJob(buildId: string) {
         gitBranch: pending.gitBranch,
         gitRef: pending.gitRef
       });
+      const metrics: Record<string, JsonValue> = {
+        buildId,
+        repositoryId: repository.id,
+        status: 'failed',
+        durationMs,
+        exitCode: exitCode ?? null
+      };
+      if (resolvedCommitSha) {
+        metrics.commitSha = resolvedCommitSha;
+      }
+      if (jobContext) {
+        await jobContext.update({ metrics });
+      }
+      finalResult = {
+        status: 'failed',
+        errorMessage: message,
+        metrics
+      };
       log('Build failed', { buildId, exitCode });
     }
   } catch (err) {
@@ -289,8 +382,49 @@ export async function runBuildJob(buildId: string) {
       gitBranch: pending.gitBranch,
       gitRef: pending.gitRef
     });
+    const metrics: Record<string, JsonValue> = {
+      buildId,
+      repositoryId: repository.id,
+      status: 'failed',
+      durationMs: Date.now() - startedAt
+    };
+    if (resolvedCommitSha) {
+      metrics.commitSha = resolvedCommitSha;
+    }
+    if (jobContext) {
+      await jobContext.update({ metrics });
+    }
+    finalResult = {
+      status: 'failed',
+      errorMessage: message,
+      metrics
+    };
     log('Build crashed', { buildId, error: message });
   } finally {
     await fs.rm(workingDir, { recursive: true, force: true }).catch(() => undefined);
   }
+
+  return finalResult;
 }
+
+function resolveBuildParameters(parameters: JsonValue): { buildId: string } {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+    throw new Error('buildId parameter is required');
+  }
+  const value = (parameters as Record<string, JsonValue>).buildId;
+  if (typeof value !== 'string') {
+    throw new Error('buildId parameter is required');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('buildId parameter is required');
+  }
+  return { buildId: trimmed };
+}
+
+async function buildJobHandler(context: JobRunContext): Promise<JobResult> {
+  const { buildId } = resolveBuildParameters(context.parameters);
+  return runBuildJob(buildId, { jobContext: context });
+}
+
+registerJobHandler('repository-build', buildJobHandler);

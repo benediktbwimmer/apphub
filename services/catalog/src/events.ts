@@ -1,14 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import IORedis, { type Redis } from 'ioredis';
-import type { BuildRecord, IngestionEvent, LaunchRecord, RepositoryRecord, ServiceRecord } from './db/index';
+import type {
+  BuildRecord,
+  IngestionEvent,
+  JobDefinitionRecord,
+  JobRunRecord,
+  LaunchRecord,
+  RepositoryRecord,
+  ServiceRecord
+} from './db/index';
 
 export type ApphubEvent =
   | { type: 'repository.updated'; data: { repository: RepositoryRecord } }
   | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
   | { type: 'build.updated'; data: { build: BuildRecord } }
   | { type: 'launch.updated'; data: { launch: LaunchRecord } }
-  | { type: 'service.updated'; data: { service: ServiceRecord } };
+  | { type: 'service.updated'; data: { service: ServiceRecord } }
+  | { type: 'job.definition.updated'; data: { job: JobDefinitionRecord } }
+  | { type: 'job.run.updated'; data: { run: JobRunRecord } }
+  | { type: 'job.run.pending'; data: { run: JobRunRecord } }
+  | { type: 'job.run.running'; data: { run: JobRunRecord } }
+  | { type: 'job.run.succeeded'; data: { run: JobRunRecord } }
+  | { type: 'job.run.failed'; data: { run: JobRunRecord } }
+  | { type: 'job.run.canceled'; data: { run: JobRunRecord } }
+  | { type: 'job.run.expired'; data: { run: JobRunRecord } };
 
 type EventEnvelope = {
   origin: string;

@@ -7,3 +7,4 @@ export * from './builds';
 export * from './launches';
 export * from './serviceNetworks';
 export * from './services';
+export * from './jobs';

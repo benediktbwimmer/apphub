@@ -157,6 +157,101 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_repository_search_document
          ON repository_search USING GIN(document);`
     ]
+  },
+  {
+    id: '002_jobs_schema',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS job_definitions (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         name TEXT NOT NULL,
+         version INTEGER NOT NULL DEFAULT 1,
+         type TEXT NOT NULL,
+         entry_point TEXT NOT NULL,
+         parameters_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+         default_parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         timeout_ms INTEGER,
+         retry_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS job_runs (
+         id TEXT PRIMARY KEY,
+         job_definition_id TEXT NOT NULL REFERENCES job_definitions(id) ON DELETE CASCADE,
+         status TEXT NOT NULL,
+         parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         result JSONB,
+         error_message TEXT,
+         logs_url TEXT,
+         metrics JSONB,
+         context JSONB,
+         timeout_ms INTEGER,
+         attempt INTEGER NOT NULL DEFAULT 1,
+         max_attempts INTEGER,
+         duration_ms INTEGER,
+         scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         started_at TIMESTAMPTZ,
+         completed_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_job_definitions_slug ON job_definitions(slug);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_runs_definition_status ON job_runs(job_definition_id, status);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_runs_created_at ON job_runs(created_at DESC);`,
+      `INSERT INTO job_definitions (
+         id,
+         slug,
+         name,
+         version,
+         type,
+         entry_point,
+         parameters_schema,
+         default_parameters,
+         timeout_ms,
+         retry_policy,
+         metadata
+       ) VALUES
+         (
+           'jobdef-repository-ingest',
+           'repository-ingest',
+           'Repository Ingestion',
+           1,
+           'batch',
+           'catalog.ingestion.processRepository',
+           '{"type":"object","properties":{"repositoryId":{"type":"string","minLength":1}},"required":["repositoryId"]}'::jsonb,
+           '{"repositoryId":null}'::jsonb,
+           900000,
+           '{"maxAttempts":3,"strategy":"exponential","initialDelayMs":10000}'::jsonb,
+           '{"description":"Default ingestion job for repositories"}'::jsonb
+         ),
+         (
+           'jobdef-repository-build',
+           'repository-build',
+           'Repository Build',
+           1,
+           'batch',
+           'catalog.build.run',
+           '{"type":"object","properties":{"buildId":{"type":"string","minLength":1}},"required":["buildId"]}'::jsonb,
+           '{"buildId":null}'::jsonb,
+           1800000,
+           '{"maxAttempts":1}'::jsonb,
+           '{"description":"Default build job for repositories"}'::jsonb
+         )
+       ON CONFLICT (slug) DO UPDATE
+       SET
+         name = EXCLUDED.name,
+         version = EXCLUDED.version,
+         type = EXCLUDED.type,
+         entry_point = EXCLUDED.entry_point,
+         parameters_schema = EXCLUDED.parameters_schema,
+         default_parameters = EXCLUDED.default_parameters,
+         timeout_ms = EXCLUDED.timeout_ms,
+         retry_policy = EXCLUDED.retry_policy,
+         metadata = EXCLUDED.metadata,
+         updated_at = NOW();`
+    ]
   }
 ];
 
