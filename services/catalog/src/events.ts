@@ -8,7 +8,9 @@ import type {
   JobRunRecord,
   LaunchRecord,
   RepositoryRecord,
-  ServiceRecord
+  ServiceRecord,
+  WorkflowDefinitionRecord,
+  WorkflowRunRecord
 } from './db/index';
 
 export type ApphubEvent =
@@ -24,7 +26,14 @@ export type ApphubEvent =
   | { type: 'job.run.succeeded'; data: { run: JobRunRecord } }
   | { type: 'job.run.failed'; data: { run: JobRunRecord } }
   | { type: 'job.run.canceled'; data: { run: JobRunRecord } }
-  | { type: 'job.run.expired'; data: { run: JobRunRecord } };
+  | { type: 'job.run.expired'; data: { run: JobRunRecord } }
+  | { type: 'workflow.definition.updated'; data: { workflow: WorkflowDefinitionRecord } }
+  | { type: 'workflow.run.updated'; data: { run: WorkflowRunRecord } }
+  | { type: 'workflow.run.pending'; data: { run: WorkflowRunRecord } }
+  | { type: 'workflow.run.running'; data: { run: WorkflowRunRecord } }
+  | { type: 'workflow.run.succeeded'; data: { run: WorkflowRunRecord } }
+  | { type: 'workflow.run.failed'; data: { run: WorkflowRunRecord } }
+  | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } };
 
 type EventEnvelope = {
   origin: string;
@@ -34,30 +43,74 @@ type EventEnvelope = {
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
-const inlineMode = redisUrl === 'inline';
+const configuredMode = process.env.APPHUB_EVENTS_MODE ?? 'inline';
+const envRedisUrl = process.env.REDIS_URL;
+let inlineMode = configuredMode !== 'redis';
+const redisUrl = inlineMode ? null : envRedisUrl ?? 'redis://127.0.0.1:6379';
 const eventChannel = process.env.APPHUB_EVENTS_CHANNEL ?? 'apphub:events';
 const originId = `${process.pid}:${randomUUID()}`;
 
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
+let redisFailureNotified = false;
 
-if (!inlineMode) {
-  publisher = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+function disableRedisEvents(reason: string) {
+  if (inlineMode) {
+    return;
+  }
+  inlineMode = true;
+  if (!redisFailureNotified) {
+    console.warn(`[events] Falling back to inline mode: ${reason}`);
+    redisFailureNotified = true;
+  }
+  if (publisher) {
+    publisher.removeAllListeners();
+    publisher.quit().catch(() => undefined);
+    publisher = null;
+  }
+  if (subscriber) {
+    subscriber.removeAllListeners();
+    subscriber.quit().catch(() => undefined);
+    subscriber = null;
+  }
+}
+
+if (!inlineMode && redisUrl) {
+  const connectionOptions = { maxRetriesPerRequest: null } as const;
+
+  publisher = new IORedis(redisUrl, connectionOptions);
   publisher.on('error', (err) => {
+    const code = (err as { code?: string }).code;
+    const message = err instanceof Error ? err.message : String(err);
+    if (code === 'ECONNREFUSED' || message.includes('ECONNREFUSED')) {
+      disableRedisEvents('Redis unavailable');
+      return;
+    }
     console.error('[events] Redis publish error', err);
   });
 
-  subscriber = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+  subscriber = new IORedis(redisUrl, connectionOptions);
   subscriber.on('error', (err) => {
+    const code = (err as { code?: string }).code;
+    const message = err instanceof Error ? err.message : String(err);
+    if (code === 'ECONNREFUSED' || message.includes('ECONNREFUSED')) {
+      disableRedisEvents('Redis unavailable');
+      return;
+    }
     console.error('[events] Redis subscribe error', err);
   });
 
-  subscriber.subscribe(eventChannel).catch((err) => {
-    console.error('[events] Failed to subscribe to channel', err);
-  });
+  subscriber
+    .subscribe(eventChannel)
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      disableRedisEvents(`Failed to subscribe to Redis channel: ${message}`);
+    });
 
   subscriber.on('message', (_channel, payload) => {
+    if (inlineMode) {
+      return;
+    }
     try {
       const envelope = JSON.parse(payload) as Partial<EventEnvelope>;
       if (!envelope || !envelope.event) {
@@ -71,6 +124,8 @@ if (!inlineMode) {
       console.error('[events] Failed to parse published event', err);
     }
   });
+} else {
+  inlineMode = true;
 }
 
 export function emitApphubEvent(event: ApphubEvent) {

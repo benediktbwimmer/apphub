@@ -1,3 +1,4 @@
+import './setupTestEnv';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';

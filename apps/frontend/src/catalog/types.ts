@@ -208,7 +208,14 @@ export type CatalogSocketEvent =
   | { type: 'repository.updated'; data: { repository: AppRecord } }
   | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
   | { type: 'build.updated'; data: { build: BuildSummary } }
-  | { type: 'launch.updated'; data: { repositoryId: string; launch: LaunchSummary } };
+  | { type: 'launch.updated'; data: { repositoryId: string; launch: LaunchSummary } }
+  | { type: 'workflow.definition.updated'; data: { workflow: unknown } }
+  | { type: 'workflow.run.updated'; data: { run: unknown } }
+  | { type: 'workflow.run.pending'; data: { run: unknown } }
+  | { type: 'workflow.run.running'; data: { run: unknown } }
+  | { type: 'workflow.run.succeeded'; data: { run: unknown } }
+  | { type: 'workflow.run.failed'; data: { run: unknown } }
+  | { type: 'workflow.run.canceled'; data: { run: unknown } };
 
 export type SearchParseResult = {
   tags: string[];

@@ -250,7 +250,67 @@ const migrations: Migration[] = [
          timeout_ms = EXCLUDED.timeout_ms,
          retry_policy = EXCLUDED.retry_policy,
          metadata = EXCLUDED.metadata,
-         updated_at = NOW();`
+       updated_at = NOW();`
+    ]
+  },
+  {
+    id: '003_workflows_schema',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_definitions (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         name TEXT NOT NULL,
+         version INTEGER NOT NULL DEFAULT 1,
+         description TEXT,
+         steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+         triggers JSONB NOT NULL DEFAULT '[]'::jsonb,
+         parameters_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
+         default_parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS workflow_runs (
+         id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         status TEXT NOT NULL,
+         parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         context JSONB NOT NULL DEFAULT '{}'::jsonb,
+         error_message TEXT,
+         current_step_id TEXT,
+         current_step_index INTEGER,
+         metrics JSONB,
+         triggered_by TEXT,
+         trigger JSONB,
+         started_at TIMESTAMPTZ,
+         completed_at TIMESTAMPTZ,
+         duration_ms INTEGER,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS workflow_run_steps (
+         id TEXT PRIMARY KEY,
+         workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         step_id TEXT NOT NULL,
+         status TEXT NOT NULL,
+         attempt INTEGER NOT NULL DEFAULT 1,
+         job_run_id TEXT REFERENCES job_runs(id) ON DELETE SET NULL,
+         input JSONB,
+         output JSONB,
+         error_message TEXT,
+         logs_url TEXT,
+         metrics JSONB,
+         context JSONB,
+         started_at TIMESTAMPTZ,
+         completed_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_definitions_slug ON workflow_definitions(slug);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_created ON workflow_runs(workflow_definition_id, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run_created ON workflow_run_steps(workflow_run_id, created_at);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_job_run ON workflow_run_steps(job_run_id) WHERE job_run_id IS NOT NULL;`
     ]
   }
 ];

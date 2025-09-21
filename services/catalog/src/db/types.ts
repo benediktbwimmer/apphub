@@ -386,3 +386,148 @@ export type JobRunCompletionInput = {
   completedAt?: string;
   durationMs?: number | null;
 };
+
+export type WorkflowTriggerDefinition = {
+  type: string;
+  options?: JsonValue | null;
+};
+
+export type WorkflowDefinitionStepBase = {
+  id: string;
+  name: string;
+  description?: string | null;
+  dependsOn?: string[];
+};
+
+export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
+  type: 'job';
+  jobSlug: string;
+  parameters?: JsonValue;
+  timeoutMs?: number | null;
+  retryPolicy?: JobRetryPolicy | null;
+};
+
+export type WorkflowStepDefinition = WorkflowJobStepDefinition;
+
+export type WorkflowDefinitionRecord = {
+  id: string;
+  slug: string;
+  name: string;
+  version: number;
+  description: string | null;
+  steps: WorkflowStepDefinition[];
+  triggers: WorkflowTriggerDefinition[];
+  parametersSchema: JsonValue;
+  defaultParameters: JsonValue;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowDefinitionCreateInput = {
+  slug: string;
+  name: string;
+  version?: number;
+  description?: string | null;
+  steps: WorkflowStepDefinition[];
+  triggers?: WorkflowTriggerDefinition[];
+  parametersSchema?: JsonValue;
+  defaultParameters?: JsonValue;
+  metadata?: JsonValue | null;
+};
+
+export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+export type WorkflowRunRecord = {
+  id: string;
+  workflowDefinitionId: string;
+  status: WorkflowRunStatus;
+  parameters: JsonValue;
+  context: JsonValue;
+  errorMessage: string | null;
+  currentStepId: string | null;
+  currentStepIndex: number | null;
+  metrics: JsonValue | null;
+  triggeredBy: string | null;
+  trigger: JsonValue | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowRunCreateInput = {
+  parameters?: JsonValue;
+  triggeredBy?: string | null;
+  trigger?: JsonValue | null;
+  status?: WorkflowRunStatus;
+  context?: JsonValue;
+  currentStepId?: string | null;
+  currentStepIndex?: number | null;
+};
+
+export type WorkflowRunUpdateInput = {
+  status?: WorkflowRunStatus;
+  parameters?: JsonValue;
+  context?: JsonValue;
+  errorMessage?: string | null;
+  currentStepId?: string | null;
+  currentStepIndex?: number | null;
+  metrics?: JsonValue | null;
+  triggeredBy?: string | null;
+  trigger?: JsonValue | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+};
+
+export type WorkflowRunStepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+export type WorkflowRunStepRecord = {
+  id: string;
+  workflowRunId: string;
+  stepId: string;
+  status: WorkflowRunStepStatus;
+  attempt: number;
+  jobRunId: string | null;
+  input: JsonValue | null;
+  output: JsonValue | null;
+  errorMessage: string | null;
+  logsUrl: string | null;
+  metrics: JsonValue | null;
+  context: JsonValue | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowRunStepCreateInput = {
+  stepId: string;
+  status?: WorkflowRunStepStatus;
+  attempt?: number;
+  jobRunId?: string | null;
+  input?: JsonValue | null;
+  output?: JsonValue | null;
+  errorMessage?: string | null;
+  logsUrl?: string | null;
+  metrics?: JsonValue | null;
+  context?: JsonValue | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+};
+
+export type WorkflowRunStepUpdateInput = {
+  status?: WorkflowRunStepStatus;
+  attempt?: number;
+  jobRunId?: string | null;
+  input?: JsonValue | null;
+  output?: JsonValue | null;
+  errorMessage?: string | null;
+  logsUrl?: string | null;
+  metrics?: JsonValue | null;
+  context?: JsonValue | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+};

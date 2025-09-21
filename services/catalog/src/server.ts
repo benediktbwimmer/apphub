@@ -50,14 +50,26 @@ import {
   createJobRun,
   getJobRunById,
   completeJobRun,
+  listWorkflowDefinitions,
+  createWorkflowDefinition,
+  getWorkflowDefinitionBySlug,
+  createWorkflowRun,
+  listWorkflowRunsForDefinition,
+  getWorkflowRunById,
+  updateWorkflowRun,
+  listWorkflowRunSteps,
   type JobDefinitionRecord,
-  type JobRunRecord
+  type JobRunRecord,
+  type WorkflowDefinitionRecord,
+  type WorkflowRunRecord,
+  type WorkflowRunStepRecord
 } from './db/index';
 import {
   enqueueRepositoryIngestion,
   enqueueLaunchStart,
   enqueueLaunchStop,
   enqueueBuildJob,
+  enqueueWorkflowRun,
   isInlineQueueMode
 } from './queue';
 import { resolveLaunchInternalPort } from './docker';
@@ -251,6 +263,74 @@ const jobRunListQuerySchema = z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).optional())
   })
   .partial();
+
+const workflowTriggerSchema = z
+  .object({
+    type: z.string().min(1),
+    options: jsonValueSchema.optional()
+  })
+  .strict();
+
+const workflowStepSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    type: z.literal('job').optional(),
+    jobSlug: z.string().min(1),
+    description: z.string().min(1).optional(),
+    dependsOn: z.array(z.string().min(1)).max(25).optional(),
+    parameters: jsonValueSchema.optional(),
+    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
+    retryPolicy: jobRetryPolicySchema.optional()
+  })
+  .strict();
+
+const workflowDefinitionCreateSchema = z
+  .object({
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1),
+    version: z.number().int().min(1).optional(),
+    description: z.string().min(1).optional(),
+    steps: z.array(workflowStepSchema).min(1).max(100),
+    triggers: z.array(workflowTriggerSchema).optional(),
+    parametersSchema: jsonObjectSchema.optional(),
+    defaultParameters: jsonValueSchema.optional(),
+    metadata: jsonValueSchema.optional()
+  })
+  .strict();
+
+const workflowRunRequestSchema = z
+  .object({
+    parameters: jsonValueSchema.optional(),
+    triggeredBy: z.string().min(1).max(200).optional(),
+    trigger: workflowTriggerSchema.optional()
+  })
+  .strict();
+
+const workflowRunListQuerySchema = z
+  .object({
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(50).optional()),
+    offset: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).optional())
+  })
+  .partial();
+
+const workflowSlugParamSchema = z
+  .object({
+    slug: z.string().min(1)
+  })
+  .strict();
+
+const workflowRunIdParamSchema = z
+  .object({
+    runId: z.string().min(1)
+  })
+  .strict();
 
 const buildListQuerySchema = z.object({
   limit: z
@@ -602,6 +682,65 @@ function serializeJobRun(run: JobRunRecord) {
   };
 }
 
+function serializeWorkflowDefinition(workflow: WorkflowDefinitionRecord) {
+  return {
+    id: workflow.id,
+    slug: workflow.slug,
+    name: workflow.name,
+    version: workflow.version,
+    description: workflow.description,
+    steps: workflow.steps,
+    triggers: workflow.triggers,
+    parametersSchema: workflow.parametersSchema,
+    defaultParameters: workflow.defaultParameters,
+    metadata: workflow.metadata,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt
+  };
+}
+
+function serializeWorkflowRun(run: WorkflowRunRecord) {
+  return {
+    id: run.id,
+    workflowDefinitionId: run.workflowDefinitionId,
+    status: run.status,
+    parameters: run.parameters,
+    context: run.context,
+    errorMessage: run.errorMessage,
+    currentStepId: run.currentStepId,
+    currentStepIndex: run.currentStepIndex,
+    metrics: run.metrics,
+    triggeredBy: run.triggeredBy,
+    trigger: run.trigger,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    durationMs: run.durationMs,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt
+  };
+}
+
+function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
+  return {
+    id: step.id,
+    workflowRunId: step.workflowRunId,
+    stepId: step.stepId,
+    status: step.status,
+    attempt: step.attempt,
+    jobRunId: step.jobRunId,
+    input: step.input,
+    output: step.output,
+    errorMessage: step.errorMessage,
+    logsUrl: step.logsUrl,
+    metrics: step.metrics,
+    context: step.context,
+    startedAt: step.startedAt,
+    completedAt: step.completedAt,
+    createdAt: step.createdAt,
+    updatedAt: step.updatedAt
+  };
+}
+
 function getStringParameter(parameters: JsonValue, key: string): string | null {
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
     return null;
@@ -618,13 +757,25 @@ type SerializedRepository = ReturnType<typeof serializeRepository>;
 type SerializedBuild = ReturnType<typeof serializeBuild>;
 type SerializedLaunch = ReturnType<typeof serializeLaunch>;
 type SerializedService = ReturnType<typeof serializeService>;
+type SerializedWorkflowDefinition = ReturnType<typeof serializeWorkflowDefinition>;
+type SerializedWorkflowRun = ReturnType<typeof serializeWorkflowRun>;
+
+type WorkflowRunEventType =
+  | 'workflow.run.updated'
+  | 'workflow.run.pending'
+  | 'workflow.run.running'
+  | 'workflow.run.succeeded'
+  | 'workflow.run.failed'
+  | 'workflow.run.canceled';
 
 type OutboundEvent =
   | { type: 'repository.updated'; data: { repository: SerializedRepository } }
   | { type: 'repository.ingestion-event'; data: { event: IngestionEvent } }
   | { type: 'build.updated'; data: { build: SerializedBuild } }
   | { type: 'launch.updated'; data: { repositoryId: string; launch: SerializedLaunch } }
-  | { type: 'service.updated'; data: { service: SerializedService } };
+  | { type: 'service.updated'; data: { service: SerializedService } }
+  | { type: 'workflow.definition.updated'; data: { workflow: SerializedWorkflowDefinition } }
+  | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   switch (event.type) {
@@ -655,6 +806,21 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
       return {
         type: 'service.updated',
         data: { service: serializeService(event.data.service) }
+      };
+    case 'workflow.definition.updated':
+      return {
+        type: 'workflow.definition.updated',
+        data: { workflow: serializeWorkflowDefinition(event.data.workflow) }
+      };
+    case 'workflow.run.updated':
+    case 'workflow.run.pending':
+    case 'workflow.run.running':
+    case 'workflow.run.succeeded':
+    case 'workflow.run.failed':
+    case 'workflow.run.canceled':
+      return {
+        type: event.type,
+        data: { run: serializeWorkflowRun(event.data.run) }
       };
     default:
       return null;
@@ -1045,6 +1211,241 @@ export async function buildServer() {
 
     reply.status(202);
     return { data: serializeJobRun(responseRun) };
+  });
+
+  app.get('/workflows', async (_request, reply) => {
+    try {
+      const workflows = await listWorkflowDefinitions();
+      reply.status(200);
+      return { data: workflows.map((workflow) => serializeWorkflowDefinition(workflow)) };
+    } catch (err) {
+      reply.status(500);
+      return { error: 'Failed to list workflows' };
+    }
+  });
+
+  app.post('/workflows', async (request, reply) => {
+    const parseBody = workflowDefinitionCreateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const normalizeDependsOn = (dependsOn?: string[]) => {
+      if (!dependsOn) {
+        return undefined;
+      }
+      const unique = Array.from(new Set(dependsOn.map((id) => id.trim()).filter(Boolean)));
+      return unique.length > 0 ? unique : undefined;
+    };
+
+    const steps = payload.steps.map((step) => ({
+      id: step.id,
+      name: step.name,
+      type: 'job' as const,
+      jobSlug: step.jobSlug,
+      description: step.description ?? null,
+      dependsOn: normalizeDependsOn(step.dependsOn),
+      parameters: step.parameters ?? undefined,
+      timeoutMs: step.timeoutMs ?? null,
+      retryPolicy: step.retryPolicy ?? null
+    }));
+
+    const triggers = payload.triggers?.map((trigger) => ({
+      type: trigger.type,
+      options: trigger.options ?? null
+    }));
+
+    try {
+      const workflow = await createWorkflowDefinition({
+        slug: payload.slug,
+        name: payload.name,
+        version: payload.version,
+        description: payload.description ?? null,
+        steps,
+        triggers,
+        parametersSchema: payload.parametersSchema ?? {},
+        defaultParameters: payload.defaultParameters ?? {},
+        metadata: payload.metadata ?? null
+      });
+      reply.status(201);
+      return { data: serializeWorkflowDefinition(workflow) };
+    } catch (err) {
+      if (err instanceof Error && /already exists/i.test(err.message)) {
+        reply.status(409);
+        return { error: err.message };
+      }
+      request.log.error({ err }, 'Failed to create workflow definition');
+      reply.status(500);
+      return { error: 'Failed to create workflow definition' };
+    }
+  });
+
+  app.get('/workflows/:slug', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 10, 50));
+    const offset = Math.max(0, parseQuery.data.offset ?? 0);
+    const runs = await listWorkflowRunsForDefinition(workflow.id, { limit, offset });
+
+    reply.status(200);
+    return {
+      data: {
+        workflow: serializeWorkflowDefinition(workflow),
+        runs: runs.map((run) => serializeWorkflowRun(run))
+      },
+      meta: {
+        limit,
+        offset
+      }
+    };
+  });
+
+  app.get('/workflows/:slug/runs', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 20, 50));
+    const offset = Math.max(0, parseQuery.data.offset ?? 0);
+    const runs = await listWorkflowRunsForDefinition(workflow.id, { limit, offset });
+
+    reply.status(200);
+    return {
+      data: {
+        runs: runs.map((run) => serializeWorkflowRun(run))
+      },
+      meta: {
+        workflow: {
+          id: workflow.id,
+          slug: workflow.slug,
+          name: workflow.name
+        },
+        limit,
+        offset
+      }
+    };
+  });
+
+  app.post('/workflows/:slug/run', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowRunRequestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const parameters = parseBody.data.parameters ?? workflow.defaultParameters ?? {};
+    const triggeredBy = parseBody.data.triggeredBy ?? null;
+    const trigger = parseBody.data.trigger ?? undefined;
+
+    const run = await createWorkflowRun(workflow.id, {
+      parameters,
+      triggeredBy,
+      trigger
+    });
+
+    try {
+      await enqueueWorkflowRun(run.id);
+    } catch (err) {
+      request.log.error({ err, workflow: workflow.slug }, 'Failed to enqueue workflow run');
+      const message = (err as Error).message ?? 'Failed to enqueue workflow run';
+      await updateWorkflowRun(run.id, {
+        status: 'failed',
+        errorMessage: message,
+        completedAt: new Date().toISOString(),
+        durationMs: 0
+      });
+      reply.status(502);
+      return { error: message };
+    }
+
+    const latestRun = (await getWorkflowRunById(run.id)) ?? run;
+    reply.status(202);
+    return { data: serializeWorkflowRun(latestRun) };
+  });
+
+  app.get('/workflow-runs/:runId', async (request, reply) => {
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const run = await getWorkflowRunById(parseParams.data.runId);
+    if (!run) {
+      reply.status(404);
+      return { error: 'workflow run not found' };
+    }
+
+    reply.status(200);
+    return { data: serializeWorkflowRun(run) };
+  });
+
+  app.get('/workflow-runs/:runId/steps', async (request, reply) => {
+    const parseParams = workflowRunIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const run = await getWorkflowRunById(parseParams.data.runId);
+    if (!run) {
+      reply.status(404);
+      return { error: 'workflow run not found' };
+    }
+
+    const steps = await listWorkflowRunSteps(run.id);
+
+    reply.status(200);
+    return {
+      data: {
+        run: serializeWorkflowRun(run),
+        steps: steps.map((step) => serializeWorkflowRunStep(step))
+      }
+    };
   });
 
   app.get('/services', async () => {
