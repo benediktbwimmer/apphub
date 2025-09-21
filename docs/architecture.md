@@ -111,3 +111,11 @@ graph TD
 - Automated tag extraction (language detection, framework detection).
 - Workspace snapshots & persistent storage for stateful apps.
 - Billing/quotas for heavy usage.
+
+## Workflow Operations UI
+- Dedicated Workflows page renders the catalog of workflow definitions with status, repository, service, and tag filters backed by live metadata.
+- Operators can explore definitions, inspect DAG visualizations, and monitor run history in real time via the existing WebSocket event stream.
+- Manual run initiation now uses JSON Schema–driven forms or raw JSON editing with client-side validation (AJV) before enqueuing runs.
+- Run details surface per-step metrics, log links, and error messages, keeping context for troubleshooting without leaving the UI.
+- Components were structured for reuse (`WorkflowGraph`, `ManualRunPanel`, `WorkflowFilters`) so future operator surfaces can embed the same building blocks.
+
