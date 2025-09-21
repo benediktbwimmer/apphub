@@ -327,3 +327,6 @@ export async function ensureLocalBundleExists(record: JobBundleVersionRecord): P
 export function getDownloadRoute(slug: string, version: string): string {
   return buildDownloadPath(slug, version);
 }
+export function getLocalBundleArtifactPath(record: JobBundleVersionRecord): string {
+  return resolveLocalArtifactAbsolutePath(record);
+}

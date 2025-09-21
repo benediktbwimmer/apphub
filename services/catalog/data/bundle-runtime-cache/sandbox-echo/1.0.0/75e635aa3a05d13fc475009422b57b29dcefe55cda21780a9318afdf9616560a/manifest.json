@@ -1,0 +1,7 @@
+{
+  "name": "Bundle sandbox-echo",
+  "version": "1.0.0",
+  "entry": "index.js",
+  "description": "Sandbox test bundle",
+  "capabilities": []
+}
