@@ -369,6 +369,81 @@ async function testWorkflowEndpoints(): Promise<void> {
     const createdWorkflow = JSON.parse(createWorkflowResponse.payload) as { data: { slug: string } };
     assert.equal(createdWorkflow.data.slug, 'wf-demo');
 
+    const unauthorizedUpdateResponse = await app.inject({
+      method: 'PATCH',
+      url: '/workflows/wf-demo',
+      payload: { name: 'Unauthorized Update' }
+    });
+    assert.equal(unauthorizedUpdateResponse.statusCode, 401);
+
+    const updateWorkflowResponse = await app.inject({
+      method: 'PATCH',
+      url: '/workflows/wf-demo',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
+      payload: {
+        name: 'Workflow Demo Updated',
+        description: null,
+        version: 2,
+        steps: [
+          {
+            id: 'step-one',
+            name: 'Step One',
+            jobSlug: 'workflow-step-one'
+          },
+          {
+            id: 'service-call',
+            name: 'Service Call',
+            type: 'service',
+            serviceSlug: 'test-service',
+            dependsOn: ['step-one'],
+            retryPolicy: { maxAttempts: 3, strategy: 'fixed', initialDelayMs: 10 },
+            request: {
+              path: '/hook',
+              method: 'POST',
+              headers: {
+                Authorization: {
+                  secret: { source: 'store', key: 'TEST_SERVICE_TOKEN', version: 'v1' },
+                  prefix: 'Bearer '
+                }
+              },
+              query: { tenant: 'acme' }
+            },
+            storeResponseAs: 'serviceResult',
+            parameters: { action: 'workflow-test' }
+          },
+          {
+            id: 'step-two',
+            name: 'Step Two',
+            jobSlug: 'workflow-step-two',
+            dependsOn: ['service-call']
+          }
+        ],
+        triggers: [],
+        defaultParameters: { tenant: 'global' },
+        metadata: { purpose: 'updated' }
+      }
+    });
+    assert.equal(updateWorkflowResponse.statusCode, 200);
+    const updatedWorkflow = JSON.parse(updateWorkflowResponse.payload) as {
+      data: {
+        name: string;
+        version: number;
+        triggers: Array<{ type: string }>;
+        defaultParameters: unknown;
+        metadata: unknown;
+        description: string | null;
+      };
+    };
+    assert.equal(updatedWorkflow.data.name, 'Workflow Demo Updated');
+    assert.equal(updatedWorkflow.data.version, 2);
+    assert.equal(updatedWorkflow.data.description, null);
+    assert.equal(updatedWorkflow.data.triggers.length, 1);
+    assert.equal(updatedWorkflow.data.triggers[0].type, 'manual');
+    assert.deepEqual(updatedWorkflow.data.defaultParameters, { tenant: 'global' });
+    assert.deepEqual(updatedWorkflow.data.metadata, { purpose: 'updated' });
+
     const listResponse = await app.inject({ method: 'GET', url: '/workflows' });
     assert.equal(listResponse.statusCode, 200);
     const listBody = JSON.parse(listResponse.payload) as { data: Array<{ slug: string }> };
@@ -377,10 +452,31 @@ async function testWorkflowEndpoints(): Promise<void> {
       const fetchWorkflowResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo' });
       assert.equal(fetchWorkflowResponse.statusCode, 200);
       const fetchWorkflowBody = JSON.parse(fetchWorkflowResponse.payload) as {
-        data: { workflow: { slug: string; steps: unknown[] }; runs: unknown[] };
+        data: {
+          workflow: {
+            slug: string;
+            name: string;
+            description: string | null;
+            steps: Array<Record<string, unknown>>;
+            triggers: Array<{ type: string }>;
+            defaultParameters: unknown;
+            metadata: unknown;
+          };
+          runs: unknown[];
+        };
       };
       assert.equal(fetchWorkflowBody.data.workflow.slug, 'wf-demo');
+      assert.equal(fetchWorkflowBody.data.workflow.name, 'Workflow Demo Updated');
+      assert.equal(fetchWorkflowBody.data.workflow.description, null);
       assert.equal(fetchWorkflowBody.data.workflow.steps.length, 3);
+      const serviceStep = fetchWorkflowBody.data.workflow.steps.find((step) => step.id === 'service-call') as
+        | { retryPolicy?: { maxAttempts?: number }; request?: { query?: Record<string, unknown> } }
+        | undefined;
+      assert.equal(serviceStep?.retryPolicy?.maxAttempts ?? 0, 3);
+      assert.equal((serviceStep?.request?.query as { tenant?: string } | undefined)?.tenant ?? '', 'acme');
+      assert.equal(fetchWorkflowBody.data.workflow.triggers[0]?.type ?? '', 'manual');
+      assert.deepEqual(fetchWorkflowBody.data.workflow.defaultParameters, { tenant: 'global' });
+      assert.deepEqual(fetchWorkflowBody.data.workflow.metadata, { purpose: 'updated' });
       assert.equal(fetchWorkflowBody.data.runs.length, 0);
 
       const triggerResponse = await app.inject({

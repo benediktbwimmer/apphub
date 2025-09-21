@@ -541,6 +541,17 @@ export type WorkflowDefinitionCreateInput = {
   metadata?: JsonValue | null;
 };
 
+export type WorkflowDefinitionUpdateInput = {
+  name?: string;
+  version?: number;
+  description?: string | null;
+  steps?: WorkflowStepDefinition[];
+  triggers?: WorkflowTriggerDefinition[];
+  parametersSchema?: JsonValue;
+  defaultParameters?: JsonValue;
+  metadata?: JsonValue | null;
+};
+
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export type WorkflowRunRecord = {

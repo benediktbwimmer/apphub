@@ -53,6 +53,7 @@ import {
   getJobBundleVersion,
   listWorkflowDefinitions,
   createWorkflowDefinition,
+  updateWorkflowDefinition,
   getWorkflowDefinitionBySlug,
   createWorkflowRun,
   listWorkflowRunsForDefinition,
@@ -429,6 +430,80 @@ const workflowDefinitionCreateSchema = z
     metadata: jsonValueSchema.optional()
   })
   .strict();
+
+const workflowDefinitionUpdateSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    version: z.number().int().min(1).optional(),
+    description: z.string().min(1).nullable().optional(),
+    steps: z.array(workflowStepSchema).min(1).max(100).optional(),
+    triggers: z.array(workflowTriggerSchema).optional(),
+    parametersSchema: jsonObjectSchema.optional(),
+    defaultParameters: jsonValueSchema.optional(),
+    metadata: jsonValueSchema.nullable().optional()
+  })
+  .strict()
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: 'At least one field must be provided'
+  });
+
+type WorkflowStepInput = z.infer<typeof workflowStepSchema>;
+type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
+
+function normalizeWorkflowDependsOn(dependsOn?: string[]) {
+  if (!dependsOn) {
+    return undefined;
+  }
+  const unique = Array.from(new Set(dependsOn.map((id) => id.trim()).filter(Boolean)));
+  return unique.length > 0 ? unique : undefined;
+}
+
+function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
+  return steps.map((step) => {
+    const base = {
+      id: step.id,
+      name: step.name,
+      description: step.description ?? null,
+      dependsOn: normalizeWorkflowDependsOn(step.dependsOn)
+    };
+
+    if (step.type === 'service') {
+      return {
+        ...base,
+        type: 'service' as const,
+        serviceSlug: step.serviceSlug.trim().toLowerCase(),
+        parameters: step.parameters ?? undefined,
+        timeoutMs: step.timeoutMs ?? null,
+        retryPolicy: step.retryPolicy ?? null,
+        requireHealthy: step.requireHealthy ?? undefined,
+        allowDegraded: step.allowDegraded ?? undefined,
+        captureResponse: step.captureResponse ?? undefined,
+        storeResponseAs: step.storeResponseAs ?? undefined,
+        request: step.request
+      };
+    }
+
+    return {
+      ...base,
+      type: 'job' as const,
+      jobSlug: step.jobSlug,
+      parameters: step.parameters ?? undefined,
+      timeoutMs: step.timeoutMs ?? null,
+      retryPolicy: step.retryPolicy ?? null,
+      storeResultAs: step.storeResultAs ?? undefined
+    };
+  });
+}
+
+function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
+  if (!triggers) {
+    return undefined;
+  }
+  return triggers.map((trigger) => ({
+    type: trigger.type,
+    options: trigger.options ?? null
+  }));
+}
 
 const workflowRunRequestSchema = z
   .object({
@@ -1923,53 +1998,8 @@ export async function buildServer() {
     }
 
     const payload = parseBody.data;
-    const normalizeDependsOn = (dependsOn?: string[]) => {
-      if (!dependsOn) {
-        return undefined;
-      }
-      const unique = Array.from(new Set(dependsOn.map((id) => id.trim()).filter(Boolean)));
-      return unique.length > 0 ? unique : undefined;
-    };
-
-    const steps = payload.steps.map((step) => {
-      const base = {
-        id: step.id,
-        name: step.name,
-        description: step.description ?? null,
-        dependsOn: normalizeDependsOn(step.dependsOn)
-      };
-
-      if (step.type === 'service') {
-        return {
-          ...base,
-          type: 'service' as const,
-          serviceSlug: step.serviceSlug.trim().toLowerCase(),
-          parameters: step.parameters ?? undefined,
-          timeoutMs: step.timeoutMs ?? null,
-          retryPolicy: step.retryPolicy ?? null,
-          requireHealthy: step.requireHealthy ?? undefined,
-          allowDegraded: step.allowDegraded ?? undefined,
-          captureResponse: step.captureResponse ?? undefined,
-          storeResponseAs: step.storeResponseAs ?? undefined,
-          request: step.request
-        };
-      }
-
-      return {
-        ...base,
-        type: 'job' as const,
-        jobSlug: step.jobSlug,
-        parameters: step.parameters ?? undefined,
-        timeoutMs: step.timeoutMs ?? null,
-        retryPolicy: step.retryPolicy ?? null,
-        storeResultAs: step.storeResultAs ?? undefined
-      };
-    });
-
-    const triggers = payload.triggers?.map((trigger) => ({
-      type: trigger.type,
-      options: trigger.options ?? null
-    }));
+    const steps = normalizeWorkflowSteps(payload.steps);
+    const triggers = normalizeWorkflowTriggers(payload.triggers);
 
     try {
       const workflow = await createWorkflowDefinition({
@@ -1997,6 +2027,82 @@ export async function buildServer() {
       const message = err instanceof Error ? err.message : 'Failed to create workflow definition';
       await auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create workflow definition' };
+    }
+  });
+
+  app.patch('/workflows/:slug', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'workflows.update',
+      resource: `workflow:${candidateSlug}`,
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_params', details: parseParams.error.flatten() });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowDefinitionUpdateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const updates: Parameters<typeof updateWorkflowDefinition>[1] = {};
+
+    if (payload.name !== undefined) {
+      updates.name = payload.name;
+    }
+    if (payload.version !== undefined) {
+      updates.version = payload.version;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'description')) {
+      updates.description = payload.description ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'steps')) {
+      updates.steps = normalizeWorkflowSteps(payload.steps!);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'triggers')) {
+      updates.triggers = normalizeWorkflowTriggers(payload.triggers ?? []) ?? [];
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'parametersSchema')) {
+      updates.parametersSchema = payload.parametersSchema ?? {};
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'defaultParameters')) {
+      updates.defaultParameters = payload.defaultParameters ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'metadata')) {
+      updates.metadata = payload.metadata ?? null;
+    }
+
+    try {
+      const workflow = await updateWorkflowDefinition(parseParams.data.slug, updates);
+      if (!workflow) {
+        reply.status(404);
+        await auth.log('failed', { reason: 'workflow_not_found', workflowSlug: parseParams.data.slug });
+        return { error: 'workflow not found' };
+      }
+
+      reply.status(200);
+      await auth.log('succeeded', { workflowSlug: workflow.slug, workflowId: workflow.id });
+      return { data: serializeWorkflowDefinition(workflow) };
+    } catch (err) {
+      request.log.error({ err, slug: parseParams.data.slug }, 'Failed to update workflow definition');
+      reply.status(500);
+      const message = err instanceof Error ? err.message : 'Failed to update workflow definition';
+      await auth.log('failed', { reason: 'exception', message, workflowSlug: parseParams.data.slug });
+      return { error: 'Failed to update workflow definition' };
     }
   });
 
