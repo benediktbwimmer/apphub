@@ -1,0 +1,381 @@
+import type {
+  WorkflowDefinition,
+  WorkflowFiltersState,
+  WorkflowRun,
+  WorkflowRunStep,
+  WorkflowRuntimeSummary
+} from './types';
+
+export type WorkflowSummary = {
+  workflow: WorkflowDefinition;
+  status: string;
+  repos: string[];
+  services: string[];
+  tags: string[];
+  runtime: WorkflowRuntimeSummary | undefined;
+};
+
+export function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const id = typeof raw.id === 'string' ? raw.id : null;
+  const slug = typeof raw.slug === 'string' ? raw.slug : null;
+  const name = typeof raw.name === 'string' ? raw.name : null;
+  if (!id || !slug || !name) {
+    return null;
+  }
+
+  const steps: WorkflowDefinition['steps'] = [];
+  if (Array.isArray(raw.steps)) {
+    for (const entry of raw.steps) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const step = entry as Record<string, unknown>;
+      const stepId = typeof step.id === 'string' ? step.id : null;
+      const stepName = typeof step.name === 'string' ? step.name : null;
+      if (!stepId || !stepName) {
+        continue;
+      }
+      const jobSlug = typeof step.jobSlug === 'string' ? step.jobSlug : undefined;
+      const serviceSlug = typeof step.serviceSlug === 'string' ? step.serviceSlug : undefined;
+      const rawType = typeof step.type === 'string' ? step.type.toLowerCase() : null;
+      const stepType =
+        rawType === 'service'
+          ? 'service'
+          : rawType === 'job'
+            ? 'job'
+            : serviceSlug
+              ? 'service'
+              : 'job';
+      const dependsOn = Array.isArray(step.dependsOn)
+        ? step.dependsOn.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : undefined;
+      const normalizedStep = {
+        id: stepId,
+        name: stepName,
+        type: stepType,
+        jobSlug,
+        serviceSlug,
+        description:
+          typeof step.description === 'string'
+            ? step.description
+            : step.description === null
+              ? null
+              : undefined,
+        dependsOn,
+        parameters: 'parameters' in step ? step.parameters : undefined,
+        timeoutMs:
+          typeof step.timeoutMs === 'number'
+            ? step.timeoutMs
+            : step.timeoutMs === null
+              ? null
+              : undefined,
+        retryPolicy: 'retryPolicy' in step ? step.retryPolicy : undefined,
+        storeResultAs: typeof step.storeResultAs === 'string' ? step.storeResultAs : undefined,
+        requireHealthy: typeof step.requireHealthy === 'boolean' ? step.requireHealthy : undefined,
+        allowDegraded: typeof step.allowDegraded === 'boolean' ? step.allowDegraded : undefined,
+        captureResponse: typeof step.captureResponse === 'boolean' ? step.captureResponse : undefined,
+        storeResponseAs: typeof step.storeResponseAs === 'string' ? step.storeResponseAs : undefined,
+        request: 'request' in step ? step.request : undefined
+      } satisfies WorkflowDefinition['steps'][number];
+      steps.push(normalizedStep);
+    }
+  }
+
+  const triggers: WorkflowDefinition['triggers'] = [];
+  if (Array.isArray(raw.triggers)) {
+    for (const entry of raw.triggers) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const trigger = entry as Record<string, unknown>;
+      const type = typeof trigger.type === 'string' ? trigger.type : null;
+      if (!type) {
+        continue;
+      }
+      triggers.push({
+        type,
+        options: 'options' in trigger ? trigger.options : undefined
+      });
+    }
+  }
+
+  return {
+    id,
+    slug,
+    name,
+    description: typeof raw.description === 'string' ? raw.description : null,
+    version: typeof raw.version === 'number' ? raw.version : 1,
+    steps,
+    triggers,
+    parametersSchema: raw.parametersSchema ?? null,
+    defaultParameters: raw.defaultParameters ?? null,
+    metadata: raw.metadata ?? null,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
+  };
+}
+
+export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const id = typeof raw.id === 'string' ? raw.id : null;
+  const workflowDefinitionId =
+    typeof raw.workflowDefinitionId === 'string' ? raw.workflowDefinitionId : null;
+  const status = typeof raw.status === 'string' ? raw.status : null;
+  if (!id || !workflowDefinitionId || !status) {
+    return null;
+  }
+  return {
+    id,
+    workflowDefinitionId,
+    status,
+    currentStepId: typeof raw.currentStepId === 'string' ? raw.currentStepId : null,
+    currentStepIndex: typeof raw.currentStepIndex === 'number' ? raw.currentStepIndex : null,
+    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
+    completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : null,
+    durationMs: typeof raw.durationMs === 'number' ? raw.durationMs : null,
+    errorMessage:
+      typeof raw.errorMessage === 'string'
+        ? raw.errorMessage
+        : raw.errorMessage === null
+          ? null
+          : null,
+    triggeredBy:
+      typeof raw.triggeredBy === 'string'
+        ? raw.triggeredBy
+        : raw.triggeredBy === null
+          ? null
+          : null,
+    metrics:
+      raw.metrics && typeof raw.metrics === 'object' && !Array.isArray(raw.metrics)
+        ? (raw.metrics as { totalSteps?: number; completedSteps?: number })
+        : null,
+    parameters: raw.parameters ?? null,
+    context: raw.context ?? null,
+    trigger: raw.trigger ?? null,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
+  };
+}
+
+export function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const id = typeof raw.id === 'string' ? raw.id : null;
+  const workflowRunId = typeof raw.workflowRunId === 'string' ? raw.workflowRunId : null;
+  const stepId = typeof raw.stepId === 'string' ? raw.stepId : null;
+  const status = typeof raw.status === 'string' ? raw.status : null;
+  const attempt = typeof raw.attempt === 'number' ? raw.attempt : null;
+  if (!id || !workflowRunId || !stepId || attempt === null || !status) {
+    return null;
+  }
+  return {
+    id,
+    workflowRunId,
+    stepId,
+    status,
+    attempt,
+    jobRunId: typeof raw.jobRunId === 'string' ? raw.jobRunId : null,
+    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
+    completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : null,
+    errorMessage:
+      typeof raw.errorMessage === 'string'
+        ? raw.errorMessage
+        : raw.errorMessage === null
+          ? null
+          : null,
+    logsUrl: typeof raw.logsUrl === 'string' ? raw.logsUrl : null,
+    parameters: 'parameters' in raw ? raw.parameters : undefined,
+    result: 'result' in raw ? raw.result : undefined,
+    metrics: 'metrics' in raw ? raw.metrics : undefined
+  };
+}
+
+function getTimestamp(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function sortRuns(runs: WorkflowRun[]): WorkflowRun[] {
+  return runs
+    .slice()
+    .sort((a, b) => {
+      const createdDiff = getTimestamp(b.createdAt) - getTimestamp(a.createdAt);
+      if (createdDiff !== 0) {
+        return createdDiff;
+      }
+      const startedDiff = getTimestamp(b.startedAt) - getTimestamp(a.startedAt);
+      if (startedDiff !== 0) {
+        return startedDiff;
+      }
+      return getTimestamp(b.updatedAt) - getTimestamp(a.updatedAt);
+    });
+}
+
+export function summarizeWorkflowMetadata(workflow: WorkflowDefinition) {
+  const metadata = toRecord(workflow.metadata);
+  const repos = new Set<string>();
+  const services = new Set<string>();
+  const tags = new Set<string>();
+  let status: string | undefined;
+
+  const addString = (value: unknown, target: Set<string>) => {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      target.add(value.trim());
+    }
+  };
+
+  if (metadata) {
+    addString(metadata.repo, repos);
+    addString(metadata.repository, repos);
+    addString(metadata.repositoryUrl, repos);
+    addString(metadata.repoUrl, repos);
+    const source = toRecord(metadata.source);
+    if (source) {
+      addString(source.repo, repos);
+      addString(source.repository, repos);
+      addString(source.repositoryUrl, repos);
+    }
+
+    const tagsField = metadata.tags;
+    if (typeof tagsField === 'string') {
+      addString(tagsField, tags);
+    } else if (Array.isArray(tagsField)) {
+      for (const entry of tagsField) {
+        if (typeof entry === 'string') {
+          addString(entry, tags);
+          continue;
+        }
+        const record = toRecord(entry);
+        if (!record) {
+          continue;
+        }
+        const key = typeof record.key === 'string' ? record.key : undefined;
+        const value = typeof record.value === 'string' ? record.value : undefined;
+        if (key && value) {
+          tags.add(`${key}:${value}`);
+        } else if (key) {
+          tags.add(key);
+        } else if (value) {
+          tags.add(value);
+        }
+      }
+    }
+
+    const statusValue = metadata.status ?? metadata.latestStatus ?? metadata.state;
+    if (typeof statusValue === 'string') {
+      status = statusValue;
+    }
+
+    const serviceMeta = metadata.service ?? metadata.workflowService ?? metadata.targetService;
+    addString(serviceMeta, services);
+    if (typeof metadata.services === 'string') {
+      addString(metadata.services, services);
+    } else if (Array.isArray(metadata.services)) {
+      for (const value of metadata.services) {
+        addString(value, services);
+      }
+    }
+
+    if (Array.isArray(metadata.stepSummaries)) {
+      for (const entry of metadata.stepSummaries) {
+        const record = toRecord(entry);
+        if (!record) {
+          continue;
+        }
+        addString(record.repo, repos);
+        addString(record.service, services);
+        addString(record.tag, tags);
+      }
+    }
+  }
+
+  for (const step of workflow.steps) {
+    if (step.serviceSlug) {
+      services.add(step.serviceSlug);
+    }
+  }
+
+  return {
+    repos: Array.from(repos),
+    services: Array.from(services),
+    tags: Array.from(tags),
+    status: status ?? 'unknown'
+  } satisfies Pick<WorkflowSummary, 'repos' | 'services' | 'tags' | 'status'>;
+}
+
+export function buildFilterOptions(values: string[]): Array<{ value: string; label: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, label: value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+export function buildStatusOptions(summaries: WorkflowSummary[]): Array<{ value: string; label: string; count: number }> {
+  return buildFilterOptions(summaries.map((summary) => summary.status.toLowerCase())).map((option) => ({
+    ...option,
+    label: option.label.toUpperCase()
+  }));
+}
+
+export function filterSummaries(
+  summaries: WorkflowSummary[],
+  filters: WorkflowFiltersState,
+  searchTerm: string
+): WorkflowSummary[] {
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  return summaries.filter((summary) => {
+    if (filters.statuses.length > 0 && !filters.statuses.includes(summary.status.toLowerCase())) {
+      return false;
+    }
+    if (filters.repos.length > 0 && summary.repos.every((repo) => !filters.repos.includes(repo))) {
+      return false;
+    }
+    if (filters.services.length > 0 && summary.services.every((service) => !filters.services.includes(service))) {
+      return false;
+    }
+    if (filters.tags.length > 0 && summary.tags.every((tag) => !filters.tags.includes(tag))) {
+      return false;
+    }
+    if (!normalizedSearch) {
+      return true;
+    }
+    const haystacks = [
+      summary.workflow.name,
+      summary.workflow.slug,
+      summary.workflow.description ?? '',
+      summary.status,
+      ...summary.repos,
+      ...summary.services,
+      ...summary.tags
+    ]
+      .filter(Boolean)
+      .map((value) => value.toLowerCase());
+    return haystacks.some((text) => text.includes(normalizedSearch));
+  });
+}

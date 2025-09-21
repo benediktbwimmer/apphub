@@ -1,6 +1,7 @@
 export type WorkflowDefinitionStep = {
   id: string;
   name: string;
+  type?: 'job' | 'service';
   jobSlug?: string;
   serviceSlug?: string;
   description?: string | null;
@@ -9,6 +10,12 @@ export type WorkflowDefinitionStep = {
   parameters?: unknown;
   timeoutMs?: number | null;
   retryPolicy?: unknown;
+  storeResultAs?: string;
+  requireHealthy?: boolean;
+  allowDegraded?: boolean;
+  captureResponse?: boolean;
+  storeResponseAs?: string;
+  request?: unknown;
 };
 
 export type WorkflowTrigger = {
@@ -86,4 +93,64 @@ export type WorkflowRuntimeSummary = {
   completedAt?: string | null;
   durationMs?: number | null;
   triggeredBy?: string | null;
+};
+
+export type WorkflowOwnerMetadata = {
+  name?: string | null;
+  contact?: string | null;
+};
+
+export type WorkflowMetadata = Record<string, unknown> & {
+  owner?: WorkflowOwnerMetadata | null;
+  tags?: string[];
+  status?: string;
+  ownerName?: string | null;
+  ownerContact?: string | null;
+  versionNote?: string | null;
+};
+
+export type WorkflowDraftStepType = 'job' | 'service';
+
+export type WorkflowDraftStep = {
+  id: string;
+  name: string;
+  type: WorkflowDraftStepType;
+  jobSlug?: string;
+  serviceSlug?: string;
+  description?: string | null;
+  dependsOn: string[];
+  parameters: unknown;
+  timeoutMs: number | null;
+  retryPolicy: unknown;
+  storeResultAs?: string;
+  requireHealthy?: boolean;
+  allowDegraded?: boolean;
+  captureResponse?: boolean;
+  storeResponseAs?: string;
+  request?: unknown;
+  parametersText?: string;
+  parametersError?: string | null;
+  requestBodyText?: string;
+  requestBodyError?: string | null;
+};
+
+export type WorkflowDraft = {
+  slug: string;
+  name: string;
+  description: string | null;
+  ownerName: string;
+  ownerContact: string;
+  tags: string[];
+  tagsInput?: string;
+  version: number;
+  versionNote: string;
+  steps: WorkflowDraftStep[];
+  triggers: WorkflowTrigger[];
+  parametersSchema: Record<string, unknown> | null;
+  defaultParameters: unknown;
+  metadata: WorkflowMetadata | null;
+  parametersSchemaText?: string;
+  parametersSchemaError?: string | null;
+  defaultParametersText?: string;
+  defaultParametersError?: string | null;
 };
