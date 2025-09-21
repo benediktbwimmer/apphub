@@ -68,7 +68,7 @@ import {
   type WorkflowRunRecord,
   type WorkflowRunStepRecord
 } from './db/index';
-import type { WorkflowStepDefinition } from './db/types';
+import type { WorkflowFanOutTemplateDefinition, WorkflowStepDefinition } from './db/types';
 import {
   enqueueRepositoryIngestion,
   enqueueLaunchStart,
@@ -417,7 +417,28 @@ const workflowServiceStepSchema = z
   })
   .strict();
 
-const workflowStepSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
+const workflowFanOutTemplateSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
+
+const workflowFanOutStepSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    type: z.literal('fanout'),
+    description: z.string().min(1).optional(),
+    dependsOn: z.array(z.string().min(1)).max(25).optional(),
+    collection: jsonValueSchema,
+    template: workflowFanOutTemplateSchema,
+    maxItems: z.number().int().min(1).max(10_000).optional(),
+    maxConcurrency: z.number().int().min(1).max(1_000).optional(),
+    storeResultsAs: z.string().min(1).max(200).optional()
+  })
+  .strict();
+
+const workflowStepSchema = z.union([
+  workflowJobStepSchema,
+  workflowServiceStepSchema,
+  workflowFanOutStepSchema
+]);
 
 const workflowDefinitionCreateSchema = z
   .object({
@@ -454,6 +475,7 @@ const workflowDefinitionUpdateSchema = z
   });
 
 type WorkflowStepInput = z.infer<typeof workflowStepSchema>;
+type WorkflowFanOutTemplateInput = z.infer<typeof workflowFanOutTemplateSchema>;
 type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
 
 function normalizeWorkflowDependsOn(dependsOn?: string[]) {
@@ -472,6 +494,18 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
       description: step.description ?? null,
       dependsOn: normalizeWorkflowDependsOn(step.dependsOn)
     };
+
+    if (step.type === 'fanout') {
+      return {
+        ...base,
+        type: 'fanout' as const,
+        collection: step.collection,
+        template: normalizeWorkflowFanOutTemplate(step.template),
+        maxItems: step.maxItems ?? null,
+        maxConcurrency: step.maxConcurrency ?? null,
+        storeResultsAs: step.storeResultsAs ?? undefined
+      };
+    }
 
     if (step.type === 'service') {
       return {
@@ -499,6 +533,41 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
       storeResultAs: step.storeResultAs ?? undefined
     };
   });
+}
+
+function normalizeWorkflowFanOutTemplate(template: WorkflowFanOutTemplateInput) {
+  const base = {
+    id: template.id,
+    name: template.name,
+    description: template.description ?? null,
+    dependsOn: normalizeWorkflowDependsOn(template.dependsOn)
+  };
+
+  if (template.type === 'service') {
+    return {
+      ...base,
+      type: 'service' as const,
+      serviceSlug: template.serviceSlug.trim().toLowerCase(),
+      parameters: template.parameters ?? undefined,
+      timeoutMs: template.timeoutMs ?? null,
+      retryPolicy: template.retryPolicy ?? null,
+      requireHealthy: template.requireHealthy ?? undefined,
+      allowDegraded: template.allowDegraded ?? undefined,
+      captureResponse: template.captureResponse ?? undefined,
+      storeResponseAs: template.storeResponseAs ?? undefined,
+      request: template.request
+    } satisfies WorkflowFanOutTemplateDefinition;
+  }
+
+  return {
+    ...base,
+    type: 'job' as const,
+    jobSlug: template.jobSlug,
+    parameters: template.parameters ?? undefined,
+    timeoutMs: template.timeoutMs ?? null,
+    retryPolicy: template.retryPolicy ?? null,
+    storeResultAs: template.storeResultAs ?? undefined
+  } satisfies WorkflowFanOutTemplateDefinition;
 }
 
 function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
@@ -1098,6 +1167,9 @@ function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
     context: step.context,
     startedAt: step.startedAt,
     completedAt: step.completedAt,
+    parentStepId: step.parentStepId,
+    fanoutIndex: step.fanoutIndex,
+    templateStepId: step.templateStepId,
     createdAt: step.createdAt,
     updatedAt: step.updatedAt
   };
