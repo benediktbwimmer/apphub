@@ -91,59 +91,158 @@ npm run dev
 
 The Vite dev server binds to `http://localhost:5173`.
 
-### Env Vars
+### Environment Variables
 
 `apps/frontend/.env.example`
 ```bash
 VITE_API_BASE_URL=http://localhost:4000
+VITE_LAUNCH_INTERNAL_PORT=3000
 ```
 
 Update as needed for different deployment targets.
 
-`services/catalog` respects:
+`services/catalog` reads the following environment variables (defaults shown where applicable):
+
+**Core service & database**
 
 ```bash
-PORT=4000
-HOST=0.0.0.0
+PORT=4000                              # API port
+HOST=::                                # Bind address (set 0.0.0.0 when containerised)
 DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub
 PGPOOL_MAX=20
 PGPOOL_IDLE_TIMEOUT_MS=30000
 PGPOOL_CONNECTION_TIMEOUT_MS=10000
-REDIS_URL=redis://127.0.0.1:6379
-INGEST_QUEUE_NAME=apphub:repo-ingest
+SERVICE_CONFIG_PATH=services/service-config.json
+SERVICE_MANIFEST_PATH=services/service-manifest.json
+SERVICE_REGISTRY_TOKEN=
+SERVICE_CLIENT_TIMEOUT_MS=60000
+SERVICE_HEALTH_INTERVAL_MS=30000
+SERVICE_HEALTH_TIMEOUT_MS=5000
+SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000
+APPHUB_HOST_ROOT=                      # Optional host root used to resolve launch START_PATH mounts (legacy alias HOST_ROOT_PATH)
+```
+
+`SERVICE_CONFIG_PATH` and `SERVICE_MANIFEST_PATH` accept comma-separated lists if you need to merge multiple manifests.
+
+**Redis, queues & events**
+
+```bash
+REDIS_URL=redis://127.0.0.1:6379         # Set to "inline" to execute queues without Redis
+APPHUB_EVENTS_MODE=                    # "inline" to bypass Redis publish/subscribe
+APPHUB_EVENTS_CHANNEL=apphub:events
+INGEST_QUEUE_NAME=apphub_queue
+BUILD_QUEUE_NAME=apphub_build_queue
+LAUNCH_QUEUE_NAME=apphub_launch_queue
+WORKFLOW_QUEUE_NAME=apphub_workflow_queue
+```
+
+**Repository ingestion**
+
+```bash
 INGEST_CONCURRENCY=2
 INGEST_JOB_ATTEMPTS=3
 INGEST_JOB_BACKOFF_MS=10000
 INGEST_CLONE_DEPTH=1
-SERVICE_MANIFEST_PATH=services/service-manifest.json   # Optional manifest paths consumed when you refresh/import
-SERVICE_CONFIG_PATH=services/service-config.json       # Declarative service config + git imports (comma-separated list)
-SERVICE_REGISTRY_TOKEN=                                # Shared secret for POST/PATCH /services (disabled when empty)
-SERVICE_HEALTH_INTERVAL_MS=30000                       # Health poll cadence
-SERVICE_HEALTH_TIMEOUT_MS=5000                         # Health request timeout
-SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000             # How often to refresh cached OpenAPI metadata
-APPHUB_OPERATOR_TOKENS=                                # JSON array of operator/service tokens with scopes for jobs/workflows
-APPHUB_OPERATOR_TOKENS_PATH=                           # Optional path to a JSON file defining operator tokens
-APPHUB_SECRET_STORE=                                   # Inline JSON map of secrets resolved by workflows/jobs at runtime
-APPHUB_SECRET_STORE_PATH=                              # Optional path to JSON file containing secret store entries
-APPHUB_LOG_AGGREGATOR_URL=                             # Optional HTTP endpoint for forwarding structured logs
-APPHUB_LOG_AGGREGATOR_TOKEN=                           # Bearer token used when posting logs to the aggregator (optional)
-APPHUB_LOG_SOURCE=catalog-service                      # Identifier included in structured log payloads
-WORKFLOW_FAILURE_ALERT_THRESHOLD=3                     # Consecutive failures required before firing workflow alerts
-WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15               # Sliding window (minutes) for workflow failure alert evaluation
-WORKFLOW_ALERT_WEBHOOK_URL=                            # Optional webhook invoked when workflow alerts trigger
-WORKFLOW_ALERT_WEBHOOK_TOKEN=                          # Bearer token supplied with alert webhook requests (optional)
-WORKFLOW_FANOUT_MAX_ITEMS=100                          # Global guardrail for dynamically generated fan-out children per step
-WORKFLOW_FANOUT_MAX_CONCURRENCY=10                     # Maximum number of fan-out children executed in parallel
-APPHUB_CODEX_CLI=codex                                 # Path to the Codex CLI executable (default assumes codex on PATH)
-APPHUB_CODEX_EXEC_OPTS=                                # Additional arguments appended before running `codex exec`
-APPHUB_CODEX_DEBUG_WORKSPACES=0                        # Set to 1 to retain Codex workspaces for inspection
-APPHUB_CODEX_MOCK_DIR=                                 # Directory containing workflow.json/job.json fixtures for deterministic runs
+INGEST_MAX_INLINE_PREVIEW_BYTES=1500000
+```
+
+**Build pipeline**
+
+```bash
+BUILD_CONCURRENCY=1
+BUILD_CLONE_DEPTH=1
+```
+
+**Launch runner & preview**
+
+```bash
+LAUNCH_CONCURRENCY=1
+LAUNCH_RUNNER_MODE=docker              # Use "stub" to bypass Docker during local development
+LAUNCH_INTERNAL_PORT=                  # Override detected container port
+LAUNCH_PREVIEW_BASE_URL=http://127.0.0.1
+LAUNCH_PREVIEW_PORT=443
+LAUNCH_PREVIEW_TOKEN_SECRET=preview-secret
+SERVICE_NETWORK_BUILD_TIMEOUT_MS=600000
+SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS=2000
+SERVICE_NETWORK_LAUNCH_TIMEOUT_MS=300000
+SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS=2000
+```
+
+**Workflow orchestration**
+
+```bash
+WORKFLOW_CONCURRENCY=1
+WORKFLOW_MAX_PARALLEL=                  # Overrides per-workflow parallel limit
+WORKFLOW_FANOUT_MAX_ITEMS=100
+WORKFLOW_FANOUT_MAX_CONCURRENCY=10
+WORKFLOW_FAILURE_ALERT_THRESHOLD=3
+WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15
+WORKFLOW_ALERT_WEBHOOK_URL=
+WORKFLOW_ALERT_WEBHOOK_TOKEN=
+```
+
+**Tokens, secrets & access control**
+
+```bash
+APPHUB_OPERATOR_TOKENS=
+APPHUB_OPERATOR_TOKENS_PATH=
+APPHUB_SECRET_STORE=
+APPHUB_SECRET_STORE_PATH=
+```
+
+**Job bundle registry & storage**
+
+```bash
+APPHUB_JOB_BUNDLES_ENABLED=
+APPHUB_JOB_BUNDLES_ENABLE_SLUGS=
+APPHUB_JOB_BUNDLES_DISABLE_SLUGS=
+APPHUB_JOB_BUNDLES_DISABLE_FALLBACK=
+APPHUB_JOB_BUNDLES_DISABLE_FALLBACK_SLUGS=
+APPHUB_JOB_BUNDLE_MAX_SIZE=16777216
+APPHUB_JOB_BUNDLE_DOWNLOAD_TTL_MS=300000
+APPHUB_JOB_BUNDLE_STORAGE_BACKEND=local
+APPHUB_JOB_BUNDLE_STORAGE_DIR=services/catalog/data/job-bundles
+APPHUB_JOB_BUNDLE_SIGNING_SECRET=
+APPHUB_JOB_BUNDLE_CACHE_MAX_ENTRIES=16
+APPHUB_JOB_BUNDLE_CACHE_TTL_MS=900000
+APPHUB_JOB_BUNDLE_S3_BUCKET=
+APPHUB_JOB_BUNDLE_S3_REGION=us-east-1   # Falls back to AWS_REGION when set
+APPHUB_JOB_BUNDLE_S3_ENDPOINT=
+APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE=false
+APPHUB_JOB_BUNDLE_S3_PREFIX=
+APPHUB_JOB_BUNDLE_SANDBOX_MAX_LOGS=200
+```
+
+**Logging & observability**
+
+```bash
+APPHUB_LOG_SOURCE=catalog-service
+APPHUB_LOG_AGGREGATOR_URL=
+APPHUB_LOG_AGGREGATOR_TOKEN=
+```
+
+**AI builder & automation**
+
+```bash
+APPHUB_CODEX_CLI=codex
+APPHUB_CODEX_EXEC_OPTS=
+APPHUB_CODEX_DEBUG_WORKSPACES=0
+APPHUB_CODEX_MOCK_DIR=
+APPHUB_AI_BUNDLE_SLUG=
+APPHUB_AI_BUNDLE_VERSION=
+```
+
+**Testing & diagnostics**
+
+```bash
+APPHUB_E2E_DEBUG_TEMPLATES=
 ```
 
 ### Running the Codex CLI from macOS hosts
 
 The AI builder shells out to the Codex CLI. When the catalog service runs inside Docker (or another Linux VM) and the CLI lives on
-your macOS host, bind-mount the host binary and point `APPHUB_CODEX_CLI` at its in-container path:
+your macOS host, bind-mount the host binary and point `APPHUB_CODEX_CLI` at its in-container path (the `docker run` example above
+already includes these flags). For a minimal launch:
 
 ```bash
 docker run \
@@ -152,7 +251,7 @@ docker run \
   -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
   -v "$(which codex)":/usr/local/bin/codex:ro \
   -v "$(pwd)":/app \
-  apphub-catalog:dev
+  apphub
 ```
 
 Adjust the source path if `codex` is installed elsewhere (for example, `/usr/local/Cellar/codex/bin/codex`). With the mount in
@@ -232,7 +331,9 @@ Stop the stack with `Ctrl+C`.
 
 ### Docker Image
 
-A single container image can run Redis, the catalog API, background workers, and the static frontend:
+A single container image bundles PostgreSQL, Redis, the catalog API, background workers, and the static frontend. Update
+`services/catalog/config/operator-tokens.json` and (optionally) copy `services/catalog/config/secretStore.example.json` to
+`services/catalog/config/secret-store.json` before launching so the container can mount your tokens and secrets read-only:
 
 ```bash
 docker build -t apphub .
@@ -250,17 +351,15 @@ docker run \
   -e APPHUB_HOST_ROOT=/root-fs \
   -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
   -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
-  -e WORKFLOW_FAILURE_ALERT_THRESHOLD=3 \
-  -e WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15 \
   -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
   apphub
 ```
 
 Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
-- Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`.
-- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch worker can validate `START_PATH` values before wiring bind mounts for downstream services. The example above binds `/` read-only to `/root-fs`; alternatively, provide narrower directories like `-v /Users:/root-fs/Users:ro`.
-- `apphub-data` persists the PostgreSQL data directory; remove the volume for a clean slate.
+- Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`. If you prefer not to expose Docker, set `LAUNCH_RUNNER_MODE=stub` and omit the socket/host mounts.
+- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch worker can validate `START_PATH` values. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
+- `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
 
 Stop the container with `Ctrl+C` or `docker stop` when running detached.
