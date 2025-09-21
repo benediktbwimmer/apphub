@@ -65,6 +65,8 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
         onToggleHighlights={handlers.toggleHighlights}
         activeTokens={activeTokens}
         searchMeta={searchMeta}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
       <section className="flex flex-col gap-6">
         {loading && (
@@ -95,32 +97,6 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
             onApplyFacet={handlers.applyTagFacet}
           />
         )}
-        <div className="flex justify-end">
-          <div className="inline-flex rounded-full border border-slate-200/70 bg-white/70 p-1 text-xs font-semibold text-slate-500 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-            <button
-              type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                viewMode === 'preview'
-                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-blue-600 dark:hover:text-slate-100'
-              }`}
-              onClick={() => setViewMode('preview')}
-            >
-              Preview view
-            </button>
-            <button
-              type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                viewMode === 'list'
-                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-blue-600 dark:hover:text-slate-100'
-              }`}
-              onClick={() => setViewMode('list')}
-            >
-              List view
-            </button>
-          </div>
-        </div>
         {viewMode === 'preview' ? (
           <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
             <AppGrid
