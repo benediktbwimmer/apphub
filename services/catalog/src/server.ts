@@ -271,7 +271,34 @@ const workflowTriggerSchema = z
   })
   .strict();
 
-const workflowStepSchema = z
+const secretReferenceSchema = z
+  .object({
+    source: z.literal('env'),
+    key: z.string().min(1)
+  })
+  .strict();
+
+const serviceHeaderValueSchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      secret: secretReferenceSchema,
+      prefix: z.string().min(1).optional()
+    })
+    .strict()
+]);
+
+const workflowServiceRequestSchema = z
+  .object({
+    path: z.string().min(1),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
+    headers: z.record(serviceHeaderValueSchema).optional(),
+    query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+    body: jsonValueSchema.nullable().optional()
+  })
+  .strict();
+
+const workflowJobStepSchema = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -284,6 +311,27 @@ const workflowStepSchema = z
     retryPolicy: jobRetryPolicySchema.optional()
   })
   .strict();
+
+const workflowServiceStepSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    type: z.literal('service'),
+    serviceSlug: z.string().min(1),
+    description: z.string().min(1).optional(),
+    dependsOn: z.array(z.string().min(1)).max(25).optional(),
+    parameters: jsonValueSchema.optional(),
+    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
+    retryPolicy: jobRetryPolicySchema.optional(),
+    requireHealthy: z.boolean().optional(),
+    allowDegraded: z.boolean().optional(),
+    captureResponse: z.boolean().optional(),
+    storeResponseAs: z.string().min(1).max(200).optional(),
+    request: workflowServiceRequestSchema
+  })
+  .strict();
+
+const workflowStepSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
 
 const workflowDefinitionCreateSchema = z
   .object({
@@ -1240,17 +1288,39 @@ export async function buildServer() {
       return unique.length > 0 ? unique : undefined;
     };
 
-    const steps = payload.steps.map((step) => ({
-      id: step.id,
-      name: step.name,
-      type: 'job' as const,
-      jobSlug: step.jobSlug,
-      description: step.description ?? null,
-      dependsOn: normalizeDependsOn(step.dependsOn),
-      parameters: step.parameters ?? undefined,
-      timeoutMs: step.timeoutMs ?? null,
-      retryPolicy: step.retryPolicy ?? null
-    }));
+    const steps = payload.steps.map((step) => {
+      const base = {
+        id: step.id,
+        name: step.name,
+        description: step.description ?? null,
+        dependsOn: normalizeDependsOn(step.dependsOn)
+      };
+
+      if (step.type === 'service') {
+        return {
+          ...base,
+          type: 'service' as const,
+          serviceSlug: step.serviceSlug.trim().toLowerCase(),
+          parameters: step.parameters ?? undefined,
+          timeoutMs: step.timeoutMs ?? null,
+          retryPolicy: step.retryPolicy ?? null,
+          requireHealthy: step.requireHealthy ?? undefined,
+          allowDegraded: step.allowDegraded ?? undefined,
+          captureResponse: step.captureResponse ?? undefined,
+          storeResponseAs: step.storeResponseAs ?? undefined,
+          request: step.request
+        };
+      }
+
+      return {
+        ...base,
+        type: 'job' as const,
+        jobSlug: step.jobSlug,
+        parameters: step.parameters ?? undefined,
+        timeoutMs: step.timeoutMs ?? null,
+        retryPolicy: step.retryPolicy ?? null
+      };
+    });
 
     const triggers = payload.triggers?.map((trigger) => ({
       type: trigger.type,

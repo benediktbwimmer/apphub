@@ -399,6 +399,26 @@ export type WorkflowDefinitionStepBase = {
   dependsOn?: string[];
 };
 
+export type SecretReference = {
+  source: 'env';
+  key: string;
+};
+
+export type WorkflowServiceRequestHeaderValue =
+  | string
+  | {
+      secret: SecretReference;
+      prefix?: string;
+    };
+
+export type WorkflowServiceRequestDefinition = {
+  path: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
+  headers?: Record<string, WorkflowServiceRequestHeaderValue>;
+  query?: Record<string, string | number | boolean>;
+  body?: JsonValue | null;
+};
+
 export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
   type: 'job';
   jobSlug: string;
@@ -407,7 +427,20 @@ export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
   retryPolicy?: JobRetryPolicy | null;
 };
 
-export type WorkflowStepDefinition = WorkflowJobStepDefinition;
+export type WorkflowServiceStepDefinition = WorkflowDefinitionStepBase & {
+  type: 'service';
+  serviceSlug: string;
+  parameters?: JsonValue;
+  timeoutMs?: number | null;
+  retryPolicy?: JobRetryPolicy | null;
+  requireHealthy?: boolean;
+  allowDegraded?: boolean;
+  captureResponse?: boolean;
+  storeResponseAs?: string;
+  request: WorkflowServiceRequestDefinition;
+};
+
+export type WorkflowStepDefinition = WorkflowJobStepDefinition | WorkflowServiceStepDefinition;
 
 export type WorkflowDefinitionRecord = {
   id: string;

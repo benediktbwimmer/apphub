@@ -1,5 +1,6 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,6 +11,9 @@ import type { JobRunContext, JobResult } from '../src/jobs/runtime';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
+
+process.env.SERVICE_REGISTRY_TOKEN = 'test-token';
+process.env.TEST_SERVICE_TOKEN = 'test-secret-token';
 
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -68,6 +72,136 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
   if (cleanup) {
     await cleanup();
   }
+}
+
+type TestServiceController = {
+  port: number;
+  url: string;
+  close: () => Promise<void>;
+  setMode: (mode: 'success' | 'fail-once' | 'always-fail') => void;
+  getRequestCount: () => number;
+};
+
+async function startTestService(): Promise<TestServiceController> {
+  let mode: 'success' | 'fail-once' | 'always-fail' = 'success';
+  let requestCount = 0;
+  const port = await findAvailablePort();
+
+  const server = createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/hook') {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      });
+      req.on('end', () => {
+        requestCount += 1;
+        const bodyRaw = Buffer.concat(chunks).toString('utf8');
+        let parsedBody: unknown = null;
+        if (bodyRaw) {
+          try {
+            parsedBody = JSON.parse(bodyRaw);
+          } catch {
+            parsedBody = bodyRaw;
+          }
+        }
+
+        const expectedAuth = `Bearer ${process.env.TEST_SERVICE_TOKEN}`;
+        if (req.headers.authorization !== expectedAuth) {
+          res.statusCode = 401;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'unauthorized' }));
+          return;
+        }
+
+        if (mode === 'fail-once') {
+          mode = 'success';
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'temporary' }));
+          return;
+        }
+
+        if (mode === 'always-fail') {
+          res.statusCode = 503;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'unavailable' }));
+          return;
+        }
+
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            ok: true,
+            attempt: requestCount,
+            body: parsedBody
+          })
+        );
+      });
+      return;
+    }
+
+    res.statusCode = 404;
+    res.end('not found');
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, '127.0.0.1', resolve);
+  });
+
+  return {
+    port,
+    url: `http://127.0.0.1:${port}`,
+    async close() {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    },
+    setMode(nextMode) {
+      mode = nextMode;
+    },
+    getRequestCount() {
+      return requestCount;
+    }
+  } satisfies TestServiceController;
+}
+
+async function registerTestService(app: FastifyInstance, controller: TestServiceController) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/services',
+    headers: {
+      Authorization: `Bearer ${process.env.SERVICE_REGISTRY_TOKEN}`
+    },
+    payload: {
+      slug: 'test-service',
+      displayName: 'Test Service',
+      kind: 'test',
+      baseUrl: controller.url,
+      status: 'healthy'
+    }
+  });
+  assert.equal(response.statusCode, 201);
+}
+
+async function setTestServiceStatus(app: FastifyInstance, status: 'healthy' | 'degraded') {
+  const response = await app.inject({
+    method: 'PATCH',
+    url: '/services/test-service',
+    headers: {
+      Authorization: `Bearer ${process.env.SERVICE_REGISTRY_TOKEN}`
+    },
+    payload: {
+      status
+    }
+  });
+  assert.equal(response.statusCode, 200);
 }
 
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
@@ -144,7 +278,11 @@ async function testWorkflowEndpoints(): Promise<void> {
     await createJobDefinition(app, { slug: 'workflow-step-one', name: 'Workflow Step One' });
     await createJobDefinition(app, { slug: 'workflow-step-two', name: 'Workflow Step Two' });
 
-    const createWorkflowResponse = await app.inject({
+    const testService = await startTestService();
+    await registerTestService(app, testService);
+
+    try {
+      const createWorkflowResponse = await app.inject({
       method: 'POST',
       url: '/workflows',
       payload: {
@@ -158,10 +296,30 @@ async function testWorkflowEndpoints(): Promise<void> {
             jobSlug: 'workflow-step-one'
           },
           {
+            id: 'service-call',
+            name: 'Service Call',
+            type: 'service',
+            serviceSlug: 'test-service',
+            dependsOn: ['step-one'],
+            retryPolicy: { maxAttempts: 2, strategy: 'fixed', initialDelayMs: 10 },
+            request: {
+              path: '/hook',
+              method: 'POST',
+              headers: {
+                Authorization: {
+                  secret: { source: 'env', key: 'TEST_SERVICE_TOKEN' },
+                  prefix: 'Bearer '
+                }
+              }
+            },
+            storeResponseAs: 'serviceResult',
+            parameters: { action: 'workflow-test' }
+          },
+          {
             id: 'step-two',
             name: 'Step Two',
             jobSlug: 'workflow-step-two',
-            dependsOn: ['step-one']
+            dependsOn: ['service-call']
           }
         ],
         metadata: { purpose: 'test' }
@@ -176,16 +334,16 @@ async function testWorkflowEndpoints(): Promise<void> {
     const listBody = JSON.parse(listResponse.payload) as { data: Array<{ slug: string }> };
     assert(listBody.data.some((item) => item.slug === 'wf-demo'));
 
-    const fetchWorkflowResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo' });
-    assert.equal(fetchWorkflowResponse.statusCode, 200);
-    const fetchWorkflowBody = JSON.parse(fetchWorkflowResponse.payload) as {
-      data: { workflow: { slug: string; steps: unknown[] }; runs: unknown[] };
-    };
-    assert.equal(fetchWorkflowBody.data.workflow.slug, 'wf-demo');
-    assert.equal(fetchWorkflowBody.data.workflow.steps.length, 2);
-    assert.equal(fetchWorkflowBody.data.runs.length, 0);
+      const fetchWorkflowResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo' });
+      assert.equal(fetchWorkflowResponse.statusCode, 200);
+      const fetchWorkflowBody = JSON.parse(fetchWorkflowResponse.payload) as {
+        data: { workflow: { slug: string; steps: unknown[] }; runs: unknown[] };
+      };
+      assert.equal(fetchWorkflowBody.data.workflow.slug, 'wf-demo');
+      assert.equal(fetchWorkflowBody.data.workflow.steps.length, 3);
+      assert.equal(fetchWorkflowBody.data.runs.length, 0);
 
-    const triggerResponse = await app.inject({
+      const triggerResponse = await app.inject({
       method: 'POST',
       url: '/workflows/wf-demo/run',
       payload: {
@@ -197,24 +355,57 @@ async function testWorkflowEndpoints(): Promise<void> {
     assert.equal(triggerBody.data.status, 'succeeded');
     const runId = triggerBody.data.id;
 
-    const fetchRunResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${runId}` });
-    assert.equal(fetchRunResponse.statusCode, 200);
-    const runBody = JSON.parse(fetchRunResponse.payload) as {
-      data: { id: string; status: string; metrics: { totalSteps: number; completedSteps: number }; context: { steps: Record<string, { status: string }> } };
-    };
-    assert.equal(runBody.data.status, 'succeeded');
-    assert.equal(runBody.data.metrics.totalSteps, 2);
-    assert.equal(runBody.data.metrics.completedSteps, 2);
-    assert.equal(runBody.data.context.steps['step-one'].status, 'succeeded');
-    assert.equal(runBody.data.context.steps['step-two'].status, 'succeeded');
+      const fetchRunResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${runId}` });
+      assert.equal(fetchRunResponse.statusCode, 200);
+      const runBody = JSON.parse(fetchRunResponse.payload) as {
+        data: {
+          id: string;
+          status: string;
+          metrics: { totalSteps: number; completedSteps: number };
+          context: {
+            steps: Record<string, { status: string; service?: { statusCode?: number } }>;
+            shared?: Record<string, unknown>;
+          };
+        };
+      };
+      assert.equal(runBody.data.status, 'succeeded');
+      assert.equal(runBody.data.metrics.totalSteps, 3);
+      assert.equal(runBody.data.metrics.completedSteps, 3);
+      assert.equal(runBody.data.context.steps['step-one'].status, 'succeeded');
+      assert.equal(runBody.data.context.steps['service-call'].status, 'succeeded');
+      assert.equal(runBody.data.context.steps['step-two'].status, 'succeeded');
+      assert.equal(
+        (runBody.data.context.steps['service-call'].service?.statusCode as number | undefined) ?? 0,
+        200
+      );
+      assert(runBody.data.context.shared);
+      assert.equal(
+        (runBody.data.context.shared?.serviceResult as { ok?: boolean } | undefined)?.ok,
+        true
+      );
 
-    const runStepsResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${runId}/steps` });
-    assert.equal(runStepsResponse.statusCode, 200);
-    const runStepsBody = JSON.parse(runStepsResponse.payload) as {
-      data: { steps: Array<{ stepId: string; status: string }> };
-    };
-    assert.equal(runStepsBody.data.steps.length, 2);
-    assert(runStepsBody.data.steps.every((step) => step.status === 'succeeded'));
+      const runStepsResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${runId}/steps` });
+      assert.equal(runStepsResponse.statusCode, 200);
+      const runStepsBody = JSON.parse(runStepsResponse.payload) as {
+        data: {
+          steps: Array<{
+            stepId: string;
+            status: string;
+            attempt: number;
+            input: { request?: { headers?: Record<string, string> } };
+            metrics: { service?: { statusCode?: number } };
+          }>;
+        };
+      };
+      assert.equal(runStepsBody.data.steps.length, 3);
+      assert(runStepsBody.data.steps.every((step) => step.status === 'succeeded'));
+      const serviceStepRecord = runStepsBody.data.steps.find((step) => step.stepId === 'service-call');
+      assert(serviceStepRecord);
+      assert.equal(serviceStepRecord.attempt, 1);
+      assert.equal(serviceStepRecord?.metrics.service?.statusCode, 200);
+      const headerRecord = (serviceStepRecord?.input as { headers?: Record<string, string> } | undefined)?.headers ?? {};
+      const authHeader = headerRecord.Authorization ?? headerRecord.authorization;
+      assert.equal(authHeader, '***');
 
     const failureResponse = await app.inject({
       method: 'POST',
@@ -229,25 +420,71 @@ async function testWorkflowEndpoints(): Promise<void> {
     assert(failureBody.data.errorMessage);
     const failedRunId = failureBody.data.id;
 
-    const failedRunStepsResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${failedRunId}/steps` });
-    assert.equal(failedRunStepsResponse.statusCode, 200);
-    const failedStepsBody = JSON.parse(failedRunStepsResponse.payload) as {
-      data: { steps: Array<{ stepId: string; status: string }> };
-    };
-    const failedStepStatuses = failedStepsBody.data.steps.reduce<Record<string, string>>((acc, step) => {
-      acc[step.stepId] = step.status;
-      return acc;
-    }, {});
-    assert.equal(failedStepStatuses['step-one'], 'succeeded');
-    assert.equal(failedStepStatuses['step-two'], 'failed');
+      const failedRunStepsResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${failedRunId}/steps` });
+      assert.equal(failedRunStepsResponse.statusCode, 200);
+      const failedStepsBody = JSON.parse(failedRunStepsResponse.payload) as {
+        data: { steps: Array<{ stepId: string; status: string }> };
+      };
+      const failedStepStatuses = failedStepsBody.data.steps.reduce<Record<string, string>>((acc, step) => {
+        acc[step.stepId] = step.status;
+        return acc;
+      }, {});
+      assert.equal(failedStepStatuses['step-one'], 'succeeded');
+      assert.equal(failedStepStatuses['service-call'], 'succeeded');
+      assert.equal(failedStepStatuses['step-two'], 'failed');
 
-    const runsListResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo/runs' });
-    assert.equal(runsListResponse.statusCode, 200);
-    const runsListBody = JSON.parse(runsListResponse.payload) as {
-      data: { runs: Array<{ id: string }> };
-    };
-    assert(runsListBody.data.runs.some((run) => run.id === runId));
-    assert(runsListBody.data.runs.some((run) => run.id === failedRunId));
+      testService.setMode('fail-once');
+      const retryResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-demo/run',
+        payload: {
+          parameters: { tenant: 'acme-retry' }
+        }
+      });
+      assert.equal(retryResponse.statusCode, 202);
+      const retryBody = JSON.parse(retryResponse.payload) as { data: { id: string; status: string } };
+      assert.equal(retryBody.data.status, 'succeeded');
+      const retryRunId = retryBody.data.id;
+
+      const retryStepsResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${retryRunId}/steps` });
+      assert.equal(retryStepsResponse.statusCode, 200);
+      const retryStepsBody = JSON.parse(retryStepsResponse.payload) as {
+        data: {
+          steps: Array<{ stepId: string; attempt: number; status: string; metrics: { service?: { statusCode?: number } } }>;
+        };
+      };
+      const retryServiceStep = retryStepsBody.data.steps.find((step) => step.stepId === 'service-call');
+      assert(retryServiceStep);
+      assert.equal(retryServiceStep?.attempt, 2);
+      assert.equal(retryServiceStep?.metrics.service?.statusCode, 200);
+
+      const beforeDegradedRequests = testService.getRequestCount();
+      await setTestServiceStatus(app, 'degraded');
+
+      const degradedResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-demo/run',
+        payload: {
+          parameters: { tenant: 'degraded-path' }
+        }
+      });
+      assert.equal(degradedResponse.statusCode, 202);
+      const degradedBody = JSON.parse(degradedResponse.payload) as { data: { id: string; status: string } };
+      assert.equal(degradedBody.data.status, 'failed');
+      assert.equal(testService.getRequestCount(), beforeDegradedRequests);
+
+      await setTestServiceStatus(app, 'healthy');
+
+      const runsListResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo/runs' });
+      assert.equal(runsListResponse.statusCode, 200);
+      const runsListBody = JSON.parse(runsListResponse.payload) as {
+        data: { runs: Array<{ id: string }> };
+      };
+      assert(runsListBody.data.runs.some((run) => run.id === runId));
+      assert(runsListBody.data.runs.some((run) => run.id === failedRunId));
+    } finally {
+      await testService.close();
+    }
   });
 }
 
