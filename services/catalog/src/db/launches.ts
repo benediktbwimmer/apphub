@@ -64,6 +64,8 @@ async function updateLaunchRecord(
     instanceUrl?: string | null;
     containerId?: string | null;
     port?: number | null;
+    internalPort?: number | null;
+    containerIp?: string | null;
     resourceProfile?: string | null;
     command?: string | null;
     env?: LaunchEnvVar[] | null;
@@ -90,14 +92,16 @@ async function updateLaunchRecord(
          instance_url = $3,
          container_id = $4,
          port = $5,
-         resource_profile = $6,
-         command = $7,
-         env_vars = $8::jsonb,
-         error_message = $9,
-         updated_at = $10,
-         started_at = $11,
-         stopped_at = $12,
-         expires_at = $13
+         internal_port = $6,
+         container_ip = $7,
+         resource_profile = $8,
+         command = $9,
+         env_vars = $10::jsonb,
+         error_message = $11,
+         updated_at = $12,
+         started_at = $13,
+         stopped_at = $14,
+         expires_at = $15
      WHERE id = $1
      RETURNING *`,
     [
@@ -106,6 +110,8 @@ async function updateLaunchRecord(
       updates.instanceUrl !== undefined ? updates.instanceUrl : current.instance_url,
       updates.containerId !== undefined ? updates.containerId : current.container_id,
       updates.port !== undefined ? updates.port : current.port,
+      updates.internalPort !== undefined ? updates.internalPort : current.internal_port,
+      updates.containerIp !== undefined ? updates.containerIp : current.container_ip,
       updates.resourceProfile !== undefined ? updates.resourceProfile : current.resource_profile,
       updates.command !== undefined ? (updates.command ? updates.command.trim() : null) : current.command,
       serializeEnv(envEntries),
@@ -140,11 +146,12 @@ export async function createLaunch(
     await client.query(
       `INSERT INTO launches (
          id, repository_id, build_id, status, instance_url, container_id, port,
-         resource_profile, command, env_vars, error_message, created_at,
-         updated_at, started_at, stopped_at, expires_at
+         internal_port, container_ip, resource_profile, command, env_vars,
+         error_message, created_at, updated_at, started_at, stopped_at, expires_at
        ) VALUES (
          $1, $2, $3, 'pending', NULL, NULL, NULL,
-         $4, $5, $6::jsonb, NULL, NOW(), NOW(), NULL, NULL, $7
+         NULL, NULL, $4, $5, $6::jsonb,
+         NULL, NOW(), NOW(), NULL, NULL, $7
        )
        ON CONFLICT (id) DO NOTHING`,
       [id, repositoryId, buildId, options.resourceProfile ?? null, command, serializeEnv(envEntries), options.expiresAt ?? null]
@@ -200,6 +207,8 @@ export async function startLaunch(launchId: string): Promise<LaunchRecord | null
       instanceUrl: null,
       containerId: null,
       port: null,
+      internalPort: null,
+      containerIp: null,
       errorMessage: null,
       startedAt: row.started_at ?? null,
       stoppedAt: null
@@ -216,6 +225,8 @@ export async function markLaunchRunning(
     instanceUrl?: string | null;
     containerId?: string | null;
     port?: number | null;
+    internalPort?: number | null;
+    containerIp?: string | null;
     startedAt?: string;
     command?: string;
   }
@@ -226,6 +237,8 @@ export async function markLaunchRunning(
       instanceUrl: details.instanceUrl ?? null,
       containerId: details.containerId ?? null,
       port: details.port ?? null,
+      internalPort: details.internalPort ?? null,
+      containerIp: details.containerIp ?? null,
       command: details.command ?? null,
       startedAt: details.startedAt ?? new Date().toISOString(),
       stoppedAt: null,
@@ -245,6 +258,8 @@ export async function failLaunch(launchId: string, message: string): Promise<Lau
       instanceUrl: null,
       containerId: null,
       port: null,
+      internalPort: null,
+      containerIp: null,
       stoppedAt: new Date().toISOString()
     });
   });
@@ -285,6 +300,8 @@ export async function markLaunchStopped(
       instanceUrl: null,
       containerId: null,
       port: null,
+      internalPort: null,
+      containerIp: null,
       stoppedAt: extra.stoppedAt ?? new Date().toISOString(),
       errorMessage: extra.errorMessage ?? null
     });
@@ -301,10 +318,10 @@ export async function takeNextLaunchToStart(): Promise<LaunchRecord | null> {
          SELECT id
          FROM launches
          WHERE status = 'pending'
-         ORDER BY created_at ASC
-         FOR UPDATE SKIP LOCKED
-         LIMIT 1
-       )
+       ORDER BY created_at ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT 1
+      )
        UPDATE launches l
        SET status = 'starting',
            updated_at = NOW(),
@@ -312,6 +329,8 @@ export async function takeNextLaunchToStart(): Promise<LaunchRecord | null> {
            instance_url = NULL,
            container_id = NULL,
            port = NULL,
+           internal_port = NULL,
+           container_ip = NULL,
            stopped_at = NULL
        FROM next_launch
        WHERE l.id = next_launch.id

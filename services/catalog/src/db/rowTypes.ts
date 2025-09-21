@@ -45,6 +45,8 @@ export type LaunchRow = {
   instance_url: string | null;
   container_id: string | null;
   port: number | null;
+  internal_port: number | null;
+  container_ip: string | null;
   resource_profile: string | null;
   command: string | null;
   env_vars: unknown;

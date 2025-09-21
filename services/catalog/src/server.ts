@@ -747,7 +747,9 @@ function serializeLaunch(launch: LaunchRecord | null) {
     startedAt: launch.startedAt,
     stoppedAt: launch.stoppedAt,
     expiresAt: launch.expiresAt,
-    port: launch.port
+    port: launch.port,
+    internalPort: launch.internalPort,
+    containerIp: launch.containerIp
   };
 }
 

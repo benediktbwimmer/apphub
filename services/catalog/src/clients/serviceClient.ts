@@ -15,6 +15,9 @@ type RuntimeMetadataSnapshot = {
   previewUrl?: string | null;
   host?: string | null;
   port?: number | null;
+  containerIp?: string | null;
+  containerPort?: number | null;
+  containerBaseUrl?: string | null;
   status?: string | null;
   updatedAt?: string | null;
 };
@@ -71,6 +74,15 @@ function parseRuntimeMetadata(raw: unknown): RuntimeMetadataSnapshot | undefined
   if (typeof value.port === 'number' && Number.isFinite(value.port)) {
     runtime.port = value.port;
   }
+  if (typeof value.containerIp === 'string') {
+    runtime.containerIp = value.containerIp;
+  }
+  if (typeof value.containerPort === 'number' && Number.isFinite(value.containerPort)) {
+    runtime.containerPort = value.containerPort;
+  }
+  if (typeof value.containerBaseUrl === 'string') {
+    runtime.containerBaseUrl = value.containerBaseUrl;
+  }
   if (typeof value.status === 'string') {
     runtime.status = value.status;
   }
@@ -79,6 +91,110 @@ function parseRuntimeMetadata(raw: unknown): RuntimeMetadataSnapshot | undefined
   }
 
   return Object.keys(runtime).length > 0 ? runtime : undefined;
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
+
+function rewriteLoopbackHost(urlValue: string | null | undefined): string | null {
+  if (!urlValue) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(urlValue);
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (LOOPBACK_HOSTS.has(hostname) || hostname.startsWith('127.')) {
+      parsed.hostname = 'host.docker.internal';
+      return parsed.toString();
+    }
+    return urlValue;
+  } catch {
+    if (urlValue.includes('localhost')) {
+      return urlValue.replace(/localhost/gi, 'host.docker.internal');
+    }
+    return urlValue;
+  }
+}
+
+function buildBaseUrlFromHostPort(hostValue: string | null | undefined, portValue: number | null | undefined): string | null {
+  if (!hostValue) {
+    return null;
+  }
+  const trimmedHost = hostValue.trim();
+  if (!trimmedHost) {
+    return null;
+  }
+  const numericPort = typeof portValue === 'number' && Number.isFinite(portValue) ? portValue : null;
+  if (!numericPort) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(trimmedHost)) {
+    try {
+      const url = new URL(trimmedHost);
+      url.port = String(numericPort);
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  return `http://${trimmedHost}:${numericPort}`;
+}
+
+function collectServiceBaseUrls(service: ServiceRecord, metadata: ServiceMetadataSnapshot): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const runtime = metadata.runtime ?? {};
+
+  const push = (value: string | null | undefined, options?: { rewriteLoopback?: boolean }) => {
+    if (!value || typeof value !== 'string') {
+      return;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const addCandidate = (candidate: string | null | undefined) => {
+      const normalized = candidate?.trim();
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      candidates.push(normalized);
+    };
+
+    const shouldRewrite = options?.rewriteLoopback !== false;
+    const rewritten = shouldRewrite ? rewriteLoopbackHost(trimmed) : trimmed;
+    const resolved = (rewritten ?? trimmed).trim();
+
+    addCandidate(resolved);
+
+    if (shouldRewrite && resolved !== trimmed) {
+      // Keep the original loopback address as a fallback for local execution environments.
+      addCandidate(trimmed);
+    }
+  };
+
+  push(runtime.containerBaseUrl ?? null, { rewriteLoopback: false });
+  if (runtime.containerIp && runtime.containerPort) {
+    push(`http://${runtime.containerIp}:${runtime.containerPort}`, { rewriteLoopback: false });
+  }
+
+  push(runtime.instanceUrl ?? null);
+  push(runtime.baseUrl ?? null);
+  push(runtime.previewUrl ?? null);
+  push(buildBaseUrlFromHostPort(runtime.host ?? null, runtime.port ?? null));
+
+  const fallbackBaseUrl = typeof service.baseUrl === 'string' && service.baseUrl.trim().length > 0
+    ? service.baseUrl
+    : null;
+  push(fallbackBaseUrl);
+
+  return candidates;
 }
 
 function parseMetadata(record: ServiceRecord): ServiceMetadataSnapshot {
@@ -203,7 +319,7 @@ export async function fetchFromService(
   service: ServiceRecord,
   path: string,
   init?: RequestInit & { signal?: AbortSignal }
-) {
+): Promise<{ response: Response; baseUrl: string }> {
   const requestInit: RequestInit = {
     ...init,
     headers: new Headers(init?.headers)
@@ -217,16 +333,25 @@ export async function fetchFromService(
   requestInit.signal = createTimeoutSignal(init?.signal);
 
   const metadata = parseMetadata(service);
-  const runtimeBaseUrl = metadata.runtime?.instanceUrl ?? metadata.runtime?.baseUrl ?? metadata.runtime?.previewUrl ?? null;
-  const fallbackBaseUrl = typeof service.baseUrl === 'string' && service.baseUrl.trim().length > 0
-    ? service.baseUrl
-    : null;
+  const baseUrls = collectServiceBaseUrls(service, metadata);
 
-  const baseUrl = runtimeBaseUrl ?? fallbackBaseUrl;
-  if (!baseUrl) {
+  if (baseUrls.length === 0) {
     throw new Error(`Service ${service.slug} does not have a reachable base URL`);
   }
 
-  const url = resolveServiceUrl(baseUrl, path);
-  return fetch(url, requestInit);
+  let lastError: unknown = null;
+  for (const baseUrl of baseUrls) {
+    try {
+      const url = resolveServiceUrl(baseUrl, path);
+      const response = await fetch(url, requestInit);
+      return { response, baseUrl };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(`Service ${service.slug} request failed`);
 }

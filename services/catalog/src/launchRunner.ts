@@ -85,6 +85,38 @@ function parseHostPort(output: string, internalPort: number): string | null {
   return null;
 }
 
+async function inspectContainerIp(containerId: string): Promise<string | null> {
+  const result = await runDockerCommand([
+    'inspect',
+    '--format',
+    '{{json .NetworkSettings.Networks}}',
+    containerId
+  ]);
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  const trimmed = result.stdout.trim();
+  if (!trimmed || trimmed === 'null') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, { IPAddress?: string | null }>;
+    for (const entry of Object.values(parsed)) {
+      const ip = entry?.IPAddress;
+      if (ip && typeof ip === 'string' && ip.trim().length > 0) {
+        return ip.trim();
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function parseContainerPortFromMapping(mapping: string): number | null {
   if (!mapping) {
     return null;
@@ -201,7 +233,10 @@ type ServiceRuntimeInfo = {
   instanceUrl: string | null;
   baseUrl: string | null;
   port: number | null;
-  host: string;
+  host: string | null;
+  containerIp: string | null;
+  containerPort: number | null;
+  containerBaseUrl: string | null;
 };
 
 type RuntimeContext = Map<string, ServiceRuntimeInfo>;
@@ -438,13 +473,19 @@ async function runServiceNetworkLaunch(
       const runningLaunch = await getLaunchById(childLaunch.id);
       const port = runningLaunch?.port ?? null;
       const host = '127.0.0.1';
+      const containerIp = runningLaunch?.containerIp ?? null;
+      const containerPort = runningLaunch?.internalPort ?? null;
       const baseUrl = port ? `http://${host}:${port}` : runningLaunch?.instanceUrl ?? null;
+      const containerBaseUrl = containerIp && containerPort ? `http://${containerIp}:${containerPort}` : null;
       const context: ServiceRuntimeInfo = {
         repositoryId: member.memberRepositoryId,
         instanceUrl: runningLaunch?.instanceUrl ?? null,
         baseUrl,
         port,
-        host
+        host,
+        containerIp,
+        containerPort,
+        containerBaseUrl
       };
       runtimeContext.set(member.memberRepositoryId.trim().toLowerCase(), context);
       if (runningLaunch && (context.instanceUrl || context.baseUrl)) {
@@ -456,6 +497,9 @@ async function runServiceNetworkLaunch(
           previewUrl: context.instanceUrl ?? context.baseUrl,
           host: context.host,
           port: context.port,
+          containerIp: context.containerIp,
+          containerPort: context.containerPort,
+          containerBaseUrl: context.containerBaseUrl,
           source: 'service-network'
         });
       }
@@ -637,14 +681,17 @@ export async function runLaunchStart(launchId: string) {
   }
 
   const instanceUrl = buildPreviewUrl(hostPort);
+  const containerIp = await inspectContainerIp(containerId);
   await markLaunchRunning(launch.id, {
     instanceUrl,
     containerId,
     port: Number(hostPort),
+    internalPort: containerPortForLookup ?? null,
+    containerIp,
     command: effectiveCommand
   });
 
-  log('Launch running', { launchId, containerId, instanceUrl });
+  log('Launch running', { launchId, containerId, instanceUrl, containerIp });
 }
 
 export async function runLaunchStop(launchId: string) {

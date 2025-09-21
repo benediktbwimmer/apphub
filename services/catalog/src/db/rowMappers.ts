@@ -595,6 +595,8 @@ export function mapLaunchRow(row: LaunchRow): LaunchRecord {
     instanceUrl: row.instance_url ?? null,
     containerId: row.container_id ?? null,
     port: row.port ?? null,
+    internalPort: row.internal_port ?? null,
+    containerIp: row.container_ip ?? null,
     resourceProfile: row.resource_profile ?? null,
     env: parseLaunchEnv(row.env_vars),
     command: row.command ?? null,

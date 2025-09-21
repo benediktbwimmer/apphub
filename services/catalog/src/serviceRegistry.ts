@@ -384,6 +384,9 @@ export type ServiceRuntimeSnapshot = {
   previewUrl?: string | null;
   host: string | null;
   port: number | null;
+  containerIp?: string | null;
+  containerPort?: number | null;
+  containerBaseUrl?: string | null;
   source?: string;
 };
 
@@ -760,6 +763,9 @@ function buildRuntimeMetadata(runtime: ServiceRuntimeSnapshot) {
     previewUrl: runtime.previewUrl ?? runtime.instanceUrl ?? runtime.baseUrl ?? null,
     host: runtime.host ?? null,
     port: runtime.port ?? null,
+    containerIp: runtime.containerIp ?? null,
+    containerPort: runtime.containerPort ?? null,
+    containerBaseUrl: runtime.containerBaseUrl ?? null,
     source: runtime.source ?? 'service-network',
     status: 'running',
     updatedAt: new Date().toISOString()

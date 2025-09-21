@@ -458,7 +458,16 @@ const migrations: Migration[] = [
                to_jsonb('workflows.fs.writeFile'::text),
                true
              )
-       WHERE slug = 'fs-write-file';`
+      WHERE slug = 'fs-write-file';`
+    ]
+  },
+  {
+    id: '008_launch_network_metadata',
+    statements: [
+      `ALTER TABLE launches
+         ADD COLUMN IF NOT EXISTS internal_port INTEGER`,
+      `ALTER TABLE launches
+         ADD COLUMN IF NOT EXISTS container_ip TEXT`
     ]
   }
 ];

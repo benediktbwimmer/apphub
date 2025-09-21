@@ -618,9 +618,12 @@ function buildServiceContextFromPrepared(
   step: WorkflowServiceStepDefinition,
   prepared: PreparedServiceRequest,
   service: ServiceRecord | null,
-  extras?: { statusCode?: number | null; latencyMs?: number | null }
+  extras?: { statusCode?: number | null; latencyMs?: number | null; baseUrl?: string | null }
 ): WorkflowStepServiceContext {
   const context = createMinimalServiceContext(step, prepared, service);
+  if (extras?.baseUrl !== undefined) {
+    context.baseUrl = extras.baseUrl ?? null;
+  }
   if (extras?.statusCode !== undefined) {
     context.statusCode = extras.statusCode ?? null;
   }
@@ -866,6 +869,7 @@ type ServiceInvocationResult = {
   responseBody: JsonValue | string | null;
   truncated: boolean;
   responseSize: number | null;
+  baseUrl: string | null;
   errorMessage?: string;
 };
 
@@ -885,7 +889,11 @@ async function invokePreparedService(
 
   const start = Date.now();
   try {
-    const response = await fetchFromService(service, prepared.fullPath, init);
+    const { response, baseUrl: resolvedBaseUrl } = await fetchFromService(
+      service,
+      prepared.fullPath,
+      init
+    );
     const latencyMs = Date.now() - start;
     const statusCode = response.status;
 
@@ -897,7 +905,8 @@ async function invokePreparedService(
         latencyMs,
         responseBody: null,
         truncated: false,
-        responseSize: null
+        responseSize: null,
+        baseUrl: resolvedBaseUrl
       };
     }
 
@@ -909,7 +918,8 @@ async function invokePreparedService(
       latencyMs,
       responseBody: extracted.body,
       truncated: extracted.truncated,
-      responseSize: extracted.size
+      responseSize: extracted.size,
+      baseUrl: resolvedBaseUrl
     };
   } catch (err) {
     const latencyMs = Date.now() - start;
@@ -921,6 +931,7 @@ async function invokePreparedService(
       responseBody: null,
       truncated: false,
       responseSize: null,
+      baseUrl: null,
       errorMessage
     };
   }
@@ -1270,7 +1281,8 @@ async function executeServiceStep(
     const invocation = await invokePreparedService(service, prepared);
     const serviceContextWithMetrics = buildServiceContextFromPrepared(step, prepared, service, {
       statusCode: invocation.statusCode,
-      latencyMs: invocation.latencyMs
+      latencyMs: invocation.latencyMs,
+      baseUrl: invocation.baseUrl
     });
     lastServiceContext = serviceContextWithMetrics;
 

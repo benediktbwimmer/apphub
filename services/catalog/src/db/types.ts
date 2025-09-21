@@ -46,6 +46,8 @@ export type LaunchRecord = {
   instanceUrl: string | null;
   containerId: string | null;
   port: number | null;
+  internalPort: number | null;
+  containerIp: string | null;
   resourceProfile: string | null;
   env: LaunchEnvVar[];
   command: string | null;
