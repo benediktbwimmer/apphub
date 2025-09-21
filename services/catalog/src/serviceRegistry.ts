@@ -924,6 +924,18 @@ export async function updateServiceRuntimeForRepository(
   metadata.runtime = buildRuntimeMetadata(runtime);
   const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
   await setServiceStatus(slug, { metadata: nextMetadata });
+
+  try {
+    const refreshed = await getServiceBySlug(slug);
+    if (refreshed) {
+      await checkServiceHealth(refreshed);
+    }
+  } catch (err) {
+    log('warn', 'immediate health check failed after runtime update', {
+      slug,
+      error: (err as Error).message
+    });
+  }
 }
 
 export async function clearServiceRuntimeForRepository(
