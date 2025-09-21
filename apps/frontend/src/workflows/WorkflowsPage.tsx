@@ -54,6 +54,15 @@ type ManualRunResponse = {
   data: WorkflowRun;
 };
 
+type ServiceSummary = {
+  slug?: string;
+  status?: string;
+};
+
+type ServiceListResponse = {
+  data?: ServiceSummary[];
+};
+
 type WorkflowSummary = {
   workflow: WorkflowDefinition;
   status: string;
@@ -442,6 +451,7 @@ export default function WorkflowsPage() {
   const [manualRunPending, setManualRunPending] = useState(false);
   const [manualRunError, setManualRunError] = useState<string | null>(null);
   const [lastTriggeredRun, setLastTriggeredRun] = useState<WorkflowRun | null>(null);
+  const [serviceStatuses, setServiceStatuses] = useState<Record<string, string>>({});
 
   const workflowsRef = useRef<WorkflowDefinition[]>([]);
   const workflowDetailRef = useRef<WorkflowDefinition | null>(null);
@@ -519,6 +529,33 @@ export default function WorkflowsPage() {
       }
     }));
   }, []);
+
+  const loadServices = useCallback(async () => {
+    try {
+      const response = await authorizedFetch(`${API_BASE_URL}/services`);
+      if (!response.ok) {
+        throw new Error('Failed to load services');
+      }
+      const payload = (await response.json()) as ServiceListResponse;
+      const nextStatuses: Record<string, string> = {};
+      if (Array.isArray(payload.data)) {
+        for (const entry of payload.data) {
+          if (!entry || typeof entry.slug !== 'string') {
+            continue;
+          }
+          const slug = entry.slug.trim().toLowerCase();
+          if (!slug) {
+            continue;
+          }
+          const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : 'unknown';
+          nextStatuses[slug] = status;
+        }
+      }
+      setServiceStatuses(nextStatuses);
+    } catch {
+      // Ignore service load errors to avoid masking workflow data.
+    }
+  }, [authorizedFetch]);
 
   const loadWorkflows = useCallback(async () => {
     setWorkflowsLoading(true);
@@ -655,6 +692,10 @@ export default function WorkflowsPage() {
   useEffect(() => {
     runsRef.current = runs;
   }, [runs]);
+
+  useEffect(() => {
+    void loadServices();
+  }, [loadServices]);
 
   useEffect(() => {
     selectedSlugRef.current = selectedSlug;
@@ -936,6 +977,7 @@ export default function WorkflowsPage() {
 
   const handleRefresh = () => {
     void loadWorkflows();
+    void loadServices();
     if (selectedSlugRef.current) {
       void loadWorkflowDetail(selectedSlugRef.current);
     }
@@ -943,6 +985,28 @@ export default function WorkflowsPage() {
       void loadRunSteps(selectedRunIdRef.current);
     }
   };
+
+  const unreachableServiceSlugs = useMemo(() => {
+    if (!workflowDetail) {
+      return [];
+    }
+    const unique = new Set<string>();
+    const unreachable: string[] = [];
+    for (const step of workflowDetail.steps) {
+      if (!step.serviceSlug) {
+        continue;
+      }
+      const normalized = step.serviceSlug.trim().toLowerCase();
+      if (!normalized || unique.has(normalized)) {
+        continue;
+      }
+      unique.add(normalized);
+      if (serviceStatuses[normalized] === 'unreachable') {
+        unreachable.push(step.serviceSlug);
+      }
+    }
+    return unreachable;
+  }, [workflowDetail, serviceStatuses]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1047,6 +1111,7 @@ export default function WorkflowsPage() {
             error={manualRunError}
             authorized={hasActiveToken}
             lastRun={lastTriggeredRun}
+            unreachableServices={unreachableServiceSlugs}
           />
 
           {workflowDetail && (
