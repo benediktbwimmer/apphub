@@ -1,12 +1,13 @@
 import { Worker } from 'bullmq';
-import { runBuildJob } from './buildRunner';
-import { takeNextPendingBuild, type BuildRecord } from './db/index';
+import './buildRunner';
+import { takeNextPendingBuild, type BuildRecord, type JsonValue } from './db/index';
 import {
   BUILD_QUEUE_NAME,
   closeQueueConnection,
   getQueueConnection,
   isInlineQueueMode
 } from './queue';
+import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 
 const BUILD_CONCURRENCY = Number(process.env.BUILD_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
@@ -27,7 +28,11 @@ async function runInlineBuildLoop() {
         if (!build) {
           break;
         }
-        await runBuildJob(build.id);
+        const run = await createJobRunForSlug('repository-build', {
+          parameters: { buildId: build.id, repositoryId: build.repositoryId }
+        });
+        log('Executing inline build run', { buildId: build.id, jobRunId: run.id });
+        await executeJobRun(run.id);
       }
     } catch (err) {
       log('Inline build error', { error: (err as Error).message });
@@ -64,9 +69,22 @@ async function runQueuedBuildWorker() {
   const worker = new Worker(
     BUILD_QUEUE_NAME,
     async (job) => {
-      const { buildId } = job.data as { buildId: string };
-      log('Build job received', { jobId: job.id, buildId });
-      await runBuildJob(buildId);
+      const { buildId, repositoryId, jobRunId } = job.data as {
+        buildId: string;
+        repositoryId?: string;
+        jobRunId?: string;
+      };
+      let targetRunId = jobRunId;
+      if (!targetRunId) {
+        const parameters: Record<string, JsonValue> = { buildId };
+        if (repositoryId) {
+          parameters.repositoryId = repositoryId;
+        }
+        const run = await createJobRunForSlug('repository-build', { parameters });
+        targetRunId = run.id;
+      }
+      log('Build job received', { jobId: job.id, buildId, jobRunId: targetRunId });
+      await executeJobRun(targetRunId);
     },
     {
       connection,
@@ -111,7 +129,9 @@ async function main() {
   await runQueuedBuildWorker();
 }
 
-main().catch((err) => {
-  console.error('[build-worker] Worker crashed', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[build-worker] Worker crashed', err);
+    process.exit(1);
+  });
+}

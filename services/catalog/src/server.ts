@@ -42,7 +42,16 @@ import {
   type ServiceRecord,
   type ServiceStatusUpdate,
   type ServiceUpsertInput,
-  type JsonValue
+  type JsonValue,
+  listJobDefinitions,
+  createJobDefinition,
+  getJobDefinitionBySlug,
+  listJobRunsForDefinition,
+  createJobRun,
+  getJobRunById,
+  completeJobRun,
+  type JobDefinitionRecord,
+  type JobRunRecord
 } from './db/index';
 import {
   enqueueRepositoryIngestion,
@@ -53,7 +62,7 @@ import {
 } from './queue';
 import { resolveLaunchInternalPort } from './docker';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
-import { runBuildJob } from './buildRunner';
+import { executeJobRun } from './jobs/runtime';
 import { subscribeToApphubEvents, type ApphubEvent } from './events';
 import { buildDockerRunCommand } from './launchCommand';
 import { initializeServiceRegistry } from './serviceRegistry';
@@ -75,6 +84,12 @@ type SearchQuery = {
   sort?: RepositorySort;
   relevance?: string;
 };
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
+);
+
+const jsonObjectSchema = z.record(jsonValueSchema);
 
 const tagQuerySchema = z
   .string()
@@ -190,6 +205,53 @@ const createLaunchSchema = launchRequestSchema.extend({
   repositoryId: z.string().min(1)
 });
 
+const jobRetryPolicySchema = z
+  .object({
+    maxAttempts: z.number().int().min(1).max(10).optional(),
+    strategy: z.enum(['none', 'fixed', 'exponential']).optional(),
+    initialDelayMs: z.number().int().min(0).max(86_400_000).optional(),
+    maxDelayMs: z.number().int().min(0).max(86_400_000).optional(),
+    jitter: z.enum(['none', 'full', 'equal']).optional()
+  })
+  .strict();
+
+const jobDefinitionCreateSchema = z
+  .object({
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1),
+    version: z.number().int().min(1).optional(),
+    type: z.enum(['batch', 'service-triggered', 'manual']),
+    entryPoint: z.string().min(1),
+    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
+    retryPolicy: jobRetryPolicySchema.optional(),
+    parametersSchema: jsonObjectSchema.optional(),
+    defaultParameters: jsonObjectSchema.optional(),
+    metadata: jsonValueSchema.optional()
+  })
+  .strict();
+
+const jobRunRequestSchema = z
+  .object({
+    parameters: jsonValueSchema.optional(),
+    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
+    maxAttempts: z.number().int().min(1).max(10).optional(),
+    context: jsonValueSchema.optional()
+  })
+  .strict();
+
+const jobRunListQuerySchema = z
+  .object({
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(50).optional()),
+    offset: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).optional())
+  })
+  .partial();
+
 const buildListQuerySchema = z.object({
   limit: z
     .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).default(10)),
@@ -198,10 +260,6 @@ const buildListQuerySchema = z.object({
 });
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
-
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
-);
 
 const serviceRegistrationSchema = z
   .object({
@@ -503,6 +561,59 @@ function serializeService(service: ServiceRecord) {
   };
 }
 
+function serializeJobDefinition(job: JobDefinitionRecord) {
+  return {
+    id: job.id,
+    slug: job.slug,
+    name: job.name,
+    version: job.version,
+    type: job.type,
+    entryPoint: job.entryPoint,
+    parametersSchema: job.parametersSchema,
+    defaultParameters: job.defaultParameters,
+    timeoutMs: job.timeoutMs,
+    retryPolicy: job.retryPolicy,
+    metadata: job.metadata,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt
+  };
+}
+
+function serializeJobRun(run: JobRunRecord) {
+  return {
+    id: run.id,
+    jobDefinitionId: run.jobDefinitionId,
+    status: run.status,
+    parameters: run.parameters,
+    result: run.result,
+    errorMessage: run.errorMessage,
+    logsUrl: run.logsUrl,
+    metrics: run.metrics,
+    context: run.context,
+    timeoutMs: run.timeoutMs,
+    attempt: run.attempt,
+    maxAttempts: run.maxAttempts,
+    durationMs: run.durationMs,
+    scheduledAt: run.scheduledAt,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt
+  };
+}
+
+function getStringParameter(parameters: JsonValue, key: string): string | null {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+    return null;
+  }
+  const value = (parameters as Record<string, JsonValue>)[key];
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 type SerializedRepository = ReturnType<typeof serializeRepository>;
 type SerializedBuild = ReturnType<typeof serializeBuild>;
 type SerializedLaunch = ReturnType<typeof serializeLaunch>;
@@ -772,6 +883,169 @@ export async function buildServer() {
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/jobs', async (_request, reply) => {
+    const jobs = await listJobDefinitions();
+    reply.status(200);
+    return { data: jobs.map((job) => serializeJobDefinition(job)) };
+  });
+
+  app.post('/jobs', async (request, reply) => {
+    const parseBody = jobDefinitionCreateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+
+    try {
+      const definition = await createJobDefinition({
+        slug: payload.slug,
+        name: payload.name,
+        type: payload.type,
+        entryPoint: payload.entryPoint,
+        version: payload.version,
+        timeoutMs: payload.timeoutMs ?? null,
+        retryPolicy: payload.retryPolicy ?? null,
+        parametersSchema: payload.parametersSchema ?? {},
+        defaultParameters: payload.defaultParameters ?? {},
+        metadata: payload.metadata ?? null
+      });
+      reply.status(201);
+      return { data: serializeJobDefinition(definition) };
+    } catch (err) {
+      if (err instanceof Error && /already exists/i.test(err.message)) {
+        reply.status(409);
+        return { error: err.message };
+      }
+      request.log.error({ err }, 'Failed to create job definition');
+      reply.status(500);
+      return { error: 'Failed to create job definition' };
+    }
+  });
+
+  app.get('/jobs/:slug', async (request, reply) => {
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = jobRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const job = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!job) {
+      reply.status(404);
+      return { error: 'job not found' };
+    }
+
+    const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 10, 50));
+    const offset = Math.max(0, parseQuery.data.offset ?? 0);
+    const runs = await listJobRunsForDefinition(job.id, { limit, offset });
+
+    reply.status(200);
+    return {
+      data: {
+        job: serializeJobDefinition(job),
+        runs: runs.map((run) => serializeJobRun(run))
+      },
+      meta: {
+        limit,
+        offset
+      }
+    };
+  });
+
+  app.post('/jobs/:slug/run', async (request, reply) => {
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = jobRunRequestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const job = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!job) {
+      reply.status(404);
+      return { error: 'job not found' };
+    }
+
+    const parameters = parseBody.data.parameters ?? job.defaultParameters ?? {};
+    const timeoutMs = parseBody.data.timeoutMs ?? job.timeoutMs ?? null;
+    const maxAttempts = parseBody.data.maxAttempts ?? job.retryPolicy?.maxAttempts ?? null;
+
+    const run = await createJobRun(job.id, {
+      parameters,
+      timeoutMs,
+      maxAttempts,
+      context: parseBody.data.context ?? null
+    });
+
+    let latestRun: JobRunRecord | null = run;
+
+    try {
+      if (job.slug === 'repository-ingest') {
+        const repositoryId = getStringParameter(run.parameters, 'repositoryId');
+        if (!repositoryId) {
+          reply.status(400);
+          await completeJobRun(run.id, 'failed', {
+            errorMessage: 'repositoryId parameter is required'
+          });
+          return { error: 'repositoryId parameter is required' };
+        }
+        latestRun = await enqueueRepositoryIngestion(repositoryId, {
+          jobRunId: run.id,
+          parameters: run.parameters
+        });
+      } else if (job.slug === 'repository-build') {
+        const buildId = getStringParameter(run.parameters, 'buildId');
+        if (!buildId) {
+          reply.status(400);
+          await completeJobRun(run.id, 'failed', {
+            errorMessage: 'buildId parameter is required'
+          });
+          return { error: 'buildId parameter is required' };
+        }
+        let repositoryId = getStringParameter(run.parameters, 'repositoryId');
+        if (!repositoryId) {
+          const build = await getBuildById(buildId);
+          repositoryId = build?.repositoryId ?? null;
+        }
+        if (!repositoryId) {
+          reply.status(400);
+          await completeJobRun(run.id, 'failed', {
+            errorMessage: 'repositoryId parameter is required'
+          });
+          return { error: 'repositoryId parameter is required' };
+        }
+        latestRun = await enqueueBuildJob(buildId, repositoryId, { jobRunId: run.id });
+      } else {
+        latestRun = await executeJobRun(run.id);
+      }
+    } catch (err) {
+      request.log.error({ err, slug: job.slug }, 'Failed to execute job run');
+      await completeJobRun(run.id, 'failed', {
+        errorMessage: (err as Error).message ?? 'job execution failed'
+      });
+      reply.status(502);
+      return { error: (err as Error).message ?? 'job execution failed' };
+    }
+
+    const responseRun = latestRun ?? (await getJobRunById(run.id)) ?? run;
+
+    reply.status(202);
+    return { data: serializeJobRun(responseRun) };
+  });
 
   app.get('/services', async () => {
     const services = await listServices();
@@ -1208,11 +1482,7 @@ export async function buildServer() {
     });
 
     try {
-      if (isInlineQueueMode()) {
-        await runBuildJob(newBuild.id);
-      } else {
-        await enqueueBuildJob(newBuild.id, repository.id);
-      }
+      await enqueueBuildJob(newBuild.id, repository.id);
     } catch (err) {
       request.log.error({ err }, 'Failed to enqueue build');
       reply.status(502);
@@ -1448,11 +1718,7 @@ export async function buildServer() {
     });
 
     try {
-      if (isInlineQueueMode()) {
-        await runBuildJob(newBuild.id);
-      } else {
-        await enqueueBuildJob(newBuild.id, repository.id);
-      }
+      await enqueueBuildJob(newBuild.id, repository.id);
     } catch (err) {
       request.log.error({ err }, 'Failed to enqueue build retry');
       reply.status(502);

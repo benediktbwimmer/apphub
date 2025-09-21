@@ -303,3 +303,86 @@ export type RepositoryPreviewInput = {
   height?: number | null;
   sortOrder?: number;
 };
+
+export type JobType = 'batch' | 'service-triggered' | 'manual';
+
+export type JobRetryStrategy = 'none' | 'fixed' | 'exponential';
+
+export type JobRetryPolicy = {
+  maxAttempts?: number | null;
+  strategy?: JobRetryStrategy;
+  initialDelayMs?: number | null;
+  maxDelayMs?: number | null;
+  jitter?: 'none' | 'full' | 'equal';
+};
+
+export type JobDefinitionRecord = {
+  id: string;
+  slug: string;
+  name: string;
+  version: number;
+  type: JobType;
+  entryPoint: string;
+  parametersSchema: JsonValue;
+  defaultParameters: JsonValue;
+  timeoutMs: number | null;
+  retryPolicy: JobRetryPolicy | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type JobDefinitionCreateInput = {
+  slug: string;
+  name: string;
+  type: JobType;
+  entryPoint: string;
+  version?: number;
+  parametersSchema?: JsonValue;
+  defaultParameters?: JsonValue;
+  timeoutMs?: number | null;
+  retryPolicy?: JobRetryPolicy | null;
+  metadata?: JsonValue | null;
+};
+
+export type JobRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
+
+export type JobRunRecord = {
+  id: string;
+  jobDefinitionId: string;
+  status: JobRunStatus;
+  parameters: JsonValue;
+  result: JsonValue | null;
+  errorMessage: string | null;
+  logsUrl: string | null;
+  metrics: JsonValue | null;
+  context: JsonValue | null;
+  timeoutMs: number | null;
+  attempt: number;
+  maxAttempts: number | null;
+  durationMs: number | null;
+  scheduledAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type JobRunCreateInput = {
+  parameters?: JsonValue;
+  timeoutMs?: number | null;
+  attempt?: number;
+  maxAttempts?: number | null;
+  context?: JsonValue | null;
+  scheduledAt?: string;
+};
+
+export type JobRunCompletionInput = {
+  result?: JsonValue | null;
+  errorMessage?: string | null;
+  logsUrl?: string | null;
+  metrics?: JsonValue | null;
+  context?: JsonValue | null;
+  completedAt?: string;
+  durationMs?: number | null;
+};

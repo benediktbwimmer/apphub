@@ -124,3 +124,40 @@ export type ServiceRow = {
   created_at: string;
   updated_at: string;
 };
+
+export type JobDefinitionRow = {
+  id: string;
+  slug: string;
+  name: string;
+  version: number;
+  type: string;
+  entry_point: string;
+  parameters_schema: unknown;
+  default_parameters: unknown;
+  timeout_ms: number | null;
+  retry_policy: unknown;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+export type JobRunRow = {
+  id: string;
+  job_definition_id: string;
+  status: string;
+  parameters: unknown;
+  result: unknown;
+  error_message: string | null;
+  logs_url: string | null;
+  metrics: unknown;
+  context: unknown;
+  timeout_ms: number | null;
+  attempt: number;
+  max_attempts: number | null;
+  duration_ms: number | null;
+  scheduled_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

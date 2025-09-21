@@ -1,8 +1,29 @@
 import { Queue } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
+import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
+import { getJobRunById } from './db/jobs';
+import { type JobRunRecord, type JsonValue } from './db/types';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
+
+let ingestionHandlerLoaded = false;
+async function ensureIngestionJobHandler(): Promise<void> {
+  if (ingestionHandlerLoaded) {
+    return;
+  }
+  await import('./ingestionWorker');
+  ingestionHandlerLoaded = true;
+}
+
+let buildHandlerLoaded = false;
+async function ensureBuildJobHandler(): Promise<void> {
+  if (buildHandlerLoaded) {
+    return;
+  }
+  await import('./buildRunner');
+  buildHandlerLoaded = true;
+}
 
 function createConnection() {
   if (inlineMode) {
@@ -54,9 +75,46 @@ const launchQueue = !inlineMode && connection
     })
   : null;
 
-export async function enqueueRepositoryIngestion(repositoryId: string) {
+export async function enqueueRepositoryIngestion(
+  repositoryId: string,
+  options: {
+    jobRunId?: string;
+    parameters?: JsonValue;
+  } = {}
+): Promise<JobRunRecord> {
+  const trimmedId = repositoryId.trim();
+  if (!trimmedId) {
+    throw new Error('repositoryId is required');
+  }
+
+  const baseParameters =
+    options.parameters && typeof options.parameters === 'object' && !Array.isArray(options.parameters)
+      ? (options.parameters as Record<string, JsonValue>)
+      : {};
+  const parameters: Record<string, JsonValue> = {
+    ...baseParameters,
+    repositoryId: trimmedId
+  };
+
+  let run: JobRunRecord | null = null;
+
+  if (options.jobRunId) {
+    run = await getJobRunById(options.jobRunId);
+    if (!run) {
+      throw new Error(`Job run ${options.jobRunId} not found`);
+    }
+  }
+
+  if (!run) {
+    run = await createJobRunForSlug('repository-ingest', {
+      parameters
+    });
+  }
+
   if (inlineMode) {
-    return;
+    await ensureIngestionJobHandler();
+    const executed = await executeJobRun(run.id);
+    return executed ?? run;
   }
 
   if (!queue) {
@@ -65,7 +123,7 @@ export async function enqueueRepositoryIngestion(repositoryId: string) {
 
   await queue.add(
     'repository-ingest',
-    { repositoryId },
+    { repositoryId: trimmedId, jobRunId: run.id },
     {
       attempts: Number(process.env.INGEST_JOB_ATTEMPTS ?? 3),
       backoff: {
@@ -74,6 +132,8 @@ export async function enqueueRepositoryIngestion(repositoryId: string) {
       }
     }
   );
+
+  return run;
 }
 
 export function getQueueConnection() {
@@ -112,16 +172,53 @@ export async function closeQueueConnection(instance?: Redis | null) {
   }
 }
 
-export async function enqueueBuildJob(buildId: string, repositoryId: string) {
+export async function enqueueBuildJob(
+  buildId: string,
+  repositoryId: string,
+  options: { jobRunId?: string } = {}
+): Promise<JobRunRecord> {
+  const trimmedBuildId = buildId.trim();
+  if (!trimmedBuildId) {
+    throw new Error('buildId is required');
+  }
+
+  const trimmedRepositoryId = repositoryId.trim();
+  if (!trimmedRepositoryId) {
+    throw new Error('repositoryId is required');
+  }
+
+  let run: JobRunRecord | null = null;
+
+  if (options.jobRunId) {
+    run = await getJobRunById(options.jobRunId);
+    if (!run) {
+      throw new Error(`Job run ${options.jobRunId} not found`);
+    }
+  }
+
+  if (!run) {
+    run = await createJobRunForSlug('repository-build', {
+      parameters: { buildId: trimmedBuildId, repositoryId: trimmedRepositoryId }
+    });
+  }
+
   if (inlineMode) {
-    return;
+    await ensureBuildJobHandler();
+    const executed = await executeJobRun(run.id);
+    return executed ?? run;
   }
 
   if (!buildQueue) {
     throw new Error('Build queue not initialised');
   }
 
-  await buildQueue.add('repository-build', { buildId, repositoryId });
+  await buildQueue.add('repository-build', {
+    buildId: trimmedBuildId,
+    repositoryId: trimmedRepositoryId,
+    jobRunId: run.id
+  });
+
+  return run;
 }
 
 export async function enqueueLaunchStart(launchId: string) {

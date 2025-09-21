@@ -15,7 +15,8 @@ import {
   type RepositoryRecord,
   type TagKV,
   type RepositoryPreviewInput,
-  type RepositoryPreviewKind
+  type RepositoryPreviewKind,
+  type JsonValue
 } from './db/index';
 import {
   INGEST_QUEUE_NAME,
@@ -24,7 +25,13 @@ import {
   getQueueConnection,
   isInlineQueueMode
 } from './queue';
-import { runBuildJob } from './buildRunner';
+import {
+  createJobRunForSlug,
+  executeJobRun,
+  registerJobHandler,
+  type JobRunContext,
+  type JobResult
+} from './jobs/runtime';
 
 const CLONE_DEPTH = process.env.INGEST_CLONE_DEPTH ?? '1';
 const INGEST_CONCURRENCY = Number(process.env.INGEST_CONCURRENCY ?? 2);
@@ -58,6 +65,111 @@ async function fileExists(filePath: string) {
     return false;
   }
 }
+
+async function runIngestionJobTask(
+  repositoryId: string,
+  jobContext?: JobRunContext
+): Promise<JobResult> {
+  const trimmedId = repositoryId.trim();
+  if (!trimmedId) {
+    throw new Error('repositoryId parameter is required');
+  }
+
+  const repository = await getRepositoryById(trimmedId);
+  if (!repository) {
+    log('Repository missing for job', { repositoryId: trimmedId });
+    const metrics: Record<string, JsonValue> = {
+      repositoryId: trimmedId,
+      status: 'skipped'
+    };
+    const contextPayload: Record<string, JsonValue> = {
+      repositoryId: trimmedId,
+      skipped: true
+    };
+    if (jobContext) {
+      await jobContext.update({ metrics, context: contextPayload });
+    }
+    return {
+      status: 'succeeded',
+      result: {
+        repositoryId: trimmedId,
+        skipped: true
+      },
+      metrics
+    };
+  }
+
+  const startedAt = Date.now();
+  const now = new Date().toISOString();
+
+  await setRepositoryStatus(trimmedId, 'processing', {
+    updatedAt: now,
+    ingestError: null,
+    incrementAttempts: true,
+    eventMessage: 'Ingestion started'
+  });
+
+  const refreshed = await getRepositoryById(trimmedId);
+
+  try {
+    await processRepository(
+      refreshed ?? {
+        ...repository,
+        ingestStatus: 'processing',
+        ingestError: null,
+        updatedAt: now
+      },
+      { jobContext }
+    );
+    const durationMs = Date.now() - startedAt;
+    const metrics: Record<string, JsonValue> = {
+      repositoryId: trimmedId,
+      status: 'succeeded',
+      durationMs
+    };
+    if (jobContext) {
+      await jobContext.update({ metrics });
+    }
+    return {
+      status: 'succeeded',
+      result: { repositoryId: trimmedId },
+      metrics
+    };
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    if (jobContext) {
+      const metrics: Record<string, JsonValue> = {
+        repositoryId: trimmedId,
+        status: 'failed',
+        durationMs
+      };
+      await jobContext.update({ metrics });
+    }
+    throw err;
+  }
+}
+
+function resolveRepositoryId(parameters: JsonValue): string {
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+    throw new Error('repositoryId parameter is required');
+  }
+  const value = (parameters as Record<string, JsonValue>).repositoryId;
+  if (typeof value !== 'string') {
+    throw new Error('repositoryId parameter is required');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('repositoryId parameter is required');
+  }
+  return trimmed;
+}
+
+async function ingestionJobHandler(context: JobRunContext): Promise<JobResult> {
+  const repositoryId = resolveRepositoryId(context.parameters);
+  return runIngestionJobTask(repositoryId, context);
+}
+
+registerJobHandler('repository-ingest', ingestionJobHandler);
 
 type DiscoveredTag = TagKV & { source: string };
 
@@ -835,11 +947,15 @@ function addTag(map: Map<string, DiscoveredTag>, key: string, value: string, sou
   }
 }
 
-async function processRepository(repository: RepositoryRecord) {
+async function processRepository(
+  repository: RepositoryRecord,
+  options: { jobContext?: JobRunContext } = {}
+) {
   const startedAt = Date.now();
   let commitSha: string | null = null;
   const workingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-ingest-'));
   log('Processing repository', { id: repository.id });
+  const jobContext = options.jobContext ?? null;
 
   try {
     await git.clone(repository.repoUrl, workingDir, ['--depth', CLONE_DEPTH, '--single-branch']);
@@ -914,13 +1030,29 @@ async function processRepository(repository: RepositoryRecord) {
     });
 
     const build = await createBuild(repository.id, { commitSha });
-    if (useInlineQueue) {
-      log('Running build inline', { repositoryId: repository.id, buildId: build.id });
-      await runBuildJob(build.id);
-    } else {
-      log('Enqueuing build job', { repositoryId: repository.id, buildId: build.id });
-      await enqueueBuildJob(build.id, repository.id);
+    const metricsSuccess: Record<string, JsonValue> = {
+      repositoryId: repository.id,
+      status: 'succeeded',
+      durationMs: Date.now() - startedAt
+    };
+    if (commitSha) {
+      metricsSuccess.commitSha = commitSha;
     }
+    const contextSuccess: Record<string, JsonValue> = {
+      repositoryId: repository.id
+    };
+    if (commitSha) {
+      contextSuccess.commitSha = commitSha;
+    }
+    if (jobContext) {
+      await jobContext.update({ metrics: metricsSuccess, context: contextSuccess });
+    }
+    const buildRun = await enqueueBuildJob(build.id, repository.id);
+    log(useInlineQueue ? 'Running build inline' : 'Enqueuing build job', {
+      repositoryId: repository.id,
+      buildId: build.id,
+      jobRunId: buildRun.id
+    });
 
     log('Repository ingested', { id: repository.id, dockerfilePath });
   } catch (err) {
@@ -934,6 +1066,24 @@ async function processRepository(repository: RepositoryRecord) {
       durationMs: Date.now() - startedAt,
       commitSha
     });
+    if (jobContext) {
+      const metricsFailure: Record<string, JsonValue> = {
+        repositoryId: repository.id,
+        status: 'failed',
+        durationMs: Date.now() - startedAt
+      };
+      if (commitSha) {
+        metricsFailure.commitSha = commitSha;
+      }
+      const contextFailure: Record<string, JsonValue> = {
+        repositoryId: repository.id,
+        error: message
+      };
+      if (commitSha) {
+        contextFailure.commitSha = commitSha;
+      }
+      await jobContext.update({ metrics: metricsFailure, context: contextFailure });
+    }
     log('Ingestion failed', { id: repository.id, error: message });
     throw err;
   } finally {
@@ -948,30 +1098,39 @@ async function runWorker() {
     mode: useInlineQueue ? 'inline' : 'redis'
   });
 
-  const handleJob = async ({ repositoryId }: { repositoryId: string }) => {
-    const repository = await getRepositoryById(repositoryId);
-    if (!repository) {
-      log('Repository missing for job', { repositoryId });
+  const handleJob = async ({
+    repositoryId,
+    jobRunId
+  }: {
+    repositoryId: string;
+    jobRunId?: string;
+  }) => {
+    const trimmedId = repositoryId.trim();
+    if (!trimmedId) {
+      log('Skipping ingestion job with empty repository id');
       return;
     }
 
-    const now = new Date().toISOString();
-    await setRepositoryStatus(repositoryId, 'processing', {
-      updatedAt: now,
-      ingestError: null,
-      incrementAttempts: true,
-      eventMessage: 'Ingestion started'
-    });
+    let targetRunId = jobRunId;
+    if (!targetRunId) {
+      const run = await createJobRunForSlug('repository-ingest', {
+        parameters: { repositoryId: trimmedId }
+      });
+      targetRunId = run.id;
+    }
 
-    const refreshed = await getRepositoryById(repositoryId);
-    await processRepository(
-      refreshed ?? {
-        ...repository,
-        ingestStatus: 'processing',
-        ingestError: null,
-        updatedAt: now
-      }
-    );
+    log('Executing ingestion job run', { repositoryId: trimmedId, jobRunId: targetRunId });
+
+    try {
+      await executeJobRun(targetRunId);
+    } catch (err) {
+      log('Ingestion job execution failed', {
+        repositoryId: trimmedId,
+        jobRunId: targetRunId,
+        error: (err as Error).message ?? 'unknown error'
+      });
+      throw err;
+    }
   };
 
   if (useInlineQueue) {
@@ -1020,9 +1179,12 @@ async function runWorker() {
   const worker = new Worker(
     INGEST_QUEUE_NAME,
     async (job) => {
-      const { repositoryId } = job.data as { repositoryId: string };
-      log('Job received', { repositoryId, jobId: job.id });
-      await handleJob({ repositoryId });
+      const { repositoryId, jobRunId } = job.data as {
+        repositoryId: string;
+        jobRunId?: string;
+      };
+      log('Job received', { repositoryId, jobRunId, jobId: job.id });
+      await handleJob({ repositoryId, jobRunId });
     },
     {
       connection,
@@ -1059,7 +1221,9 @@ async function runWorker() {
   process.on('SIGTERM', shutdown);
 }
 
-runWorker().catch((err) => {
-  console.error('[ingest] Worker crashed', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  runWorker().catch((err) => {
+    console.error('[ingest] Worker crashed', err);
+    process.exit(1);
+  });
+}
