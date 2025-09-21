@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEventHandler } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEventHandler
+} from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { API_BASE_URL } from '../config';
 
@@ -30,13 +37,58 @@ export type AppRecord = {
   tags: TagInput[];
 };
 
-export type SubmitAppFormState = {
+export type ImportAppFormState = {
   id: string;
   name: string;
   description: string;
   repoUrl: string;
   dockerfilePath: string;
   tags: TagInput[];
+};
+
+export type UseImportAppResult = {
+  form: ImportAppFormState;
+  setForm: (
+    updater: ImportAppFormState | ((prev: ImportAppFormState) => ImportAppFormState)
+  ) => void;
+  sourceType: 'remote' | 'local';
+  setSourceType: (source: 'remote' | 'local') => void;
+  submitting: boolean;
+  submissionVersion: number;
+  error: string | null;
+  errorVersion: number;
+  currentApp: AppRecord | null;
+  history: IngestionEvent[];
+  historyLoading: boolean;
+  historyError: string | null;
+  disableSubmit: boolean;
+  handleSubmit: FormEventHandler<HTMLFormElement>;
+  handleTagChange: (index: number, key: keyof TagInput, value: string) => void;
+  addTagField: () => void;
+  removeTagField: (index: number) => void;
+  fetchHistory: (id: string) => Promise<void>;
+  resetForm: () => void;
+  clearDraft: () => void;
+  draftSavedAt: number | null;
+};
+
+const APP_DRAFT_STORAGE_KEY = 'apphub-import-app-draft';
+
+const DEFAULT_TAG: TagInput = { key: 'language', value: 'javascript' };
+
+const DEFAULT_FORM: ImportAppFormState = {
+  id: '',
+  name: '',
+  description: '',
+  repoUrl: '',
+  dockerfilePath: 'Dockerfile',
+  tags: [DEFAULT_TAG]
+};
+
+type DraftPayload = {
+  form: ImportAppFormState;
+  sourceType: 'remote' | 'local';
+  savedAt: number;
 };
 
 function slugify(input: string) {
@@ -50,44 +102,73 @@ function slugify(input: string) {
   );
 }
 
-export type UseSubmitAppResult = {
-  form: SubmitAppFormState;
-  setForm: (
-    updater: SubmitAppFormState | ((prev: SubmitAppFormState) => SubmitAppFormState)
-  ) => void;
-  sourceType: 'remote' | 'local';
-  setSourceType: (source: 'remote' | 'local') => void;
-  submitting: boolean;
-  error: string | null;
-  currentApp: AppRecord | null;
-  history: IngestionEvent[];
-  historyLoading: boolean;
-  historyError: string | null;
-  disableSubmit: boolean;
-  handleSubmit: FormEventHandler<HTMLFormElement>;
-  handleTagChange: (index: number, key: keyof TagInput, value: string) => void;
-  addTagField: () => void;
-  removeTagField: (index: number) => void;
-  fetchHistory: (id: string) => Promise<void>;
-};
+function ensureTags(tags: TagInput[] | undefined): TagInput[] {
+  if (!tags || tags.length === 0) {
+    return [DEFAULT_TAG];
+  }
+  return tags.map((tag) => ({
+    key: typeof tag.key === 'string' ? tag.key : '',
+    value: typeof tag.value === 'string' ? tag.value : ''
+  }));
+}
 
-export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitAppResult {
+function readDraft(): DraftPayload | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = window.localStorage.getItem(APP_DRAFT_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<DraftPayload>;
+    if (!parsed || !parsed.form) {
+      return null;
+    }
+    const form: ImportAppFormState = {
+      id: typeof parsed.form.id === 'string' ? parsed.form.id : DEFAULT_FORM.id,
+      name: typeof parsed.form.name === 'string' ? parsed.form.name : DEFAULT_FORM.name,
+      description:
+        typeof parsed.form.description === 'string' ? parsed.form.description : DEFAULT_FORM.description,
+      repoUrl: typeof parsed.form.repoUrl === 'string' ? parsed.form.repoUrl : DEFAULT_FORM.repoUrl,
+      dockerfilePath:
+        typeof parsed.form.dockerfilePath === 'string'
+          ? parsed.form.dockerfilePath
+          : DEFAULT_FORM.dockerfilePath,
+      tags: ensureTags(parsed.form.tags)
+    };
+    const sourceType = parsed.sourceType === 'local' ? 'local' : 'remote';
+    const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now();
+    return { form, sourceType, savedAt };
+  } catch {
+    return null;
+  }
+}
+
+export function useImportApp(onAppRegistered?: (id: string) => void): UseImportAppResult {
   const authorizedFetch = useAuthorizedFetch();
-  const [form, setFormState] = useState<SubmitAppFormState>({
-    id: '',
-    name: '',
-    description: '',
-    repoUrl: '',
-    dockerfilePath: 'Dockerfile',
-    tags: [{ key: 'language', value: 'javascript' }]
+  const draftRef = useRef<DraftPayload | null>(readDraft());
+  const [form, setFormState] = useState<ImportAppFormState>(() => {
+    const draft = draftRef.current;
+    if (!draft) {
+      return DEFAULT_FORM;
+    }
+    return { ...DEFAULT_FORM, ...draft.form, tags: ensureTags(draft.form.tags) };
   });
-  const [sourceType, setSourceType] = useState<'remote' | 'local'>('remote');
+  const [sourceType, setSourceTypeState] = useState<'remote' | 'local'>(
+    () => draftRef.current?.sourceType ?? 'remote'
+  );
   const [submitting, setSubmitting] = useState(false);
+  const [submissionVersion, setSubmissionVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [errorVersion, setErrorVersion] = useState(0);
   const [currentApp, setCurrentApp] = useState<AppRecord | null>(null);
   const [history, setHistory] = useState<IngestionEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(draftRef.current?.savedAt ?? null);
+
+  const skipDraftPersist = useRef(false);
 
   const appId = useMemo(() => currentApp?.id ?? null, [currentApp]);
 
@@ -96,7 +177,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
       return;
     }
     const controller = new AbortController();
-    const interval = setInterval(async () => {
+    const interval = window.setInterval(async () => {
       try {
         const res = await authorizedFetch(`${API_BASE_URL}/apps/${appId}`, { signal: controller.signal });
         if (!res.ok) {
@@ -109,20 +190,43 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
           return;
         }
       }
-    }, 1000);
+    }, 1500);
 
     return () => {
       controller.abort();
-      clearInterval(interval);
+      window.clearInterval(interval);
     };
   }, [appId, authorizedFetch]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (skipDraftPersist.current) {
+      skipDraftPersist.current = false;
+      return;
+    }
+    const payload: DraftPayload = {
+      form,
+      sourceType,
+      savedAt: Date.now()
+    };
+    window.localStorage.setItem(APP_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    setDraftSavedAt(payload.savedAt);
+  }, [form, sourceType]);
+
   const setForm = useCallback(
-    (updater: SubmitAppFormState | ((prev: SubmitAppFormState) => SubmitAppFormState)) => {
-      setFormState((prev) => (typeof updater === 'function' ? (updater as (p: SubmitAppFormState) => SubmitAppFormState)(prev) : updater));
+    (updater: ImportAppFormState | ((prev: ImportAppFormState) => ImportAppFormState)) => {
+      setFormState((prev) =>
+        typeof updater === 'function' ? (updater as (p: ImportAppFormState) => ImportAppFormState)(prev) : updater
+      );
     },
     []
   );
+
+  const setSourceType = useCallback((source: 'remote' | 'local') => {
+    setSourceTypeState(source);
+  }, []);
 
   const handleTagChange = useCallback((index: number, key: keyof TagInput, value: string) => {
     setFormState((prev) => {
@@ -137,7 +241,10 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
   }, []);
 
   const removeTagField = useCallback((index: number) => {
-    setFormState((prev) => ({ ...prev, tags: prev.tags.filter((_, i) => i !== index) }));
+    setFormState((prev) => {
+      const next = prev.tags.filter((_, i) => i !== index);
+      return { ...prev, tags: next.length > 0 ? next : [DEFAULT_TAG] };
+    });
   }, []);
 
   const fetchHistory = useCallback(async (id: string) => {
@@ -159,6 +266,28 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
 
   const disableSubmit =
     submitting || !form.name || !form.description || !form.repoUrl || !form.dockerfilePath;
+
+  const clearDraft = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    skipDraftPersist.current = true;
+    window.localStorage.removeItem(APP_DRAFT_STORAGE_KEY);
+    setDraftSavedAt(null);
+  }, []);
+
+  const resetForm = useCallback(() => {
+    skipDraftPersist.current = true;
+    setFormState(DEFAULT_FORM);
+    setSourceTypeState('remote');
+    setCurrentApp(null);
+    setHistory([]);
+    setHistoryError(null);
+    setError(null);
+    setSubmissionVersion(0);
+    setErrorVersion(0);
+    clearDraft();
+  }, [clearDraft]);
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
     async (event) => {
@@ -193,15 +322,18 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
         const payload = await response.json();
         setCurrentApp(payload.data);
         setHistory([]);
+        setSubmissionVersion((prev) => prev + 1);
         onAppRegistered?.(id);
+        clearDraft();
         await fetchHistory(id);
       } catch (err) {
         setError((err as Error).message);
+        setErrorVersion((prev) => prev + 1);
       } finally {
         setSubmitting(false);
       }
     },
-    [authorizedFetch, fetchHistory, form, onAppRegistered, sourceType]
+    [authorizedFetch, clearDraft, fetchHistory, form, onAppRegistered, sourceType]
   );
 
   return {
@@ -210,7 +342,9 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
     sourceType,
     setSourceType,
     submitting,
+    submissionVersion,
     error,
+    errorVersion,
     currentApp,
     history,
     historyLoading,
@@ -220,6 +354,9 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
     handleTagChange,
     addTagField,
     removeTagField,
-    fetchHistory
+    fetchHistory,
+    resetForm,
+    clearDraft,
+    draftSavedAt
   };
 }
