@@ -42,7 +42,6 @@ function maskToken(token: string): string {
 }
 
 type TokenRowProps = {
-  id: string;
   label: string;
   token: string;
   createdAt: string;
@@ -53,7 +52,7 @@ type TokenRowProps = {
   onRemove: () => void;
 };
 
-function TokenRow({ id, label, token, createdAt, lastUsedAt, active, onActivate, onUpdate, onRemove }: TokenRowProps) {
+function TokenRow({ label, token, createdAt, lastUsedAt, active, onActivate, onUpdate, onRemove }: TokenRowProps) {
   const [editing, setEditing] = useState(false);
   const [draftLabel, setDraftLabel] = useState(label);
   const [draftToken, setDraftToken] = useState(token);
@@ -313,7 +312,6 @@ export default function ApiAccessPage() {
             {sortedTokens.map((token) => (
               <TokenRow
                 key={token.id}
-                id={token.id}
                 label={token.label}
                 token={token.token}
                 createdAt={token.createdAt}

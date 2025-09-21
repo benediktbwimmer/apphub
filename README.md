@@ -190,13 +190,19 @@ A single container image can run Redis, the catalog API, background workers, and
 docker build -t apphub .
 docker run \
   --rm \
+  --name apphub \
   -p 4000:4000 \
   -p 4173:4173 \
   -p 6379:6379 \
   -v apphub-data:/app/data \
+  -v "$(pwd)/services/catalog/config:/app/config:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /:/root-fs:ro \
   -e APPHUB_HOST_ROOT=/root-fs \
+  -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
+  -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
+  -e WORKFLOW_FAILURE_ALERT_THRESHOLD=3 \
+  -e WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15 \
   apphub
 ```
 

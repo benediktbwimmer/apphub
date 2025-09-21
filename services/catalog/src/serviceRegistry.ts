@@ -589,7 +589,7 @@ async function ensureNetworkFromManifest(network: LoadedServiceNetwork) {
     ]);
 
     const launchEnvTemplates = toLaunchEnvVars(service.app.launchEnv ?? []);
-    const memberEnv = toLaunchEnvVars(service.env ?? service.app.launchEnv ?? []);
+    const memberEnv = cloneEnvVars(service.env ?? service.app.launchEnv);
 
     await ensureRepositoryFromManifest({
       id: memberId,

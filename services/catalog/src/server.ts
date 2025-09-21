@@ -324,7 +324,8 @@ const workflowJobStepSchema = z
     dependsOn: z.array(z.string().min(1)).max(25).optional(),
     parameters: jsonValueSchema.optional(),
     timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
-    retryPolicy: jobRetryPolicySchema.optional()
+    retryPolicy: jobRetryPolicySchema.optional(),
+    storeResultAs: z.string().min(1).max(200).optional()
   })
   .strict();
 
@@ -1425,7 +1426,8 @@ export async function buildServer() {
         jobSlug: step.jobSlug,
         parameters: step.parameters ?? undefined,
         timeoutMs: step.timeoutMs ?? null,
-        retryPolicy: step.retryPolicy ?? null
+        retryPolicy: step.retryPolicy ?? null,
+        storeResultAs: step.storeResultAs ?? undefined
       };
     });
 

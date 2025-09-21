@@ -431,6 +431,7 @@ export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
   parameters?: JsonValue;
   timeoutMs?: number | null;
   retryPolicy?: JobRetryPolicy | null;
+  storeResultAs?: string;
 };
 
 export type WorkflowServiceStepDefinition = WorkflowDefinitionStepBase & {

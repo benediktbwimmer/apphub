@@ -2,7 +2,7 @@ import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import net from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
@@ -544,6 +544,131 @@ async function testWorkflowEndpoints(): Promise<void> {
       };
       assert(runsListBody.data.runs.some((run) => run.id === runId));
       assert(runsListBody.data.runs.some((run) => run.id === failedRunId));
+
+      const tempDir = await mkdtemp(path.join(tmpdir(), 'workflow-fs-'));
+      const sourceFilePath = path.join(tempDir, 'notes.txt');
+      const summaryFileName = 'notes.summary.txt';
+      const summaryFilePath = path.join(tempDir, summaryFileName);
+      const sourceContent = '# Notes\nThis is a filesystem workflow test.';
+
+      try {
+        await writeFile(sourceFilePath, sourceContent, 'utf8');
+
+        const createFsWorkflowResponse = await app.inject({
+          method: 'POST',
+          url: '/workflows',
+          headers: {
+            Authorization: `Bearer ${OPERATOR_TOKEN}`
+          },
+          payload: {
+            slug: 'wf-fs-summary',
+            name: 'Filesystem Summary Workflow',
+            steps: [
+              {
+                id: 'read-file',
+                name: 'Read Source File',
+                jobSlug: 'fs-read-file',
+                parameters: {
+                  hostPath: '{{ parameters.hostPath }}'
+                },
+                storeResultAs: 'inputFile'
+              },
+              {
+                id: 'summarize',
+                name: 'Summarize Content',
+                type: 'service',
+                serviceSlug: 'test-service',
+                dependsOn: ['read-file'],
+                storeResponseAs: 'summaryResponse',
+                parameters: {
+                  hostPath: '{{ parameters.hostPath }}'
+                },
+                request: {
+                  path: '/hook',
+                  method: 'POST',
+                  headers: {
+                    Authorization: {
+                      secret: { source: 'store', key: 'TEST_SERVICE_TOKEN', version: 'v1' },
+                      prefix: 'Bearer '
+                    }
+                  },
+                  body: {
+                    summary: 'Summary for {{ steps.read-file.result.fileName }}',
+                    originalLength: '{{ shared.inputFile.byteLength }}',
+                    absolutePath: '{{ run.parameters.hostPath }}',
+                    content: '{{ shared.inputFile.content }}'
+                  }
+                }
+              },
+              {
+                id: 'write-summary',
+                name: 'Write Summary',
+                jobSlug: 'fs-write-file',
+                dependsOn: ['summarize'],
+                parameters: {
+                  sourcePath: '{{ shared.inputFile.hostPath }}',
+                  content:
+                    'Summary: {{ shared.summaryResponse.body.summary }}\nOriginal length: {{ shared.summaryResponse.body.originalLength }}',
+                  outputFilename: summaryFileName,
+                  overwrite: true
+                }
+              }
+            ]
+          }
+        });
+        assert.equal(createFsWorkflowResponse.statusCode, 201);
+
+        const triggerFsWorkflowResponse = await app.inject({
+          method: 'POST',
+          url: '/workflows/wf-fs-summary/run',
+          headers: {
+            Authorization: `Bearer ${OPERATOR_TOKEN}`
+          },
+          payload: {
+            parameters: { hostPath: sourceFilePath }
+          }
+        });
+        assert.equal(triggerFsWorkflowResponse.statusCode, 202);
+        const triggerFsWorkflowBody = JSON.parse(triggerFsWorkflowResponse.payload) as {
+          data: { id: string; status: string };
+        };
+        assert.equal(
+          triggerFsWorkflowBody.data.status,
+          'succeeded',
+          JSON.stringify(triggerFsWorkflowBody.data)
+        );
+        const fsRunId = triggerFsWorkflowBody.data.id;
+
+        const summaryContent = await readFile(summaryFilePath, 'utf8');
+        const expectedSummary = `Summary: Summary for ${path.basename(sourceFilePath)}\nOriginal length: ${Buffer.byteLength(sourceContent, 'utf8')}`;
+        assert.equal(summaryContent, expectedSummary);
+
+        const fsRunDetailResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${fsRunId}` });
+        assert.equal(fsRunDetailResponse.statusCode, 200);
+        const fsRunDetailBody = JSON.parse(fsRunDetailResponse.payload) as {
+          data: {
+            context: {
+              shared?: Record<string, unknown>;
+              steps: Record<string, { status: string }>;
+            };
+          };
+        };
+        const sharedContext = fsRunDetailBody.data.context.shared ?? {};
+        const inputFileShared = sharedContext.inputFile as Record<string, unknown> | undefined;
+        const summaryShared = sharedContext.summaryResponse as { body?: Record<string, unknown> } | undefined;
+        assert.equal((inputFileShared?.hostPath as string | undefined) ?? '', sourceFilePath);
+        assert.equal(
+          (summaryShared?.body?.summary as string | undefined) ?? '',
+          `Summary for ${path.basename(sourceFilePath)}`
+        );
+        assert.equal(
+          (summaryShared?.body?.absolutePath as string | undefined) ?? '',
+          sourceFilePath
+        );
+        assert.equal(fsRunDetailBody.data.context.steps['write-summary'].status, 'succeeded');
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     } finally {
       await testService.close();
     }

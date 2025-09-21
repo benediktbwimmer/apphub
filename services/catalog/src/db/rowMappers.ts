@@ -491,6 +491,11 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
       step.retryPolicy = retryPolicy as JobRetryPolicy;
     }
 
+    const storeResultAs = typeof record.storeResultAs === 'string' ? record.storeResultAs.trim() : '';
+    if (storeResultAs) {
+      step.storeResultAs = storeResultAs;
+    }
+
     seenIds.add(id);
     steps.push(step);
   }

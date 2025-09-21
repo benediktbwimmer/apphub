@@ -335,6 +335,62 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created
          ON audit_logs(action, created_at DESC);`
     ]
+  },
+  {
+    id: '005_workflow_filesystem_jobs',
+    statements: [
+      `INSERT INTO job_definitions (
+         id,
+         slug,
+         name,
+         version,
+         type,
+         entry_point,
+         parameters_schema,
+         default_parameters,
+         timeout_ms,
+         retry_policy,
+         metadata
+       ) VALUES
+         (
+           'jobdef-fs-read-file',
+           'fs-read-file',
+           'Filesystem Read File',
+           1,
+           'batch',
+           'workflows.fs.readFile',
+           '{"type":"object","properties":{"hostPath":{"type":"string","minLength":1},"encoding":{"type":"string","minLength":1}},"required":["hostPath"]}'::jsonb,
+           '{"encoding":"utf8"}'::jsonb,
+           60000,
+           '{"maxAttempts":1}'::jsonb,
+           '{"description":"Reads a file from the host filesystem and returns its contents."}'::jsonb
+         ),
+         (
+           'jobdef-fs-write-file',
+           'fs-write-file',
+           'Filesystem Write File',
+           1,
+           'batch',
+           'workflows.fs.writeFile',
+           '{"type":"object","properties":{"sourcePath":{"type":"string","minLength":1},"content":{"type":"string"},"outputPath":{"type":"string","minLength":1},"outputFilename":{"type":"string","minLength":1},"encoding":{"type":"string","minLength":1},"overwrite":{"type":"boolean"}},"required":["sourcePath","content"]}'::jsonb,
+           '{"encoding":"utf8","overwrite":true}'::jsonb,
+           60000,
+           '{"maxAttempts":1}'::jsonb,
+           '{"description":"Writes summary content next to a host filesystem file."}'::jsonb
+         )
+       ON CONFLICT (slug) DO UPDATE
+       SET
+         name = EXCLUDED.name,
+         version = EXCLUDED.version,
+         type = EXCLUDED.type,
+         entry_point = EXCLUDED.entry_point,
+         parameters_schema = EXCLUDED.parameters_schema,
+         default_parameters = EXCLUDED.default_parameters,
+         timeout_ms = EXCLUDED.timeout_ms,
+         retry_policy = EXCLUDED.retry_policy,
+         metadata = EXCLUDED.metadata,
+         updated_at = NOW();`
+    ]
   }
 ];
 

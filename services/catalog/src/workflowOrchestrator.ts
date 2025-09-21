@@ -62,6 +62,162 @@ type WorkflowRuntimeContext = {
   shared?: Record<string, JsonValue | null>;
 };
 
+type TemplateScope = {
+  shared: Record<string, JsonValue | null>;
+  steps: Record<string, WorkflowStepRuntimeContext>;
+  run: {
+    id: string;
+    parameters: JsonValue;
+    triggeredBy: string | null;
+    trigger: JsonValue | null;
+  };
+  parameters: JsonValue;
+  step?: {
+    id: string;
+    parameters: JsonValue;
+  };
+  stepParameters?: JsonValue;
+};
+
+const TEMPLATE_PATTERN = /{{\s*([^}]+)\s*}}/g;
+
+function buildTemplateScope(run: WorkflowRunRecord, context: WorkflowRuntimeContext): TemplateScope {
+  return {
+    shared: context.shared ?? {},
+    steps: context.steps,
+    run: {
+      id: run.id,
+      parameters: (run.parameters ?? null) as JsonValue,
+      triggeredBy: run.triggeredBy ?? null,
+      trigger: (run.trigger ?? null) as JsonValue
+    },
+    parameters: (run.parameters ?? null) as JsonValue
+  };
+}
+
+function withStepScope(scope: TemplateScope, stepId: string, parameters: JsonValue): TemplateScope {
+  return {
+    ...scope,
+    step: { id: stepId, parameters },
+    stepParameters: parameters
+  };
+}
+
+function coerceTemplateResult(value: unknown): JsonValue {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => coerceTemplateResult(entry)) as JsonValue;
+  }
+  if (typeof value === 'object') {
+    const record: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      record[key] = coerceTemplateResult(entry);
+    }
+    return record;
+  }
+  return String(value);
+}
+
+function templateValueToString(value: unknown): string {
+  const normalized = coerceTemplateResult(value);
+  if (normalized === null) {
+    return '';
+  }
+  if (typeof normalized === 'string') {
+    return normalized;
+  }
+  if (typeof normalized === 'number' || typeof normalized === 'boolean') {
+    return String(normalized);
+  }
+  return JSON.stringify(normalized);
+}
+
+function lookupTemplateValue(scope: TemplateScope, expression: string): unknown {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const segments = trimmed.split('.').map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length === 0) {
+    return undefined;
+  }
+
+  const root: Record<string, unknown> = {
+    shared: scope.shared,
+    steps: scope.steps,
+    run: scope.run,
+    parameters: scope.parameters,
+    runParameters: scope.parameters,
+    step: scope.step,
+    stepParameters: scope.step?.parameters ?? scope.stepParameters
+  };
+
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isNaN(index) && index >= 0 && index < current.length) {
+        current = current[index];
+        continue;
+      }
+      return undefined;
+    }
+    if (typeof current === 'object') {
+      current = (current as Record<string, unknown>)[segment];
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+
+function resolveTemplateString(input: string, scope: TemplateScope): JsonValue {
+  const matches = [...input.matchAll(TEMPLATE_PATTERN)];
+  if (matches.length === 0) {
+    return input;
+  }
+
+  const trimmed = input.trim();
+  if (matches.length === 1 && trimmed === matches[0][0]) {
+    const value = lookupTemplateValue(scope, matches[0][1]);
+    return coerceTemplateResult(value);
+  }
+
+  const replaced = input.replace(TEMPLATE_PATTERN, (_match, expr) => {
+    const value = lookupTemplateValue(scope, expr);
+    return templateValueToString(value);
+  });
+  return replaced as JsonValue;
+}
+
+function resolveJsonTemplates(value: JsonValue, scope: TemplateScope): JsonValue {
+  if (typeof value === 'string') {
+    return resolveTemplateString(value, scope);
+  }
+  if (value === null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveJsonTemplates(entry as JsonValue, scope)) as JsonValue;
+  }
+  if (typeof value === 'object') {
+    const record: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, JsonValue>)) {
+      record[key] = resolveJsonTemplates(entry, scope);
+    }
+    return record;
+  }
+  return value;
+}
+
 type PreparedServiceRequest = {
   method: string;
   path: string;
@@ -92,6 +248,12 @@ async function ensureJobHandler(slug: string): Promise<void> {
     case 'repository-build':
       await import('./buildRunner');
       loadedHandlers.add(slug);
+      break;
+    case 'fs-read-file':
+    case 'fs-write-file':
+      await import('./jobs/filesystem');
+      loadedHandlers.add('fs-read-file');
+      loadedHandlers.add('fs-write-file');
       break;
     default:
       loadedHandlers.add(slug);
@@ -426,6 +588,16 @@ function appendQuery(path: string, query: Record<string, string | number | boole
   return queryString.length > 0 ? `${path}${separator}${queryString}` : path;
 }
 
+function normalizeQueryValue(value: JsonValue): string | number | boolean {
+  if (value === null) {
+    return '';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  return templateValueToString(value);
+}
+
 function createMinimalServiceContext(
   step: WorkflowServiceStepDefinition,
   prepared: PreparedServiceRequest | null,
@@ -567,8 +739,10 @@ async function extractResponseBody(response: Response): Promise<{ body: JsonValu
 async function prepareServiceRequest(
   run: WorkflowRunRecord,
   step: WorkflowServiceStepDefinition,
-  parameters: JsonValue
+  parameters: JsonValue,
+  scope: TemplateScope
 ): Promise<PreparedServiceRequest> {
+  const scoped = withStepScope(scope, step.id, parameters);
   const request = step.request;
   const query = cloneServiceQuery(request.query);
   const hasExplicitBody = Object.prototype.hasOwnProperty.call(request, 'body');
@@ -588,8 +762,10 @@ async function prepareServiceRequest(
         continue;
       }
       if (typeof headerValue === 'string') {
-        headers.set(name, headerValue);
-        sanitizedHeaders[name] = headerValue;
+        const resolvedHeader = resolveTemplateString(headerValue, scoped);
+        const headerText = templateValueToString(resolvedHeader);
+        headers.set(name, headerText);
+        sanitizedHeaders[name] = headerText;
         continue;
       }
       const secretRef = headerValue?.secret;
@@ -625,7 +801,7 @@ async function prepareServiceRequest(
   let hasBody = false;
   let bodyForRecord: JsonValue | null = null;
   if (hasExplicitBody) {
-    bodyForRecord = (request.body ?? null) as JsonValue | null;
+    bodyForRecord = resolveJsonTemplates(((request.body ?? null) as JsonValue) ?? null, scoped);
     hasBody = method !== 'GET' && method !== 'HEAD';
   } else if (method !== 'GET' && method !== 'HEAD') {
     bodyForRecord = parameters ?? null;
@@ -641,7 +817,15 @@ async function prepareServiceRequest(
     }
   }
 
-  const requestPath = request.path;
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === 'string') {
+      const resolved = resolveTemplateString(value, scoped);
+      query[key] = normalizeQueryValue(resolved);
+    }
+  }
+
+  const resolvedPathValue = resolveTemplateString(request.path, scoped);
+  const requestPath = templateValueToString(resolvedPathValue) || request.path;
   const fullPath = appendQuery(requestPath, query);
 
   const requestInput: Record<string, JsonValue> = {
@@ -775,12 +959,16 @@ async function executeStep(
     );
   }
 
-  const parameters = mergeParameters(run.parameters, step.parameters ?? null);
+  const baseScope = buildTemplateScope(run, context);
+  const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
+  const resolvedParameters = resolveJsonTemplates(mergedParameters as JsonValue, baseScope);
+  const stepScope = withStepScope(baseScope, step.id, resolvedParameters);
+
   if (step.type === 'service') {
-    return executeServiceStep(run, step, context, stepIndex, totals, parameters);
+    return executeServiceStep(run, step, context, stepIndex, totals, resolvedParameters, stepScope);
   }
 
-  return executeJobStep(run, step, context, stepIndex, totals, parameters);
+  return executeJobStep(run, step, context, stepIndex, totals, resolvedParameters);
 }
 
 async function executeJobStep(
@@ -795,7 +983,7 @@ async function executeJobStep(
 
   if (stepRecord.status === 'succeeded') {
     totals.completedSteps += 1;
-    const nextContext = updateStepContext(context, step.id, {
+    let nextContext = updateStepContext(context, step.id, {
       status: stepRecord.status,
       jobRunId: stepRecord.jobRunId,
       result: stepRecord.output,
@@ -806,6 +994,9 @@ async function executeJobStep(
       completedAt: stepRecord.completedAt,
       attempt: stepRecord.attempt
     });
+    if (step.storeResultAs) {
+      nextContext = setSharedValue(nextContext, step.storeResultAs, stepRecord.output ?? null);
+    }
     return { context: nextContext, stepStatus: 'succeeded', completed: true };
   }
 
@@ -884,13 +1075,18 @@ async function executeJobStep(
 
   if (stepRecord.status === 'succeeded') {
     totals.completedSteps += 1;
+    let successContext = nextContext;
+    if (step.storeResultAs) {
+      successContext = setSharedValue(successContext, step.storeResultAs, executed.result ?? null);
+    }
     await updateWorkflowRun(run.id, {
-      context: serializeContext(nextContext),
+      context: serializeContext(successContext),
       metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
     });
+    return { context: successContext, stepStatus: stepRecord.status, completed: true };
   }
 
-  return { context: nextContext, stepStatus: stepRecord.status, completed: stepRecord.status === 'succeeded' };
+  return { context: nextContext, stepStatus: stepRecord.status, completed: false };
 }
 
 async function executeServiceStep(
@@ -899,11 +1095,12 @@ async function executeServiceStep(
   context: WorkflowRuntimeContext,
   stepIndex: number,
   totals: { totalSteps: number; completedSteps: number },
-  parameters: JsonValue
+  parameters: JsonValue,
+  scope: TemplateScope
 ): Promise<{ context: WorkflowRuntimeContext; stepStatus: WorkflowRunStepStatus; completed: boolean }> {
   let prepared: PreparedServiceRequest;
   try {
-    prepared = await prepareServiceRequest(run, step, parameters);
+    prepared = await prepareServiceRequest(run, step, parameters, scope);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Failed to prepare service request';
     let stepRecord = await loadOrCreateStepRecord(run.id, step, parameters);
@@ -947,7 +1144,7 @@ async function executeServiceStep(
     totals.completedSteps += 1;
     const fallbackContext = buildServiceContextFromPrepared(step, prepared, null);
     const serviceContext = extractServiceContextFromRecord(stepRecord, fallbackContext);
-    const nextContext = updateStepContext(context, step.id, {
+    let nextContext = updateStepContext(context, step.id, {
       status: 'succeeded',
       jobRunId: null,
       result: stepRecord.output ?? null,
@@ -959,6 +1156,9 @@ async function executeServiceStep(
       attempt: stepRecord.attempt,
       service: serviceContext
     });
+    if (step.storeResponseAs) {
+      nextContext = setSharedValue(nextContext, step.storeResponseAs, stepRecord.output ?? null);
+    }
     return { context: nextContext, stepStatus: 'succeeded', completed: true };
   }
 

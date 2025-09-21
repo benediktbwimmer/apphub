@@ -27,20 +27,23 @@ function App() {
   };
 
   return (
-    <NavigationContext.Provider value={{ activeTab, setActiveTab: handleTabChange }}>
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-12 lg:px-0">
-        <Navbar />
-        <main className="flex flex-col gap-8 pb-8">
-          {activeTab === 'catalog' && (
-            <CatalogPage searchSeed={searchSeed} onSeedApplied={() => setSearchSeed(undefined)} />
-          )}
-          {activeTab === 'apps' && <ServiceGallery />}
-          {activeTab === 'workflows' && <WorkflowsPage />}
-          {activeTab === 'submit' && <SubmitApp onAppRegistered={handleAppRegistered} />}
-          {activeTab === 'import-manifest' && <ImportServiceManifest onImported={handleManifestImported} />}
-        </main>
-      </div>
-    </NavigationContext.Provider>
+    <ApiTokenProvider>
+      <NavigationContext.Provider value={{ activeTab, setActiveTab: handleTabChange }}>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-12 lg:px-0">
+          <Navbar />
+          <main className="flex flex-col gap-8 pb-8">
+            {activeTab === 'catalog' && (
+              <CatalogPage searchSeed={searchSeed} onSeedApplied={() => setSearchSeed(undefined)} />
+            )}
+            {activeTab === 'apps' && <ServiceGallery />}
+            {activeTab === 'workflows' && <WorkflowsPage />}
+            {activeTab === 'submit' && <SubmitApp onAppRegistered={handleAppRegistered} />}
+            {activeTab === 'import-manifest' && <ImportServiceManifest onImported={handleManifestImported} />}
+            {activeTab === 'api-access' && <ApiAccessPage />}
+          </main>
+        </div>
+      </NavigationContext.Provider>
+    </ApiTokenProvider>
   );
 }
 
