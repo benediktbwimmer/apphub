@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { promises as fs, createReadStream } from 'node:fs';
 import path from 'node:path';
-import tar from 'tar';
+import tar, { type ReadEntry } from 'tar';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { logger } from '../observability/logger';
 import type { JobBundleVersionRecord, JsonValue } from '../db';
@@ -92,7 +92,11 @@ async function removeDirSafe(target: string): Promise<void> {
   try {
     await fs.rm(target, { recursive: true, force: true });
   } catch (err) {
-    logger.warn({ err, target }, 'Failed to remove bundle cache directory');
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.warn('Failed to remove bundle cache directory', {
+      error: errorMessage,
+      target
+    });
   }
 }
 
@@ -240,7 +244,7 @@ export class BundleCache {
         cwd: stagingDir,
         strict: true,
         preservePaths: false,
-        onentry: (entry) => {
+        onentry: (entry: ReadEntry) => {
           if (!entry.path || entry.path.includes('..')) {
             throw new Error('Unsafe path detected while extracting bundle artifact');
           }
@@ -261,7 +265,11 @@ export class BundleCache {
       throw new Error(`Bundle entry file not found at ${manifest.entry}`);
     }
 
-    logger.info({ slug: record.slug, version: record.version, bundleRoot }, 'Loaded job bundle into cache');
+    logger.info('Loaded job bundle into cache', {
+      slug: record.slug,
+      version: record.version,
+      bundleRoot
+    });
 
     return {
       key,
@@ -346,7 +354,10 @@ export class BundleCache {
     const relative = path.relative(this.cacheRoot, entry.directory);
     if (relative && !relative.startsWith('..')) {
       await removeDirSafe(entry.directory);
-      logger.info({ slug: entry.slug, version: entry.version }, 'Evicted job bundle from cache');
+      logger.info('Evicted job bundle from cache', {
+        slug: entry.slug,
+        version: entry.version
+      });
     }
   }
 }

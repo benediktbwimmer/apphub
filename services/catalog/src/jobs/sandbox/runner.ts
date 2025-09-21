@@ -201,26 +201,40 @@ export class SandboxRunner {
     const outcome = await new Promise<SandboxExecutionResult>((resolve, reject) => {
       let settled = false;
 
-      function settle(fn: (value: SandboxExecutionResult | Error) => void, value: SandboxExecutionResult | Error) {
-        if (settled) {
-          return;
-        }
-        settled = true;
+      const cleanup = (forceKill: boolean) => {
         if (timeoutHandle) {
           clearTimeout(timeoutHandle);
+          timeoutHandle = null;
         }
-        terminateChild(value instanceof Error);
+        terminateChild(forceKill);
         child.removeAllListeners('message');
         child.removeAllListeners('exit');
         child.removeAllListeners('error');
         if (child.stdout) child.stdout.removeAllListeners('data');
         if (child.stderr) child.stderr.removeAllListeners('data');
-        fn(value);
-      }
+      };
+
+      const resolveOutcome = (value: SandboxExecutionResult) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup(false);
+        resolve(value);
+      };
+
+      const rejectOutcome = (error: Error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup(true);
+        reject(error);
+      };
 
       child.on('error', (err) => {
         options.logger('Sandbox process error', { taskId, error: err.message });
-        settle(reject, err);
+        rejectOutcome(err);
       });
 
       child.on('exit', (code, signal) => {
@@ -229,7 +243,7 @@ export class SandboxRunner {
         }
         if (timedOut) {
           const elapsed = Date.now() - startedAt;
-          settle(reject, new SandboxTimeoutError('Sandbox execution exceeded timeout', elapsed));
+          rejectOutcome(new SandboxTimeoutError('Sandbox execution exceeded timeout', elapsed));
           return;
         }
         if (code === 0) {
@@ -241,7 +255,7 @@ export class SandboxRunner {
           code,
           signal
         );
-        settle(reject, err);
+        rejectOutcome(err);
       });
 
       const sendMessage = (message: SandboxParentMessage) => {
@@ -272,7 +286,12 @@ export class SandboxRunner {
             void options
               .update(raw.updates)
               .then((run) => {
-                sendMessage({ type: 'update-response', requestId: raw.requestId, ok: true, run: sanitizeForIpc(run) });
+                sendMessage({
+                  type: 'update-response',
+                  requestId: raw.requestId,
+                  ok: true,
+                  run: sanitizeForIpc(run)
+                });
               })
               .catch((err) => {
                 sendMessage({
@@ -317,7 +336,7 @@ export class SandboxRunner {
               logs: logs.slice(0, this.maxLogs),
               truncatedLogCount: truncatedLogs
             };
-            settle(resolve, output);
+            resolveOutcome(output);
             break;
           }
           case 'error': {
@@ -329,7 +348,7 @@ export class SandboxRunner {
               taskId,
               message: err.message
             });
-            settle(reject, err);
+            rejectOutcome(err);
             break;
           }
           default:
@@ -364,7 +383,7 @@ export class SandboxRunner {
       try {
         sendMessage(startPayload);
       } catch (err) {
-        settle(reject, err instanceof Error ? err : new Error(String(err)));
+        rejectOutcome(err instanceof Error ? err : new Error(String(err)));
       }
     });
 

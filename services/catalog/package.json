@@ -38,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@types/pg": "^8.11.4",
+    "@types/tar": "^6.1.12",
     "@types/ws": "^8.18.1",
     "embedded-postgres": "^17.6.0-beta.15",
     "ioredis-mock": "^8.9.0",

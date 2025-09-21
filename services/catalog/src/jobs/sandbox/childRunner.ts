@@ -3,12 +3,23 @@ import Module from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import type { SandboxParentMessage, SandboxChildMessage, SandboxStartPayload } from './messages';
-import type { SecretReference } from '../../db/types';
+import type { SecretReference, JsonValue } from '../../db/types';
 
 const builtinModules = new Set(Module.builtinModules);
 for (const name of Module.builtinModules) {
   builtinModules.add(`node:${name}`);
 }
+
+type ModuleWithPrivateResolve = typeof Module & {
+  _resolveFilename(
+    request: string,
+    parent?: NodeJS.Module,
+    isMain?: boolean,
+    options?: unknown
+  ): string;
+};
+
+const moduleWithPrivateResolve = Module as ModuleWithPrivateResolve;
 
 const BASE_ALLOWED_MODULES = new Set<string>([
   'path',
@@ -107,6 +118,8 @@ type PendingRequest = {
   reject: (err: Error) => void;
 };
 
+type SandboxUpdatePayload = Extract<SandboxChildMessage, { type: 'update-request' }>['updates'];
+
 const pendingRequests = new Map<string, PendingRequest>();
 let started = false;
 
@@ -127,6 +140,72 @@ function normalizeMeta(meta: unknown): Record<string, unknown> | undefined {
     });
     return undefined;
   }
+}
+
+function toJsonValue(value: unknown): JsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const result: JsonValue[] = [];
+    for (const item of value) {
+      const converted = toJsonValue(item);
+      if (converted !== undefined) {
+        result.push(converted);
+      }
+    }
+    return result;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const result: Record<string, JsonValue> = {};
+    for (const [key, entryValue] of entries) {
+      const converted = toJsonValue(entryValue);
+      if (converted !== undefined) {
+        result[key] = converted;
+      }
+    }
+    return result;
+  }
+  return undefined;
+}
+
+function normalizeUpdates(updates: {
+  parameters?: unknown;
+  logsUrl?: string | null;
+  metrics?: unknown;
+  context?: unknown;
+  timeoutMs?: number | null;
+}): SandboxUpdatePayload {
+  const result: SandboxUpdatePayload = {};
+  if (updates.parameters !== undefined) {
+    const value = toJsonValue(updates.parameters);
+    if (value !== undefined) {
+      result.parameters = value;
+    }
+  }
+  if (updates.logsUrl !== undefined) {
+    result.logsUrl = updates.logsUrl ?? null;
+  }
+  if (updates.metrics !== undefined) {
+    const value = toJsonValue(updates.metrics);
+    if (value !== undefined) {
+      result.metrics = value;
+    }
+  }
+  if (updates.context !== undefined) {
+    const value = toJsonValue(updates.context);
+    if (value !== undefined) {
+      result.context = value;
+    }
+  }
+  if (updates.timeoutMs !== undefined) {
+    result.timeoutMs = updates.timeoutMs ?? null;
+  }
+  return result;
 }
 
 function sanitizeForIpc<T>(value: T): T {
@@ -170,8 +249,14 @@ function setupModuleGuards(bundleDir: string, capabilities: string[]): void {
     }
   }
 
-  const originalResolveFilename = Module._resolveFilename;
-  Module._resolveFilename = function patchedResolve(request: string, parent: Module | undefined, isMain: boolean, options?: any) {
+  const originalResolveFilename = moduleWithPrivateResolve._resolveFilename;
+  moduleWithPrivateResolve._resolveFilename = function patchedResolve(
+    this: NodeJS.Module | typeof Module,
+    request: string,
+    parent: NodeJS.Module | undefined,
+    isMain: boolean,
+    options?: unknown
+  ): string {
     if (DISALLOWED_MODULES.has(request) || DISALLOWED_MODULES.has(stripNodePrefix(request))) {
       throw new Error(`Access to module \"${request}\" is not permitted inside sandbox`);
     }
@@ -187,7 +272,7 @@ function setupModuleGuards(bundleDir: string, capabilities: string[]): void {
     const resolved = originalResolveFilename.call(this, request, parent, isMain, options);
     ensureWithinBundle(bundleDir, resolved);
     return resolved;
-  } as typeof Module._resolveFilename;
+  };
 
   if (!allowNetwork && typeof globalThis.fetch === 'function') {
     globalThis.fetch = async () => {
@@ -261,16 +346,21 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
       timeoutMs?: number | null;
     }) {
       const requestId = randomUUID();
-      const serializedUpdates = sanitizeForIpc(updates ?? {});
-      const promise = new Promise((resolve, reject) => {
+      const normalizedUpdates = normalizeUpdates(updates ?? {});
+      const serializedUpdates = sanitizeForIpc(normalizedUpdates);
+      const promise = new Promise<typeof payload.job.run>((resolve, reject) => {
         pendingRequests.set(requestId, {
           kind: 'update',
-          resolve,
-          reject
+          resolve: (value) => {
+            resolve(value as typeof payload.job.run);
+          },
+          reject: (err) => {
+            reject(err);
+          }
         });
       });
       send({ type: 'update-request', requestId, updates: serializedUpdates });
-      const updatedRun = (await promise) as typeof payload.job.run;
+      const updatedRun = await promise;
       context.run = updatedRun;
       context.parameters = updatedRun.parameters;
       return updatedRun;
@@ -280,8 +370,12 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
       const promise = new Promise<string | null>((resolve, reject) => {
         pendingRequests.set(requestId, {
           kind: 'resolve-secret',
-          resolve,
-          reject
+          resolve: (value) => {
+            resolve((value as string | null) ?? null);
+          },
+          reject: (err) => {
+            reject(err);
+          }
         });
       });
       send({ type: 'resolve-secret-request', requestId, reference });
@@ -315,14 +409,25 @@ process.on('message', async (message: SandboxParentMessage) => {
       }
       started = true;
       await executeStart(message.payload);
-    } else if (message.type === 'update-response' || message.type === 'resolve-secret-response') {
+    } else if (message.type === 'update-response') {
       const pending = pendingRequests.get(message.requestId);
-      if (!pending) {
+      if (!pending || pending.kind !== 'update') {
         return;
       }
       pendingRequests.delete(message.requestId);
       if (message.ok) {
-        pending.resolve('run' in message ? message.run : 'value' in message ? message.value : null);
+        pending.resolve(message.run);
+      } else {
+        pending.reject(new Error(message.error));
+      }
+    } else if (message.type === 'resolve-secret-response') {
+      const pending = pendingRequests.get(message.requestId);
+      if (!pending || pending.kind !== 'resolve-secret') {
+        return;
+      }
+      pendingRequests.delete(message.requestId);
+      if (message.ok) {
+        pending.resolve(message.value);
       } else {
         pending.reject(new Error(message.error));
       }

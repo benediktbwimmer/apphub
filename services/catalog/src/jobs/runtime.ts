@@ -20,7 +20,7 @@ import {
 import { resolveSecret } from '../secrets';
 import { logger } from '../observability/logger';
 import { normalizeMeta } from '../observability/meta';
-import { bundleCache } from './bundleCache';
+import { bundleCache, type AcquiredBundle } from './bundleCache';
 import {
   sandboxRunner,
   SandboxTimeoutError,
@@ -204,7 +204,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   let sandboxTelemetry: SandboxExecutionResult | null = null;
 
   try {
-    let handlerResult: JobResult | void;
+    let handlerResult: JobResult | undefined;
     const preferBundle =
       Boolean(bundleBinding) && (!staticHandler || shouldUseJobBundle(definition.slug));
     const allowFallback = Boolean(staticHandler) && shouldAllowLegacyFallback(definition.slug);
@@ -252,7 +252,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
 
     if (!handlerResult) {
       if (staticHandler) {
-        handlerResult = await staticHandler(context);
+        const maybeResult = await staticHandler(context);
+        handlerResult = maybeResult ?? undefined;
       } else if (bundleBinding && !attemptedBundle) {
         attemptedBundle = true;
         const dynamic = await executeDynamicHandler({
@@ -266,7 +267,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       }
     }
 
-    const finalResult: JobResult = (handlerResult ?? {}) as JobResult;
+    const finalResult: JobResult = handlerResult ?? {};
     const status = finalResult.status ?? 'succeeded';
 
     let mergedMetrics = finalResult.metrics ?? null;
@@ -314,7 +315,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         errorContext.signal = err.signal ?? null;
       }
       if (sandboxTelemetry) {
-        errorContext.sandboxLogs = sandboxTelemetry.logs;
+        errorContext.sandboxLogs = sanitizeSandboxLogs(sandboxTelemetry.logs);
         errorContext.sandboxTruncatedLogCount = sandboxTelemetry.truncatedLogCount;
         errorContext.sandboxTaskId = sandboxTelemetry.taskId;
       }
@@ -430,11 +431,7 @@ function buildSandboxMetrics(telemetry: SandboxExecutionResult): Record<string, 
 }
 
 function buildSandboxContext(telemetry: SandboxExecutionResult): Record<string, JsonValue> {
-  const logs = telemetry.logs.map((entry) => ({
-    level: entry.level,
-    message: entry.message,
-    meta: entry.meta ?? null
-  }));
+  const logs = sanitizeSandboxLogs(telemetry.logs);
   return {
     sandbox: {
       taskId: telemetry.taskId,
@@ -442,6 +439,14 @@ function buildSandboxContext(telemetry: SandboxExecutionResult): Record<string, 
       truncatedLogCount: telemetry.truncatedLogCount
     }
   } satisfies Record<string, JsonValue>;
+}
+
+function sanitizeSandboxLogs(logs: SandboxExecutionResult['logs']): JsonValue[] {
+  return logs.map((entry) => ({
+    level: entry.level,
+    message: entry.message,
+    meta: normalizeMeta(entry.meta ?? undefined) ?? null
+  })) as JsonValue[];
 }
 
 function mergeJsonObjects(
@@ -466,7 +471,11 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
   if (!usage) {
     return null;
   }
-  return {
+  const extended = usage as NodeJS.ResourceUsage & {
+    ipcMessagesSent?: number;
+    ipcMessagesReceived?: number;
+  };
+  const normalized: Record<string, JsonValue> = {
     userCpuMicros: usage.userCPUTime,
     systemCpuMicros: usage.systemCPUTime,
     maxRssKb: usage.maxRSS,
@@ -475,10 +484,15 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
     unsharedStackKb: usage.unsharedStackSize,
     minorPageFaults: usage.minorPageFault,
     majorPageFaults: usage.majorPageFault,
-    ipcMessagesSent: usage.ipcMessagesSent,
-    ipcMessagesReceived: usage.ipcMessagesReceived,
     signals: usage.signalsCount,
     voluntaryContextSwitches: usage.voluntaryContextSwitches,
     involuntaryContextSwitches: usage.involuntaryContextSwitches
-  } satisfies Record<string, JsonValue>;
+  };
+  if (typeof extended.ipcMessagesSent === 'number') {
+    normalized.ipcMessagesSent = extended.ipcMessagesSent;
+  }
+  if (typeof extended.ipcMessagesReceived === 'number') {
+    normalized.ipcMessagesReceived = extended.ipcMessagesReceived;
+  }
+  return normalized;
 }
