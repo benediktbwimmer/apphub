@@ -688,6 +688,18 @@ function serializeLaunch(launch: LaunchRecord | null) {
   };
 }
 
+function extractOpenApiMetadata(metadata: JsonValue | null): JsonValue | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+  const metadataObject = metadata as Record<string, JsonValue>;
+  const openapi = metadataObject.openapi;
+  if (!openapi || typeof openapi !== 'object' || Array.isArray(openapi)) {
+    return null;
+  }
+  return openapi;
+}
+
 function serializeService(service: ServiceRecord) {
   return {
     id: service.id,
@@ -699,6 +711,7 @@ function serializeService(service: ServiceRecord) {
     statusMessage: service.statusMessage,
     capabilities: service.capabilities,
     metadata: service.metadata,
+    openapi: extractOpenApiMetadata(service.metadata),
     lastHealthyAt: service.lastHealthyAt,
     createdAt: service.createdAt,
     updatedAt: service.updatedAt

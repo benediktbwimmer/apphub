@@ -67,6 +67,7 @@ type HealthCheckOutcome = {
     fetchedAt: string;
     bytes: number;
     url: string;
+    schema: JsonValue | null;
   } | null;
 };
 
@@ -351,6 +352,28 @@ function removeUndefined<T extends Record<string, unknown>>(input: T): Record<st
     result[key] = value as JsonValue;
   }
   return result;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) {
+    return true;
+  }
+  const valueType = typeof value;
+  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  if (valueType === 'object') {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      if (!isJsonValue(entry)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
 }
 
 export type ServiceRuntimeSnapshot = {
@@ -892,11 +915,22 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
   const text = await response.text();
   const hash = createHash('sha256').update(text).digest('hex');
   let version: string | null = null;
+  let schema: JsonValue | null = null;
   try {
-    const parsed = parseYaml(text) as Record<string, unknown> | undefined;
-    const maybeVersion = parsed && typeof parsed === 'object' ? (parsed.info as Record<string, unknown> | undefined) : undefined;
-    if (maybeVersion && typeof maybeVersion.version === 'string') {
-      version = maybeVersion.version;
+    const parsed = parseYaml(text);
+    if (isJsonValue(parsed)) {
+      schema = parsed;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const info = (parsed as Record<string, JsonValue>).info;
+        if (info && typeof info === 'object' && !Array.isArray(info)) {
+          const maybeVersion = (info as Record<string, JsonValue>).version;
+          if (typeof maybeVersion === 'string') {
+            version = maybeVersion;
+          }
+        }
+      }
+    } else {
+      log('warn', 'openapi document is not a JSON-compatible structure', { url });
     }
   } catch (err) {
     log('warn', 'failed to parse OpenAPI document', { url, error: (err as Error).message });
@@ -904,7 +938,8 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
   return {
     hash,
     version,
-    bytes: Buffer.byteLength(text, 'utf8')
+    bytes: Buffer.byteLength(text, 'utf8'),
+    schema
   };
 }
 
@@ -984,7 +1019,8 @@ async function checkServiceHealth(service: ServiceRecord) {
           version: openapiResult.version,
           fetchedAt: nowIso,
           bytes: openapiResult.bytes,
-          url: openapiUrl
+          url: openapiUrl,
+          schema: openapiResult.schema
         };
         metadata.openapi = outcome.openapi;
       } catch (err) {
