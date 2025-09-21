@@ -19,6 +19,7 @@ import {
   saveDraftToStorage,
   loadDraftFromStorage,
   clearDraftFromStorage,
+  workflowCreateInputToDraft,
   type DraftValidation,
   type DiffEntry
 } from './state';
@@ -51,6 +52,7 @@ type WorkflowBuilderDialogProps = {
   onClose: () => void;
   onSubmit: (input: SubmitArgs) => Promise<void>;
   submitting?: boolean;
+  prefillCreatePayload?: WorkflowCreateInput | null;
 };
 
 export function WorkflowBuilderDialog({
@@ -59,7 +61,8 @@ export function WorkflowBuilderDialog({
   workflow = null,
   onClose,
   onSubmit,
-  submitting = false
+  submitting = false,
+  prefillCreatePayload = null
 }: WorkflowBuilderDialogProps) {
   const { jobs, services, loading: resourcesLoading, error: resourcesError, refresh } = useWorkflowResources();
   const [draft, setDraft] = useState<WorkflowDraft>(() => createEmptyDraft());
@@ -85,11 +88,16 @@ export function WorkflowBuilderDialog({
     if (mode === 'edit' && workflow) {
       setDraft(workflowDefinitionToDraft(workflow));
       setRestoredDraft(false);
-    } else {
-      setDraft(createEmptyDraft());
-      setRestoredDraft(false);
+      return;
     }
-  }, [open, autosaveKey, mode, workflow]);
+    if (mode === 'create' && prefillCreatePayload) {
+      setDraft(workflowCreateInputToDraft(prefillCreatePayload));
+      setRestoredDraft(false);
+      return;
+    }
+    setDraft(createEmptyDraft());
+    setRestoredDraft(false);
+  }, [open, autosaveKey, mode, workflow, prefillCreatePayload]);
 
   useEffect(() => {
     if (!open) {

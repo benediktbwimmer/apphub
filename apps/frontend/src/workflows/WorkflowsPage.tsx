@@ -35,6 +35,7 @@ import {
   ApiError
 } from './api';
 import WorkflowBuilderDialog, { type WorkflowBuilderSubmitArgs } from './builder/WorkflowBuilderDialog';
+import AiBuilderDialog from './ai/AiBuilderDialog';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import { formatDuration, formatTimestamp } from './formatters';
 import type {
@@ -44,6 +45,7 @@ import type {
   WorkflowRunStep,
   WorkflowRuntimeSummary
 } from './types';
+import type { WorkflowCreateInput } from './api';
 
 const WORKFLOW_RUN_EVENT_TYPES = [
   'workflow.run.updated',
@@ -104,6 +106,9 @@ export default function WorkflowsPage() {
   const [builderWorkflow, setBuilderWorkflow] = useState<WorkflowDefinition | null>(null);
   const [builderSubmitting, setBuilderSubmitting] = useState(false);
   const [canEditWorkflows, setCanEditWorkflows] = useState(false);
+  const [canUseAiBuilder, setCanUseAiBuilder] = useState(false);
+  const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
+  const [aiPrefillWorkflow, setAiPrefillWorkflow] = useState<WorkflowCreateInput | null>(null);
 
   const [filters, setFilters] = useState<WorkflowFiltersState>(INITIAL_FILTERS);
   const [searchTerm, setSearchTerm] = useState('');
@@ -355,13 +360,17 @@ export default function WorkflowsPage() {
           return;
         }
         if (identity && Array.isArray(identity.scopes)) {
-          setCanEditWorkflows(identity.scopes.includes('workflows:write'));
+          const scopes = new Set(identity.scopes);
+          setCanEditWorkflows(scopes.has('workflows:write'));
+          setCanUseAiBuilder(scopes.has('workflows:write') || scopes.has('jobs:write'));
         } else {
           setCanEditWorkflows(false);
+          setCanUseAiBuilder(false);
         }
       } catch {
         if (!cancelled) {
           setCanEditWorkflows(false);
+          setCanUseAiBuilder(false);
         }
       }
     };
@@ -652,6 +661,39 @@ export default function WorkflowsPage() {
     }
   };
 
+  const handleOpenAiBuilder = useCallback(() => {
+    if (!canUseAiBuilder) {
+      return;
+    }
+    setAiBuilderOpen(true);
+    console.info('ai-builder.usage', { event: 'opened', source: 'workflows-page' });
+  }, [canUseAiBuilder]);
+
+  const handleAiWorkflowPrefill = useCallback(
+    (spec: WorkflowCreateInput) => {
+      setAiPrefillWorkflow(spec);
+      setBuilderMode('create');
+      setBuilderWorkflow(null);
+      setBuilderOpen(true);
+    },
+    []
+  );
+
+  const handleAiWorkflowSubmitted = useCallback(
+    async (workflowCreated: WorkflowDefinition) => {
+      await loadWorkflows();
+      selectedSlugRef.current = workflowCreated.slug;
+      setSelectedSlug(workflowCreated.slug);
+      await loadWorkflowDetail(workflowCreated.slug);
+    },
+    [loadWorkflows, loadWorkflowDetail]
+  );
+
+  const handleBuilderClose = useCallback(() => {
+    setBuilderOpen(false);
+    setAiPrefillWorkflow(null);
+  }, []);
+
   const handleOpenCreateBuilder = useCallback(() => {
     if (!canEditWorkflows) {
       return;
@@ -687,6 +729,7 @@ export default function WorkflowsPage() {
           });
           setBuilderOpen(false);
           setBuilderWorkflow(null);
+          setAiPrefillWorkflow(null);
           await loadWorkflows();
           selectedSlugRef.current = created.slug;
           setSelectedSlug(created.slug);
@@ -701,6 +744,7 @@ export default function WorkflowsPage() {
           });
           setBuilderOpen(false);
           setBuilderWorkflow(updated);
+          setAiPrefillWorkflow(null);
           await loadWorkflows();
           await loadWorkflowDetail(updated.slug);
         }
@@ -754,6 +798,19 @@ export default function WorkflowsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            onClick={handleOpenAiBuilder}
+            disabled={!canUseAiBuilder}
+            title={
+              canUseAiBuilder
+                ? 'Draft jobs or workflows with Codex assistance.'
+                : 'Add an operator token with workflows:write or jobs:write scope to use the AI builder.'
+            }
+          >
+            AI builder
+          </button>
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-full border border-violet-500/60 bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-violet-500"
@@ -1142,9 +1199,22 @@ export default function WorkflowsPage() {
             open={builderOpen}
             mode={builderMode}
             workflow={builderWorkflow}
-            onClose={() => setBuilderOpen(false)}
+            onClose={handleBuilderClose}
             onSubmit={handleBuilderSubmit}
             submitting={builderSubmitting}
+            prefillCreatePayload={aiPrefillWorkflow}
+          />
+        </WorkflowResourcesProvider>
+      )}
+      {aiBuilderOpen && (
+        <WorkflowResourcesProvider>
+          <AiBuilderDialog
+            open={aiBuilderOpen}
+            onClose={() => setAiBuilderOpen(false)}
+            authorizedFetch={authorizedFetch}
+            pushToast={pushToast}
+            onWorkflowSubmitted={handleAiWorkflowSubmitted}
+            onWorkflowPrefill={handleAiWorkflowPrefill}
           />
         </WorkflowResourcesProvider>
       )}
