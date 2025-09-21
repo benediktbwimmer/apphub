@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import {
-  buildDockerRunCommandString,
-  createLaunchId
-} from '../launchCommand';
+import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { normalizePreviewUrl } from '../../utils/url';
 import {
   formatDuration,
@@ -19,6 +16,7 @@ import {
   FullscreenOverlay,
   type FullscreenPreviewState
 } from './FullscreenPreview';
+import { collectAvailableEnvVars, mergeEnvSources } from './envUtils';
 
 type AppListProps = {
   apps: AppRecord[];
@@ -70,27 +68,13 @@ function getStatusBadgeClasses(status: string) {
 }
 
 function collectLaunchEnv(app: AppRecord): LaunchEnvVar[] {
-  const candidates = [
-    ...(app.availableLaunchEnv ?? []),
-    ...(app.launchEnvTemplates ?? []),
-    ...(app.availableEnv ?? [])
-  ];
-  const seen = new Set<string>();
-  const normalized: LaunchEnvVar[] = [];
-
-  for (const entry of candidates) {
-    if (!entry || typeof entry.key !== 'string') {
-      continue;
-    }
-    const key = entry.key.trim();
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    normalized.push({ key, value: typeof entry.value === 'string' ? entry.value : '' });
-  }
-
-  return normalized;
+  const availableEnv = collectAvailableEnvVars({
+    tags: app.tags,
+    availableEnv: app.availableEnv,
+    availableLaunchEnv: app.availableLaunchEnv,
+    launchEnvTemplates: app.launchEnvTemplates
+  });
+  return mergeEnvSources(app.latestLaunch?.env ?? [], availableEnv);
 }
 
 function AppList({
