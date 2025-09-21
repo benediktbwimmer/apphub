@@ -3,6 +3,11 @@ import path from 'node:path';
 
 export type CodexGenerationMode = 'workflow' | 'job' | 'job-with-bundle';
 
+export type CodexContextFile = {
+  path: string;
+  contents: string;
+};
+
 export type CodexGenerationOptions = {
   mode: CodexGenerationMode;
   operatorRequest: string;
@@ -10,6 +15,7 @@ export type CodexGenerationOptions = {
   additionalNotes?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  contextFiles?: CodexContextFile[];
 };
 
 export type CodexGenerationResult = {
@@ -21,7 +27,7 @@ export type CodexGenerationResult = {
   summary?: string | null;
 };
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 1_000;
 const EXTRA_TIMEOUT_BUFFER_MS = 60_000;
 
@@ -122,7 +128,8 @@ export async function startCodexGenerationJob(
     operatorRequest: options.operatorRequest,
     metadataSummary: options.metadataSummary,
     additionalNotes: options.additionalNotes ?? null,
-    timeoutMs: resolveTimeoutMs(options)
+    timeoutMs: resolveTimeoutMs(options),
+    contextFiles: options.contextFiles ?? undefined
   }, options.signal);
 }
 

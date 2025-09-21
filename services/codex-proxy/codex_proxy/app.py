@@ -13,18 +13,23 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock, Thread
-from typing import Annotated, Callable, Dict, Literal, Optional
+from typing import Annotated, Callable, Dict, Literal, Optional, Sequence
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 LOGGER = logging.getLogger("codex-proxy")
 
-DEFAULT_TIMEOUT_MS = 120_000
+DEFAULT_TIMEOUT_MS = 600_000
 OUTPUT_FILENAME = "suggestion.json"
 SUMMARY_FILENAME = "summary.txt"
 JOB_RETENTION_SECONDS = int(os.getenv("CODEX_PROXY_JOB_RETENTION_SECONDS", "3600"))
 POLL_INTERVAL_SECONDS = 0.5
+
+
+class ContextFile(BaseModel):
+    path: str = Field(..., min_length=1, description="Relative file path inside the workspace")
+    contents: str = Field(default="", description="File contents written verbatim with UTF-8 encoding")
 
 
 class GenerateRequest(BaseModel):
@@ -33,6 +38,10 @@ class GenerateRequest(BaseModel):
     metadataSummary: str = Field(default="", description="Catalog metadata summary")
     additionalNotes: Optional[str] = Field(default=None, description="Extra prompt instructions")
     timeoutMs: Optional[int] = Field(default=None, ge=1_000, description="Request-specific timeout in ms")
+    contextFiles: Optional[list[ContextFile]] = Field(
+        default=None,
+        description="Additional context files to materialize inside the workspace",
+    )
 
 
 class GenerateResponse(BaseModel):
@@ -121,9 +130,22 @@ def _get_cli_path() -> str:
 
 def _get_additional_args() -> list[str]:
     raw = os.getenv("CODEX_PROXY_EXEC_OPTS")
-    if not raw:
-        return []
-    return shlex.split(raw)
+    args = shlex.split(raw) if raw else []
+
+    has_sandbox = False
+    for index, token in enumerate(args):
+        if token == "--sandbox" or token == "-s":
+            has_sandbox = True
+            break
+        if token.startswith("--sandbox="):
+            has_sandbox = True
+            break
+    if not has_sandbox:
+        default_sandbox = os.getenv("CODEX_PROXY_DEFAULT_SANDBOX", "workspace-write").strip()
+        if default_sandbox:
+            args.extend(["--sandbox", default_sandbox])
+
+    return args
 
 
 def _default_timeout_ms() -> int:
@@ -146,6 +168,39 @@ def _should_keep_workspace() -> bool:
     return False
 
 
+def _is_safe_relative_path(path: Path) -> bool:
+    if path.is_absolute():
+        return False
+    for part in path.parts:
+        if part in ("..", ""):
+            return False
+    return True
+
+
+def _write_context_files(workspace: Path, files: Sequence[ContextFile] | None) -> None:
+    if not files:
+        return
+    for file in files:
+        relative = Path(file.path.strip())
+        if not _is_safe_relative_path(relative):
+            LOGGER.warning("Skipping unsafe context path: %s", file.path)
+            continue
+        target = workspace / relative
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(file.contents, encoding="utf-8")
+            try:
+                target.parent.chmod(0o777)
+            except OSError:
+                pass
+            try:
+                target.chmod(0o666)
+            except OSError:
+                pass
+        except OSError as exc:
+            LOGGER.warning("Failed to write context file %s: %s", target, exc)
+
+
 def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
     sections: list[str] = [
         "# AppHub AI Builder Task",
@@ -157,6 +212,10 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
         f"3. Write the JSON payload to `./output/{OUTPUT_FILENAME}`. Do not print the JSON to stdout.",
         "4. Ensure the JSON is pretty-printed with two-space indentation.",
     ]
+
+    sections.append(
+        "Reference the JSON schemas in `./context/schemas/` and the summaries in `./context/reference/` for precise field definitions."
+    )
 
     extra = (request.additionalNotes or "").strip()
     if extra:
@@ -187,6 +246,23 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
             ]
         )
         sections.append(bundle_instructions)
+    elif request.mode == "job":
+        job_instructions = "\n".join(
+            [
+                "For job mode the JSON must be a single job definition object, not wrapped in a `job` property.",
+                "Ensure it includes required fields such as `slug`, `name`, `type`, `version`, `timeout`, `entry`, and a `parameters` array.",
+                "Include optional metadata (like tags or description) where appropriate.",
+            ]
+        )
+        sections.append(job_instructions)
+    elif request.mode == "workflow":
+        workflow_instructions = "\n".join(
+            [
+                "For workflow mode the JSON must be a workflow definition object matching the platform schema (no wrapper key).",
+                "Populate `slug`, `name`, `version`, `triggers`, and `steps` with valid values.",
+            ]
+        )
+        sections.append(workflow_instructions)
 
     return "\n\n".join(filter(None, sections)) + "\n"
 
@@ -197,6 +273,16 @@ def _write_workspace(request: GenerateRequest) -> tuple[Path, Path, Path]:
     output_dir = workspace / "output"
     context_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # The Codex CLI runs inside a sandboxed environment that may execute as
+    # a different user. Relax permissions so the process can write to the
+    # workspace and particularly the output directory where it must persist
+    # `suggestion.json`.
+    for directory in (workspace, context_dir, output_dir):
+        try:
+            directory.chmod(0o777)
+        except OSError as exc:  # pragma: no cover - defensive logging
+            LOGGER.warning("Failed to adjust permissions for %s: %s", directory, exc)
 
     instructions_path = workspace / "instructions.md"
     instructions = _build_instructions_text(request, workspace)
@@ -210,6 +296,8 @@ def _write_workspace(request: GenerateRequest) -> tuple[Path, Path, Path]:
     )
     metadata_path = context_dir / "metadata.md"
     metadata_path.write_text(metadata_body, encoding="utf-8")
+
+    _write_context_files(workspace, request.contextFiles)
 
     return workspace, instructions_path, output_dir / OUTPUT_FILENAME
 
@@ -277,6 +365,11 @@ def _execute_codex(
         env.setdefault("CODEX_NO_COLOR", "1")
         env.setdefault("CODEX_SUPPRESS_SPINNER", "1")
         env["APPHUB_CODEX_OUTPUT_DIR"] = str(output_path.parent)
+        # Some Codex sandboxes expose a read-only /tmp; point temp dirs to the
+        # writable workspace so here-docs and python's tempfile module succeed.
+        env.setdefault("TMPDIR", str(workspace))
+        env.setdefault("TMP", str(workspace))
+        env.setdefault("TEMP", str(workspace))
 
         command = [cli_path, "exec", *extra_args, str(instructions_path)]
         LOGGER.debug("Executing %s", json.dumps(command))

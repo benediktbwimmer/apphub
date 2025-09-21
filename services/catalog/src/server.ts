@@ -118,6 +118,7 @@ import {
   type CodexGenerationMode,
   type CodexProxyJobStatusResponse
 } from './ai/codexRunner';
+import { buildCodexContextFiles } from './ai/contextFiles';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from './ai/bundlePublisher';
 import {
   jobDefinitionCreateSchema,
@@ -130,6 +131,8 @@ import {
   workflowServiceRequestSchema,
   workflowStepSchema,
   workflowTriggerSchema,
+  aiBundleSuggestionSchema,
+  aiJobWithBundleOutputSchema,
   type WorkflowJsonValue,
   type WorkflowFanOutTemplateInput,
   type WorkflowStepInput,
@@ -337,34 +340,6 @@ const jobBundleUpdateSchema = z
     message: 'At least one field must be provided'
   });
 
-const aiBundleFileSchema = z
-  .object({
-    path: z.string().min(1),
-    contents: z.string(),
-    encoding: z.enum(['utf8', 'base64']).optional(),
-    executable: z.boolean().optional()
-  })
-  .strict();
-
-const aiBundleSuggestionSchema = z
-  .object({
-    slug: z
-      .string()
-      .min(1)
-      .max(100)
-      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
-    version: z.string().min(1),
-    entryPoint: z.string().min(1),
-    manifest: jsonObjectSchema,
-    manifestPath: z.string().min(1).optional(),
-    capabilityFlags: z.array(z.string().min(1)).optional(),
-    metadata: jsonValueSchema.nullable().optional(),
-    description: z.string().min(1).nullable().optional(),
-    displayName: z.string().min(1).nullable().optional(),
-    files: z.array(aiBundleFileSchema).min(1)
-  })
-  .strict();
-
 const aiBuilderSuggestSchema = z
   .object({
     mode: z.enum(['workflow', 'job', 'job-with-bundle']),
@@ -374,13 +349,6 @@ const aiBuilderSuggestSchema = z
   .strict();
 
 const aiBuilderJobCreateSchema = z
-  .object({
-    job: jobDefinitionCreateSchema,
-    bundle: aiBundleSuggestionSchema
-  })
-  .strict();
-
-const aiJobWithBundleOutputSchema = z
   .object({
     job: jobDefinitionCreateSchema,
     bundle: aiBundleSuggestionSchema
@@ -2277,14 +2245,24 @@ export async function buildServer() {
         listWorkflowDefinitions()
       ]);
 
+      const jobCatalog = jobs.map(serializeJobDefinition);
+      const serviceCatalog = services.map(serializeService);
+      const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+      const contextFiles = buildCodexContextFiles({
+        mode,
+        jobs: jobCatalog,
+        services: serviceCatalog,
+        workflows: workflowCatalog
+      });
 
       if (process.env.APPHUB_CODEX_MOCK_DIR) {
         const codexResult = await runCodexGeneration({
           mode,
           operatorRequest,
           metadataSummary,
-          additionalNotes
+          additionalNotes,
+          contextFiles
         });
 
         const evaluation = evaluateCodexOutput(mode, codexResult.output);
@@ -2347,7 +2325,8 @@ export async function buildServer() {
         mode,
         operatorRequest,
         metadataSummary,
-        additionalNotes
+        additionalNotes,
+        contextFiles
       });
 
       const session = createAiGenerationSession({
@@ -2531,13 +2510,23 @@ export async function buildServer() {
         listWorkflowDefinitions()
       ]);
 
+      const jobCatalog = jobs.map(serializeJobDefinition);
+      const serviceCatalog = services.map(serializeService);
+      const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+      const contextFiles = buildCodexContextFiles({
+        mode,
+        jobs: jobCatalog,
+        services: serviceCatalog,
+        workflows: workflowCatalog
+      });
 
       const codexResult = await runCodexGeneration({
         mode,
         operatorRequest: payload.prompt,
         metadataSummary,
-        additionalNotes: payload.additionalNotes ?? undefined
+        additionalNotes: payload.additionalNotes ?? undefined,
+        contextFiles
       });
 
       const evaluation = evaluateCodexOutput(mode, codexResult.output);

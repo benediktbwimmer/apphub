@@ -198,4 +198,42 @@ export type WorkflowFanOutTemplateInput = z.infer<typeof workflowFanOutTemplateS
 export type WorkflowFanOutStepInput = z.infer<typeof workflowFanOutStepSchema>;
 export type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
 export type JobDefinitionCreateInput = z.infer<typeof jobDefinitionCreateSchema>;
+export const aiBundleFileSchema = z
+  .object({
+    path: z.string().min(1),
+    contents: z.string(),
+    encoding: z.enum(['utf8', 'base64']).optional(),
+    executable: z.boolean().optional()
+  })
+  .strict();
+
+export const aiBundleSuggestionSchema = z
+  .object({
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
+    version: z.string().min(1),
+    entryPoint: z.string().min(1),
+    manifest: jsonObjectSchema,
+    manifestPath: z.string().min(1).optional(),
+    capabilityFlags: z.array(z.string().min(1)).optional(),
+    metadata: jsonValueSchema.nullable().optional(),
+    description: z.string().min(1).nullable().optional(),
+    displayName: z.string().min(1).nullable().optional(),
+    files: z.array(aiBundleFileSchema).min(1)
+  })
+  .strict();
+
+export const aiJobWithBundleOutputSchema = z
+  .object({
+    job: jobDefinitionCreateSchema,
+    bundle: aiBundleSuggestionSchema
+  })
+  .strict();
+
+export type AiBundleFile = z.infer<typeof aiBundleFileSchema>;
+export type AiBundleSuggestion = z.infer<typeof aiBundleSuggestionSchema>;
+export type AiJobWithBundleOutput = z.infer<typeof aiJobWithBundleOutputSchema>;
 export type JobDefinitionUpdateInput = z.infer<typeof jobDefinitionUpdateSchema>;

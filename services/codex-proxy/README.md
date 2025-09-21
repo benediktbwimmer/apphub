@@ -12,6 +12,7 @@ pip install --upgrade pip
 pip install .
 export CODEX_PROXY_CLI=/opt/homebrew/bin/codex  # adjust for your system
 export CODEX_PROXY_TOKEN="change-me"
+export CODEX_PROXY_EXEC_OPTS="--skip-git-repo-check"
 codex-proxy
 ```
 
@@ -31,9 +32,11 @@ Example request body (for either `POST` endpoint):
   "operatorRequest": "Generate an ingestion workflow",
   "metadataSummary": "Summaries of existing jobs and services",
   "additionalNotes": "Optional clarifications",
-  "timeoutMs": 120000
+  "timeoutMs": 600000
 }
 ```
+
+Both endpoints also accept an optional `contextFiles` array. Each entry provides a relative `path` and `contents`; the proxy writes these files into the Codex workspace before launching the CLI. This is how the catalog service shares JSON Schemas (`context/schemas/*.json`) and Markdown summaries with Codex.
 
 `GET /v1/codex/jobs/{jobId}` replies with:
 
@@ -62,8 +65,9 @@ If `CODEX_PROXY_TOKEN` is set, send `Authorization: Bearer <token>` or `X-AppHub
 | Variable | Description |
 | --- | --- |
 | `CODEX_PROXY_CLI` | Absolute path to the Codex CLI executable (defaults to `codex`). |
-| `CODEX_PROXY_EXEC_OPTS` | Extra arguments appended between `codex exec` and the instruction path. |
-| `CODEX_PROXY_TIMEOUT_MS` | Default timeout applied when the request does not provide one (milliseconds). |
+| `CODEX_PROXY_EXEC_OPTS` | Extra arguments appended between `codex exec` and the instruction path. The proxy still injects a sandbox flag when none is present. |
+| `CODEX_PROXY_DEFAULT_SANDBOX` | Sandbox policy automatically appended via `--sandbox` when no sandbox flag is found (defaults to `workspace-write`; set to an empty string to skip). |
+| `CODEX_PROXY_TIMEOUT_MS` | Default timeout applied when the request does not provide one (milliseconds, defaults to `600000`). |
 | `CODEX_PROXY_TOKEN` | Shared secret required on every request when set. |
 | `CODEX_PROXY_KEEP_WORKSPACES` | When truthy, preserves the temporary workspace directory for inspection. |
 | `CODEX_PROXY_DEBUG_LOGS` | When truthy, enables verbose logging to stdout. |

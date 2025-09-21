@@ -9,17 +9,27 @@ import subprocess
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Literal, Optional
+from threading import Lock, Thread
+from typing import Annotated, Callable, Dict, Literal, Optional, Sequence
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 LOGGER = logging.getLogger("codex-proxy")
 
-DEFAULT_TIMEOUT_MS = 120_000
+DEFAULT_TIMEOUT_MS = 600_000
 OUTPUT_FILENAME = "suggestion.json"
 SUMMARY_FILENAME = "summary.txt"
+JOB_RETENTION_SECONDS = int(os.getenv("CODEX_PROXY_JOB_RETENTION_SECONDS", "3600"))
+POLL_INTERVAL_SECONDS = 0.5
+
+
+class ContextFile(BaseModel):
+    path: str = Field(..., min_length=1, description="Relative file path inside the workspace")
+    contents: str = Field(default="", description="File contents written verbatim with UTF-8 encoding")
 
 
 class GenerateRequest(BaseModel):
@@ -28,6 +38,10 @@ class GenerateRequest(BaseModel):
     metadataSummary: str = Field(default="", description="Catalog metadata summary")
     additionalNotes: Optional[str] = Field(default=None, description="Extra prompt instructions")
     timeoutMs: Optional[int] = Field(default=None, ge=1_000, description="Request-specific timeout in ms")
+    contextFiles: Optional[list[ContextFile]] = Field(
+        default=None,
+        description="Additional context files to materialize inside the workspace",
+    )
 
 
 class GenerateResponse(BaseModel):
@@ -38,6 +52,68 @@ class GenerateResponse(BaseModel):
     stderr: str
     summary: Optional[str]
     durationMs: int
+
+
+class CreateJobResponse(BaseModel):
+    jobId: str
+    status: Literal["pending", "running"]
+    createdAt: str
+
+
+class JobStatusResponse(BaseModel):
+    jobId: str
+    status: Literal["pending", "running", "succeeded", "failed"]
+    stdout: str
+    stderr: str
+    output: Optional[str]
+    summary: Optional[str]
+    error: Optional[str]
+    exitCode: Optional[int]
+    workspace: Optional[str]
+    outputPath: Optional[str]
+    durationMs: Optional[int]
+    createdAt: str
+    startedAt: Optional[str]
+    completedAt: Optional[str]
+    updatedAt: str
+
+
+@dataclass
+class CodexExecutionResult:
+    stdout: str
+    stderr: str
+    output: Optional[str]
+    summary: Optional[str]
+    exit_code: Optional[int]
+    error: Optional[str]
+    duration_ms: int
+    workspace: Optional[str]
+    output_path: Optional[str]
+
+
+@dataclass
+class CodexJobState:
+    id: str
+    request: GenerateRequest
+    status: Literal["pending", "running", "succeeded", "failed"] = "pending"
+    stdout: str = ""
+    stderr: str = ""
+    output: Optional[str] = None
+    summary: Optional[str] = None
+    error: Optional[str] = None
+    exit_code: Optional[int] = None
+    workspace: Optional[str] = None
+    output_path: Optional[str] = None
+    duration_ms: Optional[int] = None
+    created_at: float = field(default_factory=time.time)
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    updated_at: float = field(default_factory=time.time)
+    lock: Lock = field(default_factory=Lock, repr=False)
+
+
+_jobs: Dict[str, CodexJobState] = {}
+_jobs_lock = Lock()
 
 
 def _configure_logging() -> None:
@@ -54,9 +130,22 @@ def _get_cli_path() -> str:
 
 def _get_additional_args() -> list[str]:
     raw = os.getenv("CODEX_PROXY_EXEC_OPTS")
-    if not raw:
-        return []
-    return shlex.split(raw)
+    args = shlex.split(raw) if raw else []
+
+    has_sandbox = False
+    for index, token in enumerate(args):
+        if token == "--sandbox" or token == "-s":
+            has_sandbox = True
+            break
+        if token.startswith("--sandbox="):
+            has_sandbox = True
+            break
+    if not has_sandbox:
+        default_sandbox = os.getenv("CODEX_PROXY_DEFAULT_SANDBOX", "workspace-write").strip()
+        if default_sandbox:
+            args.extend(["--sandbox", default_sandbox])
+
+    return args
 
 
 def _default_timeout_ms() -> int:
@@ -79,6 +168,39 @@ def _should_keep_workspace() -> bool:
     return False
 
 
+def _is_safe_relative_path(path: Path) -> bool:
+    if path.is_absolute():
+        return False
+    for part in path.parts:
+        if part in ("..", ""):
+            return False
+    return True
+
+
+def _write_context_files(workspace: Path, files: Sequence[ContextFile] | None) -> None:
+    if not files:
+        return
+    for file in files:
+        relative = Path(file.path.strip())
+        if not _is_safe_relative_path(relative):
+            LOGGER.warning("Skipping unsafe context path: %s", file.path)
+            continue
+        target = workspace / relative
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(file.contents, encoding="utf-8")
+            try:
+                target.parent.chmod(0o777)
+            except OSError:
+                pass
+            try:
+                target.chmod(0o666)
+            except OSError:
+                pass
+        except OSError as exc:
+            LOGGER.warning("Failed to write context file %s: %s", target, exc)
+
+
 def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
     sections: list[str] = [
         "# AppHub AI Builder Task",
@@ -90,6 +212,10 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
         f"3. Write the JSON payload to `./output/{OUTPUT_FILENAME}`. Do not print the JSON to stdout.",
         "4. Ensure the JSON is pretty-printed with two-space indentation.",
     ]
+
+    sections.append(
+        "Reference the JSON schemas in `./context/schemas/` and the summaries in `./context/reference/` for precise field definitions."
+    )
 
     extra = (request.additionalNotes or "").strip()
     if extra:
@@ -120,6 +246,23 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
             ]
         )
         sections.append(bundle_instructions)
+    elif request.mode == "job":
+        job_instructions = "\n".join(
+            [
+                "For job mode the JSON must be a single job definition object, not wrapped in a `job` property.",
+                "Ensure it includes required fields such as `slug`, `name`, `type`, `version`, `timeout`, `entry`, and a `parameters` array.",
+                "Include optional metadata (like tags or description) where appropriate.",
+            ]
+        )
+        sections.append(job_instructions)
+    elif request.mode == "workflow":
+        workflow_instructions = "\n".join(
+            [
+                "For workflow mode the JSON must be a workflow definition object matching the platform schema (no wrapper key).",
+                "Populate `slug`, `name`, `version`, `triggers`, and `steps` with valid values.",
+            ]
+        )
+        sections.append(workflow_instructions)
 
     return "\n\n".join(filter(None, sections)) + "\n"
 
@@ -130,6 +273,16 @@ def _write_workspace(request: GenerateRequest) -> tuple[Path, Path, Path]:
     output_dir = workspace / "output"
     context_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # The Codex CLI runs inside a sandboxed environment that may execute as
+    # a different user. Relax permissions so the process can write to the
+    # workspace and particularly the output directory where it must persist
+    # `suggestion.json`.
+    for directory in (workspace, context_dir, output_dir):
+        try:
+            directory.chmod(0o777)
+        except OSError as exc:  # pragma: no cover - defensive logging
+            LOGGER.warning("Failed to adjust permissions for %s: %s", directory, exc)
 
     instructions_path = workspace / "instructions.md"
     instructions = _build_instructions_text(request, workspace)
@@ -143,6 +296,8 @@ def _write_workspace(request: GenerateRequest) -> tuple[Path, Path, Path]:
     )
     metadata_path = context_dir / "metadata.md"
     metadata_path.write_text(metadata_body, encoding="utf-8")
+
+    _write_context_files(workspace, request.contextFiles)
 
     return workspace, instructions_path, output_dir / OUTPUT_FILENAME
 
@@ -172,26 +327,37 @@ def _verify_token(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid proxy token")
 
 
-app = FastAPI(title="Codex Proxy", version="0.1.0")
+def _format_timestamp(value: Optional[float]) -> Optional[str]:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
 
 
-@app.get("/healthz", status_code=status.HTTP_204_NO_CONTENT)
-def health_check() -> Response:
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+def _prune_jobs() -> None:
+    if JOB_RETENTION_SECONDS <= 0:
+        return
+    cutoff = time.time() - JOB_RETENTION_SECONDS
+    with _jobs_lock:
+        stale = [job_id for job_id, job in _jobs.items() if job.completed_at and job.completed_at < cutoff]
+        for job_id in stale:
+            LOGGER.debug("Pruning stale job %s", job_id)
+            _jobs.pop(job_id, None)
 
 
-@app.post("/v1/codex/generate", response_model=GenerateResponse)
-def generate(request: GenerateRequest, _: None = Depends(_verify_token)) -> GenerateResponse:
+def _execute_codex(
+    request: GenerateRequest,
+    *,
+    on_stdout: Optional[Callable[[str], None]] = None,
+    on_stderr: Optional[Callable[[str], None]] = None,
+) -> CodexExecutionResult:
     workspace: Optional[Path] = None
-    instructions_path: Optional[Path] = None
     output_path: Optional[Path] = None
-
     keep_workspace = _should_keep_workspace()
     cli_path = _get_cli_path()
     extra_args = _get_additional_args()
     timeout_ms = request.timeoutMs or _default_timeout_ms()
     timeout_s = max(timeout_ms / 1000.0, 1.0)
-    start = time.monotonic()
+    start_time = time.monotonic()
 
     try:
         workspace, instructions_path, output_path = _write_workspace(request)
@@ -199,6 +365,11 @@ def generate(request: GenerateRequest, _: None = Depends(_verify_token)) -> Gene
         env.setdefault("CODEX_NO_COLOR", "1")
         env.setdefault("CODEX_SUPPRESS_SPINNER", "1")
         env["APPHUB_CODEX_OUTPUT_DIR"] = str(output_path.parent)
+        # Some Codex sandboxes expose a read-only /tmp; point temp dirs to the
+        # writable workspace so here-docs and python's tempfile module succeed.
+        env.setdefault("TMPDIR", str(workspace))
+        env.setdefault("TMP", str(workspace))
+        env.setdefault("TEMP", str(workspace))
 
         command = [cli_path, "exec", *extra_args, str(instructions_path)]
         LOGGER.debug("Executing %s", json.dumps(command))
@@ -210,44 +381,234 @@ def generate(request: GenerateRequest, _: None = Depends(_verify_token)) -> Gene
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            bufsize=1,
         )
 
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        def _pump(stream, collector: list[str], callback: Optional[Callable[[str], None]]) -> None:
+            try:
+                if not stream:
+                    return
+                for chunk in iter(stream.readline, ""):
+                    collector.append(chunk)
+                    if callback:
+                        try:
+                            callback(chunk)
+                        except Exception as exc:  # pragma: no cover - defensive
+                            LOGGER.debug("stdout/stderr callback failed: %s", exc)
+            finally:
+                if stream:
+                    stream.close()
+
+        threads: list[Thread] = []
+        if proc.stdout is not None:
+            threads.append(Thread(target=_pump, args=(proc.stdout, stdout_chunks, on_stdout), daemon=True))
+        if proc.stderr is not None:
+            threads.append(Thread(target=_pump, args=(proc.stderr, stderr_chunks, on_stderr), daemon=True))
+        for thread in threads:
+            thread.start()
+
+        exit_code: Optional[int] = None
+        error_message: Optional[str] = None
         try:
-            stdout, stderr = proc.communicate(timeout=timeout_s)
+            exit_code = proc.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             proc.kill()
-            stdout, stderr = proc.communicate()
-            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Codex CLI timed out")
+            exit_code = None
+            error_message = "Codex CLI timed out"
+        finally:
+            for thread in threads:
+                thread.join()
 
-        if proc.returncode != 0:
-            detail = {
-                "message": "Codex CLI exited with a non-zero status",
-                "exitCode": proc.returncode,
-                "stdout": stdout,
-                "stderr": stderr,
-            }
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+        stdout_text = "".join(stdout_chunks)
+        stderr_text = "".join(stderr_chunks)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        if not output_path.exists():
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Codex output file missing")
+        summary_path = output_path.parent / SUMMARY_FILENAME if output_path else None
+        summary_text = None
+        if summary_path and summary_path.exists():
+            summary_text = summary_path.read_text(encoding="utf-8").strip()
 
-        output = output_path.read_text(encoding="utf-8").strip()
-        summary_path = output_path.parent / SUMMARY_FILENAME
-        summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else None
+        if error_message:
+            return CodexExecutionResult(
+                stdout=stdout_text,
+                stderr=stderr_text,
+                output=None,
+                summary=summary_text,
+                exit_code=exit_code,
+                error=error_message,
+                duration_ms=duration_ms,
+                workspace=str(workspace) if keep_workspace else None,
+                output_path=str(output_path) if keep_workspace else None,
+            )
 
-        duration_ms = int((time.monotonic() - start) * 1000)
-        return GenerateResponse(
+        if exit_code != 0:
+            return CodexExecutionResult(
+                stdout=stdout_text,
+                stderr=stderr_text,
+                output=None,
+                summary=summary_text,
+                exit_code=exit_code,
+                error=f"Codex CLI exited with status {exit_code}",
+                duration_ms=duration_ms,
+                workspace=str(workspace) if keep_workspace else None,
+                output_path=str(output_path) if keep_workspace else None,
+            )
+
+        if not output_path or not output_path.exists():
+            return CodexExecutionResult(
+                stdout=stdout_text,
+                stderr=stderr_text,
+                output=None,
+                summary=summary_text,
+                exit_code=exit_code,
+                error="Codex output file missing",
+                duration_ms=duration_ms,
+                workspace=str(workspace) if keep_workspace else None,
+                output_path=str(output_path) if keep_workspace else None,
+            )
+
+        output_text = output_path.read_text(encoding="utf-8").strip()
+        return CodexExecutionResult(
+            stdout=stdout_text,
+            stderr=stderr_text,
+            output=output_text,
+            summary=summary_text,
+            exit_code=exit_code,
+            error=None,
+            duration_ms=duration_ms,
             workspace=str(workspace) if keep_workspace else None,
-            outputPath=str(output_path) if keep_workspace else None,
-            output=output,
-            stdout=stdout,
-            stderr=stderr,
-            summary=summary,
-            durationMs=duration_ms,
+            output_path=str(output_path) if keep_workspace else None,
         )
     finally:
         if workspace and not keep_workspace:
             _cleanup_workspace(workspace)
+
+
+def _append_stdout(job: CodexJobState, chunk: str) -> None:
+    with job.lock:
+        job.stdout += chunk
+        job.updated_at = time.time()
+
+
+def _append_stderr(job: CodexJobState, chunk: str) -> None:
+    with job.lock:
+        job.stderr += chunk
+        job.updated_at = time.time()
+
+
+def _run_job(job: CodexJobState) -> None:
+    with job.lock:
+        job.status = "running"
+        job.started_at = time.time()
+        job.updated_at = job.started_at
+
+    result = _execute_codex(
+        job.request,
+        on_stdout=lambda chunk: _append_stdout(job, chunk),
+        on_stderr=lambda chunk: _append_stderr(job, chunk),
+    )
+
+    with job.lock:
+        job.stdout = result.stdout
+        job.stderr = result.stderr
+        job.summary = result.summary
+        job.output = result.output
+        job.exit_code = result.exit_code
+        job.error = result.error
+        job.duration_ms = result.duration_ms
+        job.workspace = result.workspace
+        job.output_path = result.output_path
+        job.completed_at = time.time()
+        job.updated_at = job.completed_at
+        if result.error:
+            job.status = "failed"
+        else:
+            job.status = "succeeded"
+
+
+def _start_job(request: GenerateRequest) -> CodexJobState:
+    job = CodexJobState(id=uuid.uuid4().hex, request=request)
+    with _jobs_lock:
+        _jobs[job.id] = job
+    thread = Thread(target=_run_job, args=(job,), daemon=True)
+    thread.start()
+    return job
+
+
+def _snapshot_job(job: CodexJobState) -> JobStatusResponse:
+    with job.lock:
+        return JobStatusResponse(
+            jobId=job.id,
+            status=job.status,
+            stdout=job.stdout,
+            stderr=job.stderr,
+            output=job.output,
+            summary=job.summary,
+            error=job.error,
+            exitCode=job.exit_code,
+            workspace=job.workspace,
+            outputPath=job.output_path,
+            durationMs=job.duration_ms,
+            createdAt=_format_timestamp(job.created_at),
+            startedAt=_format_timestamp(job.started_at),
+            completedAt=_format_timestamp(job.completed_at),
+            updatedAt=_format_timestamp(job.updated_at) or _format_timestamp(time.time()),
+        )
+
+
+app = FastAPI(title="Codex Proxy", version="0.2.0")
+
+
+@app.get("/healthz", status_code=status.HTTP_204_NO_CONTENT)
+def health_check() -> Response:
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/v1/codex/generate", response_model=GenerateResponse)
+def generate(request: GenerateRequest, _: None = Depends(_verify_token)) -> GenerateResponse:
+    result = _execute_codex(request)
+    if result.error or not result.output:
+        detail = {
+            "message": result.error or "Codex output missing",
+            "exitCode": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        status_code = status.HTTP_502_BAD_GATEWAY if result.exit_code not in (None, 0) else status.HTTP_500_INTERNAL_SERVER_ERROR
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    return GenerateResponse(
+        workspace=result.workspace,
+        outputPath=result.output_path,
+        output=result.output,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        summary=result.summary,
+        durationMs=result.duration_ms,
+    )
+
+
+@app.post("/v1/codex/jobs", status_code=status.HTTP_202_ACCEPTED, response_model=CreateJobResponse)
+def create_job(request: GenerateRequest, _: None = Depends(_verify_token)) -> CreateJobResponse:
+    _prune_jobs()
+    job = _start_job(request)
+    with job.lock:
+        status_value = job.status
+        created_at = _format_timestamp(job.created_at) or _format_timestamp(time.time())
+    return CreateJobResponse(jobId=job.id, status=status_value, createdAt=created_at or datetime.now(timezone.utc).isoformat())
+
+
+@app.get("/v1/codex/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job(job_id: str, _: None = Depends(_verify_token)) -> JobStatusResponse:
+    _prune_jobs()
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Codex job not found")
+    return _snapshot_job(job)
 
 
 _configure_logging()

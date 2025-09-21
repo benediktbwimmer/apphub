@@ -30,7 +30,7 @@ Both endpoints accept the original payload shape:
 }
 ```
 
-The catalog service checks operator scopes, gathers metadata, and calls the proxy's `/v1/codex/jobs`. The proxy writes `instructions.md` and `context/metadata.md`, streams `codex exec`, and exposes incremental stdout/stderr so the UI can render progress in real time. When the CLI finishes, the backend validates the JSON output (using the shared Zod schemas) and stores the result in an in-memory session map so operators can leave the dialog and return later without losing context. In `job-with-bundle` mode the response includes both the job definition and bundle blueprint, along with validation warnings when files or entry points are missing.
+The catalog service checks operator scopes, gathers metadata, and calls the proxy's `/v1/codex/jobs`. The proxy writes `instructions.md` and `context/metadata.md`, streams `codex exec`, and exposes incremental stdout/stderr so the UI can render progress in real time. In addition to the metadata summary, the server now ships JSON catalogs under `context/jobs/`, `context/workflows/`, and `context/services/`, plus per-service OpenAPI documents when available. Codex can consume these files to reason about existing jobs, workflow shapes, and HTTP endpoints while drafting suggestions. When the CLI finishes, the backend validates the JSON output (using the shared Zod schemas) and stores the result in an in-memory session map so operators can leave the dialog and return later without losing context. In `job-with-bundle` mode the response includes both the job definition and bundle blueprint, along with validation warnings when files or entry points are missing.
 
 ## Automated Job Creation
 

@@ -7,10 +7,7 @@ import {
   type FormEvent,
   type ChangeEvent
 } from 'react';
-import {
-  workflowDefinitionCreateSchema,
-  jobDefinitionCreateSchema
-} from '@apphub/workflow-schemas';
+import { workflowDefinitionCreateSchema, jobDefinitionCreateSchema } from '@apphub/workflow-schemas';
 import type { ZodIssue } from 'zod';
 import {
   fetchAiGeneration,
@@ -36,6 +33,12 @@ const JOB_SCHEMA = jobDefinitionCreateSchema;
 
 const GENERATION_STORAGE_KEY = 'apphub.aiBuilder.activeGeneration';
 const POLL_INTERVAL_MS = 1_500;
+
+const MODE_OPTIONS: { value: AiBuilderMode; label: string }[] = [
+  { value: 'workflow', label: 'Workflow' },
+  { value: 'job', label: 'Job' },
+  { value: 'job-with-bundle', label: 'Job + bundle' }
+];
 
 function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: boolean; errors: string[] } {
   if (!editorValue.trim()) {
@@ -85,7 +88,7 @@ export default function AiBuilderDialog({
   canCreateJob
 }: AiBuilderDialogProps) {
   const { refresh: refreshResources } = useWorkflowResources();
-  const [mode, setMode] = useState<'workflow' | 'job'>('workflow');
+  const [mode, setMode] = useState<AiBuilderMode>('workflow');
   const [prompt, setPrompt] = useState('');
   const [additionalNotes, setAdditionalNotes] = useState('');
   const [pending, setPending] = useState(false);
@@ -109,7 +112,7 @@ export default function AiBuilderDialog({
 
   const applySuggestion = useCallback(
     (response: AiSuggestionResponse) => {
-      const nextMode: 'workflow' | 'job' = response.mode === 'job-with-bundle' ? 'job' : response.mode;
+      const nextMode = response.mode;
       setMode(nextMode);
       const initialValue = response.suggestion
         ? JSON.stringify(response.suggestion, null, 2)
@@ -201,8 +204,7 @@ export default function AiBuilderDialog({
       fetchAiGeneration(authorizedFetch, parsed.id)
         .then((state) => {
           setGeneration(state);
-          const normalizedMode: 'workflow' | 'job' = state.mode === 'job-with-bundle' ? 'job' : state.mode;
-          setMode(normalizedMode);
+          setMode(state.mode);
           setMetadataSummary(state.metadataSummary ?? '');
           setStdout(state.stdout ?? '');
           setStderr(state.stderr ?? '');
@@ -251,7 +253,7 @@ export default function AiBuilderDialog({
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
       setSummaryText(null);
-      const requestMode: AiBuilderMode = mode === 'job' ? 'job-with-bundle' : 'workflow';
+      const requestMode: AiBuilderMode = mode;
       try {
         const response = await startAiGeneration(authorizedFetch, {
           mode: requestMode,
@@ -355,8 +357,7 @@ export default function AiBuilderDialog({
 
   const handleModeChange = useCallback(
     (nextMode: AiBuilderMode) => {
-      const normalizedMode = nextMode === 'job-with-bundle' ? 'job' : nextMode;
-      setMode(normalizedMode);
+      setMode(nextMode);
       setHasSuggestion(false);
       setEditorValue('');
       setBaselineValue('');
@@ -372,7 +373,7 @@ export default function AiBuilderDialog({
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
-      console.info('ai-builder.usage', { event: 'mode-changed', mode: normalizedMode });
+      console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode });
     },
     [clearPersistedGeneration]
   );
@@ -462,6 +463,10 @@ export default function AiBuilderDialog({
   }, [parseEditorValue, isEdited, mode, onWorkflowPrefill, onClose]);
 
   const handleSubmitJob = useCallback(async () => {
+    if (mode !== 'job-with-bundle') {
+      setError('Job submission is only available when including a bundle.');
+      return;
+    }
     if (!canCreateJob) {
       setError('Your token must include the job-bundles:write scope to create Codex-generated jobs.');
       return;
@@ -539,7 +544,11 @@ export default function AiBuilderDialog({
     !pending &&
     !submitting &&
     editorValue.trim().length > 0 &&
-    (mode === 'job' ? Boolean(bundleSuggestion) && bundleValidation.valid && canCreateJob : true);
+    (mode === 'job-with-bundle'
+      ? Boolean(bundleSuggestion) && bundleValidation.valid && canCreateJob
+      : mode === 'job'
+      ? false
+      : true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
@@ -553,28 +562,23 @@ export default function AiBuilderDialog({
           </div>
           <div className="flex items-center gap-3">
             <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
-              <button
-                type="button"
-                className={`rounded-full px-4 py-1.5 transition-colors ${
-                  mode === 'workflow'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
-                }`}
-                onClick={() => handleModeChange('workflow')}
-              >
-                Workflow
-              </button>
-              <button
-                type="button"
-                className={`rounded-full px-4 py-1.5 transition-colors ${
-                  mode === 'job'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
-                }`}
-                onClick={() => handleModeChange('job')}
-              >
-                Job
-              </button>
+              {MODE_OPTIONS.map(({ value, label }) => {
+                const isActive = mode === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`rounded-full px-4 py-1.5 transition-colors ${
+                      isActive
+                        ? 'bg-violet-600 text-white shadow'
+                        : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
+                    }`}
+                    onClick={() => handleModeChange(value)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
             <button
               type="button"
@@ -691,7 +695,13 @@ export default function AiBuilderDialog({
               </div>
             )}
 
-            {mode === 'job' && hasSuggestion && bundleValidation.errors.length > 0 && (
+            {mode === 'job' && hasSuggestion && (
+              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-xs font-semibold text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-300">
+                Job-only mode generates a definition without publishing a bundle. Use the manual job builder or export the JSON.
+              </div>
+            )}
+
+            {mode === 'job-with-bundle' && hasSuggestion && bundleValidation.errors.length > 0 && (
               <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
                 <p className="mb-1">Bundle issues:</p>
                 <ul className="list-disc pl-5">
@@ -702,7 +712,7 @@ export default function AiBuilderDialog({
               </div>
             )}
 
-            {mode === 'job' && hasSuggestion && !canCreateJob && (
+            {mode === 'job-with-bundle' && hasSuggestion && !canCreateJob && (
               <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
                 Add a token with <code>job-bundles:write</code> scope to publish Codex-generated bundles automatically.
               </div>
@@ -790,7 +800,13 @@ export default function AiBuilderDialog({
                   onClick={mode === 'workflow' ? handleSubmitWorkflow : handleSubmitJob}
                   disabled={!canSubmit}
                 >
-                  {submitting ? 'Submitting…' : mode === 'workflow' ? 'Submit workflow' : 'Submit job'}
+                  {submitting
+                    ? 'Submitting…'
+                    : mode === 'workflow'
+                    ? 'Submit workflow'
+                    : mode === 'job-with-bundle'
+                    ? 'Submit job + bundle'
+                    : 'Submit job'}
                 </button>
               </div>
             </div>
