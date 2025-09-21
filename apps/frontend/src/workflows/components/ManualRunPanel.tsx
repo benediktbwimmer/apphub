@@ -89,34 +89,8 @@ function setValueAtPath(target: unknown, path: string[], value: unknown): unknow
   return current;
 }
 
-function removeKeyAtPath(target: unknown, path: string[]): unknown {
-  if (path.length === 0) {
-    return target;
-  }
-  const [key, ...rest] = path;
-  if (!rest.length) {
-    if (!isRecord(target)) {
-      return target;
-    }
-    const next = { ...target };
-    delete next[key];
-    return next;
-  }
-  if (!isRecord(target)) {
-    return target;
-  }
-  return { ...target, [key]: removeKeyAtPath(target[key], rest) };
-}
-
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
-}
-
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function FieldRenderer({ schema, path, value, onChange, required }: FieldRendererProps) {
@@ -393,7 +367,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, lastRun }: 
   };
 
   const handleFieldChange = (path: string[], value: unknown) => {
-    setFormData((current) => setValueAtPath(current, path, value));
+    setFormData((current: unknown) => setValueAtPath(current, path, value));
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {

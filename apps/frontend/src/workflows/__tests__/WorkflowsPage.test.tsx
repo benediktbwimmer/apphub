@@ -90,7 +90,10 @@ class WebSocketMock {
   public onmessage: ((event: MessageEvent) => void) | null = null;
   public onclose: ((event: CloseEvent) => void) | null = null;
   public onerror: ((event: Event) => void) | null = null;
-  constructor(public url: string) {
+  public url: string;
+
+  constructor(url: string) {
+    this.url = url;
     WebSocketMock.instances.push(this);
     setTimeout(() => {
       this.onopen?.(new Event('open'));
