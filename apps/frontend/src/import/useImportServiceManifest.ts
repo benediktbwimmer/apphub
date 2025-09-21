@@ -68,6 +68,8 @@ export function useImportServiceManifest() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportManifestResult | null>(null);
   const [lastRequestBody, setLastRequestBody] = useState<NormalizedRequestBody | null>(null);
+  const [resultVersion, setResultVersion] = useState(0);
+  const [errorVersion, setErrorVersion] = useState(0);
 
   const importManifest = useCallback(
     async (body: NormalizedRequestBody) => {
@@ -85,6 +87,8 @@ export function useImportServiceManifest() {
 
       const payload = await response.json();
       setResult(payload.data as ImportManifestResult);
+      setResultVersion((prev) => prev + 1);
+      setError(null);
       setLastRequestBody(body);
     },
     [authorizedFetch]
@@ -113,6 +117,7 @@ export function useImportServiceManifest() {
         await importManifest(body);
       } catch (err) {
         setError((err as Error).message);
+        setErrorVersion((prev) => prev + 1);
         setResult(null);
       } finally {
         setSubmitting(false);
@@ -136,6 +141,7 @@ export function useImportServiceManifest() {
       await importManifest(lastRequestBody);
     } catch (err) {
       setError((err as Error).message);
+      setErrorVersion((prev) => prev + 1);
     } finally {
       setReimporting(false);
     }
@@ -149,6 +155,8 @@ export function useImportServiceManifest() {
     reimporting,
     error,
     result,
+    resultVersion,
+    errorVersion,
     handleSubmit,
     resetResult,
     handleReimport,

@@ -3,8 +3,7 @@ import CatalogPage from './catalog/CatalogPage';
 import { ApiTokenProvider } from './auth/ApiTokenContext';
 import Navbar from './components/Navbar';
 import { NavigationContext, type ActiveTab } from './components/NavigationContext';
-import ImportServiceManifest from './import/ImportServiceManifest';
-import SubmitApp from './submit/SubmitApp';
+import ImportWorkspace from './import/ImportWorkspace';
 import ServiceGallery from './services/ServiceGallery';
 import WorkflowsPage from './workflows/WorkflowsPage';
 import ApiAccessPage from './settings/ApiAccessPage';
@@ -12,14 +11,17 @@ import ApiAccessPage from './settings/ApiAccessPage';
 const ACTIVE_TAB_STORAGE_KEY = 'apphub-active-tab';
 
 function isActiveTab(value: unknown): value is ActiveTab {
-  return (
-    value === 'catalog' ||
-    value === 'apps' ||
-    value === 'workflows' ||
-    value === 'submit' ||
-    value === 'import-manifest' ||
-    value === 'api-access'
-  );
+  return value === 'catalog' || value === 'apps' || value === 'workflows' || value === 'import' || value === 'api-access';
+}
+
+function normalizeStoredTab(value: string | null): ActiveTab {
+  if (value === 'submit' || value === 'import-manifest') {
+    return 'import';
+  }
+  if (isActiveTab(value)) {
+    return value;
+  }
+  return 'catalog';
 }
 
 function App() {
@@ -29,12 +31,7 @@ function App() {
     }
 
     const storedValue = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-
-    if (isActiveTab(storedValue)) {
-      return storedValue;
-    }
-
-    return 'catalog';
+    return normalizeStoredTab(storedValue);
   });
   const [searchSeed, setSearchSeed] = useState<string | undefined>(undefined);
 
@@ -48,7 +45,6 @@ function App() {
 
   const handleAppRegistered = (id: string) => {
     setSearchSeed(id);
-    setActiveTab('catalog');
   };
 
   const handleTabChange = (tab: ActiveTab) => {
@@ -70,8 +66,12 @@ function App() {
             )}
             {activeTab === 'apps' && <ServiceGallery />}
             {activeTab === 'workflows' && <WorkflowsPage />}
-            {activeTab === 'submit' && <SubmitApp onAppRegistered={handleAppRegistered} />}
-            {activeTab === 'import-manifest' && <ImportServiceManifest onImported={handleManifestImported} />}
+            {activeTab === 'import' && (
+              <ImportWorkspace
+                onAppRegistered={handleAppRegistered}
+                onManifestImported={handleManifestImported}
+              />
+            )}
             {activeTab === 'api-access' && <ApiAccessPage />}
           </main>
         </div>
