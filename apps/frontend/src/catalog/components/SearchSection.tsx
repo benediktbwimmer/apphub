@@ -21,6 +21,8 @@ type SearchSectionProps = {
   onToggleHighlights: (enabled: boolean) => void;
   activeTokens: string[];
   searchMeta: SearchMeta | null;
+  viewMode: 'preview' | 'list';
+  onViewModeChange: (mode: 'preview' | 'list') => void;
 };
 
 function SearchSection({
@@ -35,23 +37,25 @@ function SearchSection({
   showHighlights,
   onToggleHighlights,
   activeTokens,
-  searchMeta
+  searchMeta,
+  viewMode,
+  onViewModeChange
 }: SearchSectionProps) {
   const highlightToggleDisabled = activeTokens.length === 0;
 
   return (
     <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.7)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-6">
         <div className="relative flex-1">
           <input
-          type="text"
-          value={inputValue}
-          onChange={(event) => onInputChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Type tags like framework:nextjs runtime:node18 or free text"
-          spellCheck={false}
-          autoFocus
-          className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
+            type="text"
+            value={inputValue}
+            onChange={(event) => onInputChange(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Type tags like framework:nextjs runtime:node18 or free text"
+            spellCheck={false}
+            autoFocus
+            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
           />
           {suggestions.length > 0 && (
             <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
@@ -75,25 +79,51 @@ function SearchSection({
             </ul>
           )}
         </div>
-        <div className="flex flex-col gap-2 md:w-auto md:flex-none md:items-end">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 md:hidden">
-            Sort by
-          </span>
-          <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
-            {SORT_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                  sortMode === option.key
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
-                    : 'text-slate-600 hover:bg-blue-600/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
-                }`}
-                onClick={() => onSortChange(option.key)}
-              >
-                {option.label}
-              </button>
-            ))}
+        <div className="flex flex-col gap-3 md:w-auto md:flex-none md:items-end">
+          <div className="flex flex-col gap-2 md:items-end">
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 md:hidden">
+              Sort by
+            </span>
+            <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+              {SORT_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                    sortMode === option.key
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
+                      : 'text-slate-600 hover:bg-blue-600/10 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                  }`}
+                  onClick={() => onSortChange(option.key)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="inline-flex rounded-full border border-slate-200/70 bg-white/70 p-1 text-xs font-semibold text-slate-500 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                viewMode === 'preview'
+                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
+                  : 'hover:text-blue-600 dark:hover:text-slate-100'
+              }`}
+              onClick={() => onViewModeChange('preview')}
+            >
+              Preview view
+            </button>
+            <button
+              type="button"
+              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white shadow hover:bg-blue-500 dark:bg-slate-200/30 dark:text-slate-900'
+                  : 'hover:text-blue-600 dark:hover:text-slate-100'
+              }`}
+              onClick={() => onViewModeChange('list')}
+            >
+              List view
+            </button>
           </div>
         </div>
       </div>

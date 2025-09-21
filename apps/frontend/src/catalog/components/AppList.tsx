@@ -192,9 +192,6 @@ function AppList({
                       <div className="text-base font-semibold text-slate-700 dark:text-slate-100">
                         {highlightSegments(app.name, activeTokens, highlightEnabled)}
                       </div>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {highlightSegments(app.description, activeTokens, highlightEnabled)}
-                      </p>
                       {ingestError && (
                         <p className="text-xs font-medium text-rose-600 dark:text-rose-300">{ingestError}</p>
                       )}
