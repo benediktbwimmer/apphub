@@ -1175,51 +1175,54 @@ export default function WorkflowsPage() {
               )}
               {!stepsLoading && !stepsError && runSteps.length > 0 && (
                 <ol className="mt-4 flex flex-col gap-3">
-                  {runSteps.map((step) => (
-                    <li
-                      key={step.id}
-                      className="rounded-2xl border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/70"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-slate-700 dark:text-slate-200">{step.stepId}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Attempt {step.attempt} · Job run {step.jobRunId ?? 'n/a'}
-                          </p>
+                  {runSteps.map((step) => {
+                    const metrics = toRecord(step.metrics);
+                    return (
+                      <li
+                        key={step.id}
+                        className="rounded-2xl border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/70"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">{step.stepId}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              Attempt {step.attempt} · Job run {step.jobRunId ?? 'n/a'}
+                            </p>
+                          </div>
+                          <StatusBadge status={step.status} />
                         </div>
-                        <StatusBadge status={step.status} />
-                      </div>
-                      <div className="mt-2 grid gap-2 text-xs text-slate-500 dark:text-slate-400 md:grid-cols-3">
-                        <span>Started: {formatTimestamp(step.startedAt)}</span>
-                        <span>Completed: {formatTimestamp(step.completedAt)}</span>
-                        <span>
-                          Logs:{' '}
-                          {step.logsUrl ? (
-                            <a
-                              href={step.logsUrl}
-                              className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-300"
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              View
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </span>
-                      </div>
-                      {step.metrics && typeof step.metrics === 'object' && (
-                        <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
-                          {JSON.stringify(step.metrics, null, 2)}
-                        </pre>
-                      )}
-                      {step.errorMessage && (
-                        <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                          {step.errorMessage}
-                        </p>
-                      )}
-                    </li>
-                  ))}
+                        <div className="mt-2 grid gap-2 text-xs text-slate-500 dark:text-slate-400 md:grid-cols-3">
+                          <span>Started: {formatTimestamp(step.startedAt)}</span>
+                          <span>Completed: {formatTimestamp(step.completedAt)}</span>
+                          <span>
+                            Logs:{' '}
+                            {step.logsUrl ? (
+                              <a
+                                href={step.logsUrl}
+                                className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-300"
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </span>
+                        </div>
+                        {metrics && (
+                          <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
+                            {JSON.stringify(metrics, null, 2)}
+                          </pre>
+                        )}
+                        {step.errorMessage && (
+                          <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                            {step.errorMessage}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
               {!stepsLoading && !stepsError && runSteps.length === 0 && (

@@ -112,9 +112,10 @@ function buildPositionedSteps(
     const level = resolveLevel(step.id);
     const runStep = runStepById.get(step.id);
     const contextStatus = extractStatusFromContext(run, step.id);
+    const contextStep = extractContextStep(run, step.id);
     const status = runStep?.status ?? contextStatus ?? 'pending';
-    const startedAt = runStep?.startedAt ?? extractTimestamp(extractContextStep(run, step.id)?.startedAt);
-    const completedAt = runStep?.completedAt ?? extractTimestamp(extractContextStep(run, step.id)?.completedAt);
+    const startedAt = runStep?.startedAt ?? extractTimestamp(contextStep?.startedAt);
+    const completedAt = runStep?.completedAt ?? extractTimestamp(contextStep?.completedAt);
     let durationMs: number | null = runStep?.metrics && typeof runStep.metrics === 'object' && runStep.metrics !== null
       ? extractNumber((runStep.metrics as Record<string, unknown>).durationMs)
       : null;
@@ -143,7 +144,7 @@ function buildPositionedSteps(
       status,
       startedAt: startedAt ?? null,
       completedAt: completedAt ?? null,
-      durationMs: durationMs ?? runStep?.durationMs ?? null,
+      durationMs,
       logsUrl: runStep?.logsUrl ?? null,
       errorMessage: runStep?.errorMessage ?? null,
       metrics: runStep?.metrics,
