@@ -1,0 +1,77 @@
+{
+  "slug": "filesystem-file-summary",
+  "name": "Filesystem File Summarizer",
+  "version": 1,
+  "description": "Reads a host file, summarizes the content via the AI connector, and writes a summary next to the original file.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "filepath": {
+        "type": "string",
+        "title": "Source File Path",
+        "description": "Absolute path to the host file that should be summarized.",
+        "minLength": 1
+      }
+    },
+    "required": ["filepath"]
+  },
+  "steps": [
+    {
+      "id": "read-source",
+      "name": "Read Source File",
+      "type": "job",
+      "jobSlug": "fs-read-file",
+      "storeResultAs": "sourceFile",
+      "parameters": {
+        "hostPath": "{{ parameters.filepath }}",
+        "encoding": "utf8"
+      }
+    },
+    {
+      "id": "summarize",
+      "name": "Summarize Content",
+      "type": "service",
+      "serviceSlug": "ai-connector",
+      "dependsOn": ["read-source"],
+      "timeoutMs": 120000,
+      "captureResponse": true,
+      "storeResponseAs": "summaryResponse",
+      "request": {
+        "method": "POST",
+        "path": "/chat/completions",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "provider": "ollama",
+          "model": "gpt-oss:20b",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an assistant that writes concise, high-signal summaries for technical documents."
+            },
+            {
+              "role": "user",
+              "content": "Summarize the following file:\n\n{{ shared.sourceFile.content }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "write-summary",
+      "name": "Write Summary File",
+      "type": "job",
+      "jobSlug": "fs-write-file",
+      "dependsOn": ["read-source", "summarize"],
+      "storeResultAs": "summaryFile",
+      "parameters": {
+        "sourcePath": "{{ parameters.filepath }}",
+        "encoding": "utf8",
+        "overwrite": true,
+        "outputFilename": "{{ shared.sourceFile.fileName }}.summary.txt",
+        "content": "Summary generated via gpt-oss:20b:\n\n{{ shared.summaryResponse.content }}"
+      }
+    }
+  ]
+}

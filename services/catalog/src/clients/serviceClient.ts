@@ -9,9 +9,20 @@ const STATUS_PRIORITY: Record<ServiceStatus, number> = {
   unreachable: 3
 };
 
+type RuntimeMetadataSnapshot = {
+  baseUrl?: string | null;
+  instanceUrl?: string | null;
+  previewUrl?: string | null;
+  host?: string | null;
+  port?: number | null;
+  status?: string | null;
+  updatedAt?: string | null;
+};
+
 export type ServiceMetadataSnapshot = {
   manifest?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  runtime?: RuntimeMetadataSnapshot;
   raw?: Record<string, unknown> | null;
 };
 
@@ -38,6 +49,38 @@ function parseJsonObject(value: JsonValue | null): Record<string, unknown> | nul
   return null;
 }
 
+function parseRuntimeMetadata(raw: unknown): RuntimeMetadataSnapshot | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined;
+  }
+  const value = raw as Record<string, unknown>;
+  const runtime: RuntimeMetadataSnapshot = {};
+
+  if (typeof value.baseUrl === 'string') {
+    runtime.baseUrl = value.baseUrl;
+  }
+  if (typeof value.instanceUrl === 'string') {
+    runtime.instanceUrl = value.instanceUrl;
+  }
+  if (typeof value.previewUrl === 'string') {
+    runtime.previewUrl = value.previewUrl;
+  }
+  if (typeof value.host === 'string') {
+    runtime.host = value.host;
+  }
+  if (typeof value.port === 'number' && Number.isFinite(value.port)) {
+    runtime.port = value.port;
+  }
+  if (typeof value.status === 'string') {
+    runtime.status = value.status;
+  }
+  if (typeof value.updatedAt === 'string') {
+    runtime.updatedAt = value.updatedAt;
+  }
+
+  return Object.keys(runtime).length > 0 ? runtime : undefined;
+}
+
 function parseMetadata(record: ServiceRecord): ServiceMetadataSnapshot {
   const raw = parseJsonObject(record.metadata ?? null);
   const manifest = raw?.manifest && typeof raw.manifest === 'object' && !Array.isArray(raw.manifest)
@@ -46,9 +89,11 @@ function parseMetadata(record: ServiceRecord): ServiceMetadataSnapshot {
   const config = raw?.config && typeof raw.config === 'object' && !Array.isArray(raw.config)
     ? { ...(raw.config as Record<string, unknown>) }
     : undefined;
+  const runtime = raw?.runtime ? parseRuntimeMetadata(raw.runtime) : undefined;
   return {
     manifest,
     config,
+    runtime,
     raw
   };
 }
@@ -171,6 +216,17 @@ export async function fetchFromService(
 
   requestInit.signal = createTimeoutSignal(init?.signal);
 
-  const url = resolveServiceUrl(service.baseUrl, path);
+  const metadata = parseMetadata(service);
+  const runtimeBaseUrl = metadata.runtime?.instanceUrl ?? metadata.runtime?.baseUrl ?? metadata.runtime?.previewUrl ?? null;
+  const fallbackBaseUrl = typeof service.baseUrl === 'string' && service.baseUrl.trim().length > 0
+    ? service.baseUrl
+    : null;
+
+  const baseUrl = runtimeBaseUrl ?? fallbackBaseUrl;
+  if (!baseUrl) {
+    throw new Error(`Service ${service.slug} does not have a reachable base URL`);
+  }
+
+  const url = resolveServiceUrl(baseUrl, path);
   return fetch(url, requestInit);
 }
