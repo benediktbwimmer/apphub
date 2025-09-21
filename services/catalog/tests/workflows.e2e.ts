@@ -267,6 +267,48 @@ async function registerWorkflowTestHandlers() {
       logsUrl: 'https://example.com/logs/two'
     };
   });
+
+  registerJobHandler('fanout-source', async (): Promise<JobResult> => {
+    return {
+      status: 'succeeded',
+      result: {
+        items: [
+          { id: 'alpha', value: 1 },
+          { id: 'beta', value: 2 }
+        ]
+      }
+    };
+  });
+
+  registerJobHandler('fanout-child', async (context: JobRunContext): Promise<JobResult> => {
+    const parameters = context.parameters as { item?: { id?: unknown; value?: unknown }; index?: unknown };
+    const item = parameters?.item ?? context.parameters;
+    assert(item && typeof item === 'object' && !Array.isArray(item));
+    const id = String((item as { id?: unknown }).id ?? 'unknown');
+    const valueRaw = (item as { value?: unknown }).value;
+    const value = typeof valueRaw === 'number' ? valueRaw : Number(valueRaw ?? 0);
+    const index = typeof parameters?.index === 'number' ? parameters.index : null;
+
+    return {
+      status: 'succeeded',
+      result: {
+        id,
+        doubled: value * 2,
+        index
+      }
+    };
+  });
+
+  registerJobHandler('fanout-collector', async (context: JobRunContext): Promise<JobResult> => {
+    const params = context.parameters as { items?: unknown };
+    const items = Array.isArray(params?.items) ? params?.items : [];
+    return {
+      status: 'succeeded',
+      result: {
+        receivedCount: items.length
+      }
+    };
+  });
 }
 
 async function createJobDefinition(app: FastifyInstance, payload: { slug: string; name: string }) {
@@ -297,6 +339,9 @@ async function testWorkflowEndpoints(): Promise<void> {
   await withServer(async (app) => {
     await createJobDefinition(app, { slug: 'workflow-step-one', name: 'Workflow Step One' });
     await createJobDefinition(app, { slug: 'workflow-step-two', name: 'Workflow Step Two' });
+    await createJobDefinition(app, { slug: 'fanout-source', name: 'Fanout Source' });
+    await createJobDefinition(app, { slug: 'fanout-child', name: 'Fanout Child' });
+    await createJobDefinition(app, { slug: 'fanout-collector', name: 'Fanout Collector' });
 
     const testService = await startTestService();
     await registerTestService(app, testService);
@@ -741,6 +786,202 @@ async function testWorkflowEndpoints(): Promise<void> {
       };
       assert.equal(dagRunStepsBody.data.steps.length, 4);
       assert(dagRunStepsBody.data.steps.every((step) => step.status === 'succeeded'));
+
+      const fanOutWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'wf-fanout',
+          name: 'Fan-Out Workflow',
+          steps: [
+            {
+              id: 'seed',
+              name: 'Seed Items',
+              jobSlug: 'fanout-source'
+            },
+            {
+              id: 'expand',
+              name: 'Expand Items',
+              type: 'fanout',
+              dependsOn: ['seed'],
+              collection: '{{ steps.seed.result.items }}',
+              maxItems: 10,
+              maxConcurrency: 2,
+              storeResultsAs: 'processedItems',
+              template: {
+                id: 'process-item',
+                name: 'Process Item',
+                type: 'job',
+                jobSlug: 'fanout-child',
+                parameters: {
+                  item: '{{ item }}',
+                  index: '{{ fanout.index }}'
+                }
+              }
+            },
+            {
+              id: 'fan-in',
+              name: 'Collect Results',
+              jobSlug: 'fanout-collector',
+              dependsOn: ['expand'],
+              parameters: {
+                items: '{{ shared.processedItems }}'
+              }
+            }
+          ]
+        }
+      });
+      assert.equal(fanOutWorkflowResponse.statusCode, 201);
+
+      const fanOutRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-fanout/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        }
+      });
+      assert.equal(fanOutRunResponse.statusCode, 202);
+      const fanOutRunBody = JSON.parse(fanOutRunResponse.payload) as { data: { id: string; status: string } };
+      assert.equal(fanOutRunBody.data.status, 'succeeded');
+      const fanOutRunId = fanOutRunBody.data.id;
+
+      const fanOutRunDetailResponse = await app.inject({
+        method: 'GET',
+        url: `/workflow-runs/${fanOutRunId}`
+      });
+      assert.equal(fanOutRunDetailResponse.statusCode, 200);
+      const fanOutRunDetailBody = JSON.parse(fanOutRunDetailResponse.payload) as {
+        data: {
+          metrics: { totalSteps: number; completedSteps: number };
+          context: {
+            steps: Record<string, { status: string; result?: { receivedCount?: number } }>;
+            shared?: Record<string, unknown>;
+          };
+        };
+      };
+      assert.equal(fanOutRunDetailBody.data.metrics.totalSteps, 5);
+      assert.equal(fanOutRunDetailBody.data.metrics.completedSteps, 5);
+      assert.equal(fanOutRunDetailBody.data.context.steps['fan-in'].result?.receivedCount ?? 0, 2);
+      const aggregatedResults = fanOutRunDetailBody.data.context.shared?.processedItems as
+        | Array<{ stepId?: string; status?: string; output?: { doubled?: number }; index?: number }>
+        | undefined;
+      assert(aggregatedResults);
+      assert.equal(aggregatedResults?.length ?? 0, 2);
+      assert(aggregatedResults?.every((entry) => entry.status === 'succeeded'));
+      const aggregatedIds = aggregatedResults?.map((entry) => entry.stepId).sort();
+      assert.deepEqual(aggregatedIds, ['expand:process-item:1', 'expand:process-item:2']);
+      const aggregatedDoubles = aggregatedResults
+        ?.map((entry) => entry.output?.doubled)
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+      assert.deepEqual(aggregatedDoubles, [2, 4]);
+
+      const fanOutRunStepsResponse = await app.inject({
+        method: 'GET',
+        url: `/workflow-runs/${fanOutRunId}/steps`
+      });
+      assert.equal(fanOutRunStepsResponse.statusCode, 200);
+      const fanOutRunStepsBody = JSON.parse(fanOutRunStepsResponse.payload) as {
+        data: {
+          steps: Array<{
+            stepId: string;
+            status: string;
+            parentStepId: string | null;
+            fanoutIndex: number | null;
+            templateStepId: string | null;
+            output?: { totalChildren?: number };
+          }>;
+        };
+      };
+      const fanOutChildSteps = fanOutRunStepsBody.data.steps.filter((step) => step.parentStepId === 'expand');
+      assert.equal(fanOutChildSteps.length, 2);
+      assert.deepEqual(
+        fanOutChildSteps.map((step) => step.fanoutIndex ?? -1).sort((a, b) => a - b),
+        [0, 1]
+      );
+      assert(fanOutChildSteps.every((step) => step.templateStepId === 'process-item'));
+      const expandStepRecord = fanOutRunStepsBody.data.steps.find((step) => step.stepId === 'expand');
+      assert(expandStepRecord);
+      assert.equal(expandStepRecord?.output?.totalChildren ?? 0, 2);
+
+      const updateFanOutWorkflowResponse = await app.inject({
+        method: 'PATCH',
+        url: '/workflows/wf-fanout',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          steps: [
+            {
+              id: 'seed',
+              name: 'Seed Items',
+              jobSlug: 'fanout-source'
+            },
+            {
+              id: 'expand',
+              name: 'Expand Items',
+              type: 'fanout',
+              dependsOn: ['seed'],
+              collection: '{{ steps.seed.result.items }}',
+              maxItems: 1,
+              maxConcurrency: 2,
+              storeResultsAs: 'processedItems',
+              template: {
+                id: 'process-item',
+                name: 'Process Item',
+                type: 'job',
+                jobSlug: 'fanout-child',
+                parameters: {
+                  item: '{{ item }}',
+                  index: '{{ fanout.index }}'
+                }
+              }
+            },
+            {
+              id: 'fan-in',
+              name: 'Collect Results',
+              jobSlug: 'fanout-collector',
+              dependsOn: ['expand'],
+              parameters: {
+                items: '{{ shared.processedItems }}'
+              }
+            }
+          ]
+        }
+      });
+      assert.equal(updateFanOutWorkflowResponse.statusCode, 200);
+
+      const guardRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-fanout/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        }
+      });
+      assert.equal(guardRunResponse.statusCode, 202);
+      const guardRunBody = JSON.parse(guardRunResponse.payload) as {
+        data: { id: string; status: string; errorMessage: string | null };
+      };
+      assert.equal(guardRunBody.data.status, 'failed');
+      assert(guardRunBody.data.errorMessage);
+      assert(guardRunBody.data.errorMessage?.includes('exceeds the limit'));
+      const guardRunId = guardRunBody.data.id;
+
+      const guardRunStepsResponse = await app.inject({
+        method: 'GET',
+        url: `/workflow-runs/${guardRunId}/steps`
+      });
+      assert.equal(guardRunStepsResponse.statusCode, 200);
+      const guardRunStepsBody = JSON.parse(guardRunStepsResponse.payload) as {
+        data: { steps: Array<{ stepId: string; status: string; parentStepId?: string | null }> };
+      };
+      const expandFailure = guardRunStepsBody.data.steps.find((step) => step.stepId === 'expand');
+      assert(expandFailure);
+      assert.equal(expandFailure?.status, 'failed');
+      const childFailureCount = guardRunStepsBody.data.steps.filter((step) => step.parentStepId === 'expand').length;
+      assert.equal(childFailureCount, 0);
 
     const failureResponse = await app.inject({
       method: 'POST',

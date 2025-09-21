@@ -476,6 +476,20 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_definitions
          ADD COLUMN IF NOT EXISTS dag JSONB NOT NULL DEFAULT '{}'::jsonb`
     ]
+  },
+  {
+    id: '010_workflow_fanout_metadata',
+    statements: [
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS parent_step_id TEXT`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS fanout_index INTEGER`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS template_step_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_parent
+         ON workflow_run_steps(parent_step_id)
+         WHERE parent_step_id IS NOT NULL`
+    ]
   }
 ];
 

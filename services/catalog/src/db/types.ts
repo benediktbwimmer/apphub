@@ -520,7 +520,23 @@ export type WorkflowServiceStepDefinition = WorkflowDefinitionStepBase & {
   request: WorkflowServiceRequestDefinition;
 };
 
-export type WorkflowStepDefinition = WorkflowJobStepDefinition | WorkflowServiceStepDefinition;
+export type WorkflowFanOutTemplateDefinition =
+  | (Omit<WorkflowJobStepDefinition, 'dependsOn' | 'dependents'> & { id: string })
+  | (Omit<WorkflowServiceStepDefinition, 'dependsOn' | 'dependents'> & { id: string });
+
+export type WorkflowFanOutStepDefinition = WorkflowDefinitionStepBase & {
+  type: 'fanout';
+  collection: JsonValue | string;
+  template: WorkflowFanOutTemplateDefinition;
+  maxItems?: number | null;
+  maxConcurrency?: number | null;
+  storeResultsAs?: string;
+};
+
+export type WorkflowStepDefinition =
+  | WorkflowJobStepDefinition
+  | WorkflowServiceStepDefinition
+  | WorkflowFanOutStepDefinition;
 
 export type WorkflowDefinitionRecord = {
   id: string;
@@ -631,6 +647,9 @@ export type WorkflowRunStepRecord = {
   context: JsonValue | null;
   startedAt: string | null;
   completedAt: string | null;
+  parentStepId: string | null;
+  fanoutIndex: number | null;
+  templateStepId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -648,6 +667,9 @@ export type WorkflowRunStepCreateInput = {
   context?: JsonValue | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  parentStepId?: string | null;
+  fanoutIndex?: number | null;
+  templateStepId?: string | null;
 };
 
 export type WorkflowRunStepUpdateInput = {
@@ -662,6 +684,9 @@ export type WorkflowRunStepUpdateInput = {
   context?: JsonValue | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  parentStepId?: string | null;
+  fanoutIndex?: number | null;
+  templateStepId?: string | null;
 };
 
 export type AuditLogRecord = {

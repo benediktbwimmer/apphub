@@ -17,6 +17,8 @@ import {
   type WorkflowStepDefinition,
   type WorkflowJobStepDefinition,
   type WorkflowServiceStepDefinition,
+  type WorkflowFanOutStepDefinition,
+  type WorkflowFanOutTemplateDefinition,
   type JobRetryPolicy,
   type ServiceRecord,
   type ServiceStatus,
@@ -65,6 +67,13 @@ type WorkflowRuntimeContext = {
   shared?: Record<string, JsonValue | null>;
 };
 
+type FanOutRuntimeMetadata = {
+  parentStepId: string;
+  templateStepId: string;
+  index: number;
+  item: JsonValue;
+};
+
 type StepExecutionResult = {
   context: WorkflowRuntimeContext;
   stepStatus: WorkflowRunStepStatus;
@@ -72,6 +81,48 @@ type StepExecutionResult = {
   stepPatch: WorkflowStepRuntimeContext;
   sharedPatch?: Record<string, JsonValue | null>;
   errorMessage?: string | null;
+  fanOut?: FanOutExpansion;
+};
+
+type FanOutChildStep = {
+  definition: WorkflowStepDefinition;
+  fanOut: FanOutRuntimeMetadata;
+};
+
+type FanOutExpansion = {
+  parentStepId: string;
+  parentRunStepId: string;
+  storeKey?: string;
+  maxConcurrency: number;
+  templateStepId: string;
+  childSteps: FanOutChildStep[];
+};
+
+type RuntimeStep = {
+  definition: WorkflowStepDefinition;
+  index: number;
+  fanOut?: FanOutRuntimeMetadata;
+};
+
+type FanOutChildAggregate = {
+  index: number;
+  stepId: string;
+  item: JsonValue;
+  status: WorkflowRunStepStatus;
+  output: JsonValue | null;
+  errorMessage?: string | null;
+};
+
+type FanOutState = {
+  parentStepId: string;
+  parentRunStepId: string;
+  storeKey?: string;
+  maxConcurrency: number;
+  templateStepId: string;
+  childStepIds: string[];
+  pending: Set<string>;
+  active: Set<string>;
+  results: Map<string, FanOutChildAggregate>;
 };
 
 type TemplateScope = {
@@ -89,9 +140,26 @@ type TemplateScope = {
     parameters: JsonValue;
   };
   stepParameters?: JsonValue;
+  fanout?: {
+    parentStepId: string;
+    templateStepId: string;
+    index: number;
+    item: JsonValue;
+  };
+  item?: JsonValue;
 };
 
 const TEMPLATE_PATTERN = /{{\s*([^}]+)\s*}}/g;
+
+const FANOUT_GLOBAL_MAX_ITEMS = Math.max(
+  1,
+  Math.min(10_000, Number.parseInt(process.env.WORKFLOW_FANOUT_MAX_ITEMS ?? '100', 10) || 100)
+);
+
+const FANOUT_GLOBAL_MAX_CONCURRENCY = Math.max(
+  1,
+  Math.min(1_000, Number.parseInt(process.env.WORKFLOW_FANOUT_MAX_CONCURRENCY ?? '10', 10) || 10)
+);
 
 function buildTemplateScope(run: WorkflowRunRecord, context: WorkflowRuntimeContext): TemplateScope {
   return {
@@ -107,12 +175,36 @@ function buildTemplateScope(run: WorkflowRunRecord, context: WorkflowRuntimeCont
   };
 }
 
-function withStepScope(scope: TemplateScope, stepId: string, parameters: JsonValue): TemplateScope {
-  return {
+function withStepScope(
+  scope: TemplateScope,
+  stepId: string,
+  parameters: JsonValue,
+  fanOut?: FanOutRuntimeMetadata
+): TemplateScope {
+  const next: TemplateScope = {
     ...scope,
     step: { id: stepId, parameters },
     stepParameters: parameters
   };
+
+  if (fanOut) {
+    next.fanout = {
+      parentStepId: fanOut.parentStepId,
+      templateStepId: fanOut.templateStepId,
+      index: fanOut.index,
+      item: fanOut.item
+    };
+    next.item = fanOut.item;
+  } else {
+    if ('fanout' in next) {
+      delete (next as Record<string, unknown>).fanout;
+    }
+    if ('item' in next) {
+      delete (next as Record<string, unknown>).item;
+    }
+  }
+
+  return next;
 }
 
 function coerceTemplateResult(value: unknown): JsonValue {
@@ -166,7 +258,9 @@ function lookupTemplateValue(scope: TemplateScope, expression: string): unknown 
     parameters: scope.parameters,
     runParameters: scope.parameters,
     step: scope.step,
-    stepParameters: scope.step?.parameters ?? scope.stepParameters
+    stepParameters: scope.step?.parameters ?? scope.stepParameters,
+    fanout: scope.fanout,
+    item: scope.item ?? scope.fanout?.item
   };
 
   let current: unknown = root;
@@ -641,7 +735,12 @@ async function recordRunSuccess(
 async function loadOrCreateStepRecord(
   runId: string,
   step: WorkflowStepDefinition,
-  inputParameters: JsonValue
+  inputParameters: JsonValue,
+  options: {
+    parentStepId?: string | null;
+    fanoutIndex?: number | null;
+    templateStepId?: string | null;
+  } = {}
 ): Promise<WorkflowRunStepRecord> {
   const existing = await getWorkflowRunStep(runId, step.id);
   if (existing) {
@@ -659,7 +758,10 @@ async function loadOrCreateStepRecord(
     stepId: step.id,
     status: 'running',
     input: inputParameters,
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    parentStepId: options.parentStepId ?? null,
+    fanoutIndex: options.fanoutIndex ?? null,
+    templateStepId: options.templateStepId ?? null
   });
 }
 
@@ -1063,7 +1165,8 @@ async function executeStep(
   run: WorkflowRunRecord,
   step: WorkflowStepDefinition,
   context: WorkflowRuntimeContext,
-  stepIndex: number
+  stepIndex: number,
+  runtimeStep?: RuntimeStep
 ): Promise<StepExecutionResult> {
   const dependencies = step.dependsOn ?? [];
   const blocked = dependencies.filter((dependencyId) => {
@@ -1078,14 +1181,205 @@ async function executeStep(
 
   const baseScope = buildTemplateScope(run, context);
   const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
-  const resolvedParameters = resolveJsonTemplates(mergedParameters as JsonValue, baseScope);
-  const stepScope = withStepScope(baseScope, step.id, resolvedParameters);
+  const resolutionScope = runtimeStep?.fanOut
+    ? withStepScope(baseScope, step.id, mergedParameters as JsonValue, runtimeStep.fanOut)
+    : withStepScope(baseScope, step.id, mergedParameters as JsonValue);
+  const resolvedParameters = resolveJsonTemplates(mergedParameters as JsonValue, resolutionScope);
+  const stepScope = runtimeStep?.fanOut
+    ? withStepScope(baseScope, step.id, resolvedParameters, runtimeStep.fanOut)
+    : withStepScope(baseScope, step.id, resolvedParameters);
 
-  if (step.type === 'service') {
-    return executeServiceStep(run, step, context, stepIndex, resolvedParameters, stepScope);
+  if (step.type === 'fanout') {
+    return executeFanOutStep(run, step, context, stepIndex, resolvedParameters, stepScope);
   }
 
-  return executeJobStep(run, step, context, stepIndex, resolvedParameters);
+  if (step.type === 'service') {
+    return executeServiceStep(run, step, context, stepIndex, resolvedParameters, stepScope, runtimeStep?.fanOut);
+  }
+
+  return executeJobStep(run, step, context, stepIndex, resolvedParameters, runtimeStep?.fanOut);
+}
+
+async function executeFanOutStep(
+  run: WorkflowRunRecord,
+  step: WorkflowFanOutStepDefinition,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  _parameters: JsonValue,
+  scope: TemplateScope
+): Promise<StepExecutionResult> {
+  const evaluatedCollection = resolveJsonTemplates(step.collection as JsonValue, scope);
+  const collectionInput = (evaluatedCollection ?? null) as JsonValue;
+
+  let stepRecord = await loadOrCreateStepRecord(run.id, step, collectionInput);
+  const startedAt = stepRecord.startedAt ?? new Date().toISOString();
+
+  const fail = async (message: string): Promise<StepExecutionResult> => {
+    const completedAt = new Date().toISOString();
+    stepRecord =
+      (await updateWorkflowRunStep(stepRecord.id, {
+        status: 'failed',
+        errorMessage: message,
+        completedAt,
+        startedAt
+      })) ?? stepRecord;
+
+    const failureContext = updateStepContext(context, step.id, {
+      status: 'failed',
+      jobRunId: null,
+      result: null,
+      errorMessage: message,
+      logsUrl: null,
+      metrics: null,
+      startedAt,
+      completedAt,
+      attempt: stepRecord.attempt ?? 1
+    });
+
+    await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id], {
+      currentStepId: step.id,
+      currentStepIndex: stepIndex,
+      errorMessage: message
+    });
+
+    return {
+      context: failureContext,
+      stepStatus: 'failed',
+      completed: true,
+      stepPatch: failureContext.steps[step.id],
+      errorMessage: message
+    } satisfies StepExecutionResult;
+  };
+
+  if (!Array.isArray(evaluatedCollection)) {
+    return fail('Fan-out collection must resolve to an array');
+  }
+
+  const items = evaluatedCollection as JsonValue[];
+  const configuredMaxItems =
+    typeof step.maxItems === 'number' && Number.isFinite(step.maxItems) && step.maxItems > 0
+      ? Math.floor(step.maxItems)
+      : FANOUT_GLOBAL_MAX_ITEMS;
+  const maxItems = Math.max(0, Math.min(FANOUT_GLOBAL_MAX_ITEMS, configuredMaxItems));
+
+  if (items.length > maxItems) {
+    return fail(
+      `Fan-out step "${step.id}" attempted to generate ${items.length} items which exceeds the limit of ${maxItems}`
+    );
+  }
+
+  const requestedConcurrency =
+    typeof step.maxConcurrency === 'number' && Number.isFinite(step.maxConcurrency) && step.maxConcurrency > 0
+      ? Math.floor(step.maxConcurrency)
+      : FANOUT_GLOBAL_MAX_CONCURRENCY;
+  const maxConcurrency = Math.max(
+    1,
+    Math.min(items.length === 0 ? 1 : items.length, requestedConcurrency, FANOUT_GLOBAL_MAX_CONCURRENCY)
+  );
+
+  const fanOutMetrics = { fanOut: { totalChildren: items.length } } as JsonValue;
+
+  stepRecord =
+    (await updateWorkflowRunStep(stepRecord.id, {
+      status: 'running',
+      startedAt,
+      metrics: fanOutMetrics,
+      input: collectionInput
+    })) ?? stepRecord;
+
+  let nextContext = updateStepContext(context, step.id, {
+    status: 'running',
+    jobRunId: null,
+    result: fanOutMetrics,
+    errorMessage: null,
+    logsUrl: null,
+    metrics: fanOutMetrics,
+    startedAt,
+    completedAt: null,
+    attempt: stepRecord.attempt ?? 1
+  });
+
+  let sharedPatch: Record<string, JsonValue | null> | undefined;
+  if (step.storeResultsAs) {
+    const placeholder = [] as JsonValue[];
+    nextContext = setSharedValue(nextContext, step.storeResultsAs, placeholder as unknown as JsonValue);
+    sharedPatch = { [step.storeResultsAs]: placeholder as unknown as JsonValue };
+  }
+
+  await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
+    shared: sharedPatch,
+    currentStepId: step.id,
+    currentStepIndex: stepIndex
+  });
+
+  const parentDependencies = Array.isArray(step.dependsOn) ? step.dependsOn.filter(Boolean) : [];
+  const templateDependencies = Array.isArray(step.template.dependsOn)
+    ? step.template.dependsOn.filter(Boolean)
+    : [];
+  const baseDependencies = Array.from(
+    new Set([...parentDependencies, ...templateDependencies].filter((dep) => dep !== step.id))
+  );
+
+  const childSteps: FanOutChildStep[] = items.map((item, index) => {
+    const childId = generateFanOutChildId(step.id, step.template.id, index);
+    const childNameBase = step.template.name ?? step.template.id;
+    const childName = `${childNameBase} [${index + 1}]`;
+    const metadata: FanOutRuntimeMetadata = {
+      parentStepId: step.id,
+      templateStepId: step.template.id,
+      index,
+      item
+    };
+
+    if (step.template.type === 'service') {
+      const { dependents: _ignored, ...rest } = step.template;
+      const definition: WorkflowServiceStepDefinition = {
+        ...rest,
+        id: childId,
+        name: childName,
+        dependsOn: baseDependencies.length > 0 ? baseDependencies : undefined
+      };
+      return {
+        definition,
+        fanOut: metadata
+      } satisfies FanOutChildStep;
+    }
+
+    const { dependents: _ignoredJob, ...restJob } = step.template;
+    const definition: WorkflowJobStepDefinition = {
+      ...restJob,
+      id: childId,
+      name: childName,
+      dependsOn: baseDependencies.length > 0 ? baseDependencies : undefined
+    };
+    return {
+      definition,
+      fanOut: metadata
+    } satisfies FanOutChildStep;
+  });
+
+  return {
+    context: nextContext,
+    stepStatus: 'running',
+    completed: false,
+    stepPatch: nextContext.steps[step.id],
+    sharedPatch,
+    fanOut: {
+      parentStepId: step.id,
+      parentRunStepId: stepRecord.id,
+      storeKey: step.storeResultsAs ?? undefined,
+      maxConcurrency,
+      templateStepId: step.template.id,
+      childSteps
+    }
+  } satisfies StepExecutionResult;
+}
+
+function generateFanOutChildId(parentStepId: string, templateStepId: string, index: number): string {
+  const normalize = (value: string) => value.replace(/[^a-z0-9-_:.]/gi, '-');
+  const safeParent = normalize(parentStepId);
+  const safeTemplate = normalize(templateStepId);
+  return `${safeParent}:${safeTemplate}:${index + 1}`;
 }
 
 async function executeJobStep(
@@ -1093,9 +1387,14 @@ async function executeJobStep(
   step: WorkflowJobStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
-  parameters: JsonValue
+  parameters: JsonValue,
+  fanOutMeta?: FanOutRuntimeMetadata
 ): Promise<StepExecutionResult> {
-  let stepRecord = await loadOrCreateStepRecord(run.id, step, parameters);
+  let stepRecord = await loadOrCreateStepRecord(run.id, step, parameters, {
+    parentStepId: fanOutMeta?.parentStepId ?? null,
+    fanoutIndex: fanOutMeta?.index ?? null,
+    templateStepId: fanOutMeta?.templateStepId ?? null
+  });
 
   if (stepRecord.status === 'succeeded') {
     let nextContext = updateStepContext(context, step.id, {
@@ -1232,7 +1531,8 @@ async function executeServiceStep(
   context: WorkflowRuntimeContext,
   stepIndex: number,
   parameters: JsonValue,
-  scope: TemplateScope
+  scope: TemplateScope,
+  fanOutMeta?: FanOutRuntimeMetadata
 ): Promise<StepExecutionResult> {
   let prepared: PreparedServiceRequest;
   try {
@@ -1278,7 +1578,11 @@ async function executeServiceStep(
     } satisfies StepExecutionResult;
   }
 
-  let stepRecord = await loadOrCreateStepRecord(run.id, step, prepared.requestInput);
+  let stepRecord = await loadOrCreateStepRecord(run.id, step, prepared.requestInput, {
+    parentStepId: fanOutMeta?.parentStepId ?? null,
+    fanoutIndex: fanOutMeta?.index ?? null,
+    templateStepId: fanOutMeta?.templateStepId ?? null
+  });
 
   if (stepRecord.status === 'succeeded') {
     const fallbackContext = buildServiceContextFromPrepared(step, prepared, null);
@@ -1579,25 +1883,45 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       ? definition.dag
       : buildWorkflowDagMetadata(steps);
 
-    const stepById = new Map<string, WorkflowStepDefinition>();
-    const stepIndexById = new Map<string, number>();
-    const dependenciesMap = new Map<string, string[]>();
-    const dependentsMap = new Map<string, string[]>();
+    const runtimeSteps = new Map<string, RuntimeStep>();
+    const dependenciesMap = new Map<string, Set<string>>();
+    const dependentsMap = new Map<string, Set<string>>();
+    let runtimeIndexCounter = 0;
 
-    steps.forEach((step, index) => {
-      stepById.set(step.id, step);
-      stepIndexById.set(step.id, index);
-      dependenciesMap.set(step.id, Array.isArray(step.dependsOn) ? step.dependsOn : []);
-      const dependents =
-        Array.isArray(step.dependents) && step.dependents.length > 0
-          ? step.dependents
-          : dag.adjacency[step.id] ?? [];
-      dependentsMap.set(step.id, dependents);
-    });
+    const ensureDependentsEntry = (stepId: string): Set<string> => {
+      let dependents = dependentsMap.get(stepId);
+      if (!dependents) {
+        dependents = new Set<string>();
+        dependentsMap.set(stepId, dependents);
+      }
+      return dependents;
+    };
+
+    for (const step of steps) {
+      runtimeSteps.set(step.id, { definition: step, index: runtimeIndexCounter++ });
+      const dependsOn = Array.isArray(step.dependsOn) ? step.dependsOn.filter(Boolean) : [];
+      dependenciesMap.set(step.id, new Set(dependsOn));
+      ensureDependentsEntry(step.id);
+    }
+
+    for (const [parentId, adjacencyDependents] of Object.entries(dag.adjacency ?? {})) {
+      const dependentsSet = ensureDependentsEntry(parentId);
+      for (const dependent of adjacencyDependents) {
+        dependentsSet.add(dependent);
+      }
+    }
+
+    for (const [stepId, dependencySet] of dependenciesMap.entries()) {
+      for (const dependencyId of dependencySet) {
+        ensureDependentsEntry(dependencyId).add(stepId);
+      }
+    }
+
+    const fanOutStates = new Map<string, FanOutState>();
 
     const statusById = new Map<string, WorkflowRunStepStatus>();
-    const readyQueue: string[] = [];
     const readySet = new Set<string>();
+    let readyQueue: string[] = [];
     const completedSteps = new Set<string>();
 
     for (const step of steps) {
@@ -1625,6 +1949,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
         if (step.type === 'service' && step.storeResponseAs) {
           context = setSharedValue(context, step.storeResponseAs, null);
         }
+        if (step.type === 'fanout' && step.storeResultsAs) {
+          const placeholder = [] as JsonValue[];
+          context = setSharedValue(context, step.storeResultsAs, placeholder as unknown as JsonValue);
+        }
       }
     }
 
@@ -1637,9 +1965,17 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
     });
 
-    const canSchedule = (stepId: string) => {
-      const dependencies = dependenciesMap.get(stepId) ?? [];
-      return dependencies.every((depId) => statusById.get(depId) === 'succeeded');
+    const canSchedule = (stepId: string): boolean => {
+      const dependencies = dependenciesMap.get(stepId);
+      if (!dependencies || dependencies.size === 0) {
+        return true;
+      }
+      for (const dependencyId of dependencies) {
+        if (statusById.get(dependencyId) !== 'succeeded') {
+          return false;
+        }
+      }
+      return true;
     };
 
     for (const step of steps) {
@@ -1656,33 +1992,254 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
     const activeSteps = new Set<string>();
     let failure: { stepId: string; message: string } | null = null;
 
-    const scheduleStep = (stepId: string) => {
+    const updateRunMetrics = async () => {
+      await updateWorkflowRun(run.id, {
+        metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+      });
+    };
+
+    const enqueueIfReady = (stepId: string) => {
+      if (
+        statusById.get(stepId) === 'pending' &&
+        !readySet.has(stepId) &&
+        !activeSteps.has(stepId) &&
+        canSchedule(stepId)
+      ) {
+        readyQueue.push(stepId);
+        readySet.add(stepId);
+      }
+    };
+
+    const buildFanOutAggregatedResults = (state: FanOutState): JsonValue => {
+      const ordered = state.childStepIds
+        .map((childId) => state.results.get(childId))
+        .filter((entry): entry is FanOutChildAggregate => Boolean(entry))
+        .sort((a, b) => a.index - b.index)
+        .map((entry) => ({
+          stepId: entry.stepId,
+          index: entry.index,
+          status: entry.status,
+          output: entry.output ?? null,
+          errorMessage: entry.errorMessage ?? null,
+          item: entry.item ?? null
+        }));
+      return ordered as unknown as JsonValue;
+    };
+
+    const updateFanOutSharedValue = async (state: FanOutState) => {
+      if (!state.storeKey) {
+        return;
+      }
+      const aggregated = buildFanOutAggregatedResults(state);
+      context = setSharedValue(context, state.storeKey, aggregated);
+      await applyRunContextPatch(run.id, state.parentStepId, null, {
+        shared: { [state.storeKey]: aggregated }
+      });
+    };
+
+    const completeFanOutParent = async (state: FanOutState) => {
+      const allResults = state.childStepIds.map((id) => state.results.get(id));
+      const allSucceeded =
+        allResults.length === state.childStepIds.length &&
+        allResults.every((entry) => entry && entry.status === 'succeeded');
+      if (!allSucceeded) {
+        return;
+      }
+
+      const aggregated = buildFanOutAggregatedResults(state);
+      const parentResult = {
+        totalChildren: state.childStepIds.length,
+        results: aggregated
+      } as JsonValue;
+      const completedAt = new Date().toISOString();
+
+      context = updateStepContext(context, state.parentStepId, {
+        status: 'succeeded',
+        jobRunId: null,
+        result: parentResult,
+        errorMessage: null,
+        logsUrl: null,
+        metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
+        startedAt: context.steps[state.parentStepId]?.startedAt ?? null,
+        completedAt,
+        attempt: context.steps[state.parentStepId]?.attempt
+      });
+
+      statusById.set(state.parentStepId, 'succeeded');
+      completedSteps.add(state.parentStepId);
+      remainingSteps -= 1;
+      totals.completedSteps += 1;
+
+      await updateWorkflowRunStep(state.parentRunStepId, {
+        status: 'succeeded',
+        output: parentResult,
+        metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
+        completedAt
+      });
+
+      await updateFanOutSharedValue(state);
+      await updateRunMetrics();
+
+      fanOutStates.delete(state.parentStepId);
+
+      for (const dependentId of dependentsMap.get(state.parentStepId) ?? []) {
+        enqueueIfReady(dependentId);
+      }
+    };
+
+    const registerFanOutExpansion = async (expansion: FanOutExpansion) => {
+      const state: FanOutState = {
+        parentStepId: expansion.parentStepId,
+        parentRunStepId: expansion.parentRunStepId,
+        storeKey: expansion.storeKey,
+        maxConcurrency: Math.max(1, expansion.maxConcurrency),
+        templateStepId: expansion.templateStepId,
+        childStepIds: [],
+        pending: new Set<string>(),
+        active: new Set<string>(),
+        results: new Map<string, FanOutChildAggregate>()
+      };
+
+      for (const child of expansion.childSteps) {
+        const { definition, fanOut } = child;
+        state.childStepIds.push(definition.id);
+
+        const normalizedDependsOn = Array.isArray(definition.dependsOn)
+          ? definition.dependsOn.filter(Boolean)
+          : [];
+        definition.dependsOn = normalizedDependsOn.length > 0 ? normalizedDependsOn : undefined;
+
+        runtimeSteps.set(definition.id, { definition, index: runtimeIndexCounter++, fanOut });
+        dependenciesMap.set(definition.id, new Set(normalizedDependsOn));
+        ensureDependentsEntry(definition.id);
+
+        for (const dependencyId of normalizedDependsOn) {
+          ensureDependentsEntry(dependencyId).add(definition.id);
+        }
+
+        const existingContext = context.steps[definition.id];
+        const existingStatus = existingContext?.status ?? 'pending';
+
+        if (existingStatus === 'succeeded') {
+          statusById.set(definition.id, 'succeeded');
+          completedSteps.add(definition.id);
+          totals.totalSteps += 1;
+          totals.completedSteps += 1;
+          state.results.set(definition.id, {
+            index: fanOut.index,
+            stepId: definition.id,
+            item: fanOut.item,
+            status: 'succeeded',
+            output: existingContext?.result ?? null,
+            errorMessage: existingContext?.errorMessage ?? null
+          });
+        } else {
+          statusById.set(definition.id, 'pending');
+          totals.totalSteps += 1;
+          remainingSteps += 1;
+          state.pending.add(definition.id);
+          enqueueIfReady(definition.id);
+        }
+      }
+
+      fanOutStates.set(expansion.parentStepId, state);
+      await updateRunMetrics();
+
+      if (state.storeKey) {
+        await updateFanOutSharedValue(state);
+      }
+
+      if (state.pending.size === 0) {
+        await completeFanOutParent(state);
+      }
+    };
+
+    const handleFanOutChildCompletion = async (
+      stepId: string,
+      runtime: RuntimeStep,
+      result: StepExecutionResult
+    ) => {
+      const fanOutMeta = runtime.fanOut;
+      if (!fanOutMeta) {
+        return;
+      }
+      const state = fanOutStates.get(fanOutMeta.parentStepId);
+      if (!state) {
+        return;
+      }
+      state.active.delete(stepId);
+      state.pending.delete(stepId);
+      state.results.set(stepId, {
+        index: fanOutMeta.index,
+        stepId,
+        item: fanOutMeta.item,
+        status: result.stepStatus,
+        output: result.stepPatch.result ?? null,
+        errorMessage: result.errorMessage ?? null
+      });
+
+      if (state.storeKey) {
+        await updateFanOutSharedValue(state);
+      }
+
+      if (state.pending.size === 0) {
+        await completeFanOutParent(state);
+      }
+    };
+
+    const scheduleStep = (stepId: string, runtimeOverride?: RuntimeStep) => {
       if (statusById.get(stepId) !== 'pending' || failure) {
         return;
       }
       readySet.delete(stepId);
       statusById.set(stepId, 'running');
       activeSteps.add(stepId);
-      const stepDefinition = stepById.get(stepId);
-      if (!stepDefinition) {
+      const runtime = runtimeOverride ?? runtimeSteps.get(stepId);
+      if (!runtime) {
         failure = { stepId, message: `Unknown step ${stepId}` };
         return;
       }
-      const stepIndex = stepIndexById.get(stepId) ?? 0;
       const contextClone = toWorkflowContext(serializeContext(context));
-      const wrapped = executeStep(run, stepDefinition, contextClone, stepIndex)
+      const wrapped = executeStep(run, runtime.definition, contextClone, runtime.index, runtime)
         .then((result) => ({ stepId, result }))
         .catch((error) => ({ stepId, error }));
       inFlight.set(stepId, wrapped);
     };
 
     const trySchedule = () => {
+      if (failure) {
+        return;
+      }
+      const deferred: string[] = [];
       while (!failure && inFlight.size < concurrencyLimit && readyQueue.length > 0) {
         const nextStepId = readyQueue.shift();
         if (!nextStepId) {
           break;
         }
-        scheduleStep(nextStepId);
+        const runtime = runtimeSteps.get(nextStepId);
+        if (!runtime) {
+          failure = { stepId: nextStepId, message: `Unknown step ${nextStepId}` };
+          break;
+        }
+        if (statusById.get(nextStepId) !== 'pending') {
+          readySet.delete(nextStepId);
+          continue;
+        }
+        const fanOutMeta = runtime.fanOut;
+        if (fanOutMeta) {
+          const state = fanOutStates.get(fanOutMeta.parentStepId);
+          if (state) {
+            if (state.active.size >= state.maxConcurrency) {
+              deferred.push(nextStepId);
+              continue;
+            }
+            state.active.add(nextStepId);
+          }
+        }
+        scheduleStep(nextStepId, runtime);
+      }
+      if (deferred.length > 0) {
+        readyQueue = deferred.concat(readyQueue);
       }
     };
 
@@ -1702,6 +2259,12 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       inFlight.delete(stepId);
       activeSteps.delete(stepId);
 
+      const runtime = runtimeSteps.get(stepId);
+      if (runtime?.fanOut) {
+        const state = fanOutStates.get(runtime.fanOut.parentStepId);
+        state?.active.delete(stepId);
+      }
+
       if (completion.error) {
         const message =
           completion.error instanceof Error
@@ -1713,10 +2276,24 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
 
       const result = completion.result!;
       context = updateStepContext(context, stepId, result.stepPatch);
+
+      if (runtime?.fanOut) {
+        await handleFanOutChildCompletion(stepId, runtime, result);
+      }
+
       if (result.sharedPatch) {
         for (const [key, value] of Object.entries(result.sharedPatch)) {
           context = setSharedValue(context, key, value);
         }
+      }
+
+      if (!result.completed) {
+        if (result.fanOut) {
+          await registerFanOutExpansion(result.fanOut);
+        }
+        statusById.set(stepId, result.stepStatus);
+        trySchedule();
+        continue;
       }
 
       if (result.stepStatus !== 'succeeded') {
@@ -1732,20 +2309,10 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       remainingSteps -= 1;
       totals.completedSteps += 1;
 
-      await updateWorkflowRun(run.id, {
-        metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
-      });
+      await updateRunMetrics();
 
       for (const dependentId of dependentsMap.get(stepId) ?? []) {
-        if (
-          statusById.get(dependentId) === 'pending' &&
-          !readySet.has(dependentId) &&
-          !activeSteps.has(dependentId) &&
-          canSchedule(dependentId)
-        ) {
-          readyQueue.push(dependentId);
-          readySet.add(dependentId);
-        }
+        enqueueIfReady(dependentId);
       }
 
       trySchedule();

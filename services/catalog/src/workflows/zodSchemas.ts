@@ -134,7 +134,28 @@ export const workflowServiceStepSchema = z
   })
   .strict();
 
-export const workflowStepSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
+export const workflowFanOutTemplateSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
+
+export const workflowFanOutStepSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    type: z.literal('fanout'),
+    description: z.string().min(1).optional(),
+    dependsOn: z.array(z.string().min(1)).max(25).optional(),
+    collection: jsonValueSchema,
+    template: workflowFanOutTemplateSchema,
+    maxItems: z.number().int().min(1).max(10_000).optional(),
+    maxConcurrency: z.number().int().min(1).max(1_000).optional(),
+    storeResultsAs: z.string().min(1).max(200).optional()
+  })
+  .strict();
+
+export const workflowStepSchema = z.union([
+  workflowJobStepSchema,
+  workflowServiceStepSchema,
+  workflowFanOutStepSchema
+]);
 
 export const workflowDefinitionCreateSchema = z
   .object({
@@ -173,6 +194,8 @@ export const workflowDefinitionUpdateSchema = z
 export type WorkflowDefinitionCreateInput = z.infer<typeof workflowDefinitionCreateSchema>;
 export type WorkflowDefinitionUpdateInput = z.infer<typeof workflowDefinitionUpdateSchema>;
 export type WorkflowStepInput = z.infer<typeof workflowStepSchema>;
+export type WorkflowFanOutTemplateInput = z.infer<typeof workflowFanOutTemplateSchema>;
+export type WorkflowFanOutStepInput = z.infer<typeof workflowFanOutStepSchema>;
 export type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
 export type JobDefinitionCreateInput = z.infer<typeof jobDefinitionCreateSchema>;
 export type JobDefinitionUpdateInput = z.infer<typeof jobDefinitionUpdateSchema>;

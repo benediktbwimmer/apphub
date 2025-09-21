@@ -67,7 +67,7 @@ import {
   type WorkflowRunRecord,
   type WorkflowRunStepRecord
 } from './db/index';
-import type { WorkflowStepDefinition } from './db/types';
+import type { WorkflowFanOutTemplateDefinition, WorkflowStepDefinition } from './db/types';
 import {
   enqueueRepositoryIngestion,
   enqueueLaunchStart,
@@ -125,6 +125,7 @@ import {
   workflowStepSchema,
   workflowTriggerSchema,
   type WorkflowJsonValue,
+  type WorkflowFanOutTemplateInput,
   type WorkflowStepInput,
   type WorkflowTriggerInput
 } from './workflows/zodSchemas';
@@ -394,6 +395,18 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
       dependsOn: normalizeWorkflowDependsOn(step.dependsOn)
     };
 
+    if (step.type === 'fanout') {
+      return {
+        ...base,
+        type: 'fanout' as const,
+        collection: step.collection,
+        template: normalizeWorkflowFanOutTemplate(step.template),
+        maxItems: step.maxItems ?? null,
+        maxConcurrency: step.maxConcurrency ?? null,
+        storeResultsAs: step.storeResultsAs ?? undefined
+      };
+    }
+
     if (step.type === 'service') {
       return {
         ...base,
@@ -420,6 +433,41 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
       storeResultAs: step.storeResultAs ?? undefined
     };
   });
+}
+
+function normalizeWorkflowFanOutTemplate(template: WorkflowFanOutTemplateInput) {
+  const base = {
+    id: template.id,
+    name: template.name,
+    description: template.description ?? null,
+    dependsOn: normalizeWorkflowDependsOn(template.dependsOn)
+  };
+
+  if (template.type === 'service') {
+    return {
+      ...base,
+      type: 'service' as const,
+      serviceSlug: template.serviceSlug.trim().toLowerCase(),
+      parameters: template.parameters ?? undefined,
+      timeoutMs: template.timeoutMs ?? null,
+      retryPolicy: template.retryPolicy ?? null,
+      requireHealthy: template.requireHealthy ?? undefined,
+      allowDegraded: template.allowDegraded ?? undefined,
+      captureResponse: template.captureResponse ?? undefined,
+      storeResponseAs: template.storeResponseAs ?? undefined,
+      request: template.request
+    } satisfies WorkflowFanOutTemplateDefinition;
+  }
+
+  return {
+    ...base,
+    type: 'job' as const,
+    jobSlug: template.jobSlug,
+    parameters: template.parameters ?? undefined,
+    timeoutMs: template.timeoutMs ?? null,
+    retryPolicy: template.retryPolicy ?? null,
+    storeResultAs: template.storeResultAs ?? undefined
+  } satisfies WorkflowFanOutTemplateDefinition;
 }
 
 function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
@@ -1092,6 +1140,9 @@ function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
     context: step.context,
     startedAt: step.startedAt,
     completedAt: step.completedAt,
+    parentStepId: step.parentStepId,
+    fanoutIndex: step.fanoutIndex,
+    templateStepId: step.templateStepId,
     createdAt: step.createdAt,
     updatedAt: step.updatedAt
   };

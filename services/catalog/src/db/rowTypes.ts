@@ -248,6 +248,9 @@ export type WorkflowRunStepRow = {
   context: unknown;
   started_at: string | null;
   completed_at: string | null;
+  parent_step_id: string | null;
+  fanout_index: number | null;
+  template_step_id: string | null;
   created_at: string;
   updated_at: string;
 };

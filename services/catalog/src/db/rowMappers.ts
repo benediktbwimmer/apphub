@@ -26,6 +26,8 @@ import {
   type WorkflowDefinitionRecord,
   type WorkflowTriggerDefinition,
   type WorkflowStepDefinition,
+  type WorkflowFanOutStepDefinition,
+  type WorkflowFanOutTemplateDefinition,
   type WorkflowServiceStepDefinition,
   type WorkflowServiceRequestHeaderValue,
   type WorkflowServiceRequestDefinition,
@@ -474,6 +476,91 @@ function parseServiceWorkflowStep(
   return step;
 }
 
+function parseJobWorkflowStep(
+  record: Record<string, unknown>,
+  id: string,
+  name: string
+): WorkflowJobStepDefinition | null {
+  const jobSlug = typeof record.jobSlug === 'string' ? record.jobSlug.trim() : '';
+  if (!jobSlug) {
+    return null;
+  }
+
+  const step: WorkflowJobStepDefinition = {
+    id,
+    name,
+    type: 'job',
+    jobSlug
+  };
+
+  if (typeof record.description === 'string' && record.description.trim()) {
+    step.description = record.description;
+  }
+
+  const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
+  if (dependsOn.length > 0) {
+    step.dependsOn = Array.from(new Set(dependsOn));
+  }
+
+  const dependents = parseStringArray(record.dependents);
+  if (dependents.length > 0) {
+    step.dependents = Array.from(new Set(dependents));
+  }
+
+  const parameters = toJsonValue(record.parameters);
+  if (parameters !== null) {
+    step.parameters = parameters;
+  }
+
+  const timeoutCandidate = record.timeoutMs ?? record.timeout_ms;
+  if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate >= 0) {
+    step.timeoutMs = Math.floor(timeoutCandidate);
+  }
+
+  const retryPolicyRaw = record.retryPolicy ?? record.retry_policy;
+  const retryPolicy = toJsonObjectOrNull(retryPolicyRaw);
+  if (retryPolicy) {
+    step.retryPolicy = retryPolicy as JobRetryPolicy;
+  }
+
+  const storeResultAs = typeof record.storeResultAs === 'string' ? record.storeResultAs.trim() : '';
+  if (storeResultAs) {
+    step.storeResultAs = storeResultAs;
+  }
+
+  return step;
+}
+
+function parseFanOutTemplate(record: Record<string, unknown>): WorkflowFanOutTemplateDefinition | null {
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  if (!id) {
+    return null;
+  }
+
+  const name = typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : id;
+  const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : '';
+
+  if (type === 'service') {
+    const serviceStep = parseServiceWorkflowStep(record, id, name);
+    if (!serviceStep) {
+      return null;
+    }
+    const { dependents, ...rest } = serviceStep;
+    return rest;
+  }
+
+  if (type === 'job') {
+    const jobStep = parseJobWorkflowStep(record, id, name);
+    if (!jobStep) {
+      return null;
+    }
+    const { dependents, ...rest } = jobStep;
+    return rest;
+  }
+
+  return null;
+}
+
 function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
   if (!value) {
     return [];
@@ -501,7 +588,7 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
       continue;
     }
     const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : 'job';
-    if (type !== 'job' && type !== 'service') {
+    if (type !== 'job' && type !== 'service' && type !== 'fanout') {
       continue;
     }
     const name = typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : id;
@@ -515,55 +602,88 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
       steps.push(serviceStep);
       continue;
     }
-    const jobSlug = typeof record.jobSlug === 'string' ? record.jobSlug.trim() : '';
-    if (!jobSlug) {
+    if (type === 'fanout') {
+      const templateRaw = record.template;
+      if (!templateRaw || typeof templateRaw !== 'object') {
+        continue;
+      }
+      const template = parseFanOutTemplate(templateRaw as Record<string, unknown>);
+      if (!template) {
+        continue;
+      }
+
+      let collection: JsonValue | string = [] as JsonValue;
+      if (typeof record.collection === 'string') {
+        collection = record.collection;
+      } else {
+        const collectionValue = toJsonValue(record.collection);
+        if (collectionValue !== null) {
+          collection = collectionValue;
+        }
+      }
+
+      const fanOutStep: WorkflowFanOutStepDefinition = {
+        id,
+        name,
+        type: 'fanout',
+        collection,
+        template
+      };
+
+      if (typeof record.description === 'string' && record.description.trim()) {
+        fanOutStep.description = record.description;
+      }
+
+      const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
+      if (dependsOn.length > 0) {
+        fanOutStep.dependsOn = Array.from(new Set(dependsOn));
+      }
+
+      const dependents = parseStringArray(record.dependents);
+      if (dependents.length > 0) {
+        fanOutStep.dependents = Array.from(new Set(dependents));
+      }
+
+      const maxItemsCandidate = record.maxItems ?? record.max_items;
+      if (
+        typeof maxItemsCandidate === 'number' &&
+        Number.isFinite(maxItemsCandidate) &&
+        maxItemsCandidate > 0
+      ) {
+        fanOutStep.maxItems = Math.floor(maxItemsCandidate);
+      }
+
+      const maxConcurrencyCandidate = record.maxConcurrency ?? record.max_concurrency;
+      if (
+        typeof maxConcurrencyCandidate === 'number' &&
+        Number.isFinite(maxConcurrencyCandidate) &&
+        maxConcurrencyCandidate > 0
+      ) {
+        fanOutStep.maxConcurrency = Math.floor(maxConcurrencyCandidate);
+      }
+
+      const storeResultsAsRaw =
+        typeof record.storeResultsAs === 'string'
+          ? record.storeResultsAs.trim()
+          : typeof (record.store_results_as as unknown) === 'string'
+            ? (record.store_results_as as string).trim()
+            : '';
+      if (storeResultsAsRaw) {
+        fanOutStep.storeResultsAs = storeResultsAsRaw;
+      }
+
+      seenIds.add(id);
+      steps.push(fanOutStep);
       continue;
     }
 
-    const step: WorkflowStepDefinition = {
-      id,
-      name,
-      type: 'job',
-      jobSlug
-    };
-
-    if (typeof record.description === 'string' && record.description.trim()) {
-      step.description = record.description;
-    }
-
-  const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
-  if (dependsOn.length > 0) {
-    step.dependsOn = Array.from(new Set(dependsOn));
-  }
-
-  const dependents = parseStringArray(record.dependents);
-  if (dependents.length > 0) {
-    step.dependents = Array.from(new Set(dependents));
-  }
-
-    const parameters = toJsonValue(record.parameters);
-    if (parameters !== null) {
-      step.parameters = parameters;
-    }
-
-    const timeoutCandidate = record.timeoutMs ?? record.timeout_ms;
-    if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate >= 0) {
-      step.timeoutMs = Math.floor(timeoutCandidate);
-    }
-
-    const retryPolicyRaw = record.retryPolicy ?? record.retry_policy;
-    const retryPolicy = toJsonObjectOrNull(retryPolicyRaw);
-    if (retryPolicy) {
-      step.retryPolicy = retryPolicy as JobRetryPolicy;
-    }
-
-    const storeResultAs = typeof record.storeResultAs === 'string' ? record.storeResultAs.trim() : '';
-    if (storeResultAs) {
-      step.storeResultAs = storeResultAs;
+    const jobStep = parseJobWorkflowStep(record, id, name);
+    if (!jobStep) {
+      continue;
     }
 
     seenIds.add(id);
-    steps.push(step);
+    steps.push(jobStep);
   }
   return steps;
 }
@@ -955,6 +1075,9 @@ export function mapWorkflowRunStepRow(row: WorkflowRunStepRow): WorkflowRunStepR
     context: toJsonValue(row.context),
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    parentStepId: row.parent_step_id,
+    fanoutIndex: row.fanout_index,
+    templateStepId: row.template_step_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepRecord;

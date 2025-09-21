@@ -29,6 +29,27 @@ import { useConnection, useTransaction } from './utils';
 
 const MANUAL_TRIGGER: Record<string, unknown> = { type: 'manual' };
 
+function serializeJson(value: JsonValue | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return JSON.stringify(value);
+}
+
+function reuseJsonColumn(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeWorkflowRunStatus(status?: WorkflowRunStatus | null): WorkflowRunStatus {
   if (!status) {
     return 'pending';
@@ -608,6 +629,9 @@ export async function createWorkflowRunStep(
          context,
          started_at,
          completed_at,
+         parent_step_id,
+         fanout_index,
+         template_step_id,
          created_at,
          updated_at
        ) VALUES (
@@ -625,6 +649,9 @@ export async function createWorkflowRunStep(
          $12::jsonb,
          $13,
          $14,
+         $15,
+         $16,
+         $17,
          NOW(),
          NOW()
        )
@@ -636,14 +663,17 @@ export async function createWorkflowRunStep(
         status,
         attempt,
         input.jobRunId ?? null,
-        input.input ?? null,
-        input.output ?? null,
+        serializeJson(input.input),
+        serializeJson(input.output),
         input.errorMessage ?? null,
         input.logsUrl ?? null,
-        input.metrics ?? null,
-        input.context ?? null,
+        serializeJson(input.metrics),
+        serializeJson(input.context),
         input.startedAt ?? null,
-        input.completedAt ?? null
+        input.completedAt ?? null,
+        input.parentStepId ?? null,
+        input.fanoutIndex ?? null,
+        input.templateStepId ?? null
       ]
     );
     if (rows.length === 0) {
@@ -721,14 +751,25 @@ export async function updateWorkflowRunStep(
     const nextStatus = updates.status ?? existing.status;
     const nextAttempt = updates.attempt ?? existing.attempt;
     const nextJobRunId = updates.jobRunId ?? existing.job_run_id ?? null;
-    const nextInput = updates.input ?? existing.input ?? null;
-    const nextOutput = updates.output ?? existing.output ?? null;
+    const inputProvided = Object.prototype.hasOwnProperty.call(updates, 'input');
+    const outputProvided = Object.prototype.hasOwnProperty.call(updates, 'output');
+    const metricsProvided = Object.prototype.hasOwnProperty.call(updates, 'metrics');
+    const contextProvided = Object.prototype.hasOwnProperty.call(updates, 'context');
+
+    const nextInput = inputProvided ? serializeJson(updates.input) : reuseJsonColumn(existing.input);
+    const nextOutput = outputProvided ? serializeJson(updates.output) : reuseJsonColumn(existing.output);
     const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
     const nextLogsUrl = 'logsUrl' in updates ? updates.logsUrl ?? null : existing.logs_url;
-    const nextMetrics = updates.metrics ?? existing.metrics ?? null;
-    const nextContext = updates.context ?? existing.context ?? null;
+    const nextMetrics = metricsProvided ? serializeJson(updates.metrics) : reuseJsonColumn(existing.metrics);
+    const nextContext = contextProvided ? serializeJson(updates.context) : reuseJsonColumn(existing.context);
     const nextStartedAt = updates.startedAt ?? existing.started_at ?? null;
     const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
+    const nextParentStepId =
+      'parentStepId' in updates ? updates.parentStepId ?? null : existing.parent_step_id ?? null;
+    const nextFanoutIndex =
+      'fanoutIndex' in updates ? updates.fanoutIndex ?? null : existing.fanout_index ?? null;
+    const nextTemplateStepId =
+      'templateStepId' in updates ? updates.templateStepId ?? null : existing.template_step_id ?? null;
 
     const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
       `UPDATE workflow_run_steps
@@ -743,6 +784,9 @@ export async function updateWorkflowRunStep(
            context = $10::jsonb,
            started_at = $11,
            completed_at = $12,
+           parent_step_id = $13,
+           fanout_index = $14,
+           template_step_id = $15,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -758,7 +802,10 @@ export async function updateWorkflowRunStep(
         nextMetrics,
         nextContext,
         nextStartedAt,
-        nextCompletedAt
+        nextCompletedAt,
+        nextParentStepId,
+        nextFanoutIndex,
+        nextTemplateStepId
       ]
     );
     if (updatedRows.length === 0) {

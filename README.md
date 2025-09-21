@@ -56,6 +56,30 @@ Configuration knobs:
 - `INGEST_JOB_ATTEMPTS` / `INGEST_JOB_BACKOFF_MS` — retry policy for failed ingests (defaults `3` and `10000`).
 - `INGEST_CLONE_DEPTH` — git clone depth (default `1`).
 
+### Workflow Orchestrator
+
+AppHub's workflow engine coordinates long-running back-end flows such as repository ingest/build pipelines. The orchestrator now
+supports dynamic fan-out steps that expand a single logical node into **N** child jobs at runtime and fan the results back in for
+downstream processing.
+
+Spin up the workflow coordinator alongside the API and workers:
+
+```bash
+cd services/catalog
+npm run workflows
+```
+
+Runtime configuration highlights:
+
+- `WORKFLOW_MAX_PARALLEL` — global concurrency limit for simultaneously running workflow steps (defaults to the number of defined steps).
+- `WORKFLOW_FANOUT_MAX_ITEMS` — safety limit for the number of items a fan-out step may emit (default `100`).
+- `WORKFLOW_FANOUT_MAX_CONCURRENCY` — cap on the number of fan-out children the orchestrator will execute in parallel (default `10`).
+
+Fan-out step definitions live alongside traditional `job` and `service` steps. A fan-out step supplies a collection expression
+(`collection`), a template step (`template`) that defines the child job/service payload, and optional guardrails such as
+`maxItems`, `maxConcurrency`, and `storeResultsAs` for aggregating child outputs into the shared workflow context. The REST API and
+`workflow.run.*` events expose the generated child step metadata so the frontend can render progress for each dynamic branch.
+
 ### Frontend
 
 ```bash
@@ -108,6 +132,8 @@ WORKFLOW_FAILURE_ALERT_THRESHOLD=3                     # Consecutive failures re
 WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15               # Sliding window (minutes) for workflow failure alert evaluation
 WORKFLOW_ALERT_WEBHOOK_URL=                            # Optional webhook invoked when workflow alerts trigger
 WORKFLOW_ALERT_WEBHOOK_TOKEN=                          # Bearer token supplied with alert webhook requests (optional)
+WORKFLOW_FANOUT_MAX_ITEMS=100                          # Global guardrail for dynamically generated fan-out children per step
+WORKFLOW_FANOUT_MAX_CONCURRENCY=10                     # Maximum number of fan-out children executed in parallel
 APPHUB_CODEX_CLI=codex                                 # Path to the Codex CLI executable (default assumes codex on PATH)
 APPHUB_CODEX_EXEC_OPTS=                                # Additional arguments appended before running `codex exec`
 APPHUB_CODEX_DEBUG_WORKSPACES=0                        # Set to 1 to retain Codex workspaces for inspection
