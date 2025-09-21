@@ -3,8 +3,7 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent,
-  type KeyboardEvent
+  type FormEvent
 } from 'react';
 import { FormSection, FormField, FormActions, FormButton, FormFeedback } from '../../components/form';
 import { useWorkflowResources } from '../WorkflowResourcesContext';

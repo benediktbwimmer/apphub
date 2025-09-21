@@ -16,7 +16,15 @@ import type {
 } from '../api';
 
 const ajv = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false, strictTuples: false });
-const schemaCache = new Map<string, ValidateFunction>();
+const schemaCache = new Map<string, ValidateFunction | null>();
+
+type WorkflowSecretHeader = {
+  secret: { source: 'env' | 'store'; key: string; prefix?: string };
+};
+
+type WorkflowRequestHeaders = Record<string, string | WorkflowSecretHeader>;
+
+type WorkflowRequestQuery = Record<string, string | number | boolean>;
 
 export type DraftValidationIssue = {
   path: string;
@@ -273,6 +281,69 @@ function sanitizeServiceSlug(slug: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function sanitizeHeaderSecret(value: unknown): WorkflowSecretHeader | null {
+  const record = toRecord(value);
+  if (!record) {
+    return null;
+  }
+  const secret = toRecord(record.secret);
+  if (!secret) {
+    return null;
+  }
+  const source = secret.source;
+  if (source !== 'env' && source !== 'store') {
+    return null;
+  }
+  const key = typeof secret.key === 'string' ? secret.key.trim() : '';
+  if (!key) {
+    return null;
+  }
+  const prefix = typeof secret.prefix === 'string' ? secret.prefix : undefined;
+  const sanitized: WorkflowSecretHeader = {
+    secret: {
+      source,
+      key
+    }
+  };
+  if (prefix) {
+    sanitized.secret.prefix = prefix;
+  }
+  return sanitized;
+}
+
+function sanitizeRequestHeaders(value: unknown): WorkflowRequestHeaders | undefined {
+  const record = toRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  const sanitized: WorkflowRequestHeaders = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (typeof raw === 'string') {
+      sanitized[key] = raw;
+      continue;
+    }
+    const secret = sanitizeHeaderSecret(raw);
+    if (secret) {
+      sanitized[key] = secret;
+    }
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizeRequestQuery(value: unknown): WorkflowRequestQuery | undefined {
+  const record = toRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  const sanitized: WorkflowRequestQuery = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+      sanitized[key] = raw;
+    }
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
 function sanitizeRequest(step: WorkflowDraftStep): WorkflowServiceRequestInput | undefined {
   if (step.type !== 'service') {
     return undefined;
@@ -288,14 +359,14 @@ function sanitizeRequest(step: WorkflowDraftStep): WorkflowServiceRequestInput |
     methodRaw === 'HEAD'
       ? methodRaw
       : 'GET';
-  const headers = toRecord(raw?.headers);
-  const query = toRecord(raw?.query);
+  const headers = sanitizeRequestHeaders(raw?.headers);
+  const query = sanitizeRequestQuery(raw?.query);
   const body = 'body' in (raw ?? {}) ? raw?.body : undefined;
   return {
     path,
     method,
-    headers: headers ?? undefined,
-    query: query ?? undefined,
+    headers,
+    query,
     body
   } satisfies WorkflowServiceRequestInput;
 }
@@ -483,7 +554,8 @@ export function validateWorkflowDraft(
   }
 
   for (const step of draft.steps) {
-    const list = (stepErrors[step.id] = []);
+    const list: DraftValidationIssue[] = [];
+    stepErrors[step.id] = list;
     const trimmedId = step.id.trim();
     if (!trimmedId) {
       list.push({ path: `${step.id}.id`, message: 'Step ID is required.' });
