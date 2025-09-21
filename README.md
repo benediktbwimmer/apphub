@@ -226,6 +226,18 @@ npm run test:e2e
 
 The script launches an embedded PostgreSQL instance, registers a sample repo, waits for ingestion to finish, and asserts that history events capture status transitions, attempt counts, commit SHA, and duration.
 
+### Job Bundle CLI
+
+Developer tooling for dynamic job bundles lives in `apps/cli`. Install dependencies with `npm install --prefix apps/cli`, then use the `apphub` binary to scaffold, test, and publish bundles:
+
+```bash
+npx tsx apps/cli/src/index.ts jobs package ./examples/summary-job
+npx tsx apps/cli/src/index.ts jobs test ./examples/summary-job --input-json '{"foo":"bar"}'
+npx tsx apps/cli/src/index.ts jobs publish ./examples/summary-job --token dev-operator-token
+```
+
+The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough.
+
 ## Current Functionality
 
 - Optional seeded catalog of sample web apps with tags like `framework:nextjs`, `category:media`, `runtime:node18`. A
