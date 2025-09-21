@@ -22,6 +22,10 @@ import {
   type WorkflowDefinitionRecord,
   type WorkflowTriggerDefinition,
   type WorkflowStepDefinition,
+  type WorkflowServiceStepDefinition,
+  type WorkflowServiceRequestHeaderValue,
+  type WorkflowServiceRequestDefinition,
+  type SecretReference,
   type WorkflowRunRecord,
   type WorkflowRunStatus,
   type WorkflowRunStepRecord,
@@ -225,6 +229,182 @@ function parseWorkflowTriggers(value: unknown): WorkflowTriggerDefinition[] {
     .filter((entry): entry is WorkflowTriggerDefinition => Boolean(entry));
 }
 
+function parseSecretReference(value: unknown): SecretReference | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const source = typeof record.source === 'string' ? record.source.trim().toLowerCase() : '';
+  if (source !== 'env') {
+    return null;
+  }
+  const key = typeof record.key === 'string' ? record.key.trim() : '';
+  if (!key) {
+    return null;
+  }
+  return { source: 'env', key } satisfies SecretReference;
+}
+
+function parseServiceHeaderValue(value: unknown): WorkflowServiceRequestHeaderValue | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const secret = parseSecretReference(record.secret);
+  if (!secret) {
+    return null;
+  }
+  const prefix = typeof record.prefix === 'string' ? record.prefix : undefined;
+  return { secret, prefix } satisfies WorkflowServiceRequestHeaderValue;
+}
+
+function parseServiceRequest(value: unknown): WorkflowServiceRequestDefinition | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const rawPath = typeof record.path === 'string' ? record.path.trim() : '';
+  if (!rawPath) {
+    return null;
+  }
+  const request: WorkflowServiceRequestDefinition = {
+    path: rawPath
+  };
+
+  const methodRaw = typeof record.method === 'string' ? record.method.trim().toUpperCase() : '';
+  if (methodRaw) {
+    if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(methodRaw)) {
+      request.method = methodRaw as WorkflowServiceRequestDefinition['method'];
+    }
+  }
+
+  if (record.headers && typeof record.headers === 'object' && !Array.isArray(record.headers)) {
+    const headers: Record<string, WorkflowServiceRequestHeaderValue> = {};
+    for (const [key, headerValue] of Object.entries(record.headers as Record<string, unknown>)) {
+      const normalizedKey = key.trim();
+      if (!normalizedKey) {
+        continue;
+      }
+      const parsedValue = parseServiceHeaderValue(headerValue);
+      if (parsedValue !== null) {
+        headers[normalizedKey] = parsedValue;
+      }
+    }
+    if (Object.keys(headers).length > 0) {
+      request.headers = headers;
+    }
+  }
+
+  if (record.query && typeof record.query === 'object' && !Array.isArray(record.query)) {
+    const query: Record<string, string | number | boolean> = {};
+    for (const [key, rawValue] of Object.entries(record.query as Record<string, unknown>)) {
+      const normalizedKey = key.trim();
+      if (!normalizedKey) {
+        continue;
+      }
+      if (
+        typeof rawValue === 'string' ||
+        typeof rawValue === 'number' ||
+        typeof rawValue === 'boolean'
+      ) {
+        query[normalizedKey] = rawValue;
+      }
+    }
+    if (Object.keys(query).length > 0) {
+      request.query = query;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(record, 'body')) {
+    request.body = toJsonValue(record.body);
+  }
+
+  return request;
+}
+
+function parseServiceWorkflowStep(
+  record: Record<string, unknown>,
+  id: string,
+  name: string
+): WorkflowServiceStepDefinition | null {
+  const serviceSlugRaw = typeof record.serviceSlug === 'string' ? record.serviceSlug.trim() : '';
+  if (!serviceSlugRaw) {
+    return null;
+  }
+  const serviceSlug = serviceSlugRaw.toLowerCase();
+
+  let request = parseServiceRequest(record.request);
+  if (!request) {
+    const fallbackPath = typeof record.endpoint === 'string' ? record.endpoint.trim() : '';
+    if (!fallbackPath) {
+      return null;
+    }
+    const fallbackMethod = typeof record.method === 'string' ? record.method.trim().toUpperCase() : undefined;
+    request = parseServiceRequest({
+      path: fallbackPath,
+      method: fallbackMethod,
+      headers: record.headers && typeof record.headers === 'object' ? (record.headers as Record<string, unknown>) : undefined,
+      query: record.query && typeof record.query === 'object' ? (record.query as Record<string, unknown>) : undefined,
+      body: Object.prototype.hasOwnProperty.call(record, 'body') ? record.body : undefined
+    });
+  }
+  if (!request) {
+    return null;
+  }
+
+  const step: WorkflowServiceStepDefinition = {
+    id,
+    name,
+    type: 'service',
+    serviceSlug,
+    request
+  };
+
+  if (typeof record.description === 'string' && record.description.trim()) {
+    step.description = record.description;
+  }
+
+  const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
+  if (dependsOn.length > 0) {
+    step.dependsOn = Array.from(new Set(dependsOn));
+  }
+
+  const parameters = toJsonValue(record.parameters);
+  if (parameters !== null) {
+    step.parameters = parameters;
+  }
+
+  const timeoutCandidate = record.timeoutMs ?? record.timeout_ms;
+  if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate >= 0) {
+    step.timeoutMs = Math.floor(timeoutCandidate);
+  }
+
+  const retryPolicyRaw = record.retryPolicy ?? record.retry_policy;
+  const retryPolicy = toJsonObjectOrNull(retryPolicyRaw);
+  if (retryPolicy) {
+    step.retryPolicy = retryPolicy as JobRetryPolicy;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(record, 'requireHealthy')) {
+    step.requireHealthy = Boolean(record.requireHealthy);
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'allowDegraded')) {
+    step.allowDegraded = Boolean(record.allowDegraded);
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'captureResponse')) {
+    step.captureResponse = Boolean(record.captureResponse);
+  }
+  const storeResponseAs = typeof record.storeResponseAs === 'string' ? record.storeResponseAs.trim() : '';
+  if (storeResponseAs) {
+    step.storeResponseAs = storeResponseAs;
+  }
+
+  return step;
+}
+
 function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
   if (!value) {
     return [];
@@ -252,14 +432,24 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
       continue;
     }
     const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : 'job';
-    if (type !== 'job') {
+    if (type !== 'job' && type !== 'service') {
+      continue;
+    }
+    const name = typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : id;
+
+    if (type === 'service') {
+      const serviceStep = parseServiceWorkflowStep(record, id, name);
+      if (!serviceStep) {
+        continue;
+      }
+      seenIds.add(id);
+      steps.push(serviceStep);
       continue;
     }
     const jobSlug = typeof record.jobSlug === 'string' ? record.jobSlug.trim() : '';
     if (!jobSlug) {
       continue;
     }
-    const name = typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : id;
 
     const step: WorkflowStepDefinition = {
       id,
