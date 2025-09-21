@@ -686,6 +686,8 @@ export default function WorkflowsPage() {
   useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
     let attempt = 0;
 
@@ -760,6 +762,46 @@ export default function WorkflowsPage() {
       }
     };
 
+    const clearHeartbeat = () => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
+    const startHeartbeat = () => {
+      clearHeartbeat();
+      heartbeatTimer = setInterval(() => {
+        if (closed || !socket || socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        try {
+          socket.send('ping');
+        } catch {
+          // Ignore send errors and defer to the reconnect logic.
+        }
+        if (pongTimer) {
+          clearTimeout(pongTimer);
+        }
+        pongTimer = setTimeout(() => {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+          }
+        }, 10_000);
+      }, 30_000);
+    };
+
+    const handlePong = () => {
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
     const connect = () => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
@@ -774,6 +816,7 @@ export default function WorkflowsPage() {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
+        startHeartbeat();
       };
 
       socket.onmessage = (event) => {
@@ -790,6 +833,14 @@ export default function WorkflowsPage() {
           return;
         }
         const type = (payload as { type?: unknown }).type;
+        if (type === 'connection.ack') {
+          startHeartbeat();
+          return;
+        }
+        if (type === 'pong') {
+          handlePong();
+          return;
+        }
         if (type === 'workflow.definition.updated') {
           const workflowPayload = (payload as { data?: { workflow?: unknown } }).data?.workflow;
           handleDefinitionEvent(workflowPayload);
@@ -805,6 +856,7 @@ export default function WorkflowsPage() {
         if (closed) {
           return;
         }
+        clearHeartbeat();
         attempt += 1;
         const delay = Math.min(10_000, 500 * 2 ** attempt);
         reconnectTimer = setTimeout(connect, delay);
@@ -812,6 +864,7 @@ export default function WorkflowsPage() {
       };
 
       socket.onerror = () => {
+        clearHeartbeat();
         socket?.close();
       };
     };
@@ -823,6 +876,7 @@ export default function WorkflowsPage() {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
+      clearHeartbeat();
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
       }

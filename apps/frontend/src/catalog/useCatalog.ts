@@ -1116,6 +1116,8 @@ export function useCatalog(): UseCatalogResult {
   useEffect(() => {
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
     let attempt = 0;
 
@@ -1135,6 +1137,46 @@ export function useCatalog(): UseCatalogResult {
       }
     };
 
+    const clearHeartbeat = () => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
+    const startHeartbeat = () => {
+      clearHeartbeat();
+      heartbeatTimer = setInterval(() => {
+        if (closed || !socket || socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        try {
+          socket.send('ping');
+        } catch {
+          // Swallow network errors and let the reconnect logic handle failures.
+        }
+        if (pongTimer) {
+          clearTimeout(pongTimer);
+        }
+        pongTimer = setTimeout(() => {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+          }
+        }, 10_000);
+      }, 30_000);
+    };
+
+    const handlePong = () => {
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
     const connect = () => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
@@ -1149,6 +1191,7 @@ export function useCatalog(): UseCatalogResult {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
         }
+        startHeartbeat();
       };
 
       socket.onmessage = (event) => {
@@ -1167,7 +1210,10 @@ export function useCatalog(): UseCatalogResult {
 
         switch (envelope.type) {
           case 'connection.ack':
+            startHeartbeat();
+            return;
           case 'pong':
+            handlePong();
             return;
           case 'repository.updated':
             if (envelope.data?.repository) {
@@ -1205,6 +1251,7 @@ export function useCatalog(): UseCatalogResult {
         if (closed) {
           return;
         }
+        clearHeartbeat();
         attempt += 1;
         const delay = Math.min(10_000, 500 * 2 ** attempt);
         scheduleReconnect(delay);
@@ -1212,6 +1259,7 @@ export function useCatalog(): UseCatalogResult {
       };
 
       socket.onerror = () => {
+        clearHeartbeat();
         socket?.close();
       };
     };
@@ -1223,6 +1271,7 @@ export function useCatalog(): UseCatalogResult {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
+      clearHeartbeat();
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.close();
       }
