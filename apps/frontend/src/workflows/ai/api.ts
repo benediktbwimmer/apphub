@@ -40,12 +40,28 @@ export type AiSuggestionResponse = {
     valid: boolean;
     errors: string[];
   };
+  summary?: string | null;
 };
 
 export type AiSuggestRequest = {
   mode: AiBuilderMode;
   prompt: string;
   additionalNotes?: string;
+};
+
+export type AiGenerationState = {
+  generationId: string;
+  status: 'running' | 'succeeded' | 'failed';
+  mode: AiBuilderMode;
+  metadataSummary: string;
+  stdout: string;
+  stderr: string;
+  summary: string | null;
+  result: AiSuggestionResponse | null;
+  error: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
 };
 
 function buildError(message: string, status: number, details?: unknown): Error {
@@ -55,30 +71,50 @@ function buildError(message: string, status: number, details?: unknown): Error {
   return error;
 }
 
-export async function requestAiSuggestion(
+async function parseGenerationResponse(response: Response): Promise<AiGenerationState> {
+  const payload = (await response.json()) as { data?: unknown };
+  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+    throw new Error('Invalid AI generation response payload');
+  }
+  const data = (payload as { data?: AiGenerationState }).data;
+  if (!data || typeof data !== 'object') {
+    throw new Error('AI generation response missing data property');
+  }
+  return data as AiGenerationState;
+}
+
+export async function startAiGeneration(
   fetcher: AuthorizedFetch,
   input: AiSuggestRequest
-): Promise<AiSuggestionResponse> {
-  const response = await fetcher(`${API_BASE_URL}/ai/builder/suggest`, {
+): Promise<AiGenerationState> {
+  const response = await fetcher(`${API_BASE_URL}/ai/builder/generations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input)
   });
 
   if (!response.ok) {
-    const fallback = await response.text().catch(() => '') ?? '';
-    throw buildError(fallback || 'Failed to generate suggestion', response.status, fallback);
+    const fallback = (await response.text().catch(() => '')) ?? '';
+    throw buildError(fallback || 'Failed to start AI generation', response.status, fallback);
   }
 
-  const payload = (await response.json()) as { data?: unknown };
-  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
-    throw new Error('Invalid AI suggestion response payload');
+  return parseGenerationResponse(response);
+}
+
+export async function fetchAiGeneration(
+  fetcher: AuthorizedFetch,
+  generationId: string
+): Promise<AiGenerationState> {
+  const response = await fetcher(`${API_BASE_URL}/ai/builder/generations/${generationId}`, {
+    method: 'GET'
+  });
+
+  if (!response.ok) {
+    const fallback = (await response.text().catch(() => '')) ?? '';
+    throw buildError(fallback || 'Failed to fetch AI generation status', response.status, fallback);
   }
-  const data = (payload as { data?: AiSuggestionResponse }).data;
-  if (!data || typeof data !== 'object') {
-    throw new Error('AI suggestion response missing data property');
-  }
-  return data as AiSuggestionResponse;
+
+  return parseGenerationResponse(response);
 }
 
 export type CreateJobWithBundleRequest = {

@@ -111,7 +111,13 @@ import {
   buildWorkflowDagMetadata,
   WorkflowDagValidationError
 } from './workflows/dag';
-import { runCodexGeneration, type CodexGenerationMode } from './ai/codexRunner';
+import {
+  fetchCodexGenerationJobStatus,
+  runCodexGeneration,
+  startCodexGenerationJob,
+  type CodexGenerationMode,
+  type CodexProxyJobStatusResponse
+} from './ai/codexRunner';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from './ai/bundlePublisher';
 import {
   jobDefinitionCreateSchema,
@@ -129,6 +135,9 @@ import {
   type WorkflowStepInput,
   type WorkflowTriggerInput
 } from './workflows/zodSchemas';
+
+type WorkflowCreatePayload = z.infer<typeof workflowDefinitionCreateSchema>;
+type JobCreatePayload = z.infer<typeof jobDefinitionCreateSchema>;
 
 type SearchQuery = {
   q?: string;
@@ -553,6 +562,186 @@ function truncate(value: string, limit = 4_000): string {
   return `${value.slice(0, limit)}…`;
 }
 
+type AiSuggestionPayload = {
+  mode: CodexGenerationMode;
+  raw: string;
+  suggestion: WorkflowCreatePayload | JobCreatePayload | null;
+  validation: {
+    valid: boolean;
+    errors: string[];
+  };
+  stdout: string;
+  stderr: string;
+  metadataSummary: string;
+  bundle?: AiGeneratedBundleSuggestion | null;
+  bundleValidation?: {
+    valid: boolean;
+    errors: string[];
+  };
+  summary?: string | null;
+};
+
+type CodexEvaluationResult = {
+  suggestion: WorkflowCreatePayload | JobCreatePayload | null;
+  validationErrors: string[];
+  bundleSuggestion: AiGeneratedBundleSuggestion | null;
+  bundleValidationErrors: string[];
+};
+
+function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvaluationResult {
+  const validationErrors: string[] = [];
+  const bundleValidationErrors: string[] = [];
+  let suggestion: WorkflowCreatePayload | JobCreatePayload | null = null;
+  let bundleSuggestion: AiGeneratedBundleSuggestion | null = null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    validationErrors.push(`Failed to parse JSON output: ${message}`);
+    return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors };
+  }
+
+  if (mode === 'job-with-bundle') {
+    const validation = aiJobWithBundleOutputSchema.safeParse(parsed);
+    if (validation.success) {
+      suggestion = validation.data.job;
+      bundleSuggestion = validation.data.bundle;
+      if (!validation.data.bundle.files.some((file) => file.path === validation.data.bundle.entryPoint)) {
+        bundleValidationErrors.push(`Bundle is missing entry point file: ${validation.data.bundle.entryPoint}`);
+      }
+    } else {
+      for (const issue of validation.error.errors) {
+        const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+        validationErrors.push(`${path}: ${issue.message}`);
+      }
+    }
+  } else {
+    const schema = mode === 'workflow' ? workflowDefinitionCreateSchema : jobDefinitionCreateSchema;
+    const validation = schema.safeParse(parsed);
+    if (validation.success) {
+      suggestion = validation.data;
+    } else {
+      for (const issue of validation.error.errors) {
+        const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+        validationErrors.push(`${path}: ${issue.message}`);
+      }
+    }
+  }
+
+  return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors };
+}
+
+type AiGenerationSessionStatus = 'running' | 'succeeded' | 'failed';
+
+type AiGenerationSession = {
+  id: string;
+  proxyJobId: string | null;
+  mode: CodexGenerationMode;
+  metadataSummary: string;
+  operatorRequest: string;
+  additionalNotes?: string;
+  status: AiGenerationSessionStatus;
+  stdout: string;
+  stderr: string;
+  summary: string | null;
+  rawOutput: string | null;
+  result: AiSuggestionPayload | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+};
+
+const AI_GENERATION_SESSION_TTL_MS = 60 * 60 * 1_000; // 1 hour
+const aiGenerationSessions = new Map<string, AiGenerationSession>();
+
+function pruneAiGenerationSessions(now: number = Date.now()): void {
+  if (AI_GENERATION_SESSION_TTL_MS <= 0) {
+    return;
+  }
+  for (const [id, session] of aiGenerationSessions) {
+    if (session.completedAt && now - session.completedAt > AI_GENERATION_SESSION_TTL_MS) {
+      aiGenerationSessions.delete(id);
+    }
+  }
+}
+
+function createAiGenerationSession(init: {
+  proxyJobId: string | null;
+  mode: CodexGenerationMode;
+  metadataSummary: string;
+  operatorRequest: string;
+  additionalNotes?: string;
+  status?: AiGenerationSessionStatus;
+  stdout?: string;
+  stderr?: string;
+  summary?: string | null;
+  rawOutput?: string | null;
+  result?: AiSuggestionPayload | null;
+  error?: string | null;
+  completedAt?: number;
+}): AiGenerationSession {
+  const now = Date.now();
+  const session: AiGenerationSession = {
+    id: randomUUID(),
+    proxyJobId: init.proxyJobId,
+    mode: init.mode,
+    metadataSummary: init.metadataSummary,
+    operatorRequest: init.operatorRequest,
+    additionalNotes: init.additionalNotes,
+    status: init.status ?? 'running',
+    stdout: init.stdout ?? '',
+    stderr: init.stderr ?? '',
+    summary: init.summary ?? null,
+    rawOutput: init.rawOutput ?? null,
+    result: init.result ?? null,
+    error: init.error ?? null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: init.completedAt
+  };
+  aiGenerationSessions.set(session.id, session);
+  return session;
+}
+
+function getAiGenerationSession(id: string): AiGenerationSession | undefined {
+  return aiGenerationSessions.get(id);
+}
+
+type AiGenerationResponsePayload = {
+  generationId: string;
+  status: AiGenerationSessionStatus;
+  mode: CodexGenerationMode;
+  metadataSummary: string;
+  stdout: string;
+  stderr: string;
+  summary: string | null;
+  result: AiSuggestionPayload | null;
+  error: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+
+function buildAiGenerationResponse(session: AiGenerationSession): AiGenerationResponsePayload {
+  return {
+    generationId: session.id,
+    status: session.status,
+    mode: session.mode,
+    metadataSummary: session.metadataSummary,
+    stdout: session.stdout,
+    stderr: session.stderr,
+    summary: session.summary,
+    result: session.result,
+    error: session.error,
+    startedAt: new Date(session.createdAt).toISOString(),
+    updatedAt: new Date(session.updatedAt).toISOString(),
+    completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : undefined
+  };
+}
+
 const workflowRunRequestSchema = z
   .object({
     parameters: jsonValueSchema.optional(),
@@ -579,6 +768,12 @@ const workflowSlugParamSchema = z
 const workflowRunIdParamSchema = z
   .object({
     runId: z.string().min(1)
+  })
+  .strict();
+
+const aiGenerationIdParamSchema = z
+  .object({
+    generationId: z.string().min(1)
   })
   .strict();
 
@@ -2041,6 +2236,264 @@ export async function buildServer() {
     }
   });
 
+  app.post('/ai/builder/generations', async (request, reply) => {
+    pruneAiGenerationSessions();
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'ai.builder.generation.start',
+      resource: 'ai-builder',
+      requiredScopes: []
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const identity = auth.identity;
+    const hasWorkflowScope = identity.scopes.has('workflows:write');
+    const hasJobScope = identity.scopes.has('jobs:write');
+    if (!hasWorkflowScope && !hasJobScope) {
+      reply.status(403);
+      await auth.log('failed', { reason: 'insufficient_scope' });
+      return { error: 'forbidden' };
+    }
+
+    const parseBody = aiBuilderSuggestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const mode = payload.mode as CodexGenerationMode;
+    const operatorRequest = payload.prompt.trim();
+    const additionalNotes = payload.additionalNotes?.trim() || undefined;
+
+    try {
+      const [jobs, services, workflows] = await Promise.all([
+        listJobDefinitions(),
+        listServices(),
+        listWorkflowDefinitions()
+      ]);
+
+      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+
+      if (process.env.APPHUB_CODEX_MOCK_DIR) {
+        const codexResult = await runCodexGeneration({
+          mode,
+          operatorRequest,
+          metadataSummary,
+          additionalNotes
+        });
+
+        const evaluation = evaluateCodexOutput(mode, codexResult.output);
+        const evaluationValid =
+          evaluation.suggestion !== null &&
+          evaluation.validationErrors.length === 0 &&
+          (mode !== 'job-with-bundle'
+            ? true
+            : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
+
+        const resultPayload: AiSuggestionPayload = {
+          mode,
+          raw: codexResult.output,
+          suggestion: evaluation.suggestion,
+          validation: {
+            valid: evaluationValid,
+            errors: evaluation.validationErrors
+          },
+          stdout: truncate(codexResult.stdout),
+          stderr: truncate(codexResult.stderr),
+          metadataSummary,
+          bundle: evaluation.bundleSuggestion,
+          bundleValidation: {
+            valid: evaluation.bundleValidationErrors.length === 0,
+            errors: evaluation.bundleValidationErrors
+          },
+          summary: codexResult.summary ?? null
+        };
+
+        const session = createAiGenerationSession({
+          proxyJobId: null,
+          mode,
+          metadataSummary,
+          operatorRequest,
+          additionalNotes,
+          status: 'succeeded',
+          stdout: codexResult.stdout,
+          stderr: codexResult.stderr,
+          summary: codexResult.summary ?? null,
+          rawOutput: codexResult.output,
+          result: resultPayload,
+          error: null,
+          completedAt: Date.now()
+        });
+        session.updatedAt = session.completedAt ?? session.updatedAt;
+
+        await auth.log('succeeded', {
+          mode,
+          event: 'generation-completed',
+          valid: evaluationValid,
+          issueCount: evaluation.validationErrors.length,
+          source: 'mock'
+        });
+
+        reply.status(200);
+        return { data: buildAiGenerationResponse(session) };
+      }
+
+      const startResponse = await startCodexGenerationJob({
+        mode,
+        operatorRequest,
+        metadataSummary,
+        additionalNotes
+      });
+
+      const session = createAiGenerationSession({
+        proxyJobId: startResponse.jobId,
+        mode,
+        metadataSummary,
+        operatorRequest,
+        additionalNotes,
+        status: 'running'
+      });
+
+      await auth.log('succeeded', {
+        mode,
+        event: 'generation-started',
+        proxyJobId: startResponse.jobId
+      });
+
+      reply.status(202);
+      return { data: buildAiGenerationResponse(session) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start AI generation';
+      reply.status(502);
+      await auth.log('failed', { reason: 'codex_start_failure', message });
+      return { error: message };
+    }
+  });
+
+  app.get('/ai/builder/generations/:generationId', async (request, reply) => {
+    pruneAiGenerationSessions();
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'ai.builder.generation.read',
+      resource: 'ai-builder',
+      requiredScopes: []
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const identity = auth.identity;
+    const hasWorkflowScope = identity.scopes.has('workflows:write');
+    const hasJobScope = identity.scopes.has('jobs:write');
+    if (!hasWorkflowScope && !hasJobScope) {
+      reply.status(403);
+      await auth.log('failed', { reason: 'insufficient_scope' });
+      return { error: 'forbidden' };
+    }
+
+    const parseParams = aiGenerationIdParamSchema.safeParse(request.params ?? {});
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: 'invalid_generation_id' };
+    }
+
+    const generationId = parseParams.data.generationId;
+    const session = getAiGenerationSession(generationId);
+    if (!session) {
+      reply.status(404);
+      return { error: 'not_found' };
+    }
+
+    if (session.status === 'running' && session.proxyJobId) {
+      try {
+        const status = (await fetchCodexGenerationJobStatus(session.proxyJobId)) as CodexProxyJobStatusResponse;
+        session.stdout = status.stdout ?? '';
+        session.stderr = status.stderr ?? '';
+        session.summary = status.summary ?? null;
+        session.updatedAt = Date.now();
+
+        if (status.status === 'succeeded') {
+          if (!status.output) {
+            session.status = 'failed';
+            session.error = 'Codex job completed without output';
+            session.completedAt = Date.now();
+            session.updatedAt = session.completedAt;
+            await auth.log('failed', { reason: 'codex_failure', message: session.error, proxyJobId: session.proxyJobId });
+          } else {
+            const evaluation = evaluateCodexOutput(session.mode, status.output);
+            const evaluationValid =
+              evaluation.suggestion !== null &&
+              evaluation.validationErrors.length === 0 &&
+              (session.mode !== 'job-with-bundle'
+                ? true
+                : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
+
+            const resultPayload: AiSuggestionPayload = {
+              mode: session.mode,
+              raw: status.output,
+              suggestion: evaluation.suggestion,
+              validation: {
+                valid: evaluationValid,
+                errors: evaluation.validationErrors
+              },
+              stdout: truncate(status.stdout ?? ''),
+              stderr: truncate(status.stderr ?? ''),
+              metadataSummary: session.metadataSummary,
+              bundle: evaluation.bundleSuggestion,
+              bundleValidation: {
+                valid: evaluation.bundleValidationErrors.length === 0,
+                errors: evaluation.bundleValidationErrors
+              },
+              summary: status.summary ?? null
+            };
+
+            session.status = 'succeeded';
+            session.rawOutput = status.output;
+            session.summary = status.summary ?? null;
+            session.result = resultPayload;
+            session.error = null;
+            session.completedAt = Date.now();
+            session.updatedAt = session.completedAt;
+
+            await auth.log('succeeded', {
+              mode: session.mode,
+              event: 'generation-completed',
+              valid: evaluationValid,
+              issueCount: evaluation.validationErrors.length,
+              proxyJobId: session.proxyJobId
+            });
+          }
+        } else if (status.status === 'failed') {
+          session.status = 'failed';
+          session.error = status.error ?? 'Codex job failed';
+          session.completedAt = Date.now();
+          session.updatedAt = session.completedAt;
+          await auth.log('failed', {
+            reason: 'codex_failure',
+            message: session.error,
+            proxyJobId: session.proxyJobId
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        session.status = 'failed';
+        session.error = message;
+        session.completedAt = Date.now();
+        session.updatedAt = session.completedAt;
+        await auth.log('failed', { reason: 'codex_status_error', message, proxyJobId: session.proxyJobId });
+      }
+    }
+
+    reply.status(200);
+    return { data: buildAiGenerationResponse(session) };
+  });
+
   app.post('/ai/builder/suggest', async (request, reply) => {
     const auth = await authorizeOperatorAction(request, {
       action: 'ai.builder.suggest',
@@ -2087,59 +2540,19 @@ export async function buildServer() {
         additionalNotes: payload.additionalNotes ?? undefined
       });
 
-      const issues: string[] = [];
-      const bundleIssues: string[] = [];
-      let suggestion: unknown = null;
-      let bundleSuggestion: AiGeneratedBundleSuggestion | null = null;
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(codexResult.output);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        issues.push(`Failed to parse JSON output: ${message}`);
-        parsed = null;
-      }
-
-      if (parsed !== null) {
-        if (mode === 'job-with-bundle') {
-          const validation = aiJobWithBundleOutputSchema.safeParse(parsed);
-          if (validation.success) {
-            suggestion = validation.data.job;
-            const currentBundle = validation.data.bundle;
-            bundleSuggestion = currentBundle;
-            if (!currentBundle.files.some((file) => file.path === currentBundle.entryPoint)) {
-              bundleIssues.push(`Bundle is missing entry point file: ${currentBundle.entryPoint}`);
-            }
-          } else {
-            for (const issue of validation.error.errors) {
-              const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-              issues.push(`${path}: ${issue.message}`);
-            }
-          }
-        } else {
-          const schema = mode === 'workflow' ? workflowDefinitionCreateSchema : jobDefinitionCreateSchema;
-          const validation = schema.safeParse(parsed);
-          if (validation.success) {
-            suggestion = validation.data;
-          } else {
-            for (const issue of validation.error.errors) {
-              const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-              issues.push(`${path}: ${issue.message}`);
-            }
-          }
-        }
-      }
+      const evaluation = evaluateCodexOutput(mode, codexResult.output);
 
       const valid =
-        suggestion !== null &&
-        issues.length === 0 &&
-        (mode !== 'job-with-bundle' ? true : bundleSuggestion !== null && bundleIssues.length === 0);
+        evaluation.suggestion !== null &&
+        evaluation.validationErrors.length === 0 &&
+        (mode !== 'job-with-bundle'
+          ? true
+          : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
 
       await auth.log('succeeded', {
         mode,
         valid,
-        issueCount: issues.length
+        issueCount: evaluation.validationErrors.length
       });
 
       reply.status(200);
@@ -2147,19 +2560,20 @@ export async function buildServer() {
         data: {
           mode,
           raw: codexResult.output,
-          suggestion: suggestion ?? null,
+          suggestion: evaluation.suggestion ?? null,
           validation: {
             valid,
-            errors: issues
+            errors: evaluation.validationErrors
           },
-          bundle: bundleSuggestion,
+          bundle: evaluation.bundleSuggestion,
           bundleValidation: {
-            valid: bundleIssues.length === 0,
-            errors: bundleIssues
+            valid: evaluation.bundleValidationErrors.length === 0,
+            errors: evaluation.bundleValidationErrors
           },
           stdout: truncate(codexResult.stdout),
           stderr: truncate(codexResult.stderr),
-          metadataSummary
+          metadataSummary,
+          summary: codexResult.summary ?? null
         }
       };
     } catch (err) {

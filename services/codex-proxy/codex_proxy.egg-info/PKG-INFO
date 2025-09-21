@@ -1,0 +1,59 @@
+Metadata-Version: 2.4
+Name: codex-proxy
+Version: 0.1.0
+Summary: HTTP proxy service that executes the local Codex CLI for AppHub
+Author: AppHub
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi<0.116.0,>=0.115.0
+Requires-Dist: pydantic<3.0.0,>=2.8.0
+Requires-Dist: uvicorn[standard]<0.31.0,>=0.30.0
+
+# Codex Proxy Service
+
+The Codex proxy is a lightweight FastAPI service that runs on the host machine and exposes the local `codex` CLI over HTTP. Containers or remote processes can call the proxy instead of mounting the Codex binary directly into their sandbox.
+
+## Quick start
+
+```bash
+cd services/codex-proxy
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install .
+export CODEX_PROXY_CLI=/opt/homebrew/bin/codex  # adjust for your system
+export CODEX_PROXY_TOKEN="change-me"
+codex-proxy
+```
+
+The server listens on `127.0.0.1:3030` by default. Override with `CODEX_PROXY_HOST` and `CODEX_PROXY_PORT`.
+
+## Request contract
+
+`POST /v1/codex/generate`
+
+```json
+{
+  "mode": "workflow",
+  "operatorRequest": "Generate an ingestion workflow",
+  "metadataSummary": "Summaries of existing jobs and services",
+  "additionalNotes": "Optional clarifications",
+  "timeoutMs": 120000
+}
+```
+
+If `CODEX_PROXY_TOKEN` is set, send `Authorization: Bearer <token>` or `X-AppHub-Proxy-Token: <token>`.
+
+## Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `CODEX_PROXY_CLI` | Absolute path to the Codex CLI executable (defaults to `codex`). |
+| `CODEX_PROXY_EXEC_OPTS` | Extra arguments appended between `codex exec` and the instruction path. |
+| `CODEX_PROXY_TIMEOUT_MS` | Default timeout applied when the request does not provide one (milliseconds). |
+| `CODEX_PROXY_TOKEN` | Shared secret required on every request when set. |
+| `CODEX_PROXY_KEEP_WORKSPACES` | When truthy, preserves the temporary workspace directory for inspection. |
+| `CODEX_PROXY_DEBUG_LOGS` | When truthy, enables verbose logging to stdout. |
+
+The proxy mirrors the original Node implementation: it prepares a temporary Codex workspace, writes `instructions.md` and `context/metadata.md`, runs `codex exec`, and returns the resulting JSON suggestion along with captured stdout and stderr.
+

@@ -1,0 +1,2 @@
+[console_scripts]
+codex-proxy = codex_proxy.cli:main

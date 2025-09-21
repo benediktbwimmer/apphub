@@ -1,0 +1,22 @@
+[project]
+name = "codex-proxy"
+version = "0.1.0"
+description = "HTTP proxy service that executes the local Codex CLI for AppHub"
+authors = [{name = "AppHub"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0,<0.116.0",
+  "pydantic>=2.8.0,<3.0.0",
+  "uvicorn[standard]>=0.30.0,<0.31.0"
+]
+
+[project.scripts]
+codex-proxy = "codex_proxy.cli:main"
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["codex_proxy"]

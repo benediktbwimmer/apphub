@@ -224,9 +224,8 @@ APPHUB_LOG_AGGREGATOR_TOKEN=
 **AI builder & automation**
 
 ```bash
-APPHUB_CODEX_CLI=codex
-APPHUB_CODEX_EXEC_OPTS=
-APPHUB_CODEX_DEBUG_WORKSPACES=0
+APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030
+APPHUB_CODEX_PROXY_TOKEN=
 APPHUB_CODEX_MOCK_DIR=
 APPHUB_AI_BUNDLE_SLUG=
 APPHUB_AI_BUNDLE_VERSION=
@@ -238,24 +237,21 @@ APPHUB_AI_BUNDLE_VERSION=
 APPHUB_E2E_DEBUG_TEMPLATES=
 ```
 
-### Running the Codex CLI from macOS hosts
+### Running Codex through the proxy
 
-The AI builder shells out to the Codex CLI. When the catalog service runs inside Docker (or another Linux VM) and the CLI lives on
-your macOS host, bind-mount the host binary and point `APPHUB_CODEX_CLI` at its in-container path (the `docker run` example above
-already includes these flags). For a minimal launch:
+The AI builder now invokes Codex via the host-side proxy service under `services/codex-proxy`. This avoids bind-mounting the macOS
+binary into Linux containers and works for both `npm run dev` and the Docker image.
 
-```bash
-docker run \
-  --rm \
-  -p 4000:4000 \
-  -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
-  -v "$(which codex)":/usr/local/bin/codex:ro \
-  -v "$(pwd)":/app \
-  apphub
-```
+1. From the repository root: `cd services/codex-proxy && python3 -m venv .venv && source .venv/bin/activate`.
+2. Install the package: `pip install .`.
+3. Point the proxy at your host Codex binary (for example, `export CODEX_PROXY_CLI=/opt/homebrew/bin/codex`).
+4. Optionally require a shared secret: `export CODEX_PROXY_TOKEN="change-me"`.
+5. Launch the service: `codex-proxy` (defaults to `127.0.0.1:3030`).
 
-Adjust the source path if `codex` is installed elsewhere (for example, `/usr/local/Cellar/codex/bin/codex`). With the mount in
-place the API—and the `ai-orchestrator` bundle—gain transparent access to the host CLI. Additional guidance lives in `docs/ai-builder.md`.
+When the catalog API runs inside Docker, set `APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030` so it can reach the host.
+For processes running on the host directly, the default `http://127.0.0.1:3030` also works. Additional guidance lives in
+`docs/ai-builder.md`.
+- The proxy exposes `/v1/codex/jobs` for long-running generations; the API polls this endpoint to stream stdout/stderr into the AI builder UI.
 
 Operator tokens are defined as JSON objects with a `subject`, `token`, and optional `scopes`. Tokens default to full access when
 no scopes are provided. A starter template lives at `services/catalog/config/operatorTokens.example.json`.
@@ -347,11 +343,10 @@ docker run \
   -v "$(pwd)/services/catalog/config:/app/config:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /:/root-fs:ro \
-  -v "$(which codex)":/usr/local/bin/codex:ro \
   -e APPHUB_HOST_ROOT=/root-fs \
   -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
   -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
-  -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
+  -e APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030 \
   apphub
 ```
 
@@ -359,6 +354,7 @@ Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
 - Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`. If you prefer not to expose Docker, set `LAUNCH_RUNNER_MODE=stub` and omit the socket/host mounts.
 - Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch worker can validate `START_PATH` values. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
+- Start `services/codex-proxy` on the host before launching the container so the AI builder can reach Codex via `APPHUB_CODEX_PROXY_URL`.
 - `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
 

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ChangeEvent
@@ -11,7 +12,13 @@ import {
   jobDefinitionCreateSchema
 } from '@apphub/workflow-schemas';
 import type { ZodIssue } from 'zod';
-import { requestAiSuggestion, type AiBuilderMode } from './api';
+import {
+  fetchAiGeneration,
+  startAiGeneration,
+  type AiBuilderMode,
+  type AiGenerationState,
+  type AiSuggestionResponse
+} from './api';
 import {
   createWorkflowDefinition,
   type AuthorizedFetch,
@@ -26,6 +33,9 @@ import { createJobWithBundle, type AiBundleSuggestion } from './api';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
 const JOB_SCHEMA = jobDefinitionCreateSchema;
+
+const GENERATION_STORAGE_KEY = 'apphub.aiBuilder.activeGeneration';
+const POLL_INTERVAL_MS = 1_500;
 
 function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: boolean; errors: string[] } {
   if (!editorValue.trim()) {
@@ -83,6 +93,7 @@ export default function AiBuilderDialog({
   const [metadataSummary, setMetadataSummary] = useState('');
   const [stdout, setStdout] = useState('');
   const [stderr, setStderr] = useState('');
+  const [summaryText, setSummaryText] = useState<string | null>(null);
   const [editorValue, setEditorValue] = useState('');
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] }>({ valid: false, errors: [] });
   const [hasSuggestion, setHasSuggestion] = useState(false);
@@ -93,6 +104,48 @@ export default function AiBuilderDialog({
     valid: true,
     errors: []
   });
+  const [generation, setGeneration] = useState<AiGenerationState | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applySuggestion = useCallback(
+    (response: AiSuggestionResponse) => {
+      const nextMode: 'workflow' | 'job' = response.mode === 'job-with-bundle' ? 'job' : response.mode;
+      setMode(nextMode);
+      const initialValue = response.suggestion
+        ? JSON.stringify(response.suggestion, null, 2)
+        : (response.raw ?? '').trim();
+      setMetadataSummary(response.metadataSummary ?? '');
+      setStdout(response.stdout ?? '');
+      setStderr(response.stderr ?? '');
+      setSummaryText(response.summary ?? null);
+      setEditorValue(initialValue);
+      setBaselineValue(initialValue);
+      setHasSuggestion(Boolean(initialValue));
+      setValidation(toValidationErrors(nextMode, initialValue));
+      setBundleSuggestion((response.bundle as AiBundleSuggestion | null) ?? null);
+      setBundleValidation(
+        response.bundleValidation ?? {
+          valid: true,
+          errors: []
+        }
+      );
+    },
+    []
+  );
+
+  const persistGeneration = useCallback((id: string, modeValue: AiBuilderMode) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(GENERATION_STORAGE_KEY, JSON.stringify({ id, mode: modeValue }));
+  }, []);
+
+  const clearPersistedGeneration = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.removeItem(GENERATION_STORAGE_KEY);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -104,6 +157,7 @@ export default function AiBuilderDialog({
       setMetadataSummary('');
       setStdout('');
       setStderr('');
+      setSummaryText(null);
       setEditorValue('');
       setBaselineValue('');
       setValidation({ valid: false, errors: [] });
@@ -111,6 +165,11 @@ export default function AiBuilderDialog({
       setSubmitting(false);
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setGeneration(null);
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     }
   }, [open]);
 
@@ -121,6 +180,58 @@ export default function AiBuilderDialog({
     setValidation(toValidationErrors(mode, editorValue));
   }, [mode, editorValue, open]);
 
+  useEffect(() => {
+    if (!open || generation) {
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const stored = window.localStorage.getItem(GENERATION_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as { id?: string; mode?: AiBuilderMode };
+      if (!parsed.id) {
+        clearPersistedGeneration();
+        return;
+      }
+      setPending(true);
+      fetchAiGeneration(authorizedFetch, parsed.id)
+        .then((state) => {
+          setGeneration(state);
+          const normalizedMode: 'workflow' | 'job' = state.mode === 'job-with-bundle' ? 'job' : state.mode;
+          setMode(normalizedMode);
+          setMetadataSummary(state.metadataSummary ?? '');
+          setStdout(state.stdout ?? '');
+          setStderr(state.stderr ?? '');
+          setSummaryText(state.summary ?? null);
+
+          if (state.status === 'succeeded' && state.result) {
+            applySuggestion(state.result);
+            setHasSuggestion(true);
+            setPending(false);
+            clearPersistedGeneration();
+          } else if (state.status === 'failed') {
+            setError(state.error ?? 'Codex generation failed');
+            setPending(false);
+            clearPersistedGeneration();
+          } else {
+            setHasSuggestion(false);
+          }
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Failed to resume AI generation';
+          setError(message);
+          setPending(false);
+          clearPersistedGeneration();
+        });
+    } catch {
+      clearPersistedGeneration();
+    }
+  }, [applySuggestion, authorizedFetch, clearPersistedGeneration, generation, open]);
+
   const handleGenerate = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
       event?.preventDefault();
@@ -128,47 +239,119 @@ export default function AiBuilderDialog({
         setError('Describe the workflow or job you would like to generate.');
         return;
       }
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
       setPending(true);
       setError(null);
+      setHasSuggestion(false);
+      setEditorValue('');
+      setBaselineValue('');
+      setBundleSuggestion(null);
+      setBundleValidation({ valid: true, errors: [] });
+      setSummaryText(null);
       const requestMode: AiBuilderMode = mode === 'job' ? 'job-with-bundle' : 'workflow';
       try {
-        const response = await requestAiSuggestion(authorizedFetch, {
+        const response = await startAiGeneration(authorizedFetch, {
           mode: requestMode,
           prompt: prompt.trim(),
           additionalNotes: additionalNotes.trim() || undefined
         });
+        setGeneration(response);
         setMetadataSummary(response.metadataSummary ?? '');
         setStdout(response.stdout ?? '');
         setStderr(response.stderr ?? '');
-        const initialValue = response.suggestion
-          ? JSON.stringify(response.suggestion, null, 2)
-          : (response.raw ?? '').trim();
-        setEditorValue(initialValue);
-        setBaselineValue(initialValue);
-        setHasSuggestion(true);
-        setValidation(toValidationErrors(mode, initialValue));
-        setBundleSuggestion((response.bundle as AiBundleSuggestion | null) ?? null);
-        setBundleValidation(
-          response.bundleValidation ?? {
-            valid: true,
-            errors: []
-          }
-        );
+        setSummaryText(response.summary ?? null);
+
+        if (response.status === 'succeeded' && response.result) {
+          applySuggestion(response.result);
+          setHasSuggestion(true);
+          setPending(false);
+          clearPersistedGeneration();
+        } else if (response.status === 'failed') {
+          const failureMessage = response.error ?? 'Codex generation failed';
+          setError(failureMessage);
+          setPending(false);
+          clearPersistedGeneration();
+        } else {
+          persistGeneration(response.generationId, requestMode);
+        }
         console.info('ai-builder.usage', {
-          event: 'generated',
+          event: 'generation-started',
           mode: requestMode,
-          promptLength: prompt.trim().length
+          promptLength: prompt.trim().length,
+          immediateResult: response.status !== 'running'
         });
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to generate suggestion';
+        const message = err instanceof Error ? err.message : 'Failed to start AI generation';
         setError(message);
-        console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
-      } finally {
         setPending(false);
+        clearPersistedGeneration();
+        console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
       }
     },
-    [authorizedFetch, mode, prompt, additionalNotes]
+    [additionalNotes, applySuggestion, authorizedFetch, clearPersistedGeneration, mode, persistGeneration, prompt]
   );
+
+  useEffect(() => {
+    if (!generation || generation.status !== 'running') {
+      if (generation) {
+        setPending(false);
+        clearPersistedGeneration();
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const next = await fetchAiGeneration(authorizedFetch, generation.generationId);
+        if (cancelled) {
+          return;
+        }
+        setGeneration(next);
+        setMetadataSummary(next.metadataSummary ?? '');
+        setStdout(next.stdout ?? '');
+        setStderr(next.stderr ?? '');
+        setSummaryText(next.summary ?? null);
+
+        if (next.status === 'running') {
+          pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+        } else if (next.status === 'succeeded' && next.result) {
+          applySuggestion(next.result);
+          setHasSuggestion(true);
+          setPending(false);
+          clearPersistedGeneration();
+        } else if (next.status === 'failed') {
+          setError(next.error ?? 'Codex generation failed');
+          setPending(false);
+          clearPersistedGeneration();
+        } else {
+          setPending(false);
+        }
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'Failed to poll AI generation';
+        setError(message);
+        setPending(false);
+        clearPersistedGeneration();
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [applySuggestion, authorizedFetch, clearPersistedGeneration, generation]);
 
   const handleModeChange = useCallback(
     (nextMode: AiBuilderMode) => {
@@ -180,9 +363,18 @@ export default function AiBuilderDialog({
       setValidation({ valid: false, errors: [] });
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setGeneration(null);
+      setStdout('');
+      setStderr('');
+      setSummaryText(null);
+      clearPersistedGeneration();
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
       console.info('ai-builder.usage', { event: 'mode-changed', mode: normalizedMode });
     },
-    []
+    [clearPersistedGeneration]
   );
 
   const handleEditorChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -425,6 +617,22 @@ export default function AiBuilderDialog({
                 </div>
               )}
 
+              {generation && (
+                <div
+                  className={`rounded-2xl border px-4 py-3 text-xs font-semibold shadow-sm transition-colors ${
+                    generation.status === 'running'
+                      ? 'border-violet-300/70 bg-violet-50/70 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-200'
+                      : generation.status === 'succeeded'
+                      ? 'border-emerald-300/70 bg-emerald-50/70 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                      : 'border-rose-300/70 bg-rose-50/70 text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300'
+                  }`}
+                >
+                  {generation.status === 'running' && 'Codex is generating a suggestion. You can close the dialog and return later to resume.'}
+                  {generation.status === 'succeeded' && 'Latest Codex generation completed.'}
+                  {generation.status === 'failed' && (generation.error ?? 'Codex generation failed.')}
+                </div>
+              )}
+
               <div className="mt-auto flex items-center gap-3">
                 <button
                   type="submit"
@@ -500,7 +708,7 @@ export default function AiBuilderDialog({
               </div>
             )}
 
-            {hasSuggestion && (
+            {(generation || hasSuggestion) && metadataSummary && (
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
                   Catalog snapshot shared with Codex
@@ -511,16 +719,38 @@ export default function AiBuilderDialog({
               </details>
             )}
 
-            {hasSuggestion && (stdout || stderr) && (
+            {summaryText && (
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
-                  Codex CLI logs
+                  Codex summary notes
                 </summary>
+                <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                  {summaryText}
+                </pre>
+              </details>
+            )}
+
+            {(stdout || stderr) && (
+              <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Codex CLI logs</h4>
+                  {generation?.status === 'running' && (
+                    <span className="inline-flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-300">
+                      <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-violet-500" /> Running…
+                    </span>
+                  )}
+                  {generation?.status === 'succeeded' && (
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">Completed</span>
+                  )}
+                  {generation?.status === 'failed' && (
+                    <span className="text-xs font-semibold text-rose-500 dark:text-rose-300">Failed</span>
+                  )}
+                </div>
                 {stdout && (
                   <div className="mt-2">
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       stdout
-                    </h4>
+                    </h5>
                     <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-slate-600 dark:text-slate-300">
                       {stdout}
                     </pre>
@@ -528,15 +758,15 @@ export default function AiBuilderDialog({
                 )}
                 {stderr && (
                   <div className="mt-2">
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                       stderr
-                    </h4>
+                    </h5>
                     <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-rose-500 dark:text-rose-300">
                       {stderr}
                     </pre>
                   </div>
                 )}
-              </details>
+              </div>
             )}
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">

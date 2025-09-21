@@ -1,62 +1,74 @@
 "use strict";
 
-const { spawn } = require("node:child_process");
 const { promises: fs } = require("node:fs");
 const path = require("node:path");
-const os = require("node:os");
 
-const OUTPUT_FILENAME = 'suggestion.json';
 const DEFAULT_TIMEOUT_MS = 120000;
 
-function resolveCodexExecutable() {
-  const override = process.env.APPHUB_CODEX_CLI;
-  return override && override.trim().length > 0 ? override.trim() : 'codex';
+function resolveProxyUrl() {
+  const raw = process.env.APPHUB_CODEX_PROXY_URL;
+  const base = raw && raw.trim().length > 0 ? raw.trim() : "http://host.docker.internal:3030";
+  return base.replace(/\/$/, "");
 }
 
-function resolveAdditionalArgs() {
-  const raw = process.env.APPHUB_CODEX_EXEC_OPTS;
-  if (!raw) {
-    return [];
-  }
-  return raw
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
-}
-
-async function prepareWorkspace(options) {
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-bundle-'));
-  const instructionsPath = path.join(workspace, 'instructions.md');
-  const contextDir = path.join(workspace, 'context');
-  const outputDir = path.join(workspace, 'output');
-  await fs.mkdir(contextDir, { recursive: true });
-  await fs.mkdir(outputDir, { recursive: true });
-
-  const promptParts = [
-    '# AppHub Workflow Spec Task',
-    `Mode: ${options.mode.toUpperCase()}`,
-    'Review the context files inside ./context.',
-    'Write the resulting JSON to ./output/suggestion.json. Do not print the JSON to stdout.',
-    'Use two-space indentation.',
-    options.notes || ''
-  ].filter(Boolean);
-
-  await fs.writeFile(instructionsPath, `${promptParts.join('\n\n')}\n`, 'utf8');
-  await fs.writeFile(path.join(contextDir, 'prompt.txt'), options.prompt, 'utf8');
-  await fs.writeFile(path.join(contextDir, 'metadata.md'), options.metadataSummary, 'utf8');
-
-  return {
-    workspace,
-    instructionsPath,
-    outputPath: path.join(outputDir, OUTPUT_FILENAME)
+function resolveProxyHeaders() {
+  const headers = {
+    "content-type": "application/json",
+    "x-apphub-source": "ai-orchestrator-handler"
   };
+  const token = process.env.APPHUB_CODEX_PROXY_TOKEN;
+  if (token && token.trim().length > 0) {
+    headers.authorization = `Bearer ${token.trim()}`;
+  }
+  return headers;
 }
 
-async function cleanup(workspace) {
+async function ensureFetch() {
+  if (typeof fetch === "function") {
+    return fetch;
+  }
+  throw new Error("Fetch API is not available in this runtime. Node.js 18+ is required.");
+}
+
+async function invokeProxy(options) {
+  const doFetch = await ensureFetch();
+  const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs + 5000);
+
   try {
-    await fs.rm(workspace, { recursive: true, force: true });
-  } catch {
-    // best effort
+    const response = await doFetch(`${resolveProxyUrl()}/v1/codex/generate`, {
+      method: "POST",
+      headers: resolveProxyHeaders(),
+      body: JSON.stringify({
+        mode: options.mode,
+        operatorRequest: options.prompt,
+        metadataSummary: options.metadataSummary,
+        additionalNotes: options.notes ?? null,
+        timeoutMs
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      let detail;
+      try {
+        detail = await response.json();
+      } catch {
+        detail = await response.text();
+      }
+      const message = detail && typeof detail === "object" ? JSON.stringify(detail) : String(detail);
+      throw new Error(`Codex proxy request failed (${response.status}): ${message}`);
+    }
+
+    return response.json();
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("Codex proxy request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -69,61 +81,17 @@ async function runCodex(options) {
     return { raw: content, stdout: '', stderr: '', summary: '' };
   }
 
-  const setup = await prepareWorkspace(options);
-  const command = resolveCodexExecutable();
-  const args = ['exec', ...resolveAdditionalArgs(), setup.instructionsPath];
-  const stdout = [];
-  const stderr = [];
-
-  const child = spawn(command, args, {
-    cwd: setup.workspace,
-    env: {
-      ...process.env,
-      CODEX_NO_COLOR: '1',
-      CODEX_SUPPRESS_SPINNER: '1',
-      APPHUB_CODEX_OUTPUT_DIR: path.join(setup.workspace, 'output')
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
-
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2000);
-      reject(new Error('Codex CLI timed out'));
-    }, timeoutMs);
-
-    child.stdout.on('data', (chunk) => stdout.push(chunk.toString('utf8')));
-    child.stderr.on('data', (chunk) => stderr.push(chunk.toString('utf8')));
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Codex CLI exited with status ${code}`));
-      }
-    });
-  });
-
-  const raw = await fs.readFile(setup.outputPath, 'utf8');
-  let summary = '';
-  try {
-    summary = await fs.readFile(path.join(path.dirname(setup.outputPath), 'summary.txt'), 'utf8');
-  } catch {
-    summary = '';
+  const response = await invokeProxy(options);
+  if (!response || typeof response.output !== 'string') {
+    throw new Error('Codex proxy returned an invalid payload');
   }
 
-  if (!process.env.APPHUB_CODEX_DEBUG_WORKSPACES) {
-    await cleanup(setup.workspace);
-  }
-
-  return { raw, stdout: stdout.join(''), stderr: stderr.join(''), summary };
+  return {
+    raw: response.output,
+    stdout: typeof response.stdout === 'string' ? response.stdout : '',
+    stderr: typeof response.stderr === 'string' ? response.stderr : '',
+    summary: typeof response.summary === 'string' ? response.summary : ''
+  };
 }
 
 exports.handler = async function handler(context) {
