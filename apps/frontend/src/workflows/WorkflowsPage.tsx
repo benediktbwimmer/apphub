@@ -131,6 +131,9 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
       const dependsOn = Array.isArray(step.dependsOn)
         ? step.dependsOn.filter((value): value is string => typeof value === 'string' && value.length > 0)
         : undefined;
+      const dependents = Array.isArray(step.dependents)
+        ? step.dependents.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : undefined;
       const normalizedStep = {
         id: stepId,
         name: stepName,
@@ -143,6 +146,7 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
               ? null
               : undefined,
         dependsOn,
+        dependents,
         parameters: 'parameters' in step ? step.parameters : undefined,
         timeoutMs:
           typeof step.timeoutMs === 'number'
@@ -174,6 +178,41 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
     }
   }
 
+  let dag: WorkflowDefinition['dag'] = null;
+  const rawDag = raw.dag;
+  if (rawDag && typeof rawDag === 'object' && !Array.isArray(rawDag)) {
+    const dagRecord = rawDag as Record<string, unknown>;
+    const adjacencyCandidate = dagRecord.adjacency;
+    const adjacency: Record<string, string[]> = {};
+    if (adjacencyCandidate && typeof adjacencyCandidate === 'object' && !Array.isArray(adjacencyCandidate)) {
+      for (const [key, value] of Object.entries(adjacencyCandidate)) {
+        if (Array.isArray(value)) {
+          const nodes = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+          if (nodes.length > 0) {
+            adjacency[key] = nodes;
+          }
+        }
+      }
+    }
+
+    const roots = Array.isArray(dagRecord.roots)
+      ? dagRecord.roots.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      : [];
+    const order = Array.isArray(dagRecord.topologicalOrder)
+      ? dagRecord.topologicalOrder.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      : [];
+    const edgesRaw = dagRecord.edges;
+    const edges = typeof edgesRaw === 'number' && Number.isFinite(edgesRaw) && edgesRaw >= 0
+      ? edgesRaw
+      : Object.values(adjacency).reduce((acc, dependents) => acc + dependents.length, 0);
+    dag = {
+      adjacency,
+      roots,
+      topologicalOrder: order,
+      edges
+    };
+  }
+
   return {
     id,
     slug,
@@ -185,6 +224,7 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
     parametersSchema: raw.parametersSchema ?? null,
     defaultParameters: raw.defaultParameters ?? null,
     metadata: raw.metadata ?? null,
+    dag,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
   };

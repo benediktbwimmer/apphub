@@ -462,6 +462,14 @@ export type WorkflowDefinitionStepBase = {
   name: string;
   description?: string | null;
   dependsOn?: string[];
+  dependents?: string[];
+};
+
+export type WorkflowDagMetadata = {
+  adjacency: Record<string, string[]>;
+  roots: string[];
+  topologicalOrder: string[];
+  edges: number;
 };
 
 export type SecretReference =
@@ -525,6 +533,7 @@ export type WorkflowDefinitionRecord = {
   parametersSchema: JsonValue;
   defaultParameters: JsonValue;
   metadata: JsonValue | null;
+  dag: WorkflowDagMetadata;
   createdAt: string;
   updatedAt: string;
 };
@@ -539,6 +548,7 @@ export type WorkflowDefinitionCreateInput = {
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
   metadata?: JsonValue | null;
+  dag?: WorkflowDagMetadata;
 };
 
 export type WorkflowDefinitionUpdateInput = {
@@ -550,6 +560,7 @@ export type WorkflowDefinitionUpdateInput = {
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
   metadata?: JsonValue | null;
+  dag?: WorkflowDagMetadata;
 };
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
@@ -587,6 +598,11 @@ export type WorkflowRunUpdateInput = {
   status?: WorkflowRunStatus;
   parameters?: JsonValue;
   context?: JsonValue;
+  contextPatch?: {
+    steps?: Record<string, Record<string, JsonValue | null>>;
+    shared?: Record<string, JsonValue | null | undefined>;
+    lastUpdatedAt?: string;
+  };
   errorMessage?: string | null;
   currentStepId?: string | null;
   currentStepIndex?: number | null;

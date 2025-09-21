@@ -105,7 +105,7 @@ async function startTestService(): Promise<TestServiceController> {
   const port = await findAvailablePort();
 
   const server = createServer((req, res) => {
-    if (req.method === 'POST' && req.url === '/hook') {
+    if (req.method === 'POST' && req.url && req.url.startsWith('/hook')) {
       const chunks: Buffer[] = [];
       req.on('data', (chunk) => {
         chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
@@ -477,7 +477,85 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.equal(fetchWorkflowBody.data.workflow.triggers[0]?.type ?? '', 'manual');
       assert.deepEqual(fetchWorkflowBody.data.workflow.defaultParameters, { tenant: 'global' });
       assert.deepEqual(fetchWorkflowBody.data.workflow.metadata, { purpose: 'updated' });
+      const workflowDag = fetchWorkflowBody.data.workflow.dag as {
+        roots?: string[];
+        adjacency?: Record<string, string[]>;
+      };
+      assert(workflowDag);
+      assert(Array.isArray(workflowDag.roots));
+      assert(workflowDag.roots?.includes('step-one'));
+      const serviceDependents = workflowDag.adjacency?.['service-call'] ?? [];
+      assert.deepEqual(serviceDependents, ['step-two']);
+      const stepOneDefinition = fetchWorkflowBody.data.workflow.steps.find(
+        (step) => step.id === 'step-one'
+      ) as { dependents?: string[] } | undefined;
+      assert(stepOneDefinition);
+      assert.deepEqual(stepOneDefinition?.dependents ?? [], ['service-call']);
+      assert.deepEqual((serviceStep?.dependents ?? []) as string[], ['step-two']);
       assert.equal(fetchWorkflowBody.data.runs.length, 0);
+
+      const missingDependencyResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'wf-missing-dep',
+          name: 'Missing Dependency',
+          steps: [
+            {
+              id: 'start',
+              name: 'Start',
+              jobSlug: 'workflow-step-one'
+            },
+            {
+              id: 'broken',
+              name: 'Broken',
+              jobSlug: 'workflow-step-two',
+              dependsOn: ['not-found']
+            }
+          ]
+        }
+      });
+      assert.equal(missingDependencyResponse.statusCode, 400);
+      const missingDependencyBody = JSON.parse(missingDependencyResponse.payload) as {
+        error: { reason?: string; detail?: { dependencyId?: string } };
+      };
+      assert.equal(missingDependencyBody.error.reason, 'missing_dependency');
+      assert.equal(missingDependencyBody.error.detail?.dependencyId, 'not-found');
+
+      const cyclicWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'wf-cyclic',
+          name: 'Cyclic Workflow',
+          steps: [
+            {
+              id: 'alpha',
+              name: 'Alpha',
+              jobSlug: 'workflow-step-one',
+              dependsOn: ['beta']
+            },
+            {
+              id: 'beta',
+              name: 'Beta',
+              jobSlug: 'workflow-step-two',
+              dependsOn: ['alpha']
+            }
+          ]
+        }
+      });
+      assert.equal(cyclicWorkflowResponse.statusCode, 400);
+      const cyclicBody = JSON.parse(cyclicWorkflowResponse.payload) as {
+        error: { reason?: string; detail?: { cycle?: string[] } };
+      };
+      assert.equal(cyclicBody.error.reason, 'cycle_detected');
+      assert(Array.isArray(cyclicBody.error.detail?.cycle));
 
       const triggerResponse = await app.inject({
       method: 'POST',
@@ -555,6 +633,114 @@ async function testWorkflowEndpoints(): Promise<void> {
         };
       };
       assert(metricsBody.data.workflows.total >= 1);
+
+      const dagWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'wf-dag',
+          name: 'DAG Workflow',
+          steps: [
+            {
+              id: 'root-job',
+              name: 'Root Job',
+              jobSlug: 'workflow-step-one'
+            },
+            {
+              id: 'branch-job',
+              name: 'Branch Job',
+              jobSlug: 'workflow-step-two',
+              dependsOn: ['root-job'],
+              storeResultAs: 'branchJob'
+            },
+            {
+              id: 'branch-service',
+              name: 'Branch Service',
+              type: 'service',
+              serviceSlug: 'test-service',
+              dependsOn: ['root-job'],
+              captureResponse: true,
+              storeResponseAs: 'branchService',
+              request: {
+                path: '/hook',
+                method: 'POST',
+                headers: {
+                  Authorization: {
+                    secret: { source: 'store', key: 'TEST_SERVICE_TOKEN', version: 'v1' },
+                    prefix: 'Bearer '
+                  }
+                },
+                body: {
+                  branch: 'service'
+                }
+              }
+            },
+            {
+              id: 'fan-in',
+              name: 'Fan In',
+              jobSlug: 'workflow-step-two',
+              dependsOn: ['branch-job', 'branch-service'],
+              parameters: {
+                jobStep: '{{ shared.branchJob.step }}',
+                serviceOk: '{{ shared.branchService.ok }}'
+              }
+            }
+          ]
+        }
+      });
+      assert.equal(dagWorkflowResponse.statusCode, 201);
+
+      const dagRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-dag/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          parameters: { run: 'dag' }
+        }
+      });
+      assert.equal(dagRunResponse.statusCode, 202);
+      const dagRunBody = JSON.parse(dagRunResponse.payload) as { data: { id: string; status: string } };
+      assert.equal(dagRunBody.data.status, 'succeeded');
+      const dagRunId = dagRunBody.data.id;
+
+      const dagRunDetailResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${dagRunId}` });
+      assert.equal(dagRunDetailResponse.statusCode, 200);
+      const dagRunDetailBody = JSON.parse(dagRunDetailResponse.payload) as {
+        data: {
+          metrics: { totalSteps: number; completedSteps: number };
+          context: {
+            steps: Record<string, { status: string }>;
+            shared?: Record<string, unknown>;
+          };
+        };
+      };
+      assert.equal(dagRunDetailBody.data.metrics.totalSteps, 4);
+      assert.equal(dagRunDetailBody.data.metrics.completedSteps, 4);
+      assert.equal(dagRunDetailBody.data.context.steps['root-job'].status, 'succeeded');
+      assert.equal(dagRunDetailBody.data.context.steps['branch-job'].status, 'succeeded');
+      assert.equal(dagRunDetailBody.data.context.steps['branch-service'].status, 'succeeded');
+      assert.equal(dagRunDetailBody.data.context.steps['fan-in'].status, 'succeeded');
+      const dagShared = dagRunDetailBody.data.context.shared ?? {};
+      const branchJobShared = dagShared.branchJob as Record<string, unknown> | undefined;
+      const branchServiceShared = dagShared.branchService as Record<string, unknown> | undefined;
+      assert.equal((branchJobShared?.step as string | undefined) ?? '', 'two');
+      assert.equal((branchServiceShared?.ok as boolean | undefined) ?? false, true);
+
+      const dagRunStepsResponse = await app.inject({
+        method: 'GET',
+        url: `/workflow-runs/${dagRunId}/steps`
+      });
+      assert.equal(dagRunStepsResponse.statusCode, 200);
+      const dagRunStepsBody = JSON.parse(dagRunStepsResponse.payload) as {
+        data: { steps: Array<{ stepId: string; status: string }> };
+      };
+      assert.equal(dagRunStepsBody.data.steps.length, 4);
+      assert(dagRunStepsBody.data.steps.every((step) => step.status === 'succeeded'));
 
     const failureResponse = await app.inject({
       method: 'POST',

@@ -469,6 +469,13 @@ const migrations: Migration[] = [
       `ALTER TABLE launches
          ADD COLUMN IF NOT EXISTS container_ip TEXT`
     ]
+  },
+  {
+    id: '009_workflow_dag_metadata',
+    statements: [
+      `ALTER TABLE workflow_definitions
+         ADD COLUMN IF NOT EXISTS dag JSONB NOT NULL DEFAULT '{}'::jsonb`
+    ]
   }
 ];
 

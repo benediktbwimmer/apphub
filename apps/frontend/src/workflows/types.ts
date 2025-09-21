@@ -5,6 +5,7 @@ export type WorkflowDefinitionStep = {
   serviceSlug?: string;
   description?: string | null;
   dependsOn?: string[];
+  dependents?: string[];
   parameters?: unknown;
   timeoutMs?: number | null;
   retryPolicy?: unknown;
@@ -26,6 +27,12 @@ export type WorkflowDefinition = {
   parametersSchema: unknown;
   defaultParameters: unknown;
   metadata: unknown;
+  dag?: {
+    adjacency: Record<string, string[]>;
+    roots: string[];
+    topologicalOrder: string[];
+    edges: number;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };

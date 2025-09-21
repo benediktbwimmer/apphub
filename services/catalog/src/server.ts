@@ -68,6 +68,7 @@ import {
   type WorkflowRunRecord,
   type WorkflowRunStepRecord
 } from './db/index';
+import type { WorkflowStepDefinition } from './db/types';
 import {
   enqueueRepositoryIngestion,
   enqueueLaunchStart,
@@ -106,6 +107,11 @@ import {
   DEFAULT_SERVICE_CONFIG_PATH,
   DuplicateModuleImportError
 } from './serviceConfigLoader';
+import {
+  applyDagMetadataToSteps,
+  buildWorkflowDagMetadata,
+  WorkflowDagValidationError
+} from './workflows/dag';
 
 type SearchQuery = {
   q?: string;
@@ -1049,6 +1055,7 @@ function serializeWorkflowDefinition(workflow: WorkflowDefinitionRecord) {
     parametersSchema: workflow.parametersSchema,
     defaultParameters: workflow.defaultParameters,
     metadata: workflow.metadata,
+    dag: workflow.dag,
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt
   };
@@ -1998,8 +2005,32 @@ export async function buildServer() {
     }
 
     const payload = parseBody.data;
-    const steps = normalizeWorkflowSteps(payload.steps);
+    const normalizedSteps = normalizeWorkflowSteps(payload.steps);
     const triggers = normalizeWorkflowTriggers(payload.triggers);
+
+    let dagMetadata: ReturnType<typeof buildWorkflowDagMetadata>;
+    let stepsWithDag: WorkflowStepDefinition[];
+    try {
+      dagMetadata = buildWorkflowDagMetadata(normalizedSteps);
+      stepsWithDag = applyDagMetadataToSteps(normalizedSteps, dagMetadata) as WorkflowStepDefinition[];
+    } catch (err) {
+      if (err instanceof WorkflowDagValidationError) {
+        reply.status(400);
+        await auth.log('failed', {
+          reason: 'invalid_dag',
+          message: err.message,
+          detail: err.detail
+        });
+        return {
+          error: {
+            message: err.message,
+            reason: err.reason,
+            detail: err.detail
+          }
+        };
+      }
+      throw err;
+    }
 
     try {
       const workflow = await createWorkflowDefinition({
@@ -2007,11 +2038,12 @@ export async function buildServer() {
         name: payload.name,
         version: payload.version,
         description: payload.description ?? null,
-        steps,
+        steps: stepsWithDag,
         triggers,
         parametersSchema: payload.parametersSchema ?? {},
         defaultParameters: payload.defaultParameters ?? {},
-        metadata: payload.metadata ?? null
+        metadata: payload.metadata ?? null,
+        dag: dagMetadata
       });
       reply.status(201);
       await auth.log('succeeded', { workflowSlug: workflow.slug, workflowId: workflow.id });
@@ -2071,7 +2103,31 @@ export async function buildServer() {
       updates.description = payload.description ?? null;
     }
     if (Object.prototype.hasOwnProperty.call(payload, 'steps')) {
-      updates.steps = normalizeWorkflowSteps(payload.steps!);
+      const normalizedSteps = normalizeWorkflowSteps(payload.steps!);
+      try {
+        const dagMetadata = buildWorkflowDagMetadata(normalizedSteps);
+        const stepsWithDag = applyDagMetadataToSteps(normalizedSteps, dagMetadata) as WorkflowStepDefinition[];
+        updates.steps = stepsWithDag;
+        updates.dag = dagMetadata;
+      } catch (err) {
+        if (err instanceof WorkflowDagValidationError) {
+          reply.status(400);
+          await auth.log('failed', {
+            reason: 'invalid_dag',
+            message: err.message,
+            detail: err.detail,
+            workflowSlug: parseParams.data.slug
+          });
+          return {
+            error: {
+              message: err.message,
+              reason: err.reason,
+              detail: err.detail
+            }
+          };
+        }
+        throw err;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(payload, 'triggers')) {
       updates.triggers = normalizeWorkflowTriggers(payload.triggers ?? []) ?? [];

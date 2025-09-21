@@ -29,6 +29,7 @@ import {
   type WorkflowServiceStepDefinition,
   type WorkflowServiceRequestHeaderValue,
   type WorkflowServiceRequestDefinition,
+  type WorkflowDagMetadata,
   type SecretReference,
   type WorkflowRunRecord,
   type WorkflowRunStatus,
@@ -190,6 +191,55 @@ function ensureJsonObject(value: unknown): JsonValue {
     return parsed;
   }
   return {};
+}
+
+function parseWorkflowDag(value: unknown): WorkflowDagMetadata {
+  const defaultDag: WorkflowDagMetadata = {
+    adjacency: {},
+    roots: [],
+    topologicalOrder: [],
+    edges: 0
+  };
+
+  if (value === null || value === undefined) {
+    return defaultDag;
+  }
+
+  let candidate: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      candidate = JSON.parse(value) as unknown;
+    } catch {
+      return defaultDag;
+    }
+  }
+
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return defaultDag;
+  }
+
+  const record = candidate as Record<string, unknown>;
+  const adjacencyCandidate = record.adjacency;
+  const adjacency: Record<string, string[]> = {};
+  if (adjacencyCandidate && typeof adjacencyCandidate === 'object' && !Array.isArray(adjacencyCandidate)) {
+    for (const [key, entry] of Object.entries(adjacencyCandidate)) {
+      adjacency[key] = parseStringArray(entry);
+    }
+  }
+
+  const roots = parseStringArray(record.roots);
+  const topologicalOrder = parseStringArray(record.topologicalOrder ?? record.order);
+  const edgesCandidate = record.edges;
+  const edges = typeof edgesCandidate === 'number' && Number.isFinite(edgesCandidate) && edgesCandidate >= 0
+    ? Math.floor(edgesCandidate)
+    : Object.values(adjacency).reduce((acc, dependents) => acc + dependents.length, 0);
+
+  return {
+    adjacency,
+    roots,
+    topologicalOrder,
+    edges
+  } satisfies WorkflowDagMetadata;
 }
 
 function toJsonObjectOrNull(value: unknown): JsonValue | null {
@@ -386,6 +436,11 @@ function parseServiceWorkflowStep(
     step.dependsOn = Array.from(new Set(dependsOn));
   }
 
+  const dependents = parseStringArray((record as Record<string, unknown>).dependents);
+  if (dependents.length > 0) {
+    step.dependents = Array.from(new Set(dependents));
+  }
+
   const parameters = toJsonValue(record.parameters);
   if (parameters !== null) {
     step.parameters = parameters;
@@ -476,10 +531,15 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
       step.description = record.description;
     }
 
-    const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
-    if (dependsOn.length > 0) {
-      step.dependsOn = Array.from(new Set(dependsOn));
-    }
+  const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
+  if (dependsOn.length > 0) {
+    step.dependsOn = Array.from(new Set(dependsOn));
+  }
+
+  const dependents = parseStringArray(record.dependents);
+  if (dependents.length > 0) {
+    step.dependents = Array.from(new Set(dependents));
+  }
 
     const parameters = toJsonValue(record.parameters);
     if (parameters !== null) {
@@ -852,6 +912,7 @@ export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDe
     parametersSchema: ensureJsonObject(row.parameters_schema),
     defaultParameters: ensureJsonValue(row.default_parameters, {} as JsonValue),
     metadata: toJsonObjectOrNull(row.metadata),
+    dag: parseWorkflowDag(row.dag),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowDefinitionRecord;

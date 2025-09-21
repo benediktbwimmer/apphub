@@ -18,13 +18,15 @@ const workflowDefinition: WorkflowDefinition = {
       id: 'step-one',
       name: 'First Step',
       jobSlug: 'job-step-one',
-      dependsOn: []
+      dependsOn: [],
+      dependents: ['step-two']
     },
     {
       id: 'step-two',
       name: 'Second Step',
       jobSlug: 'job-step-two',
-      dependsOn: ['step-one']
+      dependsOn: ['step-one'],
+      dependents: []
     }
   ],
   triggers: [{ type: 'manual' }],
@@ -44,6 +46,15 @@ const workflowDefinition: WorkflowDefinition = {
     repo: 'git@example.com/demo.git',
     tags: ['env:test'],
     status: 'succeeded'
+  },
+  dag: {
+    roots: ['step-one'],
+    adjacency: {
+      'step-one': ['step-two'],
+      'step-two': []
+    },
+    topologicalOrder: ['step-one', 'step-two'],
+    edges: 1
   },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()

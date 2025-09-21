@@ -209,6 +209,7 @@ export type WorkflowDefinitionRow = {
   parameters_schema: unknown;
   default_parameters: unknown;
   metadata: unknown;
+  dag: unknown;
   created_at: string;
   updated_at: string;
 };

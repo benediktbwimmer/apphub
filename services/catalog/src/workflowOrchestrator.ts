@@ -11,6 +11,7 @@ import {
   type JobRunStatus,
   type WorkflowDefinitionRecord,
   type WorkflowRunRecord,
+  type WorkflowRunStatus,
   type WorkflowRunStepRecord,
   type WorkflowRunStepStatus,
   type WorkflowStepDefinition,
@@ -19,7 +20,8 @@ import {
   type JobRetryPolicy,
   type ServiceRecord,
   type ServiceStatus,
-  type SecretReference
+  type SecretReference,
+  type WorkflowRunUpdateInput
 } from './db/types';
 import { getServiceBySlug } from './db/services';
 import { fetchFromService } from './clients/serviceClient';
@@ -27,6 +29,7 @@ import { resolveSecret, maskSecret, describeSecret } from './secrets';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
+import { buildWorkflowDagMetadata } from './workflows/dag';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
@@ -60,6 +63,15 @@ type WorkflowRuntimeContext = {
   steps: Record<string, WorkflowStepRuntimeContext>;
   lastUpdatedAt: string;
   shared?: Record<string, JsonValue | null>;
+};
+
+type StepExecutionResult = {
+  context: WorkflowRuntimeContext;
+  stepStatus: WorkflowRunStepStatus;
+  completed: boolean;
+  stepPatch: WorkflowStepRuntimeContext;
+  sharedPatch?: Record<string, JsonValue | null>;
+  errorMessage?: string | null;
 };
 
 type TemplateScope = {
@@ -385,6 +397,67 @@ function setSharedValue(
   return next;
 }
 
+async function applyRunContextPatch(
+  runId: string,
+  stepId: string,
+  patch: Partial<WorkflowStepRuntimeContext> | null,
+  options: {
+    shared?: Record<string, JsonValue | null>;
+    metrics?: { totalSteps: number; completedSteps: number };
+    status?: WorkflowRunStatus;
+    errorMessage?: string | null;
+    currentStepId?: string | null;
+    currentStepIndex?: number | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    durationMs?: number | null;
+  } = {}
+): Promise<void> {
+  const update: WorkflowRunUpdateInput = {};
+  if (patch || options.shared) {
+    update.contextPatch = {};
+    if (patch) {
+      update.contextPatch.steps = { [stepId]: patch };
+    }
+    if (options.shared) {
+      update.contextPatch.shared = options.shared;
+    }
+  }
+  if (options.metrics) {
+    update.metrics = {
+      totalSteps: options.metrics.totalSteps,
+      completedSteps: options.metrics.completedSteps
+    } as JsonValue;
+  }
+  if (options.status) {
+    update.status = options.status;
+  }
+  if (options.errorMessage !== undefined) {
+    update.errorMessage = options.errorMessage;
+  }
+  if (options.currentStepId !== undefined) {
+    update.currentStepId = options.currentStepId;
+  }
+  if (options.currentStepIndex !== undefined) {
+    update.currentStepIndex = options.currentStepIndex;
+  }
+  if (options.startedAt !== undefined) {
+    update.startedAt = options.startedAt;
+  }
+  if (options.completedAt !== undefined) {
+    update.completedAt = options.completedAt;
+  }
+  if (options.durationMs !== undefined) {
+    update.durationMs = options.durationMs;
+  }
+
+  if (Object.keys(update).length === 0) {
+    return;
+  }
+
+  await updateWorkflowRun(runId, update);
+}
+
 function mergeParameters(
   runParameters: JsonValue,
   stepParameters: JsonValue | null | undefined
@@ -469,6 +542,40 @@ function jobStatusToStepStatus(status: JobRunStatus): WorkflowRunStepStatus {
     default:
       return 'running';
   }
+}
+
+function resolveRunConcurrency(
+  definition: WorkflowDefinitionRecord,
+  run: WorkflowRunRecord,
+  steps: WorkflowStepDefinition[]
+): number {
+  const envValue = Number(process.env.WORKFLOW_MAX_PARALLEL ?? process.env.WORKFLOW_CONCURRENCY ?? 1);
+  let limit = Number.isFinite(envValue) && envValue > 0 ? Math.floor(envValue) : 1;
+
+  const metadata = definition.metadata;
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    const scheduler = (metadata as Record<string, unknown>).scheduler;
+    if (scheduler && typeof scheduler === 'object' && !Array.isArray(scheduler)) {
+      const metaValue = Number((scheduler as Record<string, unknown>).maxParallel);
+      if (Number.isFinite(metaValue) && metaValue > 0) {
+        limit = Math.floor(metaValue);
+      }
+    }
+  }
+
+  const parameters = run.parameters;
+  if (parameters && typeof parameters === 'object' && !Array.isArray(parameters)) {
+    const paramRecord = parameters as Record<string, unknown>;
+    const overrideValue = Number(
+      paramRecord.workflowConcurrency ?? paramRecord.maxConcurrency ?? paramRecord.concurrency
+    );
+    if (Number.isFinite(overrideValue) && overrideValue > 0) {
+      limit = Math.floor(overrideValue);
+    }
+  }
+
+  const maxAllowed = Math.max(1, steps.length);
+  return Math.max(1, Math.min(limit, maxAllowed));
 }
 
 async function ensureRunIsStartable(run: WorkflowRunRecord, steps: WorkflowStepDefinition[]) {
@@ -956,9 +1063,8 @@ async function executeStep(
   run: WorkflowRunRecord,
   step: WorkflowStepDefinition,
   context: WorkflowRuntimeContext,
-  stepIndex: number,
-  totals: { totalSteps: number; completedSteps: number }
-): Promise<{ context: WorkflowRuntimeContext; stepStatus: WorkflowRunStepStatus; completed: boolean }> {
+  stepIndex: number
+): Promise<StepExecutionResult> {
   const dependencies = step.dependsOn ?? [];
   const blocked = dependencies.filter((dependencyId) => {
     const summary = context.steps[dependencyId];
@@ -976,10 +1082,10 @@ async function executeStep(
   const stepScope = withStepScope(baseScope, step.id, resolvedParameters);
 
   if (step.type === 'service') {
-    return executeServiceStep(run, step, context, stepIndex, totals, resolvedParameters, stepScope);
+    return executeServiceStep(run, step, context, stepIndex, resolvedParameters, stepScope);
   }
 
-  return executeJobStep(run, step, context, stepIndex, totals, resolvedParameters);
+  return executeJobStep(run, step, context, stepIndex, resolvedParameters);
 }
 
 async function executeJobStep(
@@ -987,13 +1093,11 @@ async function executeJobStep(
   step: WorkflowJobStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
-  totals: { totalSteps: number; completedSteps: number },
   parameters: JsonValue
-): Promise<{ context: WorkflowRuntimeContext; stepStatus: WorkflowRunStepStatus; completed: boolean }> {
+): Promise<StepExecutionResult> {
   let stepRecord = await loadOrCreateStepRecord(run.id, step, parameters);
 
   if (stepRecord.status === 'succeeded') {
-    totals.completedSteps += 1;
     let nextContext = updateStepContext(context, step.id, {
       status: stepRecord.status,
       jobRunId: stepRecord.jobRunId,
@@ -1005,10 +1109,20 @@ async function executeJobStep(
       completedAt: stepRecord.completedAt,
       attempt: stepRecord.attempt
     });
+    let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResultAs) {
-      nextContext = setSharedValue(nextContext, step.storeResultAs, stepRecord.output ?? null);
+      const storedValue = (stepRecord.output ?? null) as JsonValue | null;
+      nextContext = setSharedValue(nextContext, step.storeResultAs, storedValue);
+      sharedPatch = { [step.storeResultAs]: storedValue };
     }
-    return { context: nextContext, stepStatus: 'succeeded', completed: true };
+    return {
+      context: nextContext,
+      stepStatus: 'succeeded',
+      completed: true,
+      stepPatch: nextContext.steps[step.id],
+      sharedPatch,
+      errorMessage: stepRecord.errorMessage ?? null
+    } satisfies StepExecutionResult;
   }
 
   const startedAt = stepRecord.startedAt ?? new Date().toISOString();
@@ -1033,11 +1147,9 @@ async function executeJobStep(
     completedAt: stepRecord.completedAt ?? null
   });
 
-  await updateWorkflowRun(run.id, {
+  await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
     currentStepId: step.id,
-    currentStepIndex: stepIndex,
-    context: serializeContext(nextContext),
-    metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+    currentStepIndex: stepIndex
   });
 
   await ensureJobHandler(step.jobSlug);
@@ -1085,19 +1197,33 @@ async function executeJobStep(
   });
 
   if (stepRecord.status === 'succeeded') {
-    totals.completedSteps += 1;
     let successContext = nextContext;
+    let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResultAs) {
-      successContext = setSharedValue(successContext, step.storeResultAs, executed.result ?? null);
+      const storedValue = (executed.result ?? null) as JsonValue | null;
+      successContext = setSharedValue(successContext, step.storeResultAs, storedValue);
+      sharedPatch = { [step.storeResultAs]: storedValue };
     }
-    await updateWorkflowRun(run.id, {
-      context: serializeContext(successContext),
-      metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+    await applyRunContextPatch(run.id, step.id, successContext.steps[step.id], {
+      shared: sharedPatch
     });
-    return { context: successContext, stepStatus: stepRecord.status, completed: true };
+    return {
+      context: successContext,
+      stepStatus: stepRecord.status,
+      completed: true,
+      stepPatch: successContext.steps[step.id],
+      sharedPatch,
+      errorMessage: null
+    } satisfies StepExecutionResult;
   }
 
-  return { context: nextContext, stepStatus: stepRecord.status, completed: false };
+  return {
+    context: nextContext,
+    stepStatus: stepRecord.status,
+    completed: false,
+    stepPatch: nextContext.steps[step.id],
+    errorMessage: stepRecord.errorMessage ?? null
+  } satisfies StepExecutionResult;
 }
 
 async function executeServiceStep(
@@ -1105,10 +1231,9 @@ async function executeServiceStep(
   step: WorkflowServiceStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
-  totals: { totalSteps: number; completedSteps: number },
   parameters: JsonValue,
   scope: TemplateScope
-): Promise<{ context: WorkflowRuntimeContext; stepStatus: WorkflowRunStepStatus; completed: boolean }> {
+): Promise<StepExecutionResult> {
   let prepared: PreparedServiceRequest;
   try {
     prepared = await prepareServiceRequest(run, step, parameters, scope);
@@ -1139,20 +1264,23 @@ async function executeServiceStep(
       service: createMinimalServiceContext(step, null, null)
     });
 
-    await updateWorkflowRun(run.id, {
+    await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id], {
       currentStepId: step.id,
-      currentStepIndex: stepIndex,
-      context: serializeContext(failureContext),
-      metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+      currentStepIndex: stepIndex
     });
 
-    return { context: failureContext, stepStatus: 'failed', completed: false };
+    return {
+      context: failureContext,
+      stepStatus: 'failed',
+      completed: false,
+      stepPatch: failureContext.steps[step.id],
+      errorMessage
+    } satisfies StepExecutionResult;
   }
 
   let stepRecord = await loadOrCreateStepRecord(run.id, step, prepared.requestInput);
 
   if (stepRecord.status === 'succeeded') {
-    totals.completedSteps += 1;
     const fallbackContext = buildServiceContextFromPrepared(step, prepared, null);
     const serviceContext = extractServiceContextFromRecord(stepRecord, fallbackContext);
     let nextContext = updateStepContext(context, step.id, {
@@ -1167,10 +1295,20 @@ async function executeServiceStep(
       attempt: stepRecord.attempt,
       service: serviceContext
     });
+    let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResponseAs) {
-      nextContext = setSharedValue(nextContext, step.storeResponseAs, stepRecord.output ?? null);
+      const storedResponse = (stepRecord.output ?? null) as JsonValue | null;
+      nextContext = setSharedValue(nextContext, step.storeResponseAs, storedResponse);
+      sharedPatch = { [step.storeResponseAs]: storedResponse };
     }
-    return { context: nextContext, stepStatus: 'succeeded', completed: true };
+    return {
+      context: nextContext,
+      stepStatus: 'succeeded',
+      completed: true,
+      stepPatch: nextContext.steps[step.id],
+      sharedPatch,
+      errorMessage: stepRecord.errorMessage ?? null
+    } satisfies StepExecutionResult;
   }
 
   const startedAt = stepRecord.startedAt ?? new Date().toISOString();
@@ -1196,11 +1334,9 @@ async function executeServiceStep(
     service: createMinimalServiceContext(step, prepared, null)
   });
 
-  await updateWorkflowRun(run.id, {
+  await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
     currentStepId: step.id,
-    currentStepIndex: stepIndex,
-    context: serializeContext(nextContext),
-    metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+    currentStepIndex: stepIndex
   });
 
   const maxAttempts = Math.max(1, step.retryPolicy?.maxAttempts ?? 1);
@@ -1233,10 +1369,7 @@ async function executeServiceStep(
       service: serviceContext
     });
 
-    await updateWorkflowRun(run.id, {
-      context: serializeContext(finalContext),
-      metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
-    });
+    await applyRunContextPatch(run.id, step.id, finalContext.steps[step.id]);
 
     if (!service) {
       lastErrorMessage = `Service "${step.serviceSlug}" not found`;
@@ -1325,18 +1458,25 @@ async function executeServiceStep(
         service: serviceContextWithMetrics
       });
 
+      let sharedPatch: Record<string, JsonValue | null> | undefined;
       if (prepared.storeResponseAs && prepared.captureResponse) {
-        successContext = setSharedValue(successContext, prepared.storeResponseAs, output);
+        const storedResponse = (output ?? null) as JsonValue | null;
+        successContext = setSharedValue(successContext, prepared.storeResponseAs, storedResponse);
+        sharedPatch = { [prepared.storeResponseAs]: storedResponse };
       }
 
-      totals.completedSteps += 1;
-
-      await updateWorkflowRun(run.id, {
-        context: serializeContext(successContext),
-        metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+      await applyRunContextPatch(run.id, step.id, successContext.steps[step.id], {
+        shared: sharedPatch
       });
 
-      return { context: successContext, stepStatus: 'succeeded', completed: true };
+      return {
+        context: successContext,
+        stepStatus: 'succeeded',
+        completed: true,
+        stepPatch: successContext.steps[step.id],
+        sharedPatch,
+        errorMessage: null
+      } satisfies StepExecutionResult;
     }
 
     lastErrorMessage =
@@ -1392,12 +1532,15 @@ async function executeServiceStep(
     service: lastServiceContext
   });
 
-  await updateWorkflowRun(run.id, {
-    context: serializeContext(failureContext),
-    metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
-  });
+  await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id]);
 
-  return { context: failureContext, stepStatus: 'failed', completed: false };
+  return {
+    context: failureContext,
+    stepStatus: 'failed',
+    completed: false,
+    stepPatch: failureContext.steps[step.id],
+    errorMessage: failureMessage
+  } satisfies StepExecutionResult;
 }
 
 export async function runWorkflowOrchestration(workflowRunId: string): Promise<WorkflowRunRecord | null> {
@@ -1429,21 +1572,200 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
 
   run = await ensureRunIsStartable(run, steps);
   let context = toWorkflowContext(run.context);
-  const totals = { totalSteps: steps.length, completedSteps: Object.values(context.steps).filter((entry) => entry.status === 'succeeded').length };
+  let totals = { totalSteps: steps.length, completedSteps: 0 };
 
   try {
-    for (let index = 0; index < steps.length; index++) {
-      const step = steps[index];
-      const result = await executeStep(run, step, context, index, totals);
-      context = result.context;
-      if (result.stepStatus !== 'succeeded') {
-        const errorMessage =
-          result.stepStatus === 'skipped'
-            ? `Step ${step.id} was skipped`
-            : `Step ${step.id} failed`;
-        await recordRunFailure(run.id, errorMessage, context, totals, startTime);
-        return await getWorkflowRunById(run.id);
+    const dag = definition.dag && Object.keys(definition.dag.adjacency ?? {}).length > 0
+      ? definition.dag
+      : buildWorkflowDagMetadata(steps);
+
+    const stepById = new Map<string, WorkflowStepDefinition>();
+    const stepIndexById = new Map<string, number>();
+    const dependenciesMap = new Map<string, string[]>();
+    const dependentsMap = new Map<string, string[]>();
+
+    steps.forEach((step, index) => {
+      stepById.set(step.id, step);
+      stepIndexById.set(step.id, index);
+      dependenciesMap.set(step.id, Array.isArray(step.dependsOn) ? step.dependsOn : []);
+      const dependents =
+        Array.isArray(step.dependents) && step.dependents.length > 0
+          ? step.dependents
+          : dag.adjacency[step.id] ?? [];
+      dependentsMap.set(step.id, dependents);
+    });
+
+    const statusById = new Map<string, WorkflowRunStepStatus>();
+    const readyQueue: string[] = [];
+    const readySet = new Set<string>();
+    const completedSteps = new Set<string>();
+
+    for (const step of steps) {
+      const existing = context.steps[step.id];
+      if (existing?.status === 'succeeded') {
+        statusById.set(step.id, 'succeeded');
+        completedSteps.add(step.id);
+      } else {
+        statusById.set(step.id, 'pending');
+        if (existing) {
+          context = updateStepContext(context, step.id, {
+            status: 'pending',
+            jobRunId: null,
+            result: null,
+            errorMessage: null,
+            logsUrl: null,
+            metrics: null,
+            startedAt: null,
+            completedAt: null
+          });
+        }
+        if (step.type === 'job' && step.storeResultAs) {
+          context = setSharedValue(context, step.storeResultAs, null);
+        }
+        if (step.type === 'service' && step.storeResponseAs) {
+          context = setSharedValue(context, step.storeResponseAs, null);
+        }
       }
+    }
+
+    totals.completedSteps = completedSteps.size;
+    let remainingSteps = steps.length - completedSteps.size;
+
+    const concurrencyLimit = resolveRunConcurrency(definition, run, steps);
+
+    await updateWorkflowRun(run.id, {
+      metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+    });
+
+    const canSchedule = (stepId: string) => {
+      const dependencies = dependenciesMap.get(stepId) ?? [];
+      return dependencies.every((depId) => statusById.get(depId) === 'succeeded');
+    };
+
+    for (const step of steps) {
+      if (statusById.get(step.id) === 'pending' && canSchedule(step.id)) {
+        readyQueue.push(step.id);
+        readySet.add(step.id);
+      }
+    }
+
+    const inFlight = new Map<
+      string,
+      Promise<{ stepId: string; result?: StepExecutionResult; error?: unknown }>
+    >();
+    const activeSteps = new Set<string>();
+    let failure: { stepId: string; message: string } | null = null;
+
+    const scheduleStep = (stepId: string) => {
+      if (statusById.get(stepId) !== 'pending' || failure) {
+        return;
+      }
+      readySet.delete(stepId);
+      statusById.set(stepId, 'running');
+      activeSteps.add(stepId);
+      const stepDefinition = stepById.get(stepId);
+      if (!stepDefinition) {
+        failure = { stepId, message: `Unknown step ${stepId}` };
+        return;
+      }
+      const stepIndex = stepIndexById.get(stepId) ?? 0;
+      const contextClone = toWorkflowContext(serializeContext(context));
+      const wrapped = executeStep(run, stepDefinition, contextClone, stepIndex)
+        .then((result) => ({ stepId, result }))
+        .catch((error) => ({ stepId, error }));
+      inFlight.set(stepId, wrapped);
+    };
+
+    const trySchedule = () => {
+      while (!failure && inFlight.size < concurrencyLimit && readyQueue.length > 0) {
+        const nextStepId = readyQueue.shift();
+        if (!nextStepId) {
+          break;
+        }
+        scheduleStep(nextStepId);
+      }
+    };
+
+    trySchedule();
+
+    while (!failure && (remainingSteps > 0 || inFlight.size > 0)) {
+      if (inFlight.size === 0) {
+        failure = {
+          stepId: 'scheduler',
+          message: 'Workflow blocked by unsatisfied dependencies'
+        };
+        break;
+      }
+
+      const completion = await Promise.race(inFlight.values());
+      const { stepId } = completion;
+      inFlight.delete(stepId);
+      activeSteps.delete(stepId);
+
+      if (completion.error) {
+        const message =
+          completion.error instanceof Error
+            ? completion.error.message
+            : 'Step execution failed';
+        failure = { stepId, message };
+        break;
+      }
+
+      const result = completion.result!;
+      context = updateStepContext(context, stepId, result.stepPatch);
+      if (result.sharedPatch) {
+        for (const [key, value] of Object.entries(result.sharedPatch)) {
+          context = setSharedValue(context, key, value);
+        }
+      }
+
+      if (result.stepStatus !== 'succeeded') {
+        failure = {
+          stepId,
+          message: result.errorMessage ?? `Step ${stepId} failed`
+        };
+        break;
+      }
+
+      statusById.set(stepId, 'succeeded');
+      completedSteps.add(stepId);
+      remainingSteps -= 1;
+      totals.completedSteps += 1;
+
+      await updateWorkflowRun(run.id, {
+        metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
+      });
+
+      for (const dependentId of dependentsMap.get(stepId) ?? []) {
+        if (
+          statusById.get(dependentId) === 'pending' &&
+          !readySet.has(dependentId) &&
+          !activeSteps.has(dependentId) &&
+          canSchedule(dependentId)
+        ) {
+          readyQueue.push(dependentId);
+          readySet.add(dependentId);
+        }
+      }
+
+      trySchedule();
+    }
+
+    if (failure) {
+      await Promise.allSettled(Array.from(inFlight.values()));
+      await recordRunFailure(run.id, failure.message, context, totals, startTime);
+      return await getWorkflowRunById(run.id);
+    }
+
+    if (remainingSteps > 0) {
+      await recordRunFailure(
+        run.id,
+        'Workflow terminated before completing all steps',
+        context,
+        totals,
+        startTime
+      );
+      return await getWorkflowRunById(run.id);
     }
 
     await recordRunSuccess(run.id, context, totals, startTime);

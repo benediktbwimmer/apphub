@@ -15,25 +15,38 @@ describe('WorkflowGraph', () => {
         {
           id: 'extract',
           name: 'Extract',
-          jobSlug: 'job.extract'
+          jobSlug: 'job.extract',
+          dependents: ['transform']
         },
         {
           id: 'transform',
           name: 'Transform',
           jobSlug: 'job.transform',
-          dependsOn: ['extract']
+          dependsOn: ['extract'],
+          dependents: ['load']
         },
         {
           id: 'load',
           name: 'Load',
           serviceSlug: 'svc.load',
-          dependsOn: ['transform']
+          dependsOn: ['transform'],
+          dependents: []
         }
       ],
       triggers: [{ type: 'manual' }],
       parametersSchema: {},
       defaultParameters: {},
       metadata: {},
+      dag: {
+        roots: ['extract'],
+        adjacency: {
+          extract: ['transform'],
+          transform: ['load'],
+          load: []
+        },
+        topologicalOrder: ['extract', 'transform', 'load'],
+        edges: 2
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

@@ -11,7 +11,9 @@ import {
   type WorkflowRunUpdateInput,
   type WorkflowRunStepCreateInput,
   type WorkflowRunStepRecord,
-  type WorkflowRunStepUpdateInput
+  type WorkflowRunStepUpdateInput,
+  type WorkflowDagMetadata,
+  type JsonValue
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -35,6 +37,92 @@ function normalizeWorkflowRunStatus(status?: WorkflowRunStatus | null): Workflow
     return status;
   }
   return 'pending';
+}
+
+type WorkflowContextState = {
+  steps: Record<string, Record<string, JsonValue | null>>;
+  shared: Record<string, JsonValue | null>;
+  lastUpdatedAt?: string;
+};
+
+function parseWorkflowContext(value: unknown): WorkflowContextState {
+  const context: WorkflowContextState = {
+    steps: {},
+    shared: {}
+  };
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const stepsValue = record.steps;
+    if (stepsValue && typeof stepsValue === 'object' && !Array.isArray(stepsValue)) {
+      for (const [stepId, stepRaw] of Object.entries(stepsValue)) {
+        if (!stepRaw || typeof stepRaw !== 'object' || Array.isArray(stepRaw)) {
+          continue;
+        }
+        const stepRecord: Record<string, JsonValue | null> = {};
+        for (const [key, entry] of Object.entries(stepRaw as Record<string, unknown>)) {
+          stepRecord[key] = (entry ?? null) as JsonValue | null;
+        }
+        context.steps[stepId] = stepRecord;
+      }
+    }
+
+    const sharedValue = record.shared;
+    if (sharedValue && typeof sharedValue === 'object' && !Array.isArray(sharedValue)) {
+      for (const [key, entry] of Object.entries(sharedValue as Record<string, unknown>)) {
+        context.shared[key] = (entry ?? null) as JsonValue | null;
+      }
+    }
+
+    if (typeof record.lastUpdatedAt === 'string') {
+      context.lastUpdatedAt = record.lastUpdatedAt;
+    }
+  }
+
+  return context;
+}
+
+function serializeWorkflowContext(context: WorkflowContextState): JsonValue {
+  const payload: Record<string, JsonValue> = {
+    steps: context.steps as unknown as JsonValue,
+    lastUpdatedAt: (context.lastUpdatedAt ?? new Date().toISOString()) as unknown as JsonValue
+  };
+  if (Object.keys(context.shared).length > 0) {
+    payload.shared = context.shared as unknown as JsonValue;
+  }
+  return payload as unknown as JsonValue;
+}
+
+function applyWorkflowContextPatch(
+  base: WorkflowContextState,
+  patch: NonNullable<WorkflowRunUpdateInput['contextPatch']>
+): WorkflowContextState {
+  const next: WorkflowContextState = {
+    steps: { ...base.steps },
+    shared: { ...base.shared },
+    lastUpdatedAt: patch.lastUpdatedAt ?? new Date().toISOString()
+  };
+
+  if (patch.steps) {
+    for (const [stepId, stepPatch] of Object.entries(patch.steps)) {
+      const existing = next.steps[stepId] ?? {};
+      next.steps[stepId] = {
+        ...existing,
+        ...stepPatch
+      };
+    }
+  }
+
+  if (patch.shared) {
+    for (const [key, value] of Object.entries(patch.shared)) {
+      if (value === undefined) {
+        continue;
+      }
+      next.shared[key] = (value ?? null) as JsonValue | null;
+    }
+  }
+
+  return next;
 }
 
 function emitWorkflowDefinitionEvent(definition: WorkflowDefinitionRecord | null) {
@@ -122,12 +210,19 @@ export async function createWorkflowDefinition(
   const parametersSchema = input.parametersSchema ?? {};
   const defaultParameters = input.defaultParameters ?? {};
   const metadata = input.metadata ?? {};
+  const dag: WorkflowDagMetadata = input.dag ?? {
+    adjacency: {},
+    roots: [],
+    topologicalOrder: [],
+    edges: 0
+  };
 
   const stepsJson = JSON.stringify(steps);
   const triggersJson = JSON.stringify(triggers);
   const parametersSchemaJson = JSON.stringify(parametersSchema);
   const defaultParametersJson = JSON.stringify(defaultParameters);
   const metadataJson = JSON.stringify(metadata);
+  const dagJson = JSON.stringify(dag);
 
   let definition: WorkflowDefinitionRecord | null = null;
 
@@ -145,6 +240,7 @@ export async function createWorkflowDefinition(
            parameters_schema,
            default_parameters,
            metadata,
+           dag,
            created_at,
            updated_at
          ) VALUES (
@@ -158,6 +254,7 @@ export async function createWorkflowDefinition(
            $8::jsonb,
            $9::jsonb,
            $10::jsonb,
+           $11::jsonb,
            NOW(),
            NOW()
          )
@@ -172,7 +269,8 @@ export async function createWorkflowDefinition(
           triggersJson,
           parametersSchemaJson,
           defaultParametersJson,
-          metadataJson
+          metadataJson,
+          dagJson
         ]
       );
       if (rows.length === 0) {
@@ -211,6 +309,7 @@ export async function updateWorkflowDefinition(
     const hasTriggers = Object.prototype.hasOwnProperty.call(updates, 'triggers');
     const hasDefaultParameters = Object.prototype.hasOwnProperty.call(updates, 'defaultParameters');
     const hasMetadata = Object.prototype.hasOwnProperty.call(updates, 'metadata');
+    const hasDag = Object.prototype.hasOwnProperty.call(updates, 'dag');
 
     const nextSteps = updates.steps ?? existing.steps;
     const triggerCandidates = hasTriggers ? updates.triggers ?? [] : existing.triggers;
@@ -225,12 +324,19 @@ export async function updateWorkflowDefinition(
       : existing.defaultParameters;
     const nextMetadata = hasMetadata ? updates.metadata ?? null : existing.metadata;
     const nextDescription = hasDescription ? updates.description ?? null : existing.description;
+    const nextDag = hasDag ? updates.dag ?? existing.dag : existing.dag;
 
     const stepsJson = JSON.stringify(nextSteps);
     const triggersJson = JSON.stringify(nextTriggers);
     const parametersSchemaJson = JSON.stringify(nextParametersSchema ?? {});
     const defaultParametersJson = JSON.stringify(nextDefaultParameters ?? null);
     const metadataJson = JSON.stringify(nextMetadata ?? null);
+    const dagJson = JSON.stringify(nextDag ?? {
+      adjacency: {},
+      roots: [],
+      topologicalOrder: [],
+      edges: 0
+    });
 
     const { rows } = await client.query<WorkflowDefinitionRow>(
       `UPDATE workflow_definitions
@@ -242,6 +348,7 @@ export async function updateWorkflowDefinition(
            parameters_schema = $7::jsonb,
            default_parameters = $8::jsonb,
            metadata = $9::jsonb,
+           dag = $10::jsonb,
            updated_at = NOW()
        WHERE slug = $1
        RETURNING *`,
@@ -254,7 +361,8 @@ export async function updateWorkflowDefinition(
         triggersJson,
         parametersSchemaJson,
         defaultParametersJson,
-        metadataJson
+        metadataJson,
+        dagJson
       ]
     );
     if (rows.length === 0) {
@@ -393,7 +501,20 @@ export async function updateWorkflowRun(
 
     const nextStatus = normalizeWorkflowRunStatus(updates.status ?? (existing.status as WorkflowRunStatus));
     const nextParameters = updates.parameters ?? existing.parameters ?? {};
-    const nextContext = updates.context ?? existing.context ?? {};
+
+    const existingContextRaw = (existing.context ?? {}) as JsonValue;
+    let contextChanged = false;
+    let nextContext: JsonValue;
+    if (updates.contextPatch) {
+      const merged = applyWorkflowContextPatch(parseWorkflowContext(existingContextRaw), updates.contextPatch);
+      nextContext = serializeWorkflowContext(merged);
+      contextChanged = true;
+    } else if (updates.context !== undefined) {
+      nextContext = (updates.context ?? {}) as JsonValue;
+      contextChanged = JSON.stringify(existingContextRaw ?? {}) !== JSON.stringify(nextContext ?? {});
+    } else {
+      nextContext = existingContextRaw;
+    }
     const nextErrorMessage = 'errorMessage' in updates ? updates.errorMessage ?? null : existing.error_message;
     const nextCurrentStepId = updates.currentStepId ?? existing.current_step_id ?? null;
     const nextCurrentStepIndex =
@@ -445,7 +566,7 @@ export async function updateWorkflowRun(
     updated = mapWorkflowRunRow(updatedRows[0]);
     emitEvents =
       updated.status !== existing.status ||
-      JSON.stringify(existing.context ?? {}) !== JSON.stringify(updated.context ?? {}) ||
+      contextChanged ||
       JSON.stringify(existing.parameters ?? {}) !== JSON.stringify(updated.parameters ?? {}) ||
       JSON.stringify(existing.metrics ?? {}) !== JSON.stringify(updated.metrics ?? {}) ||
       existing.current_step_id !== updated.currentStepId ||
