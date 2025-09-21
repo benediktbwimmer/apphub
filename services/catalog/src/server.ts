@@ -77,7 +77,7 @@ import {
 } from './queue';
 import { authorizeOperatorAction, type OperatorScope } from './auth/tokens';
 import { computeRunMetrics } from './observability/metrics';
-import { resolveLaunchInternalPort } from './docker';
+import { parseEnvPort, resolveLaunchInternalPort } from './docker';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { executeJobRun } from './jobs/runtime';
 import {
@@ -613,6 +613,27 @@ function normalizeLaunchEnv(entries?: LaunchEnvVar[]): LaunchEnvVar[] {
     }
   }
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
+}
+
+function resolvePortFromEnvVars(entries?: LaunchEnvVar[]): number | null {
+  if (!entries || entries.length === 0) {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim().toLowerCase();
+    if (key !== 'port') {
+      continue;
+    }
+    const value = typeof entry.value === 'string' ? entry.value.trim() : '';
+    const parsed = parseEnvPort(value);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 type LaunchRequestPayload = z.infer<typeof launchRequestSchema>;
@@ -1152,6 +1173,7 @@ async function scheduleLaunch(options: {
   }
 
   const env = normalizeLaunchEnv(payload.env);
+  const envDefinedPort = resolvePortFromEnvVars(env);
   const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
   const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
 
@@ -1163,7 +1185,7 @@ async function scheduleLaunch(options: {
   }
 
   const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
-  const internalPort = await resolveLaunchInternalPort(build.imageTag);
+  const internalPort = envDefinedPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandFallback = buildDockerRunCommand({
     repositoryId: repository.id,
     launchId,

@@ -692,6 +692,43 @@ export async function runLaunchStart(launchId: string) {
   });
 
   log('Launch running', { launchId, containerId, instanceUrl, containerIp });
+
+  const numericHostPort = Number(hostPort);
+  let hostForRuntime: string | null = null;
+  if (instanceUrl) {
+    try {
+      hostForRuntime = new URL(instanceUrl).hostname;
+    } catch {
+      hostForRuntime = null;
+    }
+  }
+  if (!hostForRuntime && Number.isFinite(numericHostPort)) {
+    hostForRuntime = '127.0.0.1';
+  }
+  const containerBaseUrl = containerIp && containerPortForLookup
+    ? `http://${containerIp}:${containerPortForLookup}`
+    : null;
+
+  try {
+    await updateServiceRuntimeForRepository(launch.repositoryId, {
+      repositoryId: launch.repositoryId,
+      launchId: launch.id,
+      instanceUrl,
+      baseUrl: instanceUrl,
+      previewUrl: instanceUrl,
+      host: hostForRuntime,
+      port: Number.isFinite(numericHostPort) ? numericHostPort : null,
+      containerIp,
+      containerPort: containerPortForLookup ?? null,
+      containerBaseUrl,
+      source: 'launch-runner'
+    });
+  } catch (err) {
+    log('error updating service runtime', {
+      launchId: launch.id,
+      error: (err as Error).message
+    });
+  }
 }
 
 export async function runLaunchStop(launchId: string) {
@@ -726,6 +763,7 @@ export async function runLaunchStop(launchId: string) {
 
   if (!current.containerId) {
     await markLaunchStopped(launchId);
+    await clearServiceRuntimeForRepository(launch.repositoryId, { launchId });
     log('Launch stop with no container id', { launchId });
     return;
   }
@@ -738,5 +776,6 @@ export async function runLaunchStop(launchId: string) {
 
   await runDockerCommand(['rm', '-f', current.containerId]);
   await markLaunchStopped(launchId);
+  await clearServiceRuntimeForRepository(launch.repositoryId, { launchId });
   log('Launch stopped', { launchId });
 }
