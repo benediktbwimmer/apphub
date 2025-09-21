@@ -13,7 +13,6 @@ import {
 import { requestAiSuggestion, type AiBuilderMode } from './api';
 import {
   createWorkflowDefinition,
-  createJobDefinition,
   type AuthorizedFetch,
   type WorkflowCreateInput,
   type JobDefinitionCreateInput,
@@ -22,6 +21,7 @@ import {
 import type { WorkflowDefinition } from '../types';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { ToastPayload } from '../../components/toast/ToastContext';
+import { createJobWithBundle, type AiBundleSuggestion } from './api';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
 const JOB_SCHEMA = jobDefinitionCreateSchema;
@@ -61,6 +61,7 @@ type AiBuilderDialogProps = {
   pushToast: (toast: ToastPayload) => void;
   onWorkflowSubmitted: (workflow: WorkflowDefinition) => Promise<void> | void;
   onWorkflowPrefill: (spec: WorkflowCreateInput) => void;
+  canCreateJob: boolean;
 };
 
 export default function AiBuilderDialog({
@@ -69,10 +70,11 @@ export default function AiBuilderDialog({
   authorizedFetch,
   pushToast,
   onWorkflowSubmitted,
-  onWorkflowPrefill
+  onWorkflowPrefill,
+  canCreateJob
 }: AiBuilderDialogProps) {
   const { refresh: refreshResources } = useWorkflowResources();
-  const [mode, setMode] = useState<AiBuilderMode>('workflow');
+  const [mode, setMode] = useState<'workflow' | 'job'>('workflow');
   const [prompt, setPrompt] = useState('');
   const [additionalNotes, setAdditionalNotes] = useState('');
   const [pending, setPending] = useState(false);
@@ -85,6 +87,11 @@ export default function AiBuilderDialog({
   const [hasSuggestion, setHasSuggestion] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [baselineValue, setBaselineValue] = useState('');
+  const [bundleSuggestion, setBundleSuggestion] = useState<AiBundleSuggestion | null>(null);
+  const [bundleValidation, setBundleValidation] = useState<{ valid: boolean; errors: string[] }>({
+    valid: true,
+    errors: []
+  });
 
   useEffect(() => {
     if (!open) {
@@ -101,6 +108,8 @@ export default function AiBuilderDialog({
       setValidation({ valid: false, errors: [] });
       setHasSuggestion(false);
       setSubmitting(false);
+      setBundleSuggestion(null);
+      setBundleValidation({ valid: true, errors: [] });
     }
   }, [open]);
 
@@ -121,12 +130,13 @@ export default function AiBuilderDialog({
       setPending(true);
       setError(null);
       try {
+        const requestMode: AiBuilderMode = mode === 'job' ? 'job-with-bundle' : 'workflow';
         const response = await requestAiSuggestion(authorizedFetch, {
-          mode,
+          mode: requestMode,
           prompt: prompt.trim(),
           additionalNotes: additionalNotes.trim() || undefined
         });
-      setMetadataSummary(response.metadataSummary ?? '');
+        setMetadataSummary(response.metadataSummary ?? '');
         setStdout(response.stdout ?? '');
         setStderr(response.stderr ?? '');
         const initialValue = response.suggestion
@@ -136,15 +146,22 @@ export default function AiBuilderDialog({
         setBaselineValue(initialValue);
         setHasSuggestion(true);
         setValidation(toValidationErrors(mode, initialValue));
+        setBundleSuggestion((response.bundle as AiBundleSuggestion | null) ?? null);
+        setBundleValidation(
+          response.bundleValidation ?? {
+            valid: true,
+            errors: []
+          }
+        );
         console.info('ai-builder.usage', {
           event: 'generated',
-          mode,
+          mode: requestMode,
           promptLength: prompt.trim().length
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to generate suggestion';
         setError(message);
-        console.error('ai-builder.error', { event: 'generate', message, mode, error: err });
+        console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
       } finally {
         setPending(false);
       }
@@ -154,12 +171,15 @@ export default function AiBuilderDialog({
 
   const handleModeChange = useCallback(
     (nextMode: AiBuilderMode) => {
-      setMode(nextMode);
+      const normalizedMode = nextMode === 'job-with-bundle' ? 'job' : nextMode;
+      setMode(normalizedMode);
       setHasSuggestion(false);
       setEditorValue('');
       setBaselineValue('');
       setValidation({ valid: false, errors: [] });
-      console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode });
+      setBundleSuggestion(null);
+      setBundleValidation({ valid: true, errors: [] });
+      console.info('ai-builder.usage', { event: 'mode-changed', mode: normalizedMode });
     },
     []
   );
@@ -249,14 +269,31 @@ export default function AiBuilderDialog({
   }, [parseEditorValue, isEdited, mode, onWorkflowPrefill, onClose]);
 
   const handleSubmitJob = useCallback(async () => {
+    if (!canCreateJob) {
+      setError('Your token must include the job-bundles:write scope to create Codex-generated jobs.');
+      return;
+    }
     const parsed = parseEditorValue() as JobDefinitionCreateInput | null;
     if (!parsed) {
+      return;
+    }
+    if (!bundleSuggestion) {
+      setError('Bundle suggestion missing. Regenerate before submitting.');
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const created: JobDefinitionSummary = await createJobDefinition(authorizedFetch, parsed);
+      const jobPayload: JobDefinitionCreateInput = {
+        ...parsed,
+        entryPoint: `bundle:${bundleSuggestion.slug}@${bundleSuggestion.version}`
+      };
+      const created: JobDefinitionSummary = (
+        await createJobWithBundle(authorizedFetch, {
+          job: jobPayload,
+          bundle: bundleSuggestion
+        })
+      ).job;
       console.info('ai-builder.usage', {
         event: 'job-submitted',
         edited: isEdited,
@@ -277,7 +314,17 @@ export default function AiBuilderDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [authorizedFetch, parseEditorValue, isEdited, mode, pushToast, refreshResources, onClose]);
+  }, [
+    authorizedFetch,
+    parseEditorValue,
+    isEdited,
+    mode,
+    pushToast,
+    refreshResources,
+    onClose,
+    bundleSuggestion,
+    canCreateJob
+  ]);
 
   const handleDismiss = useCallback(() => {
     if (hasSuggestion) {
@@ -294,7 +341,12 @@ export default function AiBuilderDialog({
     return null;
   }
 
-  const canSubmit = validation.valid && !pending && !submitting && editorValue.trim().length > 0;
+  const canSubmit =
+    validation.valid &&
+    !pending &&
+    !submitting &&
+    editorValue.trim().length > 0 &&
+    (mode === 'job' ? Boolean(bundleSuggestion) && bundleValidation.valid && canCreateJob : true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
@@ -427,6 +479,23 @@ export default function AiBuilderDialog({
                     <li key={issue}>{issue}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {mode === 'job' && hasSuggestion && bundleValidation.errors.length > 0 && (
+              <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                <p className="mb-1">Bundle issues:</p>
+                <ul className="list-disc pl-5">
+                  {bundleValidation.errors.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {mode === 'job' && hasSuggestion && !canCreateJob && (
+              <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+                Add a token with <code>job-bundles:write</code> scope to publish Codex-generated bundles automatically.
               </div>
             )}
 

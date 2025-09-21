@@ -9,7 +9,7 @@ The AI builder introduces a guided experience for generating workflow and job de
 - The preview panel shows validation status using the shared Zod schemas. Operators can edit the JSON directly.
 - Available actions:
   - **Submit workflow** (POST `/workflows`)
-  - **Submit job** (POST `/jobs`)
+  - **Submit job** (POST `/ai/builder/jobs` → publishes bundle + registers definition)
   - **Review in manual builder** – opens the existing workflow builder pre-populated with the AI draft.
 - Structured telemetry is emitted through `console.info('ai-builder.usage', …)` so we can observe acceptance, edits, and rejection patterns locally.
 
@@ -19,13 +19,36 @@ The AI builder introduces a guided experience for generating workflow and job de
 Payload:
 ```json
 {
-  "mode": "workflow" | "job",
+  "mode": "workflow" | "job" | "job-with-bundle",
   "prompt": "...",
   "additionalNotes": "optional"
 }
 ```
 
-The handler checks operator scopes, gathers catalog metadata, and invokes the Codex CLI in a temporary workspace. The CLI is instructed (via `instructions.md`) to write the suggestion to `output/suggestion.json`, mirroring the CLI guidance that output should be redirected to files rather than stdout. The response includes the raw JSON, validation result, metadata summary, and truncated CLI logs. Validation uses the shared Zod schemas from `services/catalog/src/workflows/zodSchemas.ts`, which are now also consumed by the frontend.
+The handler checks operator scopes, gathers catalog metadata, and invokes the Codex CLI in a temporary workspace. The CLI is instructed (via `instructions.md`) to write the suggestion to `output/suggestion.json`, mirroring the CLI guidance that output should be redirected to files rather than stdout. The response includes the raw JSON, validation result, metadata summary, and truncated CLI logs. Validation uses the shared Zod schemas from `services/catalog/src/workflows/zodSchemas.ts`, which are now also consumed by the frontend. In `job-with-bundle` mode the CLI must return both a job definition and bundle blueprint; the backend surfaces bundle validation warnings alongside the job schema status so operators can fix issues before publishing.
+
+## Automated Job Creation
+
+`POST /ai/builder/jobs`
+
+Payload:
+
+```json
+{
+  "job": { /* jobDefinitionCreateSchema payload */ },
+  "bundle": {
+    "slug": "…",
+    "version": "…",
+    "entryPoint": "index.js",
+    "manifest": { /* job bundle manifest */ },
+    "files": [
+      { "path": "index.js", "contents": "…" }
+    ]
+  }
+}
+```
+
+Operators with both `jobs:write` and `job-bundles:write` scopes can submit the edited job spec alongside the Codex-generated bundle blueprint. The API materialises the files, packages them into a tarball, publishes the bundle, and registers the job definition referencing `bundle:<slug>@<version>`. The response includes the persisted job plus bundle metadata (including the generated download link) so the UI can present next steps without additional CLI tooling.
 
 Set `APPHUB_CODEX_MOCK_DIR` to a directory containing `workflow.json` and `job.json` to return deterministic fixtures—useful for local tests and CI.
 

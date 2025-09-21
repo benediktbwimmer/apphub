@@ -2,7 +2,7 @@
   {
     "subject": "platform-ops",
     "token": "example-operator-token-123",
-    "scopes": ["jobs:write", "jobs:run", "workflows:write", "workflows:run"],
+    "scopes": ["jobs:write", "jobs:run", "job-bundles:write", "workflows:write", "workflows:run"],
     "kind": "user"
   }
 ]

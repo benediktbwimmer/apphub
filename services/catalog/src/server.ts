@@ -112,6 +112,7 @@ import {
   WorkflowDagValidationError
 } from './workflows/dag';
 import { runCodexGeneration, type CodexGenerationMode } from './ai/codexRunner';
+import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from './ai/bundlePublisher';
 import {
   jobDefinitionCreateSchema,
   jobDefinitionUpdateSchema,
@@ -326,11 +327,53 @@ const jobBundleUpdateSchema = z
     message: 'At least one field must be provided'
   });
 
+const aiBundleFileSchema = z
+  .object({
+    path: z.string().min(1),
+    contents: z.string(),
+    encoding: z.enum(['utf8', 'base64']).optional(),
+    executable: z.boolean().optional()
+  })
+  .strict();
+
+const aiBundleSuggestionSchema = z
+  .object({
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
+    version: z.string().min(1),
+    entryPoint: z.string().min(1),
+    manifest: jsonObjectSchema,
+    manifestPath: z.string().min(1).optional(),
+    capabilityFlags: z.array(z.string().min(1)).optional(),
+    metadata: jsonValueSchema.nullable().optional(),
+    description: z.string().min(1).nullable().optional(),
+    displayName: z.string().min(1).nullable().optional(),
+    files: z.array(aiBundleFileSchema).min(1)
+  })
+  .strict();
+
 const aiBuilderSuggestSchema = z
   .object({
-    mode: z.enum(['workflow', 'job']),
+    mode: z.enum(['workflow', 'job', 'job-with-bundle']),
     prompt: z.string().min(1).max(2_000),
     additionalNotes: z.string().max(2_000).optional()
+  })
+  .strict();
+
+const aiBuilderJobCreateSchema = z
+  .object({
+    job: jobDefinitionCreateSchema,
+    bundle: aiBundleSuggestionSchema
+  })
+  .strict();
+
+const aiJobWithBundleOutputSchema = z
+  .object({
+    job: jobDefinitionCreateSchema,
+    bundle: aiBundleSuggestionSchema
   })
   .strict();
 
@@ -1994,7 +2037,9 @@ export async function buildServer() {
       });
 
       const issues: string[] = [];
+      const bundleIssues: string[] = [];
       let suggestion: unknown = null;
+      let bundleSuggestion: AiGeneratedBundleSuggestion | null = null;
 
       let parsed: unknown;
       try {
@@ -2006,19 +2051,39 @@ export async function buildServer() {
       }
 
       if (parsed !== null) {
-        const schema = mode === 'workflow' ? workflowDefinitionCreateSchema : jobDefinitionCreateSchema;
-        const validation = schema.safeParse(parsed);
-        if (validation.success) {
-          suggestion = validation.data;
+        if (mode === 'job-with-bundle') {
+          const validation = aiJobWithBundleOutputSchema.safeParse(parsed);
+          if (validation.success) {
+            suggestion = validation.data.job;
+            const currentBundle = validation.data.bundle;
+            bundleSuggestion = currentBundle;
+            if (!currentBundle.files.some((file) => file.path === currentBundle.entryPoint)) {
+              bundleIssues.push(`Bundle is missing entry point file: ${currentBundle.entryPoint}`);
+            }
+          } else {
+            for (const issue of validation.error.errors) {
+              const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+              issues.push(`${path}: ${issue.message}`);
+            }
+          }
         } else {
-          for (const issue of validation.error.errors) {
-            const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-            issues.push(`${path}: ${issue.message}`);
+          const schema = mode === 'workflow' ? workflowDefinitionCreateSchema : jobDefinitionCreateSchema;
+          const validation = schema.safeParse(parsed);
+          if (validation.success) {
+            suggestion = validation.data;
+          } else {
+            for (const issue of validation.error.errors) {
+              const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+              issues.push(`${path}: ${issue.message}`);
+            }
           }
         }
       }
 
-      const valid = suggestion !== null && issues.length === 0;
+      const valid =
+        suggestion !== null &&
+        issues.length === 0 &&
+        (mode !== 'job-with-bundle' ? true : bundleSuggestion !== null && bundleIssues.length === 0);
 
       await auth.log('succeeded', {
         mode,
@@ -2036,6 +2101,11 @@ export async function buildServer() {
             valid,
             errors: issues
           },
+          bundle: bundleSuggestion,
+          bundleValidation: {
+            valid: bundleIssues.length === 0,
+            errors: bundleIssues
+          },
           stdout: truncate(codexResult.stdout),
           stderr: truncate(codexResult.stderr),
           metadataSummary
@@ -2046,6 +2116,86 @@ export async function buildServer() {
       reply.status(502);
       await auth.log('failed', { reason: 'codex_failure', message });
       return { error: message };
+    }
+  });
+
+  app.post('/ai/builder/jobs', async (request, reply) => {
+    const requiredScopes = Array.from(new Set([...JOB_WRITE_SCOPES, ...JOB_BUNDLE_WRITE_SCOPES]));
+    const auth = await authorizeOperatorAction(request, {
+      action: 'ai.builder.job-create',
+      resource: 'ai-builder',
+      requiredScopes
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const parseBody = aiBuilderJobCreateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const { job: jobInput, bundle } = parseBody.data;
+
+    const bundleEntryPoint = `bundle:${bundle.slug}@${bundle.version}`;
+    const normalizedJobInput = {
+      ...jobInput,
+      entryPoint: bundleEntryPoint
+    } satisfies z.infer<typeof jobDefinitionCreateSchema>;
+
+    try {
+      const bundleResult = await publishGeneratedBundle(bundle, {
+        subject: auth.identity.subject,
+        kind: auth.identity.kind,
+        tokenHash: auth.identity.tokenHash
+      });
+
+      const definition = await createJobDefinition({
+        slug: normalizedJobInput.slug,
+        name: normalizedJobInput.name,
+        type: normalizedJobInput.type,
+        entryPoint: normalizedJobInput.entryPoint,
+        version: normalizedJobInput.version,
+        timeoutMs: normalizedJobInput.timeoutMs ?? null,
+        retryPolicy: normalizedJobInput.retryPolicy ?? null,
+        parametersSchema: normalizedJobInput.parametersSchema ?? {},
+        defaultParameters: normalizedJobInput.defaultParameters ?? {},
+        metadata: normalizedJobInput.metadata ?? null
+      });
+
+      reply.status(201);
+      await auth.log('succeeded', {
+        action: 'ai.builder.job-created',
+        jobSlug: definition.slug,
+        bundleSlug: bundleResult.bundle.slug,
+        bundleVersion: bundleResult.version.version
+      });
+      return {
+        data: {
+          job: serializeJobDefinition(definition),
+          bundle: serializeJobBundle(bundleResult.bundle),
+          version: serializeJobBundleVersion(bundleResult.version, {
+            includeManifest: true,
+            download: bundleResult.download
+          })
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create AI-generated job';
+      request.log.error({ err, jobSlug: jobInput.slug, bundleSlug: bundle.slug }, 'Failed to create AI-generated job');
+      const isConflict = err instanceof Error && /already exists/i.test(err.message);
+      const statusCode = isConflict ? 409 : 500;
+      reply.status(statusCode);
+      await auth.log('failed', {
+        reason: isConflict ? 'duplicate' : 'exception',
+        message,
+        jobSlug: jobInput.slug,
+        bundleSlug: bundle.slug
+      });
+      return { error: statusCode === 500 ? 'Failed to create job' : message };
     }
   });
 

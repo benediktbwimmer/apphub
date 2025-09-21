@@ -107,6 +107,7 @@ export default function WorkflowsPage() {
   const [builderSubmitting, setBuilderSubmitting] = useState(false);
   const [canEditWorkflows, setCanEditWorkflows] = useState(false);
   const [canUseAiBuilder, setCanUseAiBuilder] = useState(false);
+  const [canCreateAiJobs, setCanCreateAiJobs] = useState(false);
   const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
   const [aiPrefillWorkflow, setAiPrefillWorkflow] = useState<WorkflowCreateInput | null>(null);
 
@@ -351,6 +352,7 @@ export default function WorkflowsPage() {
     let cancelled = false;
     if (!hasActiveToken) {
       setCanEditWorkflows(false);
+      setCanCreateAiJobs(false);
       return;
     }
     const loadIdentity = async () => {
@@ -363,14 +365,17 @@ export default function WorkflowsPage() {
           const scopes = new Set(identity.scopes);
           setCanEditWorkflows(scopes.has('workflows:write'));
           setCanUseAiBuilder(scopes.has('workflows:write') || scopes.has('jobs:write'));
+          setCanCreateAiJobs(scopes.has('jobs:write') && scopes.has('job-bundles:write'));
         } else {
           setCanEditWorkflows(false);
           setCanUseAiBuilder(false);
+          setCanCreateAiJobs(false);
         }
       } catch {
         if (!cancelled) {
           setCanEditWorkflows(false);
           setCanUseAiBuilder(false);
+          setCanCreateAiJobs(false);
         }
       }
     };
@@ -1215,6 +1220,7 @@ export default function WorkflowsPage() {
             pushToast={pushToast}
             onWorkflowSubmitted={handleAiWorkflowSubmitted}
             onWorkflowPrefill={handleAiWorkflowPrefill}
+            canCreateJob={canCreateAiJobs}
           />
         </WorkflowResourcesProvider>
       )}

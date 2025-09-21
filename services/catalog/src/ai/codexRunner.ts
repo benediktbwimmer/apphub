@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export type CodexGenerationMode = 'workflow' | 'job';
+export type CodexGenerationMode = 'workflow' | 'job' | 'job-with-bundle';
 
 export type CodexGenerationOptions = {
   mode: CodexGenerationMode;
@@ -67,7 +67,28 @@ async function prepareWorkspace(options: CodexGenerationOptions): Promise<{
     `3. Write the JSON payload to \`./output/${OUTPUT_FILENAME}\`. Do not print the JSON to stdout.`,
     '4. Ensure the JSON is pretty-printed with two-space indentation.',
     options.additionalNotes?.trim() ?? '',
-    'When the suggestion is ready, append a short summary to `./output/summary.txt` describing key choices.'
+    'When the suggestion is ready, append a short summary to `./output/summary.txt` describing key choices.',
+    options.mode === 'job-with-bundle'
+      ? [
+          'For job-with-bundle mode, `suggestion.json` must contain an object with the shape:',
+          '{',
+          '  "job": { /* job definition matching the AppHub schema */ },',
+          '  "bundle": {',
+          '    "slug": "...",',
+          '    "version": "...",',
+          '    "entryPoint": "index.js",',
+          '    "manifestPath": "manifest.json",',
+          '    "manifest": { /* bundle manifest JSON */ },',
+          '    "capabilityFlags": ["optional", "flags"],',
+          '    "files": [',
+          '      { "path": "index.js", "contents": "// handler source", "encoding": "utf8", "executable": false }',
+          '    ]',
+          '  }',
+          '}',
+          'When producing bundle files, ensure every entry is included in the `files` array and referenced relative to the bundle root.',
+          'You may add optional fields like `metadata` where suitable.'
+        ].join('\n')
+      : ''
   ].filter(Boolean);
 
   const promptBody = `${promptSections.join('\n\n')}\n`;
@@ -109,7 +130,12 @@ function buildCodexArgs(instructionsPath: string): string[] {
 export async function runCodexGeneration(options: CodexGenerationOptions): Promise<CodexGenerationResult> {
   const mockDir = process.env.APPHUB_CODEX_MOCK_DIR;
   if (mockDir) {
-    const fileName = options.mode === 'workflow' ? 'workflow.json' : 'job.json';
+    const fileName =
+      options.mode === 'workflow'
+        ? 'workflow.json'
+        : options.mode === 'job-with-bundle'
+        ? 'job-with-bundle.json'
+        : 'job.json';
     const mockPath = path.join(mockDir, fileName);
     const mockContent = await fs.readFile(mockPath, { encoding: 'utf8' });
     return {

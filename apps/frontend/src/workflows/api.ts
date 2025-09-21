@@ -145,7 +145,7 @@ export type OperatorIdentity = {
   kind: 'user' | 'service';
 };
 
-async function parseJson<T>(response: Response): Promise<T> {
+export async function parseJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text) {
     return {} as T;
@@ -157,7 +157,7 @@ async function parseJson<T>(response: Response): Promise<T> {
   }
 }
 
-async function ensureOk(response: Response, fallbackMessage: string): Promise<Response> {
+export async function ensureOk(response: Response, fallbackMessage: string): Promise<Response> {
   if (response.ok) {
     return response;
   }
