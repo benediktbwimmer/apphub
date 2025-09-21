@@ -117,7 +117,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           type="checkbox"
           checked={checked}
           onChange={(event) => handlePrimitiveChange(event.target.checked)}
-          className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
         />
         <div className="flex flex-col">
           <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -142,7 +142,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
             id={fieldId}
             value={value as string | number | undefined}
             onChange={(event) => handlePrimitiveChange(event.target.value)}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+            className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
           >
             <option value="">Select…</option>
             {enumValues.map((entry) => (
@@ -183,7 +183,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
               handlePrimitiveChange(numeric === '' ? undefined : Number(numeric));
             }
           }}
-          className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+          className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
         />
         {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
       </div>
@@ -218,7 +218,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           </div>
           <button
             type="button"
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
             onClick={() => onChange(path, [...currentItems, itemType === 'number' ? 0 : ''])}
           >
             Add value
@@ -236,11 +236,11 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
                   nextItems[index] = nextValue;
                   onChange(path, nextItems);
                 }}
-                className="flex-1 rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+                className="flex-1 rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
               />
               <button
                 type="button"
-                className="rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-rose-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
+                className="rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-rose-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
                 onClick={() => {
                   const nextItems = [...currentItems];
                   nextItems.splice(index, 1);
@@ -420,9 +420,9 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
             {canUseForm && (
               <button
                 type="button"
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                   mode === 'form'
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                    ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
                     : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
                 }`}
                 onClick={() => setMode('form')}
@@ -432,9 +432,9 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
             )}
             <button
               type="button"
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
                 mode === 'json' || !canUseForm
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
                   : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
               }`}
               onClick={() => setMode('json')}
@@ -453,7 +453,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
                 value={triggeredBy}
                 onChange={(event) => setTriggeredBy(event.target.value)}
                 placeholder="you@example.com"
-                className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-200/50 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+                className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
               />
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
                 Optional operator identity recorded with the run.
@@ -471,7 +471,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
               />
               <button
                 type="button"
-                className="self-start rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                className="self-start rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                 onClick={() => {
                   setFormData(defaultParameters);
                   setJsonValue(JSON.stringify(defaultParameters ?? {}, null, 2));
@@ -495,7 +495,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                  className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                   onClick={() => {
                     const text = JSON.stringify(defaultParameters ?? {}, null, 2);
                     setJsonValue(text);
@@ -541,7 +541,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              className="inline-flex items-center justify-center rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition-colors hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!authorized || pending || parseError !== null || (validationErrors.length > 0 && mode === 'form')}
             >
               {pending ? 'Launching…' : 'Launch workflow'}

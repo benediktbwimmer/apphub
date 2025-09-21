@@ -292,7 +292,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       href={step.logsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[11px] font-semibold text-blue-600 underline-offset-2 hover:underline dark:text-blue-300"
+                      className="text-[11px] font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
                     >
                       View logs
                     </a>

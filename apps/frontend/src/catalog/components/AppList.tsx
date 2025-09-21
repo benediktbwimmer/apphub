@@ -53,13 +53,13 @@ const STATUS_BADGE_VARIANTS: Record<string, string> = {
 };
 
 const PRIMARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/30 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 bg-blue-600 hover:bg-blue-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
+  'inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/30 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 bg-violet-600 hover:bg-violet-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
 
 const SECONDARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
 
 const TERTIARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
 
 const ACTIVE_LAUNCH_STATUSES = new Set(['pending', 'starting', 'running', 'stopping']);
 
@@ -238,7 +238,7 @@ function AppList({
                       {launchStatusBadge}
                       {launch?.instanceUrl && (
                         <a
-                          className="text-blue-600 underline-offset-4 hover:underline dark:text-slate-200"
+                          className="text-violet-600 underline-offset-4 hover:underline dark:text-slate-200"
                           href={normalizePreviewUrl(launch.instanceUrl) ?? '#'}
                           target="_blank"
                           rel="noreferrer"

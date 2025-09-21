@@ -5,7 +5,7 @@ interface SubmitAppProps {
 }
 
 const INPUT_CLASSES =
-  'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-blue-500 focus:ring-4 focus:ring-blue-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
+  'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
 
 const TEXTAREA_CLASSES = `${INPUT_CLASSES} min-h-[120px] resize-y`;
 
@@ -17,17 +17,17 @@ const CHIP_CLASSES =
   'inline-flex items-center gap-2 rounded-full bg-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700/60 dark:text-slate-200';
 
 const TOGGLE_BUTTON_BASE =
-  'inline-flex flex-1 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
+  'inline-flex flex-1 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500';
 
-const TOGGLE_BUTTON_ACTIVE = `${TOGGLE_BUTTON_BASE} bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.85)]`;
+const TOGGLE_BUTTON_ACTIVE = `${TOGGLE_BUTTON_BASE} bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.85)]`;
 
-const TOGGLE_BUTTON_INACTIVE = `${TOGGLE_BUTTON_BASE} bg-white/70 text-slate-600 hover:bg-blue-500/10 hover:text-blue-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
+const TOGGLE_BUTTON_INACTIVE = `${TOGGLE_BUTTON_BASE} bg-white/70 text-slate-600 hover:bg-violet-500/10 hover:text-violet-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
 
 const SMALL_BUTTON =
-  'inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
 
 const SUBMIT_BUTTON =
-  'inline-flex items-center justify-center rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
+  'inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
 
 const STATUS_BADGE_BASE =
   'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';

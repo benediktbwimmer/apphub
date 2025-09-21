@@ -53,19 +53,19 @@ const getStatusBadgeClasses = (status: string) =>
   `${STATUS_BADGE_BASE} ${STATUS_BADGE_VARIANTS[status] ?? STATUS_BADGE_VARIANTS.seed}`;
 
 const BUTTON_BASE =
-  'inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60';
 
-const PRIMARY_BUTTON_CLASSES = `${BUTTON_BASE} bg-blue-600 text-white shadow-lg shadow-blue-500/30 hover:bg-blue-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30`;
+const PRIMARY_BUTTON_CLASSES = `${BUTTON_BASE} bg-violet-600 text-white shadow-lg shadow-violet-500/30 hover:bg-violet-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30`;
 
-const SECONDARY_BUTTON_CLASSES = `${BUTTON_BASE} border border-slate-200/70 bg-white/80 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
+const SECONDARY_BUTTON_CLASSES = `${BUTTON_BASE} border border-slate-200/70 bg-white/80 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
 
 const PILL_LABEL_CLASSES =
   'inline-flex items-center gap-1 rounded-full bg-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700/60 dark:text-slate-200';
 
 const SMALL_BUTTON_BASE =
-  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60';
 
-const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-slate-200/70 bg-white/70 text-slate-600 hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
+const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-slate-200/70 bg-white/70 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
 
 const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_BASE} border border-rose-300/70 bg-rose-500/5 text-rose-600 hover:border-rose-400 hover:bg-rose-500/15 hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20`;
 
@@ -333,7 +333,7 @@ function ChannelPreview({
           <button
             type="button"
             aria-label="Open fullscreen preview"
-            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
             onClick={() => setFullscreenPreview({ type: 'live', url: livePreviewUrl, title: `${appName} live preview` })}
           >
             <FullscreenIcon />
@@ -424,7 +424,7 @@ function ChannelPreview({
           <button
             type="button"
             aria-label="Open fullscreen preview"
-            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
             onClick={() => setFullscreenPreview({ type: 'tile', tile: activeTile, title: tileTitle })}
           >
             <FullscreenIcon />
@@ -726,7 +726,7 @@ function LaunchSummarySection({
           )}
           {detailsOpen && normalizedInstanceUrl && (
             <a
-              className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+              className="rounded-full border border-violet-200/70 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
               href={normalizedInstanceUrl}
               target="_blank"
               rel="noreferrer"
@@ -798,7 +798,7 @@ function LaunchSummarySection({
         </button>
       </div>
       {detailsOpen && normalizedInstanceUrl && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-blue-600 dark:text-slate-200">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-violet-600 dark:text-slate-200">
           <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
           <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
             {normalizedInstanceUrl}
@@ -846,7 +846,7 @@ function LaunchSummarySection({
                     <input
                       type="text"
                       placeholder="KEY"
-                      className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                      className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
                       value={row.key}
                       onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
                       disabled={editingDisabled}
@@ -854,7 +854,7 @@ function LaunchSummarySection({
                     <input
                       type="text"
                       placeholder="value"
-                      className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                      className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
                       value={row.value}
                       onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
                       disabled={editingDisabled}
@@ -930,7 +930,7 @@ function BuildTimeline({
         <div className="flex flex-wrap gap-2">
           <input
             type="text"
-            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
             placeholder="Branch (optional)"
             value={branchValue}
             onChange={(event) => setBranchValue(event.target.value)}
@@ -938,7 +938,7 @@ function BuildTimeline({
           />
           <input
             type="text"
-            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
             placeholder="Tag or commit (optional)"
             value={refValue}
             onChange={(event) => setRefValue(event.target.value)}
@@ -1037,13 +1037,13 @@ function BuildTimeline({
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"
-                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
                 onClick={() => onToggleLogs(appId, build.id)}
               >
                 {logOpen ? 'Hide logs' : 'View logs'}
               </button>
               <a
-                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
                 href={downloadUrl}
                 target="_blank"
                 rel="noreferrer"
@@ -1090,7 +1090,7 @@ function BuildTimeline({
       {entry.meta?.hasMore && (
         <button
           type="button"
-          className="self-start rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-500/10 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+          className="self-start rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
           onClick={() => onLoadMore(appId)}
           disabled={entry.loadingMore}
         >
@@ -1155,7 +1155,7 @@ function LaunchTimeline({
                       href={normalizedInstanceUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-full border border-blue-200/70 px-3 py-1 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+                      className="rounded-full border border-violet-200/70 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
                     >
                       Open preview
                     </a>
@@ -1327,7 +1327,7 @@ function AppCard({
               aria-haspopup="dialog"
               aria-expanded={infoOpen}
               aria-label={infoOpen ? 'Hide app info' : 'Show app info'}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 p-2 text-slate-500 transition-colors hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+              className="inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 p-2 text-slate-500 transition-colors hover:border-violet-300 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
               onClick={() => setInfoOpen((open) => !open)}
             >
               <InfoIcon />
@@ -1410,7 +1410,7 @@ function AppCard({
       />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <a
-          className="rounded-full border border-blue-200/70 px-3 py-1 font-semibold text-blue-600 transition-colors hover:bg-blue-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+          className="rounded-full border border-violet-200/70 px-3 py-1 font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
           href={app.repoUrl}
           target="_blank"
           rel="noreferrer"
