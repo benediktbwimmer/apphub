@@ -121,6 +121,7 @@ graph TD
 
 ## Security & Access Controls
 - Operator and service automations authenticate with scoped bearer tokens supplied via `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH`. Scopes (`jobs:write`, `jobs:run`, `workflows:write`, `workflows:run`) gate job/workflow definition changes and manual executions.
+- The catalog API exposes `GET /auth/identity`, allowing the frontend to introspect the active token’s subject and scopes so UI controls (create/edit workflow actions) can be hidden or disabled for unauthorized operators.
 - All sensitive actions, including failed authorization attempts, are written to the `audit_logs` table with actor identity, IP/user-agent, and contextual metadata for post-incident forensics.
 - Job handlers gain a `resolveSecret` helper that records audit entries whenever runtime secrets are fetched.
 

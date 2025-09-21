@@ -1418,6 +1418,27 @@ export async function buildServer() {
     }
   });
 
+  app.get('/auth/identity', async (request, reply) => {
+    const auth = await authorizeOperatorAction(request, {
+      action: 'auth.identity.read',
+      resource: 'identity',
+      requiredScopes: []
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    reply.status(200);
+    return {
+      data: {
+        subject: auth.identity.subject,
+        scopes: Array.from(auth.identity.scopes),
+        kind: auth.identity.kind
+      }
+    };
+  });
+
   app.get('/jobs', async (_request, reply) => {
     const jobs = await listJobDefinitions();
     reply.status(200);

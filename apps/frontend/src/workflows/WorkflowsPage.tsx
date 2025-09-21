@@ -8,10 +8,34 @@ import {
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useApiTokens } from '../auth/useApiTokens';
+import { useToasts } from '../components/toast';
 import ManualRunPanel from './components/ManualRunPanel';
 import StatusBadge from './components/StatusBadge';
-import WorkflowFilters, { type FilterOption } from './components/WorkflowFilters';
+import WorkflowFilters from './components/WorkflowFilters';
 import WorkflowGraph from './components/WorkflowGraph';
+import {
+  buildFilterOptions,
+  buildStatusOptions,
+  filterSummaries,
+  normalizeWorkflowDefinition,
+  normalizeWorkflowRun,
+  sortRuns,
+  summarizeWorkflowMetadata,
+  toRecord,
+  type WorkflowSummary
+} from './normalizers';
+import {
+  createWorkflowDefinition,
+  getWorkflowDetail,
+  listServices,
+  listWorkflowDefinitions,
+  listWorkflowRunSteps,
+  updateWorkflowDefinition,
+  fetchOperatorIdentity,
+  ApiError
+} from './api';
+import WorkflowBuilderDialog, { type WorkflowBuilderSubmitArgs } from './builder/WorkflowBuilderDialog';
+import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import { formatDuration, formatTimestamp } from './formatters';
 import type {
   WorkflowDefinition,
@@ -32,44 +56,8 @@ const WORKFLOW_RUN_EVENT_TYPES = [
 
 type WorkflowRunEventType = (typeof WORKFLOW_RUN_EVENT_TYPES)[number];
 
-type WorkflowListResponse = {
-  data: WorkflowDefinition[];
-};
-
-type WorkflowDetailResponse = {
-  data: {
-    workflow: WorkflowDefinition;
-    runs: WorkflowRun[];
-  };
-};
-
-type WorkflowRunStepsResponse = {
-  data: {
-    run: WorkflowRun;
-    steps: WorkflowRunStep[];
-  };
-};
-
 type ManualRunResponse = {
   data: WorkflowRun;
-};
-
-type ServiceSummary = {
-  slug?: string;
-  status?: string;
-};
-
-type ServiceListResponse = {
-  data?: ServiceSummary[];
-};
-
-type WorkflowSummary = {
-  workflow: WorkflowDefinition;
-  status: string;
-  repos: string[];
-  services: string[];
-  tags: string[];
-  runtime: WorkflowRuntimeSummary | undefined;
 };
 
 const INITIAL_FILTERS: WorkflowFiltersState = {
@@ -95,339 +83,6 @@ function resolveWorkflowWebsocketUrl(): string {
   }
 }
 
-function toRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
-function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const raw = payload as Record<string, unknown>;
-  const id = typeof raw.id === 'string' ? raw.id : null;
-  const slug = typeof raw.slug === 'string' ? raw.slug : null;
-  const name = typeof raw.name === 'string' ? raw.name : null;
-  if (!id || !slug || !name) {
-    return null;
-  }
-
-  const steps: WorkflowDefinition['steps'] = [];
-  if (Array.isArray(raw.steps)) {
-    for (const entry of raw.steps) {
-      if (!entry || typeof entry !== 'object') {
-        continue;
-      }
-      const step = entry as Record<string, unknown>;
-      const stepId = typeof step.id === 'string' ? step.id : null;
-      const stepName = typeof step.name === 'string' ? step.name : null;
-      if (!stepId || !stepName) {
-        continue;
-      }
-      const jobSlug = typeof step.jobSlug === 'string' ? step.jobSlug : undefined;
-      const serviceSlug = typeof step.serviceSlug === 'string' ? step.serviceSlug : undefined;
-      const dependsOn = Array.isArray(step.dependsOn)
-        ? step.dependsOn.filter((value): value is string => typeof value === 'string' && value.length > 0)
-        : undefined;
-      const normalizedStep = {
-        id: stepId,
-        name: stepName,
-        jobSlug,
-        serviceSlug,
-        description:
-          typeof step.description === 'string'
-            ? step.description
-            : step.description === null
-              ? null
-              : undefined,
-        dependsOn,
-        parameters: 'parameters' in step ? step.parameters : undefined,
-        timeoutMs:
-          typeof step.timeoutMs === 'number'
-            ? step.timeoutMs
-            : step.timeoutMs === null
-              ? null
-              : undefined,
-        retryPolicy: 'retryPolicy' in step ? step.retryPolicy : undefined
-      } satisfies WorkflowDefinition['steps'][number];
-      steps.push(normalizedStep);
-    }
-  }
-
-  const triggers: WorkflowDefinition['triggers'] = [];
-  if (Array.isArray(raw.triggers)) {
-    for (const entry of raw.triggers) {
-      if (!entry || typeof entry !== 'object') {
-        continue;
-      }
-      const trigger = entry as Record<string, unknown>;
-      const type = typeof trigger.type === 'string' ? trigger.type : null;
-      if (!type) {
-        continue;
-      }
-      triggers.push({
-        type,
-        options: 'options' in trigger ? trigger.options : undefined
-      });
-    }
-  }
-
-  return {
-    id,
-    slug,
-    name,
-    description: typeof raw.description === 'string' ? raw.description : null,
-    version: typeof raw.version === 'number' ? raw.version : 1,
-    steps,
-    triggers,
-    parametersSchema: raw.parametersSchema ?? null,
-    defaultParameters: raw.defaultParameters ?? null,
-    metadata: raw.metadata ?? null,
-    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
-    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
-  };
-}
-
-function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const raw = payload as Record<string, unknown>;
-  const id = typeof raw.id === 'string' ? raw.id : null;
-  const workflowDefinitionId =
-    typeof raw.workflowDefinitionId === 'string' ? raw.workflowDefinitionId : null;
-  const status = typeof raw.status === 'string' ? raw.status : null;
-  if (!id || !workflowDefinitionId || !status) {
-    return null;
-  }
-  return {
-    id,
-    workflowDefinitionId,
-    status,
-    currentStepId: typeof raw.currentStepId === 'string' ? raw.currentStepId : null,
-    currentStepIndex: typeof raw.currentStepIndex === 'number' ? raw.currentStepIndex : null,
-    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
-    completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : null,
-    durationMs: typeof raw.durationMs === 'number' ? raw.durationMs : null,
-    errorMessage:
-      typeof raw.errorMessage === 'string'
-        ? raw.errorMessage
-        : raw.errorMessage === null
-          ? null
-          : null,
-    triggeredBy:
-      typeof raw.triggeredBy === 'string'
-        ? raw.triggeredBy
-        : raw.triggeredBy === null
-          ? null
-          : null,
-    metrics:
-      raw.metrics && typeof raw.metrics === 'object' && !Array.isArray(raw.metrics)
-        ? (raw.metrics as { totalSteps?: number; completedSteps?: number })
-        : null,
-    parameters: raw.parameters ?? null,
-    context: raw.context ?? null,
-    trigger: raw.trigger ?? null,
-    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
-    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
-  };
-}
-
-function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const raw = payload as Record<string, unknown>;
-  const id = typeof raw.id === 'string' ? raw.id : null;
-  const workflowRunId = typeof raw.workflowRunId === 'string' ? raw.workflowRunId : null;
-  const stepId = typeof raw.stepId === 'string' ? raw.stepId : null;
-  const status = typeof raw.status === 'string' ? raw.status : null;
-  const attempt = typeof raw.attempt === 'number' ? raw.attempt : null;
-  if (!id || !workflowRunId || !stepId || attempt === null || !status) {
-    return null;
-  }
-  return {
-    id,
-    workflowRunId,
-    stepId,
-    status,
-    attempt,
-    jobRunId: typeof raw.jobRunId === 'string' ? raw.jobRunId : null,
-    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
-    completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : null,
-    errorMessage:
-      typeof raw.errorMessage === 'string'
-        ? raw.errorMessage
-        : raw.errorMessage === null
-          ? null
-          : null,
-    logsUrl: typeof raw.logsUrl === 'string' ? raw.logsUrl : null,
-    parameters: 'parameters' in raw ? raw.parameters : undefined,
-    result: 'result' in raw ? raw.result : undefined,
-    metrics: 'metrics' in raw ? raw.metrics : undefined
-  };
-}
-
-function getTimestamp(value: string | null | undefined): number {
-  if (!value) {
-    return 0;
-  }
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function sortRuns(runs: WorkflowRun[]): WorkflowRun[] {
-  return runs
-    .slice()
-    .sort((a, b) => {
-      const createdDiff = getTimestamp(b.createdAt) - getTimestamp(a.createdAt);
-      if (createdDiff !== 0) {
-        return createdDiff;
-      }
-      const startedDiff = getTimestamp(b.startedAt) - getTimestamp(a.startedAt);
-      if (startedDiff !== 0) {
-        return startedDiff;
-      }
-      return getTimestamp(b.updatedAt) - getTimestamp(a.updatedAt);
-    });
-}
-
-function summarizeWorkflowMetadata(workflow: WorkflowDefinition) {
-  const metadata = toRecord(workflow.metadata);
-  const repos = new Set<string>();
-  const services = new Set<string>();
-  const tags = new Set<string>();
-  let status: string | undefined;
-
-  const addString = (value: unknown, target: Set<string>) => {
-    if (typeof value === 'string' && value.trim().length > 0) {
-      target.add(value.trim());
-    }
-  };
-
-  if (metadata) {
-    addString(metadata.repo, repos);
-    addString(metadata.repository, repos);
-    addString(metadata.repositoryUrl, repos);
-    addString(metadata.repoUrl, repos);
-    const source = toRecord(metadata.source);
-    if (source) {
-      addString(source.repo, repos);
-      addString(source.repository, repos);
-      addString(source.repositoryUrl, repos);
-    }
-
-    const statusValue = metadata.status ?? metadata.latestStatus ?? metadata.state;
-    if (typeof statusValue === 'string') {
-      status = statusValue;
-    }
-
-    const serviceMeta = metadata.service ?? metadata.workflowService ?? metadata.targetService;
-    addString(serviceMeta, services);
-    if (typeof metadata.services === 'string') {
-      addString(metadata.services, services);
-    } else if (Array.isArray(metadata.services)) {
-      for (const value of metadata.services) {
-        addString(value, services);
-      }
-    }
-
-    const tagMeta = metadata.tags;
-    if (Array.isArray(tagMeta)) {
-      for (const entry of tagMeta) {
-        if (typeof entry === 'string') {
-          addString(entry, tags);
-          continue;
-        }
-        const record = toRecord(entry);
-        if (!record) {
-          continue;
-        }
-        const key = typeof record.key === 'string' ? record.key : undefined;
-        const value = typeof record.value === 'string' ? record.value : undefined;
-        if (key && value) {
-          tags.add(`${key}:${value}`);
-        } else if (key) {
-          tags.add(key);
-        } else if (value) {
-          tags.add(value);
-        }
-      }
-    }
-  }
-
-  for (const step of workflow.steps) {
-    if (step.serviceSlug) {
-      services.add(step.serviceSlug);
-    }
-  }
-
-  return {
-    repos: Array.from(repos),
-    services: Array.from(services),
-    tags: Array.from(tags),
-    status
-  };
-}
-
-function buildFilterOptions(values: string[]): FilterOption[] {
-  const counts = new Map<string, number>();
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-    counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([value, count]) => ({ value, label: value, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-}
-
-function buildStatusOptions(summaries: WorkflowSummary[]): FilterOption[] {
-  return buildFilterOptions(summaries.map((summary) => summary.status.toLowerCase()))
-    .map((option) => ({ ...option, label: option.label.toUpperCase() }));
-}
-
-function filterSummaries(
-  summaries: WorkflowSummary[],
-  filters: WorkflowFiltersState,
-  searchTerm: string
-): WorkflowSummary[] {
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  return summaries.filter((summary) => {
-    if (filters.statuses.length > 0 && !filters.statuses.includes(summary.status.toLowerCase())) {
-      return false;
-    }
-    if (filters.repos.length > 0 && summary.repos.every((repo) => !filters.repos.includes(repo))) {
-      return false;
-    }
-    if (filters.services.length > 0 && summary.services.every((service) => !filters.services.includes(service))) {
-      return false;
-    }
-    if (filters.tags.length > 0 && summary.tags.every((tag) => !filters.tags.includes(tag))) {
-      return false;
-    }
-    if (!normalizedSearch) {
-      return true;
-    }
-    const haystacks = [
-      summary.workflow.name,
-      summary.workflow.slug,
-      summary.workflow.description ?? '',
-      summary.status,
-      ...summary.repos,
-      ...summary.services,
-      ...summary.tags
-    ]
-      .filter(Boolean)
-      .map((value) => value.toLowerCase());
-    return haystacks.some((text) => text.includes(normalizedSearch));
-  });
-}
-
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
@@ -443,6 +98,12 @@ export default function WorkflowsPage() {
   const [runSteps, setRunSteps] = useState<WorkflowRunStep[]>([]);
   const [stepsLoading, setStepsLoading] = useState(false);
   const [stepsError, setStepsError] = useState<string | null>(null);
+
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create');
+  const [builderWorkflow, setBuilderWorkflow] = useState<WorkflowDefinition | null>(null);
+  const [builderSubmitting, setBuilderSubmitting] = useState(false);
+  const [canEditWorkflows, setCanEditWorkflows] = useState(false);
 
   const [filters, setFilters] = useState<WorkflowFiltersState>(INITIAL_FILTERS);
   const [searchTerm, setSearchTerm] = useState('');
@@ -462,6 +123,7 @@ export default function WorkflowsPage() {
   const authorizedFetch = useAuthorizedFetch();
   const { activeToken } = useApiTokens();
   const hasActiveToken = Boolean(activeToken);
+  const { pushToast } = useToasts();
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
@@ -532,24 +194,18 @@ export default function WorkflowsPage() {
 
   const loadServices = useCallback(async () => {
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/services`);
-      if (!response.ok) {
-        throw new Error('Failed to load services');
-      }
-      const payload = (await response.json()) as ServiceListResponse;
+      const services = await listServices(authorizedFetch);
       const nextStatuses: Record<string, string> = {};
-      if (Array.isArray(payload.data)) {
-        for (const entry of payload.data) {
-          if (!entry || typeof entry.slug !== 'string') {
-            continue;
-          }
-          const slug = entry.slug.trim().toLowerCase();
-          if (!slug) {
-            continue;
-          }
-          const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : 'unknown';
-          nextStatuses[slug] = status;
+      for (const entry of services) {
+        if (!entry || typeof entry.slug !== 'string') {
+          continue;
         }
+        const slug = entry.slug.trim().toLowerCase();
+        if (!slug) {
+          continue;
+        }
+        const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : 'unknown';
+        nextStatuses[slug] = status;
       }
       setServiceStatuses(nextStatuses);
     } catch {
@@ -561,15 +217,7 @@ export default function WorkflowsPage() {
     setWorkflowsLoading(true);
     setWorkflowsError(null);
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/workflows`);
-      if (!response.ok) {
-        throw new Error('Failed to load workflows');
-      }
-      const body = (await response.json()) as WorkflowListResponse;
-      const normalized = body.data
-        .map((entry) => normalizeWorkflowDefinition(entry))
-        .filter((entry): entry is WorkflowDefinition => Boolean(entry))
-        .sort((a, b) => a.slug.localeCompare(b.slug));
+      const normalized = await listWorkflowDefinitions(authorizedFetch);
       setWorkflows(normalized);
       workflowsRef.current = normalized;
       normalized.forEach(seedRuntimeSummaryFromMetadata);
@@ -600,20 +248,11 @@ export default function WorkflowsPage() {
       setDetailLoading(true);
       setDetailError(null);
       try {
-        const response = await authorizedFetch(`${API_BASE_URL}/workflows/${slug}`);
-        if (!response.ok) {
-          throw new Error('Failed to load workflow details');
-        }
-        const body = (await response.json()) as WorkflowDetailResponse;
-        const normalizedWorkflow = normalizeWorkflowDefinition(body.data.workflow) ?? body.data.workflow;
-        setWorkflowDetail(normalizedWorkflow);
-        workflowDetailRef.current = normalizedWorkflow;
+        const { workflow: detail, runs: detailRuns } = await getWorkflowDetail(authorizedFetch, slug);
+        setWorkflowDetail(detail);
+        workflowDetailRef.current = detail;
 
-        const normalizedRuns = sortRuns(
-          body.data.runs
-            .map((run) => normalizeWorkflowRun(run))
-            .filter((run): run is WorkflowRun => Boolean(run))
-        );
+        const normalizedRuns = sortRuns(detailRuns);
         setRuns(normalizedRuns);
         runsRef.current = normalizedRuns;
 
@@ -621,7 +260,7 @@ export default function WorkflowsPage() {
           const latestRun = normalizedRuns[0];
           selectedRunIdRef.current = latestRun.id;
           setSelectedRunId(latestRun.id);
-          updateRuntimeSummary(normalizedWorkflow, latestRun);
+          updateRuntimeSummary(detail, latestRun);
         } else {
           selectedRunIdRef.current = null;
           setSelectedRunId(null);
@@ -648,27 +287,25 @@ export default function WorkflowsPage() {
     setStepsLoading(true);
     setStepsError(null);
     try {
-      const response = await authorizedFetch(`${API_BASE_URL}/workflow-runs/${runId}/steps`);
-      if (!response.ok) {
-        throw new Error('Failed to load workflow run steps');
-      }
-      const body = (await response.json()) as WorkflowRunStepsResponse;
-      const normalizedRun = normalizeWorkflowRun(body.data.run) ?? body.data.run;
-      const normalizedSteps = body.data.steps
-        .map((step) => normalizeWorkflowRunStep(step))
-        .filter((step): step is WorkflowRunStep => Boolean(step));
+      const { run: normalizedRun, steps: normalizedSteps } = await listWorkflowRunSteps(
+        authorizedFetch,
+        runId
+      );
       setRunSteps(normalizedSteps);
       setRuns((current) => {
         const existingIndex = current.findIndex((existing) => existing.id === normalizedRun.id);
-        const next = existingIndex === -1
-          ? [normalizedRun, ...current]
-          : current.map((existing, index) => (index === existingIndex ? normalizedRun : existing));
+        const next =
+          existingIndex === -1
+            ? [normalizedRun, ...current]
+            : current.map((existing, index) => (index === existingIndex ? normalizedRun : existing));
         const sorted = sortRuns(next);
         runsRef.current = sorted;
         return sorted;
       });
 
-      const workflow = workflowDetailRef.current ?? workflowsRef.current.find((entry) => entry.id === normalizedRun.workflowDefinitionId);
+      const workflow =
+        workflowDetailRef.current ??
+        workflowsRef.current.find((entry) => entry.id === normalizedRun.workflowDefinitionId);
       if (workflow) {
         updateRuntimeSummary(workflow, normalizedRun);
       }
@@ -704,6 +341,35 @@ export default function WorkflowsPage() {
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
   }, [selectedRunId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!hasActiveToken) {
+      setCanEditWorkflows(false);
+      return;
+    }
+    const loadIdentity = async () => {
+      try {
+        const identity = await fetchOperatorIdentity(authorizedFetch);
+        if (cancelled) {
+          return;
+        }
+        if (identity && Array.isArray(identity.scopes)) {
+          setCanEditWorkflows(identity.scopes.includes('workflows:write'));
+        } else {
+          setCanEditWorkflows(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setCanEditWorkflows(false);
+        }
+      }
+    };
+    void loadIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, hasActiveToken, activeToken?.id]);
 
   useEffect(() => {
     void loadWorkflows();
@@ -986,6 +652,76 @@ export default function WorkflowsPage() {
     }
   };
 
+  const handleOpenCreateBuilder = useCallback(() => {
+    if (!canEditWorkflows) {
+      return;
+    }
+    setBuilderMode('create');
+    setBuilderWorkflow(null);
+    setBuilderOpen(true);
+  }, [canEditWorkflows]);
+
+  const handleOpenEditBuilder = useCallback(() => {
+    if (!canEditWorkflows) {
+      return;
+    }
+    const detail = workflowDetailRef.current ?? workflowDetail;
+    if (!detail) {
+      return;
+    }
+    setBuilderMode('edit');
+    setBuilderWorkflow(detail);
+    setBuilderOpen(true);
+  }, [canEditWorkflows, workflowDetail]);
+
+  const handleBuilderSubmit = useCallback(
+    async (input: WorkflowBuilderSubmitArgs) => {
+      setBuilderSubmitting(true);
+      try {
+        if (builderMode === 'create') {
+          const created = await createWorkflowDefinition(authorizedFetch, input.createPayload);
+          pushToast({
+            tone: 'success',
+            title: 'Workflow created',
+            description: `${created.name} is ready for runs.`
+          });
+          setBuilderOpen(false);
+          setBuilderWorkflow(null);
+          await loadWorkflows();
+          selectedSlugRef.current = created.slug;
+          setSelectedSlug(created.slug);
+          await loadWorkflowDetail(created.slug);
+        } else if (builderMode === 'edit' && builderWorkflow) {
+          const updates = input.updatePayload ?? {};
+          const updated = await updateWorkflowDefinition(authorizedFetch, builderWorkflow.slug, updates);
+          pushToast({
+            tone: 'success',
+            title: 'Workflow updated',
+            description: `${updated.name} changes saved.`
+          });
+          setBuilderOpen(false);
+          setBuilderWorkflow(updated);
+          await loadWorkflows();
+          await loadWorkflowDetail(updated.slug);
+        }
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to save workflow.';
+        pushToast({ tone: 'error', title: 'Workflow save failed', description: message });
+        throw err;
+      } finally {
+        setBuilderSubmitting(false);
+      }
+    },
+    [
+      authorizedFetch,
+      builderMode,
+      builderWorkflow,
+      loadWorkflowDetail,
+      loadWorkflows,
+      pushToast
+    ]
+  );
+
   const unreachableServiceSlugs = useMemo(() => {
     if (!workflowDetail) {
       return [];
@@ -1010,20 +746,35 @@ export default function WorkflowsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Workflows</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
             Discover workflow definitions, launch runs with validated parameters, and monitor execution in realtime.
           </p>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
-          onClick={handleRefresh}
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-full border border-violet-500/60 bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-violet-500"
+            onClick={handleOpenCreateBuilder}
+            disabled={!canEditWorkflows}
+            title={
+              canEditWorkflows
+                ? undefined
+                : 'Add an operator token with workflows:write scope to create workflows.'
+            }
+          >
+            Create workflow
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            onClick={handleRefresh}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {!hasActiveToken && (
@@ -1124,7 +875,24 @@ export default function WorkflowsPage() {
           )}
 
           <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow Details</h2>
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow Details</h2>
+              {workflowDetail && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-full border border-violet-500/60 bg-violet-600/10 px-3 py-1 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-violet-400/60 dark:text-violet-200"
+                  onClick={handleOpenEditBuilder}
+                  disabled={!canEditWorkflows}
+                  title={
+                    canEditWorkflows
+                      ? undefined
+                      : 'Insufficient scope: workflows:write required to edit workflows.'
+                  }
+                >
+                  Edit workflow
+                </button>
+              )}
+            </div>
             {detailLoading && (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading workflow details…</p>
             )}
@@ -1266,11 +1034,11 @@ export default function WorkflowsPage() {
             )}
           </section>
 
-          {selectedRun && (
-            <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run Details</h2>
+      {selectedRun && (
+        <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run Details</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Run ID: {selectedRun.id}</p>
                 </div>
                 {selectedRun.errorMessage && (
@@ -1368,6 +1136,18 @@ export default function WorkflowsPage() {
           )}
         </div>
       </div>
+      {builderOpen && (
+        <WorkflowResourcesProvider>
+          <WorkflowBuilderDialog
+            open={builderOpen}
+            mode={builderMode}
+            workflow={builderWorkflow}
+            onClose={() => setBuilderOpen(false)}
+            onSubmit={handleBuilderSubmit}
+            submitting={builderSubmitting}
+          />
+        </WorkflowResourcesProvider>
+      )}
     </div>
   );
 }
