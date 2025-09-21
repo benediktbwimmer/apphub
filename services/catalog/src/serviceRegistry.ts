@@ -82,6 +82,138 @@ let poller: PollerController | null = null;
 let isPolling = false;
 const repositoryToServiceSlug = new Map<string, string>();
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
+
+function rewriteLoopbackHost(urlValue: string | null | undefined): string | null {
+  if (!urlValue) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(urlValue);
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (LOOPBACK_HOSTS.has(hostname) || hostname.startsWith('127.')) {
+      parsed.hostname = 'host.docker.internal';
+      return parsed.toString();
+    }
+    return urlValue;
+  } catch {
+    if (urlValue.includes('localhost')) {
+      return urlValue.replace(/localhost/gi, 'host.docker.internal');
+    }
+    return urlValue;
+  }
+}
+
+function buildBaseUrlFromHostPort(hostValue: string | null | undefined, portValue: number | null | undefined): string | null {
+  if (!hostValue) {
+    return null;
+  }
+  const trimmedHost = hostValue.trim();
+  if (!trimmedHost) {
+    return null;
+  }
+  const numericPort = typeof portValue === 'number' && Number.isFinite(portValue) ? portValue : null;
+  if (!numericPort) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(trimmedHost)) {
+    try {
+      const url = new URL(trimmedHost);
+      url.port = String(numericPort);
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  return `http://${trimmedHost}:${numericPort}`;
+}
+
+function toNumber(value: JsonValue | null | undefined): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function collectHealthBaseUrls(
+  service: ServiceRecord,
+  runtimeMeta: Record<string, JsonValue>,
+  manifest: ManifestEntry | undefined
+): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (value: unknown, options?: { rewriteLoopback?: boolean }) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const addCandidate = (candidate: string | null | undefined) => {
+      const normalized = candidate?.trim();
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      candidates.push(normalized);
+    };
+
+    const shouldRewrite = options?.rewriteLoopback !== false;
+    const rewritten = shouldRewrite ? rewriteLoopbackHost(trimmed) : trimmed;
+    const resolved = (rewritten ?? trimmed).trim();
+
+    addCandidate(resolved);
+
+    if (shouldRewrite && resolved !== trimmed) {
+      addCandidate(trimmed);
+    }
+  };
+
+  const containerBaseUrl = typeof runtimeMeta.containerBaseUrl === 'string' ? runtimeMeta.containerBaseUrl : null;
+  push(containerBaseUrl, { rewriteLoopback: false });
+
+  const containerIp = typeof runtimeMeta.containerIp === 'string' ? runtimeMeta.containerIp : null;
+  const containerPort = toNumber(runtimeMeta.containerPort ?? null);
+  if (containerIp && containerPort) {
+    push(`http://${containerIp}:${containerPort}`, { rewriteLoopback: false });
+  }
+
+  const instanceUrl = typeof runtimeMeta.instanceUrl === 'string' ? runtimeMeta.instanceUrl : null;
+  const runtimeBaseUrl = typeof runtimeMeta.baseUrl === 'string' ? runtimeMeta.baseUrl : null;
+  const previewUrl = typeof runtimeMeta.previewUrl === 'string' ? runtimeMeta.previewUrl : null;
+  const runtimeHost = typeof runtimeMeta.host === 'string' ? runtimeMeta.host : null;
+  const runtimePort = toNumber(runtimeMeta.port ?? null);
+
+  push(instanceUrl);
+  push(runtimeBaseUrl);
+  push(previewUrl);
+  push(buildBaseUrlFromHostPort(runtimeHost, runtimePort));
+
+  push(service.baseUrl);
+  if (manifest?.baseUrl) {
+    push(manifest.baseUrl);
+  }
+
+  if (candidates.length === 0 && service.baseUrl) {
+    candidates.push(service.baseUrl);
+  }
+
+  return candidates;
+}
+
 const log = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) => {
   const payload = meta ? { ...meta } : undefined;
   const prefix = '[service-registry]';
@@ -952,75 +1084,123 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
 async function checkServiceHealth(service: ServiceRecord) {
   const manifest = manifestEntries.get(service.slug);
   const healthEndpoint = manifest?.healthEndpoint ?? '/healthz';
-  const healthUrl = resolveUrl(service.baseUrl, healthEndpoint);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
-  const started = Date.now();
-  let outcome: HealthCheckOutcome;
+  const metadata = toMetadataObject(service.metadata ?? null);
+  const runtimeMeta = toPlainObject(metadata.runtime as JsonValue | null | undefined);
+  const baseUrls = collectHealthBaseUrls(service, runtimeMeta, manifest);
 
-  try {
-    const response = await fetch(healthUrl, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json, text/plain, */*',
-        'User-Agent': 'apphub-service-registry/1.0'
+  let healthyResult: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string } | null = null;
+  let degradedResult: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string } | null = null;
+  let unreachableResult: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string } | null = null;
+
+  for (const baseUrl of baseUrls) {
+    const healthUrl = resolveUrl(baseUrl, healthEndpoint);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+    const started = Date.now();
+
+    try {
+      const response = await fetch(healthUrl, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json, text/plain, */*',
+          'User-Agent': 'apphub-service-registry/1.0'
+        }
+      });
+      const latencyMs = Date.now() - started;
+      if (response.ok) {
+        healthyResult = {
+          baseUrl,
+          healthUrl,
+          outcome: {
+            status: 'healthy',
+            statusMessage: null,
+            latencyMs,
+            statusCode: response.status,
+            openapi: null
+          }
+        };
+        break;
       }
-    });
-    const latencyMs = Date.now() - started;
-    if (response.ok) {
-      outcome = {
-        status: 'healthy',
-        statusMessage: null,
-        latencyMs,
-        statusCode: response.status,
-        openapi: null
-      };
-    } else {
+
       const body = await response.text();
       const message = body ? `${response.status} ${response.statusText}: ${body.slice(0, 240)}` : `${response.status} ${response.statusText}`;
-      outcome = {
-        status: 'degraded',
-        statusMessage: message,
-        latencyMs,
-        statusCode: response.status,
-        openapi: null
-      };
+      if (!degradedResult) {
+        degradedResult = {
+          baseUrl,
+          healthUrl,
+          outcome: {
+            status: 'degraded',
+            statusMessage: message,
+            latencyMs,
+            statusCode: response.status,
+            openapi: null
+          }
+        };
+      }
+    } catch (err) {
+      const latencyMs = Date.now() - started;
+      const message = err instanceof Error ? err.message : 'unknown error';
+      if (!unreachableResult) {
+        unreachableResult = {
+          baseUrl,
+          healthUrl,
+          outcome: {
+            status: 'unreachable',
+            statusMessage: message,
+            latencyMs,
+            error: err instanceof Error ? err : undefined,
+            openapi: null
+          }
+        };
+      }
+    } finally {
+      clearTimeout(timer);
     }
-  } catch (err) {
-    const latencyMs = Date.now() - started;
-    const message = err instanceof Error ? err.message : 'unknown error';
-    outcome = {
-      status: 'unreachable',
-      statusMessage: message,
-      latencyMs,
-      error: err instanceof Error ? err : undefined,
-      openapi: null
-    };
-  } finally {
-    clearTimeout(timer);
   }
 
+  const selected =
+    healthyResult ??
+    degradedResult ??
+    unreachableResult ?? {
+      baseUrl: service.baseUrl,
+      healthUrl: resolveUrl(service.baseUrl, healthEndpoint),
+      outcome: {
+        status: 'unreachable',
+        statusMessage: 'health check failed',
+        latencyMs: null,
+        openapi: null
+      }
+    };
+
+  await finalizeHealthUpdate(service, manifest, metadata, selected);
+}
+
+async function finalizeHealthUpdate(
+  service: ServiceRecord,
+  manifest: ManifestEntry | undefined,
+  metadata: Record<string, JsonValue>,
+  result: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string }
+) {
   const nowIso = new Date().toISOString();
-  const metadata = toMetadataObject(service.metadata ?? null);
   metadata.health = removeUndefined({
-    url: healthUrl,
-    status: outcome.status,
+    url: result.healthUrl,
+    status: result.outcome.status,
     checkedAt: nowIso,
-    latencyMs: outcome.latencyMs,
-    statusCode: outcome.statusCode ?? null,
-    error: outcome.statusMessage
+    latencyMs: result.outcome.latencyMs,
+    statusCode: result.outcome.statusCode ?? null,
+    error: result.outcome.statusMessage
   });
 
-  if (outcome.status === 'healthy') {
+  if (result.outcome.status === 'healthy') {
     const openapiPath = manifest?.openapiPath ?? '/openapi.yaml';
-    const openapiUrl = resolveUrl(service.baseUrl, openapiPath);
+    const openapiUrl = resolveUrl(result.baseUrl, openapiPath);
     const shouldRefetch = shouldRefreshOpenApi(service, metadata, Date.now(), openapiUrl);
     if (shouldRefetch) {
       const openapiController = new AbortController();
       const openapiTimer = setTimeout(() => openapiController.abort(), HEALTH_TIMEOUT_MS);
       try {
         const openapiResult = await fetchOpenApi(openapiUrl, openapiController.signal);
-        outcome.openapi = {
+        result.outcome.openapi = {
           hash: openapiResult.hash,
           version: openapiResult.version,
           fetchedAt: nowIso,
@@ -1028,7 +1208,7 @@ async function checkServiceHealth(service: ServiceRecord) {
           url: openapiUrl,
           schema: openapiResult.schema
         };
-        metadata.openapi = outcome.openapi;
+        metadata.openapi = result.outcome.openapi;
       } catch (err) {
         log('warn', 'failed to refresh OpenAPI metadata', {
           slug: service.slug,
@@ -1041,12 +1221,10 @@ async function checkServiceHealth(service: ServiceRecord) {
     }
   }
 
-  const updateMetadata = metadata as JsonValue;
-
   const statusUpdate: Parameters<typeof setServiceStatus>[1] = {
-    status: outcome.status,
-    statusMessage: outcome.statusMessage,
-    metadata: updateMetadata,
+    status: result.outcome.status,
+    statusMessage: result.outcome.statusMessage,
+    metadata: metadata as JsonValue,
     baseUrl: service.baseUrl
   };
 
@@ -1058,12 +1236,12 @@ async function checkServiceHealth(service: ServiceRecord) {
 
   if (updated && service.status !== updated.status) {
     if (updated.status === 'healthy') {
-      log('info', 'service is healthy', { slug: updated.slug, latencyMs: outcome.latencyMs });
+      log('info', 'service is healthy', { slug: updated.slug, latencyMs: result.outcome.latencyMs });
     } else {
       log('warn', 'service health changed', {
         slug: updated.slug,
         status: updated.status,
-        error: outcome.statusMessage
+        error: result.outcome.statusMessage
       });
     }
   }
