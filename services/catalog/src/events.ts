@@ -48,9 +48,18 @@ type EventEnvelope = {
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
-const configuredMode = process.env.APPHUB_EVENTS_MODE ?? 'inline';
+const configuredMode = process.env.APPHUB_EVENTS_MODE;
 const envRedisUrl = process.env.REDIS_URL;
-let inlineMode = configuredMode !== 'redis';
+
+let inlineMode: boolean;
+if (configuredMode === 'inline') {
+  inlineMode = true;
+} else if (configuredMode === 'redis') {
+  inlineMode = false;
+} else {
+  inlineMode = envRedisUrl === 'inline';
+}
+
 const redisUrl = inlineMode ? null : envRedisUrl ?? 'redis://127.0.0.1:6379';
 const eventChannel = process.env.APPHUB_EVENTS_CHANNEL ?? 'apphub:events';
 const originId = `${process.pid}:${randomUUID()}`;
