@@ -1,3 +1,4 @@
+import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import {
@@ -380,6 +381,7 @@ async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogT
     NODE_ENV: 'test',
     CATALOG_DB_PATH: dbPath,
     REDIS_URL: 'inline',
+    APPHUB_EVENTS_MODE: 'inline',
     INGEST_QUEUE_NAME: 'apphub_e2e',
     PORT: String(port),
     HOST: '127.0.0.1',

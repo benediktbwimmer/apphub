@@ -3,6 +3,7 @@ import IORedis, { type Redis } from 'ioredis';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { type JobRunRecord, type JsonValue } from './db/types';
+import { runWorkflowOrchestration } from './workflowOrchestrator';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -43,6 +44,7 @@ const connection = createConnection();
 export const INGEST_QUEUE_NAME = process.env.INGEST_QUEUE_NAME ?? 'apphub_queue';
 export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_queue';
 export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch_queue';
+export const WORKFLOW_QUEUE_NAME = process.env.WORKFLOW_QUEUE_NAME ?? 'apphub_workflow_queue';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -71,6 +73,16 @@ const launchQueue = !inlineMode && connection
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 25
+      }
+    })
+  : null;
+
+const workflowQueue = !inlineMode && connection
+  ? new Queue(WORKFLOW_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: 50
       }
     })
   : null;
@@ -243,4 +255,22 @@ export async function enqueueLaunchStop(launchId: string) {
   }
 
   await launchQueue.add('launch-stop', { launchId, type: 'stop' });
+}
+
+export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
+  const trimmedId = workflowRunId.trim();
+  if (!trimmedId) {
+    throw new Error('workflowRunId is required');
+  }
+
+  if (inlineMode) {
+    await runWorkflowOrchestration(trimmedId);
+    return;
+  }
+
+  if (!workflowQueue) {
+    throw new Error('Workflow queue not initialised');
+  }
+
+  await workflowQueue.add('workflow-run', { workflowRunId: trimmedId });
 }

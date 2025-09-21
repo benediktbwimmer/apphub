@@ -161,3 +161,56 @@ export type JobRunRow = {
   created_at: string;
   updated_at: string;
 };
+
+export type WorkflowDefinitionRow = {
+  id: string;
+  slug: string;
+  name: string;
+  version: number;
+  description: string | null;
+  steps: unknown;
+  triggers: unknown;
+  parameters_schema: unknown;
+  default_parameters: unknown;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowRunRow = {
+  id: string;
+  workflow_definition_id: string;
+  status: string;
+  parameters: unknown;
+  context: unknown;
+  error_message: string | null;
+  current_step_id: string | null;
+  current_step_index: number | null;
+  metrics: unknown;
+  triggered_by: string | null;
+  trigger: unknown;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowRunStepRow = {
+  id: string;
+  workflow_run_id: string;
+  step_id: string;
+  status: string;
+  attempt: number;
+  job_run_id: string | null;
+  input: unknown;
+  output: unknown;
+  error_message: string | null;
+  logs_url: string | null;
+  metrics: unknown;
+  context: unknown;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

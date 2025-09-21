@@ -10,6 +10,7 @@ interface NavbarProps {
 const TAB_LABELS: Record<ActiveTab, string> = {
   catalog: 'Catalog',
   apps: 'Apps',
+  workflows: 'Workflows',
   submit: 'Submit App',
   'import-manifest': 'Import Manifest'
 };

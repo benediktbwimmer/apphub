@@ -10,7 +10,8 @@
     "ingest": "tsx src/ingestionWorker.ts",
     "builds": "tsx src/buildWorker.ts",
     "launches": "tsx src/launchWorker.ts",
-    "test:e2e": "tsx tests/ingestion.e2e.ts"
+    "workflows": "tsx src/workflowWorker.ts",
+    "test:e2e": "APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts"
   },
   "keywords": [
     "webapps",

@@ -18,7 +18,14 @@ import {
   type JobType,
   type JobRetryPolicy,
   type JobRunRecord,
-  type JobRunStatus
+  type JobRunStatus,
+  type WorkflowDefinitionRecord,
+  type WorkflowTriggerDefinition,
+  type WorkflowStepDefinition,
+  type WorkflowRunRecord,
+  type WorkflowRunStatus,
+  type WorkflowRunStepRecord,
+  type WorkflowRunStepStatus
 } from './types';
 import type {
   BuildRow,
@@ -32,7 +39,10 @@ import type {
   ServiceRow,
   TagRow,
   JobDefinitionRow,
-  JobRunRow
+  JobRunRow,
+  WorkflowDefinitionRow,
+  WorkflowRunRow,
+  WorkflowRunStepRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -178,6 +188,137 @@ function toJsonObjectOrNull(value: unknown): JsonValue | null {
     return parsed;
   }
   return null;
+}
+
+function parseWorkflowTriggers(value: unknown): WorkflowTriggerDefinition[] {
+  if (!value) {
+    return [];
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parseWorkflowTriggers(parsed);
+    } catch {
+      return [];
+    }
+  }
+  const entries = Array.isArray(value) ? value : [value];
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const rawType = (entry as Record<string, unknown>).type;
+      const type = typeof rawType === 'string' ? rawType.trim() : '';
+      if (!type) {
+        return null;
+      }
+      const trigger: WorkflowTriggerDefinition = { type };
+      if (Object.prototype.hasOwnProperty.call(entry, 'options')) {
+        const optionsValue = toJsonValue((entry as Record<string, unknown>).options);
+        if (optionsValue !== null) {
+          trigger.options = optionsValue;
+        }
+      }
+      return trigger;
+    })
+    .filter((entry): entry is WorkflowTriggerDefinition => Boolean(entry));
+}
+
+function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
+  if (!value) {
+    return [];
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parseWorkflowSteps(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seenIds = new Set<string>();
+  const steps: WorkflowStepDefinition[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+    const record = raw as Record<string, unknown>;
+    const id = typeof record.id === 'string' ? record.id.trim() : '';
+    if (!id || seenIds.has(id)) {
+      continue;
+    }
+    const type = typeof record.type === 'string' ? record.type.trim().toLowerCase() : 'job';
+    if (type !== 'job') {
+      continue;
+    }
+    const jobSlug = typeof record.jobSlug === 'string' ? record.jobSlug.trim() : '';
+    if (!jobSlug) {
+      continue;
+    }
+    const name = typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : id;
+
+    const step: WorkflowStepDefinition = {
+      id,
+      name,
+      type: 'job',
+      jobSlug
+    };
+
+    if (typeof record.description === 'string' && record.description.trim()) {
+      step.description = record.description;
+    }
+
+    const dependsOn = parseStringArray(record.dependsOn ?? record.depends_on);
+    if (dependsOn.length > 0) {
+      step.dependsOn = Array.from(new Set(dependsOn));
+    }
+
+    const parameters = toJsonValue(record.parameters);
+    if (parameters !== null) {
+      step.parameters = parameters;
+    }
+
+    const timeoutCandidate = record.timeoutMs ?? record.timeout_ms;
+    if (typeof timeoutCandidate === 'number' && Number.isFinite(timeoutCandidate) && timeoutCandidate >= 0) {
+      step.timeoutMs = Math.floor(timeoutCandidate);
+    }
+
+    const retryPolicyRaw = record.retryPolicy ?? record.retry_policy;
+    const retryPolicy = toJsonObjectOrNull(retryPolicyRaw);
+    if (retryPolicy) {
+      step.retryPolicy = retryPolicy as JobRetryPolicy;
+    }
+
+    seenIds.add(id);
+    steps.push(step);
+  }
+  return steps;
+}
+
+const WORKFLOW_RUN_STATUSES: WorkflowRunStatus[] = ['pending', 'running', 'succeeded', 'failed', 'canceled'];
+
+function normalizeWorkflowRunStatus(value: string | null | undefined): WorkflowRunStatus {
+  if (!value) {
+    return 'pending';
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = WORKFLOW_RUN_STATUSES.find((status) => status === normalized);
+  return match ?? 'pending';
+}
+
+const WORKFLOW_RUN_STEP_STATUSES: WorkflowRunStepStatus[] = ['pending', 'running', 'succeeded', 'failed', 'skipped'];
+
+function normalizeWorkflowRunStepStatus(value: string | null | undefined): WorkflowRunStepStatus {
+  if (!value) {
+    return 'pending';
+  }
+  const normalized = value.trim().toLowerCase();
+  const match = WORKFLOW_RUN_STEP_STATUSES.find((status) => status === normalized);
+  return match ?? 'pending';
 }
 
 export function mapRepositoryRow(
@@ -400,4 +541,63 @@ export function mapServiceRow(row: ServiceRow): ServiceRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies ServiceRecord;
+}
+
+export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDefinitionRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    version: row.version,
+    description: row.description,
+    steps: parseWorkflowSteps(row.steps),
+    triggers: parseWorkflowTriggers(row.triggers),
+    parametersSchema: ensureJsonObject(row.parameters_schema),
+    defaultParameters: ensureJsonValue(row.default_parameters, {} as JsonValue),
+    metadata: toJsonObjectOrNull(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowDefinitionRecord;
+}
+
+export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
+  return {
+    id: row.id,
+    workflowDefinitionId: row.workflow_definition_id,
+    status: normalizeWorkflowRunStatus(row.status),
+    parameters: ensureJsonValue(row.parameters, {} as JsonValue),
+    context: ensureJsonValue(row.context, {} as JsonValue),
+    errorMessage: row.error_message,
+    currentStepId: row.current_step_id,
+    currentStepIndex: row.current_step_index,
+    metrics: toJsonValue(row.metrics),
+    triggeredBy: row.triggered_by,
+    trigger: toJsonValue(row.trigger),
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowRunRecord;
+}
+
+export function mapWorkflowRunStepRow(row: WorkflowRunStepRow): WorkflowRunStepRecord {
+  return {
+    id: row.id,
+    workflowRunId: row.workflow_run_id,
+    stepId: row.step_id,
+    status: normalizeWorkflowRunStepStatus(row.status),
+    attempt: row.attempt,
+    jobRunId: row.job_run_id,
+    input: toJsonValue(row.input),
+    output: toJsonValue(row.output),
+    errorMessage: row.error_message,
+    logsUrl: row.logs_url,
+    metrics: toJsonValue(row.metrics),
+    context: toJsonValue(row.context),
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowRunStepRecord;
 }

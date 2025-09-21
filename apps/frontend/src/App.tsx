@@ -5,6 +5,7 @@ import { NavigationContext, type ActiveTab } from './components/NavigationContex
 import ImportServiceManifest from './import/ImportServiceManifest';
 import SubmitApp from './submit/SubmitApp';
 import ServiceGallery from './services/ServiceGallery';
+import WorkflowsPage from './workflows/WorkflowsPage';
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('catalog');
@@ -32,6 +33,7 @@ function App() {
             <CatalogPage searchSeed={searchSeed} onSeedApplied={() => setSearchSeed(undefined)} />
           )}
           {activeTab === 'apps' && <ServiceGallery />}
+          {activeTab === 'workflows' && <WorkflowsPage />}
           {activeTab === 'submit' && <SubmitApp onAppRegistered={handleAppRegistered} />}
           {activeTab === 'import-manifest' && <ImportServiceManifest onImported={handleManifestImported} />}
         </main>
