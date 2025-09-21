@@ -1,61 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import { API_BASE_URL } from '../config';
+import ManualRunPanel from './components/ManualRunPanel';
+import StatusBadge from './components/StatusBadge';
+import WorkflowFilters, { type FilterOption } from './components/WorkflowFilters';
+import WorkflowGraph from './components/WorkflowGraph';
+import { formatDuration, formatTimestamp } from './formatters';
+import type {
+  WorkflowDefinition,
+  WorkflowFiltersState,
+  WorkflowRun,
+  WorkflowRunStep,
+  WorkflowRuntimeSummary
+} from './types';
 
-export type WorkflowDefinition = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  version: number;
-  steps: Array<{
-    id: string;
-    name: string;
-    jobSlug: string;
-    description?: string | null;
-    dependsOn?: string[];
-    parameters?: unknown;
-    timeoutMs?: number | null;
-    retryPolicy?: unknown;
-  }>;
-  triggers: Array<{ type: string; options?: unknown }>;
-  parametersSchema: unknown;
-  defaultParameters: unknown;
-  metadata: unknown;
-  createdAt: string;
-  updatedAt: string;
-};
+const WORKFLOW_RUN_EVENT_TYPES = [
+  'workflow.run.updated',
+  'workflow.run.pending',
+  'workflow.run.running',
+  'workflow.run.succeeded',
+  'workflow.run.failed',
+  'workflow.run.canceled'
+] as const;
 
-export type WorkflowRun = {
-  id: string;
-  workflowDefinitionId: string;
-  status: string;
-  currentStepId: string | null;
-  currentStepIndex: number | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-  errorMessage: string | null;
-  triggeredBy: string | null;
-  metrics: { totalSteps?: number; completedSteps?: number } | null;
-  parameters: unknown;
-  context: unknown;
-  trigger: unknown;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type WorkflowRunStep = {
-  id: string;
-  workflowRunId: string;
-  stepId: string;
-  status: string;
-  attempt: number;
-  jobRunId: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  errorMessage: string | null;
-  logsUrl: string | null;
-};
+type WorkflowRunEventType = (typeof WORKFLOW_RUN_EVENT_TYPES)[number];
 
 type WorkflowListResponse = {
   data: WorkflowDefinition[];
@@ -75,75 +48,25 @@ type WorkflowRunStepsResponse = {
   };
 };
 
-function formatTimestamp(value: string | null): string {
-  if (!value) {
-    return '—';
-  }
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return value;
-  }
-  return new Date(parsed).toLocaleString();
-}
+type ManualRunResponse = {
+  data: WorkflowRun;
+};
 
-function formatDuration(durationMs: number | null): string {
-  if (!durationMs || durationMs <= 0) {
-    return '—';
-  }
-  if (durationMs < 1000) {
-    return `${durationMs} ms`;
-  }
-  const seconds = durationMs / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)} s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds % 60);
-  return `${minutes}m ${remaining}s`;
-}
+type WorkflowSummary = {
+  workflow: WorkflowDefinition;
+  status: string;
+  repos: string[];
+  services: string[];
+  tags: string[];
+  runtime: WorkflowRuntimeSummary | undefined;
+};
 
-function getStatusBadgeClasses(status: string): string {
-  switch (status) {
-    case 'succeeded':
-      return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/40 dark:border-emerald-400/40 dark:text-emerald-300';
-    case 'running':
-      return 'bg-sky-500/10 text-sky-600 border-sky-500/40 dark:border-sky-400/40 dark:text-sky-300';
-    case 'failed':
-      return 'bg-rose-500/10 text-rose-600 border-rose-500/40 dark:border-rose-400/40 dark:text-rose-300';
-    case 'canceled':
-    case 'skipped':
-      return 'bg-amber-500/10 text-amber-600 border-amber-500/40 dark:border-amber-400/40 dark:text-amber-300';
-    default:
-      return 'bg-slate-500/10 text-slate-600 border-slate-500/40 dark:border-slate-400/40 dark:text-slate-300';
-  }
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize ${getStatusBadgeClasses(status)}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-type WorkflowRunEventType =
-  | 'workflow.run.updated'
-  | 'workflow.run.pending'
-  | 'workflow.run.running'
-  | 'workflow.run.succeeded'
-  | 'workflow.run.failed'
-  | 'workflow.run.canceled';
-
-const WORKFLOW_RUN_EVENT_TYPES: WorkflowRunEventType[] = [
-  'workflow.run.updated',
-  'workflow.run.pending',
-  'workflow.run.running',
-  'workflow.run.succeeded',
-  'workflow.run.failed',
-  'workflow.run.canceled'
-];
+const INITIAL_FILTERS: WorkflowFiltersState = {
+  statuses: [],
+  repos: [],
+  services: [],
+  tags: []
+};
 
 function resolveWorkflowWebsocketUrl(): string {
   try {
@@ -161,6 +84,13 @@ function resolveWorkflowWebsocketUrl(): string {
   }
 }
 
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
 function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | null {
   if (!payload || typeof payload !== 'object') {
     return null;
@@ -173,7 +103,7 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
     return null;
   }
 
-  const steps: WorkflowDefinition['steps'][number][] = [];
+  const steps: WorkflowDefinition['steps'] = [];
   if (Array.isArray(raw.steps)) {
     for (const entry of raw.steps) {
       if (!entry || typeof entry !== 'object') {
@@ -182,44 +112,40 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
       const step = entry as Record<string, unknown>;
       const stepId = typeof step.id === 'string' ? step.id : null;
       const stepName = typeof step.name === 'string' ? step.name : null;
-      const jobSlug = typeof step.jobSlug === 'string' ? step.jobSlug : null;
-      if (!stepId || !stepName || !jobSlug) {
+      if (!stepId || !stepName) {
         continue;
       }
-      const normalizedStep: WorkflowDefinition['steps'][number] = {
+      const jobSlug = typeof step.jobSlug === 'string' ? step.jobSlug : undefined;
+      const serviceSlug = typeof step.serviceSlug === 'string' ? step.serviceSlug : undefined;
+      const dependsOn = Array.isArray(step.dependsOn)
+        ? step.dependsOn.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : undefined;
+      const normalizedStep = {
         id: stepId,
         name: stepName,
-        jobSlug
-      };
-      if (typeof step.description === 'string') {
-        normalizedStep.description = step.description;
-      } else if (step.description === null) {
-        normalizedStep.description = null;
-      }
-      if (Array.isArray(step.dependsOn)) {
-        const dependsOn = step.dependsOn.filter(
-          (value): value is string => typeof value === 'string' && value.trim().length > 0
-        );
-        if (dependsOn.length > 0) {
-          normalizedStep.dependsOn = dependsOn;
-        }
-      }
-      if ('parameters' in step) {
-        normalizedStep.parameters = step.parameters ?? undefined;
-      }
-      if (typeof step.timeoutMs === 'number') {
-        normalizedStep.timeoutMs = step.timeoutMs;
-      } else if (step.timeoutMs === null) {
-        normalizedStep.timeoutMs = null;
-      }
-      if ('retryPolicy' in step) {
-        normalizedStep.retryPolicy = step.retryPolicy ?? undefined;
-      }
+        jobSlug,
+        serviceSlug,
+        description:
+          typeof step.description === 'string'
+            ? step.description
+            : step.description === null
+              ? null
+              : undefined,
+        dependsOn,
+        parameters: 'parameters' in step ? step.parameters : undefined,
+        timeoutMs:
+          typeof step.timeoutMs === 'number'
+            ? step.timeoutMs
+            : step.timeoutMs === null
+              ? null
+              : undefined,
+        retryPolicy: 'retryPolicy' in step ? step.retryPolicy : undefined
+      } satisfies WorkflowDefinition['steps'][number];
       steps.push(normalizedStep);
     }
   }
 
-  const triggers: WorkflowDefinition['triggers'][number][] = [];
+  const triggers: WorkflowDefinition['triggers'] = [];
   if (Array.isArray(raw.triggers)) {
     for (const entry of raw.triggers) {
       if (!entry || typeof entry !== 'object') {
@@ -230,11 +156,10 @@ function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | nul
       if (!type) {
         continue;
       }
-      const normalizedTrigger: { type: string; options?: unknown } = { type };
-      if ('options' in trigger) {
-        normalizedTrigger.options = trigger.options;
-      }
-      triggers.push(normalizedTrigger);
+      triggers.push({
+        type,
+        options: 'options' in trigger ? trigger.options : undefined
+      });
     }
   }
 
@@ -266,12 +191,6 @@ function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
   if (!id || !workflowDefinitionId || !status) {
     return null;
   }
-
-  const metrics =
-    raw.metrics && typeof raw.metrics === 'object' && !Array.isArray(raw.metrics)
-      ? (raw.metrics as { totalSteps?: number; completedSteps?: number })
-      : null;
-
   return {
     id,
     workflowDefinitionId,
@@ -293,12 +212,50 @@ function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
         : raw.triggeredBy === null
           ? null
           : null,
-    metrics,
+    metrics:
+      raw.metrics && typeof raw.metrics === 'object' && !Array.isArray(raw.metrics)
+        ? (raw.metrics as { totalSteps?: number; completedSteps?: number })
+        : null,
     parameters: raw.parameters ?? null,
     context: raw.context ?? null,
     trigger: raw.trigger ?? null,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
+  };
+}
+
+function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const id = typeof raw.id === 'string' ? raw.id : null;
+  const workflowRunId = typeof raw.workflowRunId === 'string' ? raw.workflowRunId : null;
+  const stepId = typeof raw.stepId === 'string' ? raw.stepId : null;
+  const status = typeof raw.status === 'string' ? raw.status : null;
+  const attempt = typeof raw.attempt === 'number' ? raw.attempt : null;
+  if (!id || !workflowRunId || !stepId || attempt === null || !status) {
+    return null;
+  }
+  return {
+    id,
+    workflowRunId,
+    stepId,
+    status,
+    attempt,
+    jobRunId: typeof raw.jobRunId === 'string' ? raw.jobRunId : null,
+    startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
+    completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : null,
+    errorMessage:
+      typeof raw.errorMessage === 'string'
+        ? raw.errorMessage
+        : raw.errorMessage === null
+          ? null
+          : null,
+    logsUrl: typeof raw.logsUrl === 'string' ? raw.logsUrl : null,
+    parameters: 'parameters' in raw ? raw.parameters : undefined,
+    result: 'result' in raw ? raw.result : undefined,
+    metrics: 'metrics' in raw ? raw.metrics : undefined
   };
 }
 
@@ -326,6 +283,140 @@ function sortRuns(runs: WorkflowRun[]): WorkflowRun[] {
     });
 }
 
+function summarizeWorkflowMetadata(workflow: WorkflowDefinition) {
+  const metadata = toRecord(workflow.metadata);
+  const repos = new Set<string>();
+  const services = new Set<string>();
+  const tags = new Set<string>();
+  let status: string | undefined;
+
+  const addString = (value: unknown, target: Set<string>) => {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      target.add(value.trim());
+    }
+  };
+
+  if (metadata) {
+    addString(metadata.repo, repos);
+    addString(metadata.repository, repos);
+    addString(metadata.repositoryUrl, repos);
+    addString(metadata.repoUrl, repos);
+    const source = toRecord(metadata.source);
+    if (source) {
+      addString(source.repo, repos);
+      addString(source.repository, repos);
+      addString(source.repositoryUrl, repos);
+    }
+
+    const statusValue = metadata.status ?? metadata.latestStatus ?? metadata.state;
+    if (typeof statusValue === 'string') {
+      status = statusValue;
+    }
+
+    const serviceMeta = metadata.service ?? metadata.workflowService ?? metadata.targetService;
+    addString(serviceMeta, services);
+    if (typeof metadata.services === 'string') {
+      addString(metadata.services, services);
+    } else if (Array.isArray(metadata.services)) {
+      for (const value of metadata.services) {
+        addString(value, services);
+      }
+    }
+
+    const tagMeta = metadata.tags;
+    if (Array.isArray(tagMeta)) {
+      for (const entry of tagMeta) {
+        if (typeof entry === 'string') {
+          addString(entry, tags);
+          continue;
+        }
+        const record = toRecord(entry);
+        if (!record) {
+          continue;
+        }
+        const key = typeof record.key === 'string' ? record.key : undefined;
+        const value = typeof record.value === 'string' ? record.value : undefined;
+        if (key && value) {
+          tags.add(`${key}:${value}`);
+        } else if (key) {
+          tags.add(key);
+        } else if (value) {
+          tags.add(value);
+        }
+      }
+    }
+  }
+
+  for (const step of workflow.steps) {
+    if (step.serviceSlug) {
+      services.add(step.serviceSlug);
+    }
+  }
+
+  return {
+    repos: Array.from(repos),
+    services: Array.from(services),
+    tags: Array.from(tags),
+    status
+  };
+}
+
+function buildFilterOptions(values: string[]): FilterOption[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, label: value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function buildStatusOptions(summaries: WorkflowSummary[]): FilterOption[] {
+  return buildFilterOptions(summaries.map((summary) => summary.status.toLowerCase()))
+    .map((option) => ({ ...option, label: option.label.toUpperCase() }));
+}
+
+function filterSummaries(
+  summaries: WorkflowSummary[],
+  filters: WorkflowFiltersState,
+  searchTerm: string
+): WorkflowSummary[] {
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  return summaries.filter((summary) => {
+    if (filters.statuses.length > 0 && !filters.statuses.includes(summary.status.toLowerCase())) {
+      return false;
+    }
+    if (filters.repos.length > 0 && summary.repos.every((repo) => !filters.repos.includes(repo))) {
+      return false;
+    }
+    if (filters.services.length > 0 && summary.services.every((service) => !filters.services.includes(service))) {
+      return false;
+    }
+    if (filters.tags.length > 0 && summary.tags.every((tag) => !filters.tags.includes(tag))) {
+      return false;
+    }
+    if (!normalizedSearch) {
+      return true;
+    }
+    const haystacks = [
+      summary.workflow.name,
+      summary.workflow.slug,
+      summary.workflow.description ?? '',
+      summary.status,
+      ...summary.repos,
+      ...summary.services,
+      ...summary.tags
+    ]
+      .filter(Boolean)
+      .map((value) => value.toLowerCase());
+    return haystacks.some((text) => text.includes(normalizedSearch));
+  });
+}
+
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
@@ -342,13 +433,86 @@ export default function WorkflowsPage() {
   const [stepsLoading, setStepsLoading] = useState(false);
   const [stepsError, setStepsError] = useState<string | null>(null);
 
+  const [filters, setFilters] = useState<WorkflowFiltersState>(INITIAL_FILTERS);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const [workflowRuntimeSummaries, setWorkflowRuntimeSummaries] = useState<Record<string, WorkflowRuntimeSummary>>({});
+  const [manualRunPending, setManualRunPending] = useState(false);
+  const [manualRunError, setManualRunError] = useState<string | null>(null);
+  const [lastTriggeredRun, setLastTriggeredRun] = useState<WorkflowRun | null>(null);
+
   const workflowsRef = useRef<WorkflowDefinition[]>([]);
   const workflowDetailRef = useRef<WorkflowDefinition | null>(null);
   const runsRef = useRef<WorkflowRun[]>([]);
   const selectedSlugRef = useRef<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
 
-  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) ?? null, [runs, selectedRunId]);
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.id === selectedRunId) ?? null,
+    [runs, selectedRunId]
+  );
+
+  const workflowSummaries = useMemo<WorkflowSummary[]>(() => {
+    return workflows.map((workflow) => {
+      const metadataSummary = summarizeWorkflowMetadata(workflow);
+      const runtime = workflowRuntimeSummaries[workflow.slug];
+      const status = (runtime?.status ?? metadataSummary.status ?? 'unknown').toLowerCase();
+      return {
+        workflow,
+        status,
+        repos: metadataSummary.repos,
+        services: metadataSummary.services,
+        tags: metadataSummary.tags,
+        runtime
+      } satisfies WorkflowSummary;
+    });
+  }, [workflows, workflowRuntimeSummaries]);
+
+  const filteredSummaries = useMemo(
+    () => filterSummaries(workflowSummaries, filters, searchTerm),
+    [workflowSummaries, filters, searchTerm]
+  );
+
+  const statusOptions = useMemo(() => buildStatusOptions(workflowSummaries), [workflowSummaries]);
+  const repoOptions = useMemo(
+    () => buildFilterOptions(workflowSummaries.flatMap((summary) => summary.repos)),
+    [workflowSummaries]
+  );
+  const serviceOptions = useMemo(
+    () => buildFilterOptions(workflowSummaries.flatMap((summary) => summary.services)),
+    [workflowSummaries]
+  );
+  const tagOptions = useMemo(
+    () => buildFilterOptions(workflowSummaries.flatMap((summary) => summary.tags)),
+    [workflowSummaries]
+  );
+
+  const filteredWorkflows = filteredSummaries.map((summary) => summary.workflow);
+
+  const updateRuntimeSummary = useCallback((workflow: WorkflowDefinition, run: WorkflowRun) => {
+    setWorkflowRuntimeSummaries((current) => ({
+      ...current,
+      [workflow.slug]: {
+        runId: run.id,
+        status: run.status,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        durationMs: run.durationMs,
+        triggeredBy: run.triggeredBy
+      }
+    }));
+  }, []);
+
+  const seedRuntimeSummaryFromMetadata = useCallback((workflow: WorkflowDefinition) => {
+    const metadataSummary = summarizeWorkflowMetadata(workflow);
+    setWorkflowRuntimeSummaries((current) => ({
+      ...current,
+      [workflow.slug]: {
+        ...current[workflow.slug],
+        status: metadataSummary.status ?? current[workflow.slug]?.status ?? 'unknown'
+      }
+    }));
+  }, []);
 
   const loadWorkflows = useCallback(async () => {
     setWorkflowsLoading(true);
@@ -359,15 +523,20 @@ export default function WorkflowsPage() {
         throw new Error('Failed to load workflows');
       }
       const body = (await response.json()) as WorkflowListResponse;
-      setWorkflows(body.data);
-      workflowsRef.current = body.data;
-      if (body.data.length > 0) {
+      const normalized = body.data
+        .map((entry) => normalizeWorkflowDefinition(entry))
+        .filter((entry): entry is WorkflowDefinition => Boolean(entry))
+        .sort((a, b) => a.slug.localeCompare(b.slug));
+      setWorkflows(normalized);
+      workflowsRef.current = normalized;
+      normalized.forEach(seedRuntimeSummaryFromMetadata);
+      if (normalized.length > 0) {
         setSelectedSlug((current) => {
           if (current) {
             selectedSlugRef.current = current;
             return current;
           }
-          const nextSlug = body.data[0].slug;
+          const nextSlug = normalized[0].slug;
           selectedSlugRef.current = nextSlug;
           return nextSlug;
         });
@@ -381,7 +550,7 @@ export default function WorkflowsPage() {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, []);
+  }, [seedRuntimeSummaryFromMetadata]);
 
   const loadWorkflowDetail = useCallback(
     async (slug: string) => {
@@ -393,13 +562,23 @@ export default function WorkflowsPage() {
           throw new Error('Failed to load workflow details');
         }
         const body = (await response.json()) as WorkflowDetailResponse;
-        setWorkflowDetail(body.data.workflow);
-        const sortedRuns = sortRuns(body.data.runs);
-        setRuns(sortedRuns);
-        runsRef.current = sortedRuns;
-        if (sortedRuns.length > 0) {
-          selectedRunIdRef.current = sortedRuns[0].id;
-          setSelectedRunId(sortedRuns[0].id);
+        const normalizedWorkflow = normalizeWorkflowDefinition(body.data.workflow) ?? body.data.workflow;
+        setWorkflowDetail(normalizedWorkflow);
+        workflowDetailRef.current = normalizedWorkflow;
+
+        const normalizedRuns = sortRuns(
+          body.data.runs
+            .map((run) => normalizeWorkflowRun(run))
+            .filter((run): run is WorkflowRun => Boolean(run))
+        );
+        setRuns(normalizedRuns);
+        runsRef.current = normalizedRuns;
+
+        if (normalizedRuns.length > 0) {
+          const latestRun = normalizedRuns[0];
+          selectedRunIdRef.current = latestRun.id;
+          setSelectedRunId(latestRun.id);
+          updateRuntimeSummary(normalizedWorkflow, latestRun);
         } else {
           selectedRunIdRef.current = null;
           setSelectedRunId(null);
@@ -409,6 +588,7 @@ export default function WorkflowsPage() {
         const message = err instanceof Error ? err.message : 'Failed to load workflow details';
         setDetailError(message);
         setWorkflowDetail(null);
+        workflowDetailRef.current = null;
         setRuns([]);
         runsRef.current = [];
         selectedRunIdRef.current = null;
@@ -418,7 +598,7 @@ export default function WorkflowsPage() {
         setDetailLoading(false);
       }
     },
-    []
+    [updateRuntimeSummary]
   );
 
   const loadRunSteps = useCallback(async (runId: string) => {
@@ -430,14 +610,25 @@ export default function WorkflowsPage() {
         throw new Error('Failed to load workflow run steps');
       }
       const body = (await response.json()) as WorkflowRunStepsResponse;
-      setRunSteps(body.data.steps);
+      const normalizedRun = normalizeWorkflowRun(body.data.run) ?? body.data.run;
+      const normalizedSteps = body.data.steps
+        .map((step) => normalizeWorkflowRunStep(step))
+        .filter((step): step is WorkflowRunStep => Boolean(step));
+      setRunSteps(normalizedSteps);
       setRuns((current) => {
-        const existingIndex = current.findIndex((existing) => existing.id === body.data.run.id);
+        const existingIndex = current.findIndex((existing) => existing.id === normalizedRun.id);
         const next = existingIndex === -1
-          ? [body.data.run, ...current]
-          : current.map((existing, index) => (index === existingIndex ? body.data.run : existing));
-        return sortRuns(next);
+          ? [normalizedRun, ...current]
+          : current.map((existing, index) => (index === existingIndex ? normalizedRun : existing));
+        const sorted = sortRuns(next);
+        runsRef.current = sorted;
+        return sorted;
       });
+
+      const workflow = workflowDetailRef.current ?? workflowsRef.current.find((entry) => entry.id === normalizedRun.workflowDefinitionId);
+      if (workflow) {
+        updateRuntimeSummary(workflow, normalizedRun);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load workflow run steps';
       setStepsError(message);
@@ -445,7 +636,7 @@ export default function WorkflowsPage() {
     } finally {
       setStepsLoading(false);
     }
-  }, []);
+  }, [updateRuntimeSummary]);
 
   useEffect(() => {
     workflowsRef.current = workflows;
@@ -505,6 +696,7 @@ export default function WorkflowsPage() {
           : current.map((entry, entryIndex) => (entryIndex === index ? definition : entry));
         const sorted = next.slice().sort((a, b) => a.slug.localeCompare(b.slug));
         workflowsRef.current = sorted;
+        seedRuntimeSummaryFromMetadata(definition);
         return sorted;
       });
 
@@ -526,6 +718,11 @@ export default function WorkflowsPage() {
       const run = normalizeWorkflowRun(payload);
       if (!run) {
         return;
+      }
+
+      const workflow = workflowsRef.current.find((entry) => entry.id === run.workflowDefinitionId);
+      if (workflow) {
+        updateRuntimeSummary(workflow, run);
       }
 
       const detail = workflowDetailRef.current;
@@ -551,7 +748,7 @@ export default function WorkflowsPage() {
       const effectiveSelectedRunId = selectedRunIdRef.current ?? run.id;
       if (
         effectiveSelectedRunId === run.id &&
-        (run.status === 'succeeded' || run.status === 'failed' || run.status === 'running')
+        (run.status === 'succeeded' || run.status === 'failed' || run.status === 'running' || run.status === 'pending')
       ) {
         void loadRunSteps(run.id);
       }
@@ -624,7 +821,64 @@ export default function WorkflowsPage() {
         socket.close();
       }
     };
-  }, [loadRunSteps]);
+  }, [loadRunSteps, seedRuntimeSummaryFromMetadata, updateRuntimeSummary]);
+
+  const handleManualRun = useCallback(
+    async (input: { parameters: unknown; triggeredBy?: string | null }) => {
+      if (!workflowDetailRef.current) {
+        setManualRunError('Select a workflow before launching a run.');
+        return;
+      }
+      setManualRunPending(true);
+      setManualRunError(null);
+      try {
+        const slug = workflowDetailRef.current.slug;
+        const response = await fetch(`${API_BASE_URL}/workflows/${slug}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parameters: input.parameters,
+            triggeredBy: input.triggeredBy ?? undefined
+          })
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to enqueue workflow run');
+        }
+        const body = (await response.json()) as ManualRunResponse;
+        const run = normalizeWorkflowRun(body.data) ?? body.data;
+        setLastTriggeredRun(run);
+        setRuns((current) => {
+          const next = sortRuns([run, ...current.filter((existing) => existing.id !== run.id)]);
+          runsRef.current = next;
+          return next;
+        });
+        selectedRunIdRef.current = run.id;
+        setSelectedRunId(run.id);
+        setRunSteps([]);
+        const workflow = workflowDetailRef.current;
+        if (workflow) {
+          updateRuntimeSummary(workflow, run);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to enqueue workflow run';
+        setManualRunError(message);
+      } finally {
+        setManualRunPending(false);
+      }
+    },
+    [updateRuntimeSummary]
+  );
+
+  const handleRefresh = () => {
+    void loadWorkflows();
+    if (selectedSlugRef.current) {
+      void loadWorkflowDetail(selectedSlugRef.current);
+    }
+    if (selectedRunIdRef.current) {
+      void loadRunSteps(selectedRunIdRef.current);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -632,24 +886,31 @@ export default function WorkflowsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Workflows</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Manage workflow definitions and inspect recent runs.
+            Discover workflow definitions, launch runs with validated parameters, and monitor execution in realtime.
           </p>
         </div>
         <button
           type="button"
           className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
-          onClick={() => {
-            void loadWorkflows();
-            if (selectedSlug) {
-              void loadWorkflowDetail(selectedSlug);
-            }
-          }}
+          onClick={handleRefresh}
         >
           Refresh
         </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <WorkflowFilters
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        activeFilters={filters}
+        onChange={setFilters}
+        statusOptions={statusOptions}
+        repoOptions={repoOptions}
+        serviceOptions={serviceOptions}
+        tagOptions={tagOptions}
+        onReset={() => setFilters(INITIAL_FILTERS)}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
           <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Workflow Definitions</h2>
           <div className="mt-4 flex flex-col gap-2">
@@ -663,13 +924,19 @@ export default function WorkflowsPage() {
                 {workflowsError}
               </div>
             )}
+            {!workflowsLoading && !workflowsError && filteredWorkflows.length === 0 && workflows.length > 0 && (
+              <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                No workflows match your filters yet.
+              </div>
+            )}
             {!workflowsLoading && !workflowsError && workflows.length === 0 && (
               <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
                 No workflows registered yet.
               </div>
             )}
-            <div className="flex flex-col gap-2">
-              {workflows.map((workflow) => {
+            <div className="flex max-h-[640px] flex-col gap-2 overflow-y-auto pr-1">
+              {filteredSummaries.map((summary) => {
+                const workflow = summary.workflow;
                 const isActive = workflow.slug === selectedSlug;
                 return (
                   <button
@@ -678,12 +945,23 @@ export default function WorkflowsPage() {
                     onClick={() => setSelectedSlug(workflow.slug)}
                     className={`flex flex-col gap-1 rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
                       isActive
-                        ? 'border-blue-500/60 bg-blue-500/10 text-blue-700 dark:border-blue-400/60 dark:bg-blue-400/10 dark:text-blue-200'
-                        : 'border-slate-200/70 bg-white/70 text-slate-700 hover:border-blue-400/50 hover:bg-blue-400/5 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/10'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-700 dark:border-slate-300 dark:bg-slate-800/70 dark:text-slate-100'
+                        : 'border-slate-200/60 bg-white/70 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200'
                     }`}
                   >
-                    <span className="text-sm font-semibold">{workflow.name}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold">{workflow.name}</span>
+                      <StatusBadge status={summary.status} />
+                    </div>
                     <span className="text-xs text-slate-500 dark:text-slate-400">{workflow.slug}</span>
+                    {summary.repos.length > 0 && (
+                      <span className="text-[11px] text-slate-400">{summary.repos.join(', ')}</span>
+                    )}
+                    {summary.tags.length > 0 && (
+                      <span className="text-[10px] uppercase tracking-widest text-slate-400">
+                        {summary.tags.join(' · ')}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -692,6 +970,23 @@ export default function WorkflowsPage() {
         </section>
 
         <div className="flex flex-col gap-6">
+          <ManualRunPanel
+            workflow={workflowDetail}
+            onSubmit={handleManualRun}
+            pending={manualRunPending}
+            error={manualRunError}
+            lastRun={lastTriggeredRun}
+          />
+
+          {workflowDetail && (
+            <WorkflowGraph
+              workflow={workflowDetail}
+              run={selectedRun}
+              steps={runSteps}
+              runtimeSummary={workflowRuntimeSummaries[workflowDetail.slug]}
+            />
+          )}
+
           <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow Details</h2>
             {detailLoading && (
@@ -724,7 +1019,9 @@ export default function WorkflowsPage() {
                           <span className="font-semibold">
                             {index + 1}. {step.name}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{step.jobSlug}</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {step.serviceSlug ?? step.jobSlug ?? 'step'}
+                          </span>
                         </div>
                         {step.description && (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{step.description}</p>
@@ -744,7 +1041,14 @@ export default function WorkflowsPage() {
 
           <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run History</h2>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run History</h2>
+                {workflowDetail && workflowRuntimeSummaries[workflowDetail.slug] && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Latest run started {formatTimestamp(workflowRuntimeSummaries[workflowDetail.slug]?.startedAt ?? null)}
+                  </p>
+                )}
+              </div>
               {selectedSlug && (
                 <button
                   type="button"
@@ -781,6 +1085,9 @@ export default function WorkflowsPage() {
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Current Step
                       </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Triggered By
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -811,6 +1118,9 @@ export default function WorkflowsPage() {
                           <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                             {run.currentStepId ?? '—'}
                           </td>
+                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            {run.triggeredBy ?? '—'}
+                          </td>
                         </tr>
                       );
                     })}
@@ -822,7 +1132,7 @@ export default function WorkflowsPage() {
 
           {selectedRun && (
             <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run Details</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Run ID: {selectedRun.id}</p>
@@ -833,6 +1143,30 @@ export default function WorkflowsPage() {
                   </p>
                 )}
               </div>
+              <dl className="mt-4 grid gap-3 text-xs text-slate-600 dark:text-slate-300 md:grid-cols-4">
+                <div>
+                  <dt className="font-semibold uppercase tracking-widest text-slate-400">Status</dt>
+                  <dd className="mt-1"><StatusBadge status={selectedRun.status} /></dd>
+                </div>
+                <div>
+                  <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
+                  <dd className="mt-1">{formatTimestamp(selectedRun.startedAt)}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                  <dd className="mt-1">{formatDuration(selectedRun.durationMs)}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold uppercase tracking-widest text-slate-400">Triggered By</dt>
+                  <dd className="mt-1">{selectedRun.triggeredBy ?? '—'}</dd>
+                </div>
+              </dl>
+              {selectedRun.metrics && (
+                <div className="mt-4 rounded-2xl border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/70 dark:text-slate-300">
+                  <p className="font-semibold">Metrics</p>
+                  <p className="mt-1">Completed steps: {selectedRun.metrics.completedSteps ?? '—'} / {selectedRun.metrics.totalSteps ?? '—'}</p>
+                </div>
+              )}
               {stepsLoading && (
                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading step details…</p>
               )}
@@ -846,7 +1180,7 @@ export default function WorkflowsPage() {
                       key={step.id}
                       className="rounded-2xl border border-slate-200/60 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/70"
                     >
-                      <div className="flex items-center justify-between gap-4">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                           <p className="font-semibold text-slate-700 dark:text-slate-200">{step.stepId}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -874,6 +1208,11 @@ export default function WorkflowsPage() {
                           )}
                         </span>
                       </div>
+                      {step.metrics && typeof step.metrics === 'object' && (
+                        <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
+                          {JSON.stringify(step.metrics, null, 2)}
+                        </pre>
+                      )}
                       {step.errorMessage && (
                         <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
                           {step.errorMessage}
