@@ -13,6 +13,7 @@ type ManualRunPanelProps = {
   onSubmit: (input: { parameters: unknown; triggeredBy?: string | null }) => Promise<void>;
   pending: boolean;
   error: string | null;
+  authorized: boolean;
   lastRun?: WorkflowRun | null;
 };
 
@@ -292,7 +293,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
   );
 }
 
-export function ManualRunPanel({ workflow, onSubmit, pending, error, lastRun }: ManualRunPanelProps) {
+export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized, lastRun }: ManualRunPanelProps) {
   const schema = useMemo(() => toSchema(workflow?.parametersSchema), [workflow]);
   const defaultParameters = useMemo(() => {
     if (!workflow?.defaultParameters) {
@@ -372,6 +373,9 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, lastRun }: 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!authorized) {
+      return;
+    }
     let parameters: unknown = formData;
 
     if (mode === 'json') {
@@ -407,6 +411,11 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, lastRun }: 
       )}
       {workflow && (
         <form className="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
+          {!authorized && (
+            <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+              Add an operator token in the API Access tab before launching workflows.
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {canUseForm && (
               <button
@@ -533,7 +542,7 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, lastRun }: 
             <button
               type="submit"
               className="inline-flex items-center justify-center rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition-colors hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={pending || parseError !== null || (validationErrors.length > 0 && mode === 'form')}
+              disabled={!authorized || pending || parseError !== null || (validationErrors.length > 0 && mode === 'form')}
             >
               {pending ? 'Launching…' : 'Launch workflow'}
             </button>

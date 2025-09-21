@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEventHandler } from 'react';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { API_BASE_URL } from '../config';
 
 export type TagInput = {
@@ -71,6 +72,7 @@ export type UseSubmitAppResult = {
 };
 
 export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitAppResult {
+  const authorizedFetch = useAuthorizedFetch();
   const [form, setFormState] = useState<SubmitAppFormState>({
     id: '',
     name: '',
@@ -96,7 +98,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
     const controller = new AbortController();
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/apps/${appId}`, { signal: controller.signal });
+        const res = await authorizedFetch(`${API_BASE_URL}/apps/${appId}`, { signal: controller.signal });
         if (!res.ok) {
           throw new Error(`Failed to load app status (${res.status})`);
         }
@@ -113,7 +115,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
       controller.abort();
       clearInterval(interval);
     };
-  }, [appId]);
+  }, [appId, authorizedFetch]);
 
   const setForm = useCallback(
     (updater: SubmitAppFormState | ((prev: SubmitAppFormState) => SubmitAppFormState)) => {
@@ -142,7 +144,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/apps/${id}/history`);
+      const res = await authorizedFetch(`${API_BASE_URL}/apps/${id}/history`);
       if (!res.ok) {
         throw new Error(`Failed to load history (${res.status})`);
       }
@@ -153,7 +155,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [authorizedFetch]);
 
   const disableSubmit =
     submitting || !form.name || !form.description || !form.repoUrl || !form.dockerfilePath;
@@ -177,7 +179,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
           tags: form.tags.filter((tag) => tag.key && tag.value)
         };
 
-        const response = await fetch(`${API_BASE_URL}/apps`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -199,7 +201,7 @@ export function useSubmitApp(onAppRegistered?: (id: string) => void): UseSubmitA
         setSubmitting(false);
       }
     },
-    [fetchHistory, form, onAppRegistered, sourceType]
+    [authorizedFetch, fetchHistory, form, onAppRegistered, sourceType]
   );
 
   return {

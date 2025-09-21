@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
 
@@ -119,6 +120,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 }
 
 export default function ServiceGallery() {
+  const authorizedFetch = useAuthorizedFetch();
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +132,9 @@ export default function ServiceGallery() {
     let initialLoad = true;
 
     const fetchServices = async () => {
+      if (!authorizedFetch) {
+        return;
+      }
       controller?.abort();
       controller = new AbortController();
       const signal = controller.signal;
@@ -139,7 +144,7 @@ export default function ServiceGallery() {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/services`, { signal });
+        const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
         if (!response.ok) {
           throw new Error(`Request failed with status ${response.status}`);
         }
@@ -177,7 +182,7 @@ export default function ServiceGallery() {
       }
       controller?.abort();
     };
-  }, []);
+  }, [authorizedFetch]);
 
   const previewableServices = useMemo(() => {
     const entries = services

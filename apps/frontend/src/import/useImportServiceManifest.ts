@@ -1,5 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { API_BASE_URL } from '../config';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 
 export type ImportManifestForm = {
   repo: string;
@@ -54,6 +55,7 @@ function buildRequestBody(form: ImportManifestForm): NormalizedRequestBody {
 }
 
 export function useImportServiceManifest() {
+  const authorizedFetch = useAuthorizedFetch();
   const [form, setForm] = useState<ImportManifestForm>({
     repo: '',
     ref: '',
@@ -69,7 +71,7 @@ export function useImportServiceManifest() {
 
   const importManifest = useCallback(
     async (body: NormalizedRequestBody) => {
-      const response = await fetch(`${API_BASE_URL}/service-networks/import`, {
+      const response = await authorizedFetch(`${API_BASE_URL}/service-networks/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -85,7 +87,7 @@ export function useImportServiceManifest() {
       setResult(payload.data as ImportManifestResult);
       setLastRequestBody(body);
     },
-    []
+    [authorizedFetch]
   );
 
   const updateField = useCallback((field: keyof ImportManifestForm, value: string) => {

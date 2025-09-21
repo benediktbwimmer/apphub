@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { API_BASE_URL, BUILD_PAGE_SIZE, INGEST_STATUSES } from './constants';
 import type {
   AppRecord,
@@ -112,6 +113,7 @@ export function useCatalog(): UseCatalogResult {
   const [sortMode, setSortModeInternal] = useState<SearchSort>('relevance');
   const [sortManuallySet, setSortManuallySet] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
+  const authorizedFetch = useAuthorizedFetch();
 
   const autocompleteContext = useMemo(() => computeAutocompleteContext(inputValue), [inputValue]);
   const parsedQuery = useMemo(() => parseSearchInput(inputValue), [inputValue]);
@@ -161,7 +163,7 @@ export function useCatalog(): UseCatalogResult {
           params.set('status', statusFilters.join(','));
         }
         params.set('sort', sortMode);
-        const response = await fetch(`${API_BASE_URL}/apps?${params.toString()}`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps?${params.toString()}`, {
           signal: controller.signal
         });
         if (!response.ok) {
@@ -199,7 +201,7 @@ export function useCatalog(): UseCatalogResult {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [searchSignature, parsedQuery, statusFilters, sortMode]);
+  }, [authorizedFetch, searchSignature, parsedQuery, statusFilters, sortMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -214,7 +216,7 @@ export function useCatalog(): UseCatalogResult {
 
     const timeoutId = setTimeout(async () => {
       try {
-        const response = await fetch(
+        const response = await authorizedFetch(
           `${API_BASE_URL}/tags/suggest?prefix=${encodeURIComponent(activeToken)}&limit=12`,
           { signal: controller.signal }
         );
@@ -235,7 +237,7 @@ export function useCatalog(): UseCatalogResult {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [autocompleteContext]);
+  }, [autocompleteContext, authorizedFetch]);
 
   useEffect(() => {
     if (suggestions.length === 0) {
@@ -332,7 +334,7 @@ export function useCatalog(): UseCatalogResult {
       }));
 
       try {
-        const response = await fetch(`${API_BASE_URL}/apps/${id}/history`);
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/history`);
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload?.error ?? `Failed to load history (${response.status})`);
@@ -359,7 +361,7 @@ export function useCatalog(): UseCatalogResult {
         }));
       }
     },
-    []
+    [authorizedFetch]
   );
 
   const toggleHistory = useCallback(
@@ -395,7 +397,7 @@ export function useCatalog(): UseCatalogResult {
 
       await fetchHistory(id);
     },
-    [fetchHistory, historyState]
+    [authorizedFetch, fetchHistory, historyState]
   );
 
   const fetchBuilds = useCallback(
@@ -427,7 +429,7 @@ export function useCatalog(): UseCatalogResult {
         if (offset > 0) {
           params.set('offset', String(offset));
         }
-        const response = await fetch(`${API_BASE_URL}/apps/${id}/builds?${params.toString()}`);
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/builds?${params.toString()}`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(payload?.error ?? `Failed to load builds (${response.status})`);
@@ -478,7 +480,7 @@ export function useCatalog(): UseCatalogResult {
         });
       }
     },
-    [buildState]
+    [authorizedFetch, buildState]
   );
 
   const toggleBuilds = useCallback(
@@ -556,7 +558,7 @@ export function useCatalog(): UseCatalogResult {
       });
 
       try {
-        const response = await fetch(`${API_BASE_URL}/builds/${buildId}/logs`);
+        const response = await authorizedFetch(`${API_BASE_URL}/builds/${buildId}/logs`);
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(payload?.error ?? `Failed to load logs (${response.status})`);
@@ -613,7 +615,7 @@ export function useCatalog(): UseCatalogResult {
         });
       }
     },
-    []
+    [authorizedFetch]
   );
 
   const toggleLogs = useCallback(
@@ -680,7 +682,7 @@ export function useCatalog(): UseCatalogResult {
       });
 
       try {
-        const response = await fetch(`${API_BASE_URL}/builds/${buildId}/retry`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/builds/${buildId}/retry`, {
           method: 'POST'
         });
         const payload = await response.json().catch(() => ({}));
@@ -722,7 +724,7 @@ export function useCatalog(): UseCatalogResult {
         };
       });
     },
-      [fetchBuilds]
+      [authorizedFetch, fetchBuilds]
   );
 
   const triggerBuild = useCallback(
@@ -747,7 +749,7 @@ export function useCatalog(): UseCatalogResult {
         if (options.ref) {
           body.ref = options.ref;
         }
-        const response = await fetch(`${API_BASE_URL}/apps/${appId}/builds`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${appId}/builds`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -794,7 +796,7 @@ export function useCatalog(): UseCatalogResult {
         return false;
       }
     },
-    [fetchBuilds]
+    [authorizedFetch, fetchBuilds]
   );
 
   const fetchLaunches = useCallback(
@@ -810,7 +812,7 @@ export function useCatalog(): UseCatalogResult {
       }));
 
       try {
-        const response = await fetch(`${API_BASE_URL}/apps/${id}/launches`);
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/launches`);
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload?.error ?? `Failed to load launches (${response.status})`);
@@ -837,7 +839,7 @@ export function useCatalog(): UseCatalogResult {
         }));
       }
     },
-    []
+    [authorizedFetch]
   );
 
   const toggleLaunches = useCallback(
@@ -895,7 +897,7 @@ export function useCatalog(): UseCatalogResult {
         if (request.launchId) {
           requestPayload.launchId = request.launchId;
         }
-        const response = await fetch(`${API_BASE_URL}/apps/${id}/launch`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/launch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestPayload)
@@ -922,7 +924,7 @@ export function useCatalog(): UseCatalogResult {
         setLaunchingId(null);
       }
     },
-    [fetchLaunches, launchLists]
+    [authorizedFetch, fetchLaunches, launchLists]
   );
 
   const stopLaunch = useCallback(
@@ -930,7 +932,7 @@ export function useCatalog(): UseCatalogResult {
       setStoppingLaunchId(launchId);
       setLaunchErrors((prev) => ({ ...prev, [appId]: null }));
       try {
-        const response = await fetch(`${API_BASE_URL}/apps/${appId}/launches/${launchId}/stop`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${appId}/launches/${launchId}/stop`, {
           method: 'POST'
         });
         const payload = await response.json().catch(() => ({}));
@@ -955,14 +957,14 @@ export function useCatalog(): UseCatalogResult {
         setStoppingLaunchId(null);
       }
     },
-    [fetchLaunches, launchLists]
+    [authorizedFetch, fetchLaunches, launchLists]
   );
 
   const retryIngestion = useCallback(
     async (id: string) => {
       setRetryingId(id);
       try {
-        const response = await fetch(`${API_BASE_URL}/apps/${id}/retry`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/apps/${id}/retry`, {
           method: 'POST'
         });
         const payload = await response.json();
@@ -981,7 +983,7 @@ export function useCatalog(): UseCatalogResult {
         setRetryingId(null);
       }
     },
-    [fetchHistory, historyState]
+    [authorizedFetch, fetchHistory, historyState]
   );
 
   const handleRepositoryUpdate = useCallback((repository: AppRecord) => {

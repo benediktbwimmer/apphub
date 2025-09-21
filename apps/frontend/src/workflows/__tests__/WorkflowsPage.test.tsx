@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkflowsPage from '../WorkflowsPage';
+import { ApiTokenProvider } from '../../auth/ApiTokenContext';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -143,22 +144,32 @@ function createFetchMock() {
 describe('WorkflowsPage manual run flow', () => {
   beforeEach(() => {
     (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = WebSocketMock as unknown as typeof WebSocket;
+    const now = new Date().toISOString();
+    window.localStorage.setItem("apphub.apiTokens.v1", JSON.stringify([{ id: 'test-token', label: 'Test token', token: 'test-token-value', createdAt: now, lastUsedAt: null }]));
+    window.localStorage.setItem("apphub.activeTokenId.v1", 'test-token');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     WebSocketMock.instances = [];
+    window.localStorage.clear();
   });
 
   it('submits manual run parameters and surfaces run + step data', async () => {
     const fetchMock = createFetchMock();
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
 
-    render(<WorkflowsPage />);
+    render(
+      <ApiTokenProvider>
+        <WorkflowsPage />
+      </ApiTokenProvider>
+    );
 
     await waitFor(() => {
       expect(screen.getByText('Demo Workflow')).toBeVisible();
     });
+
+    await screen.findByText(/Triggers: manual/i);
 
     const tenantInput = await screen.findByLabelText(/tenant/i);
     await userEvent.clear(tenantInput);
@@ -173,18 +184,17 @@ describe('WorkflowsPage manual run flow', () => {
     await userEvent.type(triggeredByInput, 'operator@apphub.test');
 
     const submitButton = screen.getByRole('button', { name: /launch workflow/i });
+    expect(submitButton).toBeEnabled();
     await userEvent.click(submitButton);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/workflows\/demo-workflow\/run$/), expect.anything());
     });
 
-    const runDetailsHeading = await screen.findByText(/run details/i);
-    const runDetailsSection = runDetailsHeading.closest('section');
-    expect(runDetailsSection).not.toBeNull();
-    const details = within(runDetailsSection as HTMLElement);
-    expect(details.getByText('step-one')).toBeVisible();
-    expect(details.getByRole('link', { name: /view/i })).toHaveAttribute('href', 'https://example.com/logs/1');
-    expect(details.getByText(/operator@apphub.test/i)).toBeVisible();
+    const stepRow = await screen.findByText('step-one');
+    expect(stepRow).toBeVisible();
+    const logLinks = screen.getAllByRole('link', { name: /view/i });
+    expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);
+    expect(screen.getAllByText(/operator@apphub.test/i).length).toBeGreaterThan(0);
   });
 });

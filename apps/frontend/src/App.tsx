@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import CatalogPage from './catalog/CatalogPage';
+import { ApiTokenProvider } from './auth/ApiTokenContext';
 import Navbar from './components/Navbar';
 import { NavigationContext, type ActiveTab } from './components/NavigationContext';
 import ImportServiceManifest from './import/ImportServiceManifest';
 import SubmitApp from './submit/SubmitApp';
 import ServiceGallery from './services/ServiceGallery';
 import WorkflowsPage from './workflows/WorkflowsPage';
+import ApiAccessPage from './settings/ApiAccessPage';
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('catalog');

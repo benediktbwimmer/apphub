@@ -6,6 +6,8 @@ import {
   useState
 } from 'react';
 import { API_BASE_URL } from '../config';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useApiTokens } from '../auth/ApiTokenContext';
 import ManualRunPanel from './components/ManualRunPanel';
 import StatusBadge from './components/StatusBadge';
 import WorkflowFilters, { type FilterOption } from './components/WorkflowFilters';
@@ -447,6 +449,10 @@ export default function WorkflowsPage() {
   const selectedSlugRef = useRef<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
 
+  const authorizedFetch = useAuthorizedFetch();
+  const { activeToken } = useApiTokens();
+  const hasActiveToken = Boolean(activeToken);
+
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId]
@@ -518,7 +524,7 @@ export default function WorkflowsPage() {
     setWorkflowsLoading(true);
     setWorkflowsError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/workflows`);
+      const response = await authorizedFetch(`${API_BASE_URL}/workflows`);
       if (!response.ok) {
         throw new Error('Failed to load workflows');
       }
@@ -550,14 +556,14 @@ export default function WorkflowsPage() {
     } finally {
       setWorkflowsLoading(false);
     }
-  }, [seedRuntimeSummaryFromMetadata]);
+  }, [authorizedFetch, seedRuntimeSummaryFromMetadata]);
 
   const loadWorkflowDetail = useCallback(
     async (slug: string) => {
       setDetailLoading(true);
       setDetailError(null);
       try {
-        const response = await fetch(`${API_BASE_URL}/workflows/${slug}`);
+        const response = await authorizedFetch(`${API_BASE_URL}/workflows/${slug}`);
         if (!response.ok) {
           throw new Error('Failed to load workflow details');
         }
@@ -598,14 +604,14 @@ export default function WorkflowsPage() {
         setDetailLoading(false);
       }
     },
-    [updateRuntimeSummary]
+    [authorizedFetch, updateRuntimeSummary]
   );
 
   const loadRunSteps = useCallback(async (runId: string) => {
     setStepsLoading(true);
     setStepsError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/workflow-runs/${runId}/steps`);
+      const response = await authorizedFetch(`${API_BASE_URL}/workflow-runs/${runId}/steps`);
       if (!response.ok) {
         throw new Error('Failed to load workflow run steps');
       }
@@ -636,7 +642,7 @@ export default function WorkflowsPage() {
     } finally {
       setStepsLoading(false);
     }
-  }, [updateRuntimeSummary]);
+  }, [authorizedFetch, updateRuntimeSummary]);
 
   useEffect(() => {
     workflowsRef.current = workflows;
@@ -829,11 +835,15 @@ export default function WorkflowsPage() {
         setManualRunError('Select a workflow before launching a run.');
         return;
       }
+      if (!hasActiveToken) {
+        setManualRunError('Add an operator token in the API Access tab before launching workflows.');
+        return;
+      }
       setManualRunPending(true);
       setManualRunError(null);
       try {
         const slug = workflowDetailRef.current.slug;
-        const response = await fetch(`${API_BASE_URL}/workflows/${slug}/run`, {
+        const response = await authorizedFetch(`${API_BASE_URL}/workflows/${slug}/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -867,7 +877,7 @@ export default function WorkflowsPage() {
         setManualRunPending(false);
       }
     },
-    [updateRuntimeSummary]
+    [authorizedFetch, hasActiveToken, updateRuntimeSummary]
   );
 
   const handleRefresh = () => {
@@ -897,6 +907,12 @@ export default function WorkflowsPage() {
           Refresh
         </button>
       </div>
+
+      {!hasActiveToken && (
+        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+          Save an operator token in the API Access tab to enable workflow mutations and manual runs.
+        </div>
+      )}
 
       <WorkflowFilters
         searchTerm={searchTerm}
@@ -975,6 +991,7 @@ export default function WorkflowsPage() {
             onSubmit={handleManualRun}
             pending={manualRunPending}
             error={manualRunError}
+            authorized={hasActiveToken}
             lastRun={lastTriggeredRun}
           />
 

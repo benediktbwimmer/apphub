@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { API_BASE_URL } from '../config';
+import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { type ActiveTab, useNavigation } from './NavigationContext';
 
 interface NavbarProps {
@@ -12,11 +13,13 @@ const TAB_LABELS: Record<ActiveTab, string> = {
   apps: 'Apps',
   workflows: 'Workflows',
   submit: 'Submit App',
-  'import-manifest': 'Import Manifest'
+  'import-manifest': 'Import Manifest',
+  'api-access': 'API Access'
 };
 
 export default function Navbar({ variant = 'default', onExitFullscreen }: NavbarProps) {
   const { activeTab, setActiveTab } = useNavigation();
+  const authorizedFetch = useAuthorizedFetch();
   const isOverlay = variant === 'overlay';
   const [isNuking, setIsNuking] = useState(false);
   const [nukeError, setNukeError] = useState<string | null>(null);
@@ -83,7 +86,7 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
     setNukeError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/catalog/nuke`, { method: 'POST' });
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke`, { method: 'POST' });
       if (!response.ok) {
         const bodyText = await response.text();
         throw new Error(parseErrorMessage(bodyText));
@@ -96,7 +99,7 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
     } finally {
       setIsNuking(false);
     }
-  }, [isNuking, parseErrorMessage]);
+  }, [authorizedFetch, isNuking, parseErrorMessage]);
 
   const getTabClasses = (tab: ActiveTab) => {
     const isActive = activeTab === tab;
