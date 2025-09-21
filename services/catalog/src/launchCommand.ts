@@ -14,13 +14,37 @@ function getHostRootFallback(): string | null {
   return path.resolve(trimmed);
 }
 
-function buildFallbackPath(hostRoot: string, hostPath: string): string {
+function buildFallbackCandidates(hostRoot: string, hostPath: string): string[] {
   const normalized = path.resolve('/', hostPath);
-  if (normalized === '/') {
-    return hostRoot;
+  const relative = normalized === '/' ? '' : normalized.replace(/^\/+/, '');
+  const candidates: string[] = [];
+
+  const push = (candidate: string) => {
+    if (!candidate) {
+      return;
+    }
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  };
+
+  if (relative) {
+    push(path.join(hostRoot, relative));
+  } else {
+    push(hostRoot);
   }
-  const relative = normalized.replace(/^\/+/, '');
-  return path.join(hostRoot, relative);
+
+  const dockerDesktopRoot = path.join(hostRoot, 'host_mnt');
+  const dockerDesktopRootStat = statDirectory(dockerDesktopRoot);
+  if (dockerDesktopRootStat.exists && dockerDesktopRootStat.isDirectory) {
+    if (relative) {
+      push(path.join(dockerDesktopRoot, relative));
+    } else {
+      push(dockerDesktopRoot);
+    }
+  }
+
+  return candidates;
 }
 
 function statDirectory(targetPath: string): { exists: boolean; isDirectory: boolean } {
@@ -55,10 +79,15 @@ function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
     if (directStat.exists) {
       isValidDirectory = directStat.isDirectory;
     } else if (hostRootFallback) {
-      const fallbackPath = buildFallbackPath(hostRootFallback, hostPath);
-      const fallbackStat = statDirectory(fallbackPath);
-      if (fallbackStat.exists) {
+      for (const fallbackPath of buildFallbackCandidates(hostRootFallback, hostPath)) {
+        const fallbackStat = statDirectory(fallbackPath);
+        if (!fallbackStat.exists) {
+          continue;
+        }
         isValidDirectory = fallbackStat.isDirectory;
+        if (isValidDirectory) {
+          break;
+        }
       }
     }
     if (!isValidDirectory) {
