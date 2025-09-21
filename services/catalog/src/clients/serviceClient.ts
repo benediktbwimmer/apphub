@@ -1,6 +1,6 @@
 import { listServices, type JsonValue, type ServiceKind, type ServiceRecord, type ServiceStatus } from '../db';
 
-const SERVICE_CLIENT_TIMEOUT_MS = Number(process.env.SERVICE_CLIENT_TIMEOUT_MS ?? 5_000);
+const SERVICE_CLIENT_TIMEOUT_MS = Number(process.env.SERVICE_CLIENT_TIMEOUT_MS ?? 60_000);
 
 const STATUS_PRIORITY: Record<ServiceStatus, number> = {
   healthy: 0,
