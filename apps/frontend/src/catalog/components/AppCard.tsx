@@ -10,6 +10,7 @@ import {
   highlightSegments
 } from '../utils';
 import { FullscreenIcon, FullscreenOverlay, type FullscreenPreviewState } from './FullscreenPreview';
+import { MAX_LAUNCH_ENV_ROWS, collectAvailableEnvVars, mergeEnvSources } from './envUtils';
 import type {
   AppRecord,
   BuildTimelineState,
@@ -78,7 +79,6 @@ const getTagColors = (key: string) => {
   return TAG_COLOR_PALETTE[paletteIndex];
 };
 
-const MAX_LAUNCH_ENV_ROWS = 32;
 const ACTIVE_LAUNCH_STATUSES = new Set(['pending', 'starting', 'running', 'stopping']);
 
 type LaunchEnvRow = LaunchEnvVar & { id: string };
@@ -99,112 +99,6 @@ function rowsFromEnv(env: LaunchEnvVar[] = []): LaunchEnvRow[] {
   return env.map((entry, index) =>
     createEnvRow(entry, `existing-${index}`)
   );
-}
-
-const ENV_TAG_KEYS = new Set(['env', 'launch:env', 'launch-env', 'launch_env', 'env-var', 'envvar']);
-
-function normalizeEnvEntries(entries?: LaunchEnvVar[] | null): LaunchEnvVar[] {
-  if (!Array.isArray(entries) || entries.length === 0) {
-    return [];
-  }
-  const normalized: LaunchEnvVar[] = [];
-  for (const entry of entries) {
-    if (!entry || typeof entry.key !== 'string') {
-      continue;
-    }
-    const key = entry.key.trim();
-    if (!key) {
-      continue;
-    }
-    const value = typeof entry.value === 'string' ? entry.value : '';
-    normalized.push({ key, value });
-  }
-  return normalized;
-}
-
-function parseEnvTagValue(rawValue: string): LaunchEnvVar | null {
-  const trimmed = rawValue.trim();
-  if (!trimmed) {
-    return null;
-  }
-  for (const separator of ['=', ':']) {
-    const separatorIndex = trimmed.indexOf(separator);
-    if (separatorIndex > 0) {
-      const key = trimmed.slice(0, separatorIndex).trim();
-      const value = trimmed.slice(separatorIndex + 1).trim();
-      if (!key) {
-        return null;
-      }
-      return { key, value };
-    }
-  }
-  return { key: trimmed, value: '' };
-}
-
-function extractEnvFromTags(tags: TagKV[] = []): LaunchEnvVar[] {
-  const envVars: LaunchEnvVar[] = [];
-  for (const tag of tags) {
-    if (!tag || typeof tag.key !== 'string' || typeof tag.value !== 'string') {
-      continue;
-    }
-    const normalizedKey = tag.key.trim().toLowerCase();
-    if (!ENV_TAG_KEYS.has(normalizedKey)) {
-      continue;
-    }
-    const parsed = parseEnvTagValue(tag.value);
-    if (parsed) {
-      envVars.push(parsed);
-    }
-  }
-  return envVars;
-}
-
-function mergeEnvSources(primary: LaunchEnvVar[] = [], available: LaunchEnvVar[] = []): LaunchEnvVar[] {
-  const normalizedPrimary = normalizeEnvEntries(primary);
-  const normalizedAvailable = normalizeEnvEntries(available);
-  const seen = new Set<string>();
-  const merged: LaunchEnvVar[] = [];
-
-  for (const entry of normalizedPrimary) {
-    if (seen.has(entry.key)) {
-      continue;
-    }
-    seen.add(entry.key);
-    merged.push(entry);
-    if (merged.length >= MAX_LAUNCH_ENV_ROWS) {
-      return merged;
-    }
-  }
-
-  for (const entry of normalizedAvailable) {
-    if (seen.has(entry.key)) {
-      continue;
-    }
-    seen.add(entry.key);
-    merged.push(entry);
-    if (merged.length >= MAX_LAUNCH_ENV_ROWS) {
-      break;
-    }
-  }
-
-  return merged;
-}
-
-type EnvHints = {
-  tags: TagKV[];
-  availableEnv?: LaunchEnvVar[] | null;
-  availableLaunchEnv?: LaunchEnvVar[] | null;
-  launchEnvTemplates?: LaunchEnvVar[] | null;
-};
-
-function collectAvailableEnvVars(hints: EnvHints): LaunchEnvVar[] {
-  const storedHints = [
-    ...normalizeEnvEntries(hints.availableEnv),
-    ...normalizeEnvEntries(hints.availableLaunchEnv),
-    ...normalizeEnvEntries(hints.launchEnvTemplates)
-  ];
-  const tagEnv = extractEnvFromTags(hints.tags);
-  return mergeEnvSources(storedHints, tagEnv);
 }
 
 type AppCardProps = {
