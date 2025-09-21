@@ -15,6 +15,7 @@ type ManualRunPanelProps = {
   error: string | null;
   authorized: boolean;
   lastRun?: WorkflowRun | null;
+  unreachableServices: string[];
 };
 
 type FormMode = 'form' | 'json';
@@ -293,7 +294,15 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
   );
 }
 
-export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized, lastRun }: ManualRunPanelProps) {
+export function ManualRunPanel({
+  workflow,
+  onSubmit,
+  pending,
+  error,
+  authorized,
+  lastRun,
+  unreachableServices
+}: ManualRunPanelProps) {
   const schema = useMemo(() => toSchema(workflow?.parametersSchema), [workflow]);
   const defaultParameters = useMemo(() => {
     if (!workflow?.defaultParameters) {
@@ -414,6 +423,11 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
           {!authorized && (
             <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
               Add an operator token in the API Access tab before launching workflows.
+            </div>
+          )}
+          {unreachableServices.length > 0 && (
+            <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+              Cannot launch while the following services are unreachable: {unreachableServices.join(', ')}.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -542,7 +556,13 @@ export function ManualRunPanel({ workflow, onSubmit, pending, error, authorized,
             <button
               type="submit"
               className="inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!authorized || pending || parseError !== null || (validationErrors.length > 0 && mode === 'form')}
+              disabled={
+                !authorized ||
+                pending ||
+                parseError !== null ||
+                (validationErrors.length > 0 && mode === 'form') ||
+                unreachableServices.length > 0
+              }
             >
               {pending ? 'Launching…' : 'Launch workflow'}
             </button>

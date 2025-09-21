@@ -107,32 +107,51 @@ class WebSocketMock {
   }
 }
 
-function createFetchMock() {
+type FetchMockOptions = {
+  workflow?: WorkflowDefinition;
+  services?: { slug: string; status: string }[];
+  run?: WorkflowRun;
+  runSteps?: WorkflowRunStep[];
+};
+
+function createFetchMock(options?: FetchMockOptions) {
+  const workflow = options?.workflow ?? workflowDefinition;
+  const services = options?.services ?? [];
+  const run = options?.run ?? runResponse;
+  const steps = options?.runSteps ?? runStepsResponse;
+
   return vi.fn(async (...args: FetchArgs) => {
     const [input, init] = args;
     const url = typeof input === 'string' ? input : input.toString();
 
-    if (url.endsWith('/workflows') && (!init || init.method === undefined)) {
-      return new Response(JSON.stringify({ data: [workflowDefinition] }), { status: 200 });
-    }
-
-    if (url.endsWith(`/workflows/${workflowDefinition.slug}`) && (!init || init.method === undefined)) {
+    if (url.endsWith('/services')) {
       return new Response(
-        JSON.stringify({ data: { workflow: workflowDefinition, runs: [] } }),
+        JSON.stringify({ data: services }),
         { status: 200 }
       );
     }
 
-    if (url.endsWith(`/workflows/${workflowDefinition.slug}/run`) && init?.method === 'POST') {
+    if (url.endsWith('/workflows') && (!init || init.method === undefined)) {
+      return new Response(JSON.stringify({ data: [workflow] }), { status: 200 });
+    }
+
+    if (url.endsWith(`/workflows/${workflow.slug}`) && (!init || init.method === undefined)) {
+      return new Response(
+        JSON.stringify({ data: { workflow, runs: [] } }),
+        { status: 200 }
+      );
+    }
+
+    if (url.endsWith(`/workflows/${workflow.slug}/run`) && init?.method === 'POST') {
       const body = init.body ? JSON.parse(init.body as string) : {};
       expect(body.parameters).toEqual({ tenant: 'umbrella', retries: 2 });
       expect(body.triggeredBy).toBe('operator@apphub.test');
-      return new Response(JSON.stringify({ data: runResponse }), { status: 202 });
+      return new Response(JSON.stringify({ data: run }), { status: 202 });
     }
 
-    if (url.endsWith(`/workflow-runs/${runResponse.id}/steps`)) {
+    if (url.endsWith(`/workflow-runs/${run.id}/steps`)) {
       return new Response(
-        JSON.stringify({ data: { run: runResponse, steps: runStepsResponse } }),
+        JSON.stringify({ data: { run, steps } }),
         { status: 200 }
       );
     }
@@ -196,5 +215,46 @@ describe('WorkflowsPage manual run flow', () => {
     const logLinks = screen.getAllByRole('link', { name: /view/i });
     expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);
     expect(screen.getAllByText(/operator@apphub.test/i).length).toBeGreaterThan(0);
+  });
+
+  it('disables manual runs when a required service is unreachable', async () => {
+    const serviceWorkflow: WorkflowDefinition = {
+      ...workflowDefinition,
+      id: 'wf-service',
+      slug: 'service-workflow',
+      name: 'Service Workflow',
+      steps: [
+        ...workflowDefinition.steps,
+        {
+          id: 'service-step',
+          name: 'Reach service',
+          serviceSlug: 'demo-service',
+          dependsOn: []
+        }
+      ]
+    };
+
+    const fetchMock = createFetchMock({
+      workflow: serviceWorkflow,
+      services: [{ slug: 'demo-service', status: 'unreachable' }]
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    render(
+      <ApiTokenProvider>
+        <WorkflowsPage />
+      </ApiTokenProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Service Workflow')).toBeVisible();
+    });
+
+    const warning = await screen.findByText(/cannot launch while the following services are unreachable/i);
+    expect(warning).toBeVisible();
+    expect(warning).toHaveTextContent('demo-service');
+
+    const submitButton = await screen.findByRole('button', { name: /launch workflow/i });
+    expect(submitButton).toBeDisabled();
   });
 });
