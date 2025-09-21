@@ -42,7 +42,6 @@ import {
   type ServiceRecord,
   type ServiceStatusUpdate,
   type ServiceUpsertInput,
-  type JsonValue,
   listJobDefinitions,
   createJobDefinition,
   getJobDefinitionBySlug,
@@ -112,6 +111,22 @@ import {
   buildWorkflowDagMetadata,
   WorkflowDagValidationError
 } from './workflows/dag';
+import { runCodexGeneration, type CodexGenerationMode } from './ai/codexRunner';
+import {
+  jobDefinitionCreateSchema,
+  jobDefinitionUpdateSchema,
+  jobRetryPolicySchema,
+  jsonObjectSchema as sharedJsonObjectSchema,
+  jsonValueSchema as sharedJsonValueSchema,
+  workflowDefinitionCreateSchema,
+  workflowDefinitionUpdateSchema,
+  workflowServiceRequestSchema,
+  workflowStepSchema,
+  workflowTriggerSchema,
+  type WorkflowJsonValue,
+  type WorkflowStepInput,
+  type WorkflowTriggerInput
+} from './workflows/zodSchemas';
 
 type SearchQuery = {
   q?: string;
@@ -123,11 +138,11 @@ type SearchQuery = {
   relevance?: string;
 };
 
-const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
-);
+type JsonValue = WorkflowJsonValue;
 
-const jsonObjectSchema = z.record(jsonValueSchema);
+const jsonValueSchema: z.ZodType<JsonValue> = sharedJsonValueSchema as unknown as z.ZodType<JsonValue>;
+
+const jsonObjectSchema = sharedJsonObjectSchema as unknown as z.ZodRecord<z.ZodString, z.ZodType<JsonValue>>;
 
 const tagQuerySchema = z
   .string()
@@ -250,35 +265,6 @@ const createLaunchSchema = launchRequestSchema.extend({
   repositoryId: z.string().min(1)
 });
 
-const jobRetryPolicySchema = z
-  .object({
-    maxAttempts: z.number().int().min(1).max(10).optional(),
-    strategy: z.enum(['none', 'fixed', 'exponential']).optional(),
-    initialDelayMs: z.number().int().min(0).max(86_400_000).optional(),
-    maxDelayMs: z.number().int().min(0).max(86_400_000).optional(),
-    jitter: z.enum(['none', 'full', 'equal']).optional()
-  })
-  .strict();
-
-const jobDefinitionCreateSchema = z
-  .object({
-    slug: z
-      .string()
-      .min(1)
-      .max(100)
-      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
-    name: z.string().min(1),
-    version: z.number().int().min(1).optional(),
-    type: z.enum(['batch', 'service-triggered', 'manual']),
-    entryPoint: z.string().min(1),
-    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
-    retryPolicy: jobRetryPolicySchema.optional(),
-    parametersSchema: jsonObjectSchema.optional(),
-    defaultParameters: jsonObjectSchema.optional(),
-    metadata: jsonValueSchema.optional()
-  })
-  .strict();
-
 const jobRunRequestSchema = z
   .object({
     parameters: jsonValueSchema.optional(),
@@ -340,121 +326,13 @@ const jobBundleUpdateSchema = z
     message: 'At least one field must be provided'
   });
 
-const workflowTriggerSchema = z
+const aiBuilderSuggestSchema = z
   .object({
-    type: z.string().min(1),
-    options: jsonValueSchema.optional()
+    mode: z.enum(['workflow', 'job']),
+    prompt: z.string().min(1).max(2_000),
+    additionalNotes: z.string().max(2_000).optional()
   })
   .strict();
-
-const secretReferenceSchema = z.union([
-  z
-    .object({
-      source: z.literal('env'),
-      key: z.string().min(1)
-    })
-    .strict(),
-  z
-    .object({
-      source: z.literal('store'),
-      key: z.string().min(1),
-      version: z.string().min(1).optional()
-    })
-    .strict()
-]);
-
-const serviceHeaderValueSchema = z.union([
-  z.string().min(1),
-  z
-    .object({
-      secret: secretReferenceSchema,
-      prefix: z.string().min(1).optional()
-    })
-    .strict()
-]);
-
-const workflowServiceRequestSchema = z
-  .object({
-    path: z.string().min(1),
-    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).optional(),
-    headers: z.record(serviceHeaderValueSchema).optional(),
-    query: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
-    body: jsonValueSchema.nullable().optional()
-  })
-  .strict();
-
-const workflowJobStepSchema = z
-  .object({
-    id: z.string().min(1),
-    name: z.string().min(1),
-    type: z.literal('job').optional(),
-    jobSlug: z.string().min(1),
-    description: z.string().min(1).optional(),
-    dependsOn: z.array(z.string().min(1)).max(25).optional(),
-    parameters: jsonValueSchema.optional(),
-    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
-    retryPolicy: jobRetryPolicySchema.optional(),
-    storeResultAs: z.string().min(1).max(200).optional()
-  })
-  .strict();
-
-const workflowServiceStepSchema = z
-  .object({
-    id: z.string().min(1),
-    name: z.string().min(1),
-    type: z.literal('service'),
-    serviceSlug: z.string().min(1),
-    description: z.string().min(1).optional(),
-    dependsOn: z.array(z.string().min(1)).max(25).optional(),
-    parameters: jsonValueSchema.optional(),
-    timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
-    retryPolicy: jobRetryPolicySchema.optional(),
-    requireHealthy: z.boolean().optional(),
-    allowDegraded: z.boolean().optional(),
-    captureResponse: z.boolean().optional(),
-    storeResponseAs: z.string().min(1).max(200).optional(),
-    request: workflowServiceRequestSchema
-  })
-  .strict();
-
-const workflowStepSchema = z.union([workflowJobStepSchema, workflowServiceStepSchema]);
-
-const workflowDefinitionCreateSchema = z
-  .object({
-    slug: z
-      .string()
-      .min(1)
-      .max(100)
-      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
-    name: z.string().min(1),
-    version: z.number().int().min(1).optional(),
-    description: z.string().min(1).optional(),
-    steps: z.array(workflowStepSchema).min(1).max(100),
-    triggers: z.array(workflowTriggerSchema).optional(),
-    parametersSchema: jsonObjectSchema.optional(),
-    defaultParameters: jsonValueSchema.optional(),
-    metadata: jsonValueSchema.optional()
-  })
-  .strict();
-
-const workflowDefinitionUpdateSchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    version: z.number().int().min(1).optional(),
-    description: z.string().min(1).nullable().optional(),
-    steps: z.array(workflowStepSchema).min(1).max(100).optional(),
-    triggers: z.array(workflowTriggerSchema).optional(),
-    parametersSchema: jsonObjectSchema.optional(),
-    defaultParameters: jsonValueSchema.optional(),
-    metadata: jsonValueSchema.nullable().optional()
-  })
-  .strict()
-  .refine((payload) => Object.keys(payload).length > 0, {
-    message: 'At least one field must be provided'
-  });
-
-type WorkflowStepInput = z.infer<typeof workflowStepSchema>;
-type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
 
 function normalizeWorkflowDependsOn(dependsOn?: string[]) {
   if (!dependsOn) {
@@ -509,6 +387,79 @@ function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
     type: trigger.type,
     options: trigger.options ?? null
   }));
+}
+
+function summarizeJobs(jobs: JobDefinitionRecord[], limit = 12): string {
+  if (jobs.length === 0) {
+    return '- none registered';
+  }
+  return jobs
+    .slice(0, limit)
+    .map((job) => {
+      const timeout = job.timeoutMs ? `${job.timeoutMs}ms` : 'default';
+      return `- ${job.slug} (type: ${job.type}, v${job.version}, entry: ${job.entryPoint}, timeout: ${timeout})`;
+    })
+    .join('\n');
+}
+
+function summarizeServices(services: ServiceRecord[], limit = 12): string {
+  if (services.length === 0) {
+    return '- none registered';
+  }
+  return services
+    .slice(0, limit)
+    .map((service) => {
+      const status = service.status?.toLowerCase?.() ?? 'unknown';
+      const base = service.baseUrl ? service.baseUrl : 'no base URL';
+      return `- ${service.slug} (${service.kind ?? 'service'}, status: ${status}, base: ${base})`;
+    })
+    .join('\n');
+}
+
+function summarizeWorkflows(workflows: WorkflowDefinitionRecord[], limit = 8): string {
+  if (workflows.length === 0) {
+    return '- none registered';
+  }
+  return workflows
+    .slice(0, limit)
+    .map((workflow) => {
+      const stepCount = workflow.steps?.length ?? 0;
+      return `- ${workflow.slug} (v${workflow.version}, steps: ${stepCount}, name: ${workflow.name})`;
+    })
+    .join('\n');
+}
+
+function buildAiMetadataSummary(data: {
+  jobs: JobDefinitionRecord[];
+  services: ServiceRecord[];
+  workflows: WorkflowDefinitionRecord[];
+}): string {
+  const lines: string[] = [];
+  lines.push('## Jobs');
+  lines.push(summarizeJobs(data.jobs));
+  if (data.jobs.length > 12) {
+    lines.push(`- … ${data.jobs.length - 12} more jobs omitted`);
+  }
+  lines.push('');
+  lines.push('## Services');
+  lines.push(summarizeServices(data.services));
+  if (data.services.length > 12) {
+    lines.push(`- … ${data.services.length - 12} more services omitted`);
+  }
+  lines.push('');
+  lines.push('## Workflows');
+  lines.push(summarizeWorkflows(data.workflows));
+  if (data.workflows.length > 8) {
+    lines.push(`- … ${data.workflows.length - 8} more workflows omitted`);
+  }
+  return lines.join('\n');
+}
+
+function truncate(value: string, limit = 4_000): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}…`;
 }
 
 const workflowRunRequestSchema = z
@@ -1992,6 +1943,108 @@ export async function buildServer() {
       const message = err instanceof Error ? err.message : 'failed to open artifact';
       request.log.error({ err, slug: parseParams.data.slug, version: parseParams.data.version }, 'Failed to stream bundle artifact');
       reply.status(404);
+      return { error: message };
+    }
+  });
+
+  app.post('/ai/builder/suggest', async (request, reply) => {
+    const auth = await authorizeOperatorAction(request, {
+      action: 'ai.builder.suggest',
+      resource: 'ai-builder',
+      requiredScopes: []
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const identity = auth.identity;
+    const hasWorkflowScope = identity.scopes.has('workflows:write');
+    const hasJobScope = identity.scopes.has('jobs:write');
+    if (!hasWorkflowScope && !hasJobScope) {
+      reply.status(403);
+      await auth.log('failed', { reason: 'insufficient_scope' });
+      return { error: 'forbidden' };
+    }
+
+    const parseBody = aiBuilderSuggestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const mode = payload.mode as CodexGenerationMode;
+
+    try {
+      const [jobs, services, workflows] = await Promise.all([
+        listJobDefinitions(),
+        listServices(),
+        listWorkflowDefinitions()
+      ]);
+
+      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+
+      const codexResult = await runCodexGeneration({
+        mode,
+        operatorRequest: payload.prompt,
+        metadataSummary,
+        additionalNotes: payload.additionalNotes ?? undefined
+      });
+
+      const issues: string[] = [];
+      let suggestion: unknown = null;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(codexResult.output);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        issues.push(`Failed to parse JSON output: ${message}`);
+        parsed = null;
+      }
+
+      if (parsed !== null) {
+        const schema = mode === 'workflow' ? workflowDefinitionCreateSchema : jobDefinitionCreateSchema;
+        const validation = schema.safeParse(parsed);
+        if (validation.success) {
+          suggestion = validation.data;
+        } else {
+          for (const issue of validation.error.errors) {
+            const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+            issues.push(`${path}: ${issue.message}`);
+          }
+        }
+      }
+
+      const valid = suggestion !== null && issues.length === 0;
+
+      await auth.log('succeeded', {
+        mode,
+        valid,
+        issueCount: issues.length
+      });
+
+      reply.status(200);
+      return {
+        data: {
+          mode,
+          raw: codexResult.output,
+          suggestion: suggestion ?? null,
+          validation: {
+            valid,
+            errors: issues
+          },
+          stdout: truncate(codexResult.stdout),
+          stderr: truncate(codexResult.stderr),
+          metadataSummary
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate AI suggestion';
+      reply.status(502);
+      await auth.log('failed', { reason: 'codex_failure', message });
       return { error: message };
     }
   });

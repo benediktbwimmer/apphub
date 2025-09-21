@@ -223,6 +223,67 @@ export function workflowDefinitionToDraft(workflow: WorkflowDefinition): Workflo
   return draft;
 }
 
+export function workflowCreateInputToDraft(input: WorkflowCreateInput): WorkflowDraft {
+  const tags = parseTags(input.metadata ?? null);
+  const ownerName = parseOwnerName(input.metadata ?? null);
+  const ownerContact = parseOwnerContact(input.metadata ?? null);
+  const versionNote = parseVersionNote(input.metadata ?? null);
+
+  const steps: WorkflowDraftStep[] = input.steps.map((step) => {
+    const type: WorkflowDraftStepType = step.type === 'service' ? 'service' : 'job';
+    const dependsOn = ensureArray(step.dependsOn);
+    const parameters = cloneParameters(step.parameters) ?? {};
+
+    const draftStep: WorkflowDraftStep = {
+      id: step.id,
+      name: step.name,
+      type,
+      jobSlug: step.jobSlug,
+      serviceSlug: step.serviceSlug,
+      description: step.description ?? null,
+      dependsOn,
+      parameters,
+      timeoutMs: typeof step.timeoutMs === 'number' ? step.timeoutMs : null,
+      retryPolicy: step.retryPolicy ?? null,
+      storeResultAs: step.storeResultAs,
+      requireHealthy: step.requireHealthy,
+      allowDegraded: step.allowDegraded,
+      captureResponse: step.captureResponse,
+      storeResponseAs: step.storeResponseAs,
+      request: step.type === 'service' ? step.request : undefined,
+      parametersText: stringifyJson(parameters)
+    } satisfies WorkflowDraftStep;
+
+    if (step.type === 'service') {
+      const requestBody = toRecord(step.request)?.body ?? null;
+      draftStep.requestBodyText = stringifyJson(requestBody);
+    }
+
+    return draftStep;
+  });
+
+  return {
+    slug: input.slug,
+    name: input.name,
+    description: input.description ?? null,
+    ownerName,
+    ownerContact,
+    tags,
+    tagsInput: tags.join(', '),
+    version: input.version ?? 1,
+    versionNote,
+    steps,
+    triggers: input.triggers && input.triggers.length > 0 ? input.triggers : [{ type: 'manual' }],
+    parametersSchema: toRecord(input.parametersSchema) ?? {},
+    defaultParameters: cloneParameters(input.defaultParameters) ?? {},
+    metadata: (input.metadata as WorkflowMetadata | null) ?? null,
+    parametersSchemaText: stringifyJson(input.parametersSchema ?? {}),
+    parametersSchemaError: null,
+    defaultParametersText: stringifyJson(input.defaultParameters ?? {}),
+    defaultParametersError: null
+  } satisfies WorkflowDraft;
+}
+
 export function createEmptyDraft(): WorkflowDraft {
   return {
     slug: '',

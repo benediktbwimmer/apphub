@@ -108,7 +108,29 @@ WORKFLOW_FAILURE_ALERT_THRESHOLD=3                     # Consecutive failures re
 WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15               # Sliding window (minutes) for workflow failure alert evaluation
 WORKFLOW_ALERT_WEBHOOK_URL=                            # Optional webhook invoked when workflow alerts trigger
 WORKFLOW_ALERT_WEBHOOK_TOKEN=                          # Bearer token supplied with alert webhook requests (optional)
+APPHUB_CODEX_CLI=codex                                 # Path to the Codex CLI executable (default assumes codex on PATH)
+APPHUB_CODEX_EXEC_OPTS=                                # Additional arguments appended before running `codex exec`
+APPHUB_CODEX_DEBUG_WORKSPACES=0                        # Set to 1 to retain Codex workspaces for inspection
+APPHUB_CODEX_MOCK_DIR=                                 # Directory containing workflow.json/job.json fixtures for deterministic runs
 ```
+
+### Running the Codex CLI from macOS hosts
+
+The AI builder shells out to the Codex CLI. When the catalog service runs inside Docker (or another Linux VM) and the CLI lives on
+your macOS host, bind-mount the host binary and point `APPHUB_CODEX_CLI` at its in-container path:
+
+```bash
+docker run \
+  --rm \
+  -p 4000:4000 \
+  -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
+  -v "$(which codex)":/usr/local/bin/codex:ro \
+  -v "$(pwd)":/app \
+  apphub-catalog:dev
+```
+
+Adjust the source path if `codex` is installed elsewhere (for example, `/usr/local/Cellar/codex/bin/codex`). With the mount in
+place the API—and the `ai-orchestrator` bundle—gain transparent access to the host CLI. Additional guidance lives in `docs/ai-builder.md`.
 
 Operator tokens are defined as JSON objects with a `subject`, `token`, and optional `scopes`. Tokens default to full access when
 no scopes are provided. A starter template lives at `services/catalog/config/operatorTokens.example.json`.
@@ -198,11 +220,13 @@ docker run \
   -v "$(pwd)/services/catalog/config:/app/config:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /:/root-fs:ro \
+  -v "$(which codex)":/usr/local/bin/codex:ro \
   -e APPHUB_HOST_ROOT=/root-fs \
   -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
   -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
   -e WORKFLOW_FAILURE_ALERT_THRESHOLD=3 \
   -e WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15 \
+  -e APPHUB_CODEX_CLI=/usr/local/bin/codex \
   apphub
 ```
 
