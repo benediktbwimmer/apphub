@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Buffer } from 'node:buffer';
-import { promises as fs, constants as fsConstants } from 'node:fs';
+import { promises as fs, constants as fsConstants, type Stats } from 'node:fs';
 import { registerJobHandler, type JobRunContext, type JobResult } from './runtime';
 
 const HOST_ROOT_MOUNT = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? '/root-fs';
@@ -24,7 +24,7 @@ type ResolvedPath = {
 };
 
 type ResolvedReadablePath = ResolvedPath & {
-  stats: Awaited<ReturnType<typeof fs.stat>>;
+  stats: Stats;
 };
 
 function normalizeEncoding(candidate: unknown, fallback: BufferEncoding = DEFAULT_ENCODING): BufferEncoding {
@@ -74,7 +74,7 @@ async function resolveReadableFile(hostPath: string): Promise<ResolvedReadablePa
 
   for (const candidate of candidates) {
     try {
-      const stats = await fs.stat(candidate);
+      const stats = await fs.stat(candidate, { bigint: false });
       if (!stats.isFile()) {
         errors.push(`${candidate} is not a regular file`);
         continue;

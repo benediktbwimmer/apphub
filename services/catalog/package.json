@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "lint": "tsc --noEmit",
     "build": "tsc",
     "start": "node dist/server.js",
     "ingest": "tsx src/ingestionWorker.ts",

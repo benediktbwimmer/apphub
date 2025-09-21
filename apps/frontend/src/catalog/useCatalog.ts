@@ -397,7 +397,7 @@ export function useCatalog(): UseCatalogResult {
 
       await fetchHistory(id);
     },
-    [authorizedFetch, fetchHistory, historyState]
+    [fetchHistory, historyState]
   );
 
   const fetchBuilds = useCallback(

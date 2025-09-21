@@ -7,7 +7,7 @@ import {
 } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { useApiTokens } from '../auth/ApiTokenContext';
+import { useApiTokens } from '../auth/useApiTokens';
 import ManualRunPanel from './components/ManualRunPanel';
 import StatusBadge from './components/StatusBadge';
 import WorkflowFilters, { type FilterOption } from './components/WorkflowFilters';

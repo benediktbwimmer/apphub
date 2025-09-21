@@ -1,13 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
-
-type StoredApiToken = {
-  id: string;
-  label: string;
-  token: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-};
+import { ApiTokenContext, type ApiTokenContextValue, type StoredApiToken } from './apiTokenContextShared';
 
 type PersistedState = {
   tokens: StoredApiToken[];
@@ -22,18 +15,6 @@ type TokenInput = {
 type TokenUpdate = {
   label?: string;
   token?: string;
-};
-
-type ApiTokenContextValue = {
-  tokens: StoredApiToken[];
-  activeTokenId: string | null;
-  activeToken: StoredApiToken | null;
-  addToken: (input: TokenInput) => string;
-  updateToken: (id: string, updates: TokenUpdate) => void;
-  removeToken: (id: string) => void;
-  setActiveToken: (id: string | null) => void;
-  clearTokens: () => void;
-  touchToken: (id: string) => void;
 };
 
 const STORAGE_KEY = 'apphub.apiTokens.v1';
@@ -121,8 +102,6 @@ function createId(): string {
   }
   return `tok_${Math.random().toString(36).slice(2, 10)}`;
 }
-
-export const ApiTokenContext = createContext<ApiTokenContextValue | null>(null);
 
 export function ApiTokenProvider({ children }: PropsWithChildren<unknown>) {
   const initial = useRef(loadInitialState());
@@ -213,13 +192,3 @@ export function ApiTokenProvider({ children }: PropsWithChildren<unknown>) {
 
   return <ApiTokenContext.Provider value={value}>{children}</ApiTokenContext.Provider>;
 }
-
-export function useApiTokens(): ApiTokenContextValue {
-  const context = useContext(ApiTokenContext);
-  if (!context) {
-    throw new Error('useApiTokens must be used within an ApiTokenProvider');
-  }
-  return context;
-}
-
-export type { StoredApiToken, ApiTokenContextValue };

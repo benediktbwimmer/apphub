@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useApiTokens } from './ApiTokenContext';
+import { useApiTokens } from './useApiTokens';
 
 type FetchArgs = Parameters<typeof fetch>;
 
