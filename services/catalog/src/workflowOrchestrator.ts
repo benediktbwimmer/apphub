@@ -1180,7 +1180,8 @@ async function executeStep(
   }
 
   const baseScope = buildTemplateScope(run, context);
-  const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
+  const stepParameters = 'parameters' in step ? (step.parameters ?? null) : null;
+  const mergedParameters = mergeParameters(run.parameters, stepParameters);
   const resolutionScope = runtimeStep?.fanOut
     ? withStepScope(baseScope, step.id, mergedParameters as JsonValue, runtimeStep.fanOut)
     : withStepScope(baseScope, step.id, mergedParameters as JsonValue);
@@ -1313,11 +1314,8 @@ async function executeFanOutStep(
   });
 
   const parentDependencies = Array.isArray(step.dependsOn) ? step.dependsOn.filter(Boolean) : [];
-  const templateDependencies = Array.isArray(step.template.dependsOn)
-    ? step.template.dependsOn.filter(Boolean)
-    : [];
   const baseDependencies = Array.from(
-    new Set([...parentDependencies, ...templateDependencies].filter((dep) => dep !== step.id))
+    new Set(parentDependencies.filter((dep) => dep && dep !== step.id))
   );
 
   const childSteps: FanOutChildStep[] = items.map((item, index) => {
@@ -1332,9 +1330,8 @@ async function executeFanOutStep(
     };
 
     if (step.template.type === 'service') {
-      const { dependents: _ignored, ...rest } = step.template;
       const definition: WorkflowServiceStepDefinition = {
-        ...rest,
+        ...step.template,
         id: childId,
         name: childName,
         dependsOn: baseDependencies.length > 0 ? baseDependencies : undefined
@@ -1345,9 +1342,8 @@ async function executeFanOutStep(
       } satisfies FanOutChildStep;
     }
 
-    const { dependents: _ignoredJob, ...restJob } = step.template;
     const definition: WorkflowJobStepDefinition = {
-      ...restJob,
+      ...step.template,
       id: childId,
       name: childName,
       dependsOn: baseDependencies.length > 0 ? baseDependencies : undefined

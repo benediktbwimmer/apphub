@@ -96,6 +96,19 @@ export type WorkflowUpdateInput = {
   metadata?: WorkflowMetadataInput;
 };
 
+export type JobDefinitionCreateInput = {
+  slug: string;
+  name: string;
+  version?: number;
+  type: 'batch' | 'service-triggered' | 'manual';
+  entryPoint: string;
+  timeoutMs?: number | null;
+  retryPolicy?: unknown;
+  parametersSchema?: Record<string, unknown>;
+  defaultParameters?: Record<string, unknown>;
+  metadata?: unknown;
+};
+
 export type JobDefinitionSummary = {
   id: string;
   slug: string;
@@ -277,6 +290,27 @@ export async function listJobDefinitions(fetcher: AuthorizedFetch): Promise<JobD
     registryRef: job.registryRef ?? null,
     timeoutMs: job.timeoutMs ?? null
   }));
+}
+
+export async function createJobDefinition(
+  fetcher: AuthorizedFetch,
+  input: JobDefinitionCreateInput
+): Promise<JobDefinitionSummary> {
+  const response = await fetcher(`${API_BASE_URL}/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  await ensureOk(response, 'Failed to create job definition');
+  const payload = await parseJson<{ data?: JobDefinitionSummary }>(response);
+  if (!payload.data) {
+    throw new ApiError('Invalid job response', response.status, payload);
+  }
+  return {
+    ...payload.data,
+    registryRef: payload.data.registryRef ?? null,
+    timeoutMs: payload.data.timeoutMs ?? null
+  } satisfies JobDefinitionSummary;
 }
 
 export async function listServices(fetcher: AuthorizedFetch): Promise<ServiceSummary[]> {

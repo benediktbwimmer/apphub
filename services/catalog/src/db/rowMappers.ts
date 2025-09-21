@@ -28,6 +28,7 @@ import {
   type WorkflowStepDefinition,
   type WorkflowFanOutStepDefinition,
   type WorkflowFanOutTemplateDefinition,
+  type WorkflowJobStepDefinition,
   type WorkflowServiceStepDefinition,
   type WorkflowServiceRequestHeaderValue,
   type WorkflowServiceRequestDefinition,
