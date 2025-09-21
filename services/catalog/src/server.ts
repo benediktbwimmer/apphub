@@ -72,6 +72,8 @@ import {
   enqueueWorkflowRun,
   isInlineQueueMode
 } from './queue';
+import { authorizeOperatorAction, type OperatorScope } from './auth/tokens';
+import { computeRunMetrics } from './observability/metrics';
 import { resolveLaunchInternalPort } from './docker';
 import { runLaunchStart, runLaunchStop } from './launchRunner';
 import { executeJobRun } from './jobs/runtime';
@@ -151,6 +153,11 @@ const searchQuerySchema = z.object({
     .preprocess((val) => (typeof val === 'string' ? val : undefined), z.string().trim())
     .optional()
 });
+
+const JOB_WRITE_SCOPES: OperatorScope[] = ['jobs:write'];
+const JOB_RUN_SCOPES: OperatorScope[] = ['jobs:run'];
+const WORKFLOW_WRITE_SCOPES: OperatorScope[] = ['workflows:write'];
+const WORKFLOW_RUN_SCOPES: OperatorScope[] = ['workflows:run'];
 
 const suggestQuerySchema = z.object({
   prefix: z
@@ -271,12 +278,21 @@ const workflowTriggerSchema = z
   })
   .strict();
 
-const secretReferenceSchema = z
-  .object({
-    source: z.literal('env'),
-    key: z.string().min(1)
-  })
-  .strict();
+const secretReferenceSchema = z.union([
+  z
+    .object({
+      source: z.literal('env'),
+      key: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      source: z.literal('store'),
+      key: z.string().min(1),
+      version: z.string().min(1).optional()
+    })
+    .strict()
+]);
 
 const serviceHeaderValueSchema = z.union([
   z.string().min(1),
@@ -1098,6 +1114,18 @@ export async function buildServer() {
 
   app.get('/health', async () => ({ status: 'ok' }));
 
+  app.get('/metrics', async (request, reply) => {
+    try {
+      const metrics = await computeRunMetrics();
+      reply.status(200);
+      return { data: metrics };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to compute run metrics');
+      reply.status(500);
+      return { error: 'Failed to compute metrics' };
+    }
+  });
+
   app.get('/jobs', async (_request, reply) => {
     const jobs = await listJobDefinitions();
     reply.status(200);
@@ -1105,9 +1133,20 @@ export async function buildServer() {
   });
 
   app.post('/jobs', async (request, reply) => {
+    const auth = await authorizeOperatorAction(request, {
+      action: 'jobs.create',
+      resource: 'jobs',
+      requiredScopes: JOB_WRITE_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
     const parseBody = jobDefinitionCreateSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
       reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
       return { error: parseBody.error.flatten() };
     }
 
@@ -1127,14 +1166,18 @@ export async function buildServer() {
         metadata: payload.metadata ?? null
       });
       reply.status(201);
+      await auth.log('succeeded', { jobSlug: definition.slug, jobId: definition.id });
       return { data: serializeJobDefinition(definition) };
     } catch (err) {
       if (err instanceof Error && /already exists/i.test(err.message)) {
         reply.status(409);
+        await auth.log('failed', { reason: 'duplicate_job', message: err.message });
         return { error: err.message };
       }
+      const message = err instanceof Error ? err.message : 'Failed to create job definition';
       request.log.error({ err }, 'Failed to create job definition');
       reply.status(500);
+      await auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create job definition' };
     }
   });
@@ -1176,21 +1219,37 @@ export async function buildServer() {
   });
 
   app.post('/jobs/:slug/run', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'jobs.run',
+      resource: `job:${candidateSlug}`,
+      requiredScopes: JOB_RUN_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
     const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
     if (!parseParams.success) {
       reply.status(400);
+      await auth.log('failed', { reason: 'invalid_params', details: parseParams.error.flatten() });
       return { error: parseParams.error.flatten() };
     }
 
     const parseBody = jobRunRequestSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
       reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten(), jobSlug: parseParams.data.slug });
       return { error: parseBody.error.flatten() };
     }
 
     const job = await getJobDefinitionBySlug(parseParams.data.slug);
     if (!job) {
       reply.status(404);
+      await auth.log('failed', { reason: 'job_not_found', jobSlug: parseParams.data.slug });
       return { error: 'job not found' };
     }
 
@@ -1207,15 +1266,29 @@ export async function buildServer() {
 
     let latestRun: JobRunRecord | null = run;
 
+    const markFailureAndRespond = async (
+      statusCode: number,
+      message: string,
+      reason: string = 'validation_error'
+    ) => {
+      reply.status(statusCode);
+      await auth.log('failed', {
+        reason,
+        jobSlug: job.slug,
+        runId: run.id,
+        message
+      });
+      return { error: message };
+    };
+
     try {
       if (job.slug === 'repository-ingest') {
         const repositoryId = getStringParameter(run.parameters, 'repositoryId');
         if (!repositoryId) {
-          reply.status(400);
           await completeJobRun(run.id, 'failed', {
             errorMessage: 'repositoryId parameter is required'
           });
-          return { error: 'repositoryId parameter is required' };
+          return markFailureAndRespond(400, 'repositoryId parameter is required', 'missing_parameter');
         }
         latestRun = await enqueueRepositoryIngestion(repositoryId, {
           jobRunId: run.id,
@@ -1224,11 +1297,10 @@ export async function buildServer() {
       } else if (job.slug === 'repository-build') {
         const buildId = getStringParameter(run.parameters, 'buildId');
         if (!buildId) {
-          reply.status(400);
           await completeJobRun(run.id, 'failed', {
             errorMessage: 'buildId parameter is required'
           });
-          return { error: 'buildId parameter is required' };
+          return markFailureAndRespond(400, 'buildId parameter is required', 'missing_parameter');
         }
         let repositoryId = getStringParameter(run.parameters, 'repositoryId');
         if (!repositoryId) {
@@ -1236,11 +1308,10 @@ export async function buildServer() {
           repositoryId = build?.repositoryId ?? null;
         }
         if (!repositoryId) {
-          reply.status(400);
           await completeJobRun(run.id, 'failed', {
             errorMessage: 'repositoryId parameter is required'
           });
-          return { error: 'repositoryId parameter is required' };
+          return markFailureAndRespond(400, 'repositoryId parameter is required', 'missing_parameter');
         }
         latestRun = await enqueueBuildJob(buildId, repositoryId, { jobRunId: run.id });
       } else {
@@ -1248,16 +1319,28 @@ export async function buildServer() {
       }
     } catch (err) {
       request.log.error({ err, slug: job.slug }, 'Failed to execute job run');
+      const errorMessage = (err as Error).message ?? 'job execution failed';
       await completeJobRun(run.id, 'failed', {
-        errorMessage: (err as Error).message ?? 'job execution failed'
+        errorMessage
       });
       reply.status(502);
-      return { error: (err as Error).message ?? 'job execution failed' };
+      await auth.log('failed', {
+        reason: 'execution_error',
+        jobSlug: job.slug,
+        runId: run.id,
+        message: errorMessage
+      });
+      return { error: errorMessage };
     }
 
     const responseRun = latestRun ?? (await getJobRunById(run.id)) ?? run;
 
     reply.status(202);
+    await auth.log('succeeded', {
+      jobSlug: job.slug,
+      runId: responseRun.id,
+      status: responseRun.status
+    });
     return { data: serializeJobRun(responseRun) };
   });
 
@@ -1273,9 +1356,20 @@ export async function buildServer() {
   });
 
   app.post('/workflows', async (request, reply) => {
+    const auth = await authorizeOperatorAction(request, {
+      action: 'workflows.create',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
     const parseBody = workflowDefinitionCreateSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
       reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten() });
       return { error: parseBody.error.flatten() };
     }
 
@@ -1340,14 +1434,18 @@ export async function buildServer() {
         metadata: payload.metadata ?? null
       });
       reply.status(201);
+      await auth.log('succeeded', { workflowSlug: workflow.slug, workflowId: workflow.id });
       return { data: serializeWorkflowDefinition(workflow) };
     } catch (err) {
       if (err instanceof Error && /already exists/i.test(err.message)) {
         reply.status(409);
+        await auth.log('failed', { reason: 'duplicate_workflow', message: err.message });
         return { error: err.message };
       }
       request.log.error({ err }, 'Failed to create workflow definition');
       reply.status(500);
+      const message = err instanceof Error ? err.message : 'Failed to create workflow definition';
+      await auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create workflow definition' };
     }
   });
@@ -1429,21 +1527,41 @@ export async function buildServer() {
   });
 
   app.post('/workflows/:slug/run', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'workflows.run',
+      resource: `workflow:${candidateSlug}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
     const parseParams = workflowSlugParamSchema.safeParse(request.params);
     if (!parseParams.success) {
       reply.status(400);
+      await auth.log('failed', { reason: 'invalid_params', details: parseParams.error.flatten() });
       return { error: parseParams.error.flatten() };
     }
 
     const parseBody = workflowRunRequestSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
       reply.status(400);
+      await auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten(),
+        workflowSlug: parseParams.data.slug
+      });
       return { error: parseBody.error.flatten() };
     }
 
     const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
     if (!workflow) {
       reply.status(404);
+      await auth.log('failed', { reason: 'workflow_not_found', workflowSlug: parseParams.data.slug });
       return { error: 'workflow not found' };
     }
 
@@ -1469,11 +1587,22 @@ export async function buildServer() {
         durationMs: 0
       });
       reply.status(502);
+      await auth.log('failed', {
+        reason: 'enqueue_failed',
+        workflowSlug: workflow.slug,
+        runId: run.id,
+        message
+      });
       return { error: message };
     }
 
     const latestRun = (await getWorkflowRunById(run.id)) ?? run;
     reply.status(202);
+    await auth.log('succeeded', {
+      workflowSlug: workflow.slug,
+      runId: latestRun.id,
+      status: latestRun.status
+    });
     return { data: serializeWorkflowRun(latestRun) };
   });
 

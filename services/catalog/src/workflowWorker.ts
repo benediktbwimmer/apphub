@@ -6,13 +6,15 @@ import {
   closeQueueConnection,
   isInlineQueueMode
 } from './queue';
+import { logger } from './observability/logger';
+import { normalizeMeta } from './observability/meta';
 
 const WORKFLOW_CONCURRENCY = Number(process.env.WORKFLOW_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
 
 function log(message: string, meta?: Record<string, unknown>) {
-  const suffix = meta ? ` ${JSON.stringify(meta)}` : '';
-  console.log(`[workflow-worker] ${message}${suffix}`);
+  const payload = normalizeMeta(meta);
+  logger.info(message, payload);
 }
 
 async function runInlineMode() {
@@ -28,7 +30,7 @@ async function runQueueWorker() {
       if (!workflowRunId || typeof workflowRunId !== 'string') {
         throw new Error('workflowRunId is required');
       }
-      log('Processing workflow run', { jobId: job.id, workflowRunId });
+      log('Processing workflow run', { jobId: job.id ?? 'unknown', workflowRunId });
       await runWorkflowOrchestration(workflowRunId);
     },
     {
@@ -38,11 +40,11 @@ async function runQueueWorker() {
   );
 
   worker.on('completed', (job) => {
-    log('Workflow run completed', { jobId: job.id });
+    logger.info('Workflow run completed', { jobId: job.id ?? 'unknown' });
   });
 
   worker.on('failed', (job, err) => {
-    log('Workflow run failed', {
+    logger.error('Workflow run failed', {
       jobId: job?.id ?? 'unknown',
       error: err?.message ?? 'unknown error'
     });

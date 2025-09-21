@@ -235,12 +235,20 @@ function parseSecretReference(value: unknown): SecretReference | null {
   }
   const record = value as Record<string, unknown>;
   const source = typeof record.source === 'string' ? record.source.trim().toLowerCase() : '';
-  if (source !== 'env') {
+  if (source !== 'env' && source !== 'store') {
     return null;
   }
   const key = typeof record.key === 'string' ? record.key.trim() : '';
   if (!key) {
     return null;
+  }
+  if (source === 'store') {
+    const version = typeof record.version === 'string' ? record.version.trim() : undefined;
+    return {
+      source: 'store',
+      key,
+      version: version && version.length > 0 ? version : undefined
+    } satisfies SecretReference;
   }
   return { source: 'env', key } satisfies SecretReference;
 }
