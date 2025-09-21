@@ -14,7 +14,9 @@ ARG VITE_API_BASE_URL=http://localhost:4000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY apps/frontend/package.json apps/frontend/package-lock.json ./
 RUN npm ci
+RUN ln -s /app/apps/frontend/node_modules /app/node_modules
 COPY apps/frontend/ ./
+COPY services/catalog/src/workflows /app/services/catalog/src/workflows
 RUN npm run build
 
 FROM node:20-slim AS runtime

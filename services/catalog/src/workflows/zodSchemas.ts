@@ -63,7 +63,7 @@ export const jobDefinitionUpdateSchema = z
     metadata: jsonValueSchema.nullable().optional()
   })
   .strict()
-  .refine((payload) => Object.keys(payload).length > 0, {
+  .refine((payload: Record<string, unknown>) => Object.keys(payload).length > 0, {
     message: 'At least one field must be provided'
   });
 
@@ -187,7 +187,7 @@ export const workflowDefinitionUpdateSchema = z
     metadata: jsonValueSchema.nullable().optional()
   })
   .strict()
-  .refine((payload) => Object.keys(payload).length > 0, {
+  .refine((payload: Record<string, unknown>) => Object.keys(payload).length > 0, {
     message: 'At least one field must be provided'
   });
 

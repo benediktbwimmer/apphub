@@ -26,6 +26,7 @@ import {
   type WorkflowDefinitionRecord,
   type WorkflowTriggerDefinition,
   type WorkflowStepDefinition,
+  type WorkflowJobStepDefinition,
   type WorkflowFanOutStepDefinition,
   type WorkflowFanOutTemplateDefinition,
   type WorkflowServiceStepDefinition,

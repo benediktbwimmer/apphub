@@ -10,6 +10,7 @@ import {
   workflowDefinitionCreateSchema,
   jobDefinitionCreateSchema
 } from '@apphub/workflow-schemas';
+import type { ZodIssue } from 'zod';
 import { requestAiSuggestion, type AiBuilderMode } from './api';
 import {
   createWorkflowDefinition,
@@ -39,7 +40,7 @@ function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: 
     }
     return {
       valid: false,
-      errors: result.error.errors.map((issue) => {
+      errors: result.error.errors.map((issue: ZodIssue) => {
         const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
         return `${path}: ${issue.message}`;
       })
@@ -129,8 +130,8 @@ export default function AiBuilderDialog({
       }
       setPending(true);
       setError(null);
+      const requestMode: AiBuilderMode = mode === 'job' ? 'job-with-bundle' : 'workflow';
       try {
-        const requestMode: AiBuilderMode = mode === 'job' ? 'job-with-bundle' : 'workflow';
         const response = await requestAiSuggestion(authorizedFetch, {
           mode: requestMode,
           prompt: prompt.trim(),

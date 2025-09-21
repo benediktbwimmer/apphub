@@ -521,8 +521,8 @@ export type WorkflowServiceStepDefinition = WorkflowDefinitionStepBase & {
 };
 
 export type WorkflowFanOutTemplateDefinition =
-  | (Omit<WorkflowJobStepDefinition, 'dependsOn' | 'dependents'> & { id: string })
-  | (Omit<WorkflowServiceStepDefinition, 'dependsOn' | 'dependents'> & { id: string });
+  | (WorkflowJobStepDefinition & { id: string })
+  | (WorkflowServiceStepDefinition & { id: string });
 
 export type WorkflowFanOutStepDefinition = WorkflowDefinitionStepBase & {
   type: 'fanout';

@@ -5,12 +5,15 @@ import type {
   WorkflowDefinitionStep,
   WorkflowDraft,
   WorkflowDraftStep,
-  WorkflowDraftStepType
+  WorkflowDraftStepType,
+  WorkflowMetadata
 } from '../types';
 import type {
   JobDefinitionSummary,
   WorkflowCreateInput,
   WorkflowServiceRequestInput,
+  WorkflowJobStepInput,
+  WorkflowServiceStepInput,
   WorkflowStepInput,
   WorkflowUpdateInput
 } from '../api';
@@ -162,6 +165,14 @@ function stepTypeFromDefinition(step: WorkflowDefinitionStep): WorkflowDraftStep
   return 'job';
 }
 
+function isServiceStepInput(step: WorkflowStepInput): step is WorkflowServiceStepInput {
+  return step.type === 'service';
+}
+
+function isJobStepInput(step: WorkflowStepInput): step is WorkflowJobStepInput {
+  return step.type !== 'service';
+}
+
 function stringifyJson(value: unknown): string {
   if (value === undefined || value === null) {
     return '';
@@ -238,7 +249,7 @@ export function workflowCreateInputToDraft(input: WorkflowCreateInput): Workflow
   const versionNote = parseVersionNote(input.metadata ?? null);
 
   const steps: WorkflowDraftStep[] = input.steps.map((step) => {
-    const type: WorkflowDraftStepType = step.type === 'service' ? 'service' : 'job';
+    const type: WorkflowDraftStepType = isServiceStepInput(step) ? 'service' : 'job';
     const dependsOn = ensureArray(step.dependsOn);
     const parameters = cloneParameters(step.parameters) ?? {};
 
@@ -246,23 +257,26 @@ export function workflowCreateInputToDraft(input: WorkflowCreateInput): Workflow
       id: step.id,
       name: step.name,
       type,
-      jobSlug: step.jobSlug,
-      serviceSlug: step.serviceSlug,
       description: step.description ?? null,
       dependsOn,
       parameters,
       timeoutMs: typeof step.timeoutMs === 'number' ? step.timeoutMs : null,
       retryPolicy: step.retryPolicy ?? null,
-      storeResultAs: step.storeResultAs,
-      requireHealthy: step.requireHealthy,
-      allowDegraded: step.allowDegraded,
-      captureResponse: step.captureResponse,
-      storeResponseAs: step.storeResponseAs,
-      request: step.type === 'service' ? step.request : undefined,
       parametersText: stringifyJson(parameters)
     } satisfies WorkflowDraftStep;
 
-    if (step.type === 'service') {
+    if (isJobStepInput(step)) {
+      draftStep.jobSlug = step.jobSlug;
+      draftStep.storeResultAs = step.storeResultAs;
+    }
+
+    if (isServiceStepInput(step)) {
+      draftStep.serviceSlug = step.serviceSlug;
+      draftStep.requireHealthy = step.requireHealthy;
+      draftStep.allowDegraded = step.allowDegraded;
+      draftStep.captureResponse = step.captureResponse;
+      draftStep.storeResponseAs = step.storeResponseAs;
+      draftStep.request = step.request;
       const requestBody = toRecord(step.request)?.body ?? null;
       draftStep.requestBodyText = stringifyJson(requestBody);
     }

@@ -1180,6 +1180,14 @@ async function executeStep(
   }
 
   const baseScope = buildTemplateScope(run, context);
+
+  if (step.type === 'fanout') {
+    const fanOutScope = runtimeStep?.fanOut
+      ? withStepScope(baseScope, step.id, null, runtimeStep.fanOut)
+      : withStepScope(baseScope, step.id, null);
+    return executeFanOutStep(run, step, context, stepIndex, null, fanOutScope);
+  }
+
   const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
   const resolutionScope = runtimeStep?.fanOut
     ? withStepScope(baseScope, step.id, mergedParameters as JsonValue, runtimeStep.fanOut)
@@ -1188,10 +1196,6 @@ async function executeStep(
   const stepScope = runtimeStep?.fanOut
     ? withStepScope(baseScope, step.id, resolvedParameters, runtimeStep.fanOut)
     : withStepScope(baseScope, step.id, resolvedParameters);
-
-  if (step.type === 'fanout') {
-    return executeFanOutStep(run, step, context, stepIndex, resolvedParameters, stepScope);
-  }
 
   if (step.type === 'service') {
     return executeServiceStep(run, step, context, stepIndex, resolvedParameters, stepScope, runtimeStep?.fanOut);

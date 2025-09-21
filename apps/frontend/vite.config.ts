@@ -5,7 +5,7 @@ import type { UserConfig as VitestUserConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-const frontendRoot = dirname(fileURLToPath(new URL(import.meta.url)));
+const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
 const workflowSchemaPath = resolve(workspaceRoot, 'services', 'catalog', 'src', 'workflows', 'zodSchemas.ts');
 
