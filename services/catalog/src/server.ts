@@ -782,6 +782,13 @@ function serializeService(service: ServiceRecord) {
 }
 
 function serializeJobDefinition(job: JobDefinitionRecord) {
+  let registryRef: string | null = null;
+  if (job.metadata && typeof job.metadata === 'object' && !Array.isArray(job.metadata)) {
+    const candidate = (job.metadata as Record<string, JsonValue | undefined>).registryRef;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      registryRef = candidate.trim();
+    }
+  }
   return {
     id: job.id,
     slug: job.slug,
@@ -789,6 +796,7 @@ function serializeJobDefinition(job: JobDefinitionRecord) {
     version: job.version,
     type: job.type,
     entryPoint: job.entryPoint,
+    registryRef,
     parametersSchema: job.parametersSchema,
     defaultParameters: job.defaultParameters,
     timeoutMs: job.timeoutMs,

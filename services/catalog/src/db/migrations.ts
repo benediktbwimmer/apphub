@@ -213,37 +213,37 @@ const migrations: Migration[] = [
          retry_policy,
          metadata
        ) VALUES
-         (
-           'jobdef-repository-ingest',
-           'repository-ingest',
-           'Repository Ingestion',
-           1,
-           'batch',
-           'catalog.ingestion.processRepository',
-           '{"type":"object","properties":{"repositoryId":{"type":"string","minLength":1}},"required":["repositoryId"]}'::jsonb,
-           '{"repositoryId":null}'::jsonb,
-           900000,
-           '{"maxAttempts":3,"strategy":"exponential","initialDelayMs":10000}'::jsonb,
-           '{"description":"Default ingestion job for repositories"}'::jsonb
-         ),
-         (
-           'jobdef-repository-build',
-           'repository-build',
-           'Repository Build',
-           1,
-           'batch',
-           'catalog.build.run',
-           '{"type":"object","properties":{"buildId":{"type":"string","minLength":1}},"required":["buildId"]}'::jsonb,
-           '{"buildId":null}'::jsonb,
-           1800000,
-           '{"maxAttempts":1}'::jsonb,
-           '{"description":"Default build job for repositories"}'::jsonb
-         )
-       ON CONFLICT (slug) DO UPDATE
-       SET
-         name = EXCLUDED.name,
-         version = EXCLUDED.version,
-         type = EXCLUDED.type,
+        (
+          'jobdef-repository-ingest',
+          'repository-ingest',
+          'Repository Ingestion',
+          1,
+          'batch',
+          'catalog.ingestion.processRepository',
+          '{"type":"object","properties":{"repositoryId":{"type":"string","minLength":1}},"required":["repositoryId"]}'::jsonb,
+          '{"repositoryId":null}'::jsonb,
+          900000,
+          '{"maxAttempts":3,"strategy":"exponential","initialDelayMs":10000}'::jsonb,
+          '{"description":"Default ingestion job for repositories"}'::jsonb
+        ),
+        (
+          'jobdef-repository-build',
+          'repository-build',
+          'Repository Build',
+          1,
+          'batch',
+          'catalog.build.run',
+          '{"type":"object","properties":{"buildId":{"type":"string","minLength":1}},"required":["buildId"]}'::jsonb,
+          '{"buildId":null}'::jsonb,
+          1800000,
+          '{"maxAttempts":1}'::jsonb,
+          '{"description":"Default build job for repositories"}'::jsonb
+        )
+      ON CONFLICT (slug) DO UPDATE
+      SET
+        name = EXCLUDED.name,
+        version = EXCLUDED.version,
+        type = EXCLUDED.type,
          entry_point = EXCLUDED.entry_point,
          parameters_schema = EXCLUDED.parameters_schema,
          default_parameters = EXCLUDED.default_parameters,
@@ -436,6 +436,29 @@ const migrations: Migration[] = [
          ON job_bundle_versions(bundle_id, status);`,
       `CREATE INDEX IF NOT EXISTS idx_job_bundle_versions_published_at
          ON job_bundle_versions(bundle_id, published_at DESC);`
+    ]
+  },
+  {
+    id: '007_filesystem_job_bundles',
+    statements: [
+      `UPDATE job_definitions
+         SET entry_point = 'bundle:fs-read-file@1.0.0',
+             metadata = jsonb_set(
+               jsonb_set(coalesce(metadata, '{}'::jsonb), '{registryRef}', to_jsonb('fs-read-file@1.0.0'::text), true),
+               '{legacyHandler}',
+               to_jsonb('workflows.fs.readFile'::text),
+               true
+             )
+       WHERE slug = 'fs-read-file';`,
+      `UPDATE job_definitions
+         SET entry_point = 'bundle:fs-write-file@1.0.0',
+             metadata = jsonb_set(
+               jsonb_set(coalesce(metadata, '{}'::jsonb), '{registryRef}', to_jsonb('fs-write-file@1.0.0'::text), true),
+               '{legacyHandler}',
+               to_jsonb('workflows.fs.writeFile'::text),
+               true
+             )
+       WHERE slug = 'fs-write-file';`
     ]
   }
 ];

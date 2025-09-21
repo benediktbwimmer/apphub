@@ -27,8 +27,27 @@ import {
   SandboxCrashError,
   type SandboxExecutionResult
 } from './sandbox/runner';
+import { shouldAllowLegacyFallback, shouldUseJobBundle } from '../config/jobBundles';
 
 const handlers = new Map<string, JobHandler>();
+
+type BundleResolutionReason = 'not-found' | 'acquire-failed';
+
+class BundleResolutionError extends Error {
+  readonly reason: BundleResolutionReason;
+  readonly details?: unknown;
+
+  constructor(message: string, reason: BundleResolutionReason, details?: unknown) {
+    super(message);
+    this.name = 'BundleResolutionError';
+    this.reason = reason;
+    this.details = details;
+  }
+}
+
+function isBundleResolutionError(err: unknown): err is BundleResolutionError {
+  return err instanceof BundleResolutionError;
+}
 
 export type JobRunContext = {
   definition: JobDefinitionRecord;
@@ -131,7 +150,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   }
 
   const staticHandler = handlers.get(definition.slug);
-  const bundleBinding = staticHandler ? null : parseBundleEntryPoint(definition.entryPoint);
+  const bundleBinding = parseBundleEntryPoint(definition.entryPoint);
 
   if (!staticHandler && !bundleBinding) {
     await completeJobRun(runId, 'failed', {
@@ -186,17 +205,65 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
 
   try {
     let handlerResult: JobResult | void;
-    if (staticHandler) {
-      handlerResult = await staticHandler(context);
-    } else {
-      const dynamic = await executeDynamicHandler({
-        binding: bundleBinding!,
-        context,
-        definition,
-        run: latestRun
-      });
-      sandboxTelemetry = dynamic.telemetry;
-      handlerResult = dynamic.result;
+    const preferBundle =
+      Boolean(bundleBinding) && (!staticHandler || shouldUseJobBundle(definition.slug));
+    const allowFallback = Boolean(staticHandler) && shouldAllowLegacyFallback(definition.slug);
+    let attemptedBundle = false;
+
+    if (preferBundle && bundleBinding) {
+      try {
+        attemptedBundle = true;
+        const dynamic = await executeDynamicHandler({
+          binding: bundleBinding,
+          context,
+          definition,
+          run: latestRun
+        });
+        sandboxTelemetry = dynamic.telemetry;
+        handlerResult = dynamic.result;
+      } catch (err) {
+        if (allowFallback && isBundleResolutionError(err)) {
+          context.logger('Job bundle unavailable, falling back to legacy handler', {
+            bundleSlug: bundleBinding.slug,
+            bundleVersion: bundleBinding.version,
+            reason: err.reason,
+            error: err.message
+          });
+          const fallbackMetricsAddition = {
+            bundleFallback: true
+          } satisfies Record<string, JsonValue>;
+          const fallbackContextAddition = {
+            bundleFallback: {
+              slug: bundleBinding.slug,
+              version: bundleBinding.version,
+              reason: err.reason,
+              message: err.message
+            }
+          } satisfies Record<string, JsonValue>;
+          await context.update({
+            metrics: mergeJsonObjects(context.run.metrics, fallbackMetricsAddition),
+            context: mergeJsonObjects(context.run.context, fallbackContextAddition)
+          });
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    if (!handlerResult) {
+      if (staticHandler) {
+        handlerResult = await staticHandler(context);
+      } else if (bundleBinding && !attemptedBundle) {
+        attemptedBundle = true;
+        const dynamic = await executeDynamicHandler({
+          binding: bundleBinding,
+          context,
+          definition,
+          run: latestRun
+        });
+        sandboxTelemetry = dynamic.telemetry;
+        handlerResult = dynamic.result;
+      }
     }
 
     const finalResult: JobResult = (handlerResult ?? {}) as JobResult;
@@ -288,10 +355,22 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
 
   const record = await getJobBundleVersion(binding.slug, binding.version);
   if (!record) {
-    throw new Error(`Job bundle ${binding.slug}@${binding.version} not found`);
+    throw new BundleResolutionError(
+      `Job bundle ${binding.slug}@${binding.version} not found`,
+      'not-found'
+    );
   }
 
-  const acquired = await bundleCache.acquire(record);
+  let acquired: AcquiredBundle;
+  try {
+    acquired = await bundleCache.acquire(record);
+  } catch (err) {
+    throw new BundleResolutionError(
+      `Failed to acquire job bundle ${binding.slug}@${binding.version}`,
+      'acquire-failed',
+      err instanceof Error ? { message: err.message } : err
+    );
+  }
   context.logger('Acquired job bundle', {
     bundleSlug: binding.slug,
     bundleVersion: binding.version,
