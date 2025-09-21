@@ -387,6 +387,69 @@ export type JobRunCompletionInput = {
   durationMs?: number | null;
 };
 
+export type JobBundleStorageKind = 'local' | 's3';
+
+export type JobBundleVersionStatus = 'published' | 'deprecated';
+
+export type JobBundleRecord = {
+  id: string;
+  slug: string;
+  displayName: string;
+  description: string | null;
+  latestVersion: string | null;
+  createdAt: string;
+  updatedAt: string;
+  versions?: JobBundleVersionRecord[];
+};
+
+export type JobBundleVersionRecord = {
+  id: string;
+  bundleId: string;
+  slug: string;
+  version: string;
+  manifest: JsonValue;
+  checksum: string;
+  capabilityFlags: string[];
+  artifactStorage: JobBundleStorageKind;
+  artifactPath: string;
+  artifactContentType: string | null;
+  artifactSize: number | null;
+  immutable: boolean;
+  status: JobBundleVersionStatus;
+  publishedBy: string | null;
+  publishedByKind: string | null;
+  publishedByTokenHash: string | null;
+  publishedAt: string;
+  deprecatedAt: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type JobBundlePublishInput = {
+  slug: string;
+  displayName?: string | null;
+  description?: string | null;
+  version: string;
+  manifest: JsonValue;
+  capabilityFlags?: string[];
+  checksum: string;
+  artifactStorage: JobBundleStorageKind;
+  artifactPath: string;
+  artifactContentType?: string | null;
+  artifactSize?: number | null;
+  immutable?: boolean;
+  metadata?: JsonValue | null;
+  publishedBy?: string | null;
+  publishedByKind?: string | null;
+  publishedByTokenHash?: string | null;
+};
+
+export type JobBundleVersionUpdateInput = {
+  deprecated?: boolean;
+  metadata?: JsonValue | null;
+};
+
 export type WorkflowTriggerDefinition = {
   type: string;
   options?: JsonValue | null;

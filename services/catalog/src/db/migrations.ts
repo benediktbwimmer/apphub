@@ -391,6 +391,52 @@ const migrations: Migration[] = [
          metadata = EXCLUDED.metadata,
          updated_at = NOW();`
     ]
+  },
+  {
+    id: '006_job_registry_schema',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS job_bundles (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         display_name TEXT NOT NULL,
+         description TEXT,
+         latest_version TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS job_bundle_versions (
+         id TEXT PRIMARY KEY,
+         bundle_id TEXT NOT NULL REFERENCES job_bundles(id) ON DELETE CASCADE,
+         slug TEXT NOT NULL REFERENCES job_bundles(slug) ON DELETE CASCADE,
+         version TEXT NOT NULL,
+         manifest JSONB NOT NULL DEFAULT '{}'::jsonb,
+         checksum TEXT NOT NULL,
+         capability_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+         artifact_storage TEXT NOT NULL DEFAULT 'local',
+         artifact_path TEXT NOT NULL,
+         artifact_content_type TEXT,
+         artifact_size BIGINT,
+         immutable BOOLEAN NOT NULL DEFAULT FALSE,
+         status TEXT NOT NULL DEFAULT 'published',
+         published_by TEXT,
+         published_by_kind TEXT,
+         published_by_token_hash TEXT,
+         published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         deprecated_at TIMESTAMPTZ,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (bundle_id, version),
+         CONSTRAINT job_bundle_versions_status_check CHECK (status IN ('published', 'deprecated')),
+         CONSTRAINT job_bundle_versions_storage_check CHECK (artifact_storage IN ('local', 's3'))
+       );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_job_bundle_versions_slug_version
+         ON job_bundle_versions(slug, version);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_bundle_versions_status
+         ON job_bundle_versions(bundle_id, status);`,
+      `CREATE INDEX IF NOT EXISTS idx_job_bundle_versions_published_at
+         ON job_bundle_versions(bundle_id, published_at DESC);`
+    ]
   }
 ];
 

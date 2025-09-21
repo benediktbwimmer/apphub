@@ -162,6 +162,40 @@ export type JobRunRow = {
   updated_at: string;
 };
 
+export type JobBundleRow = {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string | null;
+  latest_version: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type JobBundleVersionRow = {
+  id: string;
+  bundle_id: string;
+  slug: string;
+  version: string;
+  manifest: unknown;
+  checksum: string;
+  capability_flags: unknown;
+  artifact_storage: string;
+  artifact_path: string;
+  artifact_content_type: string | null;
+  artifact_size: string | number | null;
+  immutable: boolean;
+  status: string;
+  published_by: string | null;
+  published_by_kind: string | null;
+  published_by_token_hash: string | null;
+  published_at: string;
+  deprecated_at: string | null;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkflowDefinitionRow = {
   id: string;
   slug: string;

@@ -8,5 +8,6 @@ export * from './launches';
 export * from './serviceNetworks';
 export * from './services';
 export * from './jobs';
+export * from './jobBundles';
 export * from './workflows';
 export * from './audit';

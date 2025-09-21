@@ -9,6 +9,8 @@ import type {
   LaunchRecord,
   RepositoryRecord,
   ServiceRecord,
+  JobBundleRecord,
+  JobBundleVersionRecord,
   WorkflowDefinitionRecord,
   WorkflowRunRecord
 } from './db/index';
@@ -27,6 +29,9 @@ export type ApphubEvent =
   | { type: 'job.run.failed'; data: { run: JobRunRecord } }
   | { type: 'job.run.canceled'; data: { run: JobRunRecord } }
   | { type: 'job.run.expired'; data: { run: JobRunRecord } }
+  | { type: 'job.bundle.published'; data: { bundle: JobBundleRecord; version: JobBundleVersionRecord } }
+  | { type: 'job.bundle.updated'; data: { bundle: JobBundleRecord; version: JobBundleVersionRecord } }
+  | { type: 'job.bundle.deprecated'; data: { bundle: JobBundleRecord; version: JobBundleVersionRecord } }
   | { type: 'workflow.definition.updated'; data: { workflow: WorkflowDefinitionRecord } }
   | { type: 'workflow.run.updated'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.pending'; data: { run: WorkflowRunRecord } }

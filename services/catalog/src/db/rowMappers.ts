@@ -19,6 +19,10 @@ import {
   type JobRetryPolicy,
   type JobRunRecord,
   type JobRunStatus,
+  type JobBundleRecord,
+  type JobBundleVersionRecord,
+  type JobBundleStorageKind,
+  type JobBundleVersionStatus,
   type WorkflowDefinitionRecord,
   type WorkflowTriggerDefinition,
   type WorkflowStepDefinition,
@@ -44,6 +48,8 @@ import type {
   TagRow,
   JobDefinitionRow,
   JobRunRow,
+  JobBundleRow,
+  JobBundleVersionRow,
   WorkflowDefinitionRow,
   WorkflowRunRow,
   WorkflowRunStepRow
@@ -710,6 +716,92 @@ export function mapJobRunRow(row: JobRunRow): JobRunRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobRunRecord;
+}
+
+function parseCapabilityFlags(value: unknown): string[] {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : null))
+      .filter((entry): entry is string => Boolean(entry));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parseCapabilityFlags(parsed);
+    } catch {
+      return value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    }
+  }
+  return [];
+}
+
+function normalizeJobBundleStorageKind(value: string): JobBundleStorageKind {
+  if (value === 's3') {
+    return 's3';
+  }
+  return 'local';
+}
+
+function normalizeJobBundleVersionStatus(value: string): JobBundleVersionStatus {
+  if (value === 'deprecated') {
+    return 'deprecated';
+  }
+  return 'published';
+}
+
+function parseNumericValue(value: string | number | null): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function mapJobBundleRow(row: JobBundleRow): JobBundleRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    displayName: row.display_name,
+    description: row.description ?? null,
+    latestVersion: row.latest_version ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies JobBundleRecord;
+}
+
+export function mapJobBundleVersionRow(row: JobBundleVersionRow): JobBundleVersionRecord {
+  return {
+    id: row.id,
+    bundleId: row.bundle_id,
+    slug: row.slug,
+    version: row.version,
+    manifest: ensureJsonObject(row.manifest),
+    checksum: row.checksum,
+    capabilityFlags: parseCapabilityFlags(row.capability_flags),
+    artifactStorage: normalizeJobBundleStorageKind(row.artifact_storage),
+    artifactPath: row.artifact_path,
+    artifactContentType: row.artifact_content_type ?? null,
+    artifactSize: parseNumericValue(row.artifact_size),
+    immutable: Boolean(row.immutable),
+    status: normalizeJobBundleVersionStatus(row.status),
+    publishedBy: row.published_by ?? null,
+    publishedByKind: row.published_by_kind ?? null,
+    publishedByTokenHash: row.published_by_token_hash ?? null,
+    publishedAt: row.published_at,
+    deprecatedAt: row.deprecated_at ?? null,
+    metadata: toJsonObjectOrNull(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies JobBundleVersionRecord;
 }
 
 function parseJsonColumn(value: unknown): JsonValue | null {

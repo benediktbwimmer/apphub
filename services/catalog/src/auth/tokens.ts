@@ -9,9 +9,27 @@ type OperatorScope =
   | 'jobs:write'
   | 'jobs:run'
   | 'workflows:write'
-  | 'workflows:run';
+  | 'workflows:run'
+  | 'job-bundles:write'
+  | 'job-bundles:read';
 
-const ALL_SCOPES: OperatorScope[] = ['jobs:write', 'jobs:run', 'workflows:write', 'workflows:run'];
+const ALL_SCOPES: OperatorScope[] = [
+  'jobs:write',
+  'jobs:run',
+  'workflows:write',
+  'workflows:run',
+  'job-bundles:write',
+  'job-bundles:read'
+];
+
+const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
+  'jobs:write': ['job-bundles:write', 'job-bundles:read'],
+  'jobs:run': [],
+  'workflows:write': [],
+  'workflows:run': [],
+  'job-bundles:write': ['job-bundles:read'],
+  'job-bundles:read': []
+};
 
 type OperatorKind = 'user' | 'service';
 
@@ -59,6 +77,19 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+function addScope(target: Set<OperatorScope>, scope: OperatorScope) {
+  if (target.has(scope)) {
+    return;
+  }
+  target.add(scope);
+  const aliases = SCOPE_ALIASES[scope] ?? [];
+  for (const alias of aliases) {
+    if ((ALL_SCOPES as string[]).includes(alias)) {
+      target.add(alias);
+    }
+  }
+}
+
 function normalizeScopes(scopes?: OperatorScope[] | '*' | null): OperatorScope[] {
   if (!scopes || scopes === '*') {
     return [...ALL_SCOPES];
@@ -66,7 +97,7 @@ function normalizeScopes(scopes?: OperatorScope[] | '*' | null): OperatorScope[]
   const allowed = new Set<OperatorScope>();
   for (const scope of scopes) {
     if ((ALL_SCOPES as string[]).includes(scope)) {
-      allowed.add(scope);
+      addScope(allowed, scope as OperatorScope);
     }
   }
   return allowed.size > 0 ? Array.from(allowed) : [...ALL_SCOPES];
