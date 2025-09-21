@@ -399,10 +399,16 @@ export type WorkflowDefinitionStepBase = {
   dependsOn?: string[];
 };
 
-export type SecretReference = {
-  source: 'env';
-  key: string;
-};
+export type SecretReference =
+  | {
+      source: 'env';
+      key: string;
+    }
+  | {
+      source: 'store';
+      key: string;
+      version?: string | null;
+    };
 
 export type WorkflowServiceRequestHeaderValue =
   | string
@@ -563,4 +569,32 @@ export type WorkflowRunStepUpdateInput = {
   context?: JsonValue | null;
   startedAt?: string | null;
   completedAt?: string | null;
+};
+
+export type AuditLogRecord = {
+  id: number;
+  actor: string | null;
+  actorType: string | null;
+  tokenHash: string | null;
+  scopes: JsonValue;
+  action: string;
+  resource: string;
+  status: string;
+  ip: string | null;
+  userAgent: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+};
+
+export type AuditLogCreateInput = {
+  actor?: string | null;
+  actorType?: string | null;
+  tokenHash?: string | null;
+  scopes?: string[];
+  action: string;
+  resource: string;
+  status: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  metadata?: JsonValue | null;
 };

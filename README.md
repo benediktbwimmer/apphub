@@ -97,7 +97,43 @@ SERVICE_REGISTRY_TOKEN=                                # Shared secret for POST/
 SERVICE_HEALTH_INTERVAL_MS=30000                       # Health poll cadence
 SERVICE_HEALTH_TIMEOUT_MS=5000                         # Health request timeout
 SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000             # How often to refresh cached OpenAPI metadata
+APPHUB_OPERATOR_TOKENS=                                # JSON array of operator/service tokens with scopes for jobs/workflows
+APPHUB_OPERATOR_TOKENS_PATH=                           # Optional path to a JSON file defining operator tokens
+APPHUB_SECRET_STORE=                                   # Inline JSON map of secrets resolved by workflows/jobs at runtime
+APPHUB_SECRET_STORE_PATH=                              # Optional path to JSON file containing secret store entries
+APPHUB_LOG_AGGREGATOR_URL=                             # Optional HTTP endpoint for forwarding structured logs
+APPHUB_LOG_AGGREGATOR_TOKEN=                           # Bearer token used when posting logs to the aggregator (optional)
+APPHUB_LOG_SOURCE=catalog-service                      # Identifier included in structured log payloads
+WORKFLOW_FAILURE_ALERT_THRESHOLD=3                     # Consecutive failures required before firing workflow alerts
+WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES=15               # Sliding window (minutes) for workflow failure alert evaluation
+WORKFLOW_ALERT_WEBHOOK_URL=                            # Optional webhook invoked when workflow alerts trigger
+WORKFLOW_ALERT_WEBHOOK_TOKEN=                          # Bearer token supplied with alert webhook requests (optional)
 ```
+
+Operator tokens are defined as JSON objects with a `subject`, `token`, and optional `scopes`. Tokens default to full access when
+no scopes are provided. A starter template lives at `services/catalog/config/operatorTokens.example.json`.
+
+```bash
+APPHUB_OPERATOR_TOKENS='[{"subject":"platform-ops","token":"dev-ops-token","scopes":["jobs:write","jobs:run","workflows:write","workflows:run"]}]'
+```
+
+Secrets referenced by workflow and job steps resolve through the secret store. Provide entries inline with
+`APPHUB_SECRET_STORE` or via `APPHUB_SECRET_STORE_PATH`. See `services/catalog/config/secretStore.example.json` for a sample layout:
+
+```bash
+APPHUB_SECRET_STORE='{"TEST_SERVICE_TOKEN":{"value":"workflow-secret-token","version":"v1"}}'
+```
+
+Every secret resolution is captured in the audit log with the requesting actor, workflow run, and step metadata.
+
+### Metrics & Observability
+
+- Structured JSON logs are emitted with the `source` identifier (default `catalog-service`) and forwarded to
+  `APPHUB_LOG_AGGREGATOR_URL` when configured.
+- `GET /metrics` exposes aggregated job and workflow run counts, average durations, and failure rates for dashboards.
+- Configure `WORKFLOW_FAILURE_ALERT_THRESHOLD`, `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`, and (optionally)
+  `WORKFLOW_ALERT_WEBHOOK_URL` to receive notifications when workflows fail repeatedly within the sliding window.
+- Alert payloads and structured warnings include workflow identifiers, failure counts, and triggering metadata to support rapid triage.
 
 ### Service Configuration
 

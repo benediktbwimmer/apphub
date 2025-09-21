@@ -25,10 +25,12 @@ import { getServiceBySlug } from './db/services';
 import { fetchFromService } from './clients/serviceClient';
 import { resolveSecret, maskSecret, describeSecret } from './secrets';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
+import { logger } from './observability/logger';
+import { handleWorkflowFailureAlert } from './observability/alerts';
 
 function log(message: string, meta?: Record<string, unknown>) {
-  const suffix = meta ? ` ${JSON.stringify(meta)}` : '';
-  console.log(`[workflow] ${message}${suffix}`);
+  const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
+  logger.info(message, serialized);
 }
 
 type WorkflowStepServiceContext = {
@@ -211,12 +213,13 @@ function setSharedValue(
   key: string,
   value: JsonValue | string | null
 ): WorkflowRuntimeContext {
+  const shared: Record<string, JsonValue | null> = { ...(context.shared ?? {}) };
   const next: WorkflowRuntimeContext = {
     steps: { ...context.steps },
     lastUpdatedAt: new Date().toISOString(),
-    shared: { ...(context.shared ?? {}) }
+    shared
   };
-  next.shared[key] = (value ?? null) as JsonValue | null;
+  shared[key] = (value ?? null) as JsonValue | null;
   return next;
 }
 
@@ -343,6 +346,10 @@ async function recordRunFailure(
     durationMs,
     metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
   });
+  const latest = await getWorkflowRunById(runId);
+  if (latest) {
+    await handleWorkflowFailureAlert(latest);
+  }
 }
 
 async function recordRunSuccess(
@@ -558,6 +565,7 @@ async function extractResponseBody(response: Response): Promise<{ body: JsonValu
 }
 
 async function prepareServiceRequest(
+  run: WorkflowRunRecord,
   step: WorkflowServiceStepDefinition,
   parameters: JsonValue
 ): Promise<PreparedServiceRequest> {
@@ -588,7 +596,17 @@ async function prepareServiceRequest(
       if (!secretRef) {
         continue;
       }
-      const resolved = resolveSecret(secretRef as SecretReference);
+      const resolved = resolveSecret(secretRef as SecretReference, {
+        actor: `workflow-run:${run.id}`,
+        actorType: 'workflow',
+        metadata: {
+          workflowDefinitionId: run.workflowDefinitionId,
+          workflowRunId: run.id,
+          stepId: step.id,
+          serviceSlug: step.serviceSlug,
+          headerName: name
+        }
+      });
       if (!resolved.value) {
         throw new Error(`Secret ${describeSecret(secretRef as SecretReference)} not found for header ${name}`);
       }
@@ -671,12 +689,15 @@ async function invokePreparedService(
   service: ServiceRecord,
   prepared: PreparedServiceRequest
 ): Promise<ServiceInvocationResult> {
-  const init: RequestInit = {
+  const abortSignal = createStepAbortSignal(prepared.timeoutMs ?? undefined);
+  const init: RequestInit & { signal?: AbortSignal } = {
     method: prepared.method,
     headers: prepared.headers,
-    body: prepared.hasBody ? prepared.bodyText : undefined,
-    signal: createStepAbortSignal(prepared.timeoutMs ?? null)
+    body: prepared.hasBody ? prepared.bodyText : undefined
   };
+  if (abortSignal) {
+    init.signal = abortSignal;
+  }
 
   const start = Date.now();
   try {
@@ -882,7 +903,7 @@ async function executeServiceStep(
 ): Promise<{ context: WorkflowRuntimeContext; stepStatus: WorkflowRunStepStatus; completed: boolean }> {
   let prepared: PreparedServiceRequest;
   try {
-    prepared = await prepareServiceRequest(step, parameters);
+    prepared = await prepareServiceRequest(run, step, parameters);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Failed to prepare service request';
     let stepRecord = await loadOrCreateStepRecord(run.id, step, parameters);

@@ -13,8 +13,12 @@ import {
   type JobRunCreateInput,
   type JobRunRecord,
   type JobRunStatus,
-  type JsonValue
+  type JsonValue,
+  type SecretReference
 } from '../db/types';
+import { resolveSecret } from '../secrets';
+import { logger } from '../observability/logger';
+import { normalizeMeta } from '../observability/meta';
 
 const handlers = new Map<string, JobHandler>();
 
@@ -30,6 +34,7 @@ export type JobRunContext = {
     timeoutMs?: number | null;
   }): Promise<JobRunRecord>;
   logger: (message: string, meta?: Record<string, unknown>) => void;
+  resolveSecret(reference: SecretReference): string | null;
 };
 
 export type JobResult = {
@@ -44,8 +49,8 @@ export type JobResult = {
 export type JobHandler = (context: JobRunContext) => Promise<JobResult | void> | JobResult | void;
 
 function log(slug: string, message: string, meta?: Record<string, unknown>) {
-  const payload = meta ? ` ${JSON.stringify(meta)}` : '';
-  console.log(`[job:${slug}] ${message}${payload}`);
+  const payload = normalizeMeta({ jobSlug: slug, ...(meta ?? {}) }) ?? { jobSlug: slug };
+  logger.info(message, payload);
 }
 
 export function registerJobHandler(slug: string, handler: JobHandler): void {
@@ -123,6 +128,17 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     },
     logger(message, meta) {
       log(definition.slug, message, meta);
+    },
+    resolveSecret(reference) {
+      const result = resolveSecret(reference, {
+        actor: `job-run:${runId}`,
+        actorType: 'job',
+        metadata: {
+          jobSlug: definition.slug,
+          jobRunId: runId
+        }
+      });
+      return result.value;
     }
   };
 

@@ -119,3 +119,21 @@ graph TD
 - Run details surface per-step metrics, log links, and error messages, keeping context for troubleshooting without leaving the UI.
 - Components were structured for reuse (`WorkflowGraph`, `ManualRunPanel`, `WorkflowFilters`) so future operator surfaces can embed the same building blocks.
 
+## Security & Access Controls
+- Operator and service automations authenticate with scoped bearer tokens supplied via `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH`. Scopes (`jobs:write`, `jobs:run`, `workflows:write`, `workflows:run`) gate job/workflow definition changes and manual executions.
+- All sensitive actions, including failed authorization attempts, are written to the `audit_logs` table with actor identity, IP/user-agent, and contextual metadata for post-incident forensics.
+- Job handlers gain a `resolveSecret` helper that records audit entries whenever runtime secrets are fetched.
+
+## Secret Management
+- Workflow service steps and job handlers resolve runtime credentials through a pluggable secret store (inline JSON or file-backed) rather than raw environment access.
+- Secrets support optional version hints; mismatches and missing keys are surfaced as orchestration errors and captured in audit logs.
+- Secret access metadata (workflow run, step ID, job run) is persisted, enabling compliance reviews and least-privilege validation.
+
+## Observability Enhancements
+- All worker and orchestration logs emit structured JSON and (optionally) forward to an external log aggregation service via `APPHUB_LOG_AGGREGATOR_URL`.
+- The catalog API exposes `GET /metrics`, publishing aggregate job/workflow run counts, average duration, and failure rates for dashboards and alerting baselines.
+- Repeated workflow failures trigger structured warnings and optional webhooks once `WORKFLOW_FAILURE_ALERT_THRESHOLD` is exceeded within the sliding window defined by `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`.
+- Alert payloads include workflow definition IDs, run IDs, failure counts, and triggers so incident responders can pivot quickly.
+
+## Deployment & Rollout Readiness
+- See `docs/workflow-rollout.md` for the staged rollout plan, rollback procedures, and environment-to-environment workflow migration guidance.

@@ -8,12 +8,29 @@ import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import type { JobRunContext, JobResult } from '../src/jobs/runtime';
+import { refreshSecretStore } from '../src/secretStore';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
 process.env.SERVICE_REGISTRY_TOKEN = 'test-token';
-process.env.TEST_SERVICE_TOKEN = 'test-secret-token';
+const SERVICE_SECRET_VALUE = 'workflow-secret-token';
+process.env.TEST_SERVICE_TOKEN = 'env-token-unused';
+
+const OPERATOR_TOKEN = 'jobs-e2e-operator-token';
+
+process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
+  {
+    subject: 'workflows-e2e',
+    token: OPERATOR_TOKEN,
+    scopes: ['jobs:write', 'jobs:run', 'workflows:write', 'workflows:run']
+  }
+]);
+
+process.env.APPHUB_SECRET_STORE = JSON.stringify({
+  TEST_SERVICE_TOKEN: { value: SERVICE_SECRET_VALUE, version: 'v1' }
+});
+refreshSecretStore();
 
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -105,7 +122,7 @@ async function startTestService(): Promise<TestServiceController> {
           }
         }
 
-        const expectedAuth = `Bearer ${process.env.TEST_SERVICE_TOKEN}`;
+        const expectedAuth = `Bearer ${SERVICE_SECRET_VALUE}`;
         if (req.headers.authorization !== expectedAuth) {
           res.statusCode = 401;
           res.setHeader('Content-Type', 'application/json');
@@ -256,6 +273,9 @@ async function createJobDefinition(app: FastifyInstance, payload: { slug: string
   const response = await app.inject({
     method: 'POST',
     url: '/jobs',
+    headers: {
+      Authorization: `Bearer ${OPERATOR_TOKEN}`
+    },
     payload: {
       slug: payload.slug,
       name: payload.name,
@@ -282,9 +302,29 @@ async function testWorkflowEndpoints(): Promise<void> {
     await registerTestService(app, testService);
 
     try {
-      const createWorkflowResponse = await app.inject({
+    const unauthorizedWorkflowResponse = await app.inject({
       method: 'POST',
       url: '/workflows',
+      payload: {
+        slug: 'wf-unauthorized',
+        name: 'Unauthorized Workflow',
+        steps: [
+          {
+            id: 'noop',
+            name: 'Noop',
+            jobSlug: 'workflow-step-one'
+          }
+        ]
+      }
+    });
+    assert.equal(unauthorizedWorkflowResponse.statusCode, 401);
+
+    const createWorkflowResponse = await app.inject({
+      method: 'POST',
+      url: '/workflows',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         slug: 'wf-demo',
         name: 'Workflow Demo',
@@ -307,7 +347,7 @@ async function testWorkflowEndpoints(): Promise<void> {
               method: 'POST',
               headers: {
                 Authorization: {
-                  secret: { source: 'env', key: 'TEST_SERVICE_TOKEN' },
+                  secret: { source: 'store', key: 'TEST_SERVICE_TOKEN', version: 'v1' },
                   prefix: 'Bearer '
                 }
               }
@@ -346,6 +386,9 @@ async function testWorkflowEndpoints(): Promise<void> {
       const triggerResponse = await app.inject({
       method: 'POST',
       url: '/workflows/wf-demo/run',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         parameters: { tenant: 'acme' }
       }
@@ -407,9 +450,22 @@ async function testWorkflowEndpoints(): Promise<void> {
       const authHeader = headerRecord.Authorization ?? headerRecord.authorization;
       assert.equal(authHeader, '***');
 
+      const metricsResponse = await app.inject({ method: 'GET', url: '/metrics' });
+      assert.equal(metricsResponse.statusCode, 200);
+      const metricsBody = JSON.parse(metricsResponse.payload) as {
+        data: {
+          workflows: { total: number; statusCounts: Record<string, number> };
+          jobs: { total: number };
+        };
+      };
+      assert(metricsBody.data.workflows.total >= 1);
+
     const failureResponse = await app.inject({
       method: 'POST',
       url: '/workflows/wf-demo/run',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         parameters: { shouldFail: true }
       }
@@ -437,6 +493,9 @@ async function testWorkflowEndpoints(): Promise<void> {
       const retryResponse = await app.inject({
         method: 'POST',
         url: '/workflows/wf-demo/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
         payload: {
           parameters: { tenant: 'acme-retry' }
         }
@@ -464,6 +523,9 @@ async function testWorkflowEndpoints(): Promise<void> {
       const degradedResponse = await app.inject({
         method: 'POST',
         url: '/workflows/wf-demo/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
         payload: {
           parameters: { tenant: 'degraded-path' }
         }

@@ -312,6 +312,29 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run_created ON workflow_run_steps(workflow_run_id, created_at);`,
       `CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_job_run ON workflow_run_steps(job_run_id) WHERE job_run_id IS NOT NULL;`
     ]
+  },
+  {
+    id: '004_security_observability',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+         id BIGSERIAL PRIMARY KEY,
+         actor TEXT,
+         actor_type TEXT,
+         token_hash TEXT,
+         scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+         action TEXT NOT NULL,
+         resource TEXT NOT NULL,
+         status TEXT NOT NULL,
+         ip TEXT,
+         user_agent TEXT,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_created
+         ON audit_logs(resource, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created
+         ON audit_logs(action, created_at DESC);`
+    ]
   }
 ];
 

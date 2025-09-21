@@ -10,6 +10,16 @@ import type { FastifyInstance } from 'fastify';
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
+const OPERATOR_TOKEN = 'jobs-e2e-operator-token';
+
+process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
+  {
+    subject: 'jobs-e2e',
+    token: OPERATOR_TOKEN,
+    scopes: ['jobs:write', 'jobs:run', 'workflows:write', 'workflows:run']
+  }
+]);
+
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -94,9 +104,24 @@ async function testJobEndpoints(): Promise<void> {
     assert(jobSlugs.includes('repository-ingest'));
     assert(jobSlugs.includes('repository-build'));
 
+    const unauthorizedCreate = await app.inject({
+      method: 'POST',
+      url: '/jobs',
+      payload: {
+        slug: 'jobs-unauthorized',
+        name: 'Unauthorized',
+        type: 'manual',
+        entryPoint: 'tests.jobs.unauthorized'
+      }
+    });
+    assert.equal(unauthorizedCreate.statusCode, 401);
+
     const createJobResponse = await app.inject({
       method: 'POST',
       url: '/jobs',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         slug: 'jobs-test-basic',
         name: 'Jobs Test',
@@ -115,6 +140,9 @@ async function testJobEndpoints(): Promise<void> {
     const conflictResponse = await app.inject({
       method: 'POST',
       url: '/jobs',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         slug: 'jobs-test-basic',
         name: 'Jobs Test Duplicate',
@@ -150,6 +178,9 @@ async function testJobEndpoints(): Promise<void> {
     const manualIngestResponse = await app.inject({
       method: 'POST',
       url: '/jobs/repository-ingest/run',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         parameters: { repositoryId }
       }
@@ -182,6 +213,9 @@ async function testJobEndpoints(): Promise<void> {
     const manualBuildResponse = await app.inject({
       method: 'POST',
       url: '/jobs/repository-build/run',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {
         parameters: { buildId, repositoryId }
       }
@@ -196,6 +230,9 @@ async function testJobEndpoints(): Promise<void> {
     const missingJobRunResponse = await app.inject({
       method: 'POST',
       url: '/jobs/does-not-exist/run',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
       payload: {}
     });
     assert.equal(missingJobRunResponse.statusCode, 404);

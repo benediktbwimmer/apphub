@@ -1,0 +1,14 @@
+[
+  {
+    "subject": "platform-ops",
+    "token": "replace-with-long-random-string",
+    "scopes": ["jobs:write", "jobs:run", "workflows:write", "workflows:run"],
+    "kind": "user"
+  },
+  {
+    "subject": "deployment-service",
+    "token": "replace-with-service-token",
+    "scopes": ["jobs:run", "workflows:run"],
+    "kind": "service"
+  }
+]
