@@ -84,6 +84,14 @@ const repositoryToServiceSlug = new Map<string, string>();
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
 
+function envFlagEnabled(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 function rewriteLoopbackHost(urlValue: string | null | undefined): string | null {
   if (!urlValue) {
     return null;
@@ -1300,11 +1308,12 @@ function startPolling(): PollerController {
 }
 
 export async function initializeServiceRegistry(options?: { enablePolling?: boolean }) {
-  if (options?.enablePolling === false) {
-    poller?.stop();
-    poller = null;
-  } else {
-    poller?.stop();
+  const disablePollingEnv = envFlagEnabled(process.env.APPHUB_DISABLE_SERVICE_POLLING);
+  const enablePolling = options?.enablePolling ?? !disablePollingEnv;
+
+  poller?.stop();
+  poller = null;
+  if (enablePolling) {
     poller = startPolling();
   }
   return {

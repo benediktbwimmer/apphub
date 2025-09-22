@@ -14,11 +14,6 @@ import type {
   WorkflowDefinitionRecord,
   WorkflowRunRecord
 } from './db/index';
-import {
-  getWorkflowRunMetricsBySlug,
-  getWorkflowRunStatsBySlug,
-  listWorkflowDefinitions
-} from './db/index';
 
 type WorkflowAnalyticsStatsEventPayload = {
   workflowId: string;
@@ -117,11 +112,49 @@ const redisUrl = inlineMode ? null : envRedisUrl ?? 'redis://127.0.0.1:6379';
 const eventChannel = process.env.APPHUB_EVENTS_CHANNEL ?? 'apphub:events';
 const originId = `${process.pid}:${randomUUID()}`;
 
+function envFlagEnabled(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+const analyticsDisabled = envFlagEnabled(process.env.APPHUB_DISABLE_ANALYTICS);
+
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
 let redisFailureNotified = false;
 let analyticsTimer: NodeJS.Timeout | null = null;
 let analyticsRunning = false;
+
+type WorkflowAnalyticsModule = Pick<
+  typeof import('./db/workflows'),
+  'listWorkflowDefinitions' | 'getWorkflowRunStatsBySlug' | 'getWorkflowRunMetricsBySlug'
+>;
+
+let workflowAnalyticsModule: Promise<WorkflowAnalyticsModule> | null = null;
+
+async function loadWorkflowAnalyticsModule(): Promise<WorkflowAnalyticsModule> {
+  if (!workflowAnalyticsModule) {
+    workflowAnalyticsModule = import('./db/workflows').then((module) => {
+      const { listWorkflowDefinitions, getWorkflowRunStatsBySlug, getWorkflowRunMetricsBySlug } = module;
+      if (
+        typeof listWorkflowDefinitions !== 'function' ||
+        typeof getWorkflowRunStatsBySlug !== 'function' ||
+        typeof getWorkflowRunMetricsBySlug !== 'function'
+      ) {
+        throw new Error('Workflow analytics exports are unavailable');
+      }
+      return {
+        listWorkflowDefinitions,
+        getWorkflowRunStatsBySlug,
+        getWorkflowRunMetricsBySlug
+      };
+    });
+  }
+  return workflowAnalyticsModule;
+}
 
 function disableRedisEvents(reason: string) {
   if (inlineMode) {
@@ -232,12 +265,19 @@ function bucketKeyFromInterval(interval: string): string | null {
   }
 }
 
-async function publishAnalyticsSnapshotForWorkflow(slug: string, now: Date) {
+async function publishAnalyticsSnapshotForWorkflow(
+  slug: string,
+  now: Date,
+  analytics: WorkflowAnalyticsModule
+) {
+  if (analyticsDisabled) {
+    return;
+  }
   try {
     const from = new Date(now.getTime() - ANALYTICS_RANGE_MS);
     const [stats, metrics] = await Promise.all([
-      getWorkflowRunStatsBySlug(slug, { from, to: now }),
-      getWorkflowRunMetricsBySlug(slug, {
+      analytics.getWorkflowRunStatsBySlug(slug, { from, to: now }),
+      analytics.getWorkflowRunMetricsBySlug(slug, {
         from,
         to: now,
         bucketInterval: ANALYTICS_BUCKET_INTERVAL
@@ -297,23 +337,58 @@ async function publishAnalyticsSnapshotForWorkflow(slug: string, now: Date) {
     });
   } catch (err) {
     console.error(`[events] Failed to compute analytics snapshot for ${slug}`, err);
+    throw err;
   }
 }
 
 async function publishAnalyticsSnapshots() {
-  const workflows = await listWorkflowDefinitions();
+  if (analyticsDisabled) {
+    return;
+  }
+  const analytics = await loadWorkflowAnalyticsModule();
+  const workflows = await analytics.listWorkflowDefinitions();
   if (workflows.length === 0) {
     return;
   }
   const now = new Date();
-  await Promise.all(workflows.map((workflow) => publishAnalyticsSnapshotForWorkflow(workflow.slug, now)));
+  await Promise.all(
+    workflows.map((workflow) => publishAnalyticsSnapshotForWorkflow(workflow.slug, now, analytics))
+  );
 }
 
-function scheduleAnalyticsSnapshots() {
-  if (ANALYTICS_INTERVAL_MS <= 0) {
+function shouldStopAnalytics(err: unknown): boolean {
+  if (!err) {
+    return false;
+  }
+  if (err instanceof Error) {
+    const errorWithCode = err as Error & { code?: string };
+    if (errorWithCode.code === 'ECONNREFUSED' || errorWithCode.code === '57P01') {
+      return true;
+    }
+    const message = err.message ?? '';
+    if (
+      message.includes('ECONNREFUSED') ||
+      message.includes('terminating connection due to administrator command')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function stopAnalyticsSnapshots() {
+  if (analyticsTimer) {
+    clearInterval(analyticsTimer);
+    analyticsTimer = null;
+  }
+  analyticsRunning = false;
+}
+
+function startAnalyticsSnapshots() {
+  if (analyticsDisabled) {
     return;
   }
-  if (analyticsTimer) {
+  if (analyticsTimer || ANALYTICS_INTERVAL_MS <= 0) {
     return;
   }
 
@@ -326,6 +401,9 @@ function scheduleAnalyticsSnapshots() {
       await publishAnalyticsSnapshots();
     } catch (err) {
       console.error('[events] Failed to publish analytics snapshots', err);
+      if (shouldStopAnalytics(err)) {
+        stopAnalyticsSnapshots();
+      }
     } finally {
       analyticsRunning = false;
     }
@@ -334,8 +412,32 @@ function scheduleAnalyticsSnapshots() {
   analyticsTimer = setInterval(() => {
     void run();
   }, ANALYTICS_INTERVAL_MS);
+  if (typeof analyticsTimer.unref === 'function') {
+    analyticsTimer.unref();
+  }
 
   void run();
 }
 
-scheduleAnalyticsSnapshots();
+const scheduleAnalyticsStart: (callback: () => void) => void =
+  typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : (callback: () => void) => {
+        setTimeout(callback, 0);
+      };
+
+scheduleAnalyticsStart(() => {
+  try {
+    startAnalyticsSnapshots();
+  } catch (err) {
+    console.error('[events] Failed to start analytics snapshots', err);
+  }
+});
+
+process.once('beforeExit', () => {
+  stopAnalyticsSnapshots();
+});
+
+process.once('exit', () => {
+  stopAnalyticsSnapshots();
+});

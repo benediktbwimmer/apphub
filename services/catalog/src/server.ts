@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { initializeServiceRegistry } from './serviceRegistry';
+import { stopAnalyticsSnapshots } from './events';
 import { registerCoreRoutes } from './routes/core';
 import { registerAuthRoutes } from './routes/auth';
 import { registerJobRoutes } from './routes/jobs';
@@ -29,6 +30,7 @@ export async function buildServer() {
 
   app.addHook('onClose', async () => {
     registry.stop();
+    stopAnalyticsSnapshots();
   });
 
   await app.register(async (instance) => registerCoreRoutes(instance));

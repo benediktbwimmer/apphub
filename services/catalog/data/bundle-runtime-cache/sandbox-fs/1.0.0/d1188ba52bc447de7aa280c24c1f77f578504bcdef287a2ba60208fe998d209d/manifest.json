@@ -1,7 +1,0 @@
-{
-  "name": "Bundle sandbox-fs",
-  "version": "1.0.0",
-  "entry": "index.js",
-  "description": "Sandbox test bundle",
-  "capabilities": []
-}
