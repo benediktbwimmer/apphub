@@ -1,39 +1,22 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { type ActiveTab, useNavigation } from './NavigationContext';
+import { Link, useLocation } from 'react-router-dom';
+import { PRIMARY_NAV_ITEMS } from '../routes/paths';
 
 interface NavbarProps {
   variant?: 'default' | 'overlay';
   onExitFullscreen?: () => void;
 }
 
-const TAB_LABELS: Record<ActiveTab, string> = {
-  catalog: 'Catalog',
-  apps: 'Apps',
-  workflows: 'Workflows',
-  import: 'Import',
-  'api-access': 'API Access'
-};
-
 export default function Navbar({ variant = 'default', onExitFullscreen }: NavbarProps) {
-  const { activeTab, setActiveTab } = useNavigation();
+  const location = useLocation();
   const authorizedFetch = useAuthorizedFetch();
   const isOverlay = variant === 'overlay';
   const [isNuking, setIsNuking] = useState(false);
   const [nukeError, setNukeError] = useState<string | null>(null);
 
-  const handleTabClick = (tab: ActiveTab) => {
-    if (tab === activeTab) {
-      return;
-    }
-
-    setActiveTab(tab);
-
-    if (isOverlay && onExitFullscreen) {
-      onExitFullscreen();
-    }
-  };
+  const activePath = useMemo(() => location.pathname.replace(/\/$/, '') || '/', [location.pathname]);
 
   const containerClasses = isOverlay
     ? 'rounded-3xl border border-slate-700/70 bg-slate-900/80 px-5 py-4 text-slate-100 shadow-[0_25px_60px_-35px_rgba(15,23,42,1)] backdrop-blur'
@@ -100,9 +83,17 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
     }
   }, [authorizedFetch, isNuking, parseErrorMessage]);
 
-  const getTabClasses = (tab: ActiveTab) => {
-    const isActive = activeTab === tab;
+  const isPathActive = useCallback(
+    (path: string) => {
+      if (path === '/') {
+        return activePath === '/';
+      }
+      return activePath === path || activePath.startsWith(`${path}/`);
+    },
+    [activePath]
+  );
 
+  const getTabClasses = (isActive: boolean) => {
     if (isActive) {
       return isOverlay
         ? 'rounded-full px-5 py-2 text-sm font-semibold text-slate-50 shadow-lg shadow-violet-500/20 ring-1 ring-inset ring-slate-500/40'
@@ -122,22 +113,30 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
         </span>
         <span className="text-lg font-semibold">AppHub</span>
       </div>
-      <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
-        <div className={tabGroupClasses} role="tablist" aria-label="Pages">
-          {(Object.keys(TAB_LABELS) as ActiveTab[]).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab}
-              className={`${getTabClasses(tab)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
-              onClick={() => handleTabClick(tab)}
-            >
-              {TAB_LABELS[tab]}
-            </button>
-          ))}
-        </div>
-        <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
+        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
+          <div className={tabGroupClasses} role="tablist" aria-label="Pages">
+            {PRIMARY_NAV_ITEMS.map((item) => {
+              const isActive = isPathActive(item.path);
+              return (
+                <Link
+                  key={item.key}
+                  to={item.path}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`${getTabClasses(isActive)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
+                  onClick={() => {
+                    if (!isActive && isOverlay && onExitFullscreen) {
+                      onExitFullscreen();
+                    }
+                  }}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+          <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
           <div className="flex w-full flex-col items-start gap-2 md:flex-row md:items-center md:gap-2">
             {onExitFullscreen && (
               <button
