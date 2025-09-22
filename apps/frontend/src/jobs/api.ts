@@ -91,6 +91,28 @@ export type SchemaPreview = {
   outputSource: string | null;
 };
 
+export type PythonSnippetPreview = {
+  handlerName: string;
+  handlerIsAsync: boolean;
+  inputModel: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
+  outputModel: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
+};
+
+export type PythonSnippetCreateResult = {
+  job: JobDefinitionSummary;
+  analysis: PythonSnippetPreview;
+  bundle: {
+    slug: string;
+    version: string;
+  };
+};
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -213,4 +235,101 @@ export async function previewJobSchemas(
     parametersSource: typeof data.parametersSource === 'string' ? data.parametersSource : null,
     outputSource: typeof data.outputSource === 'string' ? data.outputSource : null
   } satisfies SchemaPreview;
+}
+
+function normalizeSnippetPreview(raw: unknown): PythonSnippetPreview {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Invalid snippet preview response');
+  }
+  const data = raw as Record<string, unknown>;
+  const handlerName = typeof data.handlerName === 'string' ? data.handlerName : null;
+  const handlerIsAsync = Boolean(data.handlerIsAsync);
+  const inputModel = toRecord(data.inputModel ?? null);
+  const outputModel = toRecord(data.outputModel ?? null);
+  if (!handlerName || !inputModel || !outputModel) {
+    throw new Error('Snippet preview response missing required data');
+  }
+  const inputSchema = toRecord(inputModel.schema ?? null);
+  const outputSchema = toRecord(outputModel.schema ?? null);
+  if (!inputSchema || !outputSchema) {
+    throw new Error('Snippet preview response missing schemas');
+  }
+  const inputName = typeof inputModel.name === 'string' ? inputModel.name : null;
+  const outputName = typeof outputModel.name === 'string' ? outputModel.name : null;
+  if (!inputName || !outputName) {
+    throw new Error('Snippet preview response missing model names');
+  }
+  return {
+    handlerName,
+    handlerIsAsync,
+    inputModel: { name: inputName, schema: inputSchema },
+    outputModel: { name: outputName, schema: outputSchema }
+  } satisfies PythonSnippetPreview;
+}
+
+export async function previewPythonSnippet(
+  fetcher: AuthorizedFetch,
+  input: { snippet: string }
+): Promise<PythonSnippetPreview> {
+  const response = await fetcher(`${API_BASE_URL}/jobs/python-snippet/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  await ensureOk(response, 'Failed to analyze Python snippet');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  if (!payload.data) {
+    throw new Error('Snippet preview response missing data');
+  }
+  return normalizeSnippetPreview(payload.data);
+}
+
+export async function createPythonSnippetJob(
+  fetcher: AuthorizedFetch,
+  input: {
+    slug: string;
+    name: string;
+    type: 'batch' | 'service-triggered' | 'manual';
+    snippet: string;
+    dependencies?: string[];
+    timeoutMs?: number | null;
+    versionStrategy?: 'auto' | 'manual';
+    bundleSlug?: string | null;
+    bundleVersion?: string | null;
+    jobVersion?: number | null;
+  }
+): Promise<PythonSnippetCreateResult> {
+  const response = await fetcher(`${API_BASE_URL}/jobs/python-snippet`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  await ensureOk(response, 'Failed to create Python job');
+  const payload = await parseJson<{
+    data?: {
+      job?: JobDefinitionSummary;
+      analysis?: unknown;
+      bundle?: { slug?: unknown; version?: unknown };
+    };
+  }>(response);
+  const data = payload.data;
+  if (!data || !data.job || !data.bundle) {
+    throw new Error('Python job creation response missing data');
+  }
+  const analysis = normalizeSnippetPreview(data.analysis ?? {});
+  const bundleSlug = typeof data.bundle.slug === 'string' ? data.bundle.slug : null;
+  const bundleVersion = typeof data.bundle.version === 'string' ? data.bundle.version : null;
+  if (!bundleSlug || !bundleVersion) {
+    throw new Error('Bundle metadata missing from response');
+  }
+  const job: JobDefinitionSummary = {
+    ...data.job,
+    registryRef: data.job.registryRef ?? null,
+    timeoutMs: data.job.timeoutMs ?? null
+  } satisfies JobDefinitionSummary;
+  return {
+    job,
+    analysis,
+    bundle: { slug: bundleSlug, version: bundleVersion }
+  } satisfies PythonSnippetCreateResult;
 }

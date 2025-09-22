@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AuthorizedFetch, JobDefinitionSummary } from '../workflows/api';
 import { createJobDefinition } from '../workflows/api';
-import type { JobRuntimeStatus, SchemaPreview } from './api';
-import { previewJobSchemas } from './api';
+import { Editor } from '../components/Editor';
+import {
+  previewJobSchemas,
+  previewPythonSnippet,
+  createPythonSnippetJob,
+  type JobRuntimeStatus,
+  type PythonSnippetPreview,
+  type SchemaPreview
+} from './api';
 
 const JOB_TYPES: Array<{ value: 'batch' | 'service-triggered' | 'manual'; label: string }> = [
   { value: 'batch', label: 'Batch' },
@@ -11,6 +18,22 @@ const JOB_TYPES: Array<{ value: 'batch' | 'service-triggered' | 'manual'; label:
 ];
 
 const EMPTY_JSON_TEXT = '{\n}\n';
+const PYTHON_SNIPPET_TEMPLATE = [
+  'from pydantic import BaseModel',
+  '',
+  '',
+  'class Input(BaseModel):',
+  '  message: str',
+  '',
+  '',
+  'class Output(BaseModel):',
+  '  echoed: str',
+  '',
+  '',
+  'def handler(payload: Input) -> Output:',
+  '  return Output(echoed=payload.message)',
+  ''
+].join('\n');
 
 function formatRuntimeStatus(status?: JobRuntimeStatus): string {
   if (!status?.ready) {
@@ -69,6 +92,13 @@ function formatSchema(schema: Record<string, unknown> | null): string {
   }
 }
 
+function parseDependenciesText(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 type JobCreateDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -105,6 +135,11 @@ export default function JobCreateDialog({
   const [parametersSchemaText, setParametersSchemaText] = useState(EMPTY_JSON_TEXT);
   const [defaultParametersText, setDefaultParametersText] = useState(EMPTY_JSON_TEXT);
   const [outputSchemaText, setOutputSchemaText] = useState(EMPTY_JSON_TEXT);
+  const [pythonSnippet, setPythonSnippet] = useState(PYTHON_SNIPPET_TEMPLATE);
+  const [pythonDependenciesText, setPythonDependenciesText] = useState('');
+  const [pythonPreview, setPythonPreview] = useState<PythonSnippetPreview | null>(null);
+  const [pythonPreviewPending, setPythonPreviewPending] = useState(false);
+  const [pythonPreviewError, setPythonPreviewError] = useState<string | null>(null);
   const [parametersSchemaError, setParametersSchemaError] = useState<string | null>(null);
   const [defaultParametersError, setDefaultParametersError] = useState<string | null>(null);
   const [outputSchemaError, setOutputSchemaError] = useState<string | null>(null);
@@ -129,6 +164,11 @@ export default function JobCreateDialog({
     setParametersSchemaText(EMPTY_JSON_TEXT);
     setDefaultParametersText(EMPTY_JSON_TEXT);
     setOutputSchemaText(EMPTY_JSON_TEXT);
+    setPythonSnippet(PYTHON_SNIPPET_TEMPLATE);
+    setPythonDependenciesText('');
+    setPythonPreview(null);
+    setPythonPreviewError(null);
+    setPythonPreviewPending(false);
     setParametersSchemaError(null);
     setDefaultParametersError(null);
     setOutputSchemaError(null);
@@ -152,6 +192,28 @@ export default function JobCreateDialog({
   const handleRuntimeChange = useCallback((value: 'node' | 'python') => {
     setRuntime(value);
   }, []);
+
+  const handlePythonPreview = useCallback(async () => {
+    setPythonPreviewError(null);
+    if (!pythonSnippet.trim()) {
+      setPythonPreviewError('Provide a Python snippet to analyze.');
+      return;
+    }
+    setPythonPreviewPending(true);
+    try {
+      const preview = await previewPythonSnippet(authorizedFetch, { snippet: pythonSnippet });
+      setPythonPreview(preview);
+      setParametersSchemaText(formatSchema(preview.inputModel.schema));
+      setOutputSchemaText(formatSchema(preview.outputModel.schema));
+      setParametersSchemaError(null);
+      setOutputSchemaError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to analyze snippet';
+      setPythonPreviewError(message);
+    } finally {
+      setPythonPreviewPending(false);
+    }
+  }, [authorizedFetch, pythonSnippet]);
 
   const handleAutoDetect = useCallback(async () => {
     setAutoDetectError(null);
@@ -214,6 +276,54 @@ export default function JobCreateDialog({
         setFormError('Slug must contain only alphanumeric characters, dashes, or underscores.');
         return;
       }
+
+      let versionValue: number | undefined;
+      if (trimmedVersion) {
+        const parsed = Number(trimmedVersion);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          setFormError('Version must be a positive integer if provided.');
+          return;
+        }
+        versionValue = parsed;
+      }
+
+      let timeoutValue: number | null | undefined = null;
+      if (trimmedTimeout) {
+        const parsed = Number(trimmedTimeout);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          setFormError('Timeout must be a positive number of milliseconds.');
+          return;
+        }
+        timeoutValue = Math.floor(parsed);
+      }
+
+      if (runtime === 'python') {
+        if (!pythonSnippet.trim()) {
+          setFormError('Python snippet is required.');
+          return;
+        }
+        const dependencies = parseDependenciesText(pythonDependenciesText);
+        setSubmitting(true);
+        try {
+          const result = await createPythonSnippetJob(authorizedFetch, {
+            slug: trimmedSlug,
+            name: trimmedName,
+            type: jobType,
+            snippet: pythonSnippet,
+            dependencies,
+            timeoutMs: timeoutValue ?? undefined,
+            versionStrategy: 'auto'
+          });
+          onCreated(result.job);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to create Python job';
+          setFormError(message);
+        } finally {
+          setSubmitting(false);
+        }
+        return;
+      }
+
       if (!trimmedEntryPoint) {
         setFormError('Entry point is required.');
         return;
@@ -230,26 +340,6 @@ export default function JobCreateDialog({
       const outputSchema = parseJsonObject(outputSchemaText, setOutputSchemaError);
       if (!outputSchema) {
         return;
-      }
-
-      let versionValue: number | undefined;
-      if (trimmedVersion) {
-        const parsed = Number(trimmedVersion);
-        if (!Number.isInteger(parsed) || parsed < 1) {
-          setFormError('Version must be a positive integer if provided.');
-          return;
-        }
-        versionValue = parsed;
-      }
-
-      let timeoutValue: number | null | undefined;
-      if (trimmedTimeout) {
-        const parsed = Number(trimmedTimeout);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          setFormError('Timeout must be a positive number of milliseconds.');
-          return;
-        }
-        timeoutValue = Math.floor(parsed);
       }
 
       setSubmitting(true);
@@ -283,6 +373,8 @@ export default function JobCreateDialog({
       timeoutMs,
       jobType,
       runtime,
+      pythonSnippet,
+      pythonDependenciesText,
       parametersSchemaText,
       defaultParametersText,
       outputSchemaText,
@@ -414,17 +506,62 @@ export default function JobCreateDialog({
             </label>
           </div>
 
-          <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Entry point
-            <input
-              type="text"
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-              value={entryPoint}
-              onChange={(event) => setEntryPoint(event.target.value)}
-              required
-              placeholder="bundle:slug@version"
-            />
-          </label>
+          {runtime === 'node' && (
+            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Entry point
+              <input
+                type="text"
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={entryPoint}
+                onChange={(event) => setEntryPoint(event.target.value)}
+                required={runtime === 'node'}
+                placeholder="bundle:slug@version"
+              />
+            </label>
+          )}
+
+          {runtime === 'python' && (
+            <div className="flex flex-col gap-3">
+              <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Python snippet
+                <Editor
+                  value={pythonSnippet}
+                  onChange={setPythonSnippet}
+                  language="python"
+                  height={260}
+                  ariaLabel="Python job snippet"
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  onClick={handlePythonPreview}
+                  disabled={pythonPreviewPending}
+                >
+                  {pythonPreviewPending ? 'Analyzing…' : 'Analyze snippet'}
+                </button>
+                {pythonPreview && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Handler {pythonPreview.handlerName} · {pythonPreview.inputModel.name} → {pythonPreview.outputModel.name}
+                  </span>
+                )}
+              </div>
+              {pythonPreviewError && (
+                <p className="text-xs text-rose-600 dark:text-rose-300">{pythonPreviewError}</p>
+              )}
+              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Dependencies (one per line, optional)
+                <textarea
+                  className="min-h-[100px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  value={pythonDependenciesText}
+                  onChange={(event) => setPythonDependenciesText(event.target.value)}
+                  placeholder="requests>=2.31.0"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -449,76 +586,108 @@ export default function JobCreateDialog({
             </label>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Schemas</h3>
-              <button
-                type="button"
-                className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-                onClick={handleAutoDetect}
-                disabled={autoDetectPending}
-              >
-                {autoDetectPending ? 'Detecting…' : 'Auto-detect from entry point'}
-              </button>
+          {runtime === 'node' ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Schemas</h3>
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  onClick={handleAutoDetect}
+                  disabled={autoDetectPending}
+                >
+                  {autoDetectPending ? 'Detecting…' : 'Auto-detect from entry point'}
+                </button>
+              </div>
+              {autoDetectError && (
+                <p className="text-xs text-rose-600 dark:text-rose-300">{autoDetectError}</p>
+              )}
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Parameters schema
+                  <textarea
+                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={parametersSchemaText}
+                    onChange={(event) => setParametersSchemaText(event.target.value)}
+                    spellCheck={false}
+                  />
+                  {schemaSources.parameters && (
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Detected from {schemaSources.parameters}
+                    </span>
+                  )}
+                  {parametersSchemaError && (
+                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                      {parametersSchemaError}
+                    </span>
+                  )}
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Default parameters
+                  <textarea
+                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={defaultParametersText}
+                    onChange={(event) => setDefaultParametersText(event.target.value)}
+                    spellCheck={false}
+                  />
+                  {defaultParametersError && (
+                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                      {defaultParametersError}
+                    </span>
+                  )}
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:col-span-2">
+                  Output schema
+                  <textarea
+                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={outputSchemaText}
+                    onChange={(event) => setOutputSchemaText(event.target.value)}
+                    spellCheck={false}
+                  />
+                  {schemaSources.output && (
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Detected from {schemaSources.output}
+                    </span>
+                  )}
+                  {outputSchemaError && (
+                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                      {outputSchemaError}
+                    </span>
+                  )}
+                </label>
+              </div>
             </div>
-            {autoDetectError && (
-              <p className="text-xs text-rose-600 dark:text-rose-300">{autoDetectError}</p>
-            )}
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Parameters schema
-                <textarea
-                  className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={parametersSchemaText}
-                  onChange={(event) => setParametersSchemaText(event.target.value)}
-                  spellCheck={false}
-                />
-                {schemaSources.parameters && (
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Detected from {schemaSources.parameters}
-                  </span>
-                )}
-                {parametersSchemaError && (
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                    {parametersSchemaError}
-                  </span>
-                )}
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Default parameters
-                <textarea
-                  className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={defaultParametersText}
-                  onChange={(event) => setDefaultParametersText(event.target.value)}
-                  spellCheck={false}
-                />
-                {defaultParametersError && (
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                    {defaultParametersError}
-                  </span>
-                )}
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:col-span-2">
-                Output schema
-                <textarea
-                  className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  value={outputSchemaText}
-                  onChange={(event) => setOutputSchemaText(event.target.value)}
-                  spellCheck={false}
-                />
-                {schemaSources.output && (
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Detected from {schemaSources.output}
-                  </span>
-                )}
-                {outputSchemaError && (
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                    {outputSchemaError}
-                  </span>
-                )}
-              </label>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Generated schemas</h3>
+              {pythonPreview ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Parameters schema
+                    <textarea
+                      className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      value={formatSchema(pythonPreview.inputModel.schema)}
+                      readOnly
+                      spellCheck={false}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Output schema
+                    <textarea
+                      className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      value={formatSchema(pythonPreview.outputModel.schema)}
+                      readOnly
+                      spellCheck={false}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Run the snippet analysis to generate input and output schemas.
+                </p>
+              )}
             </div>
-          </div>
+          )}
 
           {formError && (
             <p className="text-sm font-semibold text-rose-600 dark:text-rose-300">{formError}</p>

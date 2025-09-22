@@ -125,18 +125,19 @@ export async function createJobDefinition(
            $2,
            $3,
            $4,
-           $5,
-           $6,
-           $7::jsonb,
-           $8::jsonb,
-           $9::jsonb,
-           $10,
-           $11::jsonb,
-           $12::jsonb,
-           NOW(),
-           NOW()
-         )
-         RETURNING *`,
+         $5,
+         $6,
+          $7,
+          $8::jsonb,
+          $9::jsonb,
+          $10::jsonb,
+          $11,
+          $12::jsonb,
+          $13::jsonb,
+          NOW(),
+          NOW()
+        )
+        RETURNING *`,
         [
           id,
           input.slug,
@@ -213,12 +214,13 @@ export async function upsertJobDefinition(
            $4,
            $5,
            $6,
-           $7::jsonb,
+           $7,
            $8::jsonb,
            $9::jsonb,
-           $10,
-           $11::jsonb,
+           $10::jsonb,
+           $11,
            $12::jsonb,
+           $13::jsonb,
            NOW(),
            NOW()
          )
@@ -227,17 +229,17 @@ export async function upsertJobDefinition(
           newId,
           input.slug,
           input.name,
-          input.version ?? 1,
-          input.type,
-          runtime,
-          input.entryPoint,
-          parametersSchema,
-          defaultParameters,
-          outputSchema,
-          input.timeoutMs ?? null,
-          retryPolicy,
-          metadata
-        ]
+           input.version ?? 1,
+           input.type,
+           runtime,
+           input.entryPoint,
+           parametersSchema,
+           defaultParameters,
+           outputSchema,
+           input.timeoutMs ?? null,
+           retryPolicy,
+           metadata
+         ]
       );
       if (rows.length === 0) {
         throw new Error('failed to insert job definition');

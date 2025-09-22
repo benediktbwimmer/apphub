@@ -18,6 +18,12 @@ import { executeJobRun } from '../jobs/runtime';
 import { getRuntimeReadiness } from '../jobs/runtimeReadiness';
 import { introspectEntryPointSchemas } from '../jobs/schemaIntrospector';
 import {
+  previewPythonSnippet,
+  createPythonSnippetJob,
+  PythonSnippetBuilderError
+} from '../jobs/pythonSnippetBuilder';
+import { PythonSnippetAnalysisError } from '../jobs/pythonSnippetAnalyzer';
+import {
   serializeJobDefinition,
   serializeJobBundleVersion,
   serializeJobRun,
@@ -94,6 +100,50 @@ const schemaPreviewRequestSchema = z
     runtime: z.enum(['node', 'python']).optional()
   })
   .strict();
+
+const pythonSnippetPreviewSchema = z
+  .object({
+    snippet: z.string().min(1).max(20_000)
+  })
+  .strict();
+
+const dependencySchema = z
+  .string()
+  .min(1)
+  .max(120);
+
+const pythonSnippetCreateSchema = z
+  .object({
+    slug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1),
+    type: z.enum(['batch', 'service-triggered', 'manual']),
+    snippet: z.string().min(1).max(20_000),
+    dependencies: z.array(dependencySchema).max(32).optional(),
+    timeoutMs: z.number().int().min(1_000).max(86_400_000).optional(),
+    versionStrategy: z.enum(['auto', 'manual']).default('auto'),
+    bundleSlug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Bundle slug must contain only alphanumeric characters, dashes, or underscores')
+      .optional(),
+    bundleVersion: z.string().min(1).max(100).optional(),
+    jobVersion: z.number().int().min(1).optional()
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    if (payload.versionStrategy === 'manual' && !payload.bundleVersion) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['bundleVersion'],
+        message: 'Bundle version is required when versionStrategy is manual'
+      });
+    }
+  });
 
 type JobDefinitionCreateInput = z.infer<typeof jobDefinitionCreateSchema>;
 type JobRunRequestPayload = z.infer<typeof jobRunRequestSchema>;
@@ -291,6 +341,121 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
         entryPoint: parseBody.data.entryPoint
       });
       return { error: 'Failed to inspect entry point' };
+    }
+  });
+
+  app.post('/jobs/python-snippet/preview', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'jobs.python-snippet.preview',
+      resource: 'jobs',
+      requiredScopes: JOB_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseBody = pythonSnippetPreviewSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    try {
+      const preview = await previewPythonSnippet(parseBody.data.snippet);
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        action: 'jobs.python-snippet.preview',
+        handler: preview.handlerName,
+        inputModel: preview.inputModel.name,
+        outputModel: preview.outputModel.name
+      });
+      return { data: preview };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to analyze snippet';
+      const isBadRequest = err instanceof PythonSnippetAnalysisError || err instanceof PythonSnippetBuilderError;
+      request.log.warn({ err }, 'Python snippet preview failed');
+      reply.status(isBadRequest ? 400 : 500);
+      await authResult.auth.log('failed', {
+        reason: isBadRequest ? 'invalid_snippet' : 'exception',
+        message
+      });
+      return { error: message };
+    }
+  });
+
+  app.post('/jobs/python-snippet', async (request, reply) => {
+    const requiredScopes = Array.from(new Set([...JOB_WRITE_SCOPES, ...JOB_BUNDLE_WRITE_SCOPES]));
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'jobs.python-snippet.create',
+      resource: 'jobs',
+      requiredScopes
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseBody = pythonSnippetCreateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+
+    try {
+      const result = await createPythonSnippetJob(
+        {
+          slug: payload.slug,
+          name: payload.name,
+          type: payload.type,
+          snippet: payload.snippet,
+          dependencies: payload.dependencies ?? [],
+          timeoutMs: payload.timeoutMs ?? null,
+          versionStrategy: payload.versionStrategy,
+          bundleSlug: payload.bundleSlug ?? null,
+          bundleVersion: payload.bundleVersion ?? null,
+          jobVersion: payload.jobVersion ?? null
+        },
+        {
+          subject: authResult.auth.identity.subject,
+          kind: authResult.auth.identity.kind,
+          tokenHash: authResult.auth.identity.tokenHash
+        }
+      );
+
+      reply.status(201);
+      await authResult.auth.log('succeeded', {
+        action: 'jobs.python-snippet.create',
+        jobSlug: result.job.slug,
+        handler: result.analysis.handlerName,
+        bundleSlug: result.bundle.slug,
+        bundleVersion: result.bundle.version
+      });
+      return {
+        data: {
+          job: serializeJobDefinition(result.job),
+          analysis: result.analysis,
+          bundle: result.bundle
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create Python job';
+      const isBadRequest = err instanceof PythonSnippetAnalysisError || err instanceof PythonSnippetBuilderError;
+      request.log.error({ err }, 'Failed to create Python snippet job');
+      reply.status(isBadRequest ? 400 : 500);
+      await authResult.auth.log('failed', {
+        reason: isBadRequest ? 'invalid_snippet' : 'exception',
+        message
+      });
+      return { error: message };
     }
   });
 

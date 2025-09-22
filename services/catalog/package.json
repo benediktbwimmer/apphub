@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "lint": "tsc --noEmit",
-    "build": "tsc",
+    "build": "npm run build:ts && npm run build:assets",
+    "build:ts": "tsc",
+    "build:assets": "node scripts/copyPythonHarness.js",
     "start": "node dist/server.js",
     "ingest": "tsx src/ingestionWorker.ts",
     "builds": "tsx src/buildWorker.ts",

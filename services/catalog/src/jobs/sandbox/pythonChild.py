@@ -6,11 +6,15 @@ import inspect
 import json
 import math
 import os
+import fcntl
+import hashlib
 import resource
 import sys
+import subprocess
 import threading
 import time
 import traceback
+import sysconfig
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -238,6 +242,122 @@ def setup_network_guards(capabilities: List[str]) -> None:
         pass
 
 
+def _venv_bin_dir(venv_dir: str) -> str:
+    return os.path.join(venv_dir, 'Scripts' if os.name == 'nt' else 'bin')
+
+
+def _find_executable(venv_dir: str, names: List[str]) -> Optional[str]:
+    bin_dir = _venv_bin_dir(venv_dir)
+    suffix = '.exe' if os.name == 'nt' else ''
+    for name in names:
+        candidate = os.path.join(bin_dir, f"{name}{suffix}")
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _compute_requirements_hash(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        while True:
+            chunk = handle.read(65_536)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _run_subprocess(args: List[str], error_message: str) -> None:
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        details = '; '.join(filter(None, [stdout, stderr]))
+        raise RuntimeError(f"{error_message}: {details or 'no output'}")
+
+
+def _discover_site_packages(python_executable: str) -> str:
+    code = 'import sysconfig; print(sysconfig.get_paths()[\'purelib\'])'
+    result = subprocess.run(
+        [python_executable, '-c', code],
+        capture_output=True,
+        text=True,
+        check=False
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or 'unknown'
+        raise RuntimeError(f'Failed to determine site-packages path: {stderr}')
+    return result.stdout.strip()
+
+
+def ensure_python_dependencies(bundle_dir: str) -> None:
+    requirements_path = os.path.join(bundle_dir, 'requirements.txt')
+    if not os.path.isfile(requirements_path):
+        return
+
+    with open(requirements_path, 'r', encoding='utf-8') as req_file:
+        requirements = [line.strip() for line in req_file if line.strip() and not line.strip().startswith('#')]
+    if not requirements:
+        return
+
+    venv_dir = os.path.join(bundle_dir, '.venv')
+    os.makedirs(venv_dir, exist_ok=True)
+    lock_path = os.path.join(venv_dir, '.install.lock')
+    site_packages = ''
+    with open(lock_path, 'w', encoding='utf-8') as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            python_executable = _find_executable(venv_dir, ['python', 'python3'])
+            if not python_executable:
+                _run_subprocess(['python3', '-m', 'venv', venv_dir], 'Failed to create virtual environment')
+                python_executable = _find_executable(venv_dir, ['python', 'python3'])
+            if not python_executable:
+                raise RuntimeError('Virtual environment python executable not found')
+
+            requirements_hash = _compute_requirements_hash(requirements_path)
+            marker_path = os.path.join(venv_dir, '.requirements.hash')
+            marker_hash = None
+            if os.path.isfile(marker_path):
+                with open(marker_path, 'r', encoding='utf-8') as marker_file:
+                    marker_hash = marker_file.read().strip() or None
+
+            if marker_hash != requirements_hash:
+                pip_executable = _find_executable(venv_dir, ['pip', 'pip3'])
+                if pip_executable:
+                    pip_args = [pip_executable]
+                else:
+                    pip_args = [python_executable, '-m', 'pip']
+                upgrade_args = pip_args + [
+                    'install',
+                    '--no-input',
+                    '--disable-pip-version-check',
+                    '--upgrade',
+                    'pip'
+                ]
+                _run_subprocess(upgrade_args, 'Failed to upgrade pip inside virtual environment')
+                install_args = pip_args + [
+                    'install',
+                    '--no-input',
+                    '--disable-pip-version-check',
+                    '-r',
+                    requirements_path
+                ]
+                _run_subprocess(install_args, 'Failed to install Python dependencies')
+                with open(marker_path, 'w', encoding='utf-8') as marker_file:
+                    marker_file.write(requirements_hash)
+
+            site_packages = _discover_site_packages(python_executable)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    if site_packages and site_packages not in sys.path:
+        sys.path.insert(0, site_packages)
+    bin_dir = _venv_bin_dir(venv_dir)
+    os.environ['VIRTUAL_ENV'] = venv_dir
+    current_path = os.environ.get('PATH', '')
+    os.environ['PATH'] = f"{bin_dir}{os.pathsep}{current_path}" if current_path else bin_dir
+
+
 def normalize_meta(task_id: str, meta: Any) -> Optional[Dict[str, Any]]:
     if meta is None:
         return None
@@ -414,6 +534,10 @@ async def execute_start(payload: Dict[str, Any]) -> None:
 
     setup_filesystem_guards(bundle_dir, capabilities)
     setup_network_guards(capabilities)
+    try:
+        ensure_python_dependencies(bundle_dir)
+    except Exception as err:
+        raise RuntimeError(f"Failed to install Python dependencies: {err}") from err
 
     spec = importlib.util.spec_from_file_location("apphub_bundle_entry", entry_file)
     if spec is None or spec.loader is None:

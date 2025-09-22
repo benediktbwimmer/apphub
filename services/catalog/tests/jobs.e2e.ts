@@ -82,6 +82,9 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
   process.env.REDIS_URL = 'inline';
+  const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-job-bundles-'));
+  const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
+  process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;
   const { buildServer } = await import('../src/server');
   const app = await buildServer();
   await app.ready();
@@ -89,6 +92,12 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
     await fn(app);
   } finally {
     await app.close();
+    if (previousStorageDir === undefined) {
+      delete process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
+    } else {
+      process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = previousStorageDir;
+    }
+    await rm(storageDir, { recursive: true, force: true });
   }
 }
 
@@ -262,6 +271,85 @@ async function testJobEndpoints(): Promise<void> {
     };
     assert.equal(manualBuildBody.data.parameters.buildId, buildId);
     assert.notEqual(manualBuildBody.data.status, 'pending');
+
+    const pythonSnippet = [
+      'from pydantic import BaseModel',
+      '',
+      '',
+      'class GreetingInput(BaseModel):',
+      '  name: str',
+      '',
+      '',
+      'class GreetingOutput(BaseModel):',
+      '  greeting: str',
+      '',
+      '',
+      'def build_greeting(payload: GreetingInput) -> GreetingOutput:',
+      "  return GreetingOutput(greeting=f'Hello {payload.name}!')",
+      ''
+    ].join('\n');
+
+    const snippetPreviewResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/python-snippet/preview',
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: { snippet: pythonSnippet }
+    });
+    assert.equal(snippetPreviewResponse.statusCode, 200);
+    const snippetPreviewBody = JSON.parse(snippetPreviewResponse.payload) as {
+      data: { handlerName: string; inputModel: { name: string }; outputModel: { name: string } };
+    };
+    assert.equal(snippetPreviewBody.data.handlerName, 'build_greeting');
+    assert.equal(snippetPreviewBody.data.inputModel.name, 'GreetingInput');
+    assert.equal(snippetPreviewBody.data.outputModel.name, 'GreetingOutput');
+
+    const snippetCreateResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/python-snippet',
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: {
+        slug: 'jobs-python-snippet',
+        name: 'Python Snippet Job',
+        type: 'manual',
+        snippet: pythonSnippet,
+        timeoutMs: 15_000
+      }
+    });
+    assert.equal(snippetCreateResponse.statusCode, 201);
+    const snippetCreateBody = JSON.parse(snippetCreateResponse.payload) as {
+      data: {
+        job: { slug: string; runtime: string; entryPoint: string; version: number };
+        bundle: { slug: string; version: string };
+      };
+    };
+    assert.equal(snippetCreateBody.data.job.slug, 'jobs-python-snippet');
+    assert.equal(snippetCreateBody.data.job.runtime, 'python');
+    assert(snippetCreateBody.data.job.entryPoint.includes('@1.0.0'));
+    assert.equal(snippetCreateBody.data.bundle.slug, 'jobs-python-snippet');
+    assert.equal(snippetCreateBody.data.bundle.version, '1.0.0');
+
+    const updatedSnippet = pythonSnippet.replace('Hello', 'Hi');
+    const snippetUpdateResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/python-snippet',
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: {
+        slug: 'jobs-python-snippet',
+        name: 'Python Snippet Job',
+        type: 'manual',
+        snippet: updatedSnippet
+      }
+    });
+    assert.equal(snippetUpdateResponse.statusCode, 201);
+    const snippetUpdateBody = JSON.parse(snippetUpdateResponse.payload) as {
+      data: {
+        job: { version: number; entryPoint: string };
+        bundle: { version: string };
+      };
+    };
+    assert.equal(snippetUpdateBody.data.job.version, 2);
+    assert(snippetUpdateBody.data.job.entryPoint.includes('@1.0.1'));
+    assert.equal(snippetUpdateBody.data.bundle.version, '1.0.1');
 
     const missingJobRunResponse = await app.inject({
       method: 'POST',
