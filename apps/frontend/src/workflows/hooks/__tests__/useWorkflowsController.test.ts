@@ -5,7 +5,6 @@ import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../../typ
 const {
   workflowDefinition,
   runResponse,
-  runStepsResponse,
   listWorkflowDefinitionsMock,
   getWorkflowDetailMock,
   listWorkflowRunStepsMock,
@@ -78,7 +77,6 @@ const {
   return {
     workflowDefinition: definition,
     runResponse: run,
-    runStepsResponse: steps,
     listWorkflowDefinitionsMock: vi.fn(async () => [definition]),
     getWorkflowDetailMock: vi.fn(async () => ({ workflow: definition, runs: [run] })),
     listWorkflowRunStepsMock: vi.fn(async () => ({ run, steps })),
@@ -103,6 +101,7 @@ const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: Reques
 
 class TestSocket {
   static instances: TestSocket[] = [];
+  url: string;
   readyState = 1;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -113,7 +112,8 @@ class TestSocket {
     this.onclose?.({} as CloseEvent);
   });
   send = vi.fn();
-  constructor(public url: string) {
+  constructor(url: string) {
+    this.url = url;
     TestSocket.instances.push(this);
     setTimeout(() => {
       this.onopen?.({} as Event);
