@@ -348,10 +348,24 @@ const aiBuilderSuggestSchema = z
   })
   .strict();
 
+const aiBuilderJobGenerationSchema = z
+  .object({
+    id: z.string().min(1),
+    prompt: z.string().min(1).optional(),
+    additionalNotes: z.string().max(2_000).optional(),
+    metadataSummary: z.string().optional(),
+    rawOutput: z.string().optional(),
+    stdout: z.string().optional(),
+    stderr: z.string().optional(),
+    summary: z.string().optional()
+  })
+  .strict();
+
 const aiBuilderJobCreateSchema = z
   .object({
     job: jobDefinitionCreateSchema,
-    bundle: aiBundleSuggestionSchema
+    bundle: aiBundleSuggestionSchema,
+    generation: aiBuilderJobGenerationSchema.optional()
   })
   .strict();
 
@@ -528,6 +542,10 @@ function truncate(value: string, limit = 4_000): string {
     return value;
   }
   return `${value.slice(0, limit)}…`;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 type AiSuggestionPayload = {
@@ -2592,12 +2610,60 @@ export async function buildServer() {
       return { error: parseBody.error.flatten() };
     }
 
-    const { job: jobInput, bundle } = parseBody.data;
+    const { job: jobInput, bundle, generation } = parseBody.data;
+
+    const generationSession = generation?.id ? getAiGenerationSession(generation.id) : undefined;
+    const prompt = generationSession?.operatorRequest ?? generation?.prompt ?? undefined;
+    const additionalNotes = generationSession?.additionalNotes ?? generation?.additionalNotes ?? undefined;
+    const metadataSummary = generationSession?.metadataSummary ?? generation?.metadataSummary ?? undefined;
+    const rawOutput = generationSession?.rawOutput ?? generation?.rawOutput ?? undefined;
+    const stdout = generationSession?.stdout ?? generation?.stdout ?? undefined;
+    const stderr = generationSession?.stderr ?? generation?.stderr ?? undefined;
+    const summary = generationSession?.summary ?? generation?.summary ?? undefined;
 
     const bundleEntryPoint = `bundle:${bundle.slug}@${bundle.version}`;
+
+    const baseMetadata = isPlainObject(jobInput.metadata)
+      ? (JSON.parse(JSON.stringify(jobInput.metadata)) as Record<string, JsonValue>)
+      : {};
+    const serializedBundle = JSON.parse(JSON.stringify(bundle)) as JsonValue;
+    const aiBuilderMetadata: Record<string, JsonValue> = {
+      source: 'ai-builder',
+      storedAt: new Date().toISOString(),
+      bundle: serializedBundle,
+      generationId: generation?.id ?? null
+    };
+    if (prompt) {
+      aiBuilderMetadata.prompt = prompt;
+    }
+    if (additionalNotes) {
+      aiBuilderMetadata.additionalNotes = additionalNotes;
+    }
+    if (metadataSummary) {
+      aiBuilderMetadata.metadataSummary = metadataSummary;
+    }
+    if (rawOutput) {
+      aiBuilderMetadata.rawOutput = rawOutput;
+    }
+    if (stdout) {
+      aiBuilderMetadata.stdout = stdout;
+    }
+    if (stderr) {
+      aiBuilderMetadata.stderr = stderr;
+    }
+    if (summary) {
+      aiBuilderMetadata.summary = summary;
+    }
+
+    const combinedMetadata = {
+      ...baseMetadata,
+      aiBuilder: aiBuilderMetadata
+    } as Record<string, JsonValue>;
+
     const normalizedJobInput = {
       ...jobInput,
-      entryPoint: bundleEntryPoint
+      entryPoint: bundleEntryPoint,
+      metadata: combinedMetadata as JsonValue
     } satisfies z.infer<typeof jobDefinitionCreateSchema>;
 
     try {

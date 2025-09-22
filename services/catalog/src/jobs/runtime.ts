@@ -28,6 +28,7 @@ import {
   type SandboxExecutionResult
 } from './sandbox/runner';
 import { shouldAllowLegacyFallback, shouldUseJobBundle } from '../config/jobBundles';
+import { attemptBundleRecovery, type BundleBinding } from './bundleRecovery';
 
 const handlers = new Map<string, JobHandler>();
 
@@ -105,12 +106,6 @@ export async function createJobRunForSlug(
 }
 
 const BUNDLE_ENTRY_REGEX = /^bundle:([a-z0-9][a-z0-9._-]*)@([^#]+?)(?:#([a-zA-Z_$][\w$]*))?$/i;
-
-type BundleBinding = {
-  slug: string;
-  version: string;
-  exportName?: string | null;
-};
 
 function parseBundleEntryPoint(entryPoint: string | null | undefined): BundleBinding | null {
   if (!entryPoint || typeof entryPoint !== 'string') {
@@ -349,32 +344,54 @@ type DynamicExecutionParams = {
 
 async function executeDynamicHandler(params: DynamicExecutionParams): Promise<DynamicExecutionOutcome> {
   const { binding, context, definition, run } = params;
+  let effectiveBinding: BundleBinding = { ...binding };
   context.logger('Resolving job bundle', {
-    bundleSlug: binding.slug,
-    bundleVersion: binding.version
+    bundleSlug: effectiveBinding.slug,
+    bundleVersion: effectiveBinding.version
   });
 
-  const record = await getJobBundleVersion(binding.slug, binding.version);
+  let record = await getJobBundleVersion(effectiveBinding.slug, effectiveBinding.version);
   if (!record) {
-    throw new BundleResolutionError(
-      `Job bundle ${binding.slug}@${binding.version} not found`,
-      'not-found'
-    );
+    const recovered = await attemptBundleRecovery({
+      binding: effectiveBinding,
+      definition,
+      bundleRecord: null,
+      logger: context.logger
+    });
+    if (!recovered) {
+      throw new BundleResolutionError(
+        `Job bundle ${binding.slug}@${binding.version} not found`,
+        'not-found'
+      );
+    }
+    effectiveBinding = recovered.binding;
+    record = recovered.record;
   }
 
   let acquired: AcquiredBundle;
   try {
     acquired = await bundleCache.acquire(record);
   } catch (err) {
-    throw new BundleResolutionError(
-      `Failed to acquire job bundle ${binding.slug}@${binding.version}`,
-      'acquire-failed',
-      err instanceof Error ? { message: err.message } : err
-    );
+    const recovered = await attemptBundleRecovery({
+      binding: effectiveBinding,
+      definition,
+      bundleRecord: record,
+      logger: context.logger
+    });
+    if (!recovered) {
+      throw new BundleResolutionError(
+        `Failed to acquire job bundle ${effectiveBinding.slug}@${effectiveBinding.version}`,
+        'acquire-failed',
+        err instanceof Error ? { message: err.message } : err
+      );
+    }
+    effectiveBinding = recovered.binding;
+    record = recovered.record;
+    acquired = await bundleCache.acquire(record);
   }
   context.logger('Acquired job bundle', {
-    bundleSlug: binding.slug,
-    bundleVersion: binding.version,
+    bundleSlug: effectiveBinding.slug,
+    bundleVersion: effectiveBinding.version,
     checksum: record.checksum,
     cacheDirectory: acquired.directory
   });
@@ -387,20 +404,20 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
       run,
       parameters: context.parameters,
       timeoutMs,
-      exportName: binding.exportName ?? null,
+      exportName: effectiveBinding.exportName ?? null,
       logger: (message, meta) =>
         context.logger(message, {
           ...(meta ?? {}),
-          bundleSlug: binding.slug,
-          bundleVersion: binding.version
+          bundleSlug: effectiveBinding.slug,
+          bundleVersion: effectiveBinding.version
         }),
       update: context.update,
       resolveSecret: context.resolveSecret
     });
 
     context.logger('Sandbox execution finished', {
-      bundleSlug: binding.slug,
-      bundleVersion: binding.version,
+      bundleSlug: effectiveBinding.slug,
+      bundleVersion: effectiveBinding.version,
       sandboxTaskId: telemetry.taskId,
       durationMs: telemetry.durationMs,
       truncatedLogCount: telemetry.truncatedLogCount

@@ -94,39 +94,88 @@ async function collectRelativeFilePaths(root: string): Promise<string[]> {
   return walk(root, '');
 }
 
+export type PreparedBundleArtifact = {
+  artifact: BundledArtifact;
+  manifest: JsonValue;
+};
+
+function cloneManifest(manifest: JsonValue): JsonValue {
+  return JSON.parse(JSON.stringify(manifest ?? {}));
+}
+
+function normalizeManifestForSuggestion(
+  manifest: JsonValue,
+  options: { slug: string; version: string; entryPoint: string }
+): JsonValue {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return {
+      name: options.slug,
+      version: options.version,
+      main: options.entryPoint,
+      entry: options.entryPoint
+    } satisfies Record<string, unknown> as JsonValue;
+  }
+  const nextManifest = cloneManifest(manifest) as Record<string, unknown>;
+  if (typeof nextManifest.name !== 'string' || !nextManifest.name) {
+    nextManifest.name = options.slug;
+  }
+  nextManifest.version = options.version;
+  if (typeof nextManifest.entry !== 'string' || !nextManifest.entry) {
+    nextManifest.entry = options.entryPoint;
+  }
+  if (typeof nextManifest.main !== 'string' || !nextManifest.main) {
+    nextManifest.main = options.entryPoint;
+  }
+  return nextManifest as JsonValue;
+}
+
+export async function buildBundleArtifactFromSuggestion(
+  suggestion: AiGeneratedBundleSuggestion,
+  overrides?: { slug?: string; version?: string; entryPoint?: string }
+): Promise<PreparedBundleArtifact> {
+  const slug = overrides?.slug ?? suggestion.slug;
+  const version = overrides?.version ?? suggestion.version;
+  const entryPoint = overrides?.entryPoint ?? suggestion.entryPoint ?? 'index.js';
+
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-ai-bundle-'));
+  try {
+    await writeBundleFiles(workspace, suggestion.files);
+
+    const manifest = normalizeManifestForSuggestion(suggestion.manifest, { slug, version, entryPoint });
+    const manifestPath = suggestion.manifestPath ?? 'manifest.json';
+    const manifestTarget = path.join(workspace, manifestPath);
+    await fs.mkdir(path.dirname(manifestTarget), { recursive: true });
+    await fs.writeFile(manifestTarget, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    const artifact = await createTarball(workspace, slug, version);
+    return { artifact, manifest } satisfies PreparedBundleArtifact;
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+}
+
 export async function publishGeneratedBundle(
   suggestion: AiGeneratedBundleSuggestion,
   actor: PublishActor
 ): Promise<BundlePublishResult> {
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-ai-bundle-'));
-  try {
-    await writeBundleFiles(workspace, suggestion.files);
-    const manifestPath = suggestion.manifestPath ?? 'manifest.json';
-    const manifestTarget = path.join(workspace, manifestPath);
-    await fs.mkdir(path.dirname(manifestTarget), { recursive: true });
-    await fs.writeFile(manifestTarget, `${JSON.stringify(suggestion.manifest, null, 2)}\n`, 'utf8');
+  const prepared = await buildBundleArtifactFromSuggestion(suggestion);
 
-    const artifact = await createTarball(workspace, suggestion.slug, suggestion.version);
-
-    return publishBundleVersion(
-      {
-        slug: suggestion.slug,
-        version: suggestion.version,
-        manifest: suggestion.manifest,
-        capabilityFlags: suggestion.capabilityFlags ?? [],
-        metadata: suggestion.metadata ?? null,
-        description: suggestion.description ?? null,
-        displayName: suggestion.displayName ?? null,
-        artifact: {
-          data: artifact.data,
-          filename: artifact.filename,
-          contentType: 'application/gzip',
-          checksum: artifact.checksum
-        }
-      },
-      actor
-    );
-  } finally {
-    await fs.rm(workspace, { recursive: true, force: true });
-  }
+  return publishBundleVersion(
+    {
+      slug: suggestion.slug,
+      version: suggestion.version,
+      manifest: prepared.manifest,
+      capabilityFlags: suggestion.capabilityFlags ?? [],
+      metadata: suggestion.metadata ?? null,
+      description: suggestion.description ?? null,
+      displayName: suggestion.displayName ?? null,
+      artifact: {
+        data: prepared.artifact.data,
+        filename: prepared.artifact.filename,
+        contentType: 'application/gzip',
+        checksum: prepared.artifact.checksum
+      }
+    },
+    actor
+  );
 }

@@ -486,10 +486,27 @@ export default function AiBuilderDialog({
         ...parsed,
         entryPoint: `bundle:${bundleSuggestion.slug}@${bundleSuggestion.version}`
       };
+      const generationPayload = generation
+        ? {
+            id: generation.generationId,
+            prompt: prompt.trim() || undefined,
+            additionalNotes: additionalNotes.trim() || undefined,
+            metadataSummary:
+              generation.metadataSummary ?? (metadataSummary && metadataSummary.trim().length > 0
+                ? metadataSummary
+                : undefined),
+            rawOutput: generation.result?.raw ?? undefined,
+            stdout: generation.result?.stdout ?? undefined,
+            stderr: generation.result?.stderr ?? undefined,
+            summary: generation.result?.summary ?? undefined
+          }
+        : undefined;
+
       const created: JobDefinitionSummary = (
         await createJobWithBundle(authorizedFetch, {
           job: jobPayload,
-          bundle: bundleSuggestion
+          bundle: bundleSuggestion,
+          generation: generationPayload
         })
       ).job;
       console.info('ai-builder.usage', {
@@ -521,7 +538,11 @@ export default function AiBuilderDialog({
     refreshResources,
     onClose,
     bundleSuggestion,
-    canCreateJob
+    canCreateJob,
+    generation,
+    metadataSummary,
+    prompt,
+    additionalNotes
   ]);
 
   const handleDismiss = useCallback(() => {

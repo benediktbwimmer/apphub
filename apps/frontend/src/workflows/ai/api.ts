@@ -117,9 +117,21 @@ export async function fetchAiGeneration(
   return parseGenerationResponse(response);
 }
 
+export type AiGenerationMetadata = {
+  id: string;
+  prompt?: string;
+  additionalNotes?: string;
+  metadataSummary?: string;
+  rawOutput?: string;
+  stdout?: string;
+  stderr?: string;
+  summary?: string;
+};
+
 export type CreateJobWithBundleRequest = {
   job: JobDefinitionCreateInput;
   bundle: AiBundleSuggestion;
+  generation?: AiGenerationMetadata;
 };
 
 export type CreateJobWithBundleResponse = {
