@@ -27,6 +27,7 @@ import {
   SandboxCrashError,
   type SandboxExecutionResult
 } from './sandbox/runner';
+import { pythonSandboxRunner } from './sandbox/pythonRunner';
 import { shouldAllowLegacyFallback, shouldUseJobBundle } from '../config/jobBundles';
 import { attemptBundleRecovery, type BundleBinding } from './bundleRecovery';
 
@@ -398,7 +399,9 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
 
   try {
     const timeoutMs = run.timeoutMs ?? definition.timeoutMs ?? null;
-    const telemetry = await sandboxRunner.execute({
+    const runtimeKind = resolveJobRuntime(definition);
+    const runner = runtimeKind === 'python' ? pythonSandboxRunner : sandboxRunner;
+    const telemetry = await runner.execute({
       bundle: acquired,
       jobDefinition: definition,
       run,
@@ -409,7 +412,8 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
         context.logger(message, {
           ...(meta ?? {}),
           bundleSlug: effectiveBinding.slug,
-          bundleVersion: effectiveBinding.version
+          bundleVersion: effectiveBinding.version,
+          runtime: runtimeKind
         }),
       update: context.update,
       resolveSecret: context.resolveSecret
@@ -418,6 +422,7 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
     context.logger('Sandbox execution finished', {
       bundleSlug: effectiveBinding.slug,
       bundleVersion: effectiveBinding.version,
+      runtime: runtimeKind,
       sandboxTaskId: telemetry.taskId,
       durationMs: telemetry.durationMs,
       truncatedLogCount: telemetry.truncatedLogCount
@@ -512,4 +517,36 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
     normalized.ipcMessagesReceived = extended.ipcMessagesReceived;
   }
   return normalized;
+}
+
+type JobRuntimeKind = 'node' | 'python';
+
+function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
+  const metadata = definition.metadata;
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    const record = metadata as Record<string, unknown>;
+    const rawRuntime = record.runtime;
+    if (typeof rawRuntime === 'string') {
+      const normalized = rawRuntime.trim().toLowerCase();
+      if (normalized.startsWith('python')) {
+        return 'python';
+      }
+      if (normalized.startsWith('node')) {
+        return 'node';
+      }
+    } else if (rawRuntime && typeof rawRuntime === 'object' && !Array.isArray(rawRuntime)) {
+      const runtimeRecord = rawRuntime as Record<string, unknown>;
+      const type = runtimeRecord.type;
+      if (typeof type === 'string') {
+        const normalized = type.trim().toLowerCase();
+        if (normalized.startsWith('python')) {
+          return 'python';
+        }
+        if (normalized.startsWith('node')) {
+          return 'node';
+        }
+      }
+    }
+  }
+  return 'node';
 }
