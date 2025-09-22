@@ -1,10 +1,11 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import WorkflowGraph from '../components/WorkflowGraph';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 
 describe('WorkflowGraph', () => {
-  it('renders nodes with statuses, durations, and links', () => {
+  it('renders nodes with statuses, durations, and links', async () => {
     const workflow: WorkflowDefinition = {
       id: 'wf-graph',
       slug: 'graph',
@@ -101,7 +102,9 @@ describe('WorkflowGraph', () => {
         startedAt: new Date(Date.now() - 2000).toISOString(),
         completedAt: null,
         errorMessage: null,
-        logsUrl: null
+        logsUrl: 'https://example.com/transform/logs',
+        parameters: { foo: 'bar' },
+        result: { recordsProcessed: 12 }
       },
       {
         id: 'step-run-load',
@@ -136,5 +139,18 @@ describe('WorkflowGraph', () => {
 
     const connectors = document.querySelectorAll('svg path');
     expect(connectors.length).toBeGreaterThanOrEqual(2);
+
+    const detailsPanel = screen.getByTestId('workflow-step-details');
+    expect(detailsPanel).toHaveTextContent('Select a step to inspect its run details.');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText('Transform'));
+
+    expect(detailsPanel).toHaveTextContent('Transform');
+    expect(detailsPanel).toHaveTextContent('job.transform');
+    expect(detailsPanel).toHaveTextContent(/"foo": "bar"/);
+    expect(detailsPanel).toHaveTextContent(/"recordsProcessed": 12/);
+    const logsLink = within(detailsPanel).getByRole('link', { name: /open logs/i });
+    expect(logsLink).toHaveAttribute('href', 'https://example.com/transform/logs');
   });
 });
