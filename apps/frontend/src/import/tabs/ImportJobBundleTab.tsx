@@ -6,6 +6,7 @@ import {
   FormFeedback,
   FormSection
 } from '../../components/form';
+import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { useToasts } from '../../components/toast';
 import { useAnalytics } from '../../utils/useAnalytics';
 import {
@@ -419,9 +420,10 @@ export default function ImportJobBundleTab() {
             {parametersSchema && (
               <div className="rounded-2xl border border-slate-200/70 bg-white/60 p-4 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
                 <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Parameter schema</h4>
-                <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-200">
-                  {parametersSchema}
-                </pre>
+                <JsonSyntaxHighlighter
+                  value={parametersSchema}
+                  className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-200"
+                />
               </div>
             )}
             <DryRunDetails dryRun={previewResult.dryRun} />

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep, WorkflowRuntimeSummary } from '../types';
 import { formatDuration, formatTimestamp } from '../formatters';
-import StatusBadge, { getStatusBadgeClasses } from './StatusBadge';
+import StatusBadge from './StatusBadge';
+import { getStatusBadgeClasses } from './statusBadgeClasses';
 
 type WorkflowGraphProps = {
   workflow: WorkflowDefinition;
@@ -166,19 +168,14 @@ function coalesce<T>(...values: (T | null | undefined)[]): T | null {
   return null;
 }
 
-function formatStructuredValue(value: unknown): string | null {
+function hasStructuredContent(value: unknown): boolean {
   if (value === null || value === undefined) {
-    return null;
+    return false;
   }
   if (typeof value === 'string') {
-    return value;
+    return value.length > 0;
   }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch (error) {
-    console.error('Failed to stringify structured value', error);
-    return String(value);
-  }
+  return true;
 }
 
 function buildPositionedSteps(
@@ -384,9 +381,10 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
         selectedStep.context?.response
       )
     : null;
-  const formattedInput = formatStructuredValue(selectedInput);
-  const formattedOutput = formatStructuredValue(selectedOutput);
-  const formattedMetrics = formatStructuredValue(selectedStep?.metrics);
+  const metricsValue = selectedStep?.metrics ?? null;
+  const hasInput = hasStructuredContent(selectedInput);
+  const hasOutput = hasStructuredContent(selectedOutput);
+  const hasMetrics = hasStructuredContent(metricsValue);
   const selectedFanout = selectedStep?.type === 'fanout' ? selectedStep.fanout : undefined;
   const fanoutStatusCounts = selectedFanout?.statusCounts ?? [];
   const fanoutChildren = selectedFanout?.children ?? [];
@@ -723,30 +721,33 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
             )}
             <div className="flex flex-col gap-2">
               <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Input</h4>
-              {formattedInput ? (
-                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
-                  {formattedInput}
-                </pre>
+              {hasInput ? (
+                <JsonSyntaxHighlighter
+                  value={selectedInput}
+                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
+                />
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400">Input was not captured for this step.</p>
               )}
             </div>
             <div className="flex flex-col gap-2">
               <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Output</h4>
-              {formattedOutput ? (
-                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
-                  {formattedOutput}
-                </pre>
+              {hasOutput ? (
+                <JsonSyntaxHighlighter
+                  value={selectedOutput}
+                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
+                />
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-400">No output has been recorded for this step.</p>
               )}
             </div>
-            {formattedMetrics && (
+            {hasMetrics && (
               <div className="flex flex-col gap-2">
                 <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Metrics</h4>
-                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
-                  {formattedMetrics}
-                </pre>
+                <JsonSyntaxHighlighter
+                  value={metricsValue}
+                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
+                />
               </div>
             )}
           </div>

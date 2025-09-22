@@ -6,6 +6,7 @@ import {
   type FormEvent
 } from 'react';
 import { FormSection, FormField, FormActions, FormButton, FormFeedback } from '../../components/form';
+import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { WorkflowDefinition, WorkflowDraft, WorkflowDraftStep } from '../types';
 import type { WorkflowCreateInput, WorkflowUpdateInput } from '../api';
@@ -141,7 +142,6 @@ export function WorkflowBuilderDialog({
   );
 
   const previewSpec = useMemo(() => draftToCreateInput(draft), [draft]);
-  const previewJson = useMemo(() => JSON.stringify(previewSpec, null, 2), [previewSpec]);
 
   const handleTagsChange = (value: string) => {
     const tags = value
@@ -531,12 +531,10 @@ export function WorkflowBuilderDialog({
                 </ul>
               </FormFeedback>
             )}
-            <textarea
-              value={previewJson}
-              readOnly
-              rows={20}
-              className="w-full rounded-2xl border border-slate-200/70 bg-slate-950/90 px-3 py-2 text-xs font-mono text-emerald-100 focus:outline-none dark:border-slate-700/60"
-              spellCheck={false}
+            <JsonSyntaxHighlighter
+              value={previewSpec}
+              ariaLabel="Workflow preview JSON"
+              className="w-full min-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 bg-slate-950/90 px-3 py-2 text-xs font-mono text-emerald-100 focus:outline-none dark:border-slate-700/60"
             />
           </FormSection>
 
