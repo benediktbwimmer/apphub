@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep, WorkflowRuntimeSummary } from '../types';
 import { formatDuration, formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
@@ -25,6 +25,11 @@ type PositionedStep = {
   logsUrl: string | null;
   errorMessage?: string | null;
   metrics?: unknown;
+  attempt: number | null;
+  jobRunId: string | null;
+  parameters?: unknown;
+  result?: unknown;
+  context?: Record<string, unknown> | null;
   dependsOn: string[];
 };
 
@@ -68,6 +73,30 @@ function extractTimestamp(value: unknown): string | null {
 
 function extractNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
+}
+
+function coalesce<T>(...values: (T | null | undefined)[]): T | null {
+  for (const value of values) {
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function formatStructuredValue(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (error) {
+    console.error('Failed to stringify structured value', error);
+    return String(value);
+  }
 }
 
 function buildPositionedSteps(
@@ -148,6 +177,11 @@ function buildPositionedSteps(
       logsUrl: runStep?.logsUrl ?? null,
       errorMessage: runStep?.errorMessage ?? null,
       metrics: runStep?.metrics,
+      attempt: runStep?.attempt ?? null,
+      jobRunId: runStep?.jobRunId ?? null,
+      parameters: coalesce(runStep?.parameters, contextStep?.parameters, contextStep?.input, contextStep?.request),
+      result: coalesce(runStep?.result, contextStep?.result, contextStep?.output, contextStep?.response),
+      context: contextStep,
       dependsOn: depends.get(step.id) ?? []
     } satisfies PositionedStep;
   });
@@ -160,6 +194,17 @@ const VERTICAL_GAP = 60;
 
 export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: WorkflowGraphProps) {
   const positioned = useMemo(() => buildPositionedSteps(workflow, run, steps), [workflow, run, steps]);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      return;
+    }
+    const stillExists = positioned.some((step) => step.id === selectedStepId);
+    if (!stillExists) {
+      setSelectedStepId(null);
+    }
+  }, [positioned, selectedStepId]);
 
   const levels = useMemo(() => {
     const grouped = new Map<number, PositionedStep[]>();
@@ -202,6 +247,27 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
       }
     }
   }
+
+  const selectedStep = selectedStepId ? nodePositionById.get(selectedStepId)?.step ?? null : null;
+  const selectedInput = selectedStep
+    ? coalesce(
+        selectedStep.parameters,
+        selectedStep.context?.parameters,
+        selectedStep.context?.input,
+        selectedStep.context?.request
+      )
+    : null;
+  const selectedOutput = selectedStep
+    ? coalesce(
+        selectedStep.result,
+        selectedStep.context?.result,
+        selectedStep.context?.output,
+        selectedStep.context?.response
+      )
+    : null;
+  const formattedInput = formatStructuredValue(selectedInput);
+  const formattedOutput = formatStructuredValue(selectedOutput);
+  const formattedMetrics = formatStructuredValue(selectedStep?.metrics);
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -260,7 +326,21 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
               {nodesWithPosition.map(({ step, x, y }) => (
                 <article
                   key={step.id}
-                  className="absolute flex w-[240px] flex-col gap-2 rounded-2xl border border-slate-200/60 bg-white/90 p-4 text-xs shadow-lg shadow-slate-500/10 transition-colors dark:border-slate-700/60 dark:bg-slate-900/80"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedStepId === step.id}
+                  onClick={() => setSelectedStepId(step.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedStepId(step.id);
+                    }
+                  }}
+                  className={`absolute flex w-[240px] flex-col gap-2 rounded-2xl border bg-white/90 p-4 text-xs shadow-lg shadow-slate-500/10 transition-colors focus:outline-none dark:bg-slate-900/80 ${
+                    selectedStepId === step.id
+                      ? 'border-violet-500 ring-2 ring-violet-200 dark:border-violet-400 dark:ring-violet-500/40'
+                      : 'border-slate-200/60 dark:border-slate-700/60'
+                  }`}
                   style={{ left: x, top: y }}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -308,6 +388,93 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
           </div>
         </div>
       )}
+      <div
+        data-testid="workflow-step-details"
+        className="mt-6 rounded-2xl border border-slate-200/60 bg-white/70 p-5 text-sm dark:border-slate-700/60 dark:bg-slate-900/70"
+      >
+        {selectedStep ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">{selectedStep.name}</h3>
+                {(selectedStep.jobSlug || selectedStep.serviceSlug) && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedStep.jobSlug ?? selectedStep.serviceSlug}
+                  </p>
+                )}
+              </div>
+              <StatusBadge status={selectedStep.status} />
+            </div>
+            <dl className="grid gap-3 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
+                <dd>{formatTimestamp(selectedStep.startedAt)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase tracking-widest text-slate-400">Completed</dt>
+                <dd>{formatTimestamp(selectedStep.completedAt)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                <dd>{formatDuration(selectedStep.durationMs)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase tracking-widest text-slate-400">Attempt</dt>
+                <dd>{selectedStep.attempt ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase tracking-widest text-slate-400">Job run</dt>
+                <dd>{selectedStep.jobRunId ?? '—'}</dd>
+              </div>
+            </dl>
+            {selectedStep.logsUrl && (
+              <a
+                href={selectedStep.logsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="w-fit text-xs font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
+              >
+                Open logs
+              </a>
+            )}
+            {selectedStep.errorMessage && (
+              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{selectedStep.errorMessage}</p>
+            )}
+            <div className="flex flex-col gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Input</h4>
+              {formattedInput ? (
+                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
+                  {formattedInput}
+                </pre>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">Input was not captured for this step.</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Output</h4>
+              {formattedOutput ? (
+                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
+                  {formattedOutput}
+                </pre>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">No output has been recorded for this step.</p>
+              )}
+            </div>
+            {formattedMetrics && (
+              <div className="flex flex-col gap-2">
+                <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Metrics</h4>
+                <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100">
+                  {formattedMetrics}
+                </pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Select a step to inspect its run details.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

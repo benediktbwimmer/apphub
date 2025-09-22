@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkflowsPage from '../WorkflowsPage';
 import { ApiTokenProvider } from '../../auth/ApiTokenContext';
+import { ToastProvider } from '../../components/toast';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -197,9 +198,11 @@ describe('WorkflowsPage manual run flow', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
 
     render(
-      <ApiTokenProvider>
-        <WorkflowsPage />
-      </ApiTokenProvider>
+      <ToastProvider>
+        <ApiTokenProvider>
+          <WorkflowsPage />
+        </ApiTokenProvider>
+      </ToastProvider>
     );
 
     await waitFor(() => {
@@ -259,9 +262,11 @@ describe('WorkflowsPage manual run flow', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
 
     render(
-      <ApiTokenProvider>
-        <WorkflowsPage />
-      </ApiTokenProvider>
+      <ToastProvider>
+        <ApiTokenProvider>
+          <WorkflowsPage />
+        </ApiTokenProvider>
+      </ToastProvider>
     );
 
     await waitFor(() => {
