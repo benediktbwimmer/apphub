@@ -14,6 +14,41 @@ import type {
   WorkflowDefinitionRecord,
   WorkflowRunRecord
 } from './db/index';
+import {
+  getWorkflowRunMetricsBySlug,
+  getWorkflowRunStatsBySlug,
+  listWorkflowDefinitions
+} from './db/index';
+
+type WorkflowAnalyticsStatsEventPayload = {
+  workflowId: string;
+  slug: string;
+  range: { from: string; to: string; key: string };
+  totalRuns: number;
+  statusCounts: Record<string, number>;
+  successRate: number;
+  failureRate: number;
+  averageDurationMs: number | null;
+  failureCategories: { category: string; count: number }[];
+};
+
+type WorkflowAnalyticsMetricsPointPayload = {
+  bucketStart: string;
+  bucketEnd: string;
+  totalRuns: number;
+  statusCounts: Record<string, number>;
+  averageDurationMs: number | null;
+  rollingSuccessCount: number;
+};
+
+type WorkflowAnalyticsMetricsEventPayload = {
+  workflowId: string;
+  slug: string;
+  range: { from: string; to: string; key: string };
+  bucketInterval: string;
+  series: WorkflowAnalyticsMetricsPointPayload[];
+  bucket: { interval: string; key: string | null };
+};
 
 export type ApphubEvent =
   | { type: 'repository.updated'; data: { repository: RepositoryRecord } }
@@ -38,12 +73,30 @@ export type ApphubEvent =
   | { type: 'workflow.run.running'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.succeeded'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.failed'; data: { run: WorkflowRunRecord } }
-  | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } };
+  | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } }
+  | {
+      type: 'workflow.analytics.snapshot';
+      data: {
+        slug: string;
+        stats: WorkflowAnalyticsStatsEventPayload;
+        metrics: WorkflowAnalyticsMetricsEventPayload;
+      };
+    };
 
 type EventEnvelope = {
   origin: string;
   event: ApphubEvent;
 };
+
+const analyticsIntervalEnv = Number(process.env.APPHUB_ANALYTICS_INTERVAL_MS ?? '30000');
+const ANALYTICS_INTERVAL_MS =
+  Number.isFinite(analyticsIntervalEnv) && analyticsIntervalEnv > 0
+    ? analyticsIntervalEnv
+    : 30_000;
+const ANALYTICS_RANGE_MS = 7 * 24 * 60 * 60 * 1000;
+const ANALYTICS_RANGE_KEY = '7d';
+const ANALYTICS_BUCKET_INTERVAL = '1 hour';
+const ANALYTICS_BUCKET_KEY = 'hour';
 
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
@@ -67,6 +120,8 @@ const originId = `${process.pid}:${randomUUID()}`;
 let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
 let redisFailureNotified = false;
+let analyticsTimer: NodeJS.Timeout | null = null;
+let analyticsRunning = false;
 
 function disableRedisEvents(reason: string) {
   if (inlineMode) {
@@ -163,3 +218,124 @@ export function subscribeToApphubEvents(listener: (event: ApphubEvent) => void) 
 export function onceApphubEvent(listener: (event: ApphubEvent) => void) {
   bus.once('apphub:event', listener);
 }
+
+function bucketKeyFromInterval(interval: string): string | null {
+  switch (interval) {
+    case '15 minutes':
+      return '15m';
+    case '1 hour':
+      return 'hour';
+    case '1 day':
+      return 'day';
+    default:
+      return null;
+  }
+}
+
+async function publishAnalyticsSnapshotForWorkflow(slug: string, now: Date) {
+  try {
+    const from = new Date(now.getTime() - ANALYTICS_RANGE_MS);
+    const [stats, metrics] = await Promise.all([
+      getWorkflowRunStatsBySlug(slug, { from, to: now }),
+      getWorkflowRunMetricsBySlug(slug, {
+        from,
+        to: now,
+        bucketInterval: ANALYTICS_BUCKET_INTERVAL
+      })
+    ]);
+
+    const statsPayload: WorkflowAnalyticsStatsEventPayload = {
+      workflowId: stats.workflowId,
+      slug: stats.slug,
+      range: {
+        from: stats.range.from.toISOString(),
+        to: stats.range.to.toISOString(),
+        key: ANALYTICS_RANGE_KEY
+      },
+      totalRuns: stats.totalRuns,
+      statusCounts: { ...stats.statusCounts },
+      successRate: stats.successRate,
+      failureRate: stats.failureRate,
+      averageDurationMs: stats.averageDurationMs,
+      failureCategories: stats.failureCategories.map((entry) => ({
+        category: entry.category,
+        count: entry.count
+      }))
+    };
+
+    const metricsBucketKey = bucketKeyFromInterval(metrics.bucketInterval) ?? ANALYTICS_BUCKET_KEY;
+    const metricsPayload: WorkflowAnalyticsMetricsEventPayload = {
+      workflowId: metrics.workflowId,
+      slug: metrics.slug,
+      range: {
+        from: metrics.range.from.toISOString(),
+        to: metrics.range.to.toISOString(),
+        key: ANALYTICS_RANGE_KEY
+      },
+      bucketInterval: metrics.bucketInterval,
+      bucket: {
+        interval: metrics.bucketInterval,
+        key: metricsBucketKey
+      },
+      series: metrics.series.map((point) => ({
+        bucketStart: point.bucketStart,
+        bucketEnd: point.bucketEnd,
+        totalRuns: point.totalRuns,
+        statusCounts: { ...point.statusCounts },
+        averageDurationMs: point.averageDurationMs,
+        rollingSuccessCount: point.rollingSuccessCount
+      }))
+    };
+
+    emitApphubEvent({
+      type: 'workflow.analytics.snapshot',
+      data: {
+        slug,
+        stats: statsPayload,
+        metrics: metricsPayload
+      }
+    });
+  } catch (err) {
+    console.error(`[events] Failed to compute analytics snapshot for ${slug}`, err);
+  }
+}
+
+async function publishAnalyticsSnapshots() {
+  const workflows = await listWorkflowDefinitions();
+  if (workflows.length === 0) {
+    return;
+  }
+  const now = new Date();
+  await Promise.all(workflows.map((workflow) => publishAnalyticsSnapshotForWorkflow(workflow.slug, now)));
+}
+
+function scheduleAnalyticsSnapshots() {
+  if (ANALYTICS_INTERVAL_MS <= 0) {
+    return;
+  }
+  if (analyticsTimer) {
+    return;
+  }
+
+  const run = async () => {
+    if (analyticsRunning) {
+      return;
+    }
+    analyticsRunning = true;
+    try {
+      await publishAnalyticsSnapshots();
+    } catch (err) {
+      console.error('[events] Failed to publish analytics snapshots', err);
+    } finally {
+      analyticsRunning = false;
+    }
+  };
+
+  analyticsTimer = setInterval(() => {
+    void run();
+  }, ANALYTICS_INTERVAL_MS);
+
+  void run();
+}
+
+scheduleAnalyticsSnapshots();

@@ -186,3 +186,40 @@ export type WorkflowDraft = {
   defaultParametersText?: string;
   defaultParametersError?: string | null;
 };
+
+export type WorkflowAnalyticsRangeKey = '24h' | '7d' | '30d' | 'custom';
+
+export type WorkflowRunFailureCategory = {
+  category: string;
+  count: number;
+};
+
+export type WorkflowRunStatsSummary = {
+  workflowId: string;
+  slug: string;
+  range: { from: string; to: string; key: string };
+  totalRuns: number;
+  statusCounts: Record<string, number>;
+  successRate: number;
+  failureRate: number;
+  averageDurationMs: number | null;
+  failureCategories: WorkflowRunFailureCategory[];
+};
+
+export type WorkflowRunMetricsPoint = {
+  bucketStart: string;
+  bucketEnd: string;
+  totalRuns: number;
+  statusCounts: Record<string, number>;
+  averageDurationMs: number | null;
+  rollingSuccessCount: number;
+};
+
+export type WorkflowRunMetricsSummary = {
+  workflowId: string;
+  slug: string;
+  range: { from: string; to: string; key: string };
+  bucketInterval: string;
+  bucket?: { interval: string; key: string | null };
+  series: WorkflowRunMetricsPoint[];
+};

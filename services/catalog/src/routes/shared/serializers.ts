@@ -10,6 +10,8 @@ import {
   type ServiceRecord,
   type WorkflowDefinitionRecord,
   type WorkflowRunRecord,
+  type WorkflowRunMetrics,
+  type WorkflowRunStats,
   type WorkflowRunStepRecord
 } from '../../db/index';
 import type { BundleDownloadInfo } from '../../jobs/bundleStorage';
@@ -336,6 +338,46 @@ export function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
   };
 }
 
+export function serializeWorkflowRunStats(stats: WorkflowRunStats) {
+  return {
+    workflowId: stats.workflowId,
+    slug: stats.slug,
+    range: {
+      from: stats.range.from.toISOString(),
+      to: stats.range.to.toISOString()
+    },
+    totalRuns: stats.totalRuns,
+    statusCounts: { ...stats.statusCounts },
+    successRate: stats.successRate,
+    failureRate: stats.failureRate,
+    averageDurationMs: stats.averageDurationMs,
+    failureCategories: stats.failureCategories.map((category) => ({
+      category: category.category,
+      count: category.count
+    }))
+  };
+}
+
+export function serializeWorkflowRunMetrics(metrics: WorkflowRunMetrics) {
+  return {
+    workflowId: metrics.workflowId,
+    slug: metrics.slug,
+    range: {
+      from: metrics.range.from.toISOString(),
+      to: metrics.range.to.toISOString()
+    },
+    bucketInterval: metrics.bucketInterval,
+    series: metrics.series.map((point) => ({
+      bucketStart: point.bucketStart,
+      bucketEnd: point.bucketEnd,
+      totalRuns: point.totalRuns,
+      statusCounts: { ...point.statusCounts },
+      averageDurationMs: point.averageDurationMs,
+      rollingSuccessCount: point.rollingSuccessCount
+    }))
+  };
+}
+
 export type SerializedRepository = ReturnType<typeof serializeRepository>;
 export type SerializedBuild = ReturnType<typeof serializeBuild>;
 export type SerializedLaunch = ReturnType<typeof serializeLaunch>;
@@ -343,5 +385,7 @@ export type SerializedService = ReturnType<typeof serializeService>;
 export type SerializedWorkflowDefinition = ReturnType<typeof serializeWorkflowDefinition>;
 export type SerializedWorkflowRun = ReturnType<typeof serializeWorkflowRun>;
 export type SerializedWorkflowRunStep = ReturnType<typeof serializeWorkflowRunStep>;
+export type SerializedWorkflowRunStats = ReturnType<typeof serializeWorkflowRunStats>;
+export type SerializedWorkflowRunMetrics = ReturnType<typeof serializeWorkflowRunMetrics>;
 export type SerializedJobBundle = ReturnType<typeof serializeJobBundle>;
 export type SerializedJobBundleVersion = ReturnType<typeof serializeJobBundleVersion>;

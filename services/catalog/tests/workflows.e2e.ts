@@ -679,6 +679,45 @@ async function testWorkflowEndpoints(): Promise<void> {
       };
       assert(metricsBody.data.workflows.total >= 1);
 
+      const workflowStatsResponse = await app.inject({
+        method: 'GET',
+        url: '/workflows/wf-demo/stats'
+      });
+      assert.equal(workflowStatsResponse.statusCode, 200);
+      const workflowStatsBody = JSON.parse(workflowStatsResponse.payload) as {
+        data: {
+          workflowId: string;
+          slug: string;
+          range: { from: string; to: string; key: string };
+          totalRuns: number;
+          statusCounts: Record<string, number>;
+          failureCategories: Array<{ category: string; count: number }>;
+        };
+      };
+      assert.equal(workflowStatsBody.data.slug, 'wf-demo');
+      assert.equal(workflowStatsBody.data.range.key, '7d');
+      assert(workflowStatsBody.data.totalRuns >= 1);
+      assert((workflowStatsBody.data.statusCounts.succeeded ?? 0) >= 1);
+      assert(Array.isArray(workflowStatsBody.data.failureCategories));
+
+      const workflowMetricsResponse = await app.inject({
+        method: 'GET',
+        url: '/workflows/wf-demo/run-metrics'
+      });
+      assert.equal(workflowMetricsResponse.statusCode, 200);
+      const workflowMetricsBody = JSON.parse(workflowMetricsResponse.payload) as {
+        data: {
+          slug: string;
+          range: { key: string };
+          bucket: { interval: string; key: string | null };
+          series: Array<{ bucketStart: string; totalRuns: number }>;
+        };
+      };
+      assert.equal(workflowMetricsBody.data.slug, 'wf-demo');
+      assert.equal(workflowMetricsBody.data.range.key, '7d');
+      assert.equal(workflowMetricsBody.data.bucket.key, 'hour');
+      assert(Array.isArray(workflowMetricsBody.data.series));
+
       const dagWorkflowResponse = await app.inject({
         method: 'POST',
         url: '/workflows',

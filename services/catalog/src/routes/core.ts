@@ -20,6 +20,11 @@ import {
 } from './shared/serializers';
 import type { IngestionEvent } from '../db/index';
 
+type WorkflowAnalyticsSnapshotData = Extract<
+  ApphubEvent,
+  { type: 'workflow.analytics.snapshot' }
+>['data'];
+
 type WorkflowRunEventType =
   | 'workflow.run.updated'
   | 'workflow.run.pending'
@@ -35,7 +40,8 @@ type OutboundEvent =
   | { type: 'launch.updated'; data: { repositoryId: string; launch: SerializedLaunch } }
   | { type: 'service.updated'; data: { service: SerializedService } }
   | { type: 'workflow.definition.updated'; data: { workflow: SerializedWorkflowDefinition } }
-  | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } };
+  | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
+  | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   switch (event.type) {
@@ -81,6 +87,11 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
       return {
         type: event.type,
         data: { run: serializeWorkflowRun(event.data.run) }
+      };
+    case 'workflow.analytics.snapshot':
+      return {
+        type: 'workflow.analytics.snapshot',
+        data: event.data
       };
     default:
       return null;

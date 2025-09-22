@@ -91,12 +91,48 @@ const {
 
 let activeTokenMock: { id: string } | null = { id: 'token-1' };
 
+const analyticsNow = new Date().toISOString();
+const analyticsStats = {
+  workflowId: workflowDefinition.id,
+  slug: workflowDefinition.slug,
+  range: { from: analyticsNow, to: analyticsNow, key: '7d' },
+  totalRuns: 1,
+  statusCounts: { succeeded: 1 },
+  successRate: 1,
+  failureRate: 0,
+  averageDurationMs: 400,
+  failureCategories: []
+};
+const analyticsMetrics = {
+  workflowId: workflowDefinition.id,
+  slug: workflowDefinition.slug,
+  range: { from: analyticsNow, to: analyticsNow, key: '7d' },
+  bucketInterval: '1 hour',
+  bucket: { interval: '1 hour', key: 'hour' as const },
+  series: [
+    {
+      bucketStart: analyticsNow,
+      bucketEnd: analyticsNow,
+      totalRuns: 1,
+      statusCounts: { succeeded: 1 },
+      averageDurationMs: 400,
+      rollingSuccessCount: 1
+    }
+  ]
+};
+
 const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input.toString();
   if (url.endsWith(`/workflows/${workflowDefinition.slug}/run`) && init?.method === 'POST') {
     return new Response(JSON.stringify({ data: runResponse }), { status: 202 });
   }
-  return new Response('ok', { status: 200 });
+  if (url.includes(`/workflows/${workflowDefinition.slug}/stats`)) {
+    return new Response(JSON.stringify({ data: analyticsStats }), { status: 200 });
+  }
+  if (url.includes(`/workflows/${workflowDefinition.slug}/run-metrics`)) {
+    return new Response(JSON.stringify({ data: analyticsMetrics }), { status: 200 });
+  }
+  return new Response(JSON.stringify({ data: [] }), { status: 200 });
 });
 
 class TestSocket {
