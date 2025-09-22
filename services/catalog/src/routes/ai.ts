@@ -775,6 +775,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         slug: normalizedJobInput.slug,
         name: normalizedJobInput.name,
         type: normalizedJobInput.type,
+        runtime: normalizedJobInput.runtime,
         entryPoint: normalizedJobInput.entryPoint,
         version: normalizedJobInput.version,
         timeoutMs: normalizedJobInput.timeoutMs ?? null,

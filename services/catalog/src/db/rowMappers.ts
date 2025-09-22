@@ -15,6 +15,7 @@ import {
   type ServiceNetworkRecord,
   type ServiceNetworkLaunchMemberRecord,
   type JobDefinitionRecord,
+  type JobRuntime,
   type JobType,
   type JobRetryPolicy,
   type JobRunRecord,
@@ -861,12 +862,14 @@ export function mapServiceNetworkLaunchMemberRow(
 }
 
 export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord {
+  const runtime: JobRuntime = row.runtime === 'python' ? 'python' : 'node';
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
     version: row.version,
     type: row.type as JobType,
+    runtime,
     entryPoint: row.entry_point,
     parametersSchema: ensureJsonObject(row.parameters_schema),
     defaultParameters: ensureJsonObject(row.default_parameters),

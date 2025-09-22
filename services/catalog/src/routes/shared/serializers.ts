@@ -171,6 +171,7 @@ export function serializeJobDefinition(job: JobDefinitionRecord) {
     name: job.name,
     version: job.version,
     type: job.type,
+    runtime: job.runtime,
     entryPoint: job.entryPoint,
     registryRef,
     parametersSchema: job.parametersSchema,

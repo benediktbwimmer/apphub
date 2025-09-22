@@ -133,6 +133,7 @@ export type JobDefinitionRow = {
   name: string;
   version: number;
   type: string;
+  runtime: string;
   entry_point: string;
   parameters_schema: unknown;
   default_parameters: unknown;

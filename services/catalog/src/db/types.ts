@@ -308,6 +308,8 @@ export type RepositoryPreviewInput = {
 
 export type JobType = 'batch' | 'service-triggered' | 'manual';
 
+export type JobRuntime = 'node' | 'python';
+
 export type JobRetryStrategy = 'none' | 'fixed' | 'exponential';
 
 export type JobRetryPolicy = {
@@ -324,6 +326,7 @@ export type JobDefinitionRecord = {
   name: string;
   version: number;
   type: JobType;
+  runtime: JobRuntime;
   entryPoint: string;
   parametersSchema: JsonValue;
   defaultParameters: JsonValue;
@@ -339,6 +342,7 @@ export type JobDefinitionCreateInput = {
   slug: string;
   name: string;
   type: JobType;
+  runtime?: JobRuntime;
   entryPoint: string;
   version?: number;
   parametersSchema?: JsonValue;

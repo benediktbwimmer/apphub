@@ -501,6 +501,13 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_runs
          ADD COLUMN IF NOT EXISTS output JSONB`
     ]
+  },
+  {
+    id: '012_job_definition_runtime',
+    statements: [
+      `ALTER TABLE job_definitions
+         ADD COLUMN IF NOT EXISTS runtime TEXT NOT NULL DEFAULT 'node'`
+    ]
   }
 ];
 

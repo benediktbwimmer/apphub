@@ -129,6 +129,13 @@ function parseBundleEntryPoint(entryPoint: string | null | undefined): BundleBin
   } satisfies BundleBinding;
 }
 
+function resolveBundleBinding(definition: JobDefinitionRecord): BundleBinding | null {
+  if (definition.runtime !== 'node') {
+    return null;
+  }
+  return parseBundleEntryPoint(definition.entryPoint);
+}
+
 export async function executeJobRun(runId: string): Promise<JobRunRecord | null> {
   let currentRun = await getJobRunById(runId);
   if (!currentRun) {
@@ -145,7 +152,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   }
 
   const staticHandler = handlers.get(definition.slug);
-  const bundleBinding = parseBundleEntryPoint(definition.entryPoint);
+  const bundleBinding = resolveBundleBinding(definition);
 
   if (!staticHandler && !bundleBinding) {
     await completeJobRun(runId, 'failed', {
