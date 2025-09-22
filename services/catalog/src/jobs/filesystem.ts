@@ -171,10 +171,16 @@ registerJobHandler('fs-write-file', async (context: JobRunContext): Promise<JobR
     throw new Error('outputFilename must not include path separators');
   }
 
-  const content = params.content;
-  if (typeof content !== 'string') {
+  const rawContent = params.content;
+  if (rawContent === null || rawContent === undefined) {
     throw new Error('content parameter is required and must be a string');
   }
+  const content =
+    typeof rawContent === 'string'
+      ? rawContent
+      : typeof rawContent === 'number' || typeof rawContent === 'bigint' || typeof rawContent === 'boolean'
+        ? String(rawContent)
+        : JSON.stringify(rawContent);
 
   const encoding = normalizeEncoding(params.encoding);
   const overwrite = typeof params.overwrite === 'boolean' ? params.overwrite : true;

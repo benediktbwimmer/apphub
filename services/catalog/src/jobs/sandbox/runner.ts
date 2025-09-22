@@ -121,12 +121,21 @@ export class SandboxRunner {
 
   async execute(options: SandboxExecutionOptions): Promise<SandboxExecutionResult> {
     const taskId = randomUUID();
+    const hostRootPrefix = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? null;
+    const bundleCapabilities = Array.isArray(options.bundle.manifest.capabilities)
+      ? options.bundle.manifest.capabilities
+      : [];
+    const shouldPrefixHostPaths = Boolean(hostRootPrefix && bundleCapabilities.includes('fs'));
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      APPHUB_SANDBOX_TASK_ID: taskId
+    };
+    if (shouldPrefixHostPaths && hostRootPrefix) {
+      childEnv.APPHUB_SANDBOX_HOST_ROOT_PREFIX = hostRootPrefix;
+    }
     const child = fork(buildChildScriptPath(), [], {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: {
-        ...process.env,
-        APPHUB_SANDBOX_TASK_ID: taskId
-      },
+      env: childEnv,
       execArgv: process.execArgv
     });
 

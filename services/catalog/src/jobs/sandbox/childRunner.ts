@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Module from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
+import fs from 'node:fs';
 import type { SandboxParentMessage, SandboxChildMessage, SandboxStartPayload } from './messages';
 import type { SecretReference, JsonValue } from '../../db/types';
 
@@ -122,6 +123,155 @@ type SandboxUpdatePayload = Extract<SandboxChildMessage, { type: 'update-request
 
 const pendingRequests = new Map<string, PendingRequest>();
 let started = false;
+
+const HOST_ROOT_PREFIX_ENV = 'APPHUB_SANDBOX_HOST_ROOT_PREFIX';
+const HOST_ROOT_PATCH_MARK = '__apphubHostRootPrefixPatched';
+
+function installHostRootAutoPrefix(hostRootRaw: string | undefined): void {
+  if (!hostRootRaw) {
+    return;
+  }
+  const normalizedRoot = path.resolve(hostRootRaw);
+  if (!path.isAbsolute(normalizedRoot)) {
+    return;
+  }
+  const globalKey = HOST_ROOT_PATCH_MARK as keyof typeof globalThis;
+  if ((globalThis as Record<string, unknown>)[globalKey]) {
+    return;
+  }
+  (globalThis as Record<string, unknown>)[globalKey] = normalizedRoot;
+
+  const originalExistsSync = fs.existsSync.bind(fs);
+
+  const translatePath = (candidate: unknown): unknown => {
+    if (typeof candidate !== 'string') {
+      return candidate;
+    }
+
+    if (!path.isAbsolute(candidate)) {
+      return candidate;
+    }
+
+    const normalizedCandidate = path.resolve(candidate);
+    if (
+      normalizedCandidate === normalizedRoot ||
+      normalizedCandidate.startsWith(`${normalizedRoot}${path.sep}`)
+    ) {
+      return normalizedCandidate;
+    }
+
+    if (originalExistsSync(normalizedCandidate)) {
+      return normalizedCandidate;
+    }
+
+    const relativeFromRoot = path.relative('/', normalizedCandidate);
+    return path.join(normalizedRoot, relativeFromRoot);
+  };
+
+  type PatchedFunction = ((...args: unknown[]) => unknown) & {
+    [HOST_ROOT_PATCH_MARK]?: boolean;
+  };
+
+  const markPatched = (fn: PatchedFunction): void => {
+    Object.defineProperty(fn, HOST_ROOT_PATCH_MARK, {
+      value: true,
+      enumerable: false,
+      configurable: true
+    });
+  };
+
+  const wrapMethod = (target: Record<string, unknown>, method: string, indexes: number[]) => {
+    const original = target[method] as PatchedFunction | undefined;
+    if (typeof original !== 'function') {
+      return;
+    }
+    if (original[HOST_ROOT_PATCH_MARK]) {
+      return;
+    }
+    const patched: PatchedFunction = function patchedFsMethod(this: unknown, ...args: unknown[]) {
+      for (const index of indexes) {
+        if (index < args.length) {
+          const value = args[index];
+          if (typeof value === 'string') {
+            args[index] = translatePath(value);
+          }
+        }
+      }
+      return original.apply(this, args);
+    };
+    markPatched(patched);
+    markPatched(original);
+    target[method] = patched as unknown;
+  };
+
+  const wrapFsMethod = (method: string, indexes: number[]) => {
+    wrapMethod(fs as unknown as Record<string, unknown>, method, indexes);
+    const syncName = `${method}Sync`;
+    wrapMethod(fs as unknown as Record<string, unknown>, syncName, indexes);
+  };
+
+  const wrapFsOnlyMethod = (method: string, indexes: number[]) => {
+    wrapMethod(fs as unknown as Record<string, unknown>, method, indexes);
+  };
+
+const wrapFsPromisesMethod = (method: string, indexes: number[]) => {
+    const promises = fs.promises as unknown as Record<string, unknown>;
+    wrapMethod(promises, method, indexes);
+  };
+
+  const fsMethodsWithSinglePath: Record<string, number[]> = {
+    access: [0],
+    appendFile: [0],
+    chmod: [0],
+    chown: [0],
+    lstat: [0],
+    mkdir: [0],
+    open: [0],
+    opendir: [0],
+    readdir: [0],
+    readFile: [0],
+    readlink: [0],
+    realpath: [0],
+    rm: [0],
+    rmdir: [0],
+    stat: [0],
+    truncate: [0],
+    unlink: [0],
+    utimes: [0],
+    writeFile: [0],
+    exists: [0],
+    existsSync: [0],
+    createReadStream: [0],
+    createWriteStream: [0]
+  };
+
+  const fsMethodsWithDualPaths: Record<string, number[]> = {
+    copyFile: [0, 1],
+    link: [0, 1],
+    rename: [0, 1]
+  };
+
+  const fsMethodsWithSecondPath: Record<string, number[]> = {
+    symlink: [1]
+  };
+
+  for (const [method, indexes] of Object.entries(fsMethodsWithSinglePath)) {
+    wrapFsMethod(method, indexes);
+    wrapFsPromisesMethod(method, indexes);
+  }
+
+  for (const [method, indexes] of Object.entries(fsMethodsWithDualPaths)) {
+    wrapFsMethod(method, indexes);
+    wrapFsPromisesMethod(method, indexes);
+  }
+
+  for (const [method, indexes] of Object.entries(fsMethodsWithSecondPath)) {
+    wrapFsMethod(method, indexes);
+    wrapFsPromisesMethod(method, indexes);
+  }
+}
+
+installHostRootAutoPrefix(process.env[HOST_ROOT_PREFIX_ENV]);
 
 function normalizeMeta(meta: unknown): Record<string, unknown> | undefined {
   if (!meta) {

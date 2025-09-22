@@ -2065,54 +2065,95 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       });
     };
 
-    const completeFanOutParent = async (state: FanOutState) => {
+    const settleFanOutParent = async (state: FanOutState) => {
       const allResults = state.childStepIds.map((id) => state.results.get(id));
-      const allSucceeded =
-        allResults.length === state.childStepIds.length &&
-        allResults.every((entry) => entry && entry.status === 'succeeded');
-      if (!allSucceeded) {
+      if (allResults.length !== state.childStepIds.length) {
         return;
       }
 
-      const aggregated = buildFanOutAggregatedResults(state);
-      const parentResult = {
-        totalChildren: state.childStepIds.length,
-        results: aggregated
-      } as JsonValue;
       const completedAt = new Date().toISOString();
-
-      context = updateStepContext(context, state.parentStepId, {
-        status: 'succeeded',
+      const aggregated = buildFanOutAggregatedResults(state);
+      const basePatch = {
         jobRunId: null,
-        result: parentResult,
-        errorMessage: null,
         logsUrl: null,
         metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
         startedAt: context.steps[state.parentStepId]?.startedAt ?? null,
         completedAt,
         attempt: context.steps[state.parentStepId]?.attempt
-      });
+      };
 
-      statusById.set(state.parentStepId, 'succeeded');
-      completedSteps.add(state.parentStepId);
-      remainingSteps -= 1;
-      totals.completedSteps += 1;
+      const anyFailed = allResults.some((entry) => !entry || entry.status !== 'succeeded');
 
-      await updateWorkflowRunStep(state.parentRunStepId, {
-        status: 'succeeded',
-        output: parentResult,
-        metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
-        completedAt
-      });
+      if (anyFailed) {
+        const failedDetails = allResults
+          .filter((entry): entry is FanOutChildAggregate => Boolean(entry))
+          .filter((entry) => entry.status === 'failed')
+          .map((entry) => ({
+            stepId: entry.stepId,
+            index: entry.index,
+            errorMessage: entry.errorMessage ?? 'Child step failed'
+          }));
+
+        const message =
+          failedDetails.length > 0
+            ? `Fan-out step "${state.parentStepId}" failed: ${failedDetails
+                .map((detail) => `${detail.stepId} (item ${detail.index + 1}): ${detail.errorMessage}`)
+                .join('; ')}`
+            : `Fan-out step "${state.parentStepId}" failed because one or more children did not succeed`;
+
+        context = updateStepContext(context, state.parentStepId, {
+          ...basePatch,
+          status: 'failed',
+          result: null,
+          errorMessage: message
+        });
+
+        statusById.set(state.parentStepId, 'failed');
+        failure = { stepId: state.parentStepId, message };
+
+        await updateWorkflowRunStep(state.parentRunStepId, {
+          status: 'failed',
+          errorMessage: message,
+          completedAt
+        });
+
+        await applyRunContextPatch(run.id, state.parentStepId, context.steps[state.parentStepId], {
+          errorMessage: message
+        });
+      } else {
+        const parentResult = {
+          totalChildren: state.childStepIds.length,
+          results: aggregated
+        } as JsonValue;
+
+        context = updateStepContext(context, state.parentStepId, {
+          ...basePatch,
+          status: 'succeeded',
+          result: parentResult,
+          errorMessage: null
+        });
+
+        statusById.set(state.parentStepId, 'succeeded');
+        completedSteps.add(state.parentStepId);
+        remainingSteps -= 1;
+        totals.completedSteps += 1;
+
+        await updateWorkflowRunStep(state.parentRunStepId, {
+          status: 'succeeded',
+          output: parentResult,
+          metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
+          completedAt
+        });
+
+        await updateRunMetrics();
+
+        for (const dependentId of dependentsMap.get(state.parentStepId) ?? []) {
+          enqueueIfReady(dependentId);
+        }
+      }
 
       await updateFanOutSharedValue(state);
-      await updateRunMetrics();
-
       fanOutStates.delete(state.parentStepId);
-
-      for (const dependentId of dependentsMap.get(state.parentStepId) ?? []) {
-        enqueueIfReady(dependentId);
-      }
     };
 
     const registerFanOutExpansion = async (expansion: FanOutExpansion) => {
@@ -2178,7 +2219,7 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       }
 
       if (state.pending.size === 0) {
-        await completeFanOutParent(state);
+        await settleFanOutParent(state);
       }
     };
 
@@ -2211,7 +2252,7 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       }
 
       if (state.pending.size === 0) {
-        await completeFanOutParent(state);
+        await settleFanOutParent(state);
       }
     };
 
