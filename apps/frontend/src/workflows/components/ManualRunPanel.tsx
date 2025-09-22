@@ -54,6 +54,24 @@ function extractRequired(schema: JsonSchema | null): string[] {
   return required.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function extractExample(schema: JsonSchema | null): Record<string, unknown> | null {
+  if (!schema) {
+    return null;
+  }
+  const example = schema.example as unknown;
+  if (isRecord(example)) {
+    return example;
+  }
+  const examples = schema.examples as unknown;
+  if (Array.isArray(examples)) {
+    const firstExample = examples.find((entry) => isRecord(entry));
+    if (isRecord(firstExample)) {
+      return firstExample;
+    }
+  }
+  return null;
+}
+
 type FormError = {
   message: string;
   path?: string;
@@ -320,6 +338,34 @@ export function ManualRunPanel({
   const [parseError, setParseError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<FormError[]>([]);
   const [triggeredBy, setTriggeredBy] = useState<string>('');
+  const requiredKeys = useMemo(() => extractRequired(schema), [schema]);
+  const examplePayload = useMemo(() => {
+    if (isRecord(defaultParameters) && Object.keys(defaultParameters).length > 0) {
+      return cloneValue(defaultParameters);
+    }
+    const schemaExample = extractExample(schema);
+    if (schemaExample) {
+      return cloneValue(schemaExample);
+    }
+    if (requiredKeys.length > 0) {
+      return requiredKeys.reduce<Record<string, string>>((acc, key) => {
+        acc[key] = '<value>';
+        return acc;
+      }, {});
+    }
+    return null;
+  }, [defaultParameters, requiredKeys, schema]);
+  const examplePayloadText = useMemo(() => {
+    if (!examplePayload) {
+      return '{\n  "parameter": "value"\n}';
+    }
+    try {
+      return JSON.stringify(examplePayload, null, 2);
+    } catch (err) {
+      console.error('Failed to stringify example payload', err);
+      return '{\n  "parameter": "value"\n}';
+    }
+  }, [examplePayload]);
 
   useEffect(() => {
     setFormData(defaultParameters);
@@ -406,6 +452,11 @@ export function ManualRunPanel({
   };
 
   const canUseForm = schema ? getSchemaType(schema) === 'object' : typeof defaultParameters === 'object';
+  const editorClassName = `overflow-hidden rounded-2xl border ${
+    parseError
+      ? 'border-rose-400 ring-2 ring-rose-400 ring-offset-2 ring-offset-rose-50 dark:border-rose-500/70 dark:ring-rose-500/50 dark:ring-offset-slate-900'
+      : 'border-slate-200/70 dark:border-slate-700/60'
+  } bg-white/80 dark:bg-slate-900/60`;
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -430,6 +481,25 @@ export function ManualRunPanel({
               Cannot launch while the following services are unreachable: {unreachableServices.join(', ')}.
             </div>
           )}
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-xs text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+            <p className="font-semibold text-slate-700 dark:text-slate-200">Parameter format</p>
+            <p className="mt-1 leading-relaxed">
+              Provide a JSON payload that matches the workflow&apos;s parameter schema before launching a run.
+              {requiredKeys.length > 0 ? ` Required keys: ${requiredKeys.join(', ')}.` : ' No required keys are defined.'}
+            </p>
+            <p className="mt-2 font-semibold text-slate-700 dark:text-slate-200">Example payload</p>
+            <pre className="mt-1 max-h-48 overflow-auto rounded-xl bg-slate-900/90 px-3 py-2 font-mono text-[11px] text-slate-100 dark:bg-slate-800/80">
+              <code>{examplePayloadText}</code>
+            </pre>
+            <a
+              className="mt-2 inline-flex items-center text-[11px] font-semibold text-violet-600 underline-offset-2 transition-colors hover:text-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+              href="https://docs.apphub.run/workflows/manual-runs"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Review manual run documentation
+            </a>
+          </div>
           <div className="flex flex-wrap gap-2">
             {canUseForm && (
               <button
@@ -505,8 +575,9 @@ export function ManualRunPanel({
                 language="json"
                 height={320}
                 ariaLabel="Workflow run parameters JSON"
+                className={editorClassName}
               />
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
                   className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
@@ -519,7 +590,9 @@ export function ManualRunPanel({
                   Reset to defaults
                 </button>
                 {parseError && (
-                  <span className="text-xs font-semibold text-rose-600 dark:text-rose-300">{parseError}</span>
+                  <span role="alert" aria-live="assertive" className="text-xs font-semibold text-rose-600 dark:text-rose-300">
+                    Unable to parse JSON: {parseError}
+                  </span>
                 )}
               </div>
             </div>
