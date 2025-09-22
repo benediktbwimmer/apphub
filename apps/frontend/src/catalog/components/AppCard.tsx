@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
 import { normalizePreviewUrl } from '../../utils/url';
@@ -471,6 +471,149 @@ function InfoIcon() {
   );
 }
 
+function ChevronIcon({ open, className }: { open: boolean; className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      className={`${className ?? 'h-4 w-4 text-slate-500 transition-transform'} ${open ? 'rotate-180' : ''}`}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SectionIcon({ children }: { children: ReactNode }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200/70 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
+    >
+      {children}
+    </span>
+  );
+}
+
+function BuildIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M6.5 7h7M6.5 10h4.5M6.5 13h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TimelineIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M6 4v12M14 4v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="6" cy="6" r="1.5" fill="currentColor" />
+      <circle cx="6" cy="14" r="1.5" fill="currentColor" />
+      <circle cx="14" cy="9" r="1.5" fill="currentColor" />
+      <circle cx="14" cy="14" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function LaunchIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M10 2c2.9 1.4 4.8 4.7 4.8 8.3 0 1.5-.3 3-.9 4.3L10 18l-3.9-3.4c-.6-1.3-.9-2.8-.9-4.3C5.2 6.7 7.1 3.4 10 2z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M8 10.5 10 12l2-1.5V6.8L10 5.5 8 6.8v3.7z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 14c-.5 1.6-1.4 2.7-2.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M13 14c.5 1.6 1.4 2.7 2.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="10" cy="10" r="6.75" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 6v4l2.5 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 10a5 5 0 0 1 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+type CollapsibleSectionProps = {
+  id: string;
+  title: string;
+  icon: ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+};
+
+function CollapsibleSection({ id, title, icon, open, onToggle, children }: CollapsibleSectionProps) {
+  const triggerId = `${id}-trigger`;
+  return (
+    <section
+      className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/40 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/30"
+    >
+      <button
+        type="button"
+        id={triggerId}
+        aria-controls={id}
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 bg-slate-50/70 px-4 py-3 text-left font-semibold text-slate-700 transition-colors hover:bg-slate-100/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800/80"
+      >
+        <span className="flex items-center gap-2">
+          <SectionIcon>{icon}</SectionIcon>
+          <span>{title}</span>
+        </span>
+        <ChevronIcon open={open} />
+      </button>
+      <div
+        id={id}
+        role="region"
+        aria-labelledby={triggerId}
+        aria-hidden={!open}
+        className={`${open ? 'block' : 'hidden'} border-t border-slate-200/70 bg-white/80 px-4 py-4 text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200`}
+      >
+        {open ? children : null}
+      </div>
+    </section>
+  );
+}
+
 function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
   if (!build) {
     return (
@@ -673,6 +816,8 @@ function LaunchSummarySection({
   const editingDisabled =
     isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
 
+  const detailsRegionId = `launch-${app.id}-details`;
+
   const handleAddEnvRow = () => {
     if (editingDisabled) {
       return;
@@ -716,6 +861,12 @@ function LaunchSummarySection({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
+          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <SectionIcon>
+              <LaunchIcon />
+            </SectionIcon>
+            Launch
+          </span>
           <span className={getStatusBadgeClasses(launch ? launch.status : 'pending')}>
             {launch ? `launch ${launch.status}` : 'launch pending'}
           </span>
@@ -724,23 +875,18 @@ function LaunchSummarySection({
               Updated {new Date(updatedAt).toLocaleString()}
             </time>
           )}
-          {detailsOpen && normalizedInstanceUrl && (
-            <a
-              className="rounded-full border border-violet-200/70 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
-              href={normalizedInstanceUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Preview
-            </a>
-          )}
         </div>
         <button
           type="button"
           className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+          aria-controls={detailsRegionId}
+          aria-expanded={detailsOpen}
           onClick={onToggleDetails}
         >
-          {detailsOpen ? 'Hide launch info' : 'Show launch info'}
+          <span className="inline-flex items-center gap-2">
+            <span>{detailsOpen ? 'Hide launch options' : 'Launch options'}</span>
+            <ChevronIcon open={detailsOpen} className="h-3.5 w-3.5 text-slate-500 transition-transform" />
+          </span>
         </button>
       </div>
       {(launchError || launch?.errorMessage) && (
@@ -797,88 +943,91 @@ function LaunchSummarySection({
           {isStopping ? 'Stopping…' : 'Stop launch'}
         </button>
       </div>
-      {detailsOpen && normalizedInstanceUrl && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-violet-600 dark:text-slate-200">
-          <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
-          <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
-            {normalizedInstanceUrl}
-          </a>
+      <div
+        id={detailsRegionId}
+        role="region"
+        aria-hidden={!detailsOpen}
+        className={`${detailsOpen ? 'flex flex-col gap-3' : 'hidden'} text-sm text-slate-600 dark:text-slate-300`}
+      >
+        {normalizedInstanceUrl && (
+          <div className="flex flex-wrap items-center gap-2 text-violet-600 dark:text-slate-200">
+            <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
+            <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
+              {normalizedInstanceUrl}
+            </a>
+          </div>
+        )}
+        {launch?.resourceProfile && (
+          <div className="text-slate-500 dark:text-slate-400">Profile: {launch.resourceProfile}</div>
+        )}
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+            Docker Command
+          </span>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Custom Docker commands are temporarily disabled. Launches will use the generated command below.
+          </p>
+          <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
+            {generatedDefaultCommand}
+          </pre>
         </div>
-      )}
-      {detailsOpen && launch?.resourceProfile && (
-        <div className="text-sm text-slate-500 dark:text-slate-400">Profile: {launch.resourceProfile}</div>
-      )}
-      {detailsOpen && (
-        <>
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-              Docker Command
+              Environment
             </span>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Custom Docker commands are temporarily disabled. Launches will use the generated command below.
-            </p>
-            <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
-              {generatedDefaultCommand}
-            </pre>
+            {!editingDisabled && (
+              <button
+                type="button"
+                className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+                onClick={handleAddEnvRow}
+                disabled={envRows.length >= MAX_LAUNCH_ENV_ROWS}
+              >
+                Add variable
+              </button>
+            )}
           </div>
-          <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Environment
-              </span>
-              {!editingDisabled && (
-                <button
-                  type="button"
-                  className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
-                  onClick={handleAddEnvRow}
-                  disabled={envRows.length >= MAX_LAUNCH_ENV_ROWS}
-                >
-                  Add variable
-                </button>
-              )}
+          {envRows.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {envRows.map((row) => (
+                <div key={row.id} className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="KEY"
+                    className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                    value={row.key}
+                    onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
+                    disabled={editingDisabled}
+                  />
+                  <input
+                    type="text"
+                    placeholder="value"
+                    className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                    value={row.value}
+                    onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
+                    disabled={editingDisabled}
+                  />
+                  <button
+                    type="button"
+                    className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
+                    onClick={() => handleEnvRemove(row.id)}
+                    disabled={editingDisabled}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
             </div>
-            {envRows.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {envRows.map((row) => (
-                  <div key={row.id} className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="KEY"
-                      className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
-                      value={row.key}
-                      onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
-                      disabled={editingDisabled}
-                    />
-                    <input
-                      type="text"
-                      placeholder="value"
-                      className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
-                      value={row.value}
-                      onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
-                      disabled={editingDisabled}
-                    />
-                    <button
-                      type="button"
-                      className={`${SMALL_BUTTON_GHOST} whitespace-nowrap`}
-                      onClick={() => handleEnvRemove(row.id)}
-                      disabled={editingDisabled}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {editingDisabled && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Environment variables are locked while a launch is active.
-              </p>
-            )}
-          </div>
-        </>
-      )}
+          )}
+          {editingDisabled && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Environment variables are locked while a launch is active.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1395,7 +1544,15 @@ function AppCard({
           {highlightSegments(app.ingestError, activeTokens, highlightEnabled)}
         </p>
       )}
-      {showBuildSummary && <BuildSummarySection build={app.latestBuild} />}
+      <CollapsibleSection
+        id={`app-${app.id}-build-summary`}
+        title="Build summary"
+        icon={<BuildIcon />}
+        open={showBuildSummary}
+        onToggle={() => setShowBuildSummary((open) => !open)}
+      >
+        <BuildSummarySection build={app.latestBuild} />
+      </CollapsibleSection>
       <LaunchSummarySection
         app={app}
         activeTokens={activeTokens}
@@ -1430,49 +1587,51 @@ function AppCard({
             {retryingId === app.id ? 'Retrying…' : 'Retry ingest'}
           </button>
         )}
-        <button
-          type="button"
-          className={SMALL_BUTTON_GHOST}
-          onClick={() => setShowBuildSummary((open) => !open)}
-        >
-          {showBuildSummary ? 'Hide build info' : 'Show build info'}
-        </button>
-        <button
-          type="button"
-          className={SMALL_BUTTON_GHOST}
-          onClick={() => onToggleBuilds(app.id)}
-        >
-          {showBuilds ? 'Hide builds' : 'View builds'}
-        </button>
-        <button
-          type="button"
-          className={SMALL_BUTTON_GHOST}
-          onClick={() => onToggleLaunches(app.id)}
-        >
-          {showLaunches ? 'Hide launches' : 'View launches'}
-        </button>
-        <button
-          type="button"
-          className={SMALL_BUTTON_GHOST}
-          onClick={() => onToggleHistory(app.id)}
-        >
-          {showHistory ? 'Hide history' : 'View history'}
-        </button>
       </div>
-      {showBuilds && (
-        <BuildTimeline
-          appId={app.id}
-          entry={buildEntry}
-          onToggleLogs={onToggleLogs}
-          onRetryBuild={onRetryBuild}
-          onTriggerBuild={onTriggerBuild}
-          onLoadMore={onLoadMoreBuilds}
-        />
-      )}
-      {showLaunches && (
-        <LaunchTimeline entry={launchEntry} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
-      )}
-      {showHistory && <HistoryTimeline entry={historyEntry} />}
+      <CollapsibleSection
+        id={`app-${app.id}-build-history`}
+        title="Build history"
+        icon={<TimelineIcon />}
+        open={showBuilds}
+        onToggle={() => onToggleBuilds(app.id)}
+      >
+        {buildEntry ? (
+          <BuildTimeline
+            appId={app.id}
+            entry={buildEntry}
+            onToggleLogs={onToggleLogs}
+            onRetryBuild={onRetryBuild}
+            onTriggerBuild={onTriggerBuild}
+            onLoadMore={onLoadMoreBuilds}
+          />
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing build history…</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        id={`app-${app.id}-launch-history`}
+        title="Launch history"
+        icon={<LaunchIcon />}
+        open={showLaunches}
+        onToggle={() => onToggleLaunches(app.id)}
+      >
+        {launchEntry ? (
+          <LaunchTimeline entry={launchEntry} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing launch history…</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        id={`app-${app.id}-ingestion-history`}
+        title="Ingestion history"
+        icon={<HistoryIcon />}
+        open={showHistory}
+        onToggle={() => onToggleHistory(app.id)}
+      >
+        {historyEntry ? <HistoryTimeline entry={historyEntry} /> : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing ingestion history…</p>
+        )}
+      </CollapsibleSection>
     </article>
   );
 }
