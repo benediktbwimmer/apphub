@@ -12,7 +12,7 @@ describe('RequireOperatorToken', () => {
     vi.restoreAllMocks();
   });
 
-  it('redirects unauthenticated users to the API access page', async () => {
+  it('redirects unauthenticated users to the settings API access page', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     render(
@@ -28,7 +28,7 @@ describe('RequireOperatorToken', () => {
                   </RequireOperatorToken>
                 }
               />
-              <Route path={ROUTE_PATHS.apiAccess} element={<div>API Access Portal</div>} />
+              <Route path={ROUTE_PATHS.settingsApiAccess} element={<div>API Access Portal</div>} />
             </Routes>
           </ApiTokenProvider>
         </ToastProvider>

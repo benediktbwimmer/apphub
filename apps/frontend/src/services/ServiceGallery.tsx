@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
+import { usePreviewLayout } from '../settings/previewLayoutContext';
 
 type ServiceSummary = {
   id: string;
@@ -59,6 +60,7 @@ type ServicePreviewCardProps = {
 function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const { height } = usePreviewLayout();
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -103,7 +105,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
           {isFullscreen ? 'Exit full screen' : 'Full screen'}
         </button>
       </div>
-      <div className="aspect-video">
+      <div style={{ height: isFullscreen ? '100%' : `${height}px` }}>
         <iframe
           src={embedUrl ?? undefined}
           title={service.displayName}
@@ -124,6 +126,7 @@ export default function ServiceGallery() {
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { width } = usePreviewLayout();
 
   useEffect(() => {
     let mounted = true;
@@ -210,6 +213,11 @@ export default function ServiceGallery() {
     return entries;
   }, [services]);
 
+  const gridTemplateColumns = useMemo(() => {
+    const clampedWidth = Math.round(width);
+    return `repeat(auto-fit, minmax(${clampedWidth}px, 1fr))`;
+  }, [width]);
+
   return (
     <section className="flex flex-col gap-6">
       <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-4 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 sm:p-6">
@@ -226,7 +234,7 @@ export default function ServiceGallery() {
             No services with previews available yet.
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:gap-6" style={{ gridTemplateColumns }}>
             {previewableServices.map(({ service, embedUrl }) => (
               <ServicePreviewCard key={service.id} service={service} embedUrl={embedUrl} />
             ))}

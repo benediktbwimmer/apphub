@@ -124,7 +124,7 @@ export default function WorkflowsPage() {
 
       {!hasActiveToken && (
         <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          Save an operator token in the API Access tab to enable workflow mutations and manual runs.
+          Save an operator token under Settings → API Access to enable workflow mutations and manual runs.
         </div>
       )}
 

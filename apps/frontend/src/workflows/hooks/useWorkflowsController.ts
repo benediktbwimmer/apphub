@@ -749,7 +749,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         return;
       }
       if (!hasActiveToken) {
-        setManualRunError('Add an operator token in the API Access tab before launching workflows.');
+        setManualRunError('Add an operator token under Settings → API Access before launching workflows.');
         return;
       }
       setManualRunPending(true);
@@ -1030,4 +1030,3 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
 }
 
 export type WorkflowsControllerState = ReturnType<typeof useWorkflowsController>;
-

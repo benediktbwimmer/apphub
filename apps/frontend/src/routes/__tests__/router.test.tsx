@@ -13,7 +13,7 @@ describe('appRouteConfig', () => {
     expect(childPaths.has(ROUTE_SEGMENTS.apps)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.workflows)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.import)).toBe(true);
-    expect(childPaths.has(ROUTE_SEGMENTS.apiAccess)).toBe(true);
+    expect(childPaths.has(ROUTE_SEGMENTS.settings)).toBe(true);
     expect(childPaths.has('submit')).toBe(true);
     expect(childPaths.has('import-manifest')).toBe(true);
   });

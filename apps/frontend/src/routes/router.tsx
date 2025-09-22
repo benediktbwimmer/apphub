@@ -8,6 +8,8 @@ import ServiceGallery from '../services/ServiceGallery';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
+import SettingsLayout from '../settings/SettingsLayout';
+import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 
 export const appRouteConfig: RouteObject[] = [
@@ -52,8 +54,22 @@ export const appRouteConfig: RouteObject[] = [
         )
       },
       {
-        path: ROUTE_SEGMENTS.apiAccess,
-        element: <ApiAccessPage />
+        path: ROUTE_SEGMENTS.settings,
+        element: <SettingsLayout />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to={ROUTE_PATHS.settingsPreview} replace />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsPreview,
+            element: <PreviewSettingsPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsApiAccess,
+            element: <ApiAccessPage />
+          }
+        ]
       },
       {
         path: 'submit',

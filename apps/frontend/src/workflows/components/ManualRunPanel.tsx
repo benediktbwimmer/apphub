@@ -473,7 +473,7 @@ export function ManualRunPanel({
         <form className="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
           {!authorized && (
             <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-              Add an operator token in the API Access tab before launching workflows.
+              Add an operator token under Settings → API Access before launching workflows.
             </div>
           )}
           {unreachableServices.length > 0 && (

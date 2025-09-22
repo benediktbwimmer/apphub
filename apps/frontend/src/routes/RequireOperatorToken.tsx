@@ -22,16 +22,16 @@ export function RequireOperatorToken({ children }: PropsWithChildren<unknown>) {
     }
     warnedPath.current = location.pathname;
     console.warn(
-      `AppHub: Operator token required to access ${location.pathname}. Redirecting to ${ROUTE_PATHS.apiAccess}.`
+      `AppHub: Operator token required to access ${location.pathname}. Redirecting to ${ROUTE_PATHS.settingsApiAccess}.`
     );
     analytics.trackEvent('operator_route_guard_blocked', {
       from: location.pathname,
-      to: ROUTE_PATHS.apiAccess
+      to: ROUTE_PATHS.settingsApiAccess
     });
   }, [analytics, hasOperatorToken, location.pathname]);
 
   if (!hasOperatorToken) {
-    return <Navigate to={ROUTE_PATHS.apiAccess} replace state={{ from: location.pathname }} />;
+    return <Navigate to={ROUTE_PATHS.settingsApiAccess} replace state={{ from: location.pathname }} />;
   }
 
   return <>{children}</>;

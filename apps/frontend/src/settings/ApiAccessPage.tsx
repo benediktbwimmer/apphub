@@ -236,7 +236,7 @@ export default function ApiAccessPage() {
   return (
     <section className="flex flex-col gap-6">
       <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_35px_80px_-50px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">API Access</h1>
+        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">API Access</h2>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           Store operator tokens in your browser so authenticated actions—launching workflows, retrying jobs,
           or managing services—work without pasting headers each time. Tokens are saved to local storage on this

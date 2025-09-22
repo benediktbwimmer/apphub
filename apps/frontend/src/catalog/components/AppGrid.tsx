@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import AppCard from './AppCard';
+import { usePreviewLayout } from '../../settings/previewLayoutContext';
 import type {
   AppRecord,
   BuildTimelineState,
@@ -52,8 +54,15 @@ function AppGrid({
   stoppingLaunchId,
   launchErrors
 }: AppGridProps) {
+  const { width } = usePreviewLayout();
+
+  const gridTemplateColumns = useMemo(() => {
+    const clampedWidth = Math.round(width);
+    return `repeat(auto-fit, minmax(${clampedWidth}px, 1fr))`;
+  }, [width]);
+
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div className="grid gap-6" style={{ gridTemplateColumns }}>
       {apps.map((app) => (
         <AppCard
           key={app.id}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { usePreviewLayout } from '../../settings/previewLayoutContext';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
 import { normalizePreviewUrl } from '../../utils/url';
@@ -208,6 +209,7 @@ function ChannelPreview({
   appName: string;
   launch: AppRecord['latestLaunch'];
 }) {
+  const { height } = usePreviewLayout();
   const livePreviewSourceUrl = launch?.status === 'running' ? launch.instanceUrl : null;
   const livePreviewUrl = useMemo(() => normalizePreviewUrl(livePreviewSourceUrl), [livePreviewSourceUrl]);
   const usableTiles = useMemo(
@@ -310,7 +312,10 @@ function ChannelPreview({
   if (livePreviewAvailable && livePreviewUrl) {
     return (
       <>
-        <div className="relative aspect-video overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50">
+        <div
+          className="relative overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50"
+          style={{ height: `${height}px` }}
+        >
           <iframe
             src={livePreviewUrl}
             title={`${appName} live preview`}
@@ -380,7 +385,10 @@ function ChannelPreview({
     const initial = appName.trim().slice(0, 1).toUpperCase() || 'A';
     return (
       <>
-        <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-300/70 bg-slate-50/70 text-slate-400 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-500">
+        <div
+          className="flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-300/70 bg-slate-50/70 text-slate-400 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-500"
+          style={{ height: `${height}px` }}
+        >
           <span className="text-5xl font-semibold tracking-tight">{initial}</span>
           <span className="text-xs uppercase tracking-[0.3em]">
             {hasLivePreview ? 'Live preview unavailable' : 'Live preview pending'}
@@ -397,7 +405,10 @@ function ChannelPreview({
 
   return (
     <>
-      <div className="relative aspect-video overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70">
+      <div
+        className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70"
+        style={{ height: `${height}px` }}
+      >
         <PreviewMedia tile={activeTile} />
         {hasLivePreview && !livePreviewAvailable && (
           <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200/70 bg-amber-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-100 shadow-lg">
