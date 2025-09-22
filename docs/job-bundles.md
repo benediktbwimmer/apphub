@@ -2,6 +2,12 @@
 
 AppHub job bundles are portable archives that ship a manifest, compiled handler code, and any assets the job requires at runtime. The developer CLI (`apphub`) streamlines scaffolding, validation, packaging, testing, and publishing these bundles to the job registry introduced in ticket 006.
 
+## Runtime Environment
+
+- **Node.js**: Bundles execute inside the `apphub` runtime container that ships with Node.js 20 (matching the workers).
+- **Python**: The same container now installs Python 3.11 (`python3`, `python`, and `pip3` live on the default `$PATH`). Bundles can invoke Python helpers or ship Python entry points without needing additional system packages.
+- **Dependency management**: Workers unpack each bundle into an isolated, ephemeral directory. When Python dependencies are required, create a virtual environment inside that directory (for example `python3 -m venv .venv && source .venv/bin/activate`) or vendor prebuilt wheels inside the bundle. Installing global packages is not supported; use the per-run virtualenv or bundle-provided modules instead.
+
 ## CLI Overview
 
 | Command | Description |
