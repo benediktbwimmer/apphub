@@ -32,7 +32,7 @@ function resolveAnalyzerPath(): string {
   if (existsSync(compiled)) {
     return compiled;
   }
-  return path.resolve(__dirname, '../../../src/jobs/snippets/pythonSnippetAnalyzer.py');
+  return path.resolve(__dirname, '../../src/jobs/snippets/pythonSnippetAnalyzer.py');
 }
 
 async function createTempSnippet(snippet: string): Promise<{ path: string; cleanup: () => Promise<void> }> {

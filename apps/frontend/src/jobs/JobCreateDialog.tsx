@@ -394,14 +394,14 @@ export default function JobCreateDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4 pt-10 backdrop-blur-sm overscroll-contain sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="job-create-title"
       onClick={onClose}
     >
       <div
-        className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
+        className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900 max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
@@ -422,7 +422,7 @@ export default function JobCreateDialog({
           </button>
         </header>
 
-        <form className="flex flex-col gap-5 px-6 py-5" onSubmit={handleSubmit}>
+        <form className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
               Name
