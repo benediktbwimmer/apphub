@@ -21,6 +21,8 @@ import EmbeddedPostgres from 'embedded-postgres';
 
 const exec = promisify(execCallback);
 
+process.env.SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? 'test-token';
+
 const CATALOG_ROOT = path.resolve(__dirname, '..');
 const REAL_REPO_PATH = process.env.APPHUB_E2E_REAL_REPO;
 const REAL_REPO_GIT_URL =
@@ -861,7 +863,10 @@ async function testServiceNetworkManifestFlow() {
       async ({ baseUrl }) => {
         const importRes = await fetch(`${baseUrl}/service-networks/import`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.SERVICE_REGISTRY_TOKEN}`
+          },
           body: JSON.stringify({ repo: module.repoDir, module: module.moduleId })
         });
 

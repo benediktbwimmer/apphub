@@ -10,7 +10,7 @@ async function run() {
   process.env.CATALOG_DB_PATH = dbPath;
   process.env.REDIS_URL = 'inline';
 
-  const { launchRequestSchema } = await import('../src/server');
+  const { launchRequestSchema } = await import('../src/routes/repositories');
 
   const validPayload = {
     buildId: 'build-1',
