@@ -63,6 +63,7 @@ const jobs: JobDefinitionSummary[] = [
     name: 'Build app',
     version: 1,
     type: 'batch',
+    runtime: 'node',
     entryPoint: 'jobs/build.ts',
     registryRef: null,
     parametersSchema: {

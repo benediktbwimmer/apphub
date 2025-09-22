@@ -12,6 +12,21 @@ const JOB_TYPES: Array<{ value: 'batch' | 'service-triggered' | 'manual'; label:
 
 const EMPTY_JSON_TEXT = '{\n}\n';
 
+function formatRuntimeStatus(status?: JobRuntimeStatus): string {
+  if (!status?.ready) {
+    return status?.reason ?? 'Runtime status unavailable.';
+  }
+  const details = status.details;
+  let version: string | null = null;
+  if (details && typeof details.version === 'string') {
+    const trimmed = details.version.trim();
+    if (trimmed.length > 0) {
+      version = trimmed;
+    }
+  }
+  return version ?? 'Sandbox ready.';
+}
+
 function slugify(value: string): string {
   return value
     .trim()
@@ -282,6 +297,8 @@ export default function JobCreateDialog({
 
   const nodeStatus = runtimeStatusMap.get('node');
   const pythonStatus = runtimeStatusMap.get('python');
+  const nodeRuntimeMessage = formatRuntimeStatus(nodeStatus);
+  const pythonRuntimeMessage = formatRuntimeStatus(pythonStatus);
 
   return (
     <div
@@ -528,19 +545,11 @@ export default function JobCreateDialog({
           <div className="grid gap-2 border-t border-slate-200/70 pt-4 text-[11px] text-slate-500 dark:border-slate-700/60 dark:text-slate-400 sm:grid-cols-2">
             <div>
               <strong className="font-semibold text-slate-600 dark:text-slate-300">Node runtime</strong>
-              <p>
-                {nodeStatus?.ready
-                  ? 'Sandbox ready.'
-                  : nodeStatus?.reason ?? 'Runtime status unavailable.'}
-              </p>
+              <p>{nodeRuntimeMessage}</p>
             </div>
             <div>
               <strong className="font-semibold text-slate-600 dark:text-slate-300">Python runtime</strong>
-              <p>
-                {pythonStatus?.ready
-                  ? pythonStatus.details?.version ?? 'Sandbox ready.'
-                  : pythonStatus?.reason ?? 'Runtime status unavailable.'}
-              </p>
+              <p>{pythonRuntimeMessage}</p>
             </div>
           </div>
         </form>
