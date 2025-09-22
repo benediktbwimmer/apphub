@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { access, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import tar from 'tar';
 import { test } from 'node:test';
 import { createTempDir } from './helpers';
 import { loadOrScaffoldBundle, packageBundle } from '../src/lib/bundle';
-import { readJsonFile } from '../src/lib/json';
+import { readJsonFile, writeJsonFile } from '../src/lib/json';
 import type { BundleConfig, JobBundleManifest } from '../src/types';
 
 async function listTarEntries(tarball: string): Promise<string[]> {
@@ -47,4 +47,42 @@ test('packageBundle builds artifacts and checksum', { concurrency: false }, asyn
 
   const checksumFile = await readFile(`${tarball}.sha256`, 'utf8');
   assert.ok(checksumFile.includes(result.checksum));
+});
+
+test('packageBundle stages python sources', { concurrency: false }, async (t) => {
+  const dir = await createTempDir('apphub-cli-python-package-');
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const initial = await loadOrScaffoldBundle(dir, {});
+  const manifest = await readJsonFile<JobBundleManifest>(initial.context.manifestPath);
+  manifest.runtime = 'python';
+  manifest.pythonEntry = 'src/main.py';
+  (manifest as Record<string, unknown>).entry = undefined;
+  await writeJsonFile(initial.context.manifestPath, manifest);
+
+  await mkdir(path.join(dir, 'src'), { recursive: true });
+  await writeFile(
+    path.join(dir, 'src', 'main.py'),
+    [
+      "async def handler(context):",
+      "    context.logger('python-package', {'parameters': context.parameters})",
+      "    return {'status': 'succeeded', 'result': {'echoed': context.parameters}}",
+      ''
+    ].join('\n'),
+    'utf8'
+  );
+  await writeFile(path.join(dir, 'src', 'util.py'), "VALUE = 42\n", 'utf8');
+  await writeFile(path.join(dir, 'requirements.txt'), 'aiohttp==3.10.5\n', 'utf8');
+
+  const { context } = await loadOrScaffoldBundle(dir, {});
+  const result = await packageBundle(context, { force: true });
+
+  const entries = await listTarEntries(result.tarballPath);
+  assert(entries.includes('src/main.py'));
+  assert(entries.includes('src/util.py'));
+  assert(entries.includes('requirements.txt'));
+  assert.equal(result.manifest.runtime, 'python');
+  assert.equal(result.manifest.pythonEntry, 'src/main.py');
 });

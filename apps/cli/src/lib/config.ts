@@ -6,10 +6,12 @@ import type { BundleConfig, NormalizedBundleConfig } from '../types';
 export const DEFAULT_CONFIG_FILENAME = 'apphub.bundle.json';
 export const DEFAULT_MANIFEST_PATH = 'manifest.json';
 export const DEFAULT_SOURCE_ENTRY = 'src/index.ts';
+export const DEFAULT_PYTHON_ENTRY = 'src/main.py';
 export const DEFAULT_OUT_DIR = 'dist';
 export const DEFAULT_ARTIFACT_DIR = 'artifacts';
 export const DEFAULT_FILES = ['manifest.json', 'dist/**/*'];
 export const DEFAULT_SAMPLE_INPUT_PATH = 'tests/sample-input.json';
+export const DEFAULT_PYTHON_REQUIREMENTS_PATH = 'requirements.txt';
 
 export async function loadBundleConfig(
   bundleDir: string,
@@ -53,6 +55,8 @@ export function normalizeBundleConfig(
   const artifactDir = merged.artifactDir?.trim() || DEFAULT_ARTIFACT_DIR;
   const files = merged.files && merged.files.length > 0 ? merged.files : DEFAULT_FILES;
   const tests = merged.tests ?? {};
+  const pythonEntry = merged.pythonEntry?.trim() || DEFAULT_PYTHON_ENTRY;
+  const pythonRequirementsPath = merged.pythonRequirementsPath?.trim();
 
   return {
     slug,
@@ -61,7 +65,9 @@ export function normalizeBundleConfig(
     manifestPath,
     artifactDir,
     files,
-    tests
+    tests,
+    pythonEntry,
+    pythonRequirementsPath
   } satisfies NormalizedBundleConfig;
 }
 

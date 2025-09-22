@@ -9,7 +9,9 @@ export type JsonValue =
 export type JobBundleManifest = {
   name: string;
   version: string;
-  entry: string;
+  entry?: string;
+  runtime?: string;
+  pythonEntry?: string;
   description?: string;
   capabilities?: string[];
   metadata?: JsonValue;
@@ -28,11 +30,16 @@ export type BundleConfig = {
   artifactDir?: string;
   files?: string[];
   tests?: BundleTestConfig;
+  pythonEntry?: string;
+  pythonRequirementsPath?: string;
 };
 
-export type NormalizedBundleConfig = Required<Omit<BundleConfig, 'tests' | 'files'>> & {
+export type NormalizedBundleConfig = Required<
+  Omit<BundleConfig, 'tests' | 'files' | 'pythonRequirementsPath'>
+> & {
   files: string[];
   tests: BundleTestConfig;
+  pythonRequirementsPath?: string;
 };
 
 export type PackageResult = {

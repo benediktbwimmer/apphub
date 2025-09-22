@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { test } from 'node:test';
 import { createTempDir } from './helpers';
 import { loadOrScaffoldBundle, buildBundle } from '../src/lib/bundle';
 import { executeBundle } from '../src/lib/harness';
-import type { JsonValue } from '../src/types';
+import { writeJsonFile } from '../src/lib/json';
+import type { JobBundleManifest, JsonValue } from '../src/types';
 
 test('executeBundle runs the generated handler', { concurrency: false }, async (t) => {
   const dir = await createTempDir('apphub-cli-run-');
@@ -20,4 +22,43 @@ test('executeBundle runs the generated handler', { concurrency: false }, async (
   assert.equal(execution.result.status ?? 'succeeded', 'succeeded');
   const jobResult = execution.result.result as { echoed?: { hello?: string } } | null;
   assert.equal(jobResult?.echoed?.hello, 'world');
+});
+
+test('executeBundle runs a python handler', { concurrency: false }, async (t) => {
+  const dir = await createTempDir('apphub-cli-python-run-');
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const initial = await loadOrScaffoldBundle(dir, {});
+  const updatedManifest: JobBundleManifest = {
+    ...initial.context.manifest,
+    runtime: 'python',
+    pythonEntry: 'src/main.py'
+  };
+  (updatedManifest as Record<string, unknown>).entry = undefined;
+  await writeJsonFile(initial.context.manifestPath, updatedManifest);
+
+  await mkdir(path.join(dir, 'src'), { recursive: true });
+  await writeFile(
+    path.join(dir, 'src', 'main.py'),
+    [
+      "async def handler(context):",
+      "    context.logger('python-handler', {'parameters': context.parameters})",
+      "    await context.update({'metrics': {'count': 1}})",
+      "    return {'status': 'succeeded', 'result': {'echoed': context.parameters}}",
+      ''
+    ].join('\n'),
+    'utf8'
+  );
+
+  const { context } = await loadOrScaffoldBundle(dir, {});
+  await buildBundle(context);
+
+  const parameters: JsonValue = { greet: 'bonjour' };
+  const execution = await executeBundle(context, parameters);
+  assert.equal(execution.result.status ?? 'succeeded', 'succeeded');
+  const jobResult = execution.result.result as { echoed?: { greet?: string } } | null;
+  assert.equal(jobResult?.echoed?.greet, 'bonjour');
+  assert(execution.runContext.logs.some((line) => line.includes('python-handler')));
 });

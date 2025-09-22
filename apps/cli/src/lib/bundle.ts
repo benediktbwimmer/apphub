@@ -17,6 +17,8 @@ import {
   DEFAULT_FILES,
   DEFAULT_MANIFEST_PATH,
   DEFAULT_OUT_DIR,
+  DEFAULT_PYTHON_ENTRY,
+  DEFAULT_PYTHON_REQUIREMENTS_PATH,
   DEFAULT_SAMPLE_INPUT_PATH,
   DEFAULT_SOURCE_ENTRY,
   loadBundleConfig,
@@ -89,13 +91,15 @@ async function scaffoldManifest(bundleDir: string, manifestPath: string, slug: s
       .join(' '),
     version: '0.1.0',
     entry: path.join(DEFAULT_OUT_DIR, 'index.js').replace(/\\/g, '/'),
+    runtime: 'node18',
+    pythonEntry: DEFAULT_PYTHON_ENTRY.replace(/\\/g, '/'),
     description: 'Describe what this job bundle does.',
     capabilities: []
   };
   await writeJsonFile(manifestPath, manifest);
 }
 
-async function scaffoldSource(bundleDir: string, sourceEntry: string): Promise<string | null> {
+async function scaffoldNodeSource(bundleDir: string, sourceEntry: string): Promise<string | null> {
   const resolvedEntry = resolvePath(bundleDir, sourceEntry);
   if (await pathExists(resolvedEntry)) {
     return null;
@@ -137,7 +141,65 @@ export default handler;
   return path.relative(bundleDir, resolvedEntry);
 }
 
-async function scaffoldTest(bundleDir: string): Promise<string[]> {
+async function scaffoldPythonSource(bundleDir: string, pythonEntry: string): Promise<string | null> {
+  const resolvedEntry = resolvePath(bundleDir, pythonEntry);
+  if (await pathExists(resolvedEntry)) {
+    return null;
+  }
+
+  const template = `"""Example job handler. Update this file to implement your bundle logic."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
+JobResult = Dict[str, Any]
+
+
+async def handler(context) -> JobResult:
+    """Entrypoint for the AppHub Python runtime."""
+
+    context.logger(
+        "Running sample job bundle",
+        {"parameters": context.parameters},
+    )
+    await context.update({"sample": "progress"})
+    return {
+        "status": "succeeded",
+        "result": {"echoed": context.parameters},
+    }
+`;
+
+  await writeFile(resolvedEntry, template);
+  return path.relative(bundleDir, resolvedEntry);
+}
+
+function isPythonRuntime(runtime: string): boolean {
+  return /^python/i.test(runtime);
+}
+
+function resolveRuntime(manifest: JobBundleManifest): string {
+  const runtime = typeof manifest.runtime === 'string' ? manifest.runtime.trim() : '';
+  return runtime || 'node18';
+}
+
+function toBundleRelative(bundleDir: string, targetPath: string): string {
+  return path.relative(bundleDir, targetPath).replace(/\\/g, '/');
+}
+
+function getPythonEntry(context: BundleContext): string {
+  const fromManifest =
+    typeof context.manifest.pythonEntry === 'string' ? context.manifest.pythonEntry.trim() : '';
+  if (fromManifest) {
+    return fromManifest;
+  }
+  const fromConfig = typeof context.config.pythonEntry === 'string' ? context.config.pythonEntry.trim() : '';
+  if (fromConfig) {
+    return fromConfig;
+  }
+  throw new Error('Python runtime requires `pythonEntry` to be set in the manifest.');
+}
+
+async function scaffoldTest(bundleDir: string, runtime: string): Promise<string[]> {
   const testDir = resolvePath(bundleDir, 'tests');
   await ensureDir(testDir);
   const created: string[] = [];
@@ -146,9 +208,10 @@ async function scaffoldTest(bundleDir: string): Promise<string[]> {
     await writeJsonFile(sampleInputPath, { message: 'Hello from sample input' });
     created.push(path.relative(bundleDir, sampleInputPath));
   }
-  const testPath = resolvePath(bundleDir, path.join('tests', 'handler.test.ts'));
-  if (!(await pathExists(testPath))) {
-    const content = `import assert from 'node:assert/strict';
+  if (!isPythonRuntime(runtime)) {
+    const testPath = resolvePath(bundleDir, path.join('tests', 'handler.test.ts'));
+    if (!(await pathExists(testPath))) {
+      const content = `import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { handler } from '../src/index';
 
@@ -163,8 +226,9 @@ test('handler echoes parameters', async () => {
   assert.equal(result.status ?? 'succeeded', 'succeeded');
 });
 `;
-    await writeFile(testPath, content);
-    created.push(path.relative(bundleDir, testPath));
+      await writeFile(testPath, content);
+      created.push(path.relative(bundleDir, testPath));
+    }
   }
   return created;
 }
@@ -186,7 +250,9 @@ async function scaffoldConfig(
     files: DEFAULT_FILES,
     tests: {
       sampleInputPath: DEFAULT_SAMPLE_INPUT_PATH
-    }
+    },
+    pythonEntry: DEFAULT_PYTHON_ENTRY,
+    pythonRequirementsPath: DEFAULT_PYTHON_REQUIREMENTS_PATH
   };
   await writeJsonFile(configPath, config);
 }
@@ -198,33 +264,46 @@ export async function scaffoldBundle(
 {
   const slug = options.slug ? sanitizeSlug(options.slug) : deriveSlugFromDir(bundleDir);
   const configPath = path.resolve(bundleDir, options.configPath ?? DEFAULT_CONFIG_FILENAME);
-  const manifestPath = path.resolve(bundleDir, DEFAULT_MANIFEST_PATH);
   const created: string[] = [];
 
   if (!(await pathExists(configPath))) {
     await scaffoldConfig(bundleDir, configPath, slug);
-    created.push(path.relative(bundleDir, configPath));
+    created.push(toBundleRelative(bundleDir, configPath));
   }
+
+  const rawConfig = (await readJsonFile<BundleConfig>(configPath)) as BundleConfig;
+  const manifestRelative = rawConfig.manifestPath?.trim() || DEFAULT_MANIFEST_PATH;
+  const manifestPath = path.resolve(bundleDir, manifestRelative);
 
   if (!(await pathExists(manifestPath))) {
     await scaffoldManifest(bundleDir, manifestPath, slug);
-    created.push(path.relative(bundleDir, manifestPath));
+    created.push(toBundleRelative(bundleDir, manifestPath));
   }
 
-  const sourceCreated = await scaffoldSource(bundleDir, DEFAULT_SOURCE_ENTRY);
-  if (sourceCreated) {
-    created.push(sourceCreated);
+  const manifest = await loadManifest(bundleDir, manifestRelative);
+  const runtime = resolveRuntime(manifest);
+
+  if (isPythonRuntime(runtime)) {
+    const pythonEntry = rawConfig.pythonEntry?.trim() || DEFAULT_PYTHON_ENTRY;
+    const pythonCreated = await scaffoldPythonSource(bundleDir, pythonEntry);
+    if (pythonCreated) {
+      created.push(pythonCreated);
+    }
+  } else {
+    const sourceEntry = rawConfig.entry?.trim() || DEFAULT_SOURCE_ENTRY;
+    const nodeCreated = await scaffoldNodeSource(bundleDir, sourceEntry);
+    if (nodeCreated) {
+      created.push(nodeCreated);
+    }
   }
-  const testCreated = await scaffoldTest(bundleDir);
+
+  const testCreated = await scaffoldTest(bundleDir, runtime);
   created.push(...testCreated);
 
-  const config = normalizeBundleConfig(
-    bundleDir,
-    (await readJsonFile<BundleConfig>(configPath)) as BundleConfig
-  );
-  const manifest = await loadManifest(bundleDir, config.manifestPath);
+  const config = normalizeBundleConfig(bundleDir, rawConfig);
+  const normalizedManifest = await loadManifest(bundleDir, config.manifestPath);
 
-  return { created, config, manifest };
+  return { created, config, manifest: normalizedManifest };
 }
 
 export async function loadManifest(bundleDir: string, manifestPath: string): Promise<JobBundleManifest> {
@@ -261,7 +340,9 @@ export async function loadBundleContext(
         manifestPath: scaffolded.config.manifestPath,
         artifactDir: scaffolded.config.artifactDir,
         files: scaffolded.config.files,
-        tests: scaffolded.config.tests
+        tests: scaffolded.config.tests,
+        pythonEntry: scaffolded.config.pythonEntry,
+        pythonRequirementsPath: scaffolded.config.pythonRequirementsPath
       };
     } else {
       throw new Error(
@@ -294,6 +375,18 @@ export async function loadBundleContext(
 }
 
 async function ensureBuildTarget(context: BundleContext): Promise<void> {
+  const runtime = resolveRuntime(context.manifest);
+  if (isPythonRuntime(runtime)) {
+    const pythonEntry = getPythonEntry(context);
+    const pythonEntryPath = resolvePath(context.bundleDir, pythonEntry);
+    if (!(await pathExists(pythonEntryPath))) {
+      throw new Error(
+        `Python entry file not found at ${pythonEntry}. Update manifest.pythonEntry or create the file.`
+      );
+    }
+    return;
+  }
+
   const sourceEntry = resolvePath(context.bundleDir, context.config.entry);
   if (!(await pathExists(sourceEntry))) {
     throw new Error(
@@ -306,8 +399,26 @@ export async function buildBundle(
   context: BundleContext,
   options: BuildOptions = {}
 ): Promise<void> {
+  const runtime = resolveRuntime(context.manifest);
+  if (isPythonRuntime(runtime)) {
+    const pythonEntry = getPythonEntry(context);
+    const pythonEntryPath = resolvePath(context.bundleDir, pythonEntry);
+    if (!(await pathExists(pythonEntryPath))) {
+      throw new Error(
+        `Python entry file not found at ${pythonEntry}. Update manifest.pythonEntry or create the file.`
+      );
+    }
+    return;
+  }
+
+  const manifestEntry =
+    typeof context.manifest.entry === 'string' ? context.manifest.entry.trim() : '';
+  if (!manifestEntry) {
+    throw new Error('Manifest entry is required for node runtimes. Update manifest.entry to continue.');
+  }
+
   if (options.skipBuild) {
-    const runtimeEntry = resolvePath(context.bundleDir, context.manifest.entry);
+    const runtimeEntry = resolvePath(context.bundleDir, manifestEntry);
     if (!(await pathExists(runtimeEntry))) {
       throw new Error(
         `Built entry file not found at ${path.relative(context.bundleDir, runtimeEntry)}. Remove --skip-build to compile the bundle.`
@@ -321,7 +432,7 @@ export async function buildBundle(
   await ensureDir(outDir);
 
   const sourceEntry = resolvePath(context.bundleDir, context.config.entry);
-  const runtimeEntry = resolvePath(context.bundleDir, context.manifest.entry);
+  const runtimeEntry = resolvePath(context.bundleDir, manifestEntry);
   const result = await esbuild.build({
     entryPoints: [sourceEntry],
     outfile: runtimeEntry,
@@ -385,7 +496,7 @@ export async function packageBundle(
 
   const filesToInclude = new Set<string>();
   const resolvedManifestPath = resolvePath(context.bundleDir, context.config.manifestPath);
-  filesToInclude.add(path.relative(context.bundleDir, resolvedManifestPath));
+  filesToInclude.add(toBundleRelative(context.bundleDir, resolvedManifestPath));
 
   const patterns = context.config.files.length > 0 ? context.config.files : DEFAULT_FILES;
   const matches = await fg(patterns, {
@@ -394,11 +505,45 @@ export async function packageBundle(
     onlyFiles: true
   });
   for (const match of matches) {
-    filesToInclude.add(match);
+    filesToInclude.add(match.replace(/\\/g, '/'));
   }
 
-  if (!filesToInclude.has(path.relative(context.bundleDir, resolvedManifestPath))) {
-    filesToInclude.add(path.relative(context.bundleDir, resolvedManifestPath));
+  if (!filesToInclude.has(toBundleRelative(context.bundleDir, resolvedManifestPath))) {
+    filesToInclude.add(toBundleRelative(context.bundleDir, resolvedManifestPath));
+  }
+
+  const runtime = resolveRuntime(context.manifest);
+  if (isPythonRuntime(runtime)) {
+    const pythonEntry = getPythonEntry(context);
+    const pythonEntryPath = resolvePath(context.bundleDir, pythonEntry);
+    if (!(await pathExists(pythonEntryPath))) {
+      throw new Error(
+        `Python entry file not found at ${pythonEntry}. Update manifest.pythonEntry or create the file.`
+      );
+    }
+    filesToInclude.add(toBundleRelative(context.bundleDir, pythonEntryPath));
+
+    const pythonSourceRoot = path.dirname(pythonEntryPath);
+    const pythonFiles = await fg('**/*.py', {
+      cwd: pythonSourceRoot,
+      dot: false,
+      onlyFiles: true
+    });
+    for (const relative of pythonFiles) {
+      const absolute = path.resolve(pythonSourceRoot, relative);
+      filesToInclude.add(toBundleRelative(context.bundleDir, absolute));
+    }
+
+    const requirementsPath =
+      typeof context.config.pythonRequirementsPath === 'string'
+        ? context.config.pythonRequirementsPath.trim()
+        : '';
+    if (requirementsPath) {
+      const resolvedRequirements = resolvePath(context.bundleDir, requirementsPath);
+      if (await pathExists(resolvedRequirements)) {
+        filesToInclude.add(toBundleRelative(context.bundleDir, resolvedRequirements));
+      }
+    }
   }
 
   await tar.create(
