@@ -120,6 +120,7 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
     triggers,
     parametersSchema: raw.parametersSchema ?? null,
     defaultParameters: raw.defaultParameters ?? null,
+    outputSchema: raw.outputSchema ?? null,
     metadata: raw.metadata ?? null,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
@@ -165,6 +166,7 @@ export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
         : null,
     parameters: raw.parameters ?? null,
     context: raw.context ?? null,
+    output: raw.output ?? null,
     trigger: raw.trigger ?? null,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''

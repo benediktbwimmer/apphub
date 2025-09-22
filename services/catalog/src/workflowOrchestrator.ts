@@ -458,6 +458,21 @@ function serializeContext(context: WorkflowRuntimeContext): JsonValue {
   return payload as unknown as JsonValue;
 }
 
+function resolveWorkflowOutput(context: WorkflowRuntimeContext): JsonValue | null {
+  if (!context.shared) {
+    return null;
+  }
+  const entries = Object.entries(context.shared).filter(([, value]) => value !== undefined);
+  if (entries.length === 0) {
+    return null;
+  }
+  const snapshot: Record<string, JsonValue | null> = {};
+  for (const [key, value] of entries) {
+    snapshot[key] = (value ?? null) as JsonValue | null;
+  }
+  return snapshot as unknown as JsonValue;
+}
+
 function updateStepContext(
   context: WorkflowRuntimeContext,
   stepId: string,
@@ -719,13 +734,15 @@ async function recordRunSuccess(
   runId: string,
   context: WorkflowRuntimeContext,
   totals: { totalSteps: number; completedSteps: number },
-  startedAt: number
+  startedAt: number,
+  output: JsonValue | null
 ) {
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAt;
   await updateWorkflowRun(runId, {
     status: 'succeeded',
     context: serializeContext(context),
+    output,
     completedAt,
     durationMs,
     metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
@@ -1874,7 +1891,14 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
 
   const steps = definition.steps ?? [];
   if (steps.length === 0) {
-    await recordRunSuccess(run.id, { steps: {}, lastUpdatedAt: new Date().toISOString() }, { totalSteps: 0, completedSteps: 0 }, startTime);
+    const emptyContext: WorkflowRuntimeContext = { steps: {}, lastUpdatedAt: new Date().toISOString() };
+    await recordRunSuccess(
+      run.id,
+      emptyContext,
+      { totalSteps: 0, completedSteps: 0 },
+      startTime,
+      resolveWorkflowOutput(emptyContext)
+    );
     return await getWorkflowRunById(run.id);
   }
 
@@ -2339,7 +2363,7 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       return await getWorkflowRunById(run.id);
     }
 
-    await recordRunSuccess(run.id, context, totals, startTime);
+    await recordRunSuccess(run.id, context, totals, startTime, resolveWorkflowOutput(context));
     return await getWorkflowRunById(run.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Workflow orchestration failed';

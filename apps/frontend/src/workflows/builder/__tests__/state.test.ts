@@ -41,6 +41,12 @@ const baseWorkflow: WorkflowDefinition = {
   triggers: [{ type: 'manual' }],
   parametersSchema: { type: 'object', properties: { env: { type: 'string' } } },
   defaultParameters: { env: 'staging' },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      deploymentId: { type: 'string' }
+    }
+  },
   metadata: {
     owner: { name: 'Release team', contact: 'release@apphub.test' },
     tags: ['deployment', 'critical'],
@@ -67,6 +73,7 @@ const jobs: JobDefinitionSummary[] = [
       }
     },
     defaultParameters: {},
+    outputSchema: {},
     timeoutMs: null,
     retryPolicy: null,
     metadata: null,

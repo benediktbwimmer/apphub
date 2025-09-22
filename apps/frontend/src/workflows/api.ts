@@ -82,6 +82,7 @@ export type WorkflowCreateInput = {
   triggers?: WorkflowTriggerInput[];
   parametersSchema?: Record<string, unknown>;
   defaultParameters?: unknown;
+  outputSchema?: Record<string, unknown>;
   metadata?: WorkflowMetadataInput;
 };
 
@@ -93,6 +94,7 @@ export type WorkflowUpdateInput = {
   triggers?: WorkflowTriggerInput[];
   parametersSchema?: Record<string, unknown>;
   defaultParameters?: unknown;
+  outputSchema?: Record<string, unknown>;
   metadata?: WorkflowMetadataInput;
 };
 
@@ -106,6 +108,7 @@ export type JobDefinitionCreateInput = {
   retryPolicy?: unknown;
   parametersSchema?: Record<string, unknown>;
   defaultParameters?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   metadata?: unknown;
 };
 
@@ -119,6 +122,7 @@ export type JobDefinitionSummary = {
   registryRef: string | null;
   parametersSchema: unknown;
   defaultParameters: unknown;
+  outputSchema: unknown;
   timeoutMs: number | null;
   retryPolicy: unknown;
   metadata: unknown;

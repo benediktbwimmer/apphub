@@ -136,6 +136,7 @@ export type JobDefinitionRow = {
   entry_point: string;
   parameters_schema: unknown;
   default_parameters: unknown;
+  output_schema: unknown;
   timeout_ms: number | null;
   retry_policy: unknown;
   metadata: unknown;
@@ -208,6 +209,7 @@ export type WorkflowDefinitionRow = {
   triggers: unknown;
   parameters_schema: unknown;
   default_parameters: unknown;
+  output_schema: unknown;
   metadata: unknown;
   dag: unknown;
   created_at: string;
@@ -220,6 +222,7 @@ export type WorkflowRunRow = {
   status: string;
   parameters: unknown;
   context: unknown;
+  output: unknown;
   error_message: string | null;
   current_step_id: string | null;
   current_step_index: number | null;

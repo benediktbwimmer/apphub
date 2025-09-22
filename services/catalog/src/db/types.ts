@@ -327,6 +327,7 @@ export type JobDefinitionRecord = {
   entryPoint: string;
   parametersSchema: JsonValue;
   defaultParameters: JsonValue;
+  outputSchema: JsonValue;
   timeoutMs: number | null;
   retryPolicy: JobRetryPolicy | null;
   metadata: JsonValue | null;
@@ -342,6 +343,7 @@ export type JobDefinitionCreateInput = {
   version?: number;
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
+  outputSchema?: JsonValue;
   timeoutMs?: number | null;
   retryPolicy?: JobRetryPolicy | null;
   metadata?: JsonValue | null;
@@ -548,6 +550,7 @@ export type WorkflowDefinitionRecord = {
   triggers: WorkflowTriggerDefinition[];
   parametersSchema: JsonValue;
   defaultParameters: JsonValue;
+  outputSchema: JsonValue;
   metadata: JsonValue | null;
   dag: WorkflowDagMetadata;
   createdAt: string;
@@ -563,6 +566,7 @@ export type WorkflowDefinitionCreateInput = {
   triggers?: WorkflowTriggerDefinition[];
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
+  outputSchema?: JsonValue;
   metadata?: JsonValue | null;
   dag?: WorkflowDagMetadata;
 };
@@ -575,6 +579,7 @@ export type WorkflowDefinitionUpdateInput = {
   triggers?: WorkflowTriggerDefinition[];
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
+  outputSchema?: JsonValue;
   metadata?: JsonValue | null;
   dag?: WorkflowDagMetadata;
 };
@@ -587,6 +592,7 @@ export type WorkflowRunRecord = {
   status: WorkflowRunStatus;
   parameters: JsonValue;
   context: JsonValue;
+  output: JsonValue | null;
   errorMessage: string | null;
   currentStepId: string | null;
   currentStepIndex: number | null;
@@ -614,6 +620,7 @@ export type WorkflowRunUpdateInput = {
   status?: WorkflowRunStatus;
   parameters?: JsonValue;
   context?: JsonValue;
+  output?: JsonValue | null;
   contextPatch?: {
     steps?: Record<string, Record<string, JsonValue | null>>;
     shared?: Record<string, JsonValue | null | undefined>;

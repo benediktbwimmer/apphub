@@ -46,6 +46,7 @@ export const jobDefinitionCreateSchema = z
     retryPolicy: jobRetryPolicySchema.optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonObjectSchema.optional(),
+    outputSchema: jsonObjectSchema.optional(),
     metadata: jsonValueSchema.optional()
   })
   .strict();
@@ -60,6 +61,7 @@ export const jobDefinitionUpdateSchema = z
     retryPolicy: jobRetryPolicySchema.optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonObjectSchema.optional(),
+    outputSchema: jsonObjectSchema.optional(),
     metadata: jsonValueSchema.nullable().optional()
   })
   .strict()
@@ -171,6 +173,7 @@ export const workflowDefinitionCreateSchema = z
     triggers: z.array(workflowTriggerSchema).optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonValueSchema.optional(),
+    outputSchema: jsonObjectSchema.optional(),
     metadata: jsonValueSchema.optional()
   })
   .strict();
@@ -184,6 +187,7 @@ export const workflowDefinitionUpdateSchema = z
     triggers: z.array(workflowTriggerSchema).optional(),
     parametersSchema: jsonObjectSchema.optional(),
     defaultParameters: jsonValueSchema.optional(),
+    outputSchema: jsonObjectSchema.optional(),
     metadata: jsonValueSchema.nullable().optional()
   })
   .strict()

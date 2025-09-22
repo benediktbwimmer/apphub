@@ -17,6 +17,7 @@ type JobSummary = {
   retryPolicy?: unknown;
   parametersSchema?: unknown;
   defaultParameters?: unknown;
+  outputSchema?: unknown;
   metadata?: unknown;
   registryRef?: unknown;
 };
@@ -42,6 +43,7 @@ type WorkflowSummary = {
   triggers?: unknown;
   parametersSchema?: unknown;
   defaultParameters?: unknown;
+  outputSchema?: unknown;
   metadata?: unknown;
 };
 
@@ -168,6 +170,7 @@ function buildJobCatalog(jobs: ReadonlyArray<JobSummary>) {
     retryPolicy: job.retryPolicy ?? null,
     parametersSchema: job.parametersSchema ?? {},
     defaultParameters: job.defaultParameters ?? {},
+    outputSchema: job.outputSchema ?? {},
     metadata: job.metadata ?? null,
     registryRef: job.registryRef ?? null
   }));
@@ -205,6 +208,9 @@ function buildJobCatalogMarkdown(jobs: ReadonlyArray<JobSummary>): string {
       lines.push(`- Registry reference: ${job.registryRef}`);
     }
     lines.push('- Parameters schema:', '```json', JSON.stringify(job.parametersSchema ?? {}, null, 2), '```');
+    if (job.outputSchema && typeof job.outputSchema === 'object') {
+      lines.push('- Output schema:', '```json', JSON.stringify(job.outputSchema ?? {}, null, 2), '```');
+    }
     const defaultParams = job.defaultParameters && typeof job.defaultParameters === 'object'
       ? JSON.stringify(job.defaultParameters, null, 2)
       : null;
@@ -286,6 +292,7 @@ function buildWorkflowCatalog(workflows: ReadonlyArray<WorkflowSummary>) {
     triggers: workflow.triggers ?? [],
     parametersSchema: workflow.parametersSchema ?? {},
     defaultParameters: workflow.defaultParameters ?? null,
+    outputSchema: workflow.outputSchema ?? {},
     metadata: workflow.metadata ?? null
   }));
 }
@@ -317,6 +324,9 @@ function buildWorkflowCatalogMarkdown(workflows: ReadonlyArray<WorkflowSummary>)
     }
     const stepCount = Array.isArray(workflow.steps) ? workflow.steps.length : 0;
     lines.push(`- Step count: ${stepCount}`);
+    if (workflow.outputSchema && typeof workflow.outputSchema === 'object') {
+      lines.push('- Output schema:', '```json', JSON.stringify(workflow.outputSchema ?? {}, null, 2), '```');
+    }
   });
 
   if (workflows.length > sampleLimit) {

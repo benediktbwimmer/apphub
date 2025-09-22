@@ -33,6 +33,7 @@ export type WorkflowDefinition = {
   triggers: WorkflowTrigger[];
   parametersSchema: unknown;
   defaultParameters: unknown;
+  outputSchema: unknown;
   metadata: unknown;
   dag?: {
     adjacency: Record<string, string[]>;
@@ -59,6 +60,7 @@ export type WorkflowRun = {
   parameters: unknown;
   context: unknown;
   trigger: unknown;
+  output: unknown;
   createdAt: string;
   updatedAt: string;
 };

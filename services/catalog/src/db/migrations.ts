@@ -490,6 +490,17 @@ const migrations: Migration[] = [
          ON workflow_run_steps(parent_step_id)
          WHERE parent_step_id IS NOT NULL`
     ]
+  },
+  {
+    id: '011_output_schemas',
+    statements: [
+      `ALTER TABLE job_definitions
+         ADD COLUMN IF NOT EXISTS output_schema JSONB NOT NULL DEFAULT '{}'::jsonb`,
+      `ALTER TABLE workflow_definitions
+         ADD COLUMN IF NOT EXISTS output_schema JSONB NOT NULL DEFAULT '{}'::jsonb`,
+      `ALTER TABLE workflow_runs
+         ADD COLUMN IF NOT EXISTS output JSONB`
+    ]
   }
 ];
 

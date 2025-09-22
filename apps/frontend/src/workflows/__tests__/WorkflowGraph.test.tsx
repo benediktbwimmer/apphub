@@ -36,6 +36,7 @@ describe('WorkflowGraph', () => {
       triggers: [{ type: 'manual' }],
       parametersSchema: {},
       defaultParameters: {},
+      outputSchema: {},
       metadata: {},
       dag: {
         roots: ['extract'],
@@ -70,6 +71,7 @@ describe('WorkflowGraph', () => {
           transform: { status: 'running' }
         }
       },
+      output: null,
       trigger: { type: 'manual' },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

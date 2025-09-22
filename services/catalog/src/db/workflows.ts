@@ -230,6 +230,7 @@ export async function createWorkflowDefinition(
   const triggers = Array.isArray(input.triggers) && input.triggers.length > 0 ? input.triggers : [MANUAL_TRIGGER];
   const parametersSchema = input.parametersSchema ?? {};
   const defaultParameters = input.defaultParameters ?? {};
+  const outputSchema = input.outputSchema ?? {};
   const metadata = input.metadata ?? {};
   const dag: WorkflowDagMetadata = input.dag ?? {
     adjacency: {},
@@ -242,6 +243,7 @@ export async function createWorkflowDefinition(
   const triggersJson = JSON.stringify(triggers);
   const parametersSchemaJson = JSON.stringify(parametersSchema);
   const defaultParametersJson = JSON.stringify(defaultParameters);
+  const outputSchemaJson = JSON.stringify(outputSchema);
   const metadataJson = JSON.stringify(metadata);
   const dagJson = JSON.stringify(dag);
 
@@ -260,6 +262,7 @@ export async function createWorkflowDefinition(
            triggers,
            parameters_schema,
            default_parameters,
+           output_schema,
            metadata,
            dag,
            created_at,
@@ -276,6 +279,7 @@ export async function createWorkflowDefinition(
            $9::jsonb,
            $10::jsonb,
            $11::jsonb,
+           $12::jsonb,
            NOW(),
            NOW()
          )
@@ -290,6 +294,7 @@ export async function createWorkflowDefinition(
           triggersJson,
           parametersSchemaJson,
           defaultParametersJson,
+          outputSchemaJson,
           metadataJson,
           dagJson
         ]
@@ -329,6 +334,7 @@ export async function updateWorkflowDefinition(
     const hasDescription = Object.prototype.hasOwnProperty.call(updates, 'description');
     const hasTriggers = Object.prototype.hasOwnProperty.call(updates, 'triggers');
     const hasDefaultParameters = Object.prototype.hasOwnProperty.call(updates, 'defaultParameters');
+    const hasOutputSchema = Object.prototype.hasOwnProperty.call(updates, 'outputSchema');
     const hasMetadata = Object.prototype.hasOwnProperty.call(updates, 'metadata');
     const hasDag = Object.prototype.hasOwnProperty.call(updates, 'dag');
 
@@ -343,6 +349,7 @@ export async function updateWorkflowDefinition(
     const nextDefaultParameters = hasDefaultParameters
       ? updates.defaultParameters ?? null
       : existing.defaultParameters;
+    const nextOutputSchema = hasOutputSchema ? updates.outputSchema ?? {} : existing.outputSchema;
     const nextMetadata = hasMetadata ? updates.metadata ?? null : existing.metadata;
     const nextDescription = hasDescription ? updates.description ?? null : existing.description;
     const nextDag = hasDag ? updates.dag ?? existing.dag : existing.dag;
@@ -351,6 +358,7 @@ export async function updateWorkflowDefinition(
     const triggersJson = JSON.stringify(nextTriggers);
     const parametersSchemaJson = JSON.stringify(nextParametersSchema ?? {});
     const defaultParametersJson = JSON.stringify(nextDefaultParameters ?? null);
+    const outputSchemaJson = JSON.stringify(nextOutputSchema ?? {});
     const metadataJson = JSON.stringify(nextMetadata ?? null);
     const dagJson = JSON.stringify(nextDag ?? {
       adjacency: {},
@@ -368,8 +376,9 @@ export async function updateWorkflowDefinition(
            triggers = $6::jsonb,
            parameters_schema = $7::jsonb,
            default_parameters = $8::jsonb,
-           metadata = $9::jsonb,
-           dag = $10::jsonb,
+           output_schema = $9::jsonb,
+           metadata = $10::jsonb,
+           dag = $11::jsonb,
            updated_at = NOW()
        WHERE slug = $1
        RETURNING *`,
@@ -382,6 +391,7 @@ export async function updateWorkflowDefinition(
         triggersJson,
         parametersSchemaJson,
         defaultParametersJson,
+        outputSchemaJson,
         metadataJson,
         dagJson
       ]
@@ -547,21 +557,23 @@ export async function updateWorkflowRun(
     const nextCompletedAt = updates.completedAt ?? existing.completed_at ?? null;
     const nextDurationMs =
       updates.durationMs !== undefined ? updates.durationMs : existing.duration_ms ?? null;
+    const nextOutput = updates.output !== undefined ? updates.output ?? null : existing.output ?? null;
 
     const { rows: updatedRows } = await client.query<WorkflowRunRow>(
       `UPDATE workflow_runs
        SET status = $2,
            parameters = $3::jsonb,
            context = $4::jsonb,
-           error_message = $5,
-           current_step_id = $6,
-           current_step_index = $7,
-           metrics = $8::jsonb,
-           triggered_by = $9,
-           trigger = $10::jsonb,
-           started_at = $11,
-           completed_at = $12,
-           duration_ms = $13,
+           output = $5::jsonb,
+           error_message = $6,
+           current_step_id = $7,
+           current_step_index = $8,
+           metrics = $9::jsonb,
+           triggered_by = $10,
+           trigger = $11::jsonb,
+           started_at = $12,
+           completed_at = $13,
+           duration_ms = $14,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -570,6 +582,7 @@ export async function updateWorkflowRun(
         nextStatus,
         nextParameters,
         nextContext,
+        nextOutput,
         nextErrorMessage,
         nextCurrentStepId,
         nextCurrentStepIndex,
@@ -592,7 +605,8 @@ export async function updateWorkflowRun(
       JSON.stringify(existing.metrics ?? {}) !== JSON.stringify(updated.metrics ?? {}) ||
       existing.current_step_id !== updated.currentStepId ||
       existing.current_step_index !== updated.currentStepIndex ||
-      existing.error_message !== updated.errorMessage;
+      existing.error_message !== updated.errorMessage ||
+      JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
   });
 
   if (updated && emitEvents) {

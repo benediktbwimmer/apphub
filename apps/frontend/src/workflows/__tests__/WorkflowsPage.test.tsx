@@ -42,6 +42,12 @@ const workflowDefinition: WorkflowDefinition = {
     tenant: 'acme',
     retries: 1
   },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' }
+    }
+  },
   metadata: {
     repo: 'git@example.com/demo.git',
     tags: ['env:test'],
@@ -74,6 +80,7 @@ const runResponse: WorkflowRun = {
   metrics: { totalSteps: 2, completedSteps: 0 },
   parameters: { tenant: 'umbrella', retries: 2 },
   context: {},
+  output: null,
   trigger: { type: 'manual' },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
