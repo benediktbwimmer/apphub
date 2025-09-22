@@ -162,6 +162,32 @@ async function testJobEndpoints(): Promise<void> {
     });
     assert.equal(conflictResponse.statusCode, 409);
 
+    const schemaPreviewResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/schema-preview',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
+      payload: {
+        entryPoint: 'tests.jobs.nonbundle',
+        runtime: 'python'
+      }
+    });
+    assert.equal(schemaPreviewResponse.statusCode, 200);
+    const schemaPreviewBody = JSON.parse(schemaPreviewResponse.payload) as {
+      data: {
+        parametersSchema: unknown;
+        outputSchema: unknown;
+        parametersSource: unknown;
+        outputSource: unknown;
+      };
+    };
+    assert(schemaPreviewBody.data);
+    assert.equal(schemaPreviewBody.data.parametersSchema, null);
+    assert.equal(schemaPreviewBody.data.outputSchema, null);
+    assert.equal(schemaPreviewBody.data.parametersSource, null);
+    assert.equal(schemaPreviewBody.data.outputSource, null);
+
     const fetchJobResponse = await app.inject({ method: 'GET', url: '/jobs/jobs-test-basic' });
     assert.equal(fetchJobResponse.statusCode, 200);
     const fetchJobBody = JSON.parse(fetchJobResponse.payload) as {
