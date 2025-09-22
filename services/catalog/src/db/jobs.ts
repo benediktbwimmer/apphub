@@ -92,6 +92,7 @@ export async function createJobDefinition(
 ): Promise<JobDefinitionRecord> {
   const id = randomUUID();
   const version = input.version ?? 1;
+  const runtime = input.runtime ?? 'node';
   const parametersSchema = (input.parametersSchema ?? {}) as JsonValue;
   const defaultParameters = (input.defaultParameters ?? {}) as JsonValue;
   const outputSchema = (input.outputSchema ?? {}) as JsonValue;
@@ -109,6 +110,7 @@ export async function createJobDefinition(
            name,
            version,
            type,
+           runtime,
            entry_point,
            parameters_schema,
            default_parameters,
@@ -141,6 +143,7 @@ export async function createJobDefinition(
           input.name,
           version,
           input.type,
+          runtime,
           input.entryPoint,
           parametersSchema,
           defaultParameters,
@@ -184,6 +187,7 @@ export async function upsertJobDefinition(
       const newId = randomUUID();
       const metadata = input.metadata ?? {};
       const retryPolicy = input.retryPolicy ?? {};
+      const runtime = input.runtime ?? 'node';
       const outputSchema = (input.outputSchema ?? {}) as JsonValue;
       const { rows } = await client.query<JobDefinitionRow>(
         `INSERT INTO job_definitions (
@@ -192,6 +196,7 @@ export async function upsertJobDefinition(
            name,
            version,
            type,
+           runtime,
            entry_point,
            parameters_schema,
            default_parameters,
@@ -224,6 +229,7 @@ export async function upsertJobDefinition(
           input.name,
           input.version ?? 1,
           input.type,
+          runtime,
           input.entryPoint,
           parametersSchema,
           defaultParameters,
@@ -243,18 +249,20 @@ export async function upsertJobDefinition(
     const nextMetadata = input.metadata ?? existing.metadata ?? {};
     const nextRetryPolicy = input.retryPolicy ?? existing.retryPolicy ?? {};
     const nextOutputSchema = (input.outputSchema ?? existing.outputSchema ?? {}) as JsonValue;
+    const nextRuntime = input.runtime ?? existing.runtime;
     const { rows } = await client.query<JobDefinitionRow>(
       `UPDATE job_definitions
        SET name = $2,
            version = $3,
            type = $4,
-           entry_point = $5,
-           parameters_schema = $6::jsonb,
-           default_parameters = $7::jsonb,
-           output_schema = $8::jsonb,
-           timeout_ms = $9,
-           retry_policy = $10::jsonb,
-           metadata = $11::jsonb,
+           runtime = $5,
+           entry_point = $6,
+           parameters_schema = $7::jsonb,
+           default_parameters = $8::jsonb,
+           output_schema = $9::jsonb,
+           timeout_ms = $10,
+           retry_policy = $11::jsonb,
+           metadata = $12::jsonb,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -263,6 +271,7 @@ export async function upsertJobDefinition(
         input.name,
         input.version ?? existing.version,
         input.type,
+        nextRuntime,
         input.entryPoint,
         parametersSchema,
         defaultParameters,
