@@ -1,8 +1,12 @@
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile as writeTempFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { pathExists, readFile } from './fs';
 import { readJsonFile } from './json';
+import { PYTHON_HARNESS_SOURCE, PYTHON_RESULT_SENTINEL } from './pythonHarness';
 import type { BundleContext } from './bundle';
 import type { JobResult, JsonValue } from '../types';
 
@@ -19,6 +23,28 @@ export type ExecuteResult = {
 };
 
 const DEFAULT_SAMPLE_INPUT_PATH_FALLBACK = 'tests/sample-input.json';
+
+function resolveRuntime(context: BundleContext): string {
+  const runtime = typeof context.manifest.runtime === 'string' ? context.manifest.runtime.trim() : '';
+  return runtime || 'node18';
+}
+
+function isPythonRuntime(runtime: string): boolean {
+  return /^python/i.test(runtime);
+}
+
+function resolvePythonEntry(context: BundleContext): string {
+  const manifestEntry =
+    typeof context.manifest.pythonEntry === 'string' ? context.manifest.pythonEntry.trim() : '';
+  if (manifestEntry) {
+    return manifestEntry;
+  }
+  const configEntry = typeof context.config.pythonEntry === 'string' ? context.config.pythonEntry.trim() : '';
+  if (configEntry) {
+    return configEntry;
+  }
+  throw new Error('Python runtime requires `pythonEntry` to be set in the manifest.');
+}
 
 type LocalJobDefinition = {
   id: string;
@@ -58,8 +84,14 @@ type JobHandler = (context: {
   resolveSecret: () => string | null;
 }) => Promise<JobResult | void> | JobResult | void;
 
-async function importHandler(context: BundleContext): Promise<JobHandler> {
-  const entryPath = path.resolve(context.bundleDir, context.manifest.entry);
+async function importNodeHandler(context: BundleContext): Promise<JobHandler> {
+  const manifestEntry =
+    typeof context.manifest.entry === 'string' ? context.manifest.entry.trim() : '';
+  if (!manifestEntry) {
+    throw new Error('Manifest entry is required to execute the job locally.');
+  }
+
+  const entryPath = path.resolve(context.bundleDir, manifestEntry);
   if (!(await pathExists(entryPath))) {
     throw new Error(
       `Built entry not found at ${path.relative(context.bundleDir, entryPath)}. Run \`apphub jobs package\` to build the bundle.`
@@ -76,7 +108,7 @@ async function importHandler(context: BundleContext): Promise<JobHandler> {
         : null;
   if (!candidate) {
     throw new Error(
-      `Bundle entry ${context.manifest.entry} does not export a handler function. Export a default function or a named \`handler\`.`
+      `Bundle entry ${manifestEntry} does not export a handler function. Export a default function or a named \`handler\`.`
     );
   }
   return candidate as JobHandler;
@@ -93,7 +125,10 @@ function createLocalContext(
     slug: context.config.slug,
     name: context.manifest.name,
     version: 1,
-    entryPoint: context.manifest.entry,
+    entryPoint:
+      typeof context.manifest.entry === 'string' && context.manifest.entry
+        ? context.manifest.entry
+        : context.config.entry,
     metadata: context.manifest.metadata ?? null
   };
   const runRecord: LocalJobRun & Record<string, unknown> = {
@@ -179,11 +214,8 @@ export async function loadSampleParameters(
   return params;
 }
 
-export async function executeBundle(
-  context: BundleContext,
-  parameters: JsonValue
-): Promise<ExecuteResult> {
-  const handler = await importHandler(context);
+async function executeNodeBundle(context: BundleContext, parameters: JsonValue): Promise<ExecuteResult> {
+  const handler = await importNodeHandler(context);
   const logs: string[] = [];
   const localContext = createLocalContext(context, parameters, logs);
   const started = performance.now();
@@ -207,6 +239,132 @@ export async function executeBundle(
       logs
     }
   } satisfies ExecuteResult;
+}
+
+async function executePythonBundle(context: BundleContext, parameters: JsonValue): Promise<ExecuteResult> {
+  const pythonEntry = resolvePythonEntry(context);
+  const entryPath = path.resolve(context.bundleDir, pythonEntry);
+  if (!(await pathExists(entryPath))) {
+    throw new Error(
+      `Python entry file not found at ${pythonEntry}. Run \`apphub jobs package\` or create the file before testing.`
+    );
+  }
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'apphub-python-harness-'));
+  const harnessPath = path.join(tempDir, 'harness.py');
+  try {
+    await writeTempFile(harnessPath, PYTHON_HARNESS_SOURCE, 'utf8');
+
+    const payload = {
+      entry: entryPath,
+      parameters,
+      slug: context.config.slug,
+      manifest: {
+        name: context.manifest.name,
+        version: context.manifest.version,
+        pythonEntry,
+        metadata: context.manifest.metadata ?? null
+      }
+    };
+
+    const child = spawn('python3', [harnessPath], {
+      cwd: context.bundleDir,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+
+    child.stdout.on('data', (chunk) => {
+      stdoutChunks.push(chunk.toString());
+    });
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderrChunks.push(text);
+      process.stderr.write(text);
+    });
+
+    const input = JSON.stringify(payload);
+    child.stdin.write(input);
+    child.stdin.end();
+
+    const exitCode = await new Promise<number>((resolve, reject) => {
+      child.on('error', reject);
+      child.on('close', (code) => resolve(code ?? 0));
+    });
+
+    const stdoutCombined = stdoutChunks.join('');
+    if (exitCode !== 0) {
+      const stderrCombined = stderrChunks.join('');
+      const message = (stderrCombined || stdoutCombined || `exit code ${exitCode}`).trim();
+      throw new Error(`Python harness failed: ${message}`);
+    }
+
+    const lines = stdoutCombined.split(/\r?\n/);
+    let resultLine: string | undefined;
+    for (const line of lines) {
+      if (!line) {
+        continue;
+      }
+      if (line.startsWith(PYTHON_RESULT_SENTINEL)) {
+        resultLine = line.slice(PYTHON_RESULT_SENTINEL.length);
+      } else {
+        console.log(line);
+      }
+    }
+
+    if (!resultLine) {
+      throw new Error('Python harness did not produce a result payload.');
+    }
+
+    let parsed: { result?: unknown; durationMs?: unknown; logs?: unknown };
+    try {
+      parsed = JSON.parse(resultLine) as { result?: unknown; durationMs?: unknown; logs?: unknown };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to parse Python harness output: ${message}`);
+    }
+
+    const logs = Array.isArray(parsed.logs)
+      ? parsed.logs.map((entry) => String(entry))
+      : [];
+    const durationMs =
+      typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs)
+        ? Math.round(parsed.durationMs)
+        : 0;
+    let result: JobResult;
+    if (parsed.result && typeof parsed.result === 'object' && parsed.result !== null) {
+      result = parsed.result as JobResult;
+    } else if (parsed.result !== undefined) {
+      result = { status: 'succeeded', result: parsed.result as JsonValue };
+    } else {
+      result = {};
+    }
+    if (!result.status) {
+      result.status = 'succeeded';
+    }
+
+    return {
+      result,
+      durationMs,
+      runContext: {
+        logs
+      }
+    } satisfies ExecuteResult;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+export async function executeBundle(
+  context: BundleContext,
+  parameters: JsonValue
+): Promise<ExecuteResult> {
+  const runtime = resolveRuntime(context);
+  if (isPythonRuntime(runtime)) {
+    return executePythonBundle(context, parameters);
+  }
+  return executeNodeBundle(context, parameters);
 }
 
 export async function loadInlineParameters(raw?: string): Promise<JsonValue | undefined> {

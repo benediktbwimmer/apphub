@@ -12,7 +12,15 @@
       "type": "string",
       "minLength": 1
     },
+    "runtime": {
+      "type": "string",
+      "minLength": 1
+    },
     "entry": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pythonEntry": {
       "type": "string",
       "minLength": 1
     },
@@ -30,6 +38,25 @@
     },
     "metadata": true
   },
-  "required": ["name", "version", "entry"],
+  "required": ["name", "version"],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "runtime": {
+            "type": "string",
+            "pattern": "^python"
+          }
+        },
+        "required": ["runtime"]
+      },
+      "then": {
+        "required": ["pythonEntry"]
+      },
+      "else": {
+        "required": ["entry"]
+      }
+    }
+  ],
   "additionalProperties": true
 }

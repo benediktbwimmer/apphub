@@ -23,3 +23,20 @@ test('loadOrScaffoldBundle enforces manifest schema', { concurrency: false }, as
     await loadOrScaffoldBundle(dir, {});
   }, /Manifest validation failed/);
 });
+
+test('python runtime requires pythonEntry path', { concurrency: false }, async (t) => {
+  const dir = await createTempDir('apphub-cli-invalid-python-');
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const { context } = await loadOrScaffoldBundle(dir, {});
+  const manifest = await readJsonFile<JobBundleManifest>(context.manifestPath);
+  manifest.runtime = 'python';
+  manifest.pythonEntry = '';
+  await writeJsonFile(context.manifestPath, manifest);
+
+  await assert.rejects(async () => {
+    await loadOrScaffoldBundle(dir, {});
+  }, /Manifest validation failed/);
+});
