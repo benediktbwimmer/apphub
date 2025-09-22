@@ -15,6 +15,8 @@ import {
 } from '../db/index';
 import { enqueueBuildJob, enqueueRepositoryIngestion } from '../queue';
 import { executeJobRun } from '../jobs/runtime';
+import { getRuntimeReadiness } from '../jobs/runtimeReadiness';
+import { introspectEntryPointSchemas } from '../jobs/schemaIntrospector';
 import {
   serializeJobDefinition,
   serializeJobBundleVersion,
@@ -83,6 +85,13 @@ const bundleRegenerateSchema = z
     description: z.string().max(512).nullable().optional(),
     displayName: z.string().max(256).nullable().optional(),
     version: z.string().max(100).optional()
+  })
+  .strict();
+
+const schemaPreviewRequestSchema = z
+  .object({
+    entryPoint: z.string().min(1),
+    runtime: z.enum(['node', 'python']).optional()
   })
   .strict();
 
@@ -188,6 +197,12 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     return { data: jobs.map((job) => serializeJobDefinition(job)) };
   });
 
+  app.get('/jobs/runtimes', async (_request, reply) => {
+    const readiness = await getRuntimeReadiness();
+    reply.status(200);
+    return { data: readiness };
+  });
+
   app.post('/jobs', async (request, reply) => {
     const authResult = await requireOperatorScopes(request, reply, {
       action: 'jobs.create',
@@ -223,6 +238,59 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       reply.status(500);
       await authResult.auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create job definition' };
+    }
+  });
+
+  app.post('/jobs/schema-preview', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'jobs.schema-preview',
+      resource: 'jobs',
+      requiredScopes: JOB_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseBody = schemaPreviewRequestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    try {
+      const preview = await introspectEntryPointSchemas(parseBody.data.entryPoint);
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        action: 'jobs.schema-preview',
+        entryPoint: parseBody.data.entryPoint,
+        runtime: parseBody.data.runtime ?? null,
+        parametersSource: preview?.parametersSource ?? null,
+        outputSource: preview?.outputSource ?? null
+      });
+      return {
+        data:
+          preview ?? {
+            parametersSchema: null,
+            outputSchema: null,
+            parametersSource: null,
+            outputSource: null
+          }
+      };
+    } catch (err) {
+      request.log.error(
+        { err, entryPoint: parseBody.data.entryPoint },
+        'Failed to inspect job entry point for schema preview'
+      );
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'exception',
+        entryPoint: parseBody.data.entryPoint
+      });
+      return { error: 'Failed to inspect entry point' };
     }
   });
 

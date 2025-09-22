@@ -24,7 +24,7 @@ function sanitizeForIpc<T>(value: T): T {
   }
 }
 
-function buildPythonHarnessPath(): string {
+export function resolvePythonHarnessPath(): string {
   const local = path.resolve(__dirname, 'pythonChild.py');
   if (existsSync(local)) {
     return local;
@@ -103,7 +103,7 @@ export class PythonSandboxRunner {
       childEnv.APPHUB_SANDBOX_HOST_ROOT_PREFIX = hostRootPrefix;
     }
 
-    const harness = buildPythonHarnessPath();
+    const harness = resolvePythonHarnessPath();
     const child = spawn('python3', [harness], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: childEnv

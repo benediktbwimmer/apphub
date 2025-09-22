@@ -44,7 +44,6 @@ export default function WorkflowsPage() {
     workflowAnalytics,
     setWorkflowAnalyticsRange,
     setWorkflowAnalyticsOutcomes,
-    loadWorkflowAnalytics,
     manualRunPending,
     manualRunError,
     lastTriggeredRun,

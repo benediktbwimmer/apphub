@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { Editor } from '../components/Editor';
+import { useToasts } from '../components/toast';
 import {
   fetchJobs,
   fetchJobDetail,
   fetchJobBundleEditor,
   regenerateJobBundle,
+  fetchJobRuntimeStatuses,
+  type JobRuntimeStatus,
   type BundleEditorData,
   type BundleEditorFile,
   type JobDetailResponse
 } from './api';
+import JobCreateDialog from './JobCreateDialog';
 
 function formatDate(value: string | null | undefined): string {
   if (!value) {
@@ -151,7 +155,26 @@ function useJobs(): {
 
 export default function JobsPage() {
   const authorizedFetch = useAuthorizedFetch();
+  const { pushToast } = useToasts();
   const { jobs, loading: jobsLoading, error: jobsError, refresh: refreshJobs } = useJobs();
+  const [runtimeStatuses, setRuntimeStatuses] = useState<JobRuntimeStatus[]>([]);
+  const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(false);
+  const [runtimeStatusError, setRuntimeStatusError] = useState<string | null>(null);
+  const refreshRuntimeStatuses = useCallback(() => {
+    setRuntimeStatusLoading(true);
+    setRuntimeStatusError(null);
+    fetchJobRuntimeStatuses(authorizedFetch)
+      .then((statuses) => {
+        setRuntimeStatuses(statuses);
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : 'Failed to load runtime readiness';
+        setRuntimeStatusError(message);
+      })
+      .finally(() => {
+        setRuntimeStatusLoading(false);
+      });
+  }, [authorizedFetch]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [panelState, setPanelState] = useState<JobPanelState>({
     detail: null,
@@ -174,6 +197,38 @@ export default function JobsPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [regenerateSuccess, setRegenerateSuccess] = useState<string | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createRuntime, setCreateRuntime] = useState<'node' | 'python'>('node');
+
+  useEffect(() => {
+    refreshRuntimeStatuses();
+  }, [refreshRuntimeStatuses]);
+
+  const handleOpenCreate = useCallback((runtime: 'node' | 'python') => {
+    setCreateRuntime(runtime);
+    setCreateDialogOpen(true);
+  }, []);
+
+  const handleJobCreated = useCallback(
+    (job: JobDefinitionSummary) => {
+      pushToast({
+        tone: 'success',
+        title: 'Job created',
+        description: `${job.name} registered successfully.`
+      });
+      setCreateDialogOpen(false);
+      refreshJobs();
+      setSelectedSlug(job.slug);
+      refreshRuntimeStatuses();
+    },
+    [pushToast, refreshJobs, refreshRuntimeStatuses]
+  );
+
+  const pythonStatus = runtimeStatuses.find((status) => status.runtime === 'python');
+  const pythonReady = pythonStatus ? pythonStatus.ready : true;
+  const pythonButtonTitle = pythonReady
+    ? undefined
+    : pythonStatus?.reason ?? 'Python runtime is not ready';
 
   useEffect(() => {
     if (jobs.length === 0) {
@@ -460,16 +515,72 @@ export default function JobsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex items-center justify-between">
+    <>
+      <div className="flex flex-col gap-6">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Jobs</h1>
           <p className="text-sm text-slate-600 dark:text-slate-300">
             Inspect job definitions, review recent runs, and manage bundle source code.
           </p>
         </div>
-      </header>
-      <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          <div className="flex flex-wrap gap-2">
+            {runtimeStatusLoading ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Checking runtimes…
+              </span>
+            ) : runtimeStatuses.length > 0 ? (
+              runtimeStatuses.map((status) => {
+                const label = status.runtime === 'python' ? 'Python runtime' : 'Node runtime';
+                const badgeClass = status.ready
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                  : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200';
+                const tooltip = status.ready
+                  ? status.details && typeof status.details.version === 'string'
+                    ? `Version ${status.details.version}`
+                    : 'Ready'
+                  : status.reason ?? 'Unavailable';
+                return (
+                  <span
+                    key={status.runtime}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}
+                    title={tooltip}
+                  >
+                    {label}: {status.ready ? 'Ready' : 'Unavailable'}
+                  </span>
+                );
+              })
+            ) : (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Runtime readiness unknown
+              </span>
+            )}
+          </div>
+          {runtimeStatusError && (
+            <p className="text-[11px] text-rose-600 dark:text-rose-300">{runtimeStatusError}</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              onClick={() => handleOpenCreate('node')}
+            >
+              New Node job
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              onClick={() => handleOpenCreate('python')}
+              disabled={!pythonReady}
+              title={pythonButtonTitle}
+            >
+              New Python job
+            </button>
+          </div>
+        </div>
+        </header>
+        <div className="flex flex-col gap-6 lg:flex-row">
         <aside className="lg:w-64">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="mb-3 flex items-center justify-between">
@@ -549,8 +660,17 @@ export default function JobsPage() {
             </div>
           )}
         </section>
+        </div>
       </div>
-    </div>
+      <JobCreateDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        authorizedFetch={authorizedFetch}
+        defaultRuntime={createRuntime}
+        runtimeStatuses={runtimeStatuses}
+        onCreated={handleJobCreated}
+      />
+    </>
   );
 }
 
@@ -573,6 +693,7 @@ function JobSummary({ detail, bundle }: JobSummaryProps) {
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
           <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">Type: {definition.type}</span>
+          <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">Runtime: {definition.runtime}</span>
           <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">Version: {definition.version}</span>
           <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
             Bundle: {binding.slug}@{binding.version}

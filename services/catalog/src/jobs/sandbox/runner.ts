@@ -78,7 +78,7 @@ function sanitizeForIpc<T>(value: T): T {
   }
 }
 
-function buildChildScriptPath(): string {
+export function resolveNodeSandboxEntrypoint(): string {
   const compiled = path.resolve(__dirname, 'childRunner.js');
   if (existsSync(compiled)) {
     return compiled;
@@ -133,7 +133,7 @@ export class SandboxRunner {
     if (shouldPrefixHostPaths && hostRootPrefix) {
       childEnv.APPHUB_SANDBOX_HOST_ROOT_PREFIX = hostRootPrefix;
     }
-    const child = fork(buildChildScriptPath(), [], {
+    const child = fork(resolveNodeSandboxEntrypoint(), [], {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       env: childEnv,
       execArgv: process.execArgv
