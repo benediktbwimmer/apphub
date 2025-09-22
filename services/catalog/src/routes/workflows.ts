@@ -5,6 +5,8 @@ import {
   createWorkflowRun,
   getWorkflowDefinitionBySlug,
   getWorkflowRunById,
+  getWorkflowRunMetricsBySlug,
+  getWorkflowRunStatsBySlug,
   listWorkflowDefinitions,
   listWorkflowRunSteps,
   listWorkflowRunsForDefinition,
@@ -34,7 +36,9 @@ import {
 } from '../queue';
 import {
   serializeWorkflowDefinition,
+  serializeWorkflowRunMetrics,
   serializeWorkflowRun,
+  serializeWorkflowRunStats,
   serializeWorkflowRunStep
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
@@ -141,6 +145,138 @@ function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
     type: trigger.type,
     options: trigger.options ?? null
   }));
+}
+
+const ANALYTICS_RANGE_OPTIONS = ['24h', '7d', '30d'] as const;
+const ANALYTICS_BUCKET_OPTIONS = ['15m', 'hour', 'day'] as const;
+
+type AnalyticsRangeOption = (typeof ANALYTICS_RANGE_OPTIONS)[number];
+type AnalyticsBucketOption = (typeof ANALYTICS_BUCKET_OPTIONS)[number];
+type AnalyticsRangeKey = AnalyticsRangeOption | 'custom';
+
+const ANALYTICS_RANGE_HOURS: Record<AnalyticsRangeOption, number> = {
+  '24h': 24,
+  '7d': 24 * 7,
+  '30d': 24 * 30
+};
+
+const workflowAnalyticsQuerySchema = z
+  .object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    range: z.enum(ANALYTICS_RANGE_OPTIONS).optional(),
+    bucket: z.enum(ANALYTICS_BUCKET_OPTIONS).optional()
+  })
+  .partial()
+  .strict();
+
+type WorkflowAnalyticsQuery = z.infer<typeof workflowAnalyticsQuerySchema>;
+
+type NormalizedAnalyticsQuery = {
+  rangeKey: AnalyticsRangeKey;
+  bucketKey: AnalyticsBucketOption | null;
+  options: { from: Date; to: Date; bucketInterval?: string };
+};
+
+const ANALYTICS_ERROR_MESSAGES: Record<string, string> = {
+  invalid_from: 'Invalid "from" timestamp',
+  invalid_to: 'Invalid "to" timestamp',
+  invalid_range: 'The "from" timestamp must be before "to"',
+  invalid_bucket: 'Invalid bucket option'
+};
+
+function parseIsoDate(value: string | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function mapBucketKeyToInterval(bucketKey: AnalyticsBucketOption | null | undefined):
+  | { key: AnalyticsBucketOption; interval: string }
+  | null {
+  if (!bucketKey) {
+    return null;
+  }
+  switch (bucketKey) {
+    case '15m':
+      return { key: '15m', interval: '15 minutes' };
+    case 'hour':
+      return { key: 'hour', interval: '1 hour' };
+    case 'day':
+      return { key: 'day', interval: '1 day' };
+    default:
+      return null;
+  }
+}
+
+function mapIntervalToBucketKey(interval: string | null | undefined): AnalyticsBucketOption | null {
+  if (!interval) {
+    return null;
+  }
+  switch (interval) {
+    case '15 minutes':
+      return '15m';
+    case '1 hour':
+      return 'hour';
+    case '1 day':
+      return 'day';
+    default:
+      return null;
+  }
+}
+
+function normalizeAnalyticsQuery(
+  query: WorkflowAnalyticsQuery
+): { ok: true; value: NormalizedAnalyticsQuery } | { ok: false; error: string } {
+  const toDate = parseIsoDate(query.to);
+  if (query.to && !toDate) {
+    return { ok: false, error: 'invalid_to' };
+  }
+  const fromDate = parseIsoDate(query.from);
+  if (query.from && !fromDate) {
+    return { ok: false, error: 'invalid_from' };
+  }
+
+  let rangeKey: AnalyticsRangeKey = query.range ?? '7d';
+  let to = toDate ?? new Date();
+  let from = fromDate ?? null;
+
+  if (fromDate || toDate) {
+    rangeKey = query.range ?? 'custom';
+  }
+
+  const effectiveRange: AnalyticsRangeOption =
+    rangeKey === 'custom' ? '7d' : (rangeKey as AnalyticsRangeOption);
+
+  if (!from) {
+    const hours = ANALYTICS_RANGE_HOURS[effectiveRange] ?? ANALYTICS_RANGE_HOURS['7d'];
+    from = new Date(to.getTime() - hours * 60 * 60 * 1000);
+  }
+
+  if (from.getTime() >= to.getTime()) {
+    return { ok: false, error: 'invalid_range' };
+  }
+
+  const bucketConfig = mapBucketKeyToInterval(query.bucket ?? null);
+  if (query.bucket && !bucketConfig) {
+    return { ok: false, error: 'invalid_bucket' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      rangeKey,
+      bucketKey: bucketConfig?.key ?? null,
+      options: bucketConfig
+        ? { from, to, bucketInterval: bucketConfig.interval }
+        : { from, to }
+    }
+  };
 }
 
 const workflowRunRequestSchema = z
@@ -439,6 +575,104 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         offset
       }
     };
+  });
+
+  app.get('/workflows/:slug/stats', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowAnalyticsQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
+    if (!normalized.ok) {
+      reply.status(400);
+      return { error: ANALYTICS_ERROR_MESSAGES[normalized.error] ?? 'Invalid analytics query' };
+    }
+
+    try {
+      const stats = await getWorkflowRunStatsBySlug(
+        parseParams.data.slug,
+        normalized.value.options
+      );
+      const serialized = serializeWorkflowRunStats(stats);
+      reply.status(200);
+      return {
+        data: {
+          ...serialized,
+          range: { ...serialized.range, key: normalized.value.rangeKey }
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        reply.status(404);
+        return { error: 'workflow not found' };
+      }
+      request.log.error({ err, workflow: parseParams.data.slug }, 'Failed to load workflow stats');
+      reply.status(500);
+      return { error: 'Failed to load workflow stats' };
+    }
+  });
+
+  app.get('/workflows/:slug/run-metrics', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowAnalyticsQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const normalized = normalizeAnalyticsQuery(parseQuery.data ?? {});
+    if (!normalized.ok) {
+      reply.status(400);
+      return { error: ANALYTICS_ERROR_MESSAGES[normalized.error] ?? 'Invalid analytics query' };
+    }
+
+    try {
+      const metrics = await getWorkflowRunMetricsBySlug(
+        parseParams.data.slug,
+        normalized.value.options
+      );
+      const serialized = serializeWorkflowRunMetrics(metrics);
+      const bucketKey =
+        normalized.value.bucketKey ?? mapIntervalToBucketKey(serialized.bucketInterval);
+
+      reply.status(200);
+      return {
+        data: {
+          ...serialized,
+          range: { ...serialized.range, key: normalized.value.rangeKey },
+          bucket: {
+            interval: serialized.bucketInterval,
+            key: bucketKey
+          }
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        reply.status(404);
+        return { error: 'workflow not found' };
+      }
+      request.log.error(
+        { err, workflow: parseParams.data.slug },
+        'Failed to load workflow metrics'
+      );
+      reply.status(500);
+      return { error: 'Failed to load workflow metrics' };
+    }
   });
 
   app.post('/workflows/:slug/run', async (request, reply) => {

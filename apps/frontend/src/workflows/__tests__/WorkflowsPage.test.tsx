@@ -138,6 +138,35 @@ function createFetchMock(options?: FetchMockOptions) {
   const services = options?.services ?? [];
   const run = options?.run ?? runResponse;
   const steps = options?.runSteps ?? runStepsResponse;
+  const now = new Date().toISOString();
+  const statsPayload = {
+    workflowId: workflow.id,
+    slug: workflow.slug,
+    range: { from: now, to: now, key: '7d' },
+    totalRuns: 5,
+    statusCounts: { succeeded: 3, failed: 2 },
+    successRate: 0.6,
+    failureRate: 0.4,
+    averageDurationMs: 1200,
+    failureCategories: [{ category: 'timeout', count: 1 }]
+  } as const;
+  const metricsPayload = {
+    workflowId: workflow.id,
+    slug: workflow.slug,
+    range: { from: now, to: now, key: '7d' },
+    bucketInterval: '1 hour',
+    bucket: { interval: '1 hour', key: 'hour' as const },
+    series: [
+      {
+        bucketStart: now,
+        bucketEnd: now,
+        totalRuns: 2,
+        statusCounts: { succeeded: 1, failed: 1 },
+        averageDurationMs: 900,
+        rollingSuccessCount: 1
+      }
+    ]
+  } as const;
 
   return vi.fn(async (...args: FetchArgs) => {
     const [input, init] = args;
@@ -166,6 +195,14 @@ function createFetchMock(options?: FetchMockOptions) {
       expect(body.parameters).toEqual({ tenant: 'umbrella', retries: 2 });
       expect(body.triggeredBy).toBe('operator@apphub.test');
       return new Response(JSON.stringify({ data: run }), { status: 202 });
+    }
+
+    if (url.includes(`/workflows/${workflow.slug}/stats`)) {
+      return new Response(JSON.stringify({ data: statsPayload }), { status: 200 });
+    }
+
+    if (url.includes(`/workflows/${workflow.slug}/run-metrics`)) {
+      return new Response(JSON.stringify({ data: metricsPayload }), { status: 200 });
     }
 
     if (url.endsWith(`/workflow-runs/${run.id}/steps`)) {
@@ -236,6 +273,28 @@ describe('WorkflowsPage manual run flow', () => {
     const logLinks = screen.getAllByRole('link', { name: /view/i });
     expect(logLinks.some((link) => link.getAttribute('href') === 'https://example.com/logs/1')).toBe(true);
     expect(screen.getAllByText(/operator@apphub.test/i).length).toBeGreaterThan(0);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Run analytics/i)).toBeVisible();
+    });
+
+    const rangeSelect = screen.getByLabelText(/Time range/i) as HTMLSelectElement;
+    expect(rangeSelect.value).toBe('7d');
+    await userEvent.selectOptions(rangeSelect, ['24h']);
+    await waitFor(() => {
+      expect(
+        fetchMock
+          .mock.calls
+          .some(([request]) =>
+            typeof request === 'string' && request.includes('/workflows/demo-workflow/stats?range=24h')
+          )
+      ).toBe(true);
+    });
+
+    const failedCheckbox = await screen.findByLabelText(/failed/i);
+    expect(failedCheckbox).toBeChecked();
+    await userEvent.click(failedCheckbox);
+    expect(failedCheckbox).not.toBeChecked();
   });
 
   it('disables manual runs when a required service is unreachable', async () => {

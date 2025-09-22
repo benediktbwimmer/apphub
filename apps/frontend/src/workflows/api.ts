@@ -3,6 +3,8 @@ import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from './types';
 import {
   normalizeWorkflowDefinition,
   normalizeWorkflowRun,
+  normalizeWorkflowRunMetrics,
+  normalizeWorkflowRunStats,
   normalizeWorkflowRunStep
 } from './normalizers';
 
@@ -205,6 +207,66 @@ export async function listWorkflowDefinitions(fetcher: AuthorizedFetch): Promise
     .map((entry) => normalizeWorkflowDefinition(entry))
     .filter((entry): entry is WorkflowDefinition => Boolean(entry))
     .sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+type WorkflowAnalyticsQuery = {
+  range?: '24h' | '7d' | '30d';
+  bucket?: '15m' | 'hour' | 'day';
+  from?: string;
+  to?: string;
+};
+
+function buildAnalyticsQuery(params?: WorkflowAnalyticsQuery): string {
+  if (!params) {
+    return '';
+  }
+  const searchParams = new URLSearchParams();
+  if (params.range) {
+    searchParams.set('range', params.range);
+  }
+  if (params.bucket) {
+    searchParams.set('bucket', params.bucket);
+  }
+  if (params.from) {
+    searchParams.set('from', params.from);
+  }
+  if (params.to) {
+    searchParams.set('to', params.to);
+  }
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
+}
+
+export async function getWorkflowStats(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  params?: WorkflowAnalyticsQuery
+) {
+  const query = buildAnalyticsQuery(params);
+  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}/stats${query}`);
+  await ensureOk(response, 'Failed to load workflow stats');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const stats = normalizeWorkflowRunStats(payload.data);
+  if (!stats) {
+    throw new ApiError('Failed to parse workflow stats', 500, payload);
+  }
+  return stats;
+}
+
+export async function getWorkflowRunMetrics(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  params?: WorkflowAnalyticsQuery
+) {
+  const query = buildAnalyticsQuery(params);
+  const response = await fetcher(`${API_BASE_URL}/workflows/${slug}/run-metrics${query}`);
+  await ensureOk(response, 'Failed to load workflow run metrics');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const metrics = normalizeWorkflowRunMetrics(payload.data);
+  if (!metrics) {
+    throw new ApiError('Failed to parse workflow run metrics', 500, payload);
+  }
+  return metrics;
 }
 
 export async function getWorkflowDetail(

@@ -15,6 +15,8 @@ import {
   filterSummaries,
   normalizeWorkflowDefinition,
   normalizeWorkflowRun,
+  normalizeWorkflowRunMetrics,
+  normalizeWorkflowRunStats,
   sortRuns,
   summarizeWorkflowMetadata,
   type WorkflowSummary
@@ -22,6 +24,8 @@ import {
 import {
   createWorkflowDefinition,
   getWorkflowDetail,
+  getWorkflowRunMetrics,
+  getWorkflowStats,
   listServices,
   listWorkflowDefinitions,
   listWorkflowRunSteps,
@@ -33,9 +37,12 @@ import {
 import type {
   WorkflowDefinition,
   WorkflowFiltersState,
+  WorkflowRunMetricsSummary,
   WorkflowRun,
   WorkflowRunStep,
-  WorkflowRuntimeSummary
+  WorkflowRuntimeSummary,
+  WorkflowRunStatsSummary,
+  WorkflowAnalyticsRangeKey
 } from '../types';
 import type { WorkflowBuilderSubmitArgs } from '../builder/WorkflowBuilderDialog';
 
@@ -53,6 +60,31 @@ type WorkflowRunEventType = (typeof WORKFLOW_RUN_EVENT_TYPES)[number];
 type ManualRunResponse = {
   data: WorkflowRun;
 };
+
+type WorkflowAnalyticsState = {
+  stats: WorkflowRunStatsSummary | null;
+  metrics: WorkflowRunMetricsSummary | null;
+  history: WorkflowRunMetricsSummary[];
+  rangeKey: WorkflowAnalyticsRangeKey;
+  bucketKey: string | null;
+  outcomes: string[];
+  lastUpdated?: string;
+};
+
+const ANALYTICS_DEFAULT_RANGE: WorkflowAnalyticsRangeKey = '7d';
+const ANALYTICS_HISTORY_LIMIT = 24;
+const WORKFLOW_ANALYTICS_EVENT = 'workflow.analytics.snapshot';
+
+function createDefaultAnalyticsState(): WorkflowAnalyticsState {
+  return {
+    stats: null,
+    metrics: null,
+    history: [],
+    rangeKey: ANALYTICS_DEFAULT_RANGE,
+    bucketKey: null,
+    outcomes: []
+  };
+}
 
 export const INITIAL_FILTERS: WorkflowFiltersState = {
   statuses: [],
@@ -113,6 +145,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
   const [searchTerm, setSearchTerm] = useState('');
 
   const [workflowRuntimeSummaries, setWorkflowRuntimeSummaries] = useState<Record<string, WorkflowRuntimeSummary>>({});
+  const [workflowAnalytics, setWorkflowAnalytics] = useState<Record<string, WorkflowAnalyticsState>>({});
   const [manualRunPending, setManualRunPending] = useState(false);
   const [manualRunError, setManualRunError] = useState<string | null>(null);
   const [lastTriggeredRun, setLastTriggeredRun] = useState<WorkflowRun | null>(null);
@@ -123,6 +156,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
   const runsRef = useRef<WorkflowRun[]>([]);
   const selectedSlugRef = useRef<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
+  const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
 
   const authorizedFetch = useAuthorizedFetch();
   const { activeToken } = useApiTokens();
@@ -195,6 +229,51 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
       }
     }));
   }, []);
+
+  const loadWorkflowAnalytics = useCallback(
+    async (slug: string, range?: WorkflowAnalyticsRangeKey) => {
+      if (!slug) {
+        return;
+      }
+      const existing = workflowAnalyticsRef.current[slug];
+      const targetRange = range ?? existing?.rangeKey ?? ANALYTICS_DEFAULT_RANGE;
+      const query = targetRange === 'custom' ? undefined : { range: targetRange };
+      try {
+        const [stats, metrics] = await Promise.all([
+          getWorkflowStats(authorizedFetch, slug, query),
+          getWorkflowRunMetrics(authorizedFetch, slug, query)
+        ]);
+        setWorkflowAnalytics((current) => {
+          const entry = current[slug] ?? createDefaultAnalyticsState();
+          const historyBase = entry.history ?? [];
+          const updatedHistory = metrics
+            ? [...historyBase, metrics].slice(-ANALYTICS_HISTORY_LIMIT)
+            : historyBase;
+          const nextRangeKey = (stats?.range.key as WorkflowAnalyticsRangeKey | undefined) ?? targetRange;
+          const defaultOutcomes = entry.outcomes.length
+            ? entry.outcomes
+            : stats
+              ? Object.keys(stats.statusCounts)
+              : [];
+          return {
+            ...current,
+            [slug]: {
+              stats,
+              metrics,
+              history: updatedHistory,
+              rangeKey: nextRangeKey,
+              bucketKey: metrics?.bucket?.key ?? entry.bucketKey ?? null,
+              outcomes: defaultOutcomes,
+              lastUpdated: new Date().toISOString()
+            }
+          } satisfies Record<string, WorkflowAnalyticsState>;
+        });
+      } catch (err) {
+        console.error('workflow.analytics.fetch_failed', { slug, err });
+      }
+    },
+    [authorizedFetch]
+  );
 
   const loadServices = useCallback(async () => {
     try {
@@ -270,6 +349,8 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
           setSelectedRunId(null);
           setRunSteps([]);
         }
+
+        void loadWorkflowAnalytics(slug);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load workflow details';
         setDetailError(message);
@@ -284,7 +365,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         setDetailLoading(false);
       }
     },
-    [authorizedFetch, updateRuntimeSummary]
+    [authorizedFetch, updateRuntimeSummary, loadWorkflowAnalytics]
   );
 
   const loadRunSteps = useCallback(async (runId: string) => {
@@ -322,6 +403,46 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     }
   }, [authorizedFetch, updateRuntimeSummary]);
 
+  const handleAnalyticsSnapshot = useCallback((snapshot: unknown) => {
+    if (!snapshot || typeof snapshot !== 'object') {
+      return;
+    }
+    const record = snapshot as { slug?: unknown; stats?: unknown; metrics?: unknown };
+    const slug = typeof record.slug === 'string' ? record.slug : null;
+    if (!slug) {
+      return;
+    }
+    const stats = record.stats ? normalizeWorkflowRunStats(record.stats) : null;
+    const metrics = record.metrics ? normalizeWorkflowRunMetrics(record.metrics) : null;
+    if (!stats && !metrics) {
+      return;
+    }
+    setWorkflowAnalytics((current) => {
+      const existing = current[slug] ?? createDefaultAnalyticsState();
+      const history = metrics
+        ? [...existing.history, metrics].slice(-ANALYTICS_HISTORY_LIMIT)
+        : existing.history;
+      const outcomes = existing.outcomes.length
+        ? existing.outcomes
+        : stats
+          ? Object.keys(stats.statusCounts)
+          : [];
+      return {
+        ...current,
+        [slug]: {
+          stats: stats ?? existing.stats,
+          metrics: metrics ?? existing.metrics,
+          history,
+          rangeKey:
+            (stats?.range.key as WorkflowAnalyticsRangeKey | undefined) ?? existing.rangeKey ?? ANALYTICS_DEFAULT_RANGE,
+          bucketKey: metrics?.bucket?.key ?? existing.bucketKey ?? null,
+          outcomes,
+          lastUpdated: new Date().toISOString()
+        }
+      };
+    });
+  }, []);
+
   useEffect(() => {
     workflowsRef.current = workflows;
   }, [workflows]);
@@ -333,6 +454,10 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
   useEffect(() => {
     runsRef.current = runs;
   }, [runs]);
+
+  useEffect(() => {
+    workflowAnalyticsRef.current = workflowAnalytics;
+  }, [workflowAnalytics]);
 
   useEffect(() => {
     void loadServices();
@@ -392,7 +517,8 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
       return;
     }
     void loadWorkflowDetail(selectedSlug);
-  }, [selectedSlug, loadWorkflowDetail]);
+    void loadWorkflowAnalytics(selectedSlug);
+  }, [selectedSlug, loadWorkflowDetail, loadWorkflowAnalytics]);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -568,6 +694,11 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
           handleDefinitionEvent(workflowPayload);
           return;
         }
+        if (type === WORKFLOW_ANALYTICS_EVENT) {
+          const analyticsPayload = (payload as { data?: unknown }).data;
+          handleAnalyticsSnapshot(analyticsPayload);
+          return;
+        }
         if (typeof type === 'string' && WORKFLOW_RUN_EVENT_TYPES.includes(type as WorkflowRunEventType)) {
           const runPayload = (payload as { data?: { run?: unknown } }).data?.run;
           handleRunEvent(runPayload);
@@ -603,7 +734,13 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         socket.close();
       }
     };
-  }, [loadRunSteps, seedRuntimeSummaryFromMetadata, updateRuntimeSummary, options]);
+  }, [
+    loadRunSteps,
+    seedRuntimeSummaryFromMetadata,
+    updateRuntimeSummary,
+    options,
+    handleAnalyticsSnapshot
+  ]);
 
   const handleManualRun = useCallback(
     async (input: { parameters: unknown; triggeredBy?: string | null }) => {
@@ -661,11 +798,12 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     void loadServices();
     if (selectedSlugRef.current) {
       void loadWorkflowDetail(selectedSlugRef.current);
+      void loadWorkflowAnalytics(selectedSlugRef.current);
     }
     if (selectedRunIdRef.current) {
       void loadRunSteps(selectedRunIdRef.current);
     }
-  }, [loadServices, loadWorkflowDetail, loadRunSteps, loadWorkflows]);
+  }, [loadServices, loadWorkflowDetail, loadRunSteps, loadWorkflows, loadWorkflowAnalytics]);
 
   const handleOpenAiBuilder = useCallback(() => {
     if (!canUseAiBuilder) {
@@ -680,6 +818,42 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     setBuilderMode('create');
     setBuilderWorkflow(null);
     setBuilderOpen(true);
+  }, []);
+
+  const setWorkflowAnalyticsRange = useCallback(
+    (slug: string, range: WorkflowAnalyticsRangeKey) => {
+      if (!slug) {
+        return;
+      }
+      setWorkflowAnalytics((current) => {
+        const entry = current[slug] ?? createDefaultAnalyticsState();
+        return {
+          ...current,
+          [slug]: {
+            ...entry,
+            rangeKey: range
+          }
+        };
+      });
+      void loadWorkflowAnalytics(slug, range);
+    },
+    [loadWorkflowAnalytics]
+  );
+
+  const setWorkflowAnalyticsOutcomes = useCallback((slug: string, outcomes: string[]) => {
+    if (!slug) {
+      return;
+    }
+    setWorkflowAnalytics((current) => {
+      const entry = current[slug] ?? createDefaultAnalyticsState();
+      return {
+        ...current,
+        [slug]: {
+          ...entry,
+          outcomes
+        }
+      };
+    });
   }, []);
 
   const handleAiWorkflowSubmitted = useCallback(
@@ -820,6 +994,10 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     stepsError,
     selectedRun,
     workflowRuntimeSummaries,
+    workflowAnalytics,
+    setWorkflowAnalyticsRange,
+    setWorkflowAnalyticsOutcomes,
+    loadWorkflowAnalytics,
     manualRunPending,
     manualRunError,
     lastTriggeredRun,

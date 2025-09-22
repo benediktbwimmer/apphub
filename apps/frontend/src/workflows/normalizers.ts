@@ -3,6 +3,8 @@ import type {
   WorkflowFanOutTemplateStep,
   WorkflowFiltersState,
   WorkflowRun,
+  WorkflowRunMetricsSummary,
+  WorkflowRunStatsSummary,
   WorkflowRunStep,
   WorkflowRuntimeSummary
 } from './types';
@@ -219,6 +221,165 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
   };
+}
+
+function normalizeStatusCounts(value: unknown): Record<string, number> {
+  const record = toRecord(value);
+  if (!record) {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (!key) {
+      continue;
+    }
+    const count = typeof raw === 'number' ? raw : Number(raw ?? 0);
+    if (Number.isFinite(count)) {
+      result[key.toLowerCase()] = count;
+    }
+  }
+  return result;
+}
+
+export function normalizeWorkflowRunStats(payload: unknown): WorkflowRunStatsSummary | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const workflowId = typeof raw.workflowId === 'string' ? raw.workflowId : null;
+  const slug = typeof raw.slug === 'string' ? raw.slug : null;
+  const rangeRaw = toRecord(raw.range);
+  const rangeFrom = typeof rangeRaw?.from === 'string' ? rangeRaw.from : null;
+  const rangeTo = typeof rangeRaw?.to === 'string' ? rangeRaw.to : null;
+  const rangeKey = typeof rangeRaw?.key === 'string' ? rangeRaw.key : 'custom';
+  if (!workflowId || !slug || !rangeFrom || !rangeTo) {
+    return null;
+  }
+  const totalRunsRaw = typeof raw.totalRuns === 'number' ? raw.totalRuns : Number(raw.totalRuns ?? 0);
+  const successRate = typeof raw.successRate === 'number' ? raw.successRate : 0;
+  const failureRate = typeof raw.failureRate === 'number' ? raw.failureRate : 0;
+  const averageDurationMs =
+    typeof raw.averageDurationMs === 'number'
+      ? raw.averageDurationMs
+      : raw.averageDurationMs === null
+        ? null
+        : typeof raw.averageDurationMs === 'string'
+          ? Number(raw.averageDurationMs)
+          : null;
+  const failureCategories: WorkflowRunStatsSummary['failureCategories'] = Array.isArray(
+    raw.failureCategories
+  )
+    ? (raw.failureCategories as unknown[])
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const item = entry as Record<string, unknown>;
+          const category = typeof item.category === 'string' ? item.category : null;
+          const count =
+            typeof item.count === 'number' ? item.count : Number.isFinite(Number(item.count)) ? Number(item.count) : null;
+          if (!category || count === null) {
+            return null;
+          }
+          return { category, count };
+        })
+        .filter((entry): entry is { category: string; count: number } => Boolean(entry))
+    : [];
+
+  return {
+    workflowId,
+    slug,
+    range: { from: rangeFrom, to: rangeTo, key: rangeKey },
+    totalRuns: Number.isFinite(totalRunsRaw) ? totalRunsRaw : 0,
+    statusCounts: normalizeStatusCounts(raw.statusCounts),
+    successRate,
+    failureRate,
+    averageDurationMs: Number.isFinite(averageDurationMs ?? NaN) ? averageDurationMs : null,
+    failureCategories
+  } satisfies WorkflowRunStatsSummary;
+}
+
+export function normalizeWorkflowRunMetrics(payload: unknown): WorkflowRunMetricsSummary | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const raw = payload as Record<string, unknown>;
+  const workflowId = typeof raw.workflowId === 'string' ? raw.workflowId : null;
+  const slug = typeof raw.slug === 'string' ? raw.slug : null;
+  const rangeRaw = toRecord(raw.range);
+  const rangeFrom = typeof rangeRaw?.from === 'string' ? rangeRaw.from : null;
+  const rangeTo = typeof rangeRaw?.to === 'string' ? rangeRaw.to : null;
+  const rangeKey = typeof rangeRaw?.key === 'string' ? rangeRaw.key : 'custom';
+  if (!workflowId || !slug || !rangeFrom || !rangeTo) {
+    return null;
+  }
+
+  const bucketInterval = typeof raw.bucketInterval === 'string' ? raw.bucketInterval : '1 hour';
+  const bucketRecord = toRecord(raw.bucket);
+  const bucket = bucketRecord
+    ? {
+        interval: typeof bucketRecord.interval === 'string' ? bucketRecord.interval : bucketInterval,
+        key:
+          typeof bucketRecord.key === 'string'
+            ? bucketRecord.key
+            : bucketRecord.key === null
+              ? null
+              : null
+      }
+    : undefined;
+
+  const series: WorkflowRunMetricsSummary['series'] = Array.isArray(raw.series)
+    ? (raw.series as unknown[])
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null;
+          }
+          const point = entry as Record<string, unknown>;
+          const bucketStart = typeof point.bucketStart === 'string' ? point.bucketStart : null;
+          const bucketEnd = typeof point.bucketEnd === 'string' ? point.bucketEnd : null;
+          if (!bucketStart || !bucketEnd) {
+            return null;
+          }
+          const totalRuns =
+            typeof point.totalRuns === 'number'
+              ? point.totalRuns
+              : Number.isFinite(Number(point.totalRuns))
+                ? Number(point.totalRuns)
+                : 0;
+          const averageDurationMs =
+            typeof point.averageDurationMs === 'number'
+              ? point.averageDurationMs
+              : point.averageDurationMs === null
+                ? null
+                : typeof point.averageDurationMs === 'string'
+                  ? Number(point.averageDurationMs)
+                  : null;
+          const rollingSuccessCount =
+            typeof point.rollingSuccessCount === 'number'
+              ? point.rollingSuccessCount
+              : Number.isFinite(Number(point.rollingSuccessCount))
+                ? Number(point.rollingSuccessCount)
+                : 0;
+          return {
+            bucketStart,
+            bucketEnd,
+            totalRuns,
+            statusCounts: normalizeStatusCounts(point.statusCounts),
+            averageDurationMs: Number.isFinite(averageDurationMs ?? NaN) ? averageDurationMs : null,
+            rollingSuccessCount
+          } satisfies WorkflowRunMetricsSummary['series'][number];
+        })
+        .filter((entry): entry is WorkflowRunMetricsSummary['series'][number] => Boolean(entry))
+    : [];
+
+  return {
+    workflowId,
+    slug,
+    range: { from: rangeFrom, to: rangeTo, key: rangeKey },
+    bucketInterval,
+    bucket,
+    series
+  } satisfies WorkflowRunMetricsSummary;
 }
 
 export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
