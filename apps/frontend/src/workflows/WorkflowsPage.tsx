@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useApiTokens } from '../auth/useApiTokens';
 import { useToasts } from '../components/toast';
+import JsonSyntaxHighlighter from '../components/JsonSyntaxHighlighter';
 import ManualRunPanel from './components/ManualRunPanel';
 import StatusBadge from './components/StatusBadge';
 import WorkflowFilters from './components/WorkflowFilters';
@@ -68,18 +69,6 @@ const INITIAL_FILTERS: WorkflowFiltersState = {
   services: [],
   tags: []
 };
-
-function formatJson(value: unknown): string {
-  try {
-    const text = JSON.stringify(value, null, 2);
-    if (typeof text === 'string') {
-      return text;
-    }
-  } catch {
-    // Fall through to string coercion when serialization fails.
-  }
-  return String(value);
-}
 
 function resolveWorkflowWebsocketUrl(): string {
   try {
@@ -1148,9 +1137,10 @@ export default function WorkflowsPage() {
               {selectedRun.output !== null && selectedRun.output !== undefined ? (
                 <div className="mt-4 rounded-2xl border border-slate-200/60 bg-slate-50/80 px-4 py-3 text-xs text-slate-600 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/80 dark:text-slate-300">
                   <p className="font-semibold">Workflow Output</p>
-                  <pre className="mt-2 max-h-64 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-[11px] leading-relaxed text-slate-200">
-                    {formatJson(selectedRun.output)}
-                  </pre>
+                  <JsonSyntaxHighlighter
+                    value={selectedRun.output}
+                    className="mt-2 max-h-64 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-[11px] leading-relaxed text-slate-200"
+                  />
                 </div>
               ) : selectedRun.status === 'succeeded' ? (
                 <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">No output captured for this run.</p>
@@ -1199,9 +1189,10 @@ export default function WorkflowsPage() {
                           </span>
                         </div>
                         {metrics && (
-                          <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-xs text-slate-200">
-                            {JSON.stringify(metrics, null, 2)}
-                          </pre>
+                          <JsonSyntaxHighlighter
+                            value={metrics}
+                            className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-900/80 px-3 py-2 text-xs text-slate-200"
+                          />
                         )}
                         {step.errorMessage && (
                           <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
