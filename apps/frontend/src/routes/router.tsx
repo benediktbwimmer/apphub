@@ -1,4 +1,4 @@
-import { Navigate, RouterProviderProps, createBrowserRouter, type RouteObject } from 'react-router-dom';
+import { Navigate, type RouterProviderProps, createBrowserRouter, type RouteObject } from 'react-router-dom';
 import AppLayout from '../App';
 import CatalogRoute from './CatalogRoute';
 import ImportRoute from './ImportRoute';
