@@ -357,8 +357,21 @@ Notes:
 - Start `services/codex-proxy` on the host before launching the container so the AI builder can reach Codex via `APPHUB_CODEX_PROXY_URL`.
 - `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
+- Python 3.11 (via `python3`, `python`, and `pip3`) ships in the runtime image for bundle authors that need Python tooling. Install dependencies inside a per-run virtual environment or vendor wheels alongside the bundle rather than modifying global site packages.
 
 Stop the container with `Ctrl+C` or `docker stop` when running detached.
+
+### Publishing the Runtime Image
+
+Use the helper script to rebuild and publish the multi-service runtime image after making Dockerfile changes:
+
+```bash
+APPHUB_RUNTIME_IMAGE=ghcr.io/apphub/runtime \
+APPHUB_RUNTIME_LATEST_TAG=latest \
+./scripts/publish-runtime.sh
+```
+
+The script tags the image with the current Git SHA by default and optionally applies an alias (such as `latest`). Set `APPHUB_RUNTIME_PUSH=0` to skip pushing when testing locally.
 
 ## Testing
 

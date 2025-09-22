@@ -29,8 +29,20 @@ RUN apt-get update \
   && chmod a+r /etc/apt/keyrings/docker.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends git redis-server docker-ce-cli supervisor postgresql postgresql-contrib \
+  && apt-get install -y --no-install-recommends \
+    git \
+    redis-server \
+    docker-ce-cli \
+    supervisor \
+    postgresql \
+    postgresql-contrib \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python-is-python3 \
   && rm -rf /var/lib/apt/lists/* \
+  && python3 --version \
+  && pip3 --version \
   && npm install -g serve \
   && mkdir -p /app/data /app/services
 
