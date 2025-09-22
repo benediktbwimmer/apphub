@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { type Dispatch, type SetStateAction } from 'react';
 import {
   FormActions,
   FormButton,
@@ -9,7 +8,6 @@ import {
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
 import { useImportServiceManifest } from '../useImportServiceManifest';
-import { type ImportSubtab, type ImportWorkspaceNavigation } from '../ImportWorkspace';
 
 const SERVICE_MANIFEST_DOC_URL =
   'https://github.com/apphub-osiris/apphub/blob/main/docs/architecture.md#service-manifests';
@@ -21,9 +19,6 @@ const GRID_SECTION_CLASSES = 'grid gap-4 md:grid-cols-2';
 
 type ServiceManifestsTabProps = {
   onImported?: () => void;
-  setActiveSubtab: Dispatch<SetStateAction<ImportSubtab>>;
-  activeSubtab: ImportSubtab;
-  navigation: ImportWorkspaceNavigation;
 };
 
 export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabProps) {

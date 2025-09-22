@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { type ActiveTab, useNavigation } from '../components/NavigationContext';
+import { useEffect, useState } from 'react';
 import ServiceManifestsTab from './tabs/ServiceManifestsTab';
 import ImportAppsTab from './tabs/ImportAppsTab';
 import ImportJobBundleTab from './tabs/ImportJobBundleTab';
@@ -9,6 +8,7 @@ export type ImportSubtab = 'service-manifests' | 'apps' | 'jobs';
 type ImportWorkspaceProps = {
   onAppRegistered?: (id: string) => void;
   onManifestImported?: () => void;
+  onViewCatalog?: () => void;
 };
 
 const SUBTAB_STORAGE_KEY = 'apphub-import-active-subtab';
@@ -31,12 +31,7 @@ const TAB_ACTIVE_CLASSES = 'bg-violet-600 text-white shadow-lg shadow-violet-500
 const TAB_INACTIVE_CLASSES =
   'text-slate-600 hover:bg-violet-500/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
 
-export type ImportWorkspaceNavigation = {
-  navigateTo: (tab: ActiveTab) => void;
-};
-
-export default function ImportWorkspace({ onAppRegistered, onManifestImported }: ImportWorkspaceProps) {
-  const { setActiveTab } = useNavigation();
+export default function ImportWorkspace({ onAppRegistered, onManifestImported, onViewCatalog }: ImportWorkspaceProps) {
   const [activeSubtab, setActiveSubtab] = useState<ImportSubtab>(() => {
     if (typeof window === 'undefined') {
       return 'service-manifests';
@@ -54,11 +49,6 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported }:
     }
     window.localStorage.setItem(SUBTAB_STORAGE_KEY, activeSubtab);
   }, [activeSubtab]);
-
-  const navigation = useMemo<ImportWorkspaceNavigation>(
-    () => ({ navigateTo: setActiveTab }),
-    [setActiveTab]
-  );
 
   return (
     <div className="flex flex-col gap-8">
@@ -99,17 +89,12 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported }:
       {activeSubtab === 'service-manifests' && (
         <ServiceManifestsTab
           onImported={onManifestImported}
-          setActiveSubtab={setActiveSubtab}
-          activeSubtab={activeSubtab}
-          navigation={navigation}
         />
       )}
       {activeSubtab === 'apps' && (
         <ImportAppsTab
           onAppRegistered={onAppRegistered}
-          setActiveSubtab={setActiveSubtab}
-          activeSubtab={activeSubtab}
-          navigation={navigation}
+          onViewCatalog={onViewCatalog}
         />
       )}
       {activeSubtab === 'jobs' && <ImportJobBundleTab />}

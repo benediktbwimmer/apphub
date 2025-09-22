@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { type Dispatch, type SetStateAction } from 'react';
 import {
   FormActions,
   FormButton,
@@ -8,7 +7,6 @@ import {
   FormSection
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
-import { type ImportSubtab, type ImportWorkspaceNavigation } from '../ImportWorkspace';
 import { type AppRecord, type IngestionEvent, useImportApp } from '../useImportApp';
 
 const INPUT_CLASSES =
@@ -71,12 +69,10 @@ function formatRelativeTime(timestamp: number | null) {
 
 type ImportAppsTabProps = {
   onAppRegistered?: (id: string) => void;
-  setActiveSubtab: Dispatch<SetStateAction<ImportSubtab>>;
-  activeSubtab: ImportSubtab;
-  navigation: ImportWorkspaceNavigation;
+  onViewCatalog?: () => void;
 };
 
-export default function ImportAppsTab({ onAppRegistered, navigation }: ImportAppsTabProps) {
+export default function ImportAppsTab({ onAppRegistered, onViewCatalog }: ImportAppsTabProps) {
   const {
     form,
     setForm,
@@ -246,7 +242,7 @@ export default function ImportAppsTab({ onAppRegistered, navigation }: ImportApp
           <FormButton
             size="sm"
             onClick={() => {
-              navigation.navigateTo('catalog');
+              onViewCatalog?.();
             }}
             type="button"
           >
