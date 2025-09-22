@@ -1,4 +1,4 @@
-function getStatusBadgeClasses(status: string): string {
+export function getStatusBadgeClasses(status: string): string {
   switch (status) {
     case 'succeeded':
       return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/40 dark:border-emerald-400/40 dark:text-emerald-300';

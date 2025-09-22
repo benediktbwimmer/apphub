@@ -1,4 +1,4 @@
-export type WorkflowDefinitionStep = {
+export type WorkflowFanOutTemplateStep = {
   id: string;
   name: string;
   type?: 'job' | 'service';
@@ -6,7 +6,6 @@ export type WorkflowDefinitionStep = {
   serviceSlug?: string;
   description?: string | null;
   dependsOn?: string[];
-  dependents?: string[];
   parameters?: unknown;
   timeoutMs?: number | null;
   retryPolicy?: unknown;
@@ -16,6 +15,31 @@ export type WorkflowDefinitionStep = {
   captureResponse?: boolean;
   storeResponseAs?: string;
   request?: unknown;
+};
+
+export type WorkflowDefinitionStep = {
+  id: string;
+  name: string;
+  type?: 'job' | 'service' | 'fanout';
+  jobSlug?: string;
+  serviceSlug?: string;
+  description?: string | null;
+  dependsOn?: string[];
+  dependents?: string[];
+  parameters?: unknown;
+  timeoutMs?: number | null;
+  retryPolicy?: unknown;
+  storeResultAs?: string;
+  storeResultsAs?: string;
+  requireHealthy?: boolean;
+  allowDegraded?: boolean;
+  captureResponse?: boolean;
+  storeResponseAs?: string;
+  request?: unknown;
+  collection?: unknown;
+  template?: WorkflowFanOutTemplateStep | null;
+  maxItems?: number | null;
+  maxConcurrency?: number | null;
 };
 
 export type WorkflowTrigger = {
@@ -79,6 +103,12 @@ export type WorkflowRunStep = {
   parameters?: unknown;
   result?: unknown;
   metrics?: unknown;
+  input?: unknown;
+  output?: unknown;
+  context?: unknown;
+  parentStepId?: string | null;
+  fanoutIndex?: number | null;
+  templateStepId?: string | null;
 };
 
 export type WorkflowFiltersState = {

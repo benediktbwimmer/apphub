@@ -1,5 +1,6 @@
 import type {
   WorkflowDefinition,
+  WorkflowFanOutTemplateStep,
   WorkflowFiltersState,
   WorkflowRun,
   WorkflowRunStep,
@@ -20,6 +21,68 @@ export function toRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry): entry is string => entry.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeFanOutTemplate(raw: unknown): WorkflowFanOutTemplateStep | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const template = raw as Record<string, unknown>;
+  const id = typeof template.id === 'string' ? template.id : null;
+  const name = typeof template.name === 'string' ? template.name : null;
+  if (!id || !name) {
+    return null;
+  }
+  const jobSlug = typeof template.jobSlug === 'string' ? template.jobSlug : undefined;
+  const serviceSlug = typeof template.serviceSlug === 'string' ? template.serviceSlug : undefined;
+  const rawType = typeof template.type === 'string' ? template.type.toLowerCase() : null;
+  const normalizedType: WorkflowFanOutTemplateStep['type'] =
+    rawType === 'service'
+      ? 'service'
+      : rawType === 'job'
+        ? 'job'
+        : serviceSlug
+          ? 'service'
+          : 'job';
+
+  return {
+    id,
+    name,
+    type: normalizedType,
+    jobSlug,
+    serviceSlug,
+    description:
+      typeof template.description === 'string'
+        ? template.description
+        : template.description === null
+          ? null
+          : undefined,
+    dependsOn: normalizeStringArray(template.dependsOn),
+    parameters: 'parameters' in template ? template.parameters : undefined,
+    timeoutMs:
+      typeof template.timeoutMs === 'number'
+        ? template.timeoutMs
+        : template.timeoutMs === null
+          ? null
+          : undefined,
+    retryPolicy: 'retryPolicy' in template ? template.retryPolicy : undefined,
+    storeResultAs: typeof template.storeResultAs === 'string' ? template.storeResultAs : undefined,
+    requireHealthy: typeof template.requireHealthy === 'boolean' ? template.requireHealthy : undefined,
+    allowDegraded: typeof template.allowDegraded === 'boolean' ? template.allowDegraded : undefined,
+    captureResponse: typeof template.captureResponse === 'boolean' ? template.captureResponse : undefined,
+    storeResponseAs: typeof template.storeResponseAs === 'string' ? template.storeResponseAs : undefined,
+    request: 'request' in template ? template.request : undefined
+  } satisfies WorkflowFanOutTemplateStep;
 }
 
 export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | null {
@@ -49,6 +112,43 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
       const jobSlug = typeof step.jobSlug === 'string' ? step.jobSlug : undefined;
       const serviceSlug = typeof step.serviceSlug === 'string' ? step.serviceSlug : undefined;
       const rawType = typeof step.type === 'string' ? step.type.toLowerCase() : null;
+      const description =
+        typeof step.description === 'string'
+          ? step.description
+          : step.description === null
+            ? null
+            : undefined;
+      const dependsOn = normalizeStringArray(step.dependsOn);
+      const dependents = normalizeStringArray(step.dependents);
+
+      if (rawType === 'fanout') {
+        const fanOutStep = {
+          id: stepId,
+          name: stepName,
+          type: 'fanout' as const,
+          description,
+          dependsOn,
+          dependents,
+          collection: 'collection' in step ? step.collection : undefined,
+          template: normalizeFanOutTemplate(step.template),
+          maxItems:
+            typeof step.maxItems === 'number'
+              ? step.maxItems
+              : step.maxItems === null
+                ? null
+                : undefined,
+          maxConcurrency:
+            typeof step.maxConcurrency === 'number'
+              ? step.maxConcurrency
+              : step.maxConcurrency === null
+                ? null
+                : undefined,
+          storeResultsAs: typeof step.storeResultsAs === 'string' ? step.storeResultsAs : undefined
+        } satisfies WorkflowDefinition['steps'][number];
+        steps.push(fanOutStep);
+        continue;
+      }
+
       const stepType =
         rawType === 'service'
           ? 'service'
@@ -57,22 +157,16 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
             : serviceSlug
               ? 'service'
               : 'job';
-      const dependsOn = Array.isArray(step.dependsOn)
-        ? step.dependsOn.filter((value): value is string => typeof value === 'string' && value.length > 0)
-        : undefined;
+
       const normalizedStep = {
         id: stepId,
         name: stepName,
         type: stepType,
         jobSlug,
         serviceSlug,
-        description:
-          typeof step.description === 'string'
-            ? step.description
-            : step.description === null
-              ? null
-              : undefined,
+        description,
         dependsOn,
+        dependents,
         parameters: 'parameters' in step ? step.parameters : undefined,
         timeoutMs:
           typeof step.timeoutMs === 'number'
@@ -204,7 +298,28 @@ export function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | nu
     logsUrl: typeof raw.logsUrl === 'string' ? raw.logsUrl : null,
     parameters: 'parameters' in raw ? raw.parameters : undefined,
     result: 'result' in raw ? raw.result : undefined,
-    metrics: 'metrics' in raw ? raw.metrics : undefined
+    metrics: 'metrics' in raw ? raw.metrics : undefined,
+    input: 'input' in raw ? raw.input : undefined,
+    output: 'output' in raw ? raw.output : undefined,
+    context: 'context' in raw ? raw.context : undefined,
+    parentStepId:
+      typeof raw.parentStepId === 'string'
+        ? raw.parentStepId
+        : raw.parentStepId === null
+          ? null
+          : null,
+    fanoutIndex:
+      typeof raw.fanoutIndex === 'number'
+        ? raw.fanoutIndex
+        : raw.fanoutIndex === null
+          ? null
+          : null,
+    templateStepId:
+      typeof raw.templateStepId === 'string'
+        ? raw.templateStepId
+        : raw.templateStepId === null
+          ? null
+          : null
   };
 }
 

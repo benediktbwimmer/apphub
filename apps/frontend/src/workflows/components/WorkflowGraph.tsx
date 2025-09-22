@@ -1,13 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep, WorkflowRuntimeSummary } from '../types';
 import { formatDuration, formatTimestamp } from '../formatters';
-import StatusBadge from './StatusBadge';
+import StatusBadge, { getStatusBadgeClasses } from './StatusBadge';
 
 type WorkflowGraphProps = {
   workflow: WorkflowDefinition;
   run: WorkflowRun | null;
   steps: WorkflowRunStep[];
   runtimeSummary?: WorkflowRuntimeSummary;
+};
+
+type FanOutChildSummary = {
+  status: string;
+  count: number;
+};
+
+type PositionedFanOutChild = WorkflowRunStep & {
+  durationMs: number | null;
+};
+
+type PositionedFanOut = {
+  templateId: string | null;
+  templateName: string | null;
+  templateType: 'job' | 'service' | 'unknown';
+  templateJobSlug?: string;
+  templateServiceSlug?: string;
+  collection?: unknown;
+  maxItems: number | null;
+  maxConcurrency: number | null;
+  storeResultsAs?: string;
+  totalChildren: number;
+  statusCounts: FanOutChildSummary[];
+  children: PositionedFanOutChild[];
 };
 
 type PositionedStep = {
@@ -17,7 +41,7 @@ type PositionedStep = {
   order: number;
   jobSlug?: string;
   serviceSlug?: string;
-  type: 'job' | 'service' | 'unknown';
+  type: 'job' | 'service' | 'fanout' | 'unknown';
   status: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -31,12 +55,70 @@ type PositionedStep = {
   result?: unknown;
   context?: Record<string, unknown> | null;
   dependsOn: string[];
+  fanout?: PositionedFanOut;
 };
 
 type Edge = {
   from: PositionedStep;
   to: PositionedStep;
 };
+
+const FANOUT_STATUS_ORDER = ['failed', 'running', 'pending', 'canceled', 'skipped', 'succeeded', 'unknown'] as const;
+const FANOUT_CHILD_PREVIEW_LIMIT = 200;
+
+function normalizeStatusOrder(status: string): number {
+  const index = FANOUT_STATUS_ORDER.indexOf(status as (typeof FANOUT_STATUS_ORDER)[number]);
+  return index === -1 ? FANOUT_STATUS_ORDER.length : index;
+}
+
+function sortStatusCounts(entries: Array<[string, number]>): FanOutChildSummary[] {
+  return entries
+    .sort((a, b) => {
+      const orderA = normalizeStatusOrder(a[0]);
+      const orderB = normalizeStatusOrder(b[0]);
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      if (a[1] !== b[1]) {
+        return b[1] - a[1];
+      }
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([status, count]) => ({ status, count }));
+}
+
+function computeDurationMs(startedAt: string | null, completedAt: string | null, metrics: unknown): number | null {
+  let duration: number | null = null;
+  if (metrics && typeof metrics === 'object' && metrics !== null) {
+    const record = metrics as Record<string, unknown>;
+    const candidate = extractNumber(record.durationMs);
+    if (candidate !== null) {
+      duration = candidate;
+    }
+  }
+  if (!duration && startedAt && completedAt) {
+    const start = Date.parse(startedAt);
+    const end = Date.parse(completedAt);
+    if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
+      duration = end - start;
+    }
+  }
+  return duration;
+}
+
+function compareFanoutChildren(a: PositionedFanOutChild, b: PositionedFanOutChild): number {
+  const indexA = typeof a.fanoutIndex === 'number' ? a.fanoutIndex : Number.POSITIVE_INFINITY;
+  const indexB = typeof b.fanoutIndex === 'number' ? b.fanoutIndex : Number.POSITIVE_INFINITY;
+  if (indexA !== indexB) {
+    return indexA - indexB;
+  }
+  const startA = a.startedAt ? Date.parse(a.startedAt) : Number.POSITIVE_INFINITY;
+  const startB = b.startedAt ? Date.parse(b.startedAt) : Number.POSITIVE_INFINITY;
+  if (startA !== startB) {
+    return startA - startB;
+  }
+  return a.id.localeCompare(b.id);
+}
 
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -133,8 +215,22 @@ function buildPositionedSteps(
   };
 
   const runStepById = new Map<string, WorkflowRunStep>();
+  const fanoutChildrenByParent = new Map<string, PositionedFanOutChild[]>();
   for (const step of runSteps) {
     runStepById.set(step.stepId, step);
+    if (step.parentStepId) {
+      const child: PositionedFanOutChild = {
+        ...step,
+        durationMs: computeDurationMs(step.startedAt, step.completedAt, step.metrics)
+      };
+      const existing = fanoutChildrenByParent.get(step.parentStepId) ?? [];
+      existing.push(child);
+      fanoutChildrenByParent.set(step.parentStepId, existing);
+    }
+  }
+
+  for (const children of fanoutChildrenByParent.values()) {
+    children.sort(compareFanoutChildren);
   }
 
   return workflow.steps.map((step, index) => {
@@ -145,22 +241,44 @@ function buildPositionedSteps(
     const status = runStep?.status ?? contextStatus ?? 'pending';
     const startedAt = runStep?.startedAt ?? extractTimestamp(contextStep?.startedAt);
     const completedAt = runStep?.completedAt ?? extractTimestamp(contextStep?.completedAt);
-    let durationMs: number | null = runStep?.metrics && typeof runStep.metrics === 'object' && runStep.metrics !== null
-      ? extractNumber((runStep.metrics as Record<string, unknown>).durationMs)
-      : null;
-    if (!durationMs && startedAt && completedAt) {
-      const start = Date.parse(startedAt);
-      const end = Date.parse(completedAt);
-      if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
-        durationMs = end - start;
-      }
+    const durationMs = computeDurationMs(
+      runStep?.startedAt ?? startedAt ?? null,
+      runStep?.completedAt ?? completedAt ?? null,
+      runStep?.metrics
+    );
+
+    let type: PositionedStep['type'] = 'unknown';
+    if (step.type === 'fanout') {
+      type = 'fanout';
+    } else if (step.type === 'service' || step.serviceSlug) {
+      type = 'service';
+    } else if (step.type === 'job' || step.jobSlug) {
+      type = 'job';
     }
 
-    const type: PositionedStep['type'] = step.serviceSlug
-      ? 'service'
-      : step.jobSlug
-        ? 'job'
-        : 'unknown';
+    let fanout: PositionedStep['fanout'];
+    if (type === 'fanout') {
+      const children = fanoutChildrenByParent.get(step.id) ?? [];
+      const counts = new Map<string, number>();
+      for (const child of children) {
+        const statusKey = (child.status ?? 'unknown').toLowerCase();
+        counts.set(statusKey, (counts.get(statusKey) ?? 0) + 1);
+      }
+      fanout = {
+        templateId: step.template?.id ?? null,
+        templateName: step.template?.name ?? null,
+        templateType: step.template?.type ?? (step.template?.serviceSlug ? 'service' : step.template?.jobSlug ? 'job' : 'unknown'),
+        templateJobSlug: step.template?.jobSlug,
+        templateServiceSlug: step.template?.serviceSlug,
+        collection: step.collection,
+        maxItems: typeof step.maxItems === 'number' ? step.maxItems : null,
+        maxConcurrency: typeof step.maxConcurrency === 'number' ? step.maxConcurrency : null,
+        storeResultsAs: step.storeResultsAs,
+        totalChildren: children.length,
+        statusCounts: sortStatusCounts(Array.from(counts.entries())),
+        children
+      } satisfies PositionedFanOut;
+    }
 
     return {
       id: step.id,
@@ -182,7 +300,8 @@ function buildPositionedSteps(
       parameters: coalesce(runStep?.parameters, contextStep?.parameters, contextStep?.input, contextStep?.request),
       result: coalesce(runStep?.result, contextStep?.result, contextStep?.output, contextStep?.response),
       context: contextStep,
-      dependsOn: depends.get(step.id) ?? []
+      dependsOn: depends.get(step.id) ?? [],
+      fanout
     } satisfies PositionedStep;
   });
 }
@@ -268,6 +387,11 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
   const formattedInput = formatStructuredValue(selectedInput);
   const formattedOutput = formatStructuredValue(selectedOutput);
   const formattedMetrics = formatStructuredValue(selectedStep?.metrics);
+  const selectedFanout = selectedStep?.type === 'fanout' ? selectedStep.fanout : undefined;
+  const fanoutStatusCounts = selectedFanout?.statusCounts ?? [];
+  const fanoutChildren = selectedFanout?.children ?? [];
+  const fanoutChildrenPreview = fanoutChildren.slice(0, FANOUT_CHILD_PREVIEW_LIMIT);
+  const fanoutChildrenOverflow = fanoutChildren.length > fanoutChildrenPreview.length;
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -347,7 +471,13 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                     <div>
                       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{step.name}</h3>
                       <p className="text-[11px] uppercase tracking-widest text-slate-400">
-                        {step.type === 'service' ? 'Service' : step.type === 'job' ? 'Job' : 'Step'}
+                        {step.type === 'service'
+                          ? 'Service'
+                          : step.type === 'job'
+                            ? 'Job'
+                            : step.type === 'fanout'
+                              ? 'Fan Out'
+                              : 'Step'}
                       </p>
                     </div>
                     <StatusBadge status={step.status} />
@@ -357,16 +487,49 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       {step.jobSlug ?? step.serviceSlug}
                     </p>
                   )}
+                  {step.type === 'fanout' && step.fanout?.templateName && (
+                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      Template: {step.fanout.templateName}
+                    </p>
+                  )}
                   <dl className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    <div>
-                      <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
-                      <dd>{formatTimestamp(step.startedAt)}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
-                      <dd>{formatDuration(step.durationMs)}</dd>
-                    </div>
+                    {step.type === 'fanout' ? (
+                      <>
+                        <div>
+                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Children</dt>
+                          <dd>{step.fanout?.totalChildren ?? 0}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                          <dd>{formatDuration(step.durationMs)}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
+                          <dd>{formatTimestamp(step.startedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                          <dd>{formatDuration(step.durationMs)}</dd>
+                        </div>
+                      </>
+                    )}
                   </dl>
+                  {step.type === 'fanout' && step.fanout?.statusCounts.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {step.fanout.statusCounts.map(({ status, count }) => (
+                        <span
+                          key={`${step.id}-${status}`}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-[2px] text-[10px] font-semibold capitalize ${getStatusBadgeClasses(status)}`}
+                        >
+                          <span>{count}</span>
+                          <span>{status}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {step.logsUrl && (
                     <a
                       href={step.logsUrl}
@@ -439,6 +602,124 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
             )}
             {selectedStep.errorMessage && (
               <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{selectedStep.errorMessage}</p>
+            )}
+            {selectedStep.type === 'fanout' && selectedFanout && (
+              <div className="flex flex-col gap-3">
+                <div className="rounded-2xl border border-slate-200/50 bg-white/60 p-4 text-xs text-slate-600 dark:border-slate-700/50 dark:bg-slate-900/60 dark:text-slate-300">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Children</p>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                        {selectedFanout.totalChildren}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Template</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                        {selectedFanout.templateName ?? '—'}
+                      </p>
+                      {(selectedFanout.templateJobSlug || selectedFanout.templateServiceSlug) && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {selectedFanout.templateJobSlug ?? selectedFanout.templateServiceSlug}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Store results as</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                        {selectedFanout.storeResultsAs ?? '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Fan-out limits</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                        {selectedFanout.maxItems ? `${selectedFanout.maxItems} max items` : 'No max items'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {selectedFanout.maxConcurrency ? `${selectedFanout.maxConcurrency} max concurrency` : 'Default concurrency'}
+                      </p>
+                    </div>
+                  </div>
+                  {fanoutStatusCounts.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {fanoutStatusCounts.map(({ status, count }) => (
+                        <span
+                          key={`fanout-summary-${status}`}
+                          className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-semibold capitalize ${getStatusBadgeClasses(status)}`}
+                        >
+                          <span>{status}</span>
+                          <span>{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Child runs</h4>
+                  {fanoutChildren.length === 0 ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      No child runs have been recorded yet.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="max-h-64 overflow-auto rounded-2xl border border-slate-200/60 bg-white/70 dark:border-slate-700/60 dark:bg-slate-900/70">
+                        <ul className="divide-y divide-slate-200 text-xs dark:divide-slate-800">
+                          {fanoutChildrenPreview.map((child) => {
+                            const label = child.templateStepId ?? child.stepId;
+                            const indexLabel =
+                              typeof child.fanoutIndex === 'number' ? `Index #${child.fanoutIndex}` : 'Index unknown';
+                            const statusLabel = child.status ?? 'unknown';
+                            return (
+                              <li key={child.id} className="flex items-start justify-between gap-3 p-3">
+                                <div className="flex flex-col gap-1">
+                                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{label}</p>
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    {indexLabel} • Attempt {child.attempt}
+                                  </p>
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    Started {formatTimestamp(child.startedAt)}
+                                    {child.completedAt ? ` · Completed ${formatTimestamp(child.completedAt)}` : ''}
+                                  </p>
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    Duration {formatDuration(child.durationMs)}
+                                  </p>
+                                  {child.errorMessage && (
+                                    <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                                      {child.errorMessage}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] font-semibold capitalize ${getStatusBadgeClasses(statusLabel)}`}
+                                  >
+                                    {statusLabel}
+                                  </span>
+                                  {child.logsUrl && (
+                                    <a
+                                      href={child.logsUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[11px] font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
+                                    >
+                                      Logs
+                                    </a>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                      {fanoutChildrenOverflow && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Showing first {fanoutChildrenPreview.length} of {fanoutChildren.length} child runs.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
             )}
             <div className="flex flex-col gap-2">
               <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Input</h4>
