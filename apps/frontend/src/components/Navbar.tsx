@@ -113,30 +113,30 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
         </span>
         <span className="text-lg font-semibold">AppHub</span>
       </div>
-        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
-          <div className={tabGroupClasses} role="tablist" aria-label="Pages">
-            {PRIMARY_NAV_ITEMS.map((item) => {
-              const isActive = isPathActive(item.path);
-              return (
-                <Link
-                  key={item.key}
-                  to={item.path}
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`${getTabClasses(isActive)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
-                  onClick={() => {
-                    if (!isActive && isOverlay && onExitFullscreen) {
-                      onExitFullscreen();
-                    }
-                  }}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-          <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
+      <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4">
+        <div className={tabGroupClasses} role="tablist" aria-label="Pages">
+          {PRIMARY_NAV_ITEMS.map((item) => {
+            const isActive = isPathActive(item.path);
+            return (
+              <Link
+                key={item.key}
+                to={item.path}
+                role="tab"
+                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
+                className={`${getTabClasses(isActive)} transition-colors transition-shadow duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500`}
+                onClick={() => {
+                  if (!isActive && isOverlay && onExitFullscreen) {
+                    onExitFullscreen();
+                  }
+                }}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
           <div className="flex w-full flex-col items-start gap-2 md:flex-row md:items-center md:gap-2">
             {onExitFullscreen && (
               <button

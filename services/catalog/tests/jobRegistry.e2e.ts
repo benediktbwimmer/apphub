@@ -260,6 +260,121 @@ async function testJobBundleLifecycle(): Promise<void> {
     };
     assert.equal(restoreBody.data.version.status, 'published');
 
+    const createJobResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
+      payload: {
+        slug: 'bundle-editor-job',
+        name: 'Bundle Editor Job',
+        type: 'manual',
+        entryPoint: 'bundle:bundle-alpha@1.0.0',
+        version: 1
+      }
+    });
+    assert.equal(createJobResponse.statusCode, 201);
+
+    const editorResponse = await app.inject({
+      method: 'GET',
+      url: '/jobs/bundle-editor-job/bundle-editor',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      }
+    });
+    assert.equal(editorResponse.statusCode, 200);
+    const editorBody = JSON.parse(editorResponse.payload) as {
+      data: {
+        binding: { version: string };
+        bundle: { capabilityFlags: string[]; metadata: unknown };
+        editor: {
+          entryPoint: string;
+          manifestPath: string;
+          manifest: Record<string, unknown>;
+          files: Array<{ path: string; contents: string; encoding: string }>;
+        };
+      };
+    };
+    assert.equal(editorBody.data.binding.version, '1.0.0');
+    assert.equal(editorBody.data.editor.entryPoint, 'index.js');
+    assert(editorBody.data.editor.files.length >= 1);
+
+    const primaryFile = editorBody.data.editor.files[0];
+    const updatedContents = `${
+      primaryFile.encoding === 'base64'
+        ? Buffer.from(primaryFile.contents, 'base64').toString('utf8')
+        : primaryFile.contents
+    }\nconsole.log('updated bundle');\n`;
+
+    const updatedManifest = { ...editorBody.data.editor.manifest, version: '1.0.1' };
+
+    const regenerateResponse = await app.inject({
+      method: 'POST',
+      url: '/jobs/bundle-editor-job/bundle/regenerate',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      },
+      payload: {
+        entryPoint: editorBody.data.editor.entryPoint,
+        manifestPath: editorBody.data.editor.manifestPath,
+        manifest: updatedManifest,
+        files: [
+          {
+            path: primaryFile.path,
+            contents: updatedContents,
+            encoding: 'utf8'
+          }
+        ],
+        capabilityFlags: editorBody.data.bundle.capabilityFlags,
+        metadata: editorBody.data.bundle.metadata ?? undefined,
+        version: '1.0.1'
+      }
+    });
+    assert.equal(regenerateResponse.statusCode, 201);
+    const regenerateBody = JSON.parse(regenerateResponse.payload) as {
+      data: {
+        binding: { version: string };
+        bundle: { version: string };
+        job: { entryPoint: string };
+      };
+    };
+    assert.equal(regenerateBody.data.bundle.version, '1.0.1');
+    assert.equal(regenerateBody.data.binding.version, '1.0.1');
+    assert.equal(regenerateBody.data.job.entryPoint, 'bundle:bundle-alpha@1.0.1');
+
+    const jobDetailResponse = await app.inject({
+      method: 'GET',
+      url: '/jobs/bundle-editor-job',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      }
+    });
+    assert.equal(jobDetailResponse.statusCode, 200);
+    const jobDetailBody = JSON.parse(jobDetailResponse.payload) as {
+      data: { job: { entryPoint: string } };
+    };
+    assert.equal(jobDetailBody.data.job.entryPoint, 'bundle:bundle-alpha@1.0.1');
+
+    const editorAfterResponse = await app.inject({
+      method: 'GET',
+      url: '/jobs/bundle-editor-job/bundle-editor',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      }
+    });
+    assert.equal(editorAfterResponse.statusCode, 200);
+    const editorAfterBody = JSON.parse(editorAfterResponse.payload) as {
+      data: {
+        binding: { version: string };
+        editor: { files: Array<{ contents: string; encoding: string }> };
+        bundle: { version: string };
+      };
+    };
+    assert.equal(editorAfterBody.data.binding.version, '1.0.1');
+    assert.equal(editorAfterBody.data.bundle.version, '1.0.1');
+    assert(editorAfterBody.data.editor.files[0]);
+
     const parsedUrl = new URL(downloadPath, 'http://localhost');
     parsedUrl.searchParams.set('token', 'invalid');
     const invalidTokenResponse = await app.inject({

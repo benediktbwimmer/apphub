@@ -63,7 +63,7 @@ function cloneJson<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
 }
 
-function extractMetadata(definition: JobDefinitionRecord): MetadataState {
+export function extractMetadata(definition: JobDefinitionRecord): MetadataState {
   const root = isPlainObject(definition.metadata) ? { ...definition.metadata } : {};
   const aiBuilderRaw = isPlainObject((root as Record<string, unknown>).aiBuilder)
     ? cloneJson((root as Record<string, unknown>).aiBuilder as JsonValue)
@@ -101,7 +101,7 @@ async function persistMetadata(
   definition.metadata = nextMetadata as JsonValue;
 }
 
-function cloneSuggestion(source: AiGeneratedBundleSuggestion): AiGeneratedBundleSuggestion {
+export function cloneSuggestion(source: AiGeneratedBundleSuggestion): AiGeneratedBundleSuggestion {
   return {
     ...source,
     files: source.files.map((file) => ({ ...file }))
@@ -124,7 +124,7 @@ function bumpVersion(version: string): string {
   return `${fallback || '1.0.0'}+regen-${Date.now()}`;
 }
 
-async function findNextVersion(slug: string, baseVersion: string): Promise<string> {
+export async function findNextVersion(slug: string, baseVersion: string): Promise<string> {
   let candidate = bumpVersion(baseVersion);
   let attempts = 0;
   while (attempts < 10) {

@@ -44,6 +44,7 @@ import {
   type ServiceUpsertInput,
   listJobDefinitions,
   createJobDefinition,
+  upsertJobDefinition,
   getJobDefinitionBySlug,
   listJobRunsForDefinition,
   createJobRun,
@@ -120,6 +121,13 @@ import {
 } from './ai/codexRunner';
 import { buildCodexContextFiles } from './ai/contextFiles';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from './ai/bundlePublisher';
+import {
+  loadBundleEditorSnapshot,
+  parseBundleEntryPoint,
+  findNextVersion,
+  type BundleEditorSnapshot
+} from './jobs/bundleEditor';
+import { extractMetadata, cloneSuggestion } from './jobs/bundleRecovery';
 import {
   jobDefinitionCreateSchema,
   jobDefinitionUpdateSchema,
@@ -212,6 +220,7 @@ const JOB_RUN_SCOPES: OperatorScope[] = ['jobs:run'];
 const WORKFLOW_WRITE_SCOPES: OperatorScope[] = ['workflows:write'];
 const WORKFLOW_RUN_SCOPES: OperatorScope[] = ['workflows:run'];
 const JOB_BUNDLE_WRITE_SCOPES: OperatorScope[] = ['job-bundles:write'];
+const JOB_BUNDLE_READ_SCOPES: OperatorScope[] = ['job-bundles:read'];
 const MAX_BUNDLE_ARTIFACT_BYTES = Number(process.env.APPHUB_JOB_BUNDLE_MAX_SIZE ?? 16 * 1024 * 1024);
 
 const suggestQuerySchema = z.object({
@@ -339,6 +348,29 @@ const jobBundleUpdateSchema = z
   .refine((payload) => payload.deprecated !== undefined || payload.metadata !== undefined, {
     message: 'At least one field must be provided'
   });
+
+const jobBundleEditorFileSchema = z
+  .object({
+    path: z.string().min(1).max(400),
+    contents: z.string(),
+    encoding: z.enum(['utf8', 'base64']).optional(),
+    executable: z.boolean().optional()
+  })
+  .strict();
+
+const jobBundleRegenerateSchema = z
+  .object({
+    manifest: jsonValueSchema,
+    manifestPath: z.string().min(1).max(200).optional(),
+    entryPoint: z.string().min(1).max(200),
+    files: z.array(jobBundleEditorFileSchema).min(1),
+    capabilityFlags: z.array(z.string().min(1)).optional(),
+    metadata: jsonValueSchema.nullable().optional(),
+    description: z.string().max(500).optional(),
+    displayName: z.string().max(200).optional(),
+    version: z.string().min(1).max(100).optional()
+  })
+  .strict();
 
 const aiBuilderSuggestSchema = z
   .object({
@@ -1224,6 +1256,56 @@ function serializeJobBundleVersion(
   };
 }
 
+function serializeBundleVersionSummary(version: JobBundleVersionRecord) {
+  return {
+    version: version.version,
+    checksum: version.checksum,
+    capabilityFlags: version.capabilityFlags,
+    status: version.status,
+    immutable: version.immutable,
+    publishedAt: version.publishedAt,
+    deprecatedAt: version.deprecatedAt,
+    artifact: {
+      storage: version.artifactStorage,
+      size: version.artifactSize,
+      contentType: version.artifactContentType
+    },
+    metadata: version.metadata
+  };
+}
+
+function serializeBundleEditorSnapshot(
+  job: JobDefinitionRecord,
+  snapshot: BundleEditorSnapshot
+) {
+  const files = snapshot.suggestion.files.map((file) => ({
+    path: file.path,
+    contents: file.contents,
+    encoding: file.encoding ?? 'utf8',
+    executable: Boolean(file.executable)
+  }));
+
+  return {
+    job: serializeJobDefinition(job),
+    binding: {
+      slug: snapshot.binding.slug,
+      version: snapshot.binding.version,
+      exportName: snapshot.binding.exportName ?? null
+    },
+    bundle: serializeBundleVersionSummary(snapshot.version),
+    editor: {
+      entryPoint: snapshot.suggestion.entryPoint,
+      manifestPath: snapshot.manifestPath,
+      manifest: snapshot.manifest,
+      files
+    },
+    aiBuilder: snapshot.aiBuilderMetadata,
+    history: snapshot.history,
+    suggestionSource: snapshot.suggestionSource,
+    availableVersions: snapshot.availableVersions.map(serializeBundleVersionSummary)
+  };
+}
+
 function decodeBundleArtifactData(encoded: string): Buffer {
   const trimmed = encoded.trim();
   if (!trimmed) {
@@ -1765,6 +1847,277 @@ export async function buildServer() {
         offset
       }
     };
+  });
+
+  app.get('/jobs/:slug/bundle-editor', async (request, reply) => {
+    const auth = await authorizeOperatorAction(request, {
+      action: 'job-bundles.editor.read',
+      resource: 'job-bundles',
+      requiredScopes: JOB_BUNDLE_READ_SCOPES
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_params', details: parseParams.error.flatten() });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const job = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!job) {
+      reply.status(404);
+      await auth.log('failed', { reason: 'job_not_found', jobSlug: parseParams.data.slug });
+      return { error: 'job not found' };
+    }
+
+    try {
+      const snapshot = await loadBundleEditorSnapshot(job);
+      if (!snapshot) {
+        reply.status(404);
+        return { error: 'job bundle not found' };
+      }
+      reply.status(200);
+      return { data: serializeBundleEditorSnapshot(job, snapshot) };
+    } catch (err) {
+      request.log.error({ err, jobSlug: job.slug }, 'Failed to load bundle editor snapshot');
+      reply.status(500);
+      return { error: 'Failed to load bundle editor snapshot' };
+    }
+  });
+
+  app.post('/jobs/:slug/bundle/regenerate', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const auth = await authorizeOperatorAction(request, {
+      action: 'job-bundles.editor.regenerate',
+      resource: `job:${candidateSlug}`,
+      requiredScopes: Array.from(new Set([...JOB_BUNDLE_WRITE_SCOPES, ...JOB_WRITE_SCOPES]))
+    });
+    if (!auth.ok) {
+      reply.status(auth.statusCode);
+      return { error: auth.error };
+    }
+
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_params', details: parseParams.error.flatten() });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = jobBundleRegenerateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'invalid_payload', details: parseBody.error.flatten(), jobSlug: parseParams.data.slug });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const job = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!job) {
+      reply.status(404);
+      await auth.log('failed', { reason: 'job_not_found', jobSlug: parseParams.data.slug });
+      return { error: 'job not found' };
+    }
+
+    const binding = parseBundleEntryPoint(job.entryPoint);
+    if (!binding) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'not_bundle_backed', jobSlug: job.slug });
+      return { error: 'job is not backed by a bundle entry point' };
+    }
+
+    const currentVersion = await getJobBundleVersion(binding.slug, binding.version);
+    if (!currentVersion) {
+      reply.status(404);
+      await auth.log('failed', { reason: 'bundle_not_found', jobSlug: job.slug, bundleSlug: binding.slug });
+      return { error: 'job bundle version not found' };
+    }
+
+    const body = parseBody.data;
+    const manifestPath = typeof body.manifestPath === 'string' && body.manifestPath.trim().length > 0 ? body.manifestPath.trim() : 'manifest.json';
+    const entryPoint = body.entryPoint.trim();
+
+    const normalizedFiles: AiGeneratedBundleSuggestion['files'] = [];
+    const seenPaths = new Set<string>();
+    for (const file of body.files) {
+      const trimmedPath = file.path.trim();
+      if (!trimmedPath) {
+        continue;
+      }
+      if (trimmedPath.startsWith('/') || trimmedPath.startsWith('..')) {
+        reply.status(400);
+        await auth.log('failed', {
+          reason: 'invalid_file_path',
+          jobSlug: job.slug,
+          path: trimmedPath
+        });
+        return { error: `Invalid bundle file path: ${trimmedPath}` };
+      }
+      const segments = trimmedPath.split(/[\\/]+/);
+      if (segments.some((segment) => segment === '..' || segment === '.')) {
+        reply.status(400);
+        await auth.log('failed', {
+          reason: 'invalid_file_path',
+          jobSlug: job.slug,
+          path: trimmedPath
+        });
+        return { error: `Invalid bundle file path: ${trimmedPath}` };
+      }
+      const normalized = segments.join('/');
+      if (seenPaths.has(normalized)) {
+        reply.status(400);
+        await auth.log('failed', {
+          reason: 'duplicate_file_path',
+          jobSlug: job.slug,
+          path: normalized
+        });
+        return { error: `Duplicate bundle file path: ${normalized}` };
+      }
+      seenPaths.add(normalized);
+      normalizedFiles.push({
+        path: normalized,
+        contents: file.contents,
+        encoding: file.encoding === 'base64' ? 'base64' : 'utf8',
+        executable: file.executable ? true : undefined
+      });
+    }
+
+    if (normalizedFiles.length === 0) {
+      reply.status(400);
+      await auth.log('failed', { reason: 'no_files', jobSlug: job.slug });
+      return { error: 'At least one bundle file is required' };
+    }
+
+    if (!normalizedFiles.some((file) => file.path === entryPoint)) {
+      reply.status(400);
+      await auth.log('failed', {
+        reason: 'missing_entry_point',
+        jobSlug: job.slug,
+        entryPoint
+      });
+      return { error: `Bundle is missing entry point file: ${entryPoint}` };
+    }
+
+    const capabilityFlags = new Set<string>();
+    for (const flag of body.capabilityFlags ?? []) {
+      const candidate = flag.trim();
+      if (candidate.length > 0) {
+        capabilityFlags.add(candidate);
+      }
+    }
+
+    const manifestCapabilitiesRaw =
+      body.manifest && typeof body.manifest === 'object' && !Array.isArray(body.manifest)
+        ? (body.manifest as Record<string, unknown>).capabilities
+        : undefined;
+    if (Array.isArray(manifestCapabilitiesRaw)) {
+      for (const entry of manifestCapabilitiesRaw) {
+        if (typeof entry === 'string' && entry.trim().length > 0) {
+          capabilityFlags.add(entry.trim());
+        }
+      }
+    }
+
+    const targetVersion = body.version?.trim().length ? body.version.trim() : await findNextVersion(binding.slug, binding.version);
+
+    const suggestion: AiGeneratedBundleSuggestion = {
+      slug: binding.slug,
+      version: targetVersion,
+      entryPoint,
+      manifest: body.manifest,
+      manifestPath,
+      capabilityFlags: Array.from(capabilityFlags),
+      metadata: body.metadata ?? null,
+      description: body.description ?? null,
+      displayName: body.displayName ?? null,
+      files: normalizedFiles
+    } satisfies AiGeneratedBundleSuggestion;
+
+    try {
+      const bundleResult = await publishGeneratedBundle(suggestion, {
+        subject: auth.identity.subject,
+        kind: auth.identity.kind,
+        tokenHash: auth.identity.tokenHash
+      });
+
+      const newEntryPoint = binding.exportName
+        ? `bundle:${bundleResult.version.slug}@${bundleResult.version.version}#${binding.exportName}`
+        : `bundle:${bundleResult.version.slug}@${bundleResult.version.version}`;
+
+      const metadataState = extractMetadata(job);
+      const storedSuggestion = cloneSuggestion(suggestion);
+      storedSuggestion.version = bundleResult.version.version;
+      storedSuggestion.capabilityFlags = bundleResult.version.capabilityFlags;
+      metadataState.aiBuilder.bundle = storedSuggestion;
+      metadataState.aiBuilder.lastRegeneratedAt = new Date().toISOString();
+      metadataState.aiBuilder.history = [
+        ...(metadataState.aiBuilder.history ?? []),
+        {
+          slug: bundleResult.version.slug,
+          version: bundleResult.version.version,
+          checksum: bundleResult.version.checksum,
+          regeneratedAt: metadataState.aiBuilder.lastRegeneratedAt
+        }
+      ];
+      metadataState.aiBuilder.source = 'bundle-editor';
+      metadataState.root.aiBuilder = metadataState.aiBuilder;
+
+      const updatedJob = await upsertJobDefinition({
+        slug: job.slug,
+        name: job.name,
+        type: job.type,
+        entryPoint: newEntryPoint,
+        version: job.version,
+        timeoutMs: job.timeoutMs ?? undefined,
+        retryPolicy: job.retryPolicy ?? undefined,
+        parametersSchema: job.parametersSchema ?? undefined,
+        defaultParameters: job.defaultParameters ?? undefined,
+        outputSchema: job.outputSchema ?? undefined,
+        metadata: metadataState.root as JsonValue
+      });
+
+      const snapshot = await loadBundleEditorSnapshot(updatedJob);
+      if (!snapshot) {
+        reply.status(200);
+        await auth.log('succeeded', {
+          action: 'job-bundles.editor.regenerate',
+          jobSlug: job.slug,
+          bundleSlug: bundleResult.version.slug,
+          bundleVersion: bundleResult.version.version
+        });
+        return { data: { job: serializeJobDefinition(updatedJob) } };
+      }
+
+      reply.status(201);
+      await auth.log('succeeded', {
+        action: 'job-bundles.editor.regenerate',
+        jobSlug: job.slug,
+        bundleSlug: bundleResult.version.slug,
+        bundleVersion: bundleResult.version.version
+      });
+      return { data: serializeBundleEditorSnapshot(updatedJob, snapshot) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to regenerate bundle';
+      const status = err instanceof Error && /already exists/i.test(err.message) ? 409 : 500;
+      request.log.error(
+        { err, jobSlug: job.slug, bundleSlug: binding.slug, bundleVersion: targetVersion },
+        'Failed to regenerate bundle version'
+      );
+      reply.status(status);
+      await auth.log('failed', {
+        reason: status === 409 ? 'duplicate_version' : 'exception',
+        jobSlug: job.slug,
+        bundleSlug: binding.slug,
+        bundleVersion: targetVersion,
+        message
+      });
+      return { error: status === 500 ? 'Failed to regenerate bundle' : message };
+    }
   });
 
   app.post('/jobs/:slug/run', async (request, reply) => {

@@ -5,6 +5,7 @@ import ImportRoute from './ImportRoute';
 import LegacyImportRedirect from './LegacyImportRedirect';
 import { RequireOperatorToken } from './RequireOperatorToken';
 import ServiceGallery from '../services/ServiceGallery';
+import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
@@ -25,6 +26,14 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: ROUTE_SEGMENTS.apps,
         element: <ServiceGallery />
+      },
+      {
+        path: ROUTE_SEGMENTS.jobs,
+        element: (
+          <RequireOperatorToken>
+            <JobsPage />
+          </RequireOperatorToken>
+        )
       },
       {
         path: ROUTE_SEGMENTS.workflows,
