@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import swagger from '@fastify/swagger';
+import swaggerUI from '@fastify/swagger-ui';
 import { initializeServiceRegistry } from './serviceRegistry';
 import { stopAnalyticsSnapshots } from './events';
 import { registerCoreRoutes } from './routes/core';
@@ -12,6 +14,7 @@ import { registerWorkflowRoutes } from './routes/workflows';
 import { registerServiceRoutes } from './routes/services';
 import { registerRepositoryRoutes } from './routes/repositories';
 import { registerAdminRoutes } from './routes/admin';
+import { openApiDocument } from './openapi/document';
 
 export async function buildServer() {
   const app = Fastify();
@@ -26,12 +29,30 @@ export async function buildServer() {
     }
   });
 
+  await app.register(swagger, {
+    mode: 'static',
+    specification: {
+      document: openApiDocument
+    }
+  });
+
+  await app.register(swaggerUI, {
+    routePrefix: '/docs',
+    staticCSP: true,
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true
+    }
+  });
+
   const registry = await initializeServiceRegistry();
 
   app.addHook('onClose', async () => {
     registry.stop();
     stopAnalyticsSnapshots();
   });
+
+  app.get('/openapi.json', async () => openApiDocument);
 
   await app.register(async (instance) => registerCoreRoutes(instance));
   await app.register(async (instance) => registerAuthRoutes(instance));
