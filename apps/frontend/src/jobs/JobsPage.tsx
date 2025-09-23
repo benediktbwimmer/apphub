@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { Editor } from '../components/Editor';
+import DiffViewer from '../components/DiffViewer';
 import { useToasts } from '../components/toast';
 import {
   fetchJobs,
@@ -50,6 +51,25 @@ function normalizeCapabilityFlagArray(flags: string[]): string[] {
     }
   }
   return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+}
+
+function inferLanguage(path: string | null | undefined): string {
+  if (!path) {
+    return 'plaintext';
+  }
+  if (path.endsWith('.json')) {
+    return 'json';
+  }
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) {
+    return 'typescript';
+  }
+  if (path.endsWith('.js') || path.endsWith('.jsx')) {
+    return 'javascript';
+  }
+  if (path.endsWith('.py')) {
+    return 'python';
+  }
+  return 'plaintext';
 }
 
 type FileState = {
@@ -203,6 +223,8 @@ export default function JobsPage() {
   const [createRuntime, setCreateRuntime] = useState<'node' | 'python'>('node');
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [aiReviewPending, setAiReviewPending] = useState(false);
 
   useEffect(() => {
     refreshRuntimeStatuses();
@@ -329,6 +351,8 @@ export default function JobsPage() {
       setManifestPath('manifest.json');
       setManifestText('');
       setCapabilityFlagsInput('');
+      setShowDiff(false);
+      setAiReviewPending(false);
       return;
     }
 
@@ -353,6 +377,8 @@ export default function JobsPage() {
     setVersionInput('');
     setRegenerateError(null);
     setRegenerateSuccess(null);
+    setShowDiff(false);
+    setAiReviewPending(false);
   }, [panelState.bundle]);
 
   const isDirty = useMemo(() => {
@@ -460,6 +486,8 @@ export default function JobsPage() {
     setVersionInput('');
     setRegenerateError(null);
     setRegenerateSuccess(null);
+    setShowDiff(false);
+    setAiReviewPending(false);
   };
 
   const handleRegenerate = async () => {
@@ -530,6 +558,8 @@ export default function JobsPage() {
         `Published ${response.binding.slug}@${response.bundle.version}`
       );
       refreshJobs();
+      setShowDiff(false);
+      setAiReviewPending(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to regenerate bundle';
       setRegenerateError(message);
@@ -549,24 +579,60 @@ export default function JobsPage() {
 
   const handleAiEditComplete = useCallback(
     (data: BundleEditorData) => {
-      setPanelState((prev) => ({
-        detail: prev.detail ? { ...prev.detail, job: data.job } : prev.detail,
-        detailError: prev.detailError,
-        detailLoading: false,
-        bundle: data,
-        bundleError: null,
-        bundleLoading: false
-      }));
+      const nextFiles = buildInitialFiles(data.editor.files);
+      const manifestJson = JSON.stringify(data.editor.manifest ?? {}, null, 2);
+      const capabilityFlags = normalizeCapabilityFlagArray(data.bundle.capabilityFlags);
+
+      let hasChanges = true;
+      if (baseline) {
+        const sameFiles = filesEqual(nextFiles, baseline.files);
+        const sameEntryPoint = data.editor.entryPoint === baseline.entryPoint;
+        const sameManifestPath = data.editor.manifestPath === baseline.manifestPath;
+        const sameManifest = manifestJson.trim() === baseline.manifestText.trim();
+        const sameFlags =
+          capabilityFlags.length === baseline.capabilityFlags.length &&
+          capabilityFlags.every((flag, index) => flag === baseline.capabilityFlags[index]);
+        hasChanges = !sameFiles || !sameEntryPoint || !sameManifestPath || !sameManifest || !sameFlags;
+      }
+
+      setFiles(nextFiles.map((file) => ({ ...file })));
+      setEntryPoint(data.editor.entryPoint);
+      setManifestPath(data.editor.manifestPath);
+      setManifestText(manifestJson);
+      setManifestError(null);
+      setCapabilityFlagsInput(capabilityFlags.join(', '));
+      setVersionInput('');
       setRegenerateError(null);
-      setRegenerateSuccess(`Published ${data.binding.slug}@${data.bundle.version} via AI`);
-      refreshJobs();
-      pushToast({
-        tone: 'success',
-        title: 'Bundle updated',
-        description: `Published ${data.binding.slug}@${data.bundle.version}.`
+      setRegenerateSuccess(null);
+      setShowDiff(hasChanges);
+      setAiReviewPending(hasChanges);
+      setActivePath((current) => {
+        if (current && nextFiles.some((file) => file.path === current)) {
+          return current;
+        }
+        if (nextFiles.length > 0) {
+          return nextFiles[0].path;
+        }
+        if (baseline?.files?.length) {
+          return baseline.files[0].path;
+        }
+        return current;
       });
+      if (hasChanges) {
+        pushToast({
+          tone: 'info',
+          title: 'Review AI changes',
+          description: 'Inspect the diff and regenerate to publish the new bundle.'
+        });
+      } else {
+        pushToast({
+          tone: 'info',
+          title: 'No changes applied',
+          description: 'The AI response matches the current bundle.'
+        });
+      }
     },
-    [pushToast, refreshJobs]
+    [baseline, pushToast]
   );
 
   const handleAiBusyChange = useCallback((busy: boolean) => {
@@ -690,6 +756,7 @@ export default function JobsPage() {
               <BundleEditorPanel
                 files={files}
                 activeFile={activeFile}
+                activePath={activePath}
                 onSelectFile={handleFileSelect}
                 onChangeFile={handleFileChange}
                 onRenameFile={handleFileRename}
@@ -715,6 +782,10 @@ export default function JobsPage() {
                 regenerateError={regenerateError}
                 regenerateSuccess={regenerateSuccess}
                 aiBusy={aiBusy}
+                baselineFiles={baseline?.files ?? null}
+                showDiff={showDiff}
+                onShowDiffChange={setShowDiff}
+                aiReviewPending={aiReviewPending}
               />
               <BundleHistoryPanel bundle={panelState.bundle} />
               <JobRunsPanel detail={panelState.detail} />
@@ -797,6 +868,7 @@ function JobSummary({ detail, bundle }: JobSummaryProps) {
 type BundleEditorPanelProps = {
   files: FileState[];
   activeFile: FileState | null;
+  activePath: string | null;
   onSelectFile: (path: string) => void;
   onChangeFile: (path: string, contents: string) => void;
   onRenameFile: (path: string, nextPath: string) => void;
@@ -822,11 +894,16 @@ type BundleEditorPanelProps = {
   regenerateError: string | null;
   regenerateSuccess: string | null;
   aiBusy: boolean;
+  baselineFiles: FileState[] | null;
+  showDiff: boolean;
+  onShowDiffChange: (value: boolean) => void;
+  aiReviewPending: boolean;
 };
 
 function BundleEditorPanel({
   files,
   activeFile,
+  activePath,
   onSelectFile,
   onChangeFile,
   onRenameFile,
@@ -851,8 +928,76 @@ function BundleEditorPanel({
   regenerating,
   regenerateError,
   regenerateSuccess,
-  aiBusy
+  aiBusy,
+  baselineFiles,
+  showDiff,
+  onShowDiffChange,
+  aiReviewPending
 }: BundleEditorPanelProps) {
+  const baselineMap = useMemo(() => {
+    const map = new Map<string, FileState>();
+    baselineFiles?.forEach((file) => {
+      map.set(file.path, file);
+    });
+    return map;
+  }, [baselineFiles]);
+
+  type FileListItem = {
+    path: string;
+    current: FileState | null;
+    baseline: FileState | null;
+    status: 'added' | 'removed' | 'modified' | 'unchanged';
+  };
+
+  const fileItems = useMemo(() => {
+    const items: FileListItem[] = [];
+    const currentMap = new Map<string, FileState>();
+    for (const file of files) {
+      currentMap.set(file.path, file);
+      const baselineFile = baselineMap.get(file.path) ?? null;
+      let status: FileListItem['status'] = 'unchanged';
+      if (!baselineFile) {
+        status = 'added';
+      } else if (
+        baselineFile.contents !== file.contents ||
+        baselineFile.encoding !== file.encoding ||
+        baselineFile.executable !== file.executable
+      ) {
+        status = 'modified';
+      }
+      items.push({ path: file.path, current: file, baseline: baselineFile, status });
+    }
+    baselineFiles?.forEach((file) => {
+      if (!currentMap.has(file.path)) {
+        items.push({ path: file.path, current: null, baseline: file, status: 'removed' });
+      }
+    });
+    return items.sort((a, b) => a.path.localeCompare(b.path));
+  }, [baselineFiles, baselineMap, files]);
+
+  const visibleItems = showDiff ? fileItems : fileItems.filter((item) => item.current !== null);
+  const activeItem = activePath ? fileItems.find((item) => item.path === activePath) ?? null : null;
+  const diffUnavailable = Boolean(
+    showDiff &&
+      activeItem &&
+      (activeItem.current?.encoding === 'base64' || activeItem.baseline?.encoding === 'base64')
+  );
+  const diffLanguage = inferLanguage(activePath ?? activeItem?.current?.path ?? activeItem?.baseline?.path ?? null);
+  const diffOriginal = activeItem?.baseline?.contents ?? '';
+  const diffModified = activeItem?.current?.contents ?? '';
+
+  const statusLabel = (status: FileListItem['status']) => {
+    switch (status) {
+      case 'added':
+        return 'New';
+      case 'removed':
+        return 'Removed';
+      case 'modified':
+        return 'Updated';
+      default:
+        return null;
+    }
+  };
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
@@ -871,6 +1016,14 @@ function BundleEditorPanel({
               disabled={!isDirty || regenerating || aiBusy}
             >
               Reset changes
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              onClick={() => onShowDiffChange(!showDiff)}
+              disabled={!isDirty || regenerating || aiBusy}
+            >
+              {showDiff ? 'Back to editor' : 'View diff'}
             </button>
             <button
               type="button"
@@ -896,6 +1049,11 @@ function BundleEditorPanel({
         {regenerateSuccess && (
           <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{regenerateSuccess}</p>
         )}
+        {aiReviewPending && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-400/50 dark:bg-amber-500/10 dark:text-amber-200">
+            Review the AI-generated changes below. Prompt again or regenerate when you are ready to publish.
+          </div>
+        )}
       </div>
       <div className="grid gap-6 px-6 py-4 lg:grid-cols-[240px_1fr]">
         <div className="flex flex-col gap-3">
@@ -907,29 +1065,42 @@ function BundleEditorPanel({
               type="button"
               className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
               onClick={onAddFile}
+              disabled={regenerating || aiBusy}
             >
               + Add file
             </button>
           </div>
           <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1 text-sm">
-            {files.map((file) => {
-              const isActive = activeFile?.path === file.path;
+            {visibleItems.map((item) => {
+              const isActive = activePath === item.path;
+              const badge = statusLabel(item.status);
               return (
-                <li key={file.path}>
+                <li key={item.path}>
                   <button
                     type="button"
-                    onClick={() => onSelectFile(file.path)}
+                    onClick={() => onSelectFile(item.path)}
                     className={`w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${isActive ? 'bg-violet-100 text-violet-900 dark:bg-violet-600/30 dark:text-violet-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                   >
-                    <div className="font-medium break-words">{file.path}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium break-words">{item.path}</div>
+                      {badge && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-200">
+                          {badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {file.encoding === 'base64' ? 'Binary (read-only)' : file.executable ? 'Executable' : 'Text'}
+                      {item.current?.encoding === 'base64' || item.baseline?.encoding === 'base64'
+                        ? 'Binary'
+                        : item.current?.executable ?? item.baseline?.executable
+                        ? 'Executable'
+                        : 'Text'}
                     </div>
                   </button>
                 </li>
               );
             })}
-            {files.length === 0 && (
+            {visibleItems.length === 0 && (
               <li className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 No files in bundle
               </li>
@@ -937,7 +1108,27 @@ function BundleEditorPanel({
           </ul>
         </div>
         <div className="flex flex-col gap-4">
-          {activeFile ? (
+          {showDiff ? (
+            activeItem ? (
+              diffUnavailable ? (
+                <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                  Binary files cannot be diffed. Exit diff view to make manual adjustments.
+                </div>
+              ) : (
+                <DiffViewer
+                  original={diffOriginal}
+                  modified={diffModified}
+                  language={diffLanguage}
+                  height={320}
+                  ariaLabel={`Review changes for ${activeItem.path}`}
+                />
+              )
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                Select a file to compare the AI changes.
+              </div>
+            )
+          ) : activeFile ? (
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -945,14 +1136,14 @@ function BundleEditorPanel({
                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
                   value={activeFile.path}
                   onChange={(event) => onRenameFile(activeFile.path, event.target.value)}
-                  disabled={activeFile.readOnly}
+                  disabled={activeFile.readOnly || regenerating || aiBusy}
                 />
                 <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                   <input
                     type="checkbox"
                     checked={activeFile.executable}
                     onChange={() => onToggleExecutable(activeFile.path)}
-                    disabled={activeFile.readOnly}
+                    disabled={activeFile.readOnly || regenerating || aiBusy}
                   />
                   Executable
                 </label>
@@ -960,6 +1151,7 @@ function BundleEditorPanel({
                   type="button"
                   className="rounded-full border border-red-300 px-3 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 dark:border-red-500 dark:text-red-300 dark:hover:bg-red-500/10"
                   onClick={() => onRemoveFile(activeFile.path)}
+                  disabled={regenerating || aiBusy}
                 >
                   Remove
                 </button>
@@ -967,7 +1159,7 @@ function BundleEditorPanel({
               <Editor
                 value={activeFile.contents}
                 onChange={(value) => onChangeFile(activeFile.path, value)}
-                language={activeFile.path.endsWith('.json') ? 'json' : activeFile.path.endsWith('.ts') || activeFile.path.endsWith('.tsx') ? 'typescript' : 'javascript'}
+                language={inferLanguage(activeFile.path)}
                 readOnly={activeFile.readOnly}
                 height={320}
                 ariaLabel={`Edit ${activeFile.path}`}
