@@ -447,7 +447,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         pushToast({
           title: 'Workflow asset history',
           description: message,
-          tone: 'critical'
+          tone: 'error'
         });
       } finally {
         setAssetDetailLoading(false);
@@ -621,7 +621,7 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         pushToast({
           title: 'Workflow assets',
           description: message,
-          tone: 'critical'
+          tone: 'error'
         });
       } finally {
         if (!cancelled) {

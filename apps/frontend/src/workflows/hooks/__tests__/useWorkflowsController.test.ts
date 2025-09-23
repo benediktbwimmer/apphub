@@ -1,6 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../../types';
+import type {
+  WorkflowAssetDetail,
+  WorkflowAssetInventoryEntry,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkflowRunStep
+} from '../../types';
 
 const {
   workflowDefinition,
@@ -11,6 +17,8 @@ const {
   listServicesMock,
   createWorkflowDefinitionMock,
   updateWorkflowDefinitionMock,
+  fetchWorkflowAssetsMock,
+  fetchWorkflowAssetHistoryMock,
   fetchOperatorIdentityMock
 } = vi.hoisted(() => {
   const definition = {
@@ -83,6 +91,14 @@ const {
     listServicesMock: vi.fn(async () => []),
     createWorkflowDefinitionMock: vi.fn(async () => definition),
     updateWorkflowDefinitionMock: vi.fn(async () => definition),
+    fetchWorkflowAssetsMock: vi.fn(async () => [] as WorkflowAssetInventoryEntry[]),
+    fetchWorkflowAssetHistoryMock: vi.fn(async () => ({
+      assetId: 'inventory.dataset',
+      producers: [],
+      consumers: [],
+      history: [],
+      limit: 10
+    }) as WorkflowAssetDetail),
     fetchOperatorIdentityMock: vi.fn(async () => ({
       scopes: ['workflows:write', 'jobs:write', 'job-bundles:write']
     }))
@@ -186,6 +202,8 @@ vi.mock('../../api', async () => {
     listServices: listServicesMock,
     createWorkflowDefinition: createWorkflowDefinitionMock,
     updateWorkflowDefinition: updateWorkflowDefinitionMock,
+    fetchWorkflowAssets: fetchWorkflowAssetsMock,
+    fetchWorkflowAssetHistory: fetchWorkflowAssetHistoryMock,
     fetchOperatorIdentity: fetchOperatorIdentityMock
   };
 });
@@ -203,6 +221,8 @@ beforeEach(() => {
   listWorkflowDefinitionsMock.mockClear();
   getWorkflowDetailMock.mockClear();
   listWorkflowRunStepsMock.mockClear();
+  fetchWorkflowAssetsMock.mockClear();
+  fetchWorkflowAssetHistoryMock.mockClear();
   TestSocket.instances = [];
 });
 
@@ -255,5 +275,205 @@ describe('useWorkflowsController', () => {
     });
 
     expect(result.current.manualRunError).toContain('Add an operator token');
+  });
+
+  it('loads workflow assets when a workflow is selected', async () => {
+    const producedAt = new Date().toISOString();
+    const assetInventory: WorkflowAssetInventoryEntry[] = [
+      {
+        assetId: 'inventory.dataset',
+        producers: [
+          {
+            stepId: 'asset-producer',
+            stepName: 'Asset Producer',
+            stepType: 'job',
+            schema: null,
+            freshness: null
+          }
+        ],
+        consumers: [
+          {
+            stepId: 'asset-consumer',
+            stepName: 'Asset Consumer',
+            stepType: 'job',
+            schema: null,
+            freshness: null
+          }
+        ],
+        latest: {
+          runId: 'run-assets-1',
+          runStatus: 'succeeded',
+          stepId: 'asset-producer',
+          stepName: 'Asset Producer',
+          stepType: 'job',
+          stepStatus: 'succeeded',
+          producedAt,
+          payload: { count: 7 },
+          schema: { type: 'object' },
+          freshness: { ttlMs: 3_600_000 },
+          runStartedAt: producedAt,
+          runCompletedAt: producedAt
+        },
+        available: true
+      }
+    ];
+    fetchWorkflowAssetsMock.mockResolvedValue(assetInventory);
+
+    const { result } = renderHook(() =>
+      useWorkflowsController({
+        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
+      })
+    );
+
+    await waitFor(() => expect(result.current.workflowsLoading).toBe(false));
+    await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
+    await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
+
+    expect(fetchWorkflowAssetsMock).toHaveBeenCalledWith(expect.any(Function), 'demo-workflow');
+    expect(result.current.assetInventory).toEqual(assetInventory);
+    expect(result.current.assetInventoryError).toBeNull();
+  });
+
+  it('selectAsset fetches history and caches detail', async () => {
+    const producedAt = new Date().toISOString();
+    const assetInventory: WorkflowAssetInventoryEntry[] = [
+      {
+        assetId: 'inventory.dataset',
+        producers: [
+          {
+            stepId: 'asset-producer',
+            stepName: 'Asset Producer',
+            stepType: 'job',
+            schema: null,
+            freshness: null
+          }
+        ],
+        consumers: [
+          {
+            stepId: 'asset-consumer',
+            stepName: 'Asset Consumer',
+            stepType: 'job',
+            schema: null,
+            freshness: null
+          }
+        ],
+        latest: {
+          runId: 'run-assets-1',
+          runStatus: 'succeeded',
+          stepId: 'asset-producer',
+          stepName: 'Asset Producer',
+          stepType: 'job',
+          stepStatus: 'succeeded',
+          producedAt,
+          payload: { count: 7 },
+          schema: { type: 'object' },
+          freshness: { ttlMs: 3_600_000 },
+          runStartedAt: producedAt,
+          runCompletedAt: producedAt
+        },
+        available: true
+      }
+    ];
+    fetchWorkflowAssetsMock.mockResolvedValue(assetInventory);
+
+    const assetDetail: WorkflowAssetDetail = {
+      assetId: 'inventory.dataset',
+      producers: assetInventory[0]!.producers,
+      consumers: assetInventory[0]!.consumers,
+      history: [
+        {
+          runId: 'run-assets-1',
+          runStatus: 'succeeded',
+          stepId: 'asset-producer',
+          stepName: 'Asset Producer',
+          stepType: 'job',
+          stepStatus: 'succeeded',
+          producedAt,
+          payload: { count: 7 },
+          schema: { type: 'object' },
+          freshness: { ttlMs: 3_600_000 },
+          runStartedAt: producedAt,
+          runCompletedAt: producedAt
+        }
+      ],
+      limit: 10
+    };
+    fetchWorkflowAssetHistoryMock.mockResolvedValue(assetDetail);
+
+    const { result } = renderHook(() =>
+      useWorkflowsController({
+        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
+      })
+    );
+
+    await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
+    await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
+
+    await act(async () => {
+      result.current.selectAsset('inventory.dataset');
+    });
+
+    await waitFor(() => expect(result.current.assetDetailLoading).toBe(false));
+    expect(fetchWorkflowAssetHistoryMock).toHaveBeenCalledTimes(1);
+    const historyCall = fetchWorkflowAssetHistoryMock.mock.calls[0];
+    expect(historyCall[1]).toBe('demo-workflow');
+    expect(historyCall[2]).toBe('inventory.dataset');
+    expect(result.current.assetDetail).toEqual(assetDetail);
+    expect(result.current.selectedAssetId).toBe('inventory.dataset');
+
+    fetchWorkflowAssetHistoryMock.mockClear();
+
+    await act(async () => {
+      result.current.selectAsset('inventory.dataset');
+    });
+
+    expect(fetchWorkflowAssetHistoryMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces asset history errors with toast feedback', async () => {
+    fetchWorkflowAssetsMock.mockResolvedValue([]);
+    fetchWorkflowAssetHistoryMock.mockRejectedValueOnce(new Error('history failure'));
+
+    const { result } = renderHook(() =>
+      useWorkflowsController({
+        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
+      })
+    );
+
+    await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
+    await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
+
+    await act(async () => {
+      result.current.selectAsset('inventory.dataset');
+    });
+
+    await waitFor(() => expect(result.current.assetDetailLoading).toBe(false));
+    expect(result.current.assetDetailError).toBe('history failure');
+    expect(pushToastMock).toHaveBeenCalledWith({
+      title: 'Workflow asset history',
+      description: 'history failure',
+      tone: 'error'
+    });
+  });
+
+  it('handles asset inventory load failures gracefully', async () => {
+    const { ApiError } = await import('../../api');
+    fetchWorkflowAssetsMock.mockRejectedValueOnce(new ApiError('inventory failure', 500));
+
+    const { result } = renderHook(() =>
+      useWorkflowsController({
+        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
+      })
+    );
+
+    await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
+    await waitFor(() => expect(fetchWorkflowAssetsMock).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.assetInventoryError).toBe('inventory failure'));
+
+    expect(pushToastMock).toHaveBeenCalledWith({
+      title: 'Workflow assets',
+      description: 'inventory failure',
+      tone: 'error'
+    });
   });
 });

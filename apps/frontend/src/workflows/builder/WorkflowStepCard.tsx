@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { FormField } from '../../components/form';
 import type { JobBundleVersionSummary, JobDefinitionSummary, ServiceSummary } from '../api';
 import type { WorkflowDraftStep } from '../types';
@@ -292,7 +292,7 @@ export function WorkflowStepCard({
     });
   };
 
-  const handleBundleVersionChange = (value: string) => {
+  const handleBundleVersionChange = useCallback((value: string) => {
     const normalized = value.trim();
     onUpdate((current) => {
       const jobBinding = getJobBundleBinding(selectedJob);
@@ -308,7 +308,7 @@ export function WorkflowStepCard({
         }
       } satisfies WorkflowDraftStep;
     });
-  };
+  }, [onUpdate, selectedJob]);
 
   const handleBundleExportNameChange = (value: string) => {
     const normalized = value.trim();
@@ -494,7 +494,7 @@ export function WorkflowStepCard({
     if (!currentVersion) {
       handleBundleVersionChange(bundleVersionInfo.versions[0].version);
     }
-  }, [bundleStrategy, bundleVersionInfo, normalizedBundleSlug, step.bundle?.version]);
+  }, [bundleStrategy, bundleVersionInfo, handleBundleVersionChange, normalizedBundleSlug, step.bundle?.version]);
 
   return (
     <div className="rounded-3xl border border-slate-200/60 bg-white/80 p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70">

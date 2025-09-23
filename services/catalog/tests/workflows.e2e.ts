@@ -309,6 +309,44 @@ async function registerWorkflowTestHandlers() {
       }
     };
   });
+
+  registerJobHandler('workflow-asset-producer', async (context: JobRunContext): Promise<JobResult> => {
+    const params = (context.parameters as { count?: unknown }) ?? {};
+    const countRaw = params.count;
+    const count =
+      typeof countRaw === 'number'
+        ? countRaw
+        : Number.parseFloat(typeof countRaw === 'string' ? countRaw : '') || 0;
+    const producedAt = new Date().toISOString();
+    return {
+      status: 'succeeded',
+      result: {
+        assets: [
+          {
+            assetId: 'inventory.dataset',
+            payload: { count },
+            schema: {
+              type: 'object',
+              properties: {
+                count: { type: 'number' }
+              }
+            },
+            freshness: { ttlMs: 3_600_000 },
+            producedAt
+          }
+        ]
+      }
+    };
+  });
+
+  registerJobHandler('workflow-asset-consumer', async (): Promise<JobResult> => {
+    return {
+      status: 'succeeded',
+      result: {
+        consumed: true
+      }
+    };
+  });
 }
 
 async function createJobDefinition(
@@ -345,6 +383,8 @@ async function testWorkflowEndpoints(): Promise<void> {
     await createJobDefinition(app, { slug: 'fanout-source', name: 'Fanout Source' });
     await createJobDefinition(app, { slug: 'fanout-child', name: 'Fanout Child' });
     await createJobDefinition(app, { slug: 'fanout-collector', name: 'Fanout Collector' });
+    await createJobDefinition(app, { slug: 'workflow-asset-producer', name: 'Workflow Asset Producer' });
+    await createJobDefinition(app, { slug: 'workflow-asset-consumer', name: 'Workflow Asset Consumer' });
 
     const testService = await startTestService();
     await registerTestService(app, testService);
@@ -817,6 +857,183 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.equal(workflowMetricsBody.data.range.key, '7d');
       assert.equal(workflowMetricsBody.data.bucket.key, 'hour');
       assert(Array.isArray(workflowMetricsBody.data.series));
+
+      const assetWorkflowSlug = 'wf-assets-demo';
+      const assetSchema = {
+        type: 'object',
+        properties: {
+          count: { type: 'number' }
+        }
+      };
+
+      const createAssetWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: assetWorkflowSlug,
+          name: 'Workflow Asset Demo',
+          steps: [
+            {
+              id: 'asset-producer',
+              name: 'Asset Producer',
+              jobSlug: 'workflow-asset-producer',
+              produces: [
+                {
+                  assetId: 'inventory.dataset',
+                  schema: assetSchema,
+                  freshness: { ttlMs: 3_600_000 }
+                }
+              ]
+            },
+            {
+              id: 'asset-consumer',
+              name: 'Asset Consumer',
+              jobSlug: 'workflow-asset-consumer',
+              dependsOn: ['asset-producer'],
+              consumes: [
+                {
+                  assetId: 'inventory.dataset'
+                }
+              ]
+            }
+          ]
+        }
+      });
+      assert.equal(createAssetWorkflowResponse.statusCode, 201);
+
+      const triggerFirstAssetRunResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${assetWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          parameters: { count: 7 }
+        }
+      });
+      assert.equal(triggerFirstAssetRunResponse.statusCode, 202);
+      const triggerFirstAssetRunBody = JSON.parse(triggerFirstAssetRunResponse.payload) as {
+        data: { id: string; status: string };
+      };
+      assert.equal(triggerFirstAssetRunBody.data.status, 'succeeded');
+      const firstAssetRunId = triggerFirstAssetRunBody.data.id;
+
+      const assetInventoryResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${assetWorkflowSlug}/assets`
+      });
+      assert.equal(assetInventoryResponse.statusCode, 200);
+      const assetInventoryBody = JSON.parse(assetInventoryResponse.payload) as {
+        data: {
+          assets: Array<{
+            assetId: string;
+            available: boolean;
+            latest: {
+              runId: string;
+              payload: unknown;
+              schema: unknown;
+              freshness: { ttlMs?: number | null } | null;
+            } | null;
+            producers: Array<{ stepId: string }>;
+            consumers: Array<{ stepId: string }>;
+          }>;
+        };
+      };
+      const assetEntry = assetInventoryBody.data.assets.find((entry) => entry.assetId === 'inventory.dataset');
+      assert(assetEntry, 'asset inventory should include inventory.dataset');
+      assert(assetEntry?.available);
+      assert(assetEntry?.producers.some((producer) => producer.stepId === 'asset-producer'));
+      assert(assetEntry?.consumers.some((consumer) => consumer.stepId === 'asset-consumer'));
+      assert.equal(assetEntry?.latest?.runId, firstAssetRunId);
+      const latestPayload = (assetEntry?.latest?.payload as { count?: number } | undefined) ?? {};
+      assert.equal(latestPayload.count ?? 0, 7);
+      assert.equal(assetEntry?.latest?.freshness?.ttlMs ?? 0, 3_600_000);
+      assert.deepEqual(assetEntry?.latest?.schema, assetSchema);
+
+      const triggerSecondAssetRunResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${assetWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          parameters: { count: 11 }
+        }
+      });
+      assert.equal(triggerSecondAssetRunResponse.statusCode, 202);
+      const triggerSecondAssetRunBody = JSON.parse(triggerSecondAssetRunResponse.payload) as {
+        data: { id: string; status: string };
+      };
+      assert.equal(triggerSecondAssetRunBody.data.status, 'succeeded');
+      const secondAssetRunId = triggerSecondAssetRunBody.data.id;
+
+      const assetInventoryAfterResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${assetWorkflowSlug}/assets`
+      });
+      assert.equal(assetInventoryAfterResponse.statusCode, 200);
+      const assetInventoryAfterBody = JSON.parse(assetInventoryAfterResponse.payload) as {
+        data: {
+          assets: Array<{
+            assetId: string;
+            latest: { runId: string; payload: unknown } | null;
+          }>;
+        };
+      };
+      const assetEntryAfter = assetInventoryAfterBody.data.assets.find((entry) => entry.assetId === 'inventory.dataset');
+      assert(assetEntryAfter);
+      assert.equal(assetEntryAfter?.latest?.runId, secondAssetRunId);
+      const latestAfterPayload = (assetEntryAfter?.latest?.payload as { count?: number } | undefined) ?? {};
+      assert.equal(latestAfterPayload.count ?? 0, 11);
+
+      const encodedAssetId = encodeURIComponent('inventory.dataset');
+      const assetHistoryLimitedResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${assetWorkflowSlug}/assets/${encodedAssetId}/history?limit=1`
+      });
+      assert.equal(assetHistoryLimitedResponse.statusCode, 200);
+      const assetHistoryLimitedBody = JSON.parse(assetHistoryLimitedResponse.payload) as {
+        data: {
+          assetId: string;
+          history: Array<{ runId: string; payload: unknown }>;
+          producers: Array<{ stepId: string }>;
+          consumers: Array<{ stepId: string }>;
+          limit: number;
+        };
+      };
+      assert.equal(assetHistoryLimitedBody.data.assetId, 'inventory.dataset');
+      assert.equal(assetHistoryLimitedBody.data.history.length, 1);
+      assert.equal(assetHistoryLimitedBody.data.history[0]?.runId, secondAssetRunId);
+      const limitedPayload = (assetHistoryLimitedBody.data.history[0]?.payload as { count?: number } | undefined) ?? {};
+      assert.equal(limitedPayload.count ?? 0, 11);
+      assert(assetHistoryLimitedBody.data.producers.some((producer) => producer.stepId === 'asset-producer'));
+      assert(assetHistoryLimitedBody.data.consumers.some((consumer) => consumer.stepId === 'asset-consumer'));
+
+      const assetHistoryFullResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${assetWorkflowSlug}/assets/${encodedAssetId}/history`
+      });
+      assert.equal(assetHistoryFullResponse.statusCode, 200);
+      const assetHistoryFullBody = JSON.parse(assetHistoryFullResponse.payload) as {
+        data: {
+          history: Array<{ runId: string; payload: unknown }>;
+        };
+      };
+      const historyRunIds = assetHistoryFullBody.data.history.map((entry) => entry.runId);
+      assert(historyRunIds.includes(firstAssetRunId));
+      assert(historyRunIds.includes(secondAssetRunId));
+      assert.equal(assetHistoryFullBody.data.history[0]?.runId, secondAssetRunId);
+
+      const missingAssetHistoryResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${assetWorkflowSlug}/assets/${encodeURIComponent('unknown.asset')}/history`
+      });
+      assert.equal(missingAssetHistoryResponse.statusCode, 404);
+      const missingAssetHistoryBody = JSON.parse(missingAssetHistoryResponse.payload) as { error?: string };
+      assert.equal(missingAssetHistoryBody.error, 'asset not found for workflow');
 
       const dagWorkflowResponse = await app.inject({
         method: 'POST',

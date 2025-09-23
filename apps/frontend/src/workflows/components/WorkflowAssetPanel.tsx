@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
 import type {
@@ -59,6 +60,12 @@ export default function WorkflowAssetPanel({
 }: WorkflowAssetPanelProps) {
   const hasAssets = assets.length > 0;
   const hasSelection = Boolean(selectedAssetId);
+  const handleRefreshAssetDetail = useCallback(() => {
+    if (!selectedAssetId) {
+      return;
+    }
+    onRefreshAssetDetail(selectedAssetId);
+  }, [onRefreshAssetDetail, selectedAssetId]);
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -74,7 +81,7 @@ export default function WorkflowAssetPanel({
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
-              onClick={() => onRefreshAssetDetail(selectedAssetId)}
+              onClick={handleRefreshAssetDetail}
             >
               Refresh history
             </button>
