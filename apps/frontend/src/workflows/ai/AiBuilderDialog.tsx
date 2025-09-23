@@ -848,6 +848,7 @@ export default function AiBuilderDialog({
   const activeProviderLabel = activeProvider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI';
   const providerHasLogs = activeProvider === 'codex';
   const providerRequiresKey = provider === 'openai' && openAiApiKey.length === 0;
+  const providerLogTitle = activeProvider === 'openai' ? 'OpenAI response log' : 'Codex CLI logs';
 
   if (!open) {
     return null;
@@ -1203,9 +1204,7 @@ export default function AiBuilderDialog({
             {providerHasLogs && (stdout || stderr) && (
               <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
-                    {activeProvider === 'openai' ? 'OpenAI response log' : 'Codex CLI logs'}
-                  </h4>
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{providerLogTitle}</h4>
                   {generation?.status === 'running' && (
                     <span className="inline-flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-300">
                       <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-violet-500" /> Running…

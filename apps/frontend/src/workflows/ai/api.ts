@@ -64,6 +64,7 @@ export type AiSuggestRequest = {
   providerOptions?: {
     openAiApiKey?: string;
     openAiBaseUrl?: string;
+    openAiMaxOutputTokens?: number;
   };
 };
 

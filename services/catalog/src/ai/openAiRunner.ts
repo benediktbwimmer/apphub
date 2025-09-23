@@ -28,18 +28,10 @@ export type OpenAiGenerationResult = {
 
 type OpenAiMessage = {
   role: 'system' | 'user';
-  content: Array<{ type: 'text'; text: string }>;
+  content: string;
 };
 
 type OpenAiResponsePayload = {
-  output?: Array<{
-    content?: Array<{
-      type?: string;
-      text?: string;
-      data?: unknown;
-    }>;
-  }>;
-  response?: string;
   choices?: Array<{
     message?: {
       content?: Array<{ type?: string; text?: string }> | string;
@@ -88,11 +80,17 @@ function buildResponseSchema(mode: CodexGenerationMode): Record<string, unknown>
     target: 'jsonSchema7'
   });
 
-  if (jsonSchema && typeof jsonSchema === 'object' && !('$schema' in jsonSchema)) {
-    (jsonSchema as Record<string, unknown>).$schema = 'http://json-schema.org/draft-07/schema#';
+  const normalizedSchema = normalizeJsonSchema(jsonSchema as Record<string, unknown>);
+
+  if (!('$schema' in normalizedSchema)) {
+    normalizedSchema['$schema'] = 'http://json-schema.org/draft-07/schema#';
   }
 
-  return jsonSchema as Record<string, unknown>;
+  if (typeof normalizedSchema['type'] !== 'string') {
+    normalizedSchema['type'] = 'object';
+  }
+
+  return normalizedSchema;
 }
 
 function truncate(value: string, limit: number): string {
@@ -100,6 +98,38 @@ function truncate(value: string, limit: number): string {
     return value;
   }
   return `${value.slice(0, limit)}\n…\n[truncated]`;
+}
+
+function normalizeJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (!schema) {
+    return {};
+  }
+
+  const refValue = typeof schema['$ref'] === 'string' ? (schema['$ref'] as string) : null;
+  const definitions = schema['definitions'] as Record<string, unknown> | undefined;
+
+  if (refValue && refValue.startsWith('#/definitions/') && definitions) {
+    const key = refValue.split('/').pop();
+    const definition = key ? definitions[key] : undefined;
+
+    if (definition && typeof definition === 'object') {
+      const resolved: Record<string, unknown> = { ...(definition as Record<string, unknown>) };
+
+      if (schema['$schema']) {
+        resolved['$schema'] = schema['$schema'];
+      }
+
+      if (definitions) {
+        resolved['definitions'] = definitions;
+      }
+
+      return resolved;
+    }
+  }
+
+  const clone: Record<string, unknown> = { ...schema };
+  delete clone['$ref'];
+  return clone;
 }
 
 function collectContextSections(contextFiles?: CodexContextFile[]): string {
@@ -170,43 +200,16 @@ function buildMessages(options: OpenAiGenerationOptions): OpenAiMessage[] {
   return [
     {
       role: 'system',
-      content: [{ type: 'text', text: SYSTEM_PROMPT }]
+      content: SYSTEM_PROMPT
     },
     {
       role: 'user',
-      content: [{ type: 'text', text: buildUserPrompt(options) }]
+      content: buildUserPrompt(options)
     }
   ];
 }
 
 function extractOutputText(payload: OpenAiResponsePayload): string | null {
-  if (payload.output) {
-    for (const item of payload.output) {
-      const content = item?.content;
-      if (!Array.isArray(content)) {
-        continue;
-      }
-      for (const entry of content) {
-        if (entry && typeof entry === 'object') {
-          if (typeof entry.text === 'string' && entry.text.trim().length > 0) {
-            return entry.text.trim();
-          }
-          if (typeof entry.data === 'object' && entry.data !== null) {
-            try {
-              return JSON.stringify(entry.data);
-            } catch {
-              // ignore JSON stringify errors and keep searching
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (payload.response && typeof payload.response === 'string' && payload.response.trim().length > 0) {
-    return payload.response.trim();
-  }
-
   if (payload.choices && Array.isArray(payload.choices)) {
     for (const choice of payload.choices) {
       const message = choice?.message;
@@ -240,7 +243,7 @@ export async function runOpenAiGeneration(
   const timeout = setTimeout(() => controller.abort(), timeoutMs + 5_000);
 
   try {
-    const response = await fetch(`${baseUrl}/responses`, {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -249,8 +252,7 @@ export async function runOpenAiGeneration(
       },
       body: JSON.stringify({
         model: 'gpt-5',
-        reasoning: { effort: 'high' },
-        input: buildMessages(options),
+        messages: buildMessages(options),
         response_format: {
           type: 'json_schema',
           json_schema: {
@@ -258,9 +260,9 @@ export async function runOpenAiGeneration(
             schema: buildResponseSchema(options.mode)
           }
         },
-        temperature: 0.2,
-        top_p: 0.95,
-        max_output_tokens: maxOutputTokens
+        temperature: 1,
+        top_p: 1,
+        max_completion_tokens: maxOutputTokens
       }),
       signal: controller.signal
     });
