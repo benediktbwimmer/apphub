@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { FormField } from '../../components/form';
-import type { JobDefinitionSummary, ServiceSummary } from '../api';
+import type { JobBundleVersionSummary, JobDefinitionSummary, ServiceSummary } from '../api';
 import type { WorkflowDraftStep } from '../types';
+import type { DraftValidationIssue } from './state';
 
 function generateOptionLabel(name: string | undefined, slug: string): string {
   if (!name || name === slug) {
@@ -10,12 +11,120 @@ function generateOptionLabel(name: string | undefined, slug: string): string {
   return `${name} (${slug})`;
 }
 
+type BundleBinding = {
+  slug: string;
+  version: string | null;
+  exportName: string | null;
+};
+
+const BUNDLE_ENTRY_REGEX = /^bundle:([a-z0-9][a-z0-9._-]*)@([^#]+?)(?:#([a-zA-Z_$][\w$]*))?$/i;
+
+function parseBundleEntryPoint(entryPoint: string | null | undefined): BundleBinding | null {
+  if (!entryPoint) {
+    return null;
+  }
+  const trimmed = entryPoint.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const matches = BUNDLE_ENTRY_REGEX.exec(trimmed);
+  if (!matches) {
+    return null;
+  }
+  const [, slug, version, exportName] = matches;
+  if (!slug || !version) {
+    return null;
+  }
+  return {
+    slug: slug.toLowerCase(),
+    version: version.trim() || null,
+    exportName: exportName ?? null
+  } satisfies BundleBinding;
+}
+
+function parseRegistryRef(value: string | null | undefined): { slug: string; version: string | null } | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const [slug, ...versionParts] = trimmed.split('@');
+  if (!slug) {
+    return null;
+  }
+  const version = versionParts.join('@') || null;
+  return {
+    slug: slug.toLowerCase(),
+    version
+  };
+}
+
+function getJobBundleBinding(job: JobDefinitionSummary | undefined): BundleBinding | null {
+  if (!job) {
+    return null;
+  }
+  const entryBinding = parseBundleEntryPoint(job.entryPoint);
+  if (entryBinding) {
+    return entryBinding;
+  }
+
+  const registryBinding = parseRegistryRef(job.registryRef);
+  if (registryBinding) {
+    return {
+      slug: registryBinding.slug,
+      version: registryBinding.version,
+      exportName: null
+    } satisfies BundleBinding;
+  }
+
+  return null;
+}
+
+function deriveBundleDefaults(
+  step: WorkflowDraftStep,
+  job: JobDefinitionSummary | undefined
+): { slug: string; version: string | null; exportName: string | null } {
+  const existing = step.bundle ?? undefined;
+  if (existing) {
+    const slug = existing.slug?.trim().toLowerCase() ?? '';
+    const version = existing.version ?? null;
+    const exportName = existing.exportName ?? null;
+    return {
+      slug,
+      version,
+      exportName
+    };
+  }
+
+  const jobBinding = getJobBundleBinding(job);
+  if (jobBinding) {
+    return jobBinding;
+  }
+
+  return {
+    slug: '',
+    version: null,
+    exportName: null
+  };
+}
+
+export type BundleVersionState = {
+  versions: JobBundleVersionSummary[];
+  loading: boolean;
+  error: string | null;
+};
+
 type WorkflowStepCardProps = {
   step: WorkflowDraftStep;
   index: number;
   allSteps: WorkflowDraftStep[];
   jobs: JobDefinitionSummary[];
   services: ServiceSummary[];
+  bundleVersionState: Record<string, BundleVersionState>;
+  onLoadBundleVersions: (slug: string) => Promise<JobBundleVersionSummary[] | void>;
+  errors?: DraftValidationIssue[];
   onUpdate: (updater: (current: WorkflowDraftStep) => WorkflowDraftStep) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -28,6 +137,9 @@ export function WorkflowStepCard({
   allSteps,
   jobs,
   services,
+  bundleVersionState,
+  onLoadBundleVersions,
+  errors = [],
   onUpdate,
   onRemove,
   onMoveUp,
@@ -37,6 +149,53 @@ export function WorkflowStepCard({
     () => allSteps.filter((candidate) => candidate.id !== step.id),
     [allSteps, step.id]
   );
+
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.slug === step.jobSlug),
+    [jobs, step.jobSlug]
+  );
+
+  const bundleDefaults = useMemo(
+    () => deriveBundleDefaults(step, selectedJob),
+    [step, selectedJob]
+  );
+
+  const bundleStrategy: 'latest' | 'pinned' = step.bundle?.strategy === 'pinned' ? 'pinned' : 'latest';
+  const bundleSlug = step.bundle?.slug ?? bundleDefaults.slug ?? '';
+  const normalizedBundleSlug = bundleSlug.trim().toLowerCase();
+  const bundleVersion = step.bundle?.version ?? bundleDefaults.version ?? '';
+  const bundleExportName = step.bundle?.exportName ?? bundleDefaults.exportName ?? '';
+  const bundleVersionInfo = normalizedBundleSlug ? bundleVersionState[normalizedBundleSlug] : undefined;
+  const versionOptions = useMemo(() => {
+    const base = bundleVersionInfo?.versions ?? [];
+    if (bundleVersion && !base.some((entry) => entry.version === bundleVersion)) {
+      return [
+        {
+          id: `current-${bundleVersion}`,
+          version: bundleVersion,
+          status: null,
+          immutable: false,
+          publishedAt: null,
+          createdAt: '1970-01-01T00:00:00.000Z',
+          updatedAt: '1970-01-01T00:00:00.000Z'
+        } satisfies JobBundleVersionSummary,
+        ...base
+      ];
+    }
+    return base;
+  }, [bundleVersion, bundleVersionInfo?.versions]);
+
+  const fieldErrors = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const issue of errors) {
+      const key = issue.path.startsWith(`${step.id}.`) ? issue.path.slice(step.id.length + 1) : issue.path;
+      if (!map[key]) {
+        map[key] = [];
+      }
+      map[key].push(issue.message);
+    }
+    return map;
+  }, [errors, step.id]);
 
   const handleIdChange = (value: string) => {
     const trimmed = value.trim();
@@ -74,7 +233,100 @@ export function WorkflowStepCard({
   };
 
   const handleJobChange = (value: string) => {
-    onUpdate((current) => ({ ...current, jobSlug: value }));
+    const nextJob = jobs.find((job) => job.slug === value);
+    onUpdate((current) => {
+      if (!value) {
+        return { ...current, jobSlug: '', bundle: undefined };
+      }
+      const strategy = current.bundle?.strategy === 'pinned' ? 'pinned' : 'latest';
+      const jobBinding = getJobBundleBinding(nextJob);
+      const slug = (jobBinding?.slug ?? current.bundle?.slug ?? '').trim().toLowerCase();
+      const versionValue = strategy === 'pinned' ? current.bundle?.version ?? jobBinding?.version ?? '' : null;
+      const exportName = current.bundle?.exportName ?? jobBinding?.exportName ?? null;
+      return {
+        ...current,
+        jobSlug: value,
+        bundle: {
+          strategy,
+          slug,
+          version: versionValue,
+          exportName
+        }
+      } satisfies WorkflowDraftStep;
+    });
+  };
+
+  const handleBundleStrategyChange = (strategy: 'latest' | 'pinned') => {
+    onUpdate((current) => {
+      const jobBinding = getJobBundleBinding(selectedJob);
+      const slug = (current.bundle?.slug ?? jobBinding?.slug ?? '').trim().toLowerCase();
+      const exportName = current.bundle?.exportName ?? jobBinding?.exportName ?? null;
+      const nextBundle = {
+        strategy,
+        slug,
+        version: strategy === 'pinned' ? current.bundle?.version ?? jobBinding?.version ?? '' : null,
+        exportName
+      };
+      return { ...current, bundle: nextBundle };
+    });
+  };
+
+  const handleBundleSlugChange = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    onUpdate((current) => {
+      const strategy = current.bundle?.strategy === 'pinned' ? 'pinned' : 'latest';
+      const jobBinding = getJobBundleBinding(selectedJob);
+      const exportName = current.bundle?.exportName ?? jobBinding?.exportName ?? null;
+      const versionValue = strategy === 'pinned'
+        ? current.bundle?.version ?? jobBinding?.version ?? ''
+        : null;
+      return {
+        ...current,
+        bundle: {
+          strategy,
+          slug: normalized,
+          version: versionValue,
+          exportName
+        }
+      } satisfies WorkflowDraftStep;
+    });
+  };
+
+  const handleBundleVersionChange = (value: string) => {
+    const normalized = value.trim();
+    onUpdate((current) => {
+      const jobBinding = getJobBundleBinding(selectedJob);
+      const exportName = current.bundle?.exportName ?? jobBinding?.exportName ?? null;
+      const slug = (current.bundle?.slug ?? jobBinding?.slug ?? '').trim().toLowerCase();
+      return {
+        ...current,
+        bundle: {
+          strategy: 'pinned',
+          slug,
+          version: normalized,
+          exportName
+        }
+      } satisfies WorkflowDraftStep;
+    });
+  };
+
+  const handleBundleExportNameChange = (value: string) => {
+    const normalized = value.trim();
+    onUpdate((current) => {
+      const strategy = current.bundle?.strategy === 'pinned' ? 'pinned' : 'latest';
+      const jobBinding = getJobBundleBinding(selectedJob);
+      const slug = (current.bundle?.slug ?? jobBinding?.slug ?? '').trim().toLowerCase();
+      const versionValue = strategy === 'pinned' ? current.bundle?.version ?? jobBinding?.version ?? '' : null;
+      return {
+        ...current,
+        bundle: {
+          strategy,
+          slug,
+          version: versionValue,
+          exportName: normalized ? normalized : null
+        }
+      } satisfies WorkflowDraftStep;
+    });
   };
 
   const handleServiceChange = (value: string) => {
@@ -215,6 +467,35 @@ export function WorkflowStepCard({
 
   const dependsOn = new Set(step.dependsOn ?? []);
 
+  useEffect(() => {
+    if (bundleStrategy !== 'pinned') {
+      return;
+    }
+    if (!normalizedBundleSlug) {
+      return;
+    }
+    void onLoadBundleVersions(normalizedBundleSlug);
+  }, [bundleStrategy, normalizedBundleSlug, onLoadBundleVersions]);
+
+  useEffect(() => {
+    if (bundleStrategy !== 'pinned') {
+      return;
+    }
+    if (!normalizedBundleSlug) {
+      return;
+    }
+    if (!bundleVersionInfo || bundleVersionInfo.loading) {
+      return;
+    }
+    if (!bundleVersionInfo.versions || bundleVersionInfo.versions.length === 0) {
+      return;
+    }
+    const currentVersion = typeof step.bundle?.version === 'string' ? step.bundle.version.trim() : '';
+    if (!currentVersion) {
+      handleBundleVersionChange(bundleVersionInfo.versions[0].version);
+    }
+  }, [bundleStrategy, bundleVersionInfo, normalizedBundleSlug, step.bundle?.version]);
+
   return (
     <div className="rounded-3xl border border-slate-200/60 bg-white/80 p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70">
       <div className="flex items-center justify-between gap-4">
@@ -258,6 +539,9 @@ export function WorkflowStepCard({
             onChange={(event) => handleIdChange(event.target.value)}
             className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
           />
+          {fieldErrors['id'] && (
+            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['id'][0]}</p>
+          )}
         </FormField>
         <FormField label="Display name" htmlFor={`step-${step.id}-name`}>
           <input
@@ -267,6 +551,9 @@ export function WorkflowStepCard({
             onChange={(event) => handleNameChange(event.target.value)}
             className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
           />
+          {fieldErrors['name'] && (
+            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['name'][0]}</p>
+          )}
         </FormField>
       </div>
 
@@ -283,21 +570,140 @@ export function WorkflowStepCard({
           </select>
         </FormField>
         {step.type === 'job' ? (
-          <FormField label="Job definition" htmlFor={`step-${step.id}-job`}>
-            <select
-              id={`step-${step.id}-job`}
-              value={step.jobSlug ?? ''}
-              onChange={(event) => handleJobChange(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
-            >
-              <option value="">Select a job…</option>
-              {jobOptions.map((job) => (
-                <option key={job.value} value={job.value}>
-                  {job.label}
-                </option>
-              ))}
-            </select>
-          </FormField>
+          <>
+            <FormField label="Job definition" htmlFor={`step-${step.id}-job`}>
+              <select
+                id={`step-${step.id}-job`}
+                value={step.jobSlug ?? ''}
+                onChange={(event) => handleJobChange(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              >
+                <option value="">Select a job…</option>
+                {jobOptions.map((job) => (
+                  <option key={job.value} value={job.value}>
+                    {job.label}
+                  </option>
+                ))}
+              </select>
+              {fieldErrors['jobSlug'] && (
+                <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['jobSlug'][0]}</p>
+              )}
+            </FormField>
+            <div className="md:col-span-2 space-y-4">
+              <FormField
+                label="Bundle version"
+                hint="Choose whether this step should always track the latest bundle or pin to a specific release."
+              >
+                <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  <label className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 transition-colors ${
+                    bundleStrategy === 'latest'
+                      ? 'border-violet-400 bg-violet-500/10 text-violet-600 dark:border-slate-300 dark:text-slate-100'
+                      : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
+                  }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`step-${step.id}-bundle-strategy`}
+                      value="latest"
+                      checked={bundleStrategy === 'latest'}
+                      onChange={() => handleBundleStrategyChange('latest')}
+                      className="h-4 w-4 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span>Latest (default)</span>
+                  </label>
+                  <label className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 transition-colors ${
+                    bundleStrategy === 'pinned'
+                      ? 'border-violet-400 bg-violet-500/10 text-violet-600 dark:border-slate-300 dark:text-slate-100'
+                      : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
+                  }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`step-${step.id}-bundle-strategy`}
+                      value="pinned"
+                      checked={bundleStrategy === 'pinned'}
+                      onChange={() => handleBundleStrategyChange('pinned')}
+                      className="h-4 w-4 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span>Pin to version</span>
+                  </label>
+                </div>
+                {bundleStrategy === 'latest' && selectedJob && (
+                  <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Runs using the bundle configured on the job definition
+                    {bundleDefaults.version ? ` (${bundleDefaults.version})` : ''}.
+                  </p>
+                )}
+              </FormField>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField label="Bundle slug" htmlFor={`step-${step.id}-bundle-slug`}>
+                  <input
+                    id={`step-${step.id}-bundle-slug`}
+                    type="text"
+                    value={bundleSlug}
+                    onChange={(event) => handleBundleSlugChange(event.target.value)}
+                    placeholder="bundle-slug"
+                    className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  />
+                  {fieldErrors['bundle.slug'] && (
+                    <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['bundle.slug'][0]}</p>
+                  )}
+                </FormField>
+                {bundleStrategy === 'pinned' && (
+                  <FormField
+                    label="Pinned version"
+                    htmlFor={`step-${step.id}-bundle-version`}
+                    hint="Provide the semantic version to lock this workflow to."
+                  >
+                    <select
+                      id={`step-${step.id}-bundle-version`}
+                      value={bundleVersion ?? ''}
+                      onChange={(event) => handleBundleVersionChange(event.target.value)}
+                      disabled={Boolean(bundleVersionInfo?.loading) || versionOptions.length === 0}
+                      className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:disabled:bg-slate-800"
+                    >
+                      <option value="">
+                        {bundleVersionInfo?.loading
+                          ? 'Loading versions…'
+                          : versionOptions.length > 0
+                            ? 'Select a version…'
+                            : 'No versions available'}
+                      </option>
+                      {versionOptions.map((version) => (
+                        <option key={version.id} value={version.version}>
+                          {version.version}
+                        </option>
+                      ))}
+                    </select>
+                    {bundleVersionInfo?.error && (
+                      <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                        {bundleVersionInfo.error}
+                      </p>
+                    )}
+                    {fieldErrors['bundle.version'] && (
+                      <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['bundle.version'][0]}</p>
+                    )}
+                  </FormField>
+                )}
+              </div>
+
+              <FormField
+                label="Exported handler (optional)"
+                htmlFor={`step-${step.id}-bundle-export`}
+                hint="Populate when the bundle exposes multiple handlers. Leave empty to call the default export."
+              >
+                <input
+                  id={`step-${step.id}-bundle-export`}
+                  type="text"
+                  value={bundleExportName ?? ''}
+                  onChange={(event) => handleBundleExportNameChange(event.target.value)}
+                  placeholder="handlerName"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                />
+              </FormField>
+            </div>
+          </>
         ) : (
           <FormField label="Service" htmlFor={`step-${step.id}-service`}>
             <select
@@ -313,6 +719,9 @@ export function WorkflowStepCard({
                 </option>
               ))}
             </select>
+            {fieldErrors['serviceSlug'] && (
+            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['serviceSlug'][0]}</p>
+            )}
           </FormField>
         )}
       </div>
@@ -435,7 +844,7 @@ export function WorkflowStepCard({
             />
             {step.requestBodyError && (
               <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{step.requestBodyError}</p>
-            )}
+              )}
           </FormField>
 
           <div className="grid gap-4 md:grid-cols-2">

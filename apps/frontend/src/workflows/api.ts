@@ -153,6 +153,16 @@ export type ServiceSummary = {
   updatedAt: string;
 };
 
+export type JobBundleVersionSummary = {
+  id: string;
+  version: string;
+  status: string | null;
+  immutable: boolean;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OperatorIdentity = {
   subject: string;
   scopes: string[];
@@ -402,6 +412,29 @@ export async function listServices(fetcher: AuthorizedFetch): Promise<ServiceSum
     status: service.status ?? null,
     statusMessage: service.statusMessage ?? null
   }));
+}
+
+export async function listJobBundleVersions(
+  fetcher: AuthorizedFetch,
+  slug: string
+): Promise<JobBundleVersionSummary[]> {
+  const response = await fetcher(`${API_BASE_URL}/job-bundles/${encodeURIComponent(slug)}`);
+  await ensureOk(response, 'Failed to load job bundle versions');
+  const payload = await parseJson<{
+    data?: { versions?: Array<Partial<JobBundleVersionSummary>> };
+  }>(response);
+  const records = Array.isArray(payload.data?.versions) ? payload.data?.versions : [];
+  return records
+    .filter((entry): entry is JobBundleVersionSummary => typeof entry?.version === 'string' && typeof entry?.id === 'string')
+    .map((entry) => ({
+      id: entry.id,
+      version: entry.version,
+      status: typeof entry.status === 'string' ? entry.status : null,
+      immutable: Boolean(entry.immutable),
+      publishedAt: typeof entry.publishedAt === 'string' ? entry.publishedAt : null,
+      createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date(0).toISOString(),
+      updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date(0).toISOString()
+    }));
 }
 
 export async function fetchOperatorIdentity(fetcher: AuthorizedFetch): Promise<OperatorIdentity | null> {

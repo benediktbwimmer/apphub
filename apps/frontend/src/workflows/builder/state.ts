@@ -492,12 +492,27 @@ function sanitizeStep(step: WorkflowDraftStep): WorkflowStepInput {
   if (step.bundle === null) {
     payload.bundle = null;
   } else if (step.bundle) {
-    payload.bundle = {
-      slug: step.bundle.slug,
-      version: step.bundle.version ?? undefined,
-      exportName: step.bundle.exportName ?? undefined,
-      strategy: step.bundle.strategy ?? undefined
-    } satisfies WorkflowJobStepInput['bundle'];
+    const slug = typeof step.bundle.slug === 'string' ? step.bundle.slug.trim().toLowerCase() : '';
+    const strategy: NonNullable<WorkflowJobStepInput['bundle']>['strategy'] =
+      step.bundle.strategy === 'pinned' ? 'pinned' : 'latest';
+    const versionRaw =
+      typeof step.bundle.version === 'string' ? step.bundle.version.trim() : undefined;
+    const exportNameRaw =
+      typeof step.bundle.exportName === 'string' ? step.bundle.exportName.trim() : undefined;
+
+    if (slug) {
+      const bundle: WorkflowJobStepInput['bundle'] = {
+        slug,
+        strategy
+      } satisfies WorkflowJobStepInput['bundle'];
+      if (strategy === 'pinned' && versionRaw) {
+        bundle.version = versionRaw;
+      }
+      if (exportNameRaw) {
+        bundle.exportName = exportNameRaw;
+      }
+      payload.bundle = bundle;
+    }
   }
 
   return payload;
@@ -693,6 +708,20 @@ export function validateWorkflowDraft(
               list.push({ path: `${step.id}.parameters`, message: firstError });
             }
           }
+        }
+      }
+    }
+
+    if (step.bundle && step.bundle !== null) {
+      const strategy = step.bundle.strategy === 'pinned' ? 'pinned' : 'latest';
+      const slug = typeof step.bundle.slug === 'string' ? step.bundle.slug.trim() : '';
+      if (strategy === 'pinned') {
+        if (!slug) {
+          list.push({ path: `${step.id}.bundle.slug`, message: 'Bundle slug is required when pinning to a bundle release.' });
+        }
+        const version = typeof step.bundle.version === 'string' ? step.bundle.version.trim() : '';
+        if (!version) {
+          list.push({ path: `${step.id}.bundle.version`, message: 'Provide a bundle version when pinning to a bundle release.' });
         }
       }
     }

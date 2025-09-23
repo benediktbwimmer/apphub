@@ -9,7 +9,13 @@ import { FormSection, FormField, FormActions, FormButton, FormFeedback } from '.
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { WorkflowDefinition, WorkflowDraft, WorkflowDraftStep } from '../types';
-import type { WorkflowCreateInput, WorkflowUpdateInput } from '../api';
+import {
+  listJobBundleVersions,
+  type JobBundleVersionSummary,
+  type WorkflowCreateInput,
+  type WorkflowUpdateInput
+} from '../api';
+import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
 import {
   createEmptyDraft,
   workflowDefinitionToDraft,
@@ -24,7 +30,7 @@ import {
   type DraftValidation,
   type DiffEntry
 } from './state';
-import WorkflowStepCard from './WorkflowStepCard';
+import WorkflowStepCard, { type BundleVersionState } from './WorkflowStepCard';
 
 const CREATE_AUTOSAVE_KEY = 'apphub.workflowBuilder.create';
 const EDIT_AUTOSAVE_PREFIX = 'apphub.workflowBuilder.edit.';
@@ -66,11 +72,13 @@ export function WorkflowBuilderDialog({
   prefillCreatePayload = null
 }: WorkflowBuilderDialogProps) {
   const { jobs, services, loading: resourcesLoading, error: resourcesError, refresh } = useWorkflowResources();
+  const authorizedFetch = useAuthorizedFetch();
   const [draft, setDraft] = useState<WorkflowDraft>(() => createEmptyDraft());
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [bundleVersionState, setBundleVersionState] = useState<Record<string, BundleVersionState>>({});
 
   const autosaveKey = mode === 'create'
     ? CREATE_AUTOSAVE_KEY
@@ -142,6 +150,55 @@ export function WorkflowBuilderDialog({
   );
 
   const previewSpec = useMemo(() => draftToCreateInput(draft), [draft]);
+
+  const ensureBundleVersions = useCallback(
+    async (slug: string): Promise<JobBundleVersionSummary[]> => {
+      const normalized = slug.trim().toLowerCase();
+      if (!normalized) {
+        return [];
+      }
+
+      setBundleVersionState((current) => {
+        const existing = current[normalized];
+        if (existing && (existing.loading || (existing.error === null && existing.versions.length > 0))) {
+          return current;
+        }
+        return {
+          ...current,
+          [normalized]: {
+            versions: existing?.versions ?? [],
+            loading: true,
+            error: null
+          }
+        } satisfies Record<string, BundleVersionState>;
+      });
+
+      try {
+        const versions = await listJobBundleVersions(authorizedFetch, normalized);
+        setBundleVersionState((current) => ({
+          ...current,
+          [normalized]: {
+            versions,
+            loading: false,
+            error: null
+          }
+        }));
+        return versions;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load bundle versions.';
+        setBundleVersionState((current) => ({
+          ...current,
+          [normalized]: {
+            versions: current[normalized]?.versions ?? [],
+            loading: false,
+            error: message
+          }
+        }));
+        return [];
+      }
+    },
+    [authorizedFetch]
+  );
 
   const handleTagsChange = (value: string) => {
     const tags = value
@@ -474,6 +531,9 @@ export function WorkflowBuilderDialog({
                 allSteps={draft.steps}
                 jobs={jobs}
                 services={services}
+                bundleVersionState={bundleVersionState}
+                onLoadBundleVersions={ensureBundleVersions}
+                errors={validation.stepErrors[step.id] ?? []}
                 onUpdate={(updater) => updateStep(step.id, updater)}
                 onRemove={() => removeStep(step.id)}
                 onMoveUp={() => moveStep(step.id, 'up')}

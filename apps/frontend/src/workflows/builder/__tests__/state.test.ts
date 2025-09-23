@@ -8,7 +8,7 @@ import {
   computeDraftDiff
 } from '../state';
 import type { WorkflowDefinition } from '../../types';
-import type { JobDefinitionSummary } from '../../api';
+import type { JobDefinitionSummary, WorkflowJobStepInput } from '../../api';
 
 const baseWorkflow: WorkflowDefinition = {
   id: 'wf-1',
@@ -80,6 +80,24 @@ const jobs: JobDefinitionSummary[] = [
     metadata: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'job-2',
+    slug: 'directory-file-info',
+    name: 'Directory file info',
+    version: 1,
+    type: 'batch',
+    runtime: 'node',
+    entryPoint: 'bundle:directory-file-info@1.0.16',
+    registryRef: 'directory-file-info@1.0.16',
+    parametersSchema: {},
+    defaultParameters: {},
+    outputSchema: {},
+    timeoutMs: null,
+    retryPolicy: null,
+    metadata: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -134,6 +152,79 @@ describe('workflow builder state helpers', () => {
     const schemaResult = validateWorkflowDraft(populated, jobs);
     expect(schemaResult.valid).toBe(false);
     expect(schemaResult.stepErrors.build?.[0].message ?? '').toContain('Invalid JSON');
+  });
+
+  it('validates pinned bundle requirements', () => {
+    const draft = workflowDefinitionToDraft(baseWorkflow);
+    draft.steps[0].bundle = {
+      slug: 'build-bundle',
+      strategy: 'pinned',
+      version: '',
+      exportName: null
+    };
+    const result = validateWorkflowDraft(draft, jobs);
+    expect(result.valid).toBe(false);
+    const bundleErrors = result.stepErrors.build?.map((issue) => issue.message) ?? [];
+    expect(bundleErrors).toContain('Provide a bundle version when pinning to a bundle release.');
+  });
+
+  it('serializes bundle strategy for job steps', () => {
+    const draft = workflowDefinitionToDraft(baseWorkflow);
+    draft.steps[0].bundle = {
+      slug: 'build-bundle',
+      strategy: 'pinned',
+      version: '2.0.0',
+      exportName: null
+    };
+    const payload = draftToCreateInput(draft);
+    const jobStep = payload.steps.find((step) => step.id === 'build') as WorkflowJobStepInput;
+    expect(jobStep.bundle).toMatchObject({ strategy: 'pinned', version: '2.0.0', slug: 'build-bundle' });
+  });
+
+  it('omits bundle version when strategy is latest', () => {
+    const draft = workflowDefinitionToDraft(baseWorkflow);
+    draft.steps[0].bundle = {
+      slug: 'build-bundle',
+      strategy: 'latest',
+      version: '  ',
+      exportName: null
+    };
+    const payload = draftToCreateInput(draft);
+    const jobStep = payload.steps.find((step) => step.id === 'build') as WorkflowJobStepInput;
+    expect(jobStep.bundle).toMatchObject({ strategy: 'latest', slug: 'build-bundle' });
+    expect(jobStep.bundle?.version).toBeUndefined();
+  });
+
+  it('flags missing owner contact and bundle version when required', () => {
+    const workflow: WorkflowDefinition = {
+      ...baseWorkflow,
+      slug: 'directory-size-visualizer',
+      steps: [
+        {
+          id: 'scan',
+          name: 'Scan Directory',
+          type: 'job',
+          jobSlug: 'directory-file-info',
+          dependsOn: [],
+          parameters: {},
+          bundle: null
+        }
+      ],
+      metadata: {}
+    };
+    const draft = workflowDefinitionToDraft(workflow);
+    const result = validateWorkflowDraft(draft, jobs);
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((issue) => issue.path)).toContain('ownerContact');
+    draft.steps[0].bundle = {
+      slug: 'directory-file-info',
+      strategy: 'pinned',
+      version: '1.0.14',
+      exportName: null
+    };
+    draft.ownerContact = 'ops@apphub.test';
+    const after = validateWorkflowDraft(draft, jobs);
+    expect(after.valid).toBe(true);
   });
 
   it('computes diff entries for changed fields', () => {
