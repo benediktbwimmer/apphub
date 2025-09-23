@@ -137,14 +137,44 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
   });
 }
 
+function normalizeWorkflowSchedule(schedule?: WorkflowTriggerInput['schedule']) {
+  if (!schedule) {
+    return undefined;
+  }
+
+  const normalized = {
+    cron: schedule.cron.trim(),
+    timezone: schedule.timezone ? schedule.timezone.trim() : null,
+    startWindow: schedule.startWindow ?? null,
+    endWindow: schedule.endWindow ?? null,
+    catchUp: schedule.catchUp ?? false
+  };
+
+  return normalized;
+}
+
 function normalizeWorkflowTriggers(triggers?: WorkflowTriggerInput[]) {
   if (!triggers) {
     return undefined;
   }
-  return triggers.map((trigger) => ({
-    type: trigger.type,
-    options: trigger.options ?? null
-  }));
+  return triggers.map((trigger) => {
+    const schedule = normalizeWorkflowSchedule(trigger.schedule);
+    const type = trigger.type.trim();
+    const payload: {
+      type: string;
+      options: JsonValue | null;
+      schedule?: typeof schedule;
+    } = {
+      type,
+      options: (trigger.options ?? null) as JsonValue | null
+    };
+
+    if (schedule) {
+      payload.schedule = schedule;
+    }
+
+    return payload;
+  });
 }
 
 const ANALYTICS_RANGE_OPTIONS = ['24h', '7d', '30d'] as const;

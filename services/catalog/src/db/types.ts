@@ -458,9 +458,18 @@ export type JobBundleVersionUpdateInput = {
   metadata?: JsonValue | null;
 };
 
+export type WorkflowTriggerScheduleDefinition = {
+  cron: string;
+  timezone?: string | null;
+  startWindow?: string | null;
+  endWindow?: string | null;
+  catchUp?: boolean;
+};
+
 export type WorkflowTriggerDefinition = {
   type: string;
   options?: JsonValue | null;
+  schedule?: WorkflowTriggerScheduleDefinition;
 };
 
 export type WorkflowDefinitionStepBase = {
@@ -557,8 +566,16 @@ export type WorkflowDefinitionRecord = {
   outputSchema: JsonValue;
   metadata: JsonValue | null;
   dag: WorkflowDagMetadata;
+  scheduleNextRunAt: string | null;
+  scheduleLastMaterializedWindow: WorkflowScheduleWindow | null;
+  scheduleCatchupCursor: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkflowScheduleWindow = {
+  start: string | null;
+  end: string | null;
 };
 
 export type WorkflowDefinitionCreateInput = {
@@ -586,6 +603,12 @@ export type WorkflowDefinitionUpdateInput = {
   outputSchema?: JsonValue;
   metadata?: JsonValue | null;
   dag?: WorkflowDagMetadata;
+};
+
+export type WorkflowScheduleMetadataUpdateInput = {
+  scheduleNextRunAt?: string | null;
+  scheduleLastMaterializedWindow?: WorkflowScheduleWindow | null;
+  scheduleCatchupCursor?: string | null;
 };
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';

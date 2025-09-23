@@ -213,6 +213,9 @@ export type WorkflowDefinitionRow = {
   output_schema: unknown;
   metadata: unknown;
   dag: unknown;
+  schedule_next_run_at: string | null;
+  schedule_last_materialized_window: unknown;
+  schedule_catchup_cursor: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -26,6 +26,7 @@ import {
   type JobBundleVersionStatus,
   type WorkflowDefinitionRecord,
   type WorkflowTriggerDefinition,
+  type WorkflowTriggerScheduleDefinition,
   type WorkflowStepDefinition,
   type WorkflowJobStepDefinition,
   type WorkflowFanOutStepDefinition,
@@ -38,7 +39,8 @@ import {
   type WorkflowRunRecord,
   type WorkflowRunStatus,
   type WorkflowRunStepRecord,
-  type WorkflowRunStepStatus
+  type WorkflowRunStepStatus,
+  type WorkflowScheduleWindow
 } from './types';
 import type {
   BuildRow,
@@ -254,6 +256,42 @@ function toJsonObjectOrNull(value: unknown): JsonValue | null {
   return null;
 }
 
+function parseWorkflowTriggerSchedule(value: unknown): WorkflowTriggerScheduleDefinition | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const cronRaw = record.cron;
+  if (typeof cronRaw !== 'string') {
+    return null;
+  }
+  const cron = cronRaw.trim();
+  if (!cron) {
+    return null;
+  }
+
+  const schedule: WorkflowTriggerScheduleDefinition = { cron };
+
+  const timezoneRaw = record.timezone;
+  if (typeof timezoneRaw === 'string' && timezoneRaw.trim().length > 0) {
+    schedule.timezone = timezoneRaw.trim();
+  }
+
+  if (typeof record.startWindow === 'string') {
+    schedule.startWindow = record.startWindow;
+  }
+
+  if (typeof record.endWindow === 'string') {
+    schedule.endWindow = record.endWindow;
+  }
+
+  if (typeof record.catchUp === 'boolean') {
+    schedule.catchUp = record.catchUp;
+  }
+
+  return schedule;
+}
+
 function parseWorkflowTriggers(value: unknown): WorkflowTriggerDefinition[] {
   if (!value) {
     return [];
@@ -284,9 +322,32 @@ function parseWorkflowTriggers(value: unknown): WorkflowTriggerDefinition[] {
           trigger.options = optionsValue;
         }
       }
+      if (Object.prototype.hasOwnProperty.call(entry, 'schedule')) {
+        const schedule = parseWorkflowTriggerSchedule((entry as Record<string, unknown>).schedule);
+        if (schedule) {
+          trigger.schedule = schedule;
+        }
+      }
       return trigger;
     })
     .filter((entry): entry is WorkflowTriggerDefinition => Boolean(entry));
+}
+
+function parseWorkflowScheduleWindow(value: unknown): WorkflowScheduleWindow | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = parseJsonColumn(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const record = parsed as Record<string, unknown>;
+  const start = typeof record.start === 'string' ? record.start : null;
+  const end = typeof record.end === 'string' ? record.end : null;
+  if (start === null && end === null) {
+    return null;
+  }
+  return { start, end } satisfies WorkflowScheduleWindow;
 }
 
 function parseSecretReference(value: unknown): SecretReference | null {
@@ -1039,6 +1100,9 @@ export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDe
     outputSchema: ensureJsonObject(row.output_schema),
     metadata: toJsonObjectOrNull(row.metadata),
     dag: parseWorkflowDag(row.dag),
+    scheduleNextRunAt: row.schedule_next_run_at ?? null,
+    scheduleLastMaterializedWindow: parseWorkflowScheduleWindow(row.schedule_last_materialized_window),
+    scheduleCatchupCursor: row.schedule_catchup_cursor ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowDefinitionRecord;

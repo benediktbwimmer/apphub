@@ -126,6 +126,15 @@ graph TD
 - Step handlers update only their slice of the workflow context using JSON patches. This prevents concurrent branches from clobbering `workflow_runs.context` and keeps shared values in sync even when fan-out/fan-in patterns execute.
 - Fan-out (one step to many dependents) and fan-in (multiple dependencies converging) scenarios are first-class: readiness is recalculated after every step completion, and the runtime metrics track total and completed steps across all branches.
 
+## Workflow Scheduling & Backfill
+- Workflow triggers now support a `type: "schedule"` variant with a `schedule` payload. Operators provide a cron expression (`cron`), optional `timezone`, and window bounds (`startWindow`/`endWindow` ISO-8601 timestamps). The optional `catchUp` flag tells the scheduler whether to materialize every missed occurrence or only enqueue the next run when the service comes back online.
+- Schedule metadata is persisted on each workflow definition: `schedule_next_run_at` tracks the next occurrence, `schedule_last_materialized_window` records the `{start, end}` window for the most recent run, and `schedule_catchup_cursor` keeps the cursor for the next backfill slice. This metadata is recomputed whenever triggers change and updated as the scheduler materializes runs.
+- The background scheduler (wired into `npm run workflows`) polls for definitions whose `schedule_next_run_at` is due, materializes the appropriate windows, creates workflow runs with a schedule-aware trigger payload (including the execution window), and enqueues them via the existing BullMQ pipeline. Catch-up windows are processed sequentially up to `WORKFLOW_SCHEDULER_MAX_WINDOWS` per tick so large backfills do not starve other schedules; remaining windows are retried on subsequent passes.
+- Scheduler behavior is tunable via environment variables:
+  - `WORKFLOW_SCHEDULER_INTERVAL_MS` (default `5000`) controls the polling cadence.
+  - `WORKFLOW_SCHEDULER_BATCH_SIZE` (default `10`) bounds how many definitions are examined per tick.
+  - `WORKFLOW_SCHEDULER_MAX_WINDOWS` (default `25`) sets the maximum number of catch-up windows materialized per definition in a single iteration.
+
 ## Security & Access Controls
 - Operator and service automations authenticate with scoped bearer tokens supplied via `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH`. Scopes (`jobs:write`, `jobs:run`, `workflows:write`, `workflows:run`) gate job/workflow definition changes and manual executions.
 - The catalog API exposes `GET /auth/identity`, allowing the frontend to introspect the active token’s subject and scopes so UI controls (create/edit workflow actions) can be hidden or disabled for unauthorized operators.
