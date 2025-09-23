@@ -120,6 +120,53 @@ export type WorkflowRunStep = {
   templateStepId?: string | null;
 };
 
+export type WorkflowAssetFreshness = {
+  maxAgeMs?: number | null;
+  ttlMs?: number | null;
+  cadenceMs?: number | null;
+};
+
+export type WorkflowAssetRoleDescriptor = {
+  stepId: string;
+  stepName: string;
+  stepType: 'job' | 'service' | 'fanout';
+  schema: unknown;
+  freshness: WorkflowAssetFreshness | null;
+};
+
+export type WorkflowAssetSnapshot = {
+  runId: string;
+  runStatus: string;
+  stepId: string;
+  stepName: string;
+  stepType: 'job' | 'service' | 'fanout';
+  stepStatus: string;
+  producedAt: string;
+  payload: unknown;
+  schema: unknown;
+  freshness: WorkflowAssetFreshness | null;
+  runStartedAt: string | null;
+  runCompletedAt: string | null;
+};
+
+export type WorkflowAssetInventoryEntry = {
+  assetId: string;
+  producers: WorkflowAssetRoleDescriptor[];
+  consumers: WorkflowAssetRoleDescriptor[];
+  latest: WorkflowAssetSnapshot | null;
+  available: boolean;
+};
+
+export type WorkflowAssetHistoryEntry = WorkflowAssetSnapshot;
+
+export type WorkflowAssetDetail = {
+  assetId: string;
+  producers: WorkflowAssetRoleDescriptor[];
+  consumers: WorkflowAssetRoleDescriptor[];
+  history: WorkflowAssetHistoryEntry[];
+  limit: number;
+};
+
 export type WorkflowFiltersState = {
   statuses: string[];
   repos: string[];

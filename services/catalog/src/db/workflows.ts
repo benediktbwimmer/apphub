@@ -17,17 +17,30 @@ import {
   type JsonValue,
   type WorkflowTriggerDefinition,
   type WorkflowScheduleWindow,
-  type WorkflowScheduleMetadataUpdateInput
+  type WorkflowScheduleMetadataUpdateInput,
+  type WorkflowStepDefinition,
+  type WorkflowAssetDeclaration,
+  type WorkflowAssetDeclarationRecord,
+  type WorkflowAssetDirection,
+  type WorkflowRunStepAssetRecord,
+  type WorkflowRunStepAssetInput,
+  type WorkflowAssetSnapshotRecord
 } from './types';
 import {
   mapWorkflowDefinitionRow,
   mapWorkflowRunRow,
-  mapWorkflowRunStepRow
+  mapWorkflowRunStepRow,
+  mapWorkflowAssetDeclarationRow,
+  mapWorkflowRunStepAssetRow,
+  mapWorkflowAssetSnapshotRow
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
   WorkflowRunRow,
-  WorkflowRunStepRow
+  WorkflowRunStepRow,
+  WorkflowAssetDeclarationRow,
+  WorkflowRunStepAssetRow,
+  WorkflowAssetSnapshotRow
 } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
 
@@ -74,6 +87,12 @@ type AnalyticsOptions = {
 
 type MetricsOptions = AnalyticsOptions & {
   bucketInterval?: string;
+};
+
+type AssetDeclarationRowInput = {
+  stepId: string;
+  direction: WorkflowAssetDirection;
+  asset: WorkflowAssetDeclaration;
 };
 
 function normalizeTimeRange({ from, to }: AnalyticsOptions): AnalyticsTimeRange {
@@ -353,6 +372,220 @@ function emitWorkflowRunEvents(run: WorkflowRunRecord | null, { forceUpdatedEven
   emitApphubEvent({ type: statusEvent, data: { run } });
 }
 
+function extractStepAssetDeclarations(
+  stepId: string,
+  step: { produces?: WorkflowAssetDeclaration[]; consumes?: WorkflowAssetDeclaration[] }
+): AssetDeclarationRowInput[] {
+  const declarations: AssetDeclarationRowInput[] = [];
+
+  if (Array.isArray(step.produces)) {
+    for (const asset of step.produces) {
+      if (!asset || typeof asset.assetId !== 'string' || asset.assetId.trim().length === 0) {
+        continue;
+      }
+      declarations.push({
+        stepId,
+        direction: 'produces',
+        asset: {
+          assetId: asset.assetId.trim(),
+          schema: asset.schema ?? null,
+          freshness: asset.freshness ?? null
+        }
+      });
+    }
+  }
+
+  if (Array.isArray(step.consumes)) {
+    for (const asset of step.consumes) {
+      if (!asset || typeof asset.assetId !== 'string' || asset.assetId.trim().length === 0) {
+        continue;
+      }
+      declarations.push({
+        stepId,
+        direction: 'consumes',
+        asset: {
+          assetId: asset.assetId.trim(),
+          schema: asset.schema ?? null,
+          freshness: asset.freshness ?? null
+        }
+      });
+    }
+  }
+
+  return declarations;
+}
+
+function collectWorkflowAssetDeclarations(
+  steps: WorkflowStepDefinition[]
+): AssetDeclarationRowInput[] {
+  const collected: AssetDeclarationRowInput[] = [];
+  for (const step of steps) {
+    collected.push(...extractStepAssetDeclarations(step.id, step));
+    if (step.type === 'fanout') {
+      collected.push(...extractStepAssetDeclarations(step.template.id, step.template));
+    }
+  }
+  return collected;
+}
+
+async function replaceWorkflowAssetDeclarations(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  steps: WorkflowStepDefinition[]
+): Promise<void> {
+  const declarations = collectWorkflowAssetDeclarations(steps);
+
+  await client.query('DELETE FROM workflow_asset_declarations WHERE workflow_definition_id = $1', [
+    workflowDefinitionId
+  ]);
+
+  if (declarations.length === 0) {
+    return;
+  }
+
+  const values: string[] = [];
+  const params: unknown[] = [];
+  let index = 1;
+
+  for (const declaration of declarations) {
+    const id = randomUUID();
+    values.push(
+      `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
+    );
+    params.push(
+      id,
+      workflowDefinitionId,
+      declaration.stepId,
+      declaration.direction,
+      declaration.asset.assetId,
+      declaration.asset.schema ?? null,
+      declaration.asset.freshness ?? null
+    );
+  }
+
+  await client.query(
+    `INSERT INTO workflow_asset_declarations (
+       id,
+       workflow_definition_id,
+       step_id,
+       direction,
+       asset_id,
+       asset_schema,
+       freshness
+     )
+     VALUES ${values.join(', ')}
+     ON CONFLICT (workflow_definition_id, step_id, direction, asset_id)
+     DO UPDATE
+       SET asset_schema = EXCLUDED.asset_schema,
+           freshness = EXCLUDED.freshness,
+           updated_at = NOW()`,
+    params
+  );
+}
+
+async function fetchWorkflowAssetDeclarationsByDefinitionId(
+  client: PoolClient,
+  workflowDefinitionId: string
+): Promise<WorkflowAssetDeclarationRecord[]> {
+  const { rows } = await client.query<WorkflowAssetDeclarationRow>(
+    `SELECT *
+       FROM workflow_asset_declarations
+       WHERE workflow_definition_id = $1
+       ORDER BY step_id, direction, asset_id`,
+    [workflowDefinitionId]
+  );
+  return rows.map(mapWorkflowAssetDeclarationRow);
+}
+
+async function fetchWorkflowAssetDeclarationsBySlug(
+  client: PoolClient,
+  slug: string
+): Promise<WorkflowAssetDeclarationRecord[]> {
+  const { rows } = await client.query<WorkflowAssetDeclarationRow>(
+    `SELECT declarations.*
+       FROM workflow_asset_declarations declarations
+       INNER JOIN workflow_definitions defs ON defs.id = declarations.workflow_definition_id
+       WHERE defs.slug = $1
+       ORDER BY declarations.step_id, declarations.direction, declarations.asset_id`,
+    [slug]
+  );
+  return rows.map(mapWorkflowAssetDeclarationRow);
+}
+
+async function fetchWorkflowRunStepAssets(
+  client: PoolClient,
+  runStepIds: string[]
+): Promise<Map<string, WorkflowRunStepAssetRecord[]>> {
+  if (runStepIds.length === 0) {
+    return new Map();
+  }
+
+  const { rows } = await client.query<WorkflowRunStepAssetRow>(
+    `SELECT *
+       FROM workflow_run_step_assets
+       WHERE workflow_run_step_id = ANY($1::text[])
+       ORDER BY produced_at DESC`,
+    [runStepIds]
+  );
+
+  const assetsByStepId = new Map<string, WorkflowRunStepAssetRecord[]>();
+  for (const row of rows) {
+    const record = mapWorkflowRunStepAssetRow(row);
+    const existing = assetsByStepId.get(row.workflow_run_step_id);
+    if (existing) {
+      existing.push(record);
+    } else {
+      assetsByStepId.set(row.workflow_run_step_id, [record]);
+    }
+  }
+  return assetsByStepId;
+}
+
+async function fetchLatestWorkflowAssetSnapshots(
+  client: PoolClient,
+  workflowDefinitionId: string
+): Promise<WorkflowAssetSnapshotRecord[]> {
+  const { rows } = await client.query<WorkflowAssetSnapshotRow>(
+    `SELECT DISTINCT ON (asset.asset_id)
+         asset.*,
+         step.status AS step_status,
+         run.status AS run_status,
+         run.started_at AS run_started_at,
+         run.completed_at AS run_completed_at
+       FROM workflow_run_step_assets asset
+       JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
+       JOIN workflow_runs run ON run.id = asset.workflow_run_id
+       WHERE asset.workflow_definition_id = $1
+       ORDER BY asset.asset_id, asset.produced_at DESC`,
+    [workflowDefinitionId]
+  );
+  return rows.map(mapWorkflowAssetSnapshotRow);
+}
+
+async function fetchWorkflowAssetHistory(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string,
+  limit: number
+): Promise<WorkflowAssetSnapshotRecord[]> {
+  const { rows } = await client.query<WorkflowAssetSnapshotRow>(
+    `SELECT asset.*,
+            step.status AS step_status,
+            run.status AS run_status,
+            run.started_at AS run_started_at,
+            run.completed_at AS run_completed_at
+       FROM workflow_run_step_assets asset
+       JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
+       JOIN workflow_runs run ON run.id = asset.workflow_run_id
+      WHERE asset.workflow_definition_id = $1
+        AND asset.asset_id = $2
+      ORDER BY asset.produced_at DESC
+      LIMIT $3`,
+    [workflowDefinitionId, assetId, limit]
+  );
+  return rows.map(mapWorkflowAssetSnapshotRow);
+}
+
 async function fetchWorkflowDefinitionById(
   client: PoolClient,
   id: string
@@ -407,6 +640,39 @@ export async function getWorkflowDefinitionBySlug(slug: string): Promise<Workflo
 
 export async function getWorkflowDefinitionById(id: string): Promise<WorkflowDefinitionRecord | null> {
   return useConnection((client) => fetchWorkflowDefinitionById(client, id));
+}
+
+export async function listWorkflowAssetDeclarations(
+  workflowDefinitionId: string
+): Promise<WorkflowAssetDeclarationRecord[]> {
+  return useConnection((client) =>
+    fetchWorkflowAssetDeclarationsByDefinitionId(client, workflowDefinitionId)
+  );
+}
+
+export async function listWorkflowAssetDeclarationsBySlug(
+  slug: string
+): Promise<WorkflowAssetDeclarationRecord[]> {
+  return useConnection((client) => fetchWorkflowAssetDeclarationsBySlug(client, slug));
+}
+
+export async function listLatestWorkflowAssetSnapshots(
+  workflowDefinitionId: string
+): Promise<WorkflowAssetSnapshotRecord[]> {
+  return useConnection((client) =>
+    fetchLatestWorkflowAssetSnapshots(client, workflowDefinitionId)
+  );
+}
+
+export async function listWorkflowAssetHistory(
+  workflowDefinitionId: string,
+  assetId: string,
+  { limit = 10 }: { limit?: number } = {}
+): Promise<WorkflowAssetSnapshotRecord[]> {
+  const normalizedLimit = Math.max(1, Math.min(limit, 100));
+  return useConnection((client) =>
+    fetchWorkflowAssetHistory(client, workflowDefinitionId, assetId, normalizedLimit)
+  );
 }
 
 export async function createWorkflowDefinition(
@@ -506,6 +772,8 @@ export async function createWorkflowDefinition(
         throw new Error('failed to insert workflow definition');
       }
       definition = mapWorkflowDefinitionRow(rows[0]);
+
+      await replaceWorkflowAssetDeclarations(client, id, steps);
     } catch (err) {
       if (err instanceof Error && 'code' in err && (err as { code?: string }).code === '23505') {
         throw new Error(`Workflow definition with slug "${input.slug}" already exists`);
@@ -613,13 +881,16 @@ export async function updateWorkflowDefinition(
         metadataJson,
         dagJson,
         scheduleNextRunAt,
-        scheduleLastWindowJson,
-        scheduleCatchupCursor
+       scheduleLastWindowJson,
+       scheduleCatchupCursor
       ]
     );
     if (rows.length === 0) {
       return;
     }
+
+    await replaceWorkflowAssetDeclarations(client, existing.id, nextSteps);
+
     definition = mapWorkflowDefinitionRow(rows[0]);
   });
 
@@ -1026,7 +1297,11 @@ export async function listWorkflowRunSteps(
        ORDER BY created_at ASC`,
       [workflowRunId]
     );
-    return rows.map(mapWorkflowRunStepRow);
+    const assets = await fetchWorkflowRunStepAssets(
+      client,
+      rows.map((row) => row.id)
+    );
+    return rows.map((row) => mapWorkflowRunStepRow(row, assets.get(row.id) ?? []));
   });
 }
 
@@ -1039,7 +1314,8 @@ export async function getWorkflowRunStepById(stepId: string): Promise<WorkflowRu
     if (rows.length === 0) {
       return null;
     }
-    return mapWorkflowRunStepRow(rows[0]);
+    const assets = await fetchWorkflowRunStepAssets(client, [stepId]);
+    return mapWorkflowRunStepRow(rows[0], assets.get(stepId) ?? []);
   });
 }
 
@@ -1055,7 +1331,71 @@ export async function getWorkflowRunStep(
     if (rows.length === 0) {
       return null;
     }
-    return mapWorkflowRunStepRow(rows[0]);
+    const assets = await fetchWorkflowRunStepAssets(client, [rows[0].id]);
+    return mapWorkflowRunStepRow(rows[0], assets.get(rows[0].id) ?? []);
+  });
+}
+
+export async function recordWorkflowRunStepAssets(
+  workflowDefinitionId: string,
+  workflowRunId: string,
+  workflowRunStepId: string,
+  stepId: string,
+  assets: WorkflowRunStepAssetInput[]
+): Promise<WorkflowRunStepAssetRecord[]> {
+  return useTransaction(async (client) => {
+    await client.query('DELETE FROM workflow_run_step_assets WHERE workflow_run_step_id = $1', [
+      workflowRunStepId
+    ]);
+
+    if (assets.length === 0) {
+      return [];
+    }
+
+    const now = new Date().toISOString();
+    const values: string[] = [];
+    const params: unknown[] = [];
+    let index = 1;
+
+    for (const asset of assets) {
+      const id = randomUUID();
+      const producedAt = asset.producedAt ?? now;
+      values.push(
+        `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
+      );
+      params.push(
+        id,
+        workflowDefinitionId,
+        workflowRunId,
+        workflowRunStepId,
+        stepId,
+        asset.assetId,
+        asset.payload ?? null,
+        asset.schema ?? null,
+        asset.freshness ?? null,
+        producedAt
+      );
+    }
+
+    const { rows } = await client.query<WorkflowRunStepAssetRow>(
+      `INSERT INTO workflow_run_step_assets (
+         id,
+         workflow_definition_id,
+         workflow_run_id,
+         workflow_run_step_id,
+         step_id,
+         asset_id,
+         payload,
+         asset_schema,
+         freshness,
+         produced_at
+       )
+       VALUES ${values.join(', ')}
+       RETURNING *`,
+      params
+    );
+
+    return rows.map(mapWorkflowRunStepAssetRow);
   });
 }
 
@@ -1138,7 +1478,8 @@ export async function updateWorkflowRunStep(
     if (updatedRows.length === 0) {
       return;
     }
-    updated = mapWorkflowRunStepRow(updatedRows[0]);
+    const assets = await fetchWorkflowRunStepAssets(client, [stepId]);
+    updated = mapWorkflowRunStepRow(updatedRows[0], assets.get(stepId) ?? []);
   });
 
   return updated;

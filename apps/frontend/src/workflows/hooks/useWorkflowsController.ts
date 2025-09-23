@@ -31,10 +31,14 @@ import {
   listWorkflowRunSteps,
   updateWorkflowDefinition,
   fetchOperatorIdentity,
+  fetchWorkflowAssets,
+  fetchWorkflowAssetHistory,
   ApiError,
   type WorkflowCreateInput
 } from '../api';
 import type {
+  WorkflowAssetDetail,
+  WorkflowAssetInventoryEntry,
   WorkflowDefinition,
   WorkflowFiltersState,
   WorkflowRunMetricsSummary,
@@ -131,6 +135,14 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
   const [stepsLoading, setStepsLoading] = useState(false);
   const [stepsError, setStepsError] = useState<string | null>(null);
 
+  const [assetInventories, setAssetInventories] = useState<Record<string, WorkflowAssetInventoryEntry[]>>({});
+  const [assetInventoryLoading, setAssetInventoryLoading] = useState(false);
+  const [assetInventoryError, setAssetInventoryError] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetDetails, setAssetDetails] = useState<Record<string, WorkflowAssetDetail | null>>({});
+  const [assetDetailLoading, setAssetDetailLoading] = useState(false);
+  const [assetDetailError, setAssetDetailError] = useState<string | null>(null);
+
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create');
   const [builderWorkflow, setBuilderWorkflow] = useState<WorkflowDefinition | null>(null);
@@ -167,6 +179,18 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId]
   );
+
+  const assetInventory = useMemo(
+    () => (selectedSlug ? assetInventories[selectedSlug] ?? [] : []),
+    [assetInventories, selectedSlug]
+  );
+
+  const assetDetail = useMemo(() => {
+    if (!selectedSlug || !selectedAssetId) {
+      return null;
+    }
+    return assetDetails[`${selectedSlug}:${selectedAssetId}`] ?? null;
+  }, [assetDetails, selectedAssetId, selectedSlug]);
 
   const workflowSummaries = useMemo<WorkflowSummary[]>(() => {
     return workflows.map((workflow) => {
@@ -403,6 +427,54 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     }
   }, [authorizedFetch, updateRuntimeSummary]);
 
+  const loadAssetHistory = useCallback(
+    async (assetId: string, options: { limit?: number } = {}) => {
+      if (!selectedSlug) {
+        return;
+      }
+      setAssetDetailLoading(true);
+      setAssetDetailError(null);
+      try {
+        const detail = await fetchWorkflowAssetHistory(authorizedFetch, selectedSlug, assetId, options);
+        setAssetDetails((previous) => ({
+          ...previous,
+          [`${selectedSlug}:${assetId}`]: detail
+        }));
+        setSelectedAssetId(assetId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load asset history';
+        setAssetDetailError(message);
+        pushToast({
+          title: 'Workflow asset history',
+          description: message,
+          tone: 'critical'
+        });
+      } finally {
+        setAssetDetailLoading(false);
+      }
+    },
+    [authorizedFetch, pushToast, selectedSlug]
+  );
+
+  const selectAsset = useCallback(
+    (assetId: string) => {
+      if (!selectedSlug) {
+        return;
+      }
+      const cacheKey = `${selectedSlug}:${assetId}`;
+      setSelectedAssetId(assetId);
+      if (!(cacheKey in assetDetails)) {
+        void loadAssetHistory(assetId);
+      }
+    },
+    [assetDetails, loadAssetHistory, selectedSlug]
+  );
+
+  const clearSelectedAsset = useCallback(() => {
+    setSelectedAssetId(null);
+    setAssetDetailError(null);
+  }, []);
+
   const handleAnalyticsSnapshot = useCallback((snapshot: unknown) => {
     if (!snapshot || typeof snapshot !== 'object') {
       return;
@@ -519,6 +591,51 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     void loadWorkflowDetail(selectedSlug);
     void loadWorkflowAnalytics(selectedSlug);
   }, [selectedSlug, loadWorkflowDetail, loadWorkflowAnalytics]);
+
+  useEffect(() => {
+    setSelectedAssetId(null);
+    setAssetDetailError(null);
+    setAssetDetailLoading(false);
+
+    if (!selectedSlug) {
+      return;
+    }
+
+    let cancelled = false;
+    setAssetInventoryLoading(true);
+    setAssetInventoryError(null);
+
+    const loadAssets = async () => {
+      try {
+        const assets = await fetchWorkflowAssets(authorizedFetch, selectedSlug);
+        if (cancelled) {
+          return;
+        }
+        setAssetInventories((previous) => ({ ...previous, [selectedSlug]: assets }));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof ApiError ? error.message : 'Failed to load workflow assets';
+        setAssetInventoryError(message);
+        pushToast({
+          title: 'Workflow assets',
+          description: message,
+          tone: 'critical'
+        });
+      } finally {
+        if (!cancelled) {
+          setAssetInventoryLoading(false);
+        }
+      }
+    };
+
+    void loadAssets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, pushToast, selectedSlug]);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -993,6 +1110,16 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     stepsLoading,
     stepsError,
     selectedRun,
+    assetInventory,
+    assetInventoryLoading,
+    assetInventoryError,
+    selectedAssetId,
+    assetDetail,
+    assetDetailLoading,
+    assetDetailError,
+    selectAsset,
+    clearSelectedAsset,
+    loadAssetHistory,
     workflowRuntimeSummaries,
     workflowAnalytics,
     setWorkflowAnalyticsRange,

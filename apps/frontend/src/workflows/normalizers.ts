@@ -1,4 +1,8 @@
 import type {
+  WorkflowAssetDetail,
+  WorkflowAssetInventoryEntry,
+  WorkflowAssetRoleDescriptor,
+  WorkflowAssetSnapshot,
   WorkflowDefinition,
   WorkflowFanOutTemplateStep,
   WorkflowFiltersState,
@@ -598,6 +602,156 @@ export function summarizeWorkflowMetadata(workflow: WorkflowDefinition) {
     tags: Array.from(tags),
     status: status ?? 'unknown'
   } satisfies Pick<WorkflowSummary, 'repos' | 'services' | 'tags' | 'status'>;
+}
+
+function normalizeAssetFreshnessValue(value: unknown): WorkflowAssetRoleDescriptor['freshness'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const freshness: WorkflowAssetRoleDescriptor['freshness'] = {};
+  if (typeof record.maxAgeMs === 'number' && Number.isFinite(record.maxAgeMs)) {
+    freshness.maxAgeMs = record.maxAgeMs;
+  }
+  if (typeof record.ttlMs === 'number' && Number.isFinite(record.ttlMs)) {
+    freshness.ttlMs = record.ttlMs;
+  }
+  if (typeof record.cadenceMs === 'number' && Number.isFinite(record.cadenceMs)) {
+    freshness.cadenceMs = record.cadenceMs;
+  }
+  return Object.keys(freshness).length > 0 ? freshness : null;
+}
+
+function normalizeAssetRoleDescriptor(raw: unknown): WorkflowAssetRoleDescriptor | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const stepId = typeof record.stepId === 'string' ? record.stepId : null;
+  if (!stepId) {
+    return null;
+  }
+  const stepName = typeof record.stepName === 'string' ? record.stepName : stepId;
+  const rawType = typeof record.stepType === 'string' ? record.stepType.toLowerCase() : null;
+  const stepType: WorkflowAssetRoleDescriptor['stepType'] =
+    rawType === 'service' ? 'service' : rawType === 'fanout' ? 'fanout' : 'job';
+
+  return {
+    stepId,
+    stepName,
+    stepType,
+    schema: 'schema' in record ? record.schema : null,
+    freshness: normalizeAssetFreshnessValue(record.freshness)
+  };
+}
+
+function normalizeAssetSnapshot(raw: unknown): WorkflowAssetSnapshot | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const runId = typeof record.runId === 'string' ? record.runId : null;
+  const stepId = typeof record.stepId === 'string' ? record.stepId : null;
+  const producedAt = typeof record.producedAt === 'string' ? record.producedAt : null;
+  if (!runId || !stepId || !producedAt) {
+    return null;
+  }
+  const runStatus = typeof record.runStatus === 'string' ? record.runStatus : 'unknown';
+  const stepStatus = typeof record.stepStatus === 'string' ? record.stepStatus : 'unknown';
+  const stepName = typeof record.stepName === 'string' ? record.stepName : stepId;
+  const rawType = typeof record.stepType === 'string' ? record.stepType.toLowerCase() : null;
+  const stepType: WorkflowAssetSnapshot['stepType'] =
+    rawType === 'service' ? 'service' : rawType === 'fanout' ? 'fanout' : 'job';
+
+  return {
+    runId,
+    runStatus,
+    stepId,
+    stepName,
+    stepType,
+    stepStatus,
+    producedAt,
+    payload: 'payload' in record ? record.payload : null,
+    schema: 'schema' in record ? record.schema : null,
+    freshness: normalizeAssetFreshnessValue(record.freshness),
+    runStartedAt: typeof record.runStartedAt === 'string' ? record.runStartedAt : null,
+    runCompletedAt: typeof record.runCompletedAt === 'string' ? record.runCompletedAt : null
+  };
+}
+
+export function normalizeWorkflowAssetInventoryResponse(payload: unknown): WorkflowAssetInventoryEntry[] {
+  const root = toRecord(payload);
+  if (!root) {
+    return [];
+  }
+  const data = toRecord(root.data);
+  if (!data) {
+    return [];
+  }
+  const entries = Array.isArray(data.assets) ? data.assets : [];
+  const normalized: WorkflowAssetInventoryEntry[] = [];
+  for (const entry of entries) {
+    const record = toRecord(entry);
+    if (!record) {
+      continue;
+    }
+    const assetId = typeof record.assetId === 'string' ? record.assetId : '';
+    if (!assetId) {
+      continue;
+    }
+    const producers = Array.isArray(record.producers)
+      ? record.producers
+          .map(normalizeAssetRoleDescriptor)
+          .filter((value): value is WorkflowAssetRoleDescriptor => Boolean(value))
+      : [];
+    const consumers = Array.isArray(record.consumers)
+      ? record.consumers
+          .map(normalizeAssetRoleDescriptor)
+          .filter((value): value is WorkflowAssetRoleDescriptor => Boolean(value))
+      : [];
+    const latest = 'latest' in record ? normalizeAssetSnapshot(record.latest) : null;
+    const available = Boolean(record.available);
+    normalized.push({ assetId, producers, consumers, latest, available });
+  }
+  return normalized;
+}
+
+export function normalizeWorkflowAssetDetailResponse(payload: unknown): WorkflowAssetDetail | null {
+  const root = toRecord(payload);
+  if (!root) {
+    return null;
+  }
+  const data = toRecord(root.data);
+  if (!data) {
+    return null;
+  }
+  const assetId = typeof data.assetId === 'string' ? data.assetId : null;
+  if (!assetId) {
+    return null;
+  }
+  const producers = Array.isArray(data.producers)
+    ? data.producers
+        .map(normalizeAssetRoleDescriptor)
+        .filter((value): value is WorkflowAssetRoleDescriptor => Boolean(value))
+    : [];
+  const consumers = Array.isArray(data.consumers)
+    ? data.consumers
+        .map(normalizeAssetRoleDescriptor)
+        .filter((value): value is WorkflowAssetRoleDescriptor => Boolean(value))
+    : [];
+  const historyEntries = Array.isArray(data.history) ? data.history : [];
+  const history = historyEntries
+    .map(normalizeAssetSnapshot)
+    .filter((value): value is WorkflowAssetSnapshot => Boolean(value));
+  const limit = typeof data.limit === 'number' && Number.isFinite(data.limit) ? data.limit : history.length;
+
+  return {
+    assetId,
+    producers,
+    consumers,
+    history,
+    limit
+  };
 }
 
 export function buildFilterOptions(values: string[]): Array<{ value: string; label: string; count: number }> {

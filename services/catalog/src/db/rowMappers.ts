@@ -40,7 +40,12 @@ import {
   type WorkflowRunStatus,
   type WorkflowRunStepRecord,
   type WorkflowRunStepStatus,
-  type WorkflowScheduleWindow
+  type WorkflowScheduleWindow,
+  type WorkflowAssetDeclaration,
+  type WorkflowAssetDeclarationRecord,
+  type WorkflowAssetDirection,
+  type WorkflowRunStepAssetRecord,
+  type WorkflowAssetSnapshotRecord
 } from './types';
 import type {
   BuildRow,
@@ -58,8 +63,11 @@ import type {
   JobBundleRow,
   JobBundleVersionRow,
   WorkflowDefinitionRow,
+  WorkflowAssetDeclarationRow,
   WorkflowRunRow,
-  WorkflowRunStepRow
+  WorkflowRunStepRow,
+  WorkflowRunStepAssetRow,
+  WorkflowAssetSnapshotRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -168,6 +176,95 @@ export function parseStringArray(value: unknown): string[] {
     }
   }
   return [];
+}
+
+function parseAssetFreshness(value: unknown): WorkflowAssetDeclaration['freshness'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const freshness: WorkflowAssetDeclaration['freshness'] = {};
+
+  const maxAge = candidate.maxAgeMs ?? candidate.max_age_ms;
+  if (typeof maxAge === 'number' && Number.isFinite(maxAge) && maxAge > 0) {
+    freshness.maxAgeMs = Math.floor(maxAge);
+  }
+
+  const ttl = candidate.ttlMs ?? candidate.ttl_ms;
+  if (typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0) {
+    freshness.ttlMs = Math.floor(ttl);
+  }
+
+  const cadence = candidate.cadenceMs ?? candidate.cadence_ms;
+  if (typeof cadence === 'number' && Number.isFinite(cadence) && cadence > 0) {
+    freshness.cadenceMs = Math.floor(cadence);
+  }
+
+  return Object.keys(freshness).length > 0 ? freshness : null;
+}
+
+function parseWorkflowAssetDeclarations(value: unknown): WorkflowAssetDeclaration[] {
+  if (!value) {
+    return [];
+  }
+
+  let entries: unknown[] = [];
+
+  if (Array.isArray(value)) {
+    entries = value;
+  } else if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parseWorkflowAssetDeclarations(parsed);
+    } catch {
+      return [];
+    }
+  } else if (typeof value === 'object' && value !== null) {
+    entries = Array.isArray(value)
+      ? value
+      : Object.values(value as Record<string, unknown>);
+  }
+
+  const seen = new Set<string>();
+  const declarations: WorkflowAssetDeclaration[] = [];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const assetIdValue = record.assetId ?? record.asset_id;
+    if (typeof assetIdValue !== 'string') {
+      continue;
+    }
+    const assetId = assetIdValue.trim();
+    if (!assetId) {
+      continue;
+    }
+    const key = assetId.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const declaration: WorkflowAssetDeclaration = { assetId };
+
+    const schemaValue = record.schema ?? record.assetSchema ?? record.asset_schema;
+    const schema = toJsonValue(schemaValue);
+    if (schema && typeof schema === 'object' && !Array.isArray(schema)) {
+      declaration.schema = schema;
+    }
+
+    const freshness = parseAssetFreshness(record.freshness);
+    if (freshness) {
+      declaration.freshness = freshness;
+    }
+
+    declarations.push(declaration);
+  }
+
+  return declarations;
 }
 
 function toJsonValue(value: unknown): JsonValue | null {
@@ -536,6 +633,16 @@ function parseServiceWorkflowStep(
     step.storeResponseAs = storeResponseAs;
   }
 
+  const produces = parseWorkflowAssetDeclarations((record as Record<string, unknown>).produces);
+  if (produces.length > 0) {
+    step.produces = produces;
+  }
+
+  const consumes = parseWorkflowAssetDeclarations((record as Record<string, unknown>).consumes);
+  if (consumes.length > 0) {
+    step.consumes = consumes;
+  }
+
   return step;
 }
 
@@ -623,6 +730,16 @@ function parseJobWorkflowStep(
         };
       }
     }
+  }
+
+  const produces = parseWorkflowAssetDeclarations((record as Record<string, unknown>).produces);
+  if (produces.length > 0) {
+    step.produces = produces;
+  }
+
+  const consumes = parseWorkflowAssetDeclarations((record as Record<string, unknown>).consumes);
+  if (consumes.length > 0) {
+    step.consumes = consumes;
   }
 
   return step;
@@ -767,6 +884,16 @@ function parseWorkflowSteps(value: unknown): WorkflowStepDefinition[] {
             : '';
       if (storeResultsAsRaw) {
         fanOutStep.storeResultsAs = storeResultsAsRaw;
+      }
+
+      const fanOutProduces = parseWorkflowAssetDeclarations(record.produces);
+      if (fanOutProduces.length > 0) {
+        fanOutStep.produces = fanOutProduces;
+      }
+
+      const fanOutConsumes = parseWorkflowAssetDeclarations(record.consumes);
+      if (fanOutConsumes.length > 0) {
+        fanOutStep.consumes = fanOutConsumes;
       }
 
       seenIds.add(id);
@@ -1142,6 +1269,27 @@ export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDe
   } satisfies WorkflowDefinitionRecord;
 }
 
+export function mapWorkflowAssetDeclarationRow(
+  row: WorkflowAssetDeclarationRow
+): WorkflowAssetDeclarationRecord {
+  const schema = toJsonObjectOrNull(row.asset_schema);
+  const freshness = parseAssetFreshness(row.freshness);
+
+  const direction: WorkflowAssetDirection = row.direction === 'consumes' ? 'consumes' : 'produces';
+
+  return {
+    id: row.id,
+    workflowDefinitionId: row.workflow_definition_id,
+    stepId: row.step_id,
+    direction,
+    assetId: row.asset_id,
+    schema,
+    freshness: freshness ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowAssetDeclarationRecord;
+}
+
 export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
   return {
     id: row.id,
@@ -1164,7 +1312,29 @@ export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
   } satisfies WorkflowRunRecord;
 }
 
-export function mapWorkflowRunStepRow(row: WorkflowRunStepRow): WorkflowRunStepRecord {
+export function mapWorkflowRunStepAssetRow(
+  row: WorkflowRunStepAssetRow
+): WorkflowRunStepAssetRecord {
+  return {
+    id: row.id,
+    workflowDefinitionId: row.workflow_definition_id,
+    workflowRunId: row.workflow_run_id,
+    workflowRunStepId: row.workflow_run_step_id,
+    stepId: row.step_id,
+    assetId: row.asset_id,
+    payload: toJsonValue(row.payload),
+    schema: toJsonObjectOrNull(row.asset_schema),
+    freshness: parseAssetFreshness(row.freshness) ?? null,
+    producedAt: row.produced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowRunStepAssetRecord;
+}
+
+export function mapWorkflowRunStepRow(
+  row: WorkflowRunStepRow,
+  assets: WorkflowRunStepAssetRecord[] = []
+): WorkflowRunStepRecord {
   return {
     id: row.id,
     workflowRunId: row.workflow_run_id,
@@ -1183,7 +1353,23 @@ export function mapWorkflowRunStepRow(row: WorkflowRunStepRow): WorkflowRunStepR
     parentStepId: row.parent_step_id,
     fanoutIndex: row.fanout_index,
     templateStepId: row.template_step_id,
+    producedAssets: assets,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepRecord;
+}
+
+export function mapWorkflowAssetSnapshotRow(
+  row: WorkflowAssetSnapshotRow
+): WorkflowAssetSnapshotRecord {
+  const assetRecord = mapWorkflowRunStepAssetRow(row as WorkflowRunStepAssetRow);
+  return {
+    asset: assetRecord,
+    workflowRunId: row.workflow_run_id,
+    workflowStepId: row.step_id,
+    stepStatus: normalizeWorkflowRunStepStatus(row.step_status),
+    runStatus: normalizeWorkflowRunStatus(row.run_status),
+    runStartedAt: row.run_started_at ?? null,
+    runCompletedAt: row.run_completed_at ?? null
+  } satisfies WorkflowAssetSnapshotRecord;
 }

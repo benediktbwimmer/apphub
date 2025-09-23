@@ -334,6 +334,7 @@ export function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
     logsUrl: step.logsUrl,
     metrics: step.metrics,
     context: step.context,
+    producedAssets: step.producedAssets,
     startedAt: step.startedAt,
     completedAt: step.completedAt,
     parentStepId: step.parentStepId,

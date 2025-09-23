@@ -221,6 +221,18 @@ export type WorkflowDefinitionRow = {
   updated_at: string;
 };
 
+export type WorkflowAssetDeclarationRow = {
+  id: string;
+  workflow_definition_id: string;
+  step_id: string;
+  direction: string;
+  asset_id: string;
+  asset_schema: unknown;
+  freshness: unknown;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkflowRunRow = {
   id: string;
   workflow_definition_id: string;
@@ -239,6 +251,40 @@ export type WorkflowRunRow = {
   duration_ms: number | null;
   created_at: string;
   updated_at: string;
+};
+
+export type WorkflowRunStepAssetRow = {
+  id: string;
+  workflow_definition_id: string;
+  workflow_run_id: string;
+  workflow_run_step_id: string;
+  step_id: string;
+  asset_id: string;
+  payload: unknown;
+  asset_schema: unknown;
+  freshness: unknown;
+  produced_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowAssetSnapshotRow = {
+  id: string;
+  workflow_definition_id: string;
+  workflow_run_id: string;
+  workflow_run_step_id: string;
+  step_id: string;
+  asset_id: string;
+  payload: unknown;
+  asset_schema: unknown;
+  freshness: unknown;
+  produced_at: string;
+  created_at: string;
+  updated_at: string;
+  step_status: string;
+  run_status: string;
+  run_started_at: string | null;
+  run_completed_at: string | null;
 };
 
 export type WorkflowRunStepRow = {

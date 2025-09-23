@@ -12,10 +12,16 @@ import {
   listWorkflowRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
-  getJobDefinitionsBySlugs
+  getJobDefinitionsBySlugs,
+  listWorkflowAssetDeclarationsBySlug,
+  listLatestWorkflowAssetSnapshots,
+  listWorkflowAssetHistory
 } from '../db/index';
 import type {
   JobDefinitionRecord,
+  WorkflowAssetDeclaration,
+  WorkflowAssetDeclarationRecord,
+  WorkflowAssetSnapshotRecord,
   WorkflowFanOutTemplateDefinition,
   WorkflowJobStepBundle,
   WorkflowJobStepDefinition,
@@ -33,7 +39,8 @@ import {
   jsonValueSchema,
   type WorkflowFanOutTemplateInput,
   type WorkflowStepInput,
-  type WorkflowTriggerInput
+  type WorkflowTriggerInput,
+  type WorkflowAssetDeclarationInput
 } from '../workflows/zodSchemas';
 import { parseBundleEntryPoint } from '../jobs/bundleBinding';
 import {
@@ -53,6 +60,72 @@ import type { JsonValue } from './shared/serializers';
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
 type JobDefinitionLookup = Map<string, JobDefinitionRecord>;
+
+function buildWorkflowStepMetadata(steps: WorkflowStepDefinition[]) {
+  const metadata = new Map<
+    string,
+    {
+      name: string;
+      type: WorkflowStepDefinition['type'];
+    }
+  >();
+
+  for (const step of steps) {
+    metadata.set(step.id, {
+      name: step.name ?? step.id,
+      type: step.type
+    });
+
+    if (step.type === 'fanout') {
+      const template = step.template;
+      metadata.set(template.id, {
+        name: template.name ?? template.id,
+        type: template.type
+      });
+    }
+  }
+
+  return metadata;
+}
+
+function normalizeAssetDeclarations(
+  declarations: WorkflowAssetDeclarationInput[] | undefined
+): WorkflowAssetDeclaration[] | undefined {
+  if (!declarations || declarations.length === 0) {
+    return undefined;
+  }
+
+  const normalized: WorkflowAssetDeclaration[] = [];
+  const seen = new Set<string>();
+
+  for (const declaration of declarations) {
+    const assetId = declaration.assetId.trim();
+    if (!assetId) {
+      continue;
+    }
+    const key = assetId.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const entry: WorkflowAssetDeclaration = {
+      assetId
+    };
+
+    if (declaration.schema) {
+      entry.schema = declaration.schema;
+    }
+
+    if (declaration.freshness) {
+      entry.freshness = declaration.freshness;
+    }
+
+    normalized.push(entry);
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
 
 function normalizeWorkflowDependsOn(dependsOn?: string[]) {
   if (!dependsOn) {
@@ -176,6 +249,8 @@ function normalizeWorkflowJobStep(
 
   const jobDefinition = lookupJobDefinition(jobDefinitions, step.jobSlug);
   const bundle = normalizeJobBundle(step.bundle ?? undefined, jobDefinition);
+  const produces = normalizeAssetDeclarations(step.produces);
+  const consumes = normalizeAssetDeclarations(step.consumes);
 
   const normalized: WorkflowJobStepDefinition = {
     ...base,
@@ -189,6 +264,14 @@ function normalizeWorkflowJobStep(
 
   if (bundle !== undefined) {
     normalized.bundle = bundle;
+  }
+
+  if (produces) {
+    normalized.produces = produces;
+  }
+
+  if (consumes) {
+    normalized.consumes = consumes;
   }
 
   return normalized;
@@ -206,7 +289,10 @@ function normalizeWorkflowFanOutTemplate(
   };
 
   if (template.type === 'service') {
-    return {
+    const produces = normalizeAssetDeclarations(template.produces);
+    const consumes = normalizeAssetDeclarations(template.consumes);
+
+    const definition: WorkflowFanOutTemplateDefinition = {
       ...base,
       type: 'service' as const,
       serviceSlug: template.serviceSlug.trim().toLowerCase(),
@@ -219,11 +305,23 @@ function normalizeWorkflowFanOutTemplate(
       storeResponseAs: template.storeResponseAs ?? undefined,
       request: template.request
     } satisfies WorkflowFanOutTemplateDefinition;
+
+    if (produces) {
+      definition.produces = produces;
+    }
+
+    if (consumes) {
+      definition.consumes = consumes;
+    }
+
+    return definition;
   }
 
   const jobTemplate = template as WorkflowJobTemplateInput;
   const jobDefinition = lookupJobDefinition(jobDefinitions, jobTemplate.jobSlug);
   const bundle = normalizeJobBundle(jobTemplate.bundle ?? undefined, jobDefinition);
+  const produces = normalizeAssetDeclarations(jobTemplate.produces);
+  const consumes = normalizeAssetDeclarations(jobTemplate.consumes);
 
   const normalized: WorkflowFanOutTemplateDefinition = {
     ...base,
@@ -239,6 +337,14 @@ function normalizeWorkflowFanOutTemplate(
     normalized.bundle = bundle;
   }
 
+  if (produces) {
+    normalized.produces = produces;
+  }
+
+  if (consumes) {
+    normalized.consumes = consumes;
+  }
+
   return normalized;
 }
 
@@ -250,7 +356,10 @@ async function normalizeWorkflowSteps(
 
   return steps.map((step) => {
     if (step.type === 'fanout') {
-      return {
+      const produces = normalizeAssetDeclarations(step.produces);
+      const consumes = normalizeAssetDeclarations(step.consumes);
+
+      const definition: WorkflowStepDefinition = {
         id: step.id,
         name: step.name,
         description: step.description ?? null,
@@ -262,10 +371,23 @@ async function normalizeWorkflowSteps(
         maxConcurrency: step.maxConcurrency ?? null,
         storeResultsAs: step.storeResultsAs ?? undefined
       } satisfies WorkflowStepDefinition;
+
+      if (produces) {
+        definition.produces = produces;
+      }
+
+      if (consumes) {
+        definition.consumes = consumes;
+      }
+
+      return definition;
     }
 
     if (step.type === 'service') {
-      return {
+      const produces = normalizeAssetDeclarations(step.produces);
+      const consumes = normalizeAssetDeclarations(step.consumes);
+
+      const definition: WorkflowStepDefinition = {
         id: step.id,
         name: step.name,
         description: step.description ?? null,
@@ -281,6 +403,16 @@ async function normalizeWorkflowSteps(
         storeResponseAs: step.storeResponseAs ?? undefined,
         request: step.request
       } satisfies WorkflowStepDefinition;
+
+      if (produces) {
+        definition.produces = produces;
+      }
+
+      if (consumes) {
+        definition.consumes = consumes;
+      }
+
+      return definition;
     }
 
     return normalizeWorkflowJobStep(step as WorkflowJobStepInput, jobDefinitions);
@@ -487,6 +619,23 @@ const workflowRunIdParamSchema = z
     runId: z.string().min(1)
   })
   .strict();
+
+const ASSET_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
+
+const workflowAssetParamSchema = workflowSlugParamSchema.extend({
+  assetId: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(ASSET_ID_PATTERN, 'Invalid asset ID')
+});
+
+const workflowAssetHistoryQuerySchema = z
+  .object({
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional())
+  })
+  .partial();
 
 export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void> {
   app.get('/workflows', async (_request, reply) => {
@@ -853,6 +1002,205 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       reply.status(500);
       return { error: 'Failed to load workflow metrics' };
     }
+  });
+
+  app.get('/workflows/:slug/assets', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+
+    type StepDescriptor = {
+      stepId: string;
+      stepName: string;
+      stepType: WorkflowStepDefinition['type'];
+      schema: JsonValue | null;
+      freshness: WorkflowAssetDeclaration['freshness'] | null;
+    };
+
+    const assets = new Map<
+      string,
+      {
+        assetId: string;
+        producers: StepDescriptor[];
+        consumers: StepDescriptor[];
+      }
+    >();
+
+    const ensureEntry = (assetId: string) => {
+      let entry = assets.get(assetId);
+      if (!entry) {
+        entry = { assetId, producers: [], consumers: [] };
+        assets.set(assetId, entry);
+      }
+      return entry;
+    };
+
+    const describeStep = (stepId: string, schema: JsonValue | null, freshness: WorkflowAssetDeclaration['freshness']) => {
+      const metadata = stepMetadata.get(stepId);
+      return {
+        stepId,
+        stepName: metadata?.name ?? stepId,
+        stepType: metadata?.type ?? 'job',
+        schema: schema ?? null,
+        freshness: freshness ?? null
+      } satisfies StepDescriptor;
+    };
+
+    for (const declaration of assetDeclarations) {
+      if (declaration.workflowDefinitionId !== workflow.id) {
+        continue;
+      }
+      const entry = ensureEntry(declaration.assetId);
+      const descriptor = describeStep(
+        declaration.stepId,
+        declaration.schema ?? null,
+        declaration.freshness ?? null
+      );
+      if (declaration.direction === 'produces') {
+        entry.producers.push(descriptor);
+      } else {
+        entry.consumers.push(descriptor);
+      }
+    }
+
+    const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
+    const latestByAsset = new Map<string, WorkflowAssetSnapshotRecord>();
+    for (const snapshot of latestSnapshots) {
+      latestByAsset.set(snapshot.asset.assetId, snapshot);
+      ensureEntry(snapshot.asset.assetId);
+    }
+
+    const payload = Array.from(assets.values())
+      .map((entry) => {
+        const snapshot = latestByAsset.get(entry.assetId);
+        const latest = snapshot
+          ? {
+              runId: snapshot.workflowRunId,
+              runStatus: snapshot.runStatus,
+              stepId: snapshot.workflowStepId,
+              stepName: stepMetadata.get(snapshot.workflowStepId)?.name ?? snapshot.workflowStepId,
+              stepType: stepMetadata.get(snapshot.workflowStepId)?.type ?? 'job',
+              stepStatus: snapshot.stepStatus,
+              producedAt: snapshot.asset.producedAt,
+              payload: snapshot.asset.payload,
+              schema: snapshot.asset.schema,
+              freshness: snapshot.asset.freshness,
+              runStartedAt: snapshot.runStartedAt,
+              runCompletedAt: snapshot.runCompletedAt
+            }
+          : null;
+
+        return {
+          assetId: entry.assetId,
+          producers: entry.producers,
+          consumers: entry.consumers,
+          latest,
+          available: Boolean(latest)
+        };
+      })
+      .sort((a, b) => a.assetId.localeCompare(b.assetId));
+
+    reply.status(200);
+    return { data: { assets: payload } };
+  });
+
+  app.get('/workflows/:slug/assets/:assetId/history', async (request, reply) => {
+    const parseParams = workflowAssetParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowAssetHistoryQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetExists = assetDeclarations.some(
+      (declaration) =>
+        declaration.workflowDefinitionId === workflow.id &&
+        declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+    );
+
+    if (!assetExists) {
+      reply.status(404);
+      return { error: 'asset not found for workflow' };
+    }
+
+    const limit = parseQuery.data.limit ?? 10;
+    const history = await listWorkflowAssetHistory(workflow.id, parseParams.data.assetId, { limit });
+    const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
+
+    const describeRole = (declaration: WorkflowAssetDeclarationRecord) => ({
+      stepId: declaration.stepId,
+      stepName: stepMetadata.get(declaration.stepId)?.name ?? declaration.stepId,
+      stepType: stepMetadata.get(declaration.stepId)?.type ?? 'job',
+      schema: declaration.schema ?? null,
+      freshness: declaration.freshness ?? null
+    });
+
+    const producers = assetDeclarations
+      .filter(
+        (declaration) =>
+          declaration.workflowDefinitionId === workflow.id &&
+          declaration.direction === 'produces' &&
+          declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+      )
+      .map(describeRole);
+
+    const consumers = assetDeclarations
+      .filter(
+        (declaration) =>
+          declaration.workflowDefinitionId === workflow.id &&
+          declaration.direction === 'consumes' &&
+          declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+      )
+      .map(describeRole);
+
+    const serialized = history.map((entry) => ({
+      runId: entry.workflowRunId,
+      runStatus: entry.runStatus,
+      stepId: entry.workflowStepId,
+      stepName: stepMetadata.get(entry.workflowStepId)?.name ?? entry.workflowStepId,
+      stepType: stepMetadata.get(entry.workflowStepId)?.type ?? 'job',
+      stepStatus: entry.stepStatus,
+      producedAt: entry.asset.producedAt,
+      payload: entry.asset.payload,
+      schema: entry.asset.schema,
+      freshness: entry.asset.freshness,
+      runStartedAt: entry.runStartedAt,
+      runCompletedAt: entry.runCompletedAt
+    }));
+
+    reply.status(200);
+    return {
+      data: {
+        assetId: parseParams.data.assetId,
+        producers,
+        consumers,
+        history: serialized,
+        limit
+      }
+    };
   });
 
   app.post('/workflows/:slug/run', async (request, reply) => {

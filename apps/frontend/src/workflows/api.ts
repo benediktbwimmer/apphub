@@ -1,11 +1,19 @@
 import { API_BASE_URL } from '../config';
-import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from './types';
+import type {
+  WorkflowAssetDetail,
+  WorkflowAssetInventoryEntry,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkflowRunStep
+} from './types';
 import {
   normalizeWorkflowDefinition,
   normalizeWorkflowRun,
   normalizeWorkflowRunMetrics,
   normalizeWorkflowRunStats,
-  normalizeWorkflowRunStep
+  normalizeWorkflowRunStep,
+  normalizeWorkflowAssetInventoryResponse,
+  normalizeWorkflowAssetDetailResponse
 } from './normalizers';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -323,6 +331,40 @@ export async function listWorkflowRunSteps(
         .filter((step): step is WorkflowRunStep => Boolean(step))
     : [];
   return { run, steps };
+}
+
+export async function fetchWorkflowAssets(
+  fetcher: AuthorizedFetch,
+  slug: string
+): Promise<WorkflowAssetInventoryEntry[]> {
+  const response = await fetcher(`${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets`);
+  await ensureOk(response, 'Failed to load workflow assets');
+  const payload = await parseJson<unknown>(response);
+  return normalizeWorkflowAssetInventoryResponse(payload);
+}
+
+export async function fetchWorkflowAssetHistory(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  assetId: string,
+  options: { limit?: number } = {}
+): Promise<WorkflowAssetDetail | null> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set('limit', String(options.limit));
+  }
+  const query = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/history${
+      query ? `?${query}` : ''
+    }`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  await ensureOk(response, 'Failed to load workflow asset history');
+  const payload = await parseJson<unknown>(response);
+  return normalizeWorkflowAssetDetailResponse(payload);
 }
 
 export async function createWorkflowDefinition(

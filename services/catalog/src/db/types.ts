@@ -473,12 +473,26 @@ export type WorkflowTriggerDefinition = {
   schedule?: WorkflowTriggerScheduleDefinition;
 };
 
+export type WorkflowAssetFreshness = {
+  maxAgeMs?: number | null;
+  ttlMs?: number | null;
+  cadenceMs?: number | null;
+};
+
+export type WorkflowAssetDeclaration = {
+  assetId: string;
+  schema?: JsonValue | null;
+  freshness?: WorkflowAssetFreshness | null;
+};
+
 export type WorkflowDefinitionStepBase = {
   id: string;
   name: string;
   description?: string | null;
   dependsOn?: string[];
   dependents?: string[];
+  produces?: WorkflowAssetDeclaration[];
+  consumes?: WorkflowAssetDeclaration[];
 };
 
 export type WorkflowDagMetadata = {
@@ -620,6 +634,53 @@ export type WorkflowScheduleMetadataUpdateInput = {
   scheduleCatchupCursor?: string | null;
 };
 
+export type WorkflowAssetDirection = 'produces' | 'consumes';
+
+export type WorkflowAssetDeclarationRecord = {
+  id: string;
+  workflowDefinitionId: string;
+  stepId: string;
+  direction: WorkflowAssetDirection;
+  assetId: string;
+  schema: JsonValue | null;
+  freshness: WorkflowAssetFreshness | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowRunStepAssetRecord = {
+  id: string;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+  workflowRunStepId: string;
+  stepId: string;
+  assetId: string;
+  payload: JsonValue | null;
+  schema: JsonValue | null;
+  freshness: WorkflowAssetFreshness | null;
+  producedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowRunStepAssetInput = {
+  assetId: string;
+  payload?: JsonValue | null;
+  schema?: JsonValue | null;
+  freshness?: WorkflowAssetFreshness | null;
+  producedAt?: string | null;
+};
+
+export type WorkflowAssetSnapshotRecord = {
+  asset: WorkflowRunStepAssetRecord;
+  workflowRunId: string;
+  workflowStepId: string;
+  stepStatus: WorkflowRunStepStatus;
+  runStatus: WorkflowRunStatus;
+  runStartedAt: string | null;
+  runCompletedAt: string | null;
+};
+
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
 export type WorkflowRunRecord = {
@@ -693,6 +754,7 @@ export type WorkflowRunStepRecord = {
   parentStepId: string | null;
   fanoutIndex: number | null;
   templateStepId: string | null;
+  producedAssets: WorkflowRunStepAssetRecord[];
   createdAt: string;
   updatedAt: string;
 };

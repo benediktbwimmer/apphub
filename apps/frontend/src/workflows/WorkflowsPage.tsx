@@ -8,6 +8,7 @@ import WorkflowGraph from './components/WorkflowGraph';
 import WorkflowFilters from './components/WorkflowFilters';
 import RunOutcomeChart from './components/RunOutcomeChart';
 import WorkflowRunTrends from './components/WorkflowRunTrends';
+import WorkflowAssetPanel from './components/WorkflowAssetPanel';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
@@ -70,7 +71,17 @@ export default function WorkflowsPage() {
     loadWorkflowDetail,
     hasActiveToken,
     authorizedFetch,
-    pushToast
+    pushToast,
+    assetInventory,
+    assetInventoryLoading,
+    assetInventoryError,
+    selectedAssetId,
+    assetDetail,
+    assetDetailLoading,
+    assetDetailError,
+    selectAsset,
+    clearSelectedAsset,
+    loadAssetHistory
   } = useWorkflowsController();
 
   const analytics = selectedSlug ? workflowAnalytics[selectedSlug] : undefined;
@@ -177,6 +188,19 @@ export default function WorkflowsPage() {
             error={detailError}
             canEdit={canEditWorkflows}
             onEdit={handleOpenEditBuilder}
+          />
+
+          <WorkflowAssetPanel
+            assets={assetInventory}
+            loading={assetInventoryLoading}
+            error={assetInventoryError}
+            selectedAssetId={selectedAssetId}
+            onSelectAsset={selectAsset}
+            onClearSelection={clearSelectedAsset}
+            assetDetail={assetDetail}
+            assetDetailLoading={assetDetailLoading}
+            assetDetailError={assetDetailError}
+            onRefreshAssetDetail={loadAssetHistory}
           />
 
           {workflowDetail && (

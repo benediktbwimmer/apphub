@@ -22,6 +22,32 @@ export const jsonValueSchema: z.ZodType<WorkflowJsonValue> = z.lazy(() =>
 
 export const jsonObjectSchema = z.record(jsonValueSchema);
 
+const assetFreshnessSchema = z
+  .object({
+    maxAgeMs: z.number().int().min(1).max(31_536_000_000).optional(),
+    ttlMs: z.number().int().min(1).max(31_536_000_000).optional(),
+    cadenceMs: z.number().int().min(1).max(31_536_000_000).optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Freshness must specify at least one field'
+  });
+
+const workflowAssetDeclarationSchema = z
+  .object({
+    assetId: z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(
+        /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/,
+        'Asset ID must start with an alphanumeric character and may include dot, underscore, colon, or dash'
+      ),
+    schema: jsonObjectSchema.optional(),
+    freshness: assetFreshnessSchema.optional()
+  })
+  .strict();
+
 export const jobRetryPolicySchema = z
   .object({
     maxAttempts: z.number().int().min(1).max(10).optional(),
@@ -186,6 +212,8 @@ export const workflowJobStepSchema = z
     timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
     retryPolicy: jobRetryPolicySchema.optional(),
     storeResultAs: z.string().min(1).max(200).optional(),
+    produces: z.array(workflowAssetDeclarationSchema).max(50).optional(),
+    consumes: z.array(workflowAssetDeclarationSchema).max(50).optional(),
     bundle: z
       .object({
         slug: z.string().min(1),
@@ -218,7 +246,9 @@ export const workflowServiceStepSchema = z
     allowDegraded: z.boolean().optional(),
     captureResponse: z.boolean().optional(),
     storeResponseAs: z.string().min(1).max(200).optional(),
-    request: workflowServiceRequestSchema
+    request: workflowServiceRequestSchema,
+    produces: z.array(workflowAssetDeclarationSchema).max(50).optional(),
+    consumes: z.array(workflowAssetDeclarationSchema).max(50).optional()
   })
   .strict();
 
@@ -235,7 +265,9 @@ export const workflowFanOutStepSchema = z
     template: workflowFanOutTemplateSchema,
     maxItems: z.number().int().min(1).max(10_000).optional(),
     maxConcurrency: z.number().int().min(1).max(1_000).optional(),
-    storeResultsAs: z.string().min(1).max(200).optional()
+    storeResultsAs: z.string().min(1).max(200).optional(),
+    produces: z.array(workflowAssetDeclarationSchema).max(50).optional(),
+    consumes: z.array(workflowAssetDeclarationSchema).max(50).optional()
   })
   .strict();
 
@@ -288,6 +320,8 @@ export type WorkflowFanOutTemplateInput = z.infer<typeof workflowFanOutTemplateS
 export type WorkflowFanOutStepInput = z.infer<typeof workflowFanOutStepSchema>;
 export type WorkflowTriggerInput = z.infer<typeof workflowTriggerSchema>;
 export type JobDefinitionCreateInput = z.infer<typeof jobDefinitionCreateSchema>;
+export type WorkflowAssetFreshnessInput = z.infer<typeof assetFreshnessSchema>;
+export type WorkflowAssetDeclarationInput = z.infer<typeof workflowAssetDeclarationSchema>;
 export const aiBundleFileSchema = z
   .object({
     path: z.string().min(1),

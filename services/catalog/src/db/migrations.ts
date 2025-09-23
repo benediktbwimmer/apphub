@@ -526,6 +526,46 @@ const migrations: Migration[] = [
       `ALTER TABLE job_bundle_versions
          ADD COLUMN IF NOT EXISTS artifact_data BYTEA`
     ]
+  },
+  {
+    id: '015_workflow_asset_catalog',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_asset_declarations (
+         id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         step_id TEXT NOT NULL,
+         direction TEXT NOT NULL CHECK (direction IN ('produces', 'consumes')),
+         asset_id TEXT NOT NULL,
+         asset_schema JSONB,
+         freshness JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (workflow_definition_id, step_id, direction, asset_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_declarations_asset
+         ON workflow_asset_declarations(asset_id, direction);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_declarations_step
+         ON workflow_asset_declarations(workflow_definition_id, step_id);`,
+      `CREATE TABLE IF NOT EXISTS workflow_run_step_assets (
+         id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         workflow_run_step_id TEXT NOT NULL REFERENCES workflow_run_steps(id) ON DELETE CASCADE,
+         step_id TEXT NOT NULL,
+         asset_id TEXT NOT NULL,
+         payload JSONB,
+         asset_schema JSONB,
+         freshness JSONB,
+         produced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (workflow_run_step_id, asset_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_asset
+         ON workflow_run_step_assets(asset_id, produced_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_run
+         ON workflow_run_step_assets(workflow_run_id, produced_at DESC);`
+    ]
   }
 ];
 

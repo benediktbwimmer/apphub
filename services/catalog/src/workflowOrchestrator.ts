@@ -4,7 +4,8 @@ import {
   getWorkflowRunById,
   getWorkflowRunStep,
   updateWorkflowRun,
-  updateWorkflowRunStep
+  updateWorkflowRunStep,
+  recordWorkflowRunStepAssets
 } from './db/workflows';
 import {
   type JsonValue,
@@ -23,7 +24,11 @@ import {
   type ServiceRecord,
   type ServiceStatus,
   type SecretReference,
-  type WorkflowRunUpdateInput
+  type WorkflowRunUpdateInput,
+  type WorkflowAssetDeclaration,
+  type WorkflowAssetFreshness,
+  type WorkflowRunStepAssetRecord,
+  type WorkflowRunStepAssetInput
 } from './db/types';
 import { getServiceBySlug } from './db/services';
 import { fetchFromService } from './clients/serviceClient';
@@ -52,6 +57,14 @@ type WorkflowStepServiceContext = {
   latencyMs?: number | null;
 };
 
+type StepAssetRuntimeSummary = {
+  assetId: string;
+  producedAt: string | null;
+  payload?: JsonValue | null;
+  schema?: JsonValue | null;
+  freshness?: WorkflowAssetFreshness | null;
+};
+
 type WorkflowStepRuntimeContext = {
   status: WorkflowRunStepStatus;
   jobRunId: string | null;
@@ -63,6 +76,7 @@ type WorkflowStepRuntimeContext = {
   completedAt?: string | null;
   attempt?: number;
   service?: WorkflowStepServiceContext;
+  assets?: StepAssetRuntimeSummary[];
 };
 
 type WorkflowRuntimeContext = {
@@ -115,6 +129,7 @@ type FanOutChildAggregate = {
   status: WorkflowRunStepStatus;
   output: JsonValue | null;
   errorMessage?: string | null;
+  assets?: StepAssetRuntimeSummary[];
 };
 
 type FanOutState = {
@@ -432,6 +447,240 @@ function isJsonObject(value: JsonValue | null | undefined): value is Record<stri
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function normalizeAssetFreshness(value: unknown): WorkflowAssetFreshness | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const freshness: WorkflowAssetFreshness = {};
+
+  const maxAge = record.maxAgeMs ?? record.max_age_ms;
+  if (typeof maxAge === 'number' && Number.isFinite(maxAge) && maxAge > 0) {
+    freshness.maxAgeMs = Math.floor(maxAge);
+  }
+
+  const ttl = record.ttlMs ?? record.ttl_ms;
+  if (typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0) {
+    freshness.ttlMs = Math.floor(ttl);
+  }
+
+  const cadence = record.cadenceMs ?? record.cadence_ms;
+  if (typeof cadence === 'number' && Number.isFinite(cadence) && cadence > 0) {
+    freshness.cadenceMs = Math.floor(cadence);
+  }
+
+  return Object.keys(freshness).length > 0 ? freshness : null;
+}
+
+function toRuntimeAssetSummaries(
+  records: WorkflowRunStepAssetRecord[] | undefined
+): StepAssetRuntimeSummary[] | undefined {
+  if (!records || records.length === 0) {
+    return undefined;
+  }
+  return records.map((record) => ({
+    assetId: record.assetId,
+    producedAt: record.producedAt ?? null,
+    payload: (record.payload ?? null) as JsonValue | null,
+    schema: (record.schema ?? null) as JsonValue | null,
+    freshness: record.freshness ?? null
+  }));
+}
+
+function parseRuntimeAssets(value: JsonValue | null | undefined): StepAssetRuntimeSummary[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const summaries: StepAssetRuntimeSummary[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, JsonValue>;
+    const assetId = typeof record.assetId === 'string' ? record.assetId.trim() : '';
+    if (!assetId) {
+      continue;
+    }
+    const producedAtRaw = record.producedAt ?? record.produced_at;
+    let producedAt: string | null = null;
+    if (typeof producedAtRaw === 'string' && producedAtRaw.trim().length > 0) {
+      const parsed = new Date(producedAtRaw);
+      producedAt = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    }
+
+    const schemaValue = record.schema ?? record.assetSchema ?? record.asset_schema;
+    const schema =
+      schemaValue && typeof schemaValue === 'object' && !Array.isArray(schemaValue)
+        ? (schemaValue as JsonValue)
+        : null;
+
+    const freshnessValue = record.freshness ?? record.assetFreshness ?? record.asset_freshness;
+    const freshness = normalizeAssetFreshness(freshnessValue);
+
+    const payloadValue = record.payload ?? null;
+    const payload = (payloadValue ?? null) as JsonValue | null;
+
+    summaries.push({
+      assetId,
+      producedAt,
+      payload,
+      schema,
+      freshness
+    });
+  }
+
+  return summaries.length > 0 ? summaries : undefined;
+}
+
+function extractProducedAssetsFromResult(
+  step: WorkflowStepDefinition,
+  result: JsonValue | null
+): WorkflowRunStepAssetInput[] {
+  if (!result || !Array.isArray(step.produces) || step.produces.length === 0) {
+    return [];
+  }
+
+  const declarations = new Map<string, WorkflowAssetDeclaration>();
+  for (const declaration of step.produces) {
+    if (!declaration || typeof declaration.assetId !== 'string') {
+      continue;
+    }
+    const normalized = declaration.assetId.trim();
+    if (!normalized) {
+      continue;
+    }
+    declarations.set(normalized.toLowerCase(), declaration);
+  }
+
+  if (declarations.size === 0) {
+    return [];
+  }
+
+  const outputs = new Map<string, WorkflowRunStepAssetInput>();
+
+  const applyAsset = (rawAssetId: string, value: unknown) => {
+    const normalizedKey = rawAssetId.trim().toLowerCase();
+    if (!normalizedKey) {
+      return;
+    }
+    const declaration = declarations.get(normalizedKey);
+    if (!declaration) {
+      return;
+    }
+
+    const assetId = declaration.assetId;
+    const input: WorkflowRunStepAssetInput = {
+      assetId
+    };
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+
+      if (Object.prototype.hasOwnProperty.call(record, 'payload')) {
+        const payloadValue = record.payload as JsonValue | null | undefined;
+        input.payload = (payloadValue ?? null) as JsonValue | null;
+      } else {
+        const clone = { ...record };
+        delete clone.assetId;
+        delete clone.asset_id;
+        delete clone.schema;
+        delete clone.assetSchema;
+        delete clone.asset_schema;
+        delete clone.freshness;
+        delete clone.assetFreshness;
+        delete clone.asset_freshness;
+        delete clone.producedAt;
+        delete clone.produced_at;
+        if (Object.keys(clone).length > 0) {
+          input.payload = clone as unknown as JsonValue;
+        }
+      }
+
+      const schemaValue = record.schema ?? record.assetSchema ?? record.asset_schema;
+      if (schemaValue && typeof schemaValue === 'object' && !Array.isArray(schemaValue)) {
+        input.schema = schemaValue as JsonValue;
+      }
+
+      const freshnessValue = record.freshness ?? record.assetFreshness ?? record.asset_freshness;
+      const freshness = normalizeAssetFreshness(freshnessValue);
+      if (freshness) {
+        input.freshness = freshness;
+      }
+
+      const producedAtValue = record.producedAt ?? record.produced_at;
+      if (typeof producedAtValue === 'string' && producedAtValue.trim().length > 0) {
+        const parsed = new Date(producedAtValue);
+        if (!Number.isNaN(parsed.getTime())) {
+          input.producedAt = parsed.toISOString();
+        }
+      }
+    } else if (value !== undefined) {
+      input.payload = (value ?? null) as JsonValue | null;
+    }
+
+    if (!input.schema && declaration.schema) {
+      input.schema = declaration.schema;
+    }
+    if (!input.freshness && declaration.freshness) {
+      input.freshness = declaration.freshness;
+    }
+
+    outputs.set(assetId, {
+      assetId,
+      payload: input.payload ?? null,
+      schema: input.schema ?? null,
+      freshness: input.freshness ?? null,
+      producedAt: input.producedAt
+    });
+  };
+
+  const container = isJsonObject(result) && 'assets' in result ? (result.assets as JsonValue) : result;
+
+  if (Array.isArray(container)) {
+    for (const entry of container) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        continue;
+      }
+      const record = entry as Record<string, unknown>;
+      const assetId = typeof record.assetId === 'string' ? record.assetId : typeof record.asset_id === 'string' ? record.asset_id : '';
+      if (!assetId) {
+        continue;
+      }
+      applyAsset(assetId, record);
+    }
+  } else if (isJsonObject(container)) {
+    const record = container as Record<string, unknown>;
+    const directAssetId =
+      typeof record.assetId === 'string'
+        ? record.assetId
+        : typeof record.asset_id === 'string'
+          ? record.asset_id
+          : '';
+    if (directAssetId) {
+      applyAsset(directAssetId, record);
+    } else {
+      for (const [key, value] of Object.entries(record)) {
+        if (typeof value === 'object' && value && !Array.isArray(value)) {
+          applyAsset(key, value as Record<string, unknown>);
+        }
+      }
+    }
+  }
+
+  return Array.from(outputs.values()).map((output) => {
+    if (!output.schema && declarations.get(output.assetId.toLowerCase())?.schema) {
+      output.schema = declarations.get(output.assetId.toLowerCase())?.schema ?? null;
+    }
+    if (!output.freshness && declarations.get(output.assetId.toLowerCase())?.freshness) {
+      output.freshness = declarations.get(output.assetId.toLowerCase())?.freshness ?? null;
+    }
+    return output;
+  });
+}
 function parseServiceRuntimeContext(value: JsonValue | null | undefined): WorkflowStepServiceContext | undefined {
   if (!isJsonObject(value)) {
     return undefined;
@@ -484,6 +733,10 @@ function toWorkflowContext(raw: JsonValue | null | undefined): WorkflowRuntimeCo
         const serviceContext = parseServiceRuntimeContext(entry.service as JsonValue | null | undefined);
         if (serviceContext) {
           normalized.service = serviceContext;
+        }
+        const assets = parseRuntimeAssets(entry.assets as JsonValue | null | undefined);
+        if (assets) {
+          normalized.assets = assets;
         }
         steps[key] = normalized;
       }
@@ -1489,7 +1742,8 @@ async function executeJobStep(
       metrics: stepRecord.metrics,
       startedAt: stepRecord.startedAt,
       completedAt: stepRecord.completedAt,
-      attempt: stepRecord.attempt
+      attempt: stepRecord.attempt,
+      assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
     });
     let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResultAs) {
@@ -1515,6 +1769,8 @@ async function executeJobStep(
         startedAt,
         input: parameters
       })) ?? stepRecord;
+    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    stepRecord = { ...stepRecord, producedAssets: [] };
   }
 
   let nextContext = updateStepContext(context, step.id, {
@@ -1526,7 +1782,8 @@ async function executeJobStep(
     errorMessage: stepRecord.errorMessage ?? null,
     logsUrl: stepRecord.logsUrl ?? null,
     metrics: stepRecord.metrics ?? null,
-    completedAt: stepRecord.completedAt ?? null
+    completedAt: stepRecord.completedAt ?? null,
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
   });
 
   await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
@@ -1587,6 +1844,21 @@ async function executeJobStep(
       jobRunId: executed.id
     })) ?? stepRecord;
 
+  if (stepRecord.status === 'succeeded') {
+    const assetInputs = extractProducedAssetsFromResult(step, executed.result ?? null);
+    const storedAssets = await recordWorkflowRunStepAssets(
+      run.workflowDefinitionId,
+      run.id,
+      stepRecord.id,
+      step.id,
+      assetInputs
+    );
+    stepRecord = { ...stepRecord, producedAssets: storedAssets };
+  } else if (stepRecord.status === 'failed' || stepRecord.status === 'skipped') {
+    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    stepRecord = { ...stepRecord, producedAssets: [] };
+  }
+
   nextContext = updateStepContext(nextContext, step.id, {
     status: stepRecord.status,
     jobRunId: executed.id,
@@ -1595,7 +1867,8 @@ async function executeJobStep(
     logsUrl: executed.logsUrl ?? null,
     metrics: executed.metrics ?? null,
     startedAt: executed.startedAt ?? startedAt,
-    completedAt
+    completedAt,
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
   });
 
   if (stepRecord.status === 'succeeded') {
@@ -1656,6 +1929,9 @@ async function executeServiceStep(
         metrics
       })) ?? stepRecord;
 
+    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    stepRecord = { ...stepRecord, producedAssets: [] };
+
     const failureContext = updateStepContext(context, step.id, {
       status: 'failed',
       jobRunId: null,
@@ -1664,7 +1940,8 @@ async function executeServiceStep(
       attempt,
       errorMessage,
       metrics,
-      service: createMinimalServiceContext(step, null, null)
+      service: createMinimalServiceContext(step, null, null),
+      assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
     });
 
     await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id], {
@@ -1700,7 +1977,8 @@ async function executeServiceStep(
       startedAt: stepRecord.startedAt ?? null,
       completedAt: stepRecord.completedAt ?? null,
       attempt: stepRecord.attempt,
-      service: serviceContext
+      service: serviceContext,
+      assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
     });
     let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResponseAs) {
@@ -1726,6 +2004,8 @@ async function executeServiceStep(
         startedAt,
         input: prepared.requestInput
       })) ?? stepRecord;
+    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    stepRecord = { ...stepRecord, producedAssets: [] };
   }
 
   let nextContext = updateStepContext(context, step.id, {
@@ -1738,7 +2018,8 @@ async function executeServiceStep(
     logsUrl: stepRecord.logsUrl ?? null,
     metrics: stepRecord.metrics ?? null,
     completedAt: stepRecord.completedAt ?? null,
-    service: createMinimalServiceContext(step, prepared, null)
+    service: createMinimalServiceContext(step, prepared, null),
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
   });
 
   await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
@@ -1855,6 +2136,16 @@ async function executeServiceStep(
           completedAt
         })) ?? stepRecord;
 
+      const assetInputs = extractProducedAssetsFromResult(step, output);
+      const storedAssets = await recordWorkflowRunStepAssets(
+        run.workflowDefinitionId,
+        run.id,
+        stepRecord.id,
+        step.id,
+        assetInputs
+      );
+      stepRecord = { ...stepRecord, producedAssets: storedAssets };
+
       let successContext = updateStepContext(finalContext, step.id, {
         status: 'succeeded',
         jobRunId: null,
@@ -1862,7 +2153,8 @@ async function executeServiceStep(
         errorMessage: null,
         metrics: lastMetrics,
         completedAt,
-        service: serviceContextWithMetrics
+        service: serviceContextWithMetrics,
+        assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
       });
 
       let sharedPatch: Record<string, JsonValue | null> | undefined;
@@ -1931,12 +2223,16 @@ async function executeServiceStep(
       context: serviceContextToJson(lastServiceContext)
     })) ?? stepRecord;
 
+  await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+  stepRecord = { ...stepRecord, producedAssets: [] };
+
   const failureContext = updateStepContext(finalContext, step.id, {
     status: 'failed',
     completedAt: failureCompletedAt,
     errorMessage: failureMessage,
     metrics: failureMetrics,
-    service: lastServiceContext
+    service: lastServiceContext,
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
   });
 
   await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id]);
@@ -2131,7 +2427,8 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           status: entry.status,
           output: entry.output ?? null,
           errorMessage: entry.errorMessage ?? null,
-          item: entry.item ?? null
+          item: entry.item ?? null,
+          assets: entry.assets ?? null
         }));
       return ordered as unknown as JsonValue;
     };
@@ -2145,6 +2442,76 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       await applyRunContextPatch(run.id, state.parentStepId, null, {
         shared: { [state.storeKey]: aggregated }
       });
+    };
+
+    const buildFanOutParentAssets = (
+      state: FanOutState,
+      parentDefinition: WorkflowFanOutStepDefinition
+    ): WorkflowRunStepAssetInput[] => {
+      if (!Array.isArray(parentDefinition.produces) || parentDefinition.produces.length === 0) {
+        return [];
+      }
+
+      const inputs: WorkflowRunStepAssetInput[] = [];
+      const declarationMap = new Map<string, WorkflowAssetDeclaration>();
+      for (const declaration of parentDefinition.produces) {
+        if (!declaration || typeof declaration.assetId !== 'string') {
+          continue;
+        }
+        const normalized = declaration.assetId.trim().toLowerCase();
+        if (!normalized) {
+          continue;
+        }
+        declarationMap.set(normalized, declaration);
+      }
+
+      for (const [normalizedId, declaration] of declarationMap.entries()) {
+        const sources: { aggregate: FanOutChildAggregate; asset: StepAssetRuntimeSummary }[] = [];
+        for (const aggregate of state.results.values()) {
+          if (!aggregate || !Array.isArray(aggregate.assets)) {
+            continue;
+          }
+          for (const asset of aggregate.assets) {
+            if (asset.assetId.trim().toLowerCase() === normalizedId) {
+              sources.push({ aggregate, asset });
+            }
+          }
+        }
+
+        if (sources.length === 0) {
+          continue;
+        }
+
+        const payloadSources = sources.map(({ aggregate, asset }) => ({
+          stepId: aggregate.stepId,
+          producedAt: asset.producedAt,
+          payload: asset.payload ?? null
+        }));
+
+        let latestProducedAt: string | null = null;
+        for (const { asset } of sources) {
+          if (!asset.producedAt) {
+            continue;
+          }
+          if (!latestProducedAt || asset.producedAt > latestProducedAt) {
+            latestProducedAt = asset.producedAt;
+          }
+        }
+
+        const input: WorkflowRunStepAssetInput = {
+          assetId: declaration.assetId,
+          payload: {
+            sources: payloadSources
+          } as unknown as JsonValue,
+          schema: declaration.schema ?? null,
+          freshness: declaration.freshness ?? null,
+          producedAt: latestProducedAt
+        };
+
+        inputs.push(input);
+      }
+
+      return inputs;
     };
 
     const settleFanOutParent = async (state: FanOutState) => {
@@ -2187,7 +2554,8 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           ...basePatch,
           status: 'failed',
           result: null,
-          errorMessage: message
+          errorMessage: message,
+          assets: []
         });
 
         statusById.set(state.parentStepId, 'failed');
@@ -2199,6 +2567,14 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           completedAt
         });
 
+        await recordWorkflowRunStepAssets(
+          run.workflowDefinitionId,
+          run.id,
+          state.parentRunStepId,
+          state.parentStepId,
+          []
+        );
+
         await applyRunContextPatch(run.id, state.parentStepId, context.steps[state.parentStepId], {
           errorMessage: message
         });
@@ -2207,13 +2583,6 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           totalChildren: state.childStepIds.length,
           results: aggregated
         } as JsonValue;
-
-        context = updateStepContext(context, state.parentStepId, {
-          ...basePatch,
-          status: 'succeeded',
-          result: parentResult,
-          errorMessage: null
-        });
 
         statusById.set(state.parentStepId, 'succeeded');
         completedSteps.add(state.parentStepId);
@@ -2225,6 +2594,38 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           output: parentResult,
           metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
           completedAt
+        });
+
+        const parentRuntime = runtimeSteps.get(state.parentStepId);
+        const parentDefinition =
+          parentRuntime && parentRuntime.definition.type === 'fanout'
+            ? (parentRuntime.definition as WorkflowFanOutStepDefinition)
+            : null;
+
+        const storedParentAssets = parentDefinition
+          ? await recordWorkflowRunStepAssets(
+              run.workflowDefinitionId,
+              run.id,
+              state.parentRunStepId,
+              state.parentStepId,
+              buildFanOutParentAssets(state, parentDefinition)
+            )
+          : await recordWorkflowRunStepAssets(
+              run.workflowDefinitionId,
+              run.id,
+              state.parentRunStepId,
+              state.parentStepId,
+              []
+            );
+
+        const parentAssetSummaries = toRuntimeAssetSummaries(storedParentAssets);
+
+        context = updateStepContext(context, state.parentStepId, {
+          ...basePatch,
+          status: 'succeeded',
+          result: parentResult,
+          errorMessage: null,
+          assets: parentAssetSummaries
         });
 
         await updateRunMetrics();
@@ -2276,14 +2677,15 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           completedSteps.add(definition.id);
           totals.totalSteps += 1;
           totals.completedSteps += 1;
-          state.results.set(definition.id, {
-            index: fanOut.index,
-            stepId: definition.id,
-            item: fanOut.item,
-            status: 'succeeded',
-            output: existingContext?.result ?? null,
-            errorMessage: existingContext?.errorMessage ?? null
-          });
+        state.results.set(definition.id, {
+          index: fanOut.index,
+          stepId: definition.id,
+          item: fanOut.item,
+          status: 'succeeded',
+          output: existingContext?.result ?? null,
+          errorMessage: existingContext?.errorMessage ?? null,
+          assets: existingContext?.assets
+        });
         } else {
           statusById.set(definition.id, 'pending');
           totals.totalSteps += 1;
@@ -2326,7 +2728,8 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
         item: fanOutMeta.item,
         status: result.stepStatus,
         output: result.stepPatch.result ?? null,
-        errorMessage: result.errorMessage ?? null
+        errorMessage: result.errorMessage ?? null,
+        assets: result.stepPatch.assets ?? undefined
       });
 
       if (state.storeKey) {
