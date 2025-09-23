@@ -31,9 +31,16 @@ import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { ToastPayload } from '../../components/toast/ToastContext';
 import { createJobWithBundle, type AiBundleSuggestion } from './api';
 import { useAiBuilderSettings } from '../../ai/useAiBuilderSettings';
+import {
+  DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS,
+  DEFAULT_AI_BUILDER_SYSTEM_PROMPT
+} from '@apphub/ai-prompts';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
 const JOB_SCHEMA = jobDefinitionCreateSchema;
+
+const DEFAULT_SYSTEM_PROMPT_TRIMMED = DEFAULT_AI_BUILDER_SYSTEM_PROMPT.trim();
+const DEFAULT_RESPONSE_INSTRUCTIONS_TRIMMED = DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS.trim();
 
 const GENERATION_STORAGE_KEY = 'apphub.aiBuilder.activeGeneration';
 const POLL_INTERVAL_MS = 1_500;
@@ -146,6 +153,10 @@ export default function AiBuilderDialog({
   const [mode, setMode] = useState<AiBuilderMode>('workflow');
   const [prompt, setPrompt] = useState('');
   const [additionalNotes, setAdditionalNotes] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_AI_BUILDER_SYSTEM_PROMPT);
+  const [responseInstructions, setResponseInstructions] = useState(
+    DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [metadataSummary, setMetadataSummary] = useState('');
@@ -213,6 +224,30 @@ export default function AiBuilderDialog({
     },
     [openAiApiKey, openAiMaxOutputTokens, openRouterApiKey, openRouterReferer, openRouterTitle]
   );
+
+  const buildPromptOverridesPayload = useCallback(() => {
+    const overrides: { systemPrompt?: string; responseInstructions?: string } = {};
+    const normalizedSystem = systemPrompt.trim();
+    const normalizedInstructions = responseInstructions.trim();
+
+    if (normalizedSystem.length > 0 && normalizedSystem !== DEFAULT_SYSTEM_PROMPT_TRIMMED) {
+      overrides.systemPrompt = normalizedSystem;
+    }
+
+    if (
+      normalizedInstructions.length > 0 &&
+      normalizedInstructions !== DEFAULT_RESPONSE_INSTRUCTIONS_TRIMMED
+    ) {
+      overrides.responseInstructions = normalizedInstructions;
+    }
+
+    return Object.keys(overrides).length > 0 ? overrides : undefined;
+  }, [responseInstructions, systemPrompt]);
+
+  const handleResetPrompts = useCallback(() => {
+    setSystemPrompt(DEFAULT_AI_BUILDER_SYSTEM_PROMPT);
+    setResponseInstructions(DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS);
+  }, []);
 
   const applyPrimarySuggestion = useCallback(
     (response: AiSuggestionResponse) => {
@@ -389,7 +424,8 @@ export default function AiBuilderDialog({
           prompt: promptText,
           additionalNotes: additionalNotes.trim() || undefined,
           provider,
-          providerOptions: providerOptionsPayload
+          providerOptions: providerOptionsPayload,
+          promptOverrides: buildPromptOverridesPayload()
         });
         setGeneration(response);
         setProvider(response.provider);
@@ -441,6 +477,7 @@ export default function AiBuilderDialog({
       additionalNotes,
       applyGenerationResult,
       authorizedFetch,
+      buildPromptOverridesPayload,
       handleGenerationFailure,
       jobDrafts,
       buildProviderOptionsPayload,
@@ -472,6 +509,8 @@ export default function AiBuilderDialog({
       setMode('workflow');
       setPrompt('');
       setAdditionalNotes('');
+      setSystemPrompt(DEFAULT_AI_BUILDER_SYSTEM_PROMPT);
+      setResponseInstructions(DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS);
       setPending(false);
       setError(null);
       setMetadataSummary('');
@@ -602,7 +641,8 @@ export default function AiBuilderDialog({
           prompt: prompt.trim(),
           additionalNotes: additionalNotes.trim() || undefined,
           provider,
-          providerOptions: providerOptionsPayload
+          providerOptions: providerOptionsPayload,
+          promptOverrides: buildPromptOverridesPayload()
         });
         setGeneration(response);
         setProvider(response.provider);
@@ -647,6 +687,7 @@ export default function AiBuilderDialog({
       additionalNotes,
       applyGenerationResult,
       authorizedFetch,
+      buildPromptOverridesPayload,
       buildProviderOptionsPayload,
       clearPersistedGeneration,
       mode,
@@ -785,6 +826,15 @@ export default function AiBuilderDialog({
     }
     return baselineValue.trim() !== editorValue.trim();
   }, [baselineValue, editorValue, hasSuggestion]);
+
+  const promptsCustomized = useMemo(() => {
+    const normalizedSystem = systemPrompt.trim();
+    const normalizedInstructions = responseInstructions.trim();
+    return (
+      normalizedSystem !== DEFAULT_SYSTEM_PROMPT_TRIMMED ||
+      normalizedInstructions !== DEFAULT_RESPONSE_INSTRUCTIONS_TRIMMED
+    );
+  }, [responseInstructions, systemPrompt]);
 
   const parseEditorValue = useCallback((): WorkflowCreateInput | JobDefinitionCreateInput | null => {
     if (!editorValue.trim()) {
@@ -1269,6 +1319,47 @@ export default function AiBuilderDialog({
                   disabled={pending || submitting}
                 />
               </label>
+
+              <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-slate-100">
+                  Advanced prompt configuration
+                </summary>
+                <div className="mt-3 flex flex-col gap-3">
+                  <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    System prompt
+                    <textarea
+                      className="h-40 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] leading-relaxed text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                      value={systemPrompt}
+                      onChange={(event) => setSystemPrompt(event.target.value)}
+                      spellCheck={false}
+                      disabled={pending || submitting}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Response instructions
+                    <textarea
+                      className="h-20 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] leading-relaxed text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                      value={responseInstructions}
+                      onChange={(event) => setResponseInstructions(event.target.value)}
+                      spellCheck={false}
+                      disabled={pending || submitting}
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span>Adjust prompts before generating to steer the AI builder.</span>
+                    {promptsCustomized && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white px-3 py-1 font-semibold text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-slate-100"
+                        onClick={handleResetPrompts}
+                        disabled={pending || submitting}
+                      >
+                        Reset prompts
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </details>
 
               {error && (
                 <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">

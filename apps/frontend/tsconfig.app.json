@@ -16,6 +16,7 @@
     "jsx": "react-jsx",
     "baseUrl": "./",
     "paths": {
+      "@apphub/ai-prompts": ["../../services/catalog/src/ai/prompts.ts"],
       "@apphub/workflow-schemas": ["../../services/catalog/src/workflows/zodSchemas.ts"]
     },
 

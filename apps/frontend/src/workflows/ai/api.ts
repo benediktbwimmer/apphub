@@ -117,6 +117,10 @@ export type AiSuggestRequest = {
     openRouterReferer?: string;
     openRouterTitle?: string;
   };
+  promptOverrides?: {
+    systemPrompt?: string;
+    responseInstructions?: string;
+  };
 };
 
 export type AiGenerationState = {

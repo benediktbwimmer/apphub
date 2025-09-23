@@ -13,6 +13,8 @@ export type CodexGenerationOptions = {
   operatorRequest: string;
   metadataSummary: string;
   additionalNotes?: string;
+  systemPrompt?: string;
+  responseInstructions?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
   contextFiles?: CodexContextFile[];

@@ -150,6 +150,8 @@ type TemplateScope = {
 };
 
 const TEMPLATE_PATTERN = /\$?{{\s*([^}]+)\s*}}/g;
+const LEGACY_SIMPLE_TEMPLATE_PATTERN = /^(?:\$)([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+)$/;
+const LEGACY_INLINE_TEMPLATE_PATTERN = /\$([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+)/g;
 
 const FANOUT_GLOBAL_MAX_ITEMS = Math.max(
   1,
@@ -285,23 +287,79 @@ function lookupTemplateValue(scope: TemplateScope, expression: string): unknown 
   return current;
 }
 
-function resolveTemplateString(input: string, scope: TemplateScope): JsonValue {
-  const matches = [...input.matchAll(TEMPLATE_PATTERN)];
-  if (matches.length === 0) {
-    return input;
-  }
+function applyLegacyExpressionAliases(expression: string): string {
+  return expression.replace(/(^|\.)(output)(?=\.|$)/g, (_match, prefix) => `${prefix ?? ''}result`);
+}
 
+function postProcessLegacyValue(expression: string, value: unknown): unknown {
+  if (!expression.includes('.output')) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const files = record.files;
+    if (Array.isArray(files)) {
+      return files;
+    }
+  }
+  return value;
+}
+
+function resolveTemplateExpression(expression: string, scope: TemplateScope): unknown {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const direct = lookupTemplateValue(scope, trimmed);
+  if (direct !== undefined) {
+    return postProcessLegacyValue(trimmed, direct);
+  }
+  const alias = applyLegacyExpressionAliases(trimmed);
+  if (alias !== trimmed) {
+    const aliased = lookupTemplateValue(scope, alias);
+    if (aliased !== undefined) {
+      return postProcessLegacyValue(trimmed, aliased);
+    }
+  }
+  return undefined;
+}
+
+function resolveTemplateString(input: string, scope: TemplateScope): JsonValue {
   const trimmed = input.trim();
-  if (matches.length === 1 && trimmed === matches[0][0]) {
-    const value = lookupTemplateValue(scope, matches[0][1]);
+  const legacySimpleMatch = LEGACY_SIMPLE_TEMPLATE_PATTERN.exec(trimmed);
+  if (legacySimpleMatch) {
+    const value = resolveTemplateExpression(legacySimpleMatch[1], scope);
     return coerceTemplateResult(value);
   }
 
-  const replaced = input.replace(TEMPLATE_PATTERN, (_match, expr) => {
-    const value = lookupTemplateValue(scope, expr);
+  const matches = [...input.matchAll(TEMPLATE_PATTERN)];
+  if (matches.length > 0) {
+    if (matches.length === 1 && trimmed === matches[0][0]) {
+      const value = resolveTemplateExpression(matches[0][1], scope);
+      return coerceTemplateResult(value);
+    }
+
+    const replacedWithTemplates = input.replace(TEMPLATE_PATTERN, (_match, expr) => {
+      const value = resolveTemplateExpression(expr, scope);
+      return templateValueToString(value);
+    });
+    return replacedWithTemplates as JsonValue;
+  }
+
+  let performedLegacyReplacement = false;
+  const replacedLegacy = input.replace(LEGACY_INLINE_TEMPLATE_PATTERN, (_match, expr) => {
+    const value = resolveTemplateExpression(expr, scope);
+    performedLegacyReplacement = true;
     return templateValueToString(value);
   });
-  return replaced as JsonValue;
+  if (performedLegacyReplacement) {
+    return replacedLegacy as JsonValue;
+  }
+
+  return input;
 }
 
 function resolveJsonTemplates(value: JsonValue, scope: TemplateScope): JsonValue {

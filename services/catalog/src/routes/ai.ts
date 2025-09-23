@@ -61,13 +61,22 @@ const aiBuilderProviderOptionsSchema = z
   .partial()
   .strict();
 
+const aiBuilderPromptOverridesSchema = z
+  .object({
+    systemPrompt: z.string().trim().min(1).max(6_000).optional(),
+    responseInstructions: z.string().trim().min(1).max(2_000).optional()
+  })
+  .partial()
+  .strict();
+
 const aiBuilderSuggestSchema = z
   .object({
     mode: z.enum(['workflow', 'job', 'job-with-bundle', 'workflow-with-jobs']),
     prompt: z.string().min(1).max(2_000),
     additionalNotes: z.string().max(2_000).optional(),
     provider: aiBuilderProviderSchema.optional(),
-    providerOptions: aiBuilderProviderOptionsSchema.optional()
+    providerOptions: aiBuilderProviderOptionsSchema.optional(),
+    promptOverrides: aiBuilderPromptOverridesSchema.optional()
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -473,6 +482,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const provider: AiBuilderProvider = payload.provider ?? 'codex';
       const providerOptions = payload.providerOptions ?? {};
+      const promptOverrides = payload.promptOverrides ?? undefined;
+      const systemPrompt = promptOverrides?.systemPrompt;
+      const responseInstructions = promptOverrides?.responseInstructions;
 
       if (provider === 'openai') {
         const openAiApiKey = providerOptions.openAiApiKey?.trim();
@@ -499,7 +511,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           contextFiles,
           apiKey: openAiApiKey,
           baseUrl: openAiBaseUrl,
-          maxOutputTokens: openAiMaxOutputTokens
+          maxOutputTokens: openAiMaxOutputTokens,
+          systemPrompt,
+          responseInstructions
         });
 
         const evaluation = evaluateCodexOutput(mode, openAiResult.output);
@@ -581,7 +595,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           contextFiles,
           apiKey: openRouterApiKey,
           referer: openRouterReferer,
-          title: openRouterTitle
+          title: openRouterTitle,
+          systemPrompt,
+          responseInstructions
         });
 
         const evaluation = evaluateCodexOutput(mode, openRouterResult.output);
@@ -647,7 +663,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           operatorRequest,
           metadataSummary,
           additionalNotes,
-          contextFiles
+          contextFiles,
+          systemPrompt,
+          responseInstructions
         });
 
         const evaluation = evaluateCodexOutput(mode, codexResult.output);
@@ -938,6 +956,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const provider: AiBuilderProvider = payload.provider ?? 'codex';
       const providerOptions = payload.providerOptions ?? {};
+      const promptOverrides = payload.promptOverrides ?? undefined;
+      const systemPrompt = promptOverrides?.systemPrompt;
+      const responseInstructions = promptOverrides?.responseInstructions;
 
       if (provider === 'openai') {
         const openAiApiKey = providerOptions.openAiApiKey?.trim();
@@ -964,7 +985,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           contextFiles,
           apiKey: openAiApiKey,
           baseUrl: openAiBaseUrl,
-          maxOutputTokens: openAiMaxOutputTokens
+          maxOutputTokens: openAiMaxOutputTokens,
+          systemPrompt,
+          responseInstructions
         });
 
         const evaluation = evaluateCodexOutput(mode, openAiResult.output);
@@ -1032,7 +1055,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           contextFiles,
           apiKey: openRouterApiKey,
           referer: openRouterReferer,
-          title: openRouterTitle
+          title: openRouterTitle,
+          systemPrompt,
+          responseInstructions
         });
 
         const evaluation = evaluateCodexOutput(mode, openRouterResult.output);
@@ -1083,7 +1108,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         operatorRequest: payload.prompt,
         metadataSummary,
         additionalNotes: payload.additionalNotes ?? undefined,
-        contextFiles
+        contextFiles,
+        systemPrompt,
+        responseInstructions
       });
 
       const evaluation = evaluateCodexOutput(mode, codexResult.output);
