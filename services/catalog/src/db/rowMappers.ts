@@ -45,7 +45,8 @@ import {
   type WorkflowAssetDeclarationRecord,
   type WorkflowAssetDirection,
   type WorkflowRunStepAssetRecord,
-  type WorkflowAssetSnapshotRecord
+  type WorkflowAssetSnapshotRecord,
+  type WorkflowExecutionHistoryRecord
 } from './types';
 import type {
   BuildRow,
@@ -67,7 +68,8 @@ import type {
   WorkflowRunRow,
   WorkflowRunStepRow,
   WorkflowRunStepAssetRow,
-  WorkflowAssetSnapshotRow
+  WorkflowAssetSnapshotRow,
+  WorkflowExecutionHistoryRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1122,6 +1124,9 @@ export function mapJobRunRow(row: JobRunRow): JobRunRecord {
     scheduledAt: row.scheduled_at,
     startedAt: row.started_at ?? null,
     completedAt: row.completed_at ?? null,
+    lastHeartbeatAt: row.last_heartbeat_at ?? null,
+    retryCount: row.retry_count ?? 0,
+    failureReason: row.failure_reason ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobRunRecord;
@@ -1354,9 +1359,26 @@ export function mapWorkflowRunStepRow(
     fanoutIndex: row.fanout_index,
     templateStepId: row.template_step_id,
     producedAssets: assets,
+    lastHeartbeatAt: row.last_heartbeat_at,
+    retryCount: row.retry_count ?? 0,
+    failureReason: row.failure_reason ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepRecord;
+}
+
+export function mapWorkflowExecutionHistoryRow(
+  row: WorkflowExecutionHistoryRow
+): WorkflowExecutionHistoryRecord {
+  return {
+    id: row.id,
+    workflowRunId: row.workflow_run_id,
+    workflowRunStepId: row.workflow_run_step_id,
+    stepId: row.step_id,
+    eventType: row.event_type,
+    eventPayload: toJsonValue(row.event_payload),
+    createdAt: row.created_at
+  } satisfies WorkflowExecutionHistoryRecord;
 }
 
 export function mapWorkflowAssetSnapshotRow(

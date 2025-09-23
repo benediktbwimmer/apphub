@@ -3,6 +3,8 @@ import {
   getWorkflowDefinitionById,
   getWorkflowRunById,
   getWorkflowRunStep,
+  getWorkflowRunStepById,
+  appendWorkflowExecutionHistory,
   updateWorkflowRun,
   updateWorkflowRunStep,
   recordWorkflowRunStepAssets
@@ -15,6 +17,7 @@ import {
   type WorkflowRunStatus,
   type WorkflowRunStepRecord,
   type WorkflowRunStepStatus,
+  type WorkflowRunStepUpdateInput,
   type WorkflowStepDefinition,
   type WorkflowJobStepDefinition,
   type WorkflowServiceStepDefinition,
@@ -45,6 +48,75 @@ import { buildWorkflowDagMetadata } from './workflows/dag';
 function log(message: string, meta?: Record<string, unknown>) {
   const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
   logger.info(message, serialized);
+}
+
+type StepHistoryPayload = Record<string, JsonValue | null>;
+
+type StepUpdateOptions = {
+  eventType?: string;
+  eventPayload?: StepHistoryPayload;
+  heartbeat?: boolean;
+};
+
+async function appendRunHistoryEvent(
+  run: WorkflowRunRecord,
+  event: string,
+  payload: StepHistoryPayload = {}
+): Promise<void> {
+  await appendWorkflowExecutionHistory({
+    workflowRunId: run.id,
+    eventType: `run.${event}`,
+    eventPayload: {
+      status: run.status,
+      currentStepId: run.currentStepId ?? null,
+      currentStepIndex: run.currentStepIndex ?? null,
+      ...payload
+    }
+  });
+}
+
+async function appendStepHistoryEvent(
+  step: WorkflowRunStepRecord,
+  event: string,
+  payload: StepHistoryPayload = {}
+): Promise<void> {
+  await appendWorkflowExecutionHistory({
+    workflowRunId: step.workflowRunId,
+    workflowRunStepId: step.id,
+    stepId: step.stepId,
+    eventType: `step.${event}`,
+    eventPayload: {
+      status: step.status,
+      attempt: step.attempt,
+      retryCount: step.retryCount,
+      lastHeartbeatAt: step.lastHeartbeatAt,
+      ...payload
+    }
+  });
+}
+
+async function applyStepUpdateWithHistory(
+  step: WorkflowRunStepRecord,
+  updates: WorkflowRunStepUpdateInput,
+  options: StepUpdateOptions = {}
+): Promise<WorkflowRunStepRecord> {
+  const effectiveUpdates: WorkflowRunStepUpdateInput = { ...updates };
+  if (
+    options.heartbeat !== false &&
+    !Object.prototype.hasOwnProperty.call(effectiveUpdates, 'lastHeartbeatAt')
+  ) {
+    effectiveUpdates.lastHeartbeatAt = new Date().toISOString();
+  }
+  const updated = await updateWorkflowRunStep(step.id, effectiveUpdates);
+  const next = updated ?? step;
+  if (options.eventType) {
+    await appendStepHistoryEvent(next, options.eventType, options.eventPayload);
+  }
+  return next;
+}
+
+async function recordStepHeartbeat(step: WorkflowRunStepRecord): Promise<WorkflowRunStepRecord> {
+  return applyStepUpdateWithHistory(step, {}, { eventType: 'heartbeat' });
 }
 
 type WorkflowStepServiceContext = {
@@ -1017,6 +1089,10 @@ async function ensureRunIsStartable(run: WorkflowRunRecord, steps: WorkflowStepD
     metrics
   });
   if (updated) {
+    await appendRunHistoryEvent(updated, 'status', {
+      previousStatus: run.status,
+      startedAt
+    });
     return updated;
   }
   return (await getWorkflowRunById(run.id)) ?? run;
@@ -1031,7 +1107,7 @@ async function recordRunFailure(
 ) {
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAt;
-  await updateWorkflowRun(runId, {
+  const updated = await updateWorkflowRun(runId, {
     status: 'failed',
     errorMessage,
     context: serializeContext(context),
@@ -1039,8 +1115,13 @@ async function recordRunFailure(
     durationMs,
     metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
   });
-  const latest = await getWorkflowRunById(runId);
+  const latest = updated ?? (await getWorkflowRunById(runId));
   if (latest) {
+    await appendRunHistoryEvent(latest, 'status', {
+      failure: errorMessage,
+      completedAt,
+      durationMs
+    });
     await handleWorkflowFailureAlert(latest);
   }
 }
@@ -1054,7 +1135,7 @@ async function recordRunSuccess(
 ) {
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAt;
-  await updateWorkflowRun(runId, {
+  const updated = await updateWorkflowRun(runId, {
     status: 'succeeded',
     context: serializeContext(context),
     output,
@@ -1062,6 +1143,13 @@ async function recordRunSuccess(
     durationMs,
     metrics: { totalSteps: totals.totalSteps, completedSteps: totals.completedSteps }
   });
+  const latest = updated ?? (await getWorkflowRunById(runId));
+  if (latest) {
+    await appendRunHistoryEvent(latest, 'status', {
+      completedAt,
+      durationMs
+    });
+  }
 }
 
 async function loadOrCreateStepRecord(
@@ -1086,7 +1174,7 @@ async function loadOrCreateStepRecord(
       return existing;
     }
   }
-  return createWorkflowRunStep(runId, {
+  const created = await createWorkflowRunStep(runId, {
     stepId: step.id,
     status: 'running',
     input: inputParameters,
@@ -1095,6 +1183,12 @@ async function loadOrCreateStepRecord(
     fanoutIndex: options.fanoutIndex ?? null,
     templateStepId: options.templateStepId ?? null
   });
+  await appendStepHistoryEvent(created, 'status', {
+    previousStatus: 'created',
+    status: 'running',
+    startedAt: created.startedAt
+  });
+  return created;
 }
 
 function cloneServiceQuery(query?: Record<string, string | number | boolean>): Record<string, string | number | boolean> {
@@ -1552,13 +1646,25 @@ async function executeFanOutStep(
 
   const fail = async (message: string): Promise<StepExecutionResult> => {
     const completedAt = new Date().toISOString();
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    const previousStatus = stepRecord.status;
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         status: 'failed',
         errorMessage: message,
         completedAt,
         startedAt
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'status',
+        eventPayload: {
+          previousStatus,
+          status: 'failed',
+          errorMessage: message,
+          completedAt
+        }
+      }
+    );
 
     const failureContext = updateStepContext(context, step.id, {
       status: 'failed',
@@ -1614,14 +1720,28 @@ async function executeFanOutStep(
   );
 
   const fanOutMetrics = { fanOut: { totalChildren: items.length } } as JsonValue;
-
-  stepRecord =
-    (await updateWorkflowRunStep(stepRecord.id, {
+  const wasRunning = stepRecord.status === 'running';
+  const statusPayload: StepHistoryPayload = {
+    status: 'running',
+    startedAt,
+    metrics: fanOutMetrics
+  };
+  if (!wasRunning) {
+    statusPayload.previousStatus = stepRecord.status;
+  }
+  stepRecord = await applyStepUpdateWithHistory(
+    stepRecord,
+    {
       status: 'running',
       startedAt,
       metrics: fanOutMetrics,
       input: collectionInput
-    })) ?? stepRecord;
+    },
+    {
+      eventType: wasRunning ? 'heartbeat' : 'status',
+      eventPayload: statusPayload
+    }
+  );
 
   let nextContext = updateStepContext(context, step.id, {
     status: 'running',
@@ -1763,14 +1883,27 @@ async function executeJobStep(
 
   const startedAt = stepRecord.startedAt ?? new Date().toISOString();
   if (stepRecord.status !== 'running') {
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    const previousStatus = stepRecord.status;
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         status: 'running',
         startedAt,
         input: parameters
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'status',
+        eventPayload: {
+          previousStatus,
+          status: 'running',
+          startedAt
+        }
+      }
+    );
     await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
     stepRecord = { ...stepRecord, producedAssets: [] };
+  } else {
+    stepRecord = await recordStepHeartbeat(stepRecord);
   }
 
   let nextContext = updateStepContext(context, step.id, {
@@ -1819,9 +1952,19 @@ async function executeJobStep(
     context: bundleOverrideContext
   });
 
-  await updateWorkflowRunStep(stepRecord.id, {
-    jobRunId: jobRun.id
-  });
+  stepRecord = await applyStepUpdateWithHistory(
+    stepRecord,
+    {
+      jobRunId: jobRun.id
+    },
+    {
+      eventType: 'heartbeat',
+      eventPayload: {
+        jobRunId: jobRun.id,
+        reason: 'job-run-linked'
+      }
+    }
+  );
 
   const executed = await executeJobRun(jobRun.id);
   if (!executed) {
@@ -1831,8 +1974,10 @@ async function executeJobStep(
   const stepStatus = jobStatusToStepStatus(executed.status);
   const completedAt = executed.completedAt ?? new Date().toISOString();
 
-  stepRecord =
-    (await updateWorkflowRunStep(stepRecord.id, {
+  const previousStatus = stepRecord.status;
+  stepRecord = await applyStepUpdateWithHistory(
+    stepRecord,
+    {
       status: stepStatus,
       output: executed.result ?? null,
       errorMessage: executed.errorMessage ?? null,
@@ -1842,7 +1987,18 @@ async function executeJobStep(
       completedAt,
       startedAt: executed.startedAt ?? startedAt,
       jobRunId: executed.id
-    })) ?? stepRecord;
+    },
+    {
+      eventType: 'status',
+      eventPayload: {
+        previousStatus,
+        status: stepStatus,
+        completedAt,
+        jobRunStatus: executed.status,
+        failure: executed.errorMessage ?? null
+      }
+    }
+  );
 
   if (stepRecord.status === 'succeeded') {
     const assetInputs = extractProducedAssetsFromResult(step, executed.result ?? null);
@@ -1920,14 +2076,26 @@ async function executeServiceStep(
     const completedAt = new Date().toISOString();
     const attempt = stepRecord.attempt ?? 1;
     const metrics = buildServiceMetrics({ step, service: null, statusCode: null, latencyMs: null, attempt });
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    const previousStatus = stepRecord.status;
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         status: 'failed',
         startedAt,
         completedAt,
         errorMessage,
         metrics
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'status',
+        eventPayload: {
+          previousStatus,
+          status: 'failed',
+          errorMessage,
+          completedAt
+        }
+      }
+    );
 
     await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
     stepRecord = { ...stepRecord, producedAssets: [] };
@@ -1998,14 +2166,27 @@ async function executeServiceStep(
 
   const startedAt = stepRecord.startedAt ?? new Date().toISOString();
   if (stepRecord.status !== 'running') {
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    const previousStatus = stepRecord.status;
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         status: 'running',
         startedAt,
         input: prepared.requestInput
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'status',
+        eventPayload: {
+          previousStatus,
+          status: 'running',
+          startedAt
+        }
+      }
+    );
     await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
     stepRecord = { ...stepRecord, producedAssets: [] };
+  } else {
+    stepRecord = await recordStepHeartbeat(stepRecord);
   }
 
   let nextContext = updateStepContext(context, step.id, {
@@ -2042,11 +2223,21 @@ async function executeServiceStep(
       }
     }
 
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    const isRetry = attempt > initialAttempt;
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         attempt,
         input: prepared.requestInput
-      })) ?? stepRecord;
+      },
+      {
+        eventType: isRetry ? 'retry' : 'heartbeat',
+        eventPayload: {
+          attempt,
+          reason: isRetry ? 'retry-attempt' : 'attempt-initial'
+        }
+      }
+    );
 
     const service = await getServiceBySlug(step.serviceSlug);
     const serviceContext = buildServiceContextFromPrepared(step, prepared, service ?? null);
@@ -2062,12 +2253,22 @@ async function executeServiceStep(
     if (!service) {
       lastErrorMessage = `Service "${step.serviceSlug}" not found`;
       lastMetrics = buildServiceMetrics({ step, service: null, statusCode: null, latencyMs: null, attempt });
-      stepRecord =
-        (await updateWorkflowRunStep(stepRecord.id, {
+      stepRecord = await applyStepUpdateWithHistory(
+        stepRecord,
+        {
           errorMessage: lastErrorMessage,
           metrics: lastMetrics,
           context: serviceContextToJson(serviceContext)
-        })) ?? stepRecord;
+        },
+        {
+          eventType: 'heartbeat',
+          eventPayload: {
+            reason: 'service-missing',
+            errorMessage: lastErrorMessage,
+            metrics: lastMetrics
+          }
+        }
+      );
       finalContext = updateStepContext(finalContext, step.id, {
         errorMessage: lastErrorMessage,
         metrics: lastMetrics,
@@ -2082,12 +2283,23 @@ async function executeServiceStep(
     if (!isServiceAvailable(service, step)) {
       lastErrorMessage = `Service ${service.slug} unavailable (status: ${service.status})`;
       lastMetrics = buildServiceMetrics({ step, service, statusCode: null, latencyMs: null, attempt });
-      stepRecord =
-        (await updateWorkflowRunStep(stepRecord.id, {
+      stepRecord = await applyStepUpdateWithHistory(
+        stepRecord,
+        {
           errorMessage: lastErrorMessage,
           metrics: lastMetrics,
           context: serviceContextToJson(serviceContext)
-        })) ?? stepRecord;
+        },
+        {
+          eventType: 'heartbeat',
+          eventPayload: {
+            reason: 'service-unavailable',
+            errorMessage: lastErrorMessage,
+            metrics: lastMetrics,
+            serviceStatus: service.status
+          }
+        }
+      );
       finalContext = updateStepContext(finalContext, step.id, {
         errorMessage: lastErrorMessage,
         metrics: lastMetrics,
@@ -2117,24 +2329,48 @@ async function executeServiceStep(
       attempt
     });
 
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         metrics: lastMetrics,
         context: serviceContextToJson(serviceContextWithMetrics)
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'heartbeat',
+        eventPayload: {
+          reason: 'service-invocation',
+          metrics: lastMetrics,
+          statusCode: invocation.statusCode,
+          latencyMs: invocation.latencyMs
+        }
+      }
+    );
 
     if (invocation.success) {
       const completedAt = new Date().toISOString();
       const output = prepared.captureResponse ? (invocation.responseBody ?? null) : null;
 
-      stepRecord =
-        (await updateWorkflowRunStep(stepRecord.id, {
+      const previousStatus = stepRecord.status;
+      stepRecord = await applyStepUpdateWithHistory(
+        stepRecord,
+        {
           status: 'succeeded',
           output,
           errorMessage: null,
           metrics: lastMetrics,
           completedAt
-        })) ?? stepRecord;
+        },
+        {
+          eventType: 'status',
+          eventPayload: {
+            previousStatus,
+            status: 'succeeded',
+            completedAt,
+            serviceStatus: invocation.statusCode,
+            latencyMs: invocation.latencyMs
+          }
+        }
+      );
 
       const assetInputs = extractProducedAssetsFromResult(step, output);
       const storedAssets = await recordWorkflowRunStepAssets(
@@ -2184,12 +2420,23 @@ async function executeServiceStep(
         ? `Service responded with status ${invocation.statusCode}`
         : 'Service invocation failed');
 
-    stepRecord =
-      (await updateWorkflowRunStep(stepRecord.id, {
+    stepRecord = await applyStepUpdateWithHistory(
+      stepRecord,
+      {
         errorMessage: lastErrorMessage,
         metrics: lastMetrics,
         context: serviceContextToJson(serviceContextWithMetrics)
-      })) ?? stepRecord;
+      },
+      {
+        eventType: 'heartbeat',
+        eventPayload: {
+          reason: 'service-error',
+          errorMessage: lastErrorMessage,
+          metrics: lastMetrics,
+          statusCode: invocation.statusCode
+        }
+      }
+    );
 
     finalContext = updateStepContext(finalContext, step.id, {
       errorMessage: lastErrorMessage,
@@ -2214,14 +2461,26 @@ async function executeServiceStep(
     attempt: stepRecord.attempt ?? 1
   });
 
-  stepRecord =
-    (await updateWorkflowRunStep(stepRecord.id, {
+  const finalPreviousStatus = stepRecord.status;
+  stepRecord = await applyStepUpdateWithHistory(
+    stepRecord,
+    {
       status: 'failed',
       completedAt: failureCompletedAt,
       errorMessage: failureMessage,
       metrics: failureMetrics,
       context: serviceContextToJson(lastServiceContext)
-    })) ?? stepRecord;
+    },
+    {
+      eventType: 'status',
+      eventPayload: {
+        previousStatus: finalPreviousStatus,
+        status: 'failed',
+        completedAt: failureCompletedAt,
+        errorMessage: failureMessage
+      }
+    }
+  );
 
   await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
   stepRecord = { ...stepRecord, producedAssets: [] };
@@ -2561,11 +2820,33 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
         statusById.set(state.parentStepId, 'failed');
         failure = { stepId: state.parentStepId, message };
 
-        await updateWorkflowRunStep(state.parentRunStepId, {
-          status: 'failed',
-          errorMessage: message,
-          completedAt
-        });
+        const parentRecord = await getWorkflowRunStepById(state.parentRunStepId);
+        if (parentRecord) {
+          await applyStepUpdateWithHistory(
+            parentRecord,
+            {
+              status: 'failed',
+              errorMessage: message,
+              completedAt
+            },
+            {
+              eventType: 'status',
+              eventPayload: {
+                previousStatus: parentRecord.status,
+                status: 'failed',
+                errorMessage: message,
+                completedAt,
+                reason: 'fanout-child-failure'
+              }
+            }
+          );
+        } else {
+          await updateWorkflowRunStep(state.parentRunStepId, {
+            status: 'failed',
+            errorMessage: message,
+            completedAt
+          });
+        }
 
         await recordWorkflowRunStepAssets(
           run.workflowDefinitionId,
@@ -2589,12 +2870,34 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
         remainingSteps -= 1;
         totals.completedSteps += 1;
 
-        await updateWorkflowRunStep(state.parentRunStepId, {
-          status: 'succeeded',
-          output: parentResult,
-          metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
-          completedAt
-        });
+        const parentRecord = await getWorkflowRunStepById(state.parentRunStepId);
+        if (parentRecord) {
+          await applyStepUpdateWithHistory(
+            parentRecord,
+            {
+              status: 'succeeded',
+              output: parentResult,
+              metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
+              completedAt
+            },
+            {
+              eventType: 'status',
+              eventPayload: {
+                previousStatus: parentRecord.status,
+                status: 'succeeded',
+                completedAt,
+                totalChildren: state.childStepIds.length
+              }
+            }
+          );
+        } else {
+          await updateWorkflowRunStep(state.parentRunStepId, {
+            status: 'succeeded',
+            output: parentResult,
+            metrics: { fanOut: { totalChildren: state.childStepIds.length } } as JsonValue,
+            completedAt
+          });
+        }
 
         const parentRuntime = runtimeSteps.get(state.parentStepId);
         const parentDefinition =

@@ -372,6 +372,9 @@ export type JobRunRecord = {
   scheduledAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  lastHeartbeatAt: string | null;
+  retryCount: number;
+  failureReason: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -383,6 +386,9 @@ export type JobRunCreateInput = {
   maxAttempts?: number | null;
   context?: JsonValue | null;
   scheduledAt?: string;
+  retryCount?: number;
+  lastHeartbeatAt?: string | null;
+  failureReason?: string | null;
 };
 
 export type JobRunCompletionInput = {
@@ -393,6 +399,8 @@ export type JobRunCompletionInput = {
   context?: JsonValue | null;
   completedAt?: string;
   durationMs?: number | null;
+  failureReason?: string | null;
+  retryCount?: number;
 };
 
 export type JobBundleStorageKind = 'local' | 's3';
@@ -755,6 +763,9 @@ export type WorkflowRunStepRecord = {
   fanoutIndex: number | null;
   templateStepId: string | null;
   producedAssets: WorkflowRunStepAssetRecord[];
+  lastHeartbeatAt: string | null;
+  retryCount: number;
+  failureReason: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -775,6 +786,9 @@ export type WorkflowRunStepCreateInput = {
   parentStepId?: string | null;
   fanoutIndex?: number | null;
   templateStepId?: string | null;
+  lastHeartbeatAt?: string | null;
+  retryCount?: number;
+  failureReason?: string | null;
 };
 
 export type WorkflowRunStepUpdateInput = {
@@ -792,6 +806,27 @@ export type WorkflowRunStepUpdateInput = {
   parentStepId?: string | null;
   fanoutIndex?: number | null;
   templateStepId?: string | null;
+  lastHeartbeatAt?: string | null;
+  retryCount?: number;
+  failureReason?: string | null;
+};
+
+export type WorkflowExecutionHistoryRecord = {
+  id: string;
+  workflowRunId: string;
+  workflowRunStepId: string | null;
+  stepId: string | null;
+  eventType: string;
+  eventPayload: JsonValue;
+  createdAt: string;
+};
+
+export type WorkflowExecutionHistoryEventInput = {
+  workflowRunId: string;
+  workflowRunStepId?: string | null;
+  stepId?: string | null;
+  eventType: string;
+  eventPayload?: JsonValue;
 };
 
 export type AuditLogRecord = {

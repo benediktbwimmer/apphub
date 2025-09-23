@@ -572,6 +572,38 @@ const migrations: Migration[] = [
     statements: [
       `DELETE FROM job_definitions WHERE id IN ('jobdef-fs-read-file', 'jobdef-fs-write-file');`
     ]
+  },
+  {
+    id: '017_workflow_history_heartbeats',
+    statements: [
+      `ALTER TABLE job_runs
+         ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ,
+         ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS failure_reason TEXT;`,
+      `UPDATE job_runs
+         SET retry_count = GREATEST(COALESCE(attempt, 1) - 1, 0)
+         WHERE retry_count IS NULL OR (retry_count = 0 AND COALESCE(attempt, 1) > 1);`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ,
+         ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS failure_reason TEXT;`,
+      `UPDATE workflow_run_steps
+         SET retry_count = GREATEST(COALESCE(attempt, 1) - 1, 0)
+         WHERE retry_count IS NULL OR (retry_count = 0 AND COALESCE(attempt, 1) > 1);`,
+      `CREATE TABLE IF NOT EXISTS workflow_execution_history (
+         id BIGSERIAL PRIMARY KEY,
+         workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         workflow_run_step_id TEXT REFERENCES workflow_run_steps(id) ON DELETE CASCADE,
+         step_id TEXT,
+         event_type TEXT NOT NULL,
+         event_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_execution_history_run
+         ON workflow_execution_history(workflow_run_id, id);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_execution_history_step
+         ON workflow_execution_history(workflow_run_step_id, id);`
+    ]
   }
 ];
 

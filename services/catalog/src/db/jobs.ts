@@ -22,6 +22,35 @@ function normalizeAttempt(value?: number): number {
   return Math.floor(value);
 }
 
+function normalizeRetryCount(value: number | null | undefined, fallback: number): number {
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
+    return Math.max(0, Math.floor(fallback));
+  }
+  return Math.floor(value);
+}
+
+function resolveFailureReason(
+  status: JobRunStatus,
+  provided: string | null | undefined,
+  existing: string | null
+): string | null {
+  if (provided !== undefined) {
+    return provided ?? null;
+  }
+  switch (status) {
+    case 'succeeded':
+      return null;
+    case 'failed':
+      return existing ?? 'error';
+    case 'expired':
+      return existing ?? 'timeout';
+    case 'canceled':
+      return existing ?? 'canceled';
+    default:
+      return existing ?? null;
+  }
+}
+
 async function fetchJobDefinitionById(
   client: PoolClient,
   id: string
@@ -352,6 +381,10 @@ export async function createJobRun(
   const attempt = normalizeAttempt(input.attempt);
   const maxAttempts = input.maxAttempts ?? null;
   const scheduledAt = input.scheduledAt ?? new Date().toISOString();
+  const computedRetryCount = Math.max(0, attempt - 1);
+  const retryCount = normalizeRetryCount(input.retryCount, computedRetryCount);
+  const lastHeartbeatAt = input.lastHeartbeatAt ?? null;
+  const failureReason = input.failureReason ?? null;
 
   let run: JobRunRecord | null = null;
 
@@ -374,6 +407,9 @@ export async function createJobRun(
          scheduled_at,
          started_at,
          completed_at,
+         retry_count,
+         last_heartbeat_at,
+         failure_reason,
          created_at,
          updated_at
        ) VALUES (
@@ -393,6 +429,9 @@ export async function createJobRun(
          $8,
          NULL,
          NULL,
+         $9,
+         $10,
+         $11,
          NOW(),
          NOW()
        )
@@ -405,7 +444,10 @@ export async function createJobRun(
         input.timeoutMs ?? null,
         attempt,
         maxAttempts,
-        scheduledAt
+        scheduledAt,
+        retryCount,
+        lastHeartbeatAt,
+        failureReason
       ]
     );
     if (rows.length === 0) {
@@ -443,7 +485,9 @@ export async function startJobRun(
         const { rows: updated } = await client.query<JobRunRow>(
           `UPDATE job_runs
            SET started_at = $2,
-               updated_at = NOW()
+               last_heartbeat_at = NOW(),
+               failure_reason = NULL,
+           updated_at = NOW()
            WHERE id = $1
            RETURNING *`,
           [runId, startedAt]
@@ -462,7 +506,9 @@ export async function startJobRun(
       `UPDATE job_runs
        SET status = 'running',
            started_at = $2,
-           updated_at = NOW()
+           last_heartbeat_at = NOW(),
+           failure_reason = NULL,
+       updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
       [runId, startedAt]
@@ -524,7 +570,9 @@ export async function completeJobRun(
       extra.metrics === undefined &&
       extra.context === undefined &&
       extra.completedAt === undefined &&
-      extra.durationMs === undefined;
+      extra.durationMs === undefined &&
+      extra.failureReason === undefined &&
+      extra.retryCount === undefined;
 
     if (noChanges && existing.completedAt) {
       return existingRow;
@@ -539,6 +587,8 @@ export async function completeJobRun(
     const logsUrl = extra.logsUrl === undefined ? existing.logsUrl : extra.logsUrl;
     const metrics = extra.metrics === undefined ? existing.metrics : extra.metrics;
     const context = extra.context === undefined ? existing.context : extra.context;
+    const failureReason = resolveFailureReason(status, extra.failureReason, existing.failureReason);
+    const retryCount = normalizeRetryCount(extra.retryCount, existing.retryCount);
 
     const { rows: updatedRows } = await client.query<JobRunRow>(
       `UPDATE job_runs
@@ -550,6 +600,8 @@ export async function completeJobRun(
            context = $7::jsonb,
            duration_ms = $8,
            completed_at = $9,
+           retry_count = $10,
+           failure_reason = $11,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -562,7 +614,9 @@ export async function completeJobRun(
         metrics ?? null,
         context ?? null,
         durationMs,
-        completedAt
+        completedAt,
+        retryCount,
+        failureReason ?? null
       ]
     );
 
@@ -593,6 +647,9 @@ export async function updateJobRun(
     metrics?: JsonValue | null;
     context?: JsonValue | null;
     timeoutMs?: number | null;
+    heartbeatAt?: string | null;
+    retryCount?: number;
+    failureReason?: string | null;
   }
 ): Promise<JobRunRecord | null> {
   const hasUpdates =
@@ -600,7 +657,10 @@ export async function updateJobRun(
     Object.prototype.hasOwnProperty.call(updates, 'logsUrl') ||
     Object.prototype.hasOwnProperty.call(updates, 'metrics') ||
     Object.prototype.hasOwnProperty.call(updates, 'context') ||
-    Object.prototype.hasOwnProperty.call(updates, 'timeoutMs');
+    Object.prototype.hasOwnProperty.call(updates, 'timeoutMs') ||
+    Object.prototype.hasOwnProperty.call(updates, 'heartbeatAt') ||
+    Object.prototype.hasOwnProperty.call(updates, 'retryCount') ||
+    Object.prototype.hasOwnProperty.call(updates, 'failureReason');
 
   if (!hasUpdates) {
     return getJobRunById(runId);
@@ -625,13 +685,21 @@ export async function updateJobRun(
     const metrics = updates.metrics === undefined ? existing.metrics : updates.metrics;
     const context = updates.context === undefined ? existing.context : updates.context;
     const timeoutMs = updates.timeoutMs === undefined ? existing.timeoutMs : updates.timeoutMs;
+    const heartbeatAt =
+      updates.heartbeatAt === undefined ? existing.lastHeartbeatAt : updates.heartbeatAt ?? null;
+    const retryCount = normalizeRetryCount(updates.retryCount, existing.retryCount);
+    const failureReason =
+      updates.failureReason === undefined ? existing.failureReason : updates.failureReason ?? null;
 
     const nextIsSame =
       parameters === existing.parameters &&
       logsUrl === existing.logsUrl &&
       metrics === existing.metrics &&
       context === existing.context &&
-      timeoutMs === existing.timeoutMs;
+      timeoutMs === existing.timeoutMs &&
+      heartbeatAt === existing.lastHeartbeatAt &&
+      retryCount === existing.retryCount &&
+      failureReason === existing.failureReason;
 
     if (nextIsSame) {
       return existingRow;
@@ -644,10 +712,23 @@ export async function updateJobRun(
            metrics = $4::jsonb,
            context = $5::jsonb,
            timeout_ms = $6,
+           last_heartbeat_at = $7,
+           retry_count = $8,
+           failure_reason = $9,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [runId, parameters, logsUrl ?? null, metrics ?? null, context ?? null, timeoutMs]
+      [
+        runId,
+        parameters,
+        logsUrl ?? null,
+        metrics ?? null,
+        context ?? null,
+        timeoutMs,
+        heartbeatAt,
+        retryCount,
+        failureReason
+      ]
     );
 
     if (updatedRows.length === 0) {

@@ -162,6 +162,9 @@ export type JobRunRow = {
   scheduled_at: string;
   started_at: string | null;
   completed_at: string | null;
+  last_heartbeat_at: string | null;
+  retry_count: number;
+  failure_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -305,6 +308,19 @@ export type WorkflowRunStepRow = {
   parent_step_id: string | null;
   fanout_index: number | null;
   template_step_id: string | null;
+  last_heartbeat_at: string | null;
+  retry_count: number;
+  failure_reason: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type WorkflowExecutionHistoryRow = {
+  id: string;
+  workflow_run_id: string;
+  workflow_run_step_id: string | null;
+  step_id: string | null;
+  event_type: string;
+  event_payload: unknown;
+  created_at: string;
 };

@@ -13,6 +13,7 @@ import {
   type WorkflowRunStepCreateInput,
   type WorkflowRunStepRecord,
   type WorkflowRunStepUpdateInput,
+  type WorkflowRunStepStatus,
   type WorkflowDagMetadata,
   type JsonValue,
   type WorkflowTriggerDefinition,
@@ -24,7 +25,9 @@ import {
   type WorkflowAssetDirection,
   type WorkflowRunStepAssetRecord,
   type WorkflowRunStepAssetInput,
-  type WorkflowAssetSnapshotRecord
+  type WorkflowAssetSnapshotRecord,
+  type WorkflowExecutionHistoryRecord,
+  type WorkflowExecutionHistoryEventInput
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -32,7 +35,8 @@ import {
   mapWorkflowRunStepRow,
   mapWorkflowAssetDeclarationRow,
   mapWorkflowRunStepAssetRow,
-  mapWorkflowAssetSnapshotRow
+  mapWorkflowAssetSnapshotRow,
+  mapWorkflowExecutionHistoryRow
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
@@ -40,7 +44,8 @@ import type {
   WorkflowRunStepRow,
   WorkflowAssetDeclarationRow,
   WorkflowRunStepAssetRow,
-  WorkflowAssetSnapshotRow
+  WorkflowAssetSnapshotRow,
+  WorkflowExecutionHistoryRow
 } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
 
@@ -120,6 +125,40 @@ function resolveBucketInterval(range: AnalyticsTimeRange, bucketInterval?: strin
     return '1 hour';
   }
   return '1 day';
+}
+
+function normalizeStepRetryCount(
+  value: number | null | undefined,
+  fallback: number,
+  attempt: number
+): number {
+  const baseline = Math.max(0, Math.floor(attempt) - 1, Math.floor(fallback));
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) {
+    return baseline;
+  }
+  return Math.floor(value);
+}
+
+function resolveStepFailureReason(
+  status: WorkflowRunStepStatus,
+  provided: string | null | undefined,
+  existing: string | null
+): string | null {
+  if (provided !== undefined) {
+    return provided ?? null;
+  }
+  switch (status) {
+    case 'succeeded':
+      return null;
+    case 'failed':
+      return existing ?? 'error';
+    case 'skipped':
+      return existing ?? 'skipped';
+    case 'running':
+    case 'pending':
+    default:
+      return existing ?? null;
+  }
 }
 
 const MANUAL_TRIGGER: WorkflowTriggerDefinition = { type: 'manual' };
@@ -1207,6 +1246,9 @@ export async function createWorkflowRunStep(
   const id = randomUUID();
   const status = input.status ?? 'pending';
   const attempt = input.attempt ?? 1;
+  const retryCount = normalizeStepRetryCount(input.retryCount, Math.max(attempt - 1, 0), attempt);
+  const lastHeartbeatAt = input.lastHeartbeatAt ?? input.startedAt ?? null;
+  const failureReason = resolveStepFailureReason(status, input.failureReason, null);
 
   let step: WorkflowRunStepRecord | null = null;
 
@@ -1230,6 +1272,9 @@ export async function createWorkflowRunStep(
          parent_step_id,
          fanout_index,
          template_step_id,
+         last_heartbeat_at,
+         retry_count,
+         failure_reason,
          created_at,
          updated_at
        ) VALUES (
@@ -1245,15 +1290,18 @@ export async function createWorkflowRunStep(
          $10,
          $11::jsonb,
          $12::jsonb,
-         $13,
-         $14,
-         $15,
-         $16,
-         $17,
-         NOW(),
-         NOW()
-       )
-       RETURNING *`,
+       $13,
+       $14,
+       $15,
+       $16,
+        $17,
+        $18,
+        $19,
+        $20,
+        NOW(),
+        NOW()
+      )
+      RETURNING *`,
       [
         id,
         workflowRunId,
@@ -1271,7 +1319,10 @@ export async function createWorkflowRunStep(
         input.completedAt ?? null,
         input.parentStepId ?? null,
         input.fanoutIndex ?? null,
-        input.templateStepId ?? null
+        input.templateStepId ?? null,
+        lastHeartbeatAt,
+        retryCount,
+        failureReason
       ]
     );
     if (rows.length === 0) {
@@ -1399,6 +1450,82 @@ export async function recordWorkflowRunStepAssets(
   });
 }
 
+export type WorkflowStaleStepRef = {
+  workflowRunId: string;
+  workflowRunStepId: string;
+};
+
+export async function findStaleWorkflowRunSteps(
+  cutoffIso: string,
+  limit = 50
+): Promise<WorkflowStaleStepRef[]> {
+  const targetLimit = Math.max(1, Math.min(limit, 200));
+  return useConnection(async (client) => {
+    const { rows } = await client.query<{
+      workflow_run_id: string;
+      workflow_run_step_id: string;
+    }>(
+      `SELECT wrs.workflow_run_id, wrs.id AS workflow_run_step_id
+       FROM workflow_run_steps wrs
+       JOIN workflow_runs wr ON wr.id = wrs.workflow_run_id
+       WHERE wrs.status = 'running'
+         AND wr.status = 'running'
+         AND (
+           (wrs.last_heartbeat_at IS NOT NULL AND wrs.last_heartbeat_at < $1)
+           OR (wrs.last_heartbeat_at IS NULL AND (wrs.started_at IS NULL OR wrs.started_at < $1))
+         )
+       ORDER BY wrs.updated_at ASC
+       LIMIT $2`,
+      [cutoffIso, targetLimit]
+    );
+    return rows.map((row) => ({
+      workflowRunId: row.workflow_run_id,
+      workflowRunStepId: row.workflow_run_step_id
+    }));
+  });
+}
+
+export async function appendWorkflowExecutionHistory(
+  input: WorkflowExecutionHistoryEventInput
+): Promise<WorkflowExecutionHistoryRecord> {
+  const normalizedPayload =
+    input.eventPayload === undefined ? ({} as JsonValue) : (input.eventPayload as JsonValue);
+  const serializedPayload =
+    normalizedPayload === null ? 'null' : serializeJson(normalizedPayload) ?? '{}';
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowExecutionHistoryRow>(
+      `INSERT INTO workflow_execution_history (
+         workflow_run_id,
+         workflow_run_step_id,
+         step_id,
+         event_type,
+         event_payload
+       ) VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         $5::jsonb
+       )
+       RETURNING *`,
+      [
+        input.workflowRunId,
+        input.workflowRunStepId ?? null,
+        input.stepId ?? null,
+        input.eventType,
+        serializedPayload
+      ]
+    );
+
+    if (rows.length === 0) {
+      throw new Error('failed to append workflow execution history');
+    }
+
+    return mapWorkflowExecutionHistoryRow(rows[0]);
+  });
+}
+
 export async function updateWorkflowRunStep(
   stepId: string,
   updates: WorkflowRunStepUpdateInput
@@ -1437,6 +1564,19 @@ export async function updateWorkflowRunStep(
       'fanoutIndex' in updates ? updates.fanoutIndex ?? null : existing.fanout_index ?? null;
     const nextTemplateStepId =
       'templateStepId' in updates ? updates.templateStepId ?? null : existing.template_step_id ?? null;
+    const nextLastHeartbeatAt = Object.prototype.hasOwnProperty.call(updates, 'lastHeartbeatAt')
+      ? updates.lastHeartbeatAt ?? null
+      : existing.last_heartbeat_at ?? null;
+    const nextRetryCount = normalizeStepRetryCount(
+      updates.retryCount,
+      existing.retry_count ?? 0,
+      nextAttempt ?? 1
+    );
+    const nextFailureReason = resolveStepFailureReason(
+      nextStatus as WorkflowRunStepStatus,
+      updates.failureReason,
+      existing.failure_reason ?? null
+    );
 
     const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
       `UPDATE workflow_run_steps
@@ -1454,6 +1594,9 @@ export async function updateWorkflowRunStep(
            parent_step_id = $13,
            fanout_index = $14,
            template_step_id = $15,
+           last_heartbeat_at = $16,
+           retry_count = $17,
+           failure_reason = $18,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -1472,7 +1615,10 @@ export async function updateWorkflowRunStep(
         nextCompletedAt,
         nextParentStepId,
         nextFanoutIndex,
-        nextTemplateStepId
+        nextTemplateStepId,
+        nextLastHeartbeatAt,
+        nextRetryCount,
+        nextFailureReason
       ]
     );
     if (updatedRows.length === 0) {

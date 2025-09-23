@@ -65,6 +65,7 @@ export type JobRunContext = {
     context?: JsonValue | null;
     timeoutMs?: number | null;
   }): Promise<JobRunRecord>;
+  heartbeat(): Promise<JobRunRecord>;
   logger: (message: string, meta?: Record<string, unknown>) => void;
   resolveSecret(reference: SecretReference): string | null;
 };
@@ -186,15 +187,37 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     return currentRun;
   }
 
+  const applyLatestRun = (record: JobRunRecord) => {
+    currentRun = record;
+    latestRun = record;
+    return record;
+  };
+
   const context: JobRunContext = {
     definition,
     run: latestRun,
     parameters: latestRun.parameters,
     async update(updates) {
-      const updated = await updateJobRun(runId, updates);
+      const heartbeatAt = new Date().toISOString();
+      const updated = await updateJobRun(runId, { ...updates, heartbeatAt });
       if (updated) {
-        currentRun = updated;
-        latestRun = updated;
+        const latest = applyLatestRun(updated);
+        context.run = latest;
+        context.parameters = latest.parameters;
+        return latest;
+      }
+      context.run = latestRun;
+      context.parameters = latestRun.parameters;
+      return latestRun;
+    },
+    async heartbeat() {
+      const heartbeatAt = new Date().toISOString();
+      const updated = await updateJobRun(runId, { heartbeatAt });
+      if (updated) {
+        const latest = applyLatestRun(updated);
+        context.run = latest;
+        context.parameters = latest.parameters;
+        return latest;
       }
       context.run = latestRun;
       context.parameters = latestRun.parameters;
