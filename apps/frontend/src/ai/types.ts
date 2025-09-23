@@ -1,1 +1,1 @@
-export type AiBuilderProvider = 'codex' | 'openai';
+export type AiBuilderProvider = 'codex' | 'openai' | 'openrouter';

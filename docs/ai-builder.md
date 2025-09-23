@@ -4,6 +4,7 @@ The AI builder introduces a guided experience for generating workflow and job de
 
 ## UI Overview
 - Launch the builder from **Workflows → AI builder**. Visibility requires an operator token with either `workflows:write` or `jobs:write` scope (the existing `Create workflow` button still requires `workflows:write`).
+- Choose a generation provider: the built-in Codex CLI, OpenAI GPT-5, or xAI's Grok 4 fast model via OpenRouter. Save the relevant API key(s) under **Settings → AI builder** before switching.
 - Enter a natural-language description plus optional notes. The frontend collects catalog metadata (jobs, services, workflows) and the backend summarises it for Codex.
 - Codex runs via the host proxy service and writes the draft JSON to `./output/suggestion.json`; the UI streams CLI stdout/stderr while the job runs and never relies on the CLI printing the payload.
 - The preview panel shows validation status using the shared Zod schemas. Operators can edit the JSON directly.
@@ -34,23 +35,38 @@ The catalog service checks operator scopes, gathers metadata, and calls the prox
 
 ### Workflow + Jobs Mode
 
-`workflow-with-jobs` builds on the workflow experience by letting Codex propose any missing jobs alongside the definition. The response looks like:
+`workflow-with-jobs` now returns a workflow plan that spells out every dependency the automation requires. The plan separates catalog jobs that already exist from new jobs (and bundles) that must be generated before the workflow can run. The response looks like:
 
 ```json
 {
   "workflow": { /* workflow definition */ },
-  "newJobs": [
-    { "job": { /* job definition */ }, "bundle": { /* Node bundle */ } }
+  "dependencies": [
+    { "kind": "existing-job", "jobSlug": "inventory-fetcher", "description": "Reuses the catalog fetch job" },
+    {
+      "kind": "job-with-bundle",
+      "jobSlug": "inventory-sync-delta",
+      "name": "Inventory delta sync",
+      "prompt": "Generate a Node batch job that applies an inventory delta payload",
+      "bundleOutline": {
+        "entryPoint": "index.js",
+        "files": [
+          { "path": "index.js", "description": "Entry point that loads and applies the delta" }
+        ]
+      },
+      "dependsOn": ["inventory-fetcher"]
+    }
   ],
   "notes": "optional operator follow-up"
 }
 ```
 
-Codex should reuse existing job slugs whenever they satisfy the requested steps; `newJobs` is reserved for Node jobs that must be published. The UI highlights each proposed job, surfaces bundle validation issues (such as a missing entry point file), and lets operators publish the bundle inline before submitting the workflow. Submission stays disabled until every generated job has been created successfully.
+Operators iterate with the model on the plan, then generate each missing job individually using the provided prompts. The UI keeps track of generation status, surfaces bundle validation warnings (such as a missing entry point), and enables one-click publishing for bundle-backed jobs. Workflow submission stays disabled until every required bundle job has been published; pure workflow edits remain available throughout the review cycle.
 
 ## Automated Job Creation
 
 `POST /ai/builder/jobs`
+
+The plan view dispatches this endpoint for each `job-with-bundle` dependency once the operator is satisfied with the generated specification.
 
 Payload:
 
@@ -94,4 +110,4 @@ The bundle handler mirrors the server-side runner: it writes instructions into a
 - Generations persist server-side for one hour (`CODEX_PROXY_JOB_RETENTION_SECONDS` / in-memory session TTL) so you can resume polling later.
 - The frontend uses Vite aliases to import `zodSchemas.ts` directly; run `npm run dev` in `apps/frontend` to verify hot reload.
 
-For a full end-to-end check, publish the bundle, generate a workflow through the AI builder, and submit it. The new workflow appears in the sidebar without a page reload, and manual runs continue to work through the existing controls.
+For a full end-to-end check, publish the bundle, generate a workflow plan through the AI builder, publish any bundle-backed jobs the plan calls for, and then submit the workflow. The new workflow appears in the sidebar without a page reload, and manual runs continue to work through the existing controls.

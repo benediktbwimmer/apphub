@@ -143,27 +143,33 @@ function jobWithBundleOverview(): string {
 
 function workflowWithJobsOverview(): string {
   return [
-    '# Workflow With Jobs Reference',
+    '# Workflow With Jobs Plan Reference',
     '',
-    'In `workflow-with-jobs` mode, Codex must deliver a workflow definition alongside any new job bundles required to run it.',
+    'In `workflow-with-jobs` mode, Codex must deliver a workflow definition together with a dependency plan. The plan tells operators which jobs already exist, which new jobs they must generate, and where bundles are required.',
     '',
     'Output structure:',
     '```json',
     '{',
     '  "workflow": { /* workflow definition */ },',
-    '  "newJobs": [',
-    '    { "job": { /* job definition */ }, "bundle": { /* bundle spec */ } }',
+    '  "dependencies": [',
+    '    { "kind": "existing-job", "jobSlug": "existing-job", "description": "…", "rationale": "…" },',
+    '    { "kind": "job", "jobSlug": "new-job", "name": "New job", "prompt": "Generation prompt", "summary": "…" },',
+    '    {',
+    '      "kind": "job-with-bundle",',
+    '      "jobSlug": "new-job",',
+    '      "name": "New orchestrator",',
+    '      "prompt": "Generation prompt",',
+    '      "bundleOutline": { "entryPoint": "index.js", "files": [{ "path": "index.js", "description": "Main handler" }] }',
+    '    }',
     '  ],',
     '  "notes": "Optional operator guidance"',
     '}',
     '```',
     '',
-    '- Reuse existing jobs from the catalog whenever they satisfy the workflow steps.',
-    '- Only populate `newJobs` for jobs that are not present in the catalog. Every entry must include a Node bundle with runnable source files.',
-    '- Workflow steps should reference job slugs directly. Newly proposed jobs must align with the slugs provided in `newJobs`.',
-    '- Bundles must include the declared `entryPoint` file. Reference the schemas under `context/schemas/` and catalog summaries for compatibility details.',
-    '',
-    'Document any operator follow-up in the optional `notes` field (e.g. manual secret configuration).'
+    '- Include a dependency entry for every workflow job step. Use `existing-job` for catalog jobs that can be referenced immediately.',
+    '- For new jobs, supply a concise `prompt` that operators can resend during the job-generation step. Capture any sequencing constraints under `dependsOn`.',
+    '- `job-with-bundle` dependencies should outline the intended bundle entry point and any critical files so operators understand the implementation scope.',
+    '- Keep explanations short but actionable. Reserve broader follow-up guidance for the optional `notes` field (e.g. secrets to configure).'
   ].join('\n');
 }
 

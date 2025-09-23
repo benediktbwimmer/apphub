@@ -239,10 +239,81 @@ export const aiJobWithBundleOutputSchema = z
   })
   .strict();
 
+export const aiWorkflowExistingJobDependencySchema = z
+  .object({
+    kind: z.literal('existing-job'),
+    jobSlug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Job slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().min(1).max(2_000).optional(),
+    rationale: z.string().min(1).max(2_000).optional()
+  })
+  .strict();
+
+export const aiWorkflowNewJobDependencySchema = z
+  .object({
+    kind: z.literal('job'),
+    jobSlug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Job slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1).max(200),
+    summary: z.string().min(1).max(2_000).optional(),
+    prompt: z.string().min(1).max(4_000),
+    rationale: z.string().min(1).max(2_000).optional(),
+    dependsOn: z.array(z.string().min(1).max(200)).max(10).optional()
+  })
+  .strict();
+
+export const aiWorkflowJobWithBundleDependencySchema = z
+  .object({
+    kind: z.literal('job-with-bundle'),
+    jobSlug: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9][a-z0-9-_]*$/i, 'Job slug must contain only alphanumeric characters, dashes, or underscores'),
+    name: z.string().min(1).max(200),
+    summary: z.string().min(1).max(2_000).optional(),
+    prompt: z.string().min(1).max(4_000),
+    rationale: z.string().min(1).max(2_000).optional(),
+    bundleOutline: z
+      .object({
+        entryPoint: z.string().min(1).max(200),
+        files: z
+          .array(
+            z
+              .object({
+                path: z.string().min(1).max(200),
+                description: z.string().min(1).max(2_000).optional()
+              })
+              .strict()
+          )
+          .min(1)
+          .max(50)
+          .optional(),
+        manifestNotes: z.string().min(1).max(2_000).optional()
+      })
+      .strict()
+      .optional(),
+    dependsOn: z.array(z.string().min(1).max(200)).max(10).optional()
+  })
+  .strict();
+
+export const aiWorkflowDependencySchema = z.union([
+  aiWorkflowExistingJobDependencySchema,
+  aiWorkflowNewJobDependencySchema,
+  aiWorkflowJobWithBundleDependencySchema
+]);
+
 export const aiWorkflowWithJobsOutputSchema = z
   .object({
     workflow: workflowDefinitionCreateSchema,
-    newJobs: z.array(aiJobWithBundleOutputSchema).optional().default([]),
+    dependencies: z.array(aiWorkflowDependencySchema).optional().default([]),
     notes: z.string().min(1).max(5_000).optional()
   })
   .strict();
@@ -250,5 +321,9 @@ export const aiWorkflowWithJobsOutputSchema = z
 export type AiBundleFile = z.infer<typeof aiBundleFileSchema>;
 export type AiBundleSuggestion = z.infer<typeof aiBundleSuggestionSchema>;
 export type AiJobWithBundleOutput = z.infer<typeof aiJobWithBundleOutputSchema>;
+export type AiWorkflowExistingJobDependency = z.infer<typeof aiWorkflowExistingJobDependencySchema>;
+export type AiWorkflowNewJobDependency = z.infer<typeof aiWorkflowNewJobDependencySchema>;
+export type AiWorkflowJobWithBundleDependency = z.infer<typeof aiWorkflowJobWithBundleDependencySchema>;
+export type AiWorkflowDependency = z.infer<typeof aiWorkflowDependencySchema>;
 export type AiWorkflowWithJobsOutput = z.infer<typeof aiWorkflowWithJobsOutputSchema>;
 export type JobDefinitionUpdateInput = z.infer<typeof jobDefinitionUpdateSchema>;

@@ -15,7 +15,9 @@ import {
   type AiBuilderMode,
   type AiBuilderProvider,
   type AiGenerationState,
-  type AiSuggestionResponse
+  type AiSuggestionResponse,
+  type AiWorkflowDependency,
+  type AiWorkflowPlan
 } from './api';
 import {
   createWorkflowDefinition,
@@ -27,7 +29,7 @@ import {
 import type { WorkflowDefinition } from '../types';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { ToastPayload } from '../../components/toast/ToastContext';
-import { createJobWithBundle, type AiBundleSuggestion, type AiJobSuggestion } from './api';
+import { createJobWithBundle, type AiBundleSuggestion } from './api';
 import { useAiBuilderSettings } from '../../ai/useAiBuilderSettings';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
@@ -39,14 +41,26 @@ const POLL_INTERVAL_MS = 1_500;
 type JobDraft = {
   id: string;
   slug: string;
+  mode: Extract<AiBuilderMode, 'job' | 'job-with-bundle'>;
+  prompt: string;
+  promptDraft: string;
+  summary?: string | null;
+  rationale?: string | null;
+  dependsOn: string[];
   value: string;
   validation: { valid: boolean; errors: string[] };
-  bundle: AiBundleSuggestion;
+  bundle: AiBundleSuggestion | null;
   bundleErrors: string[];
+  generating: boolean;
+  generationError: string | null;
   created: boolean;
   creating: boolean;
-  error: string | null;
+  creationError: string | null;
 };
+
+type GenerationContext =
+  | { kind: 'primary'; mode: AiBuilderMode }
+  | { kind: 'dependency'; dependencyId: string; mode: Extract<AiBuilderMode, 'job' | 'job-with-bundle'> };
 
 const MODE_OPTIONS: { value: AiBuilderMode; label: string }[] = [
   { value: 'workflow', label: 'Workflow' },
@@ -65,8 +79,19 @@ const PROVIDER_OPTIONS: { value: AiBuilderProvider; label: string; description: 
     value: 'openai',
     label: 'OpenAI GPT-5',
     description: 'Calls the OpenAI API with high reasoning effort to draft structured output.'
+  },
+  {
+    value: 'openrouter',
+    label: 'Grok 4 (OpenRouter)',
+    description: 'Uses OpenRouter to access xAI\'s Grok 4 fast model. Requires an OpenRouter API key.'
   }
 ];
+
+const PROVIDER_LABELS: Record<AiBuilderProvider, string> = {
+  codex: 'Codex CLI',
+  openai: 'OpenAI GPT-5',
+  openrouter: 'Grok 4 (OpenRouter)'
+};
 
 function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: boolean; errors: string[] } {
   if (!editorValue.trim()) {
@@ -137,20 +162,67 @@ export default function AiBuilderDialog({
     valid: true,
     errors: []
   });
+  const [plan, setPlan] = useState<AiWorkflowPlan | null>(null);
   const [jobDrafts, setJobDrafts] = useState<JobDraft[]>([]);
   const [workflowNotes, setWorkflowNotes] = useState<string | null>(null);
   const [generation, setGeneration] = useState<AiGenerationState | null>(null);
+  const [generationContext, setGenerationContext] = useState<GenerationContext | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openAiApiKey = aiSettings.openAiApiKey.trim();
   const openAiMaxOutputTokens = aiSettings.openAiMaxOutputTokens;
+  const openRouterApiKey = aiSettings.openRouterApiKey.trim();
+  const openRouterReferer = aiSettings.openRouterReferer.trim();
+  const openRouterTitle = aiSettings.openRouterTitle.trim();
 
-  const applySuggestion = useCallback(
+  const providerDisplayName = useCallback((candidate: AiBuilderProvider) => PROVIDER_LABELS[candidate], []);
+
+  const providerKeyMessage = useCallback(
+    (candidate: AiBuilderProvider): string | null => {
+      if (candidate === 'openai' && openAiApiKey.length === 0) {
+        return 'Add an OpenAI API key in Settings → AI builder before generating with OpenAI.';
+      }
+      if (candidate === 'openrouter' && openRouterApiKey.length === 0) {
+        return 'Add an OpenRouter API key in Settings → AI builder before generating with OpenRouter.';
+      }
+      return null;
+    },
+    [openAiApiKey, openRouterApiKey]
+  );
+
+  const providerKeyMissing = useCallback(
+    (candidate: AiBuilderProvider) => providerKeyMessage(candidate) !== null,
+    [providerKeyMessage]
+  );
+
+  const buildProviderOptionsPayload = useCallback(
+    (selectedProvider: AiBuilderProvider) => {
+      if (selectedProvider === 'openai') {
+        return {
+          openAiApiKey,
+          openAiMaxOutputTokens
+        };
+      }
+      if (selectedProvider === 'openrouter') {
+        return {
+          openRouterApiKey,
+          openRouterReferer: openRouterReferer || undefined,
+          openRouterTitle: openRouterTitle || undefined
+        };
+      }
+      return undefined;
+    },
+    [openAiApiKey, openAiMaxOutputTokens, openRouterApiKey, openRouterReferer, openRouterTitle]
+  );
+
+  const applyPrimarySuggestion = useCallback(
     (response: AiSuggestionResponse) => {
       const nextMode = response.mode;
       setMode(nextMode);
+
       const initialValue = response.suggestion
         ? JSON.stringify(response.suggestion, null, 2)
         : (response.raw ?? '').trim();
+
       setMetadataSummary(response.metadataSummary ?? '');
       setStdout(response.stdout ?? '');
       setStderr(response.stderr ?? '');
@@ -159,34 +231,223 @@ export default function AiBuilderDialog({
       setBaselineValue(initialValue);
       setHasSuggestion(Boolean(initialValue));
       setValidation(toValidationErrors(nextMode, initialValue));
-      setBundleSuggestion((response.bundle as AiBundleSuggestion | null) ?? null);
-      setBundleValidation(
-        response.bundleValidation ?? {
-          valid: true,
-          errors: []
-        }
-      );
-      setWorkflowNotes(response.notes ?? null);
-      const jobSuggestions = response.jobSuggestions ?? [];
-      if (jobSuggestions.length > 0) {
-        setJobDrafts(
-          jobSuggestions.map((suggestion: AiJobSuggestion, index) => ({
-            id: `${suggestion.job.slug}-${index}`,
-            slug: suggestion.job.slug,
-            value: JSON.stringify(suggestion.job, null, 2),
-            validation: { valid: true, errors: [] },
-            bundle: suggestion.bundle,
-            bundleErrors: suggestion.bundleValidation.errors ?? [],
+
+      if (nextMode === 'workflow-with-jobs') {
+        const workflowPlan = response.plan ?? null;
+        setPlan(workflowPlan);
+        setWorkflowNotes(workflowPlan?.notes ?? response.notes ?? null);
+        setBundleSuggestion(null);
+        setBundleValidation({ valid: true, errors: [] });
+
+        const planDependencies = workflowPlan?.dependencies ?? [];
+        const drafts = planDependencies
+          .filter((dependency): dependency is AiWorkflowDependency & { kind: 'job' | 'job-with-bundle' } =>
+            dependency.kind === 'job' || dependency.kind === 'job-with-bundle'
+          )
+          .map((dependency) => ({
+            id: dependency.jobSlug,
+            slug: dependency.jobSlug,
+            mode: dependency.kind,
+            prompt: dependency.prompt ?? '',
+            promptDraft: dependency.prompt ?? '',
+            summary: dependency.summary ?? null,
+            rationale: dependency.rationale ?? null,
+            dependsOn: dependency.dependsOn ?? [],
+            value: '',
+            validation: { valid: false, errors: [] },
+            bundle: null,
+            bundleErrors: [],
+            generating: false,
+            generationError: null,
             created: false,
             creating: false,
-            error: null
-          }))
-        );
+            creationError: null
+          }));
+        setJobDrafts(drafts);
       } else {
+        setPlan(null);
+        setWorkflowNotes(response.notes ?? null);
+        if (nextMode === 'job-with-bundle') {
+          const bundle = (response.bundle as AiBundleSuggestion | null) ?? null;
+          setBundleSuggestion(bundle);
+          setBundleValidation(
+            response.bundleValidation ?? {
+              valid: Boolean(bundle),
+              errors: []
+            }
+          );
+        } else {
+          setBundleSuggestion(null);
+          setBundleValidation({ valid: true, errors: [] });
+        }
         setJobDrafts([]);
       }
     },
-    [setJobDrafts, setWorkflowNotes]
+    []
+  );
+
+  const applyDependencySuggestion = useCallback(
+    (dependencyId: string, response: AiSuggestionResponse) => {
+      const nextValue = response.suggestion
+        ? JSON.stringify(response.suggestion, null, 2)
+        : (response.raw ?? '').trim();
+      const jobErrors = response.validation?.errors ?? [];
+      setJobDrafts((current) =>
+        current.map((draft) => {
+          if (draft.id !== dependencyId) {
+            return draft;
+          }
+          const bundleErrors =
+            draft.mode === 'job-with-bundle'
+              ? response.bundleValidation?.errors ?? []
+              : [];
+          return {
+            ...draft,
+            value: nextValue,
+            validation: toValidationErrors(draft.mode, nextValue),
+            bundle:
+              draft.mode === 'job-with-bundle'
+                ? ((response.bundle as AiBundleSuggestion | null) ?? null)
+                : null,
+            bundleErrors,
+            generating: false,
+            generationError:
+              jobErrors.length > 0 || bundleErrors.length > 0
+                ? [...jobErrors, ...bundleErrors].join('\n')
+                : null,
+            created: false,
+            creating: false,
+            creationError: null
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const applyGenerationResult = useCallback(
+    (response: AiSuggestionResponse, context: GenerationContext | null) => {
+      if (context && context.kind === 'dependency') {
+        applyDependencySuggestion(context.dependencyId, response);
+      } else {
+        applyPrimarySuggestion(response);
+      }
+    },
+    [applyDependencySuggestion, applyPrimarySuggestion]
+  );
+
+  const handleGenerationFailure = useCallback(
+    (context: GenerationContext | null, message: string) => {
+      setError(message);
+      if (context && context.kind === 'dependency') {
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === context.dependencyId
+              ? { ...draft, generating: false, generationError: message }
+              : draft
+          )
+        );
+      }
+    },
+    []
+  );
+
+  const handleGenerateDependency = useCallback(
+    async (dependencyId: string) => {
+      const target = jobDrafts.find((draft) => draft.id === dependencyId);
+      if (!target) {
+        return;
+      }
+      const promptText = target.promptDraft.trim();
+      if (!promptText) {
+        handleGenerationFailure(
+          { kind: 'dependency', dependencyId: target.id, mode: target.mode },
+          'Add or edit the prompt before generating this job.'
+        );
+        return;
+      }
+      const missingMessage = providerKeyMessage(provider);
+      if (missingMessage) {
+        setError(missingMessage);
+        return;
+      }
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      setPending(true);
+      setGenerationContext({ kind: 'dependency', dependencyId: target.id, mode: target.mode });
+      setJobDrafts((current) =>
+        current.map((draft) =>
+          draft.id === dependencyId ? { ...draft, generating: true, generationError: null } : draft
+        )
+      );
+      try {
+        const providerOptionsPayload = buildProviderOptionsPayload(provider);
+        const response = await startAiGeneration(authorizedFetch, {
+          mode: target.mode,
+          prompt: promptText,
+          additionalNotes: additionalNotes.trim() || undefined,
+          provider,
+          providerOptions: providerOptionsPayload
+        });
+        setGeneration(response);
+        setProvider(response.provider);
+        setMetadataSummary(response.metadataSummary ?? '');
+        setStdout(response.stdout ?? '');
+        setStderr(response.stderr ?? '');
+        setSummaryText(response.summary ?? null);
+
+        if (response.status === 'succeeded' && response.result) {
+          applyGenerationResult(response.result, {
+            kind: 'dependency',
+            dependencyId: target.id,
+            mode: target.mode
+          });
+          setPending(false);
+          setGenerationContext(null);
+        } else if (response.status === 'failed') {
+          const failureProvider = providerDisplayName(response.provider);
+          const failureMessage = response.error ?? `${failureProvider} generation failed`;
+          handleGenerationFailure(
+            { kind: 'dependency', dependencyId: target.id, mode: target.mode },
+            failureMessage
+          );
+          setPending(false);
+          setGenerationContext(null);
+        }
+        console.info('ai-builder.usage', {
+          event: 'dependency-generation-started',
+          dependencyId: target.id,
+          mode: target.mode,
+          provider,
+          promptLength: promptText.length,
+          immediateResult: response.status !== 'running'
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to generate job suggestion';
+        handleGenerationFailure({ kind: 'dependency', dependencyId: target.id, mode: target.mode }, message);
+        setPending(false);
+        setGenerationContext(null);
+        console.error('ai-builder.error', {
+          event: 'dependency-generate',
+          dependencyId: target.id,
+          message,
+          error: err
+        });
+      }
+    },
+    [
+      additionalNotes,
+      applyGenerationResult,
+      authorizedFetch,
+      handleGenerationFailure,
+      jobDrafts,
+      buildProviderOptionsPayload,
+      provider,
+      providerDisplayName,
+      providerKeyMessage
+    ]
   );
 
   const persistGeneration = useCallback((id: string, modeValue: AiBuilderMode, providerValue: AiBuilderProvider) => {
@@ -224,9 +485,11 @@ export default function AiBuilderDialog({
       setSubmitting(false);
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setPlan(null);
       setJobDrafts([]);
       setWorkflowNotes(null);
       setGeneration(null);
+      setGenerationContext(null);
       setProvider(aiSettings.preferredProvider);
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
@@ -263,7 +526,7 @@ export default function AiBuilderDialog({
         clearPersistedGeneration();
         return;
       }
-      if (parsed.provider === 'codex' || parsed.provider === 'openai') {
+      if (parsed.provider) {
         setProvider(parsed.provider);
       }
       setPending(true);
@@ -271,21 +534,20 @@ export default function AiBuilderDialog({
         .then((state) => {
           setGeneration(state);
           setMode(state.mode);
-          if (state.provider === 'codex' || state.provider === 'openai') {
-            setProvider(state.provider);
-          }
+          setProvider(state.provider);
+          setGenerationContext(state.status === 'running' ? { kind: 'primary', mode: state.mode } : null);
           setMetadataSummary(state.metadataSummary ?? '');
           setStdout(state.stdout ?? '');
           setStderr(state.stderr ?? '');
           setSummaryText(state.summary ?? null);
 
           if (state.status === 'succeeded' && state.result) {
-            applySuggestion(state.result);
+            applyGenerationResult(state.result, { kind: 'primary', mode: state.mode });
             setHasSuggestion(true);
             setPending(false);
             clearPersistedGeneration();
           } else if (state.status === 'failed') {
-            const providerName = state.provider === 'openai' ? 'OpenAI' : 'Codex';
+            const providerName = providerDisplayName(state.provider);
             setError(state.error ?? `${providerName} generation failed`);
             setPending(false);
             clearPersistedGeneration();
@@ -302,7 +564,7 @@ export default function AiBuilderDialog({
     } catch {
       clearPersistedGeneration();
     }
-  }, [applySuggestion, authorizedFetch, clearPersistedGeneration, generation, open]);
+  }, [applyGenerationResult, authorizedFetch, clearPersistedGeneration, generation, open, providerDisplayName]);
 
   const handleGenerate = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
@@ -311,8 +573,9 @@ export default function AiBuilderDialog({
         setError('Describe the workflow or job you would like to generate.');
         return;
       }
-      if (provider === 'openai' && openAiApiKey.length === 0) {
-        setError('Add an OpenAI API key in Settings → AI builder before generating with OpenAI.');
+      const missingMessage = providerKeyMessage(provider);
+      if (missingMessage) {
+        setError(missingMessage);
         return;
       }
       if (pollTimerRef.current) {
@@ -326,44 +589,41 @@ export default function AiBuilderDialog({
       setBaselineValue('');
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setPlan(null);
       setJobDrafts([]);
       setWorkflowNotes(null);
       setSummaryText(null);
       const requestMode: AiBuilderMode = mode;
+      setGenerationContext({ kind: 'primary', mode: requestMode });
       try {
+        const providerOptionsPayload = buildProviderOptionsPayload(provider);
         const response = await startAiGeneration(authorizedFetch, {
           mode: requestMode,
           prompt: prompt.trim(),
           additionalNotes: additionalNotes.trim() || undefined,
           provider,
-          providerOptions:
-            provider === 'openai'
-              ? {
-                  openAiApiKey,
-                  openAiMaxOutputTokens
-                }
-              : undefined
+          providerOptions: providerOptionsPayload
         });
         setGeneration(response);
-        if (response.provider === 'codex' || response.provider === 'openai') {
-          setProvider(response.provider);
-        }
+        setProvider(response.provider);
         setMetadataSummary(response.metadataSummary ?? '');
         setStdout(response.stdout ?? '');
         setStderr(response.stderr ?? '');
         setSummaryText(response.summary ?? null);
 
         if (response.status === 'succeeded' && response.result) {
-          applySuggestion(response.result);
+          applyGenerationResult(response.result, { kind: 'primary', mode: requestMode });
           setHasSuggestion(true);
           setPending(false);
           clearPersistedGeneration();
+          setGenerationContext(null);
         } else if (response.status === 'failed') {
-          const failureProvider = response.provider === 'openai' ? 'OpenAI' : 'Codex';
+          const failureProvider = providerDisplayName(response.provider);
           const failureMessage = response.error ?? `${failureProvider} generation failed`;
           setError(failureMessage);
           setPending(false);
           clearPersistedGeneration();
+          setGenerationContext(null);
         } else {
           persistGeneration(response.generationId, requestMode, provider);
         }
@@ -379,22 +639,22 @@ export default function AiBuilderDialog({
         setError(message);
         setPending(false);
         clearPersistedGeneration();
+        setGenerationContext(null);
         console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
       }
     },
     [
       additionalNotes,
-      applySuggestion,
+      applyGenerationResult,
       authorizedFetch,
+      buildProviderOptionsPayload,
       clearPersistedGeneration,
       mode,
-      openAiApiKey,
-      openAiMaxOutputTokens,
+      providerDisplayName,
+      providerKeyMessage,
       persistGeneration,
       prompt,
-      provider,
-      setJobDrafts,
-      setWorkflowNotes
+      provider
     ]
   );
 
@@ -403,6 +663,7 @@ export default function AiBuilderDialog({
       if (generation) {
         setPending(false);
         clearPersistedGeneration();
+        setGenerationContext(null);
       }
       return;
     }
@@ -416,9 +677,7 @@ export default function AiBuilderDialog({
           return;
         }
         setGeneration(next);
-        if (next.provider === 'codex' || next.provider === 'openai') {
-          setProvider(next.provider);
-        }
+        setProvider(next.provider);
         setMetadataSummary(next.metadataSummary ?? '');
         setStdout(next.stdout ?? '');
         setStderr(next.stderr ?? '');
@@ -427,26 +686,34 @@ export default function AiBuilderDialog({
         if (next.status === 'running') {
           pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
         } else if (next.status === 'succeeded' && next.result) {
-          applySuggestion(next.result);
-          setHasSuggestion(true);
+          const context = generationContext ?? { kind: 'primary', mode: next.mode };
+          applyGenerationResult(next.result, context);
+          if (!context || context.kind !== 'dependency') {
+            setHasSuggestion(true);
+          }
           setPending(false);
           clearPersistedGeneration();
+          setGenerationContext(null);
         } else if (next.status === 'failed') {
-          const providerName = next.provider === 'openai' ? 'OpenAI' : 'Codex';
-          setError(next.error ?? `${providerName} generation failed`);
+          const providerName = providerDisplayName(next.provider);
+          const failureMessage = next.error ?? `${providerName} generation failed`;
+          handleGenerationFailure(generationContext, failureMessage);
           setPending(false);
           clearPersistedGeneration();
+          setGenerationContext(null);
         } else {
           setPending(false);
+          setGenerationContext(null);
         }
       } catch (err) {
         if (cancelled) {
           return;
         }
         const message = err instanceof Error ? err.message : 'Failed to poll AI generation';
-        setError(message);
+        handleGenerationFailure(generationContext, message);
         setPending(false);
         clearPersistedGeneration();
+        setGenerationContext(null);
       }
     };
 
@@ -459,7 +726,15 @@ export default function AiBuilderDialog({
         pollTimerRef.current = null;
       }
     };
-  }, [applySuggestion, authorizedFetch, clearPersistedGeneration, generation]);
+  }, [
+    applyGenerationResult,
+    authorizedFetch,
+    clearPersistedGeneration,
+    generation,
+    generationContext,
+    handleGenerationFailure,
+    providerDisplayName
+  ]);
 
   const handleModeChange = useCallback(
     (nextMode: AiBuilderMode) => {
@@ -470,9 +745,11 @@ export default function AiBuilderDialog({
       setValidation({ valid: false, errors: [] });
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setPlan(null);
       setJobDrafts([]);
       setWorkflowNotes(null);
       setGeneration(null);
+      setGenerationContext(null);
       setStdout('');
       setStderr('');
       setSummaryText(null);
@@ -546,15 +823,16 @@ export default function AiBuilderDialog({
 
   const handleSubmitWorkflow = useCallback(async () => {
     if (mode === 'workflow-with-jobs') {
-      if (jobDrafts.some((draft) => draft.creating)) {
+      const bundleDrafts = jobDrafts.filter((draft) => draft.mode === 'job-with-bundle');
+      if (bundleDrafts.some((draft) => draft.creating)) {
         setError('Wait for job creation to finish before submitting the workflow.');
         return;
       }
-      if (jobDrafts.some((draft) => draft.bundleErrors.length > 0 || !draft.validation.valid)) {
+      if (bundleDrafts.some((draft) => draft.bundleErrors.length > 0 || !draft.validation.valid)) {
         setError('Resolve job validation issues before submitting the workflow.');
         return;
       }
-      if (jobDrafts.some((draft) => !draft.created)) {
+      if (bundleDrafts.some((draft) => !draft.created)) {
         setError('Create the generated jobs before submitting the workflow.');
         return;
       }
@@ -625,11 +903,18 @@ export default function AiBuilderDialog({
           ? {
               ...draft,
               value,
-              validation: toValidationErrors('job', value),
-              error: null
+              validation: toValidationErrors(draft.mode, value),
+              generationError: null,
+              creationError: null
             }
           : draft
       )
+    );
+  }, []);
+
+  const handleJobPromptChange = useCallback((draftId: string, value: string) => {
+    setJobDrafts((current) =>
+      current.map((draft) => (draft.id === draftId ? { ...draft, promptDraft: value } : draft))
     );
   }, []);
 
@@ -639,12 +924,18 @@ export default function AiBuilderDialog({
       if (!target || target.creating || target.created) {
         return;
       }
-    if (!canCreateJob) {
-      const scopeMessage = 'Your token must include the job-bundles:write scope to create AI-generated jobs.';
+      if (!canCreateJob) {
+        const scopeMessage = 'Your token must include the job-bundles:write scope to create AI-generated jobs.';
         setError(scopeMessage);
         setJobDrafts((current) =>
-          current.map((draft) => (draft.id === draftId ? { ...draft, error: scopeMessage } : draft))
+          current.map((draft) =>
+            draft.id === draftId ? { ...draft, creationError: scopeMessage } : draft
+          )
         );
+        return;
+      }
+      if (target.mode !== 'job-with-bundle' || !target.bundle) {
+        setError('This job dependency does not include a bundle. Create it manually via the job builder.');
         return;
       }
       if (target.bundleErrors.length > 0) {
@@ -653,14 +944,14 @@ export default function AiBuilderDialog({
             draft.id === draftId
               ? {
                   ...draft,
-                  error: 'Fix the bundle issues before creating this job.'
+                  creationError: 'Fix the bundle issues before creating this job.'
                 }
               : draft
           )
         );
         return;
       }
-      const validationResult = toValidationErrors('job', target.value);
+      const validationResult = toValidationErrors(target.mode, target.value);
       if (!validationResult.valid) {
         setJobDrafts((current) =>
           current.map((draft) =>
@@ -668,7 +959,7 @@ export default function AiBuilderDialog({
               ? {
                   ...draft,
                   validation: validationResult,
-                  error: 'Resolve validation issues before creating this job.'
+                  creationError: 'Resolve validation issues before creating this job.'
                 }
               : draft
           )
@@ -686,8 +977,8 @@ export default function AiBuilderDialog({
             draft.id === draftId
               ? {
                   ...draft,
-                  validation: toValidationErrors('job', target.value),
-                  error: `Invalid job definition: ${message}`
+                  validation: toValidationErrors(target.mode, target.value),
+                  creationError: `Invalid job definition: ${message}`
                 }
               : draft
           )
@@ -696,7 +987,11 @@ export default function AiBuilderDialog({
       }
 
       setJobDrafts((current) =>
-        current.map((draft) => (draft.id === draftId ? { ...draft, creating: true, error: null } : draft))
+        current.map((draft) =>
+          draft.id === draftId
+            ? { ...draft, creating: true, creationError: null }
+            : draft
+        )
       );
 
       try {
@@ -717,7 +1012,8 @@ export default function AiBuilderDialog({
                   ...draft,
                   creating: false,
                   created: true,
-                  validation: { valid: true, errors: [] }
+                  validation: { valid: true, errors: [] },
+                  creationError: null
                 }
               : draft
           )
@@ -739,7 +1035,9 @@ export default function AiBuilderDialog({
         const message = err instanceof Error ? err.message : 'Failed to create job';
         setJobDrafts((current) =>
           current.map((draft) =>
-            draft.id === draftId ? { ...draft, creating: false, error: message } : draft
+            draft.id === draftId
+              ? { ...draft, creating: false, creationError: message }
+              : draft
           )
         );
         console.error('ai-builder.error', {
@@ -844,19 +1142,28 @@ export default function AiBuilderDialog({
   }, [generation, hasSuggestion, isEdited, mode, onClose, provider]);
 
   const activeProvider = generation?.provider ?? provider;
-  const providerSelectionLabel = provider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI';
-  const activeProviderLabel = activeProvider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI';
+  const providerSelectionLabel = providerDisplayName(provider);
+  const activeProviderLabel = providerDisplayName(activeProvider);
   const providerHasLogs = activeProvider === 'codex';
-  const providerRequiresKey = provider === 'openai' && openAiApiKey.length === 0;
-  const providerLogTitle = activeProvider === 'openai' ? 'OpenAI response log' : 'Codex CLI logs';
+  const providerRequiresKey = providerKeyMissing(provider);
+  const providerKeyHint = providerRequiresKey ? providerKeyMessage(provider) : null;
+  const providerLogTitle =
+    activeProvider === 'openai'
+      ? 'OpenAI response log'
+      : activeProvider === 'openrouter'
+      ? 'OpenRouter response log'
+      : 'Codex CLI logs';
 
   if (!open) {
     return null;
   }
 
+  const bundleDrafts = jobDrafts.filter((draft) => draft.mode === 'job-with-bundle');
   const allJobDraftsReady =
-    jobDrafts.length === 0 ||
-    jobDrafts.every((draft) => draft.created && draft.bundleErrors.length === 0 && draft.validation.valid && !draft.creating);
+    bundleDrafts.length === 0 ||
+    bundleDrafts.every(
+      (draft) => draft.created && draft.bundleErrors.length === 0 && draft.validation.valid && !draft.creating
+    );
 
   const canSubmit =
     validation.valid &&
@@ -886,7 +1193,7 @@ export default function AiBuilderDialog({
               <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
                 {PROVIDER_OPTIONS.map(({ value, label }) => {
                   const isActive = provider === value;
-                  const requireKey = value === 'openai' && !openAiApiKey;
+                  const requireKey = providerKeyMissing(value);
                   return (
                     <button
                       key={value}
@@ -923,9 +1230,9 @@ export default function AiBuilderDialog({
               })}
             </div>
             </div>
-            {providerRequiresKey ? (
+            {providerKeyHint ? (
               <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">
-                Add an OpenAI API key under Settings → AI builder before generating.
+                {providerKeyHint}
               </span>
             ) : null}
             <button
@@ -990,7 +1297,7 @@ export default function AiBuilderDialog({
                 <button
                   type="submit"
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={pending || submitting || (provider === 'openai' && openAiApiKey.length === 0)}
+                  disabled={pending || submitting || providerRequiresKey}
                 >
                   {pending ? 'Generating…' : 'Generate suggestion'}
                 </button>
@@ -999,7 +1306,7 @@ export default function AiBuilderDialog({
                     type="button"
                     className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
                     onClick={() => handleGenerate()}
-                    disabled={pending || submitting || (provider === 'openai' && openAiApiKey.length === 0)}
+                    disabled={pending || submitting || providerRequiresKey}
                   >
                     Regenerate
                   </button>
@@ -1044,16 +1351,95 @@ export default function AiBuilderDialog({
               </div>
             )}
 
+            {mode === 'workflow-with-jobs' && plan && (
+              <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Dependency plan</h4>
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle' && draft.created).length}/
+                    {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle').length} bundles published
+                  </span>
+                </div>
+                {plan.notes && (
+                  <p className="mt-2 rounded-xl border border-slate-200/60 bg-slate-50/70 p-3 text-[11px] leading-relaxed text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-300">
+                    {plan.notes}
+                  </p>
+                )}
+                <div className="mt-3 space-y-2">
+                  {plan.dependencies.map((dependency) => {
+                    const draft = jobDrafts.find((item) => item.slug === dependency.jobSlug);
+                    const isBundle = dependency.kind === 'job-with-bundle';
+                    const badge =
+                      dependency.kind === 'existing-job'
+                        ? { text: 'Existing job', className: 'text-emerald-600 dark:text-emerald-300' }
+                        : draft?.mode === 'job-with-bundle' && draft.created
+                        ? { text: 'Bundle published', className: 'text-emerald-600 dark:text-emerald-300' }
+                        : draft?.value.trim()
+                        ? { text: 'Draft ready', className: 'text-violet-600 dark:text-violet-300' }
+                        : { text: 'Pending', className: 'text-slate-500 dark:text-slate-400' };
+                    const displayName =
+                      'name' in dependency && dependency.name
+                        ? `${dependency.jobSlug} · ${dependency.name}`
+                        : dependency.jobSlug;
+                    return (
+                      <div
+                        key={`${dependency.kind}-${dependency.jobSlug}`}
+                        className="rounded-xl border border-slate-200/60 bg-white/80 p-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/80"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayName}</p>
+                            {'summary' in dependency && dependency.summary && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">{dependency.summary}</p>
+                            )}
+                          </div>
+                          <span className={`text-xs font-semibold ${badge.className}`}>{badge.text}</span>
+                        </div>
+                        {'rationale' in dependency && dependency.rationale && (
+                          <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                            {dependency.rationale}
+                          </p>
+                        )}
+                        {'dependsOn' in dependency &&
+                          dependency.dependsOn &&
+                          dependency.dependsOn.length > 0 && (
+                            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                              Depends on: {dependency.dependsOn.join(', ')}
+                            </p>
+                          )}
+                        {isBundle && 'bundleOutline' in dependency && dependency.bundleOutline && (
+                          <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                            Target entry point{' '}
+                            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {dependency.bundleOutline.entryPoint}
+                            </code>
+                            {dependency.bundleOutline.files && dependency.bundleOutline.files.length > 0 && (
+                              <>
+                                {' '}
+                                · Expected files{' '}
+                                {dependency.bundleOutline.files.map((file) => file.path).join(', ')}
+                              </>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {mode === 'workflow-with-jobs' && jobDrafts.length > 0 && (
               <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">New jobs to publish</h4>
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Generate required jobs</h4>
                   <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    {jobDrafts.filter((draft) => draft.created).length}/{jobDrafts.length} ready
+                    {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle' && draft.created).length}/
+                    {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle').length} bundles published
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
-                  Review each generated job, make edits if needed, and publish it before submitting the workflow.
+                  Iterate on each prompt, generate the job specification, and publish bundle-backed jobs before submitting the workflow.
                 </p>
                 {!canCreateJob && (
                   <div className="mt-3 rounded-xl border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
@@ -1061,88 +1447,188 @@ export default function AiBuilderDialog({
                   </div>
                 )}
                 <div className="mt-3 space-y-3">
-                  {jobDrafts.map((draft) => (
-                    <div
-                      key={draft.id}
-                      className="rounded-xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/80"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h5 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{draft.slug}</h5>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            Bundle <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">bundle:{draft.bundle.slug}@{draft.bundle.version}</code>
-                            , entry <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">{draft.bundle.entryPoint}</code>, files {draft.bundle.files.length}
+                  {jobDrafts.map((draft) => {
+                    const dependency = plan?.dependencies.find(
+                      (entry) =>
+                        (entry.kind === 'job' || entry.kind === 'job-with-bundle') && entry.jobSlug === draft.slug
+                    );
+                    const isBundle = draft.mode === 'job-with-bundle';
+                    const hasResult = draft.value.trim().length > 0;
+                    const statusClass = draft.generating
+                      ? 'text-violet-600 dark:text-violet-300'
+                      : isBundle && draft.created
+                      ? 'text-emerald-600 dark:text-emerald-300'
+                      : hasResult
+                      ? 'text-slate-600 dark:text-slate-300'
+                      : 'text-slate-500 dark:text-slate-400';
+                    const statusText = draft.generating
+                      ? 'Generating…'
+                      : isBundle && draft.created
+                      ? 'Bundle published'
+                      : hasResult
+                      ? 'Draft ready'
+                      : 'Pending';
+                    const canGenerate =
+                      !draft.generating &&
+                      !pending &&
+                      !submitting &&
+                      draft.promptDraft.trim().length > 0 &&
+                      !providerRequiresKey;
+                    const canCreate =
+                      isBundle &&
+                      !!draft.bundle &&
+                      draft.bundleErrors.length === 0 &&
+                      draft.validation.valid &&
+                      !draft.generating &&
+                      !draft.creating &&
+                      !draft.created &&
+                      !pending &&
+                      !submitting &&
+                      canCreateJob;
+                    return (
+                      <div
+                        key={draft.id}
+                        className="rounded-xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/80"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+                              {dependency && 'name' in dependency && dependency.name
+                                ? `${dependency.name} (${draft.slug})`
+                                : draft.slug}
+                            </h5>
+                            {dependency && 'summary' in dependency && dependency.summary && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">{dependency.summary}</p>
+                            )}
+                          </div>
+                          <span className={`text-xs font-semibold ${statusClass}`}>{statusText}</span>
+                        </div>
+
+                        {dependency && 'rationale' in dependency && dependency.rationale && (
+                          <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                            {dependency.rationale}
                           </p>
+                        )}
+
+                        {dependency &&
+                          'dependsOn' in dependency &&
+                          dependency.dependsOn &&
+                          dependency.dependsOn.length > 0 && (
+                            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                              Depends on: {dependency.dependsOn.join(', ')}
+                            </p>
+                          )}
+
+                        <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Prompt
+                        </label>
+                        <textarea
+                          className="mt-1 h-24 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-[11px] text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                          value={draft.promptDraft}
+                          onChange={(event) => handleJobPromptChange(draft.id, event.target.value)}
+                          spellCheck={false}
+                          disabled={draft.generating || pending || submitting}
+                        />
+
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => handleGenerateDependency(draft.id)}
+                            disabled={!canGenerate}
+                          >
+                            {draft.generating ? 'Generating…' : 'Generate job'}
+                          </button>
+                          {draft.promptDraft.trim() !== draft.prompt.trim() && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white px-4 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-slate-100"
+                              onClick={() => handleJobPromptChange(draft.id, draft.prompt)}
+                              disabled={draft.generating || pending || submitting}
+                            >
+                              Reset prompt
+                            </button>
+                          )}
                         </div>
-                        <span
-                          className={`text-xs font-semibold ${
-                            draft.created
-                              ? 'text-emerald-600 dark:text-emerald-300'
-                              : draft.creating
-                              ? 'text-violet-600 dark:text-violet-300'
-                              : 'text-slate-500 dark:text-slate-400'
-                          }`}
-                        >
-                          {draft.created ? 'Created' : draft.creating ? 'Creating…' : 'Pending'}
-                        </span>
+
+                        {draft.generationError && (
+                          <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+                            {draft.generationError}
+                          </div>
+                        )}
+
+                        {hasResult && (
+                          <>
+                            <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Job definition
+                            </label>
+                            <textarea
+                              className="mt-1 h-40 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                              value={draft.value}
+                              onChange={(event) => handleJobDraftChange(draft.id, event.target.value)}
+                              spellCheck={false}
+                              disabled={draft.creating || draft.created || pending || submitting}
+                            />
+                          </>
+                        )}
+
+                        {draft.validation.errors.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                            <p className="mb-1">Validation issues:</p>
+                            <ul className="list-disc pl-5">
+                              {draft.validation.errors.map((issue) => (
+                                <li key={issue}>{issue}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {isBundle && draft.bundle && (
+                          <div className="mt-2 rounded-lg border border-slate-200/70 bg-slate-50/80 p-3 text-[11px] text-slate-600 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-300">
+                            Bundle{' '}
+                            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {draft.bundle.slug}@{draft.bundle.version}
+                            </code>
+                            , entry{' '}
+                            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              {draft.bundle.entryPoint}
+                            </code>{' '}
+                            · {draft.bundle.files.length} file{draft.bundle.files.length === 1 ? '' : 's'}
+                          </div>
+                        )}
+
+                        {draft.bundleErrors.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                            <p className="mb-1">Bundle issues:</p>
+                            <ul className="list-disc pl-5">
+                              {draft.bundleErrors.map((issue) => (
+                                <li key={issue}>{issue}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {draft.creationError && (
+                          <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+                            {draft.creationError}
+                          </div>
+                        )}
+
+                        {isBundle && (
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => handleCreateDraftJob(draft.id)}
+                              disabled={!canCreate}
+                            >
+                              {draft.creating ? 'Creating…' : draft.created ? 'Job created' : 'Create job'}
+                            </button>
+                          </div>
+                        )}
                       </div>
-
-                      {draft.bundleErrors.length > 0 && (
-                        <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-                          <p className="mb-1">Bundle issues:</p>
-                          <ul className="list-disc pl-5">
-                            {draft.bundleErrors.map((issue) => (
-                              <li key={issue}>{issue}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      <textarea
-                        className="mt-3 h-40 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
-                        value={draft.value}
-                        onChange={(event) => handleJobDraftChange(draft.id, event.target.value)}
-                        spellCheck={false}
-                        disabled={draft.creating || draft.created || pending || submitting}
-                      />
-
-                      {draft.validation.errors.length > 0 && (
-                        <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-                          <p className="mb-1">Validation issues:</p>
-                          <ul className="list-disc pl-5">
-                            {draft.validation.errors.map((issue) => (
-                              <li key={issue}>{issue}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {draft.error && (
-                        <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-                          {draft.error}
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
-                          onClick={() => handleCreateDraftJob(draft.id)}
-                          disabled={
-                            draft.creating ||
-                            draft.created ||
-                            draft.bundleErrors.length > 0 ||
-                            !draft.validation.valid ||
-                            pending ||
-                            submitting ||
-                            !canCreateJob
-                          }
-                        >
-                          {draft.creating ? 'Creating…' : draft.created ? 'Job created' : 'Create job'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

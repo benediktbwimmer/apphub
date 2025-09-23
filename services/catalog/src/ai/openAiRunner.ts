@@ -19,6 +19,17 @@ export type OpenAiGenerationOptions = CodexGenerationOptions & {
   apiKey: string;
   baseUrl?: string;
   maxOutputTokens?: number;
+  model?: string;
+  extraHeaders?: Record<string, string>;
+  responseFormat?:
+    | { type: 'json_object' }
+    | {
+        type: 'json_schema';
+        json_schema: {
+          name: string;
+          schema: Record<string, unknown>;
+        };
+      };
 };
 
 export type OpenAiGenerationResult = {
@@ -31,10 +42,22 @@ type OpenAiMessage = {
   content: string;
 };
 
+type OpenAiToolCall = {
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+};
+
+type OpenAiMessageContent =
+  | string
+  | Array<{ type?: string; text?: unknown }>;
+
 type OpenAiResponsePayload = {
   choices?: Array<{
     message?: {
-      content?: Array<{ type?: string; text?: string }> | string;
+      content?: OpenAiMessageContent;
+      tool_calls?: OpenAiToolCall[];
     };
   }>;
 };
@@ -209,6 +232,67 @@ function buildMessages(options: OpenAiGenerationOptions): OpenAiMessage[] {
   ];
 }
 
+function coerceTextValue(candidate: unknown): string | null {
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (candidate && typeof candidate === 'object') {
+    if (Array.isArray(candidate)) {
+      for (const entry of candidate) {
+        const text = coerceTextValue(entry);
+        if (text) {
+          return text;
+        }
+      }
+      return null;
+    }
+
+    const record = candidate as Record<string, unknown>;
+
+    if ('text' in record) {
+      const text = coerceTextValue(record.text);
+      if (text) {
+        return text;
+      }
+    }
+
+    if ('content' in record) {
+      const text = coerceTextValue(record.content);
+      if (text) {
+        return text;
+      }
+    }
+
+    if ('value' in record) {
+      const text = coerceTextValue(record.value);
+      if (text) {
+        return text;
+      }
+    }
+
+    if ('arguments' in record) {
+      const args = record.arguments;
+      if (typeof args === 'string') {
+        const text = args.trim();
+        if (text.length > 0) {
+          return text;
+        }
+      } else if (args && typeof args === 'object') {
+        try {
+          const serialized = JSON.stringify(args);
+          if (serialized && serialized !== '{}' && serialized !== '[]') {
+            return serialized;
+          }
+        } catch {
+          // ignore serialization issues
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function extractOutputText(payload: OpenAiResponsePayload): string | null {
   if (payload.choices && Array.isArray(payload.choices)) {
     for (const choice of payload.choices) {
@@ -216,13 +300,26 @@ function extractOutputText(payload: OpenAiResponsePayload): string | null {
       if (!message) {
         continue;
       }
-      if (typeof message.content === 'string' && message.content.trim().length > 0) {
-        return message.content.trim();
+      if (message.tool_calls && Array.isArray(message.tool_calls)) {
+        for (const toolCall of message.tool_calls) {
+          const args = toolCall?.function?.arguments;
+          const text = coerceTextValue(args);
+          if (text) {
+            return text;
+          }
+        }
+      }
+      if (typeof message.content === 'string') {
+        const text = coerceTextValue(message.content);
+        if (text) {
+          return text;
+        }
       }
       if (Array.isArray(message.content)) {
         for (const content of message.content) {
-          if (content && typeof content.text === 'string' && content.text.trim().length > 0) {
-            return content.text.trim();
+          const text = coerceTextValue(content?.text);
+          if (text) {
+            return text;
           }
         }
       }
@@ -238,28 +335,39 @@ export async function runOpenAiGeneration(
   const baseUrl = resolveBaseUrl(options.baseUrl);
   const timeoutMs = resolveTimeoutMs(options.timeoutMs);
   const maxOutputTokens = resolveMaxOutputTokens(options.maxOutputTokens);
+  const model = typeof options.model === 'string' && options.model.trim().length > 0 ? options.model.trim() : 'gpt-5';
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs + 5_000);
 
   try {
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      authorization: `Bearer ${options.apiKey}`
+    };
+    if (options.extraHeaders) {
+      for (const [key, value] of Object.entries(options.extraHeaders)) {
+        if (typeof value === 'string' && value.length > 0) {
+          headers[key] = value;
+        }
+      }
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-        authorization: `Bearer ${options.apiKey}`
-      },
+      headers,
       body: JSON.stringify({
-        model: 'gpt-5',
+        model,
         messages: buildMessages(options),
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'AiBuilderSuggestion',
-            schema: buildResponseSchema(options.mode)
-          }
-        },
+        response_format:
+          options.responseFormat ?? {
+            type: 'json_schema',
+            json_schema: {
+              name: 'AiBuilderSuggestion',
+              schema: buildResponseSchema(options.mode)
+            }
+          },
         temperature: 1,
         top_p: 1,
         max_completion_tokens: maxOutputTokens
@@ -281,7 +389,9 @@ export async function runOpenAiGeneration(
     const payload = (await response.json()) as OpenAiResponsePayload;
     const output = extractOutputText(payload);
     if (!output) {
-      throw new Error('OpenAI response did not include any output text');
+      throw new Error(
+        `OpenAI response did not include any output text: ${JSON.stringify(payload)} `
+      );
     }
 
     return {

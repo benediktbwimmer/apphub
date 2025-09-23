@@ -12,6 +12,11 @@ const PROVIDER_OPTIONS: ReadonlyArray<{ value: AiBuilderProvider; label: string;
     value: 'openai',
     label: 'OpenAI GPT-5',
     description: 'Call OpenAI\'s GPT-5 model with high reasoning effort. Requires an API key saved below.'
+  },
+  {
+    value: 'openrouter',
+    label: 'Grok 4 (OpenRouter)',
+    description: 'Use OpenRouter to access xAI\'s Grok 4 fast model. Requires an OpenRouter API key saved below.'
   }
 ];
 
@@ -21,18 +26,35 @@ export default function AiBuilderSettingsPage() {
   const {
     settings,
     hasOpenAiApiKey,
+    hasOpenRouterApiKey,
     setOpenAiApiKey,
     clearOpenAiApiKey,
     setPreferredProvider,
-    setOpenAiMaxOutputTokens
+    setOpenAiMaxOutputTokens,
+    setOpenRouterApiKey,
+    clearOpenRouterApiKey,
+    setOpenRouterReferer,
+    setOpenRouterTitle
   } = useAiBuilderSettings();
   const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [openRouterKeyDraft, setOpenRouterKeyDraft] = useState('');
+  const [openRouterRefererDraft, setOpenRouterRefererDraft] = useState(settings.openRouterReferer);
+  const [openRouterTitleDraft, setOpenRouterTitleDraft] = useState(settings.openRouterTitle);
   const [tokenDraft, setTokenDraft] = useState(() => settings.openAiMaxOutputTokens.toString());
   const [feedback, setFeedback] = useState<Feedback>(null);
+
+  const providerLabelMap = useMemo(() => {
+    return new Map(PROVIDER_OPTIONS.map((option) => [option.value, option.label] as const));
+  }, []);
 
   useEffect(() => {
     setTokenDraft(settings.openAiMaxOutputTokens.toString());
   }, [settings.openAiMaxOutputTokens]);
+
+  useEffect(() => {
+    setOpenRouterRefererDraft(settings.openRouterReferer);
+    setOpenRouterTitleDraft(settings.openRouterTitle);
+  }, [settings.openRouterReferer, settings.openRouterTitle]);
 
   const handleSaveKey: FormEventHandler<HTMLFormElement> = (event) => {
     event.preventDefault();
@@ -53,7 +75,8 @@ export default function AiBuilderSettingsPage() {
 
   const handleProviderChange = (provider: AiBuilderProvider) => {
     setPreferredProvider(provider);
-    setFeedback({ tone: 'success', message: `Preferred provider set to ${provider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI'}.` });
+    const label = providerLabelMap.get(provider) ?? provider;
+    setFeedback({ tone: 'success', message: `Preferred provider set to ${label}.` });
   };
 
   const maxTokenBounds = useMemo(() => ({ min: 256, max: 32_000, step: 256 }), []);
@@ -71,12 +94,35 @@ export default function AiBuilderSettingsPage() {
     setFeedback({ tone: 'success', message: 'Max output tokens updated.' });
   };
 
+  const handleSaveOpenRouterKey: FormEventHandler<HTMLFormElement> = (event) => {
+    event.preventDefault();
+    const trimmed = openRouterKeyDraft.trim();
+    if (!trimmed) {
+      setFeedback({ tone: 'error', message: 'Enter a valid OpenRouter API key before saving.' });
+      return;
+    }
+    setOpenRouterApiKey(trimmed);
+    setOpenRouterKeyDraft('');
+    setFeedback({ tone: 'success', message: 'OpenRouter API key saved to your browser.' });
+  };
+
+  const handleClearOpenRouterKey = () => {
+    clearOpenRouterApiKey();
+    setFeedback({ tone: 'success', message: 'OpenRouter API key removed from this browser.' });
+  };
+
+  const handleSaveOpenRouterMetadata = () => {
+    setOpenRouterReferer(openRouterRefererDraft.trim());
+    setOpenRouterTitle(openRouterTitleDraft.trim());
+    setFeedback({ tone: 'success', message: 'OpenRouter site metadata updated.' });
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">AI builder configuration</h2>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Store your OpenAI credentials locally and choose the default provider for workflow generations. Keys never leave your browser until you trigger a generation request.
+          Store provider credentials locally and choose the default engine for workflow generations. Keys never leave your browser until you trigger a generation request.
         </p>
       </header>
 
@@ -193,6 +239,83 @@ export default function AiBuilderSettingsPage() {
             {feedback.message}
           </div>
         ) : null}
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">OpenRouter credentials</h3>
+        <p className="text-xs text-slate-600 dark:text-slate-400">
+          Configure access to OpenRouter before selecting the Grok 4 provider. The optional site fields let you appear in OpenRouter rankings.
+        </p>
+        <form className="flex flex-col gap-3" onSubmit={handleSaveOpenRouterKey}>
+          <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            API key
+            <input
+              type="password"
+              value={openRouterKeyDraft}
+              onChange={(event) => setOpenRouterKeyDraft(event.target.value)}
+              placeholder={hasOpenRouterApiKey ? 'Key configured – enter a new key to replace it' : 'or-...'}
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+              autoComplete="off"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="submit"
+              className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={openRouterKeyDraft.trim().length === 0}
+            >
+              Save API key
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              onClick={handleClearOpenRouterKey}
+              disabled={!hasOpenRouterApiKey}
+            >
+              Clear key
+            </button>
+            {hasOpenRouterApiKey ? (
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">Key stored</span>
+            ) : (
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">No key stored</span>
+            )}
+          </div>
+        </form>
+
+        <div className="flex flex-col gap-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="flex flex-col gap-2">
+            <label>HTTP referer (optional)</label>
+            <input
+              type="url"
+              value={openRouterRefererDraft}
+              onChange={(event) => setOpenRouterRefererDraft(event.target.value)}
+              placeholder="https://example.com"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label>Site title (optional)</label>
+            <input
+              type="text"
+              value={openRouterTitleDraft}
+              onChange={(event) => setOpenRouterTitleDraft(event.target.value)}
+              placeholder="My AppHub instance"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              onClick={handleSaveOpenRouterMetadata}
+            >
+              Save site info
+            </button>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Optional headers for OpenRouter rankings. Leave blank to omit.
+            </span>
+          </div>
+        </div>
       </section>
     </div>
   );

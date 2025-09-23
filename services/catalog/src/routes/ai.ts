@@ -18,6 +18,7 @@ import {
 } from '../ai/codexRunner';
 import { buildCodexContextFiles } from '../ai/contextFiles';
 import { runOpenAiGeneration } from '../ai/openAiRunner';
+import { runOpenRouterGeneration } from '../ai/openRouterRunner';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from '../ai/bundlePublisher';
 import {
   serializeJobBundle,
@@ -35,12 +36,13 @@ import {
   aiWorkflowWithJobsOutputSchema,
   jobDefinitionCreateSchema,
   workflowDefinitionCreateSchema,
+  type AiWorkflowDependency,
   type AiWorkflowWithJobsOutput
 } from '../workflows/zodSchemas';
 
-type AiBuilderProvider = 'codex' | 'openai';
+type AiBuilderProvider = 'codex' | 'openai' | 'openrouter';
 
-const aiBuilderProviderSchema = z.enum(['codex', 'openai']);
+const aiBuilderProviderSchema = z.enum(['codex', 'openai', 'openrouter']);
 
 const aiBuilderProviderOptionsSchema = z
   .object({
@@ -51,7 +53,10 @@ const aiBuilderProviderOptionsSchema = z
       .int()
       .min(256)
       .max(32_000)
-      .optional()
+      .optional(),
+    openRouterApiKey: z.string().min(8).max(200).optional(),
+    openRouterReferer: z.string().url().max(600).optional(),
+    openRouterTitle: z.string().min(1).max(200).optional()
   })
   .partial()
   .strict();
@@ -74,6 +79,15 @@ const aiBuilderSuggestSchema = z
           code: z.ZodIssueCode.custom,
           path: ['providerOptions', 'openAiApiKey'],
           message: 'OpenAI API key is required when provider is "openai".'
+        });
+      }
+    } else if (provider === 'openrouter') {
+      const apiKey = value.providerOptions?.openRouterApiKey?.trim();
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['providerOptions', 'openRouterApiKey'],
+          message: 'OpenRouter API key is required when provider is "openrouter".'
         });
       }
     }
@@ -113,6 +127,10 @@ type AiBuilderJobSuggestionPayload = {
   };
 };
 
+type AiWorkflowPlanPayload = AiWorkflowWithJobsOutput & {
+  dependencies: AiWorkflowDependency[];
+};
+
 type AiSuggestionPayload = {
   mode: CodexGenerationMode;
   raw: string;
@@ -130,6 +148,7 @@ type AiSuggestionPayload = {
     errors: string[];
   };
   jobSuggestions?: AiBuilderJobSuggestionPayload[];
+  plan?: AiWorkflowPlanPayload | null;
   notes?: string | null;
   summary?: string | null;
 };
@@ -139,12 +158,7 @@ type CodexEvaluationResult = {
   validationErrors: string[];
   bundleSuggestion: AiGeneratedBundleSuggestion | null;
   bundleValidationErrors: string[];
-  workflowJobSuggestions: Array<{
-    job: JobCreatePayload;
-    bundle: AiGeneratedBundleSuggestion;
-    bundleValidationErrors: string[];
-  }>;
-  workflowNotes: string | null;
+  workflowPlan: AiWorkflowWithJobsOutput | null;
 };
 
 type AiGenerationSessionStatus = 'running' | 'succeeded' | 'failed';
@@ -254,12 +268,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
   const bundleValidationErrors: string[] = [];
   let suggestion: WorkflowCreatePayload | JobCreatePayload | null = null;
   let bundleSuggestion: AiGeneratedBundleSuggestion | null = null;
-  const workflowJobSuggestions: Array<{
-    job: JobCreatePayload;
-    bundle: AiGeneratedBundleSuggestion;
-    bundleValidationErrors: string[];
-  }> = [];
-  let workflowNotes: string | null = null;
+  let workflowPlan: AiWorkflowWithJobsOutput | null = null;
 
   let parsed: unknown;
   try {
@@ -267,7 +276,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     validationErrors.push(`Failed to parse JSON output: ${message}`);
-    return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowJobSuggestions, workflowNotes };
+    return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowPlan };
   }
 
   if (mode === 'job-with-bundle') {
@@ -289,18 +298,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
     if (validation.success) {
       const payload: AiWorkflowWithJobsOutput = validation.data;
       suggestion = payload.workflow;
-      workflowNotes = payload.notes ?? null;
-      payload.newJobs.forEach((entry) => {
-        const bundleIssues: string[] = [];
-        if (!entry.bundle.files.some((file) => file.path === entry.bundle.entryPoint)) {
-          bundleIssues.push(`Bundle is missing entry point file: ${entry.bundle.entryPoint}`);
-        }
-        workflowJobSuggestions.push({
-          job: entry.job,
-          bundle: entry.bundle,
-          bundleValidationErrors: bundleIssues
-        });
-      });
+      workflowPlan = payload;
     } else {
       for (const issue of validation.error.errors) {
         const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
@@ -320,7 +318,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
     }
   }
 
-  return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowJobSuggestions, workflowNotes };
+  return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowPlan };
 }
 
 function pruneAiGenerationSessions(now: number = Date.now()): void {
@@ -484,11 +482,11 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             ? Math.min(Math.max(providerOptions.openAiMaxOutputTokens, 256), 32_000)
             : OPENAI_DEFAULT_MAX_OUTPUT_TOKENS;
 
-        if (!openAiApiKey) {
-          reply.status(400);
-          await authResult.auth.log('failed', {
-            reason: 'invalid_payload',
-            details: { provider: 'openai', issue: 'missing_api_key' }
+      if (!openAiApiKey) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'invalid_payload',
+          details: { provider: 'openai', issue: 'missing_api_key' }
           });
           return { error: 'OpenAI API key is required' };
         }
@@ -511,7 +509,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           (mode === 'job-with-bundle'
             ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
             : mode === 'workflow-with-jobs'
-            ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+            ? evaluation.workflowPlan !== null
             : true);
 
         const session = createAiGenerationSession({
@@ -542,19 +540,92 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
               valid: evaluation.bundleValidationErrors.length === 0,
               errors: evaluation.bundleValidationErrors
             },
-            jobSuggestions:
-              evaluation.workflowJobSuggestions.length > 0
-                ? evaluation.workflowJobSuggestions.map((entry) => ({
-                    job: entry.job,
-                    bundle: entry.bundle,
-                    bundleValidation: {
-                      valid: entry.bundleValidationErrors.length === 0,
-                      errors: entry.bundleValidationErrors
-                    }
-                  }))
-                : undefined,
-            notes: evaluation.workflowNotes,
+            jobSuggestions: undefined,
+            plan: evaluation.workflowPlan,
+            notes: evaluation.workflowPlan?.notes ?? null,
             summary: openAiResult.summary ?? null
+          },
+          error: evaluation.validationErrors.join('\n') || null,
+          completedAt: Date.now()
+        });
+
+        reply.status(201);
+        await authResult.auth.log('succeeded', {
+          provider,
+          mode,
+          sessionId: session.id,
+          metadataSummaryLength: metadataSummary.length
+        });
+        return { data: buildAiGenerationResponse(session) };
+      }
+
+      if (provider === 'openrouter') {
+        const openRouterApiKey = providerOptions.openRouterApiKey?.trim();
+        const openRouterReferer = providerOptions.openRouterReferer?.trim() || undefined;
+        const openRouterTitle = providerOptions.openRouterTitle?.trim() || undefined;
+
+        if (!openRouterApiKey) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_payload',
+            details: { provider: 'openrouter', issue: 'missing_api_key' }
+          });
+          return { error: 'OpenRouter API key is required' };
+        }
+
+        const openRouterResult = await runOpenRouterGeneration({
+          mode,
+          operatorRequest,
+          metadataSummary,
+          additionalNotes,
+          contextFiles,
+          apiKey: openRouterApiKey,
+          referer: openRouterReferer,
+          title: openRouterTitle
+        });
+
+        const evaluation = evaluateCodexOutput(mode, openRouterResult.output);
+        const evaluationValid =
+          evaluation.suggestion !== null &&
+          evaluation.validationErrors.length === 0 &&
+          (mode === 'job-with-bundle'
+            ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+            : mode === 'workflow-with-jobs'
+            ? evaluation.workflowPlan !== null
+            : true);
+
+        const session = createAiGenerationSession({
+          proxyJobId: null,
+          provider: 'openrouter',
+          mode,
+          metadataSummary,
+          operatorRequest,
+          additionalNotes,
+          status: evaluationValid ? 'succeeded' : 'failed',
+          stdout: '',
+          stderr: '',
+          summary: openRouterResult.summary ?? null,
+          rawOutput: truncate(openRouterResult.output),
+          result: {
+            mode,
+            raw: openRouterResult.output,
+            suggestion: evaluation.suggestion,
+            validation: {
+              valid: evaluationValid,
+              errors: evaluation.validationErrors
+            },
+            stdout: '',
+            stderr: '',
+            metadataSummary,
+            bundle: evaluation.bundleSuggestion,
+            bundleValidation: {
+              valid: evaluation.bundleValidationErrors.length === 0,
+              errors: evaluation.bundleValidationErrors
+            },
+            jobSuggestions: undefined,
+            plan: evaluation.workflowPlan,
+            notes: evaluation.workflowPlan?.notes ?? null,
+            summary: openRouterResult.summary ?? null
           },
           error: evaluation.validationErrors.join('\n') || null,
           completedAt: Date.now()
@@ -586,7 +657,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           (mode === 'job-with-bundle'
             ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
             : mode === 'workflow-with-jobs'
-            ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+            ? evaluation.workflowPlan !== null
             : true);
 
         const session = createAiGenerationSession({
@@ -617,18 +688,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
               valid: evaluation.bundleValidationErrors.length === 0,
               errors: evaluation.bundleValidationErrors
             },
-            jobSuggestions:
-              evaluation.workflowJobSuggestions.length > 0
-                ? evaluation.workflowJobSuggestions.map((entry) => ({
-                    job: entry.job,
-                    bundle: entry.bundle,
-                    bundleValidation: {
-                      valid: entry.bundleValidationErrors.length === 0,
-                      errors: entry.bundleValidationErrors
-                    }
-                  }))
-                : undefined,
-            notes: evaluation.workflowNotes,
+            jobSuggestions: undefined,
+            plan: evaluation.workflowPlan,
+            notes: evaluation.workflowPlan?.notes ?? null,
             summary: codexResult.summary ?? null
           },
           error: evaluation.validationErrors.join('\n') || null,
@@ -682,8 +744,14 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
       const provider: AiBuilderProvider = payload.provider ?? 'codex';
       request.log.error({ err, provider }, 'Failed to start AI generation');
       reply.status(502);
+      const reason =
+        provider === 'openai'
+          ? 'openai_start_failure'
+          : provider === 'openrouter'
+          ? 'openrouter_start_failure'
+          : 'codex_start_failure';
       await authResult.auth.log('failed', {
-        reason: provider === 'openai' ? 'openai_start_failure' : 'codex_start_failure',
+        reason,
         message,
         provider
       });
@@ -744,7 +812,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
               (session.mode === 'job-with-bundle'
                 ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
                 : session.mode === 'workflow-with-jobs'
-                ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+                ? evaluation.workflowPlan !== null
                 : true);
 
             session.status = 'succeeded';
@@ -765,18 +833,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
                 valid: evaluation.bundleValidationErrors.length === 0,
                 errors: evaluation.bundleValidationErrors
               },
-              jobSuggestions:
-                evaluation.workflowJobSuggestions.length > 0
-                  ? evaluation.workflowJobSuggestions.map((entry) => ({
-                      job: entry.job,
-                      bundle: entry.bundle,
-                      bundleValidation: {
-                        valid: entry.bundleValidationErrors.length === 0,
-                        errors: entry.bundleValidationErrors
-                      }
-                    }))
-                  : undefined,
-              notes: evaluation.workflowNotes,
+              jobSuggestions: undefined,
+              plan: evaluation.workflowPlan,
+              notes: evaluation.workflowPlan?.notes ?? null,
               summary: status.summary ?? null
             };
             session.error = null;
@@ -877,6 +936,148 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         workflows: workflowCatalog
       });
 
+      const provider: AiBuilderProvider = payload.provider ?? 'codex';
+      const providerOptions = payload.providerOptions ?? {};
+
+      if (provider === 'openai') {
+        const openAiApiKey = providerOptions.openAiApiKey?.trim();
+        const openAiBaseUrl = providerOptions.openAiBaseUrl?.trim() || undefined;
+        const openAiMaxOutputTokens =
+          typeof providerOptions.openAiMaxOutputTokens === 'number' && Number.isFinite(providerOptions.openAiMaxOutputTokens)
+            ? Math.min(Math.max(providerOptions.openAiMaxOutputTokens, 256), 32_000)
+            : OPENAI_DEFAULT_MAX_OUTPUT_TOKENS;
+
+        if (!openAiApiKey) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_payload',
+            details: { provider: 'openai', issue: 'missing_api_key' }
+          });
+          return { error: 'OpenAI API key is required' };
+        }
+
+        const openAiResult = await runOpenAiGeneration({
+          mode,
+          operatorRequest: payload.prompt,
+          metadataSummary,
+          additionalNotes: payload.additionalNotes ?? undefined,
+          contextFiles,
+          apiKey: openAiApiKey,
+          baseUrl: openAiBaseUrl,
+          maxOutputTokens: openAiMaxOutputTokens
+        });
+
+        const evaluation = evaluateCodexOutput(mode, openAiResult.output);
+        const valid =
+          evaluation.suggestion !== null &&
+          evaluation.validationErrors.length === 0 &&
+          (mode === 'job-with-bundle'
+            ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+            : mode === 'workflow-with-jobs'
+            ? evaluation.workflowPlan !== null
+            : true);
+
+        await authResult.auth.log('succeeded', {
+          mode,
+          provider,
+          valid,
+          issueCount: evaluation.validationErrors.length
+        });
+
+        reply.status(200);
+        return {
+          data: {
+            mode,
+            raw: openAiResult.output,
+            suggestion: evaluation.suggestion ?? null,
+            validation: {
+              valid,
+              errors: evaluation.validationErrors
+            },
+            bundle: evaluation.bundleSuggestion,
+            bundleValidation: {
+              valid: evaluation.bundleValidationErrors.length === 0,
+              errors: evaluation.bundleValidationErrors
+            },
+            jobSuggestions: undefined,
+            plan: evaluation.workflowPlan,
+            notes: evaluation.workflowPlan?.notes ?? null,
+            stdout: '',
+            stderr: '',
+            metadataSummary,
+            summary: openAiResult.summary ?? null
+          }
+        };
+      }
+
+      if (provider === 'openrouter') {
+        const openRouterApiKey = providerOptions.openRouterApiKey?.trim();
+        const openRouterReferer = providerOptions.openRouterReferer?.trim() || undefined;
+        const openRouterTitle = providerOptions.openRouterTitle?.trim() || undefined;
+
+        if (!openRouterApiKey) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_payload',
+            details: { provider: 'openrouter', issue: 'missing_api_key' }
+          });
+          return { error: 'OpenRouter API key is required' };
+        }
+
+        const openRouterResult = await runOpenRouterGeneration({
+          mode,
+          operatorRequest: payload.prompt,
+          metadataSummary,
+          additionalNotes: payload.additionalNotes ?? undefined,
+          contextFiles,
+          apiKey: openRouterApiKey,
+          referer: openRouterReferer,
+          title: openRouterTitle
+        });
+
+        const evaluation = evaluateCodexOutput(mode, openRouterResult.output);
+        const valid =
+          evaluation.suggestion !== null &&
+          evaluation.validationErrors.length === 0 &&
+          (mode === 'job-with-bundle'
+            ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+            : mode === 'workflow-with-jobs'
+            ? evaluation.workflowPlan !== null
+            : true);
+
+        await authResult.auth.log('succeeded', {
+          mode,
+          provider,
+          valid,
+          issueCount: evaluation.validationErrors.length
+        });
+
+        reply.status(200);
+        return {
+          data: {
+            mode,
+            raw: openRouterResult.output,
+            suggestion: evaluation.suggestion ?? null,
+            validation: {
+              valid,
+              errors: evaluation.validationErrors
+            },
+            bundle: evaluation.bundleSuggestion,
+            bundleValidation: {
+              valid: evaluation.bundleValidationErrors.length === 0,
+              errors: evaluation.bundleValidationErrors
+            },
+            jobSuggestions: undefined,
+            plan: evaluation.workflowPlan,
+            notes: evaluation.workflowPlan?.notes ?? null,
+            stdout: '',
+            stderr: '',
+            metadataSummary,
+            summary: openRouterResult.summary ?? null
+          }
+        };
+      }
+
       const codexResult = await runCodexGeneration({
         mode,
         operatorRequest: payload.prompt,
@@ -893,11 +1094,12 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         (mode === 'job-with-bundle'
           ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
           : mode === 'workflow-with-jobs'
-          ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+          ? evaluation.workflowPlan !== null
           : true);
 
       await authResult.auth.log('succeeded', {
         mode,
+        provider: 'codex',
         valid,
         issueCount: evaluation.validationErrors.length
       });
@@ -917,18 +1119,9 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             valid: evaluation.bundleValidationErrors.length === 0,
             errors: evaluation.bundleValidationErrors
           },
-          jobSuggestions:
-            evaluation.workflowJobSuggestions.length > 0
-              ? evaluation.workflowJobSuggestions.map((entry) => ({
-                  job: entry.job,
-                  bundle: entry.bundle,
-                  bundleValidation: {
-                    valid: entry.bundleValidationErrors.length === 0,
-                    errors: entry.bundleValidationErrors
-                  }
-                }))
-              : undefined,
-          notes: evaluation.workflowNotes,
+          jobSuggestions: undefined,
+          plan: evaluation.workflowPlan,
+          notes: evaluation.workflowPlan?.notes ?? null,
           stdout: truncate(codexResult.stdout),
           stderr: truncate(codexResult.stderr),
           metadataSummary,
@@ -938,7 +1131,14 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate AI suggestion';
       reply.status(502);
-      await authResult.auth.log('failed', { reason: 'codex_failure', message });
+      const provider: AiBuilderProvider = payload.provider ?? 'codex';
+      const reason =
+        provider === 'openai'
+          ? 'openai_failure'
+          : provider === 'openrouter'
+          ? 'openrouter_failure'
+          : 'codex_failure';
+      await authResult.auth.log('failed', { reason, message, provider });
       return { error: message };
     }
   });
@@ -971,8 +1171,10 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
     const stdout = generationSession?.stdout ?? generation?.stdout ?? undefined;
     const stderr = generationSession?.stderr ?? generation?.stderr ?? undefined;
     const summary = generationSession?.summary ?? generation?.summary ?? undefined;
-    const generationProvider = generationSession?.provider
-      ?? (typeof generation?.provider === 'string' && (generation.provider === 'codex' || generation.provider === 'openai')
+    const generationProvider =
+      generationSession?.provider ??
+      (typeof generation?.provider === 'string' &&
+      (generation.provider === 'codex' || generation.provider === 'openai' || generation.provider === 'openrouter')
         ? (generation.provider as AiBuilderProvider)
         : undefined);
 

@@ -35,6 +35,53 @@ export type AiJobSuggestion = {
   };
 };
 
+export type AiWorkflowDependencyExistingJob = {
+  kind: 'existing-job';
+  jobSlug: string;
+  name?: string;
+  description?: string;
+  rationale?: string;
+};
+
+export type AiWorkflowDependencyNewJob = {
+  kind: 'job';
+  jobSlug: string;
+  name: string;
+  summary?: string;
+  prompt: string;
+  rationale?: string;
+  dependsOn?: string[];
+};
+
+export type AiWorkflowDependencyJobWithBundle = {
+  kind: 'job-with-bundle';
+  jobSlug: string;
+  name: string;
+  summary?: string;
+  prompt: string;
+  rationale?: string;
+  bundleOutline?: {
+    entryPoint: string;
+    files?: Array<{
+      path: string;
+      description?: string;
+    }>;
+    manifestNotes?: string;
+  };
+  dependsOn?: string[];
+};
+
+export type AiWorkflowDependency =
+  | AiWorkflowDependencyExistingJob
+  | AiWorkflowDependencyNewJob
+  | AiWorkflowDependencyJobWithBundle;
+
+export type AiWorkflowPlan = {
+  workflow: WorkflowCreateInput;
+  dependencies: AiWorkflowDependency[];
+  notes?: string | null;
+};
+
 export type AiSuggestionResponse = {
   mode: AiBuilderMode;
   raw: string;
@@ -52,6 +99,7 @@ export type AiSuggestionResponse = {
     errors: string[];
   };
   jobSuggestions?: AiJobSuggestion[];
+  plan?: AiWorkflowPlan | null;
   notes?: string | null;
   summary?: string | null;
 };
@@ -65,6 +113,9 @@ export type AiSuggestRequest = {
     openAiApiKey?: string;
     openAiBaseUrl?: string;
     openAiMaxOutputTokens?: number;
+    openRouterApiKey?: string;
+    openRouterReferer?: string;
+    openRouterTitle?: string;
   };
 };
 

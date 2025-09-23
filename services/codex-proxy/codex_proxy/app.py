@@ -266,11 +266,11 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
     elif request.mode == "workflow-with-jobs":
         workflow_jobs_instructions = "\n".join(
             [
-                "For workflow-with-jobs mode, write a JSON object with `workflow`, `newJobs`, and optional `notes` fields.",
-                "Reuse existing jobs from the catalog whenever possible; only include missing jobs in `newJobs`.",
-                "Each `newJobs` entry must contain a job definition and a Node bundle whose files include the declared `entryPoint`.",
-                "Ensure workflow steps reference the correct slugs for both existing and newly proposed jobs.",
-                "List any operator follow-up (such as adding secrets) in the `notes` field.",
+                "For workflow-with-jobs mode, output a JSON object containing `workflow`, `dependencies`, and optional `notes` fields.",
+                "Use `dependencies` to list every job the workflow relies on. Tag catalog jobs with `kind` = `existing-job` and include a short description.",
+                "For new jobs set `kind` = `job` or `job-with-bundle` and provide a reusable `prompt` explaining how to generate that job in the next step.",
+                "When `kind` is `job-with-bundle`, include a `bundleOutline` with the intended entry point and any notable files.",
+                "Keep guidance concise and actionable. Document broader operator follow-up (like secrets to provision) in the `notes` field.",
             ]
         )
         sections.append(workflow_jobs_instructions)
