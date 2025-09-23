@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { parseExpression, type ParserOptions } from 'cron-parser';
 import type { PoolClient } from 'pg';
 import { emitApphubEvent } from '../events';
 import {
@@ -13,7 +14,10 @@ import {
   type WorkflowRunStepRecord,
   type WorkflowRunStepUpdateInput,
   type WorkflowDagMetadata,
-  type JsonValue
+  type JsonValue,
+  type WorkflowTriggerDefinition,
+  type WorkflowScheduleWindow,
+  type WorkflowScheduleMetadataUpdateInput
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -99,7 +103,120 @@ function resolveBucketInterval(range: AnalyticsTimeRange, bucketInterval?: strin
   return '1 day';
 }
 
-const MANUAL_TRIGGER: Record<string, unknown> = { type: 'manual' };
+const MANUAL_TRIGGER: WorkflowTriggerDefinition = { type: 'manual' };
+
+type ScheduleMetadataState = {
+  scheduleNextRunAt: string | null;
+  scheduleCatchupCursor: string | null;
+  scheduleLastWindow: WorkflowScheduleWindow | null;
+};
+
+function parseScheduleDate(value?: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function findScheduleTrigger(triggers: WorkflowTriggerDefinition[]): WorkflowTriggerDefinition | null {
+  for (const trigger of triggers) {
+    if (trigger.type && trigger.type.toLowerCase() === 'schedule' && trigger.schedule) {
+      return trigger;
+    }
+  }
+  return null;
+}
+
+function computeNextScheduleOccurrence(
+  schedule: WorkflowTriggerDefinition['schedule'],
+  from: Date,
+  { inclusive = false }: { inclusive?: boolean } = {}
+): Date | null {
+  if (!schedule) {
+    return null;
+  }
+
+  const options: ParserOptions = {};
+  if (schedule.timezone) {
+    options.tz = schedule.timezone;
+  }
+
+  const startWindow = parseScheduleDate(schedule.startWindow);
+  const endWindow = parseScheduleDate(schedule.endWindow);
+
+  if (endWindow && from.getTime() > endWindow.getTime()) {
+    return null;
+  }
+
+  let reference = from;
+  if (startWindow && reference.getTime() < startWindow.getTime()) {
+    reference = startWindow;
+  }
+
+  const currentDate = inclusive ? new Date(reference.getTime() - 1) : reference;
+
+  try {
+    const interval = parseExpression(schedule.cron, {
+      ...options,
+      currentDate
+    });
+    const next = interval.next().toDate();
+    if (endWindow && next.getTime() > endWindow.getTime()) {
+      return null;
+    }
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+function computeInitialScheduleMetadata(
+  triggers: WorkflowTriggerDefinition[],
+  { now = new Date() }: { now?: Date } = {}
+): ScheduleMetadataState {
+  const scheduleTrigger = findScheduleTrigger(triggers);
+  if (!scheduleTrigger || !scheduleTrigger.schedule) {
+    return {
+      scheduleNextRunAt: null,
+      scheduleCatchupCursor: null,
+      scheduleLastWindow: null
+    } satisfies ScheduleMetadataState;
+  }
+
+  const nextOccurrence = computeNextScheduleOccurrence(scheduleTrigger.schedule, now, { inclusive: true });
+  if (!nextOccurrence) {
+    return {
+      scheduleNextRunAt: null,
+      scheduleCatchupCursor: null,
+      scheduleLastWindow: null
+    } satisfies ScheduleMetadataState;
+  }
+
+  const nextIso = nextOccurrence.toISOString();
+  return {
+    scheduleNextRunAt: nextIso,
+    scheduleCatchupCursor: nextIso,
+    scheduleLastWindow: null
+  } satisfies ScheduleMetadataState;
+}
+
+function serializeScheduleWindow(window: WorkflowScheduleWindow | null | undefined): string | null {
+  if (!window) {
+    return null;
+  }
+  const payload: WorkflowScheduleWindow = {
+    start: window.start ?? null,
+    end: window.end ?? null
+  };
+  if (!payload.start && !payload.end) {
+    return null;
+  }
+  return JSON.stringify(payload);
+}
 
 function serializeJson(value: JsonValue | null | undefined): string | null {
   if (value === undefined || value === null) {
@@ -319,6 +436,11 @@ export async function createWorkflowDefinition(
   const metadataJson = JSON.stringify(metadata);
   const dagJson = JSON.stringify(dag);
 
+  const scheduleMetadata = computeInitialScheduleMetadata(triggers);
+  const scheduleNextRunAt = scheduleMetadata.scheduleNextRunAt;
+  const scheduleLastWindowJson = serializeScheduleWindow(scheduleMetadata.scheduleLastWindow);
+  const scheduleCatchupCursor = scheduleMetadata.scheduleCatchupCursor;
+
   let definition: WorkflowDefinitionRecord | null = null;
 
   await useTransaction(async (client) => {
@@ -337,6 +459,9 @@ export async function createWorkflowDefinition(
            output_schema,
            metadata,
            dag,
+           schedule_next_run_at,
+           schedule_last_materialized_window,
+           schedule_catchup_cursor,
            created_at,
            updated_at
          ) VALUES (
@@ -352,6 +477,9 @@ export async function createWorkflowDefinition(
            $10::jsonb,
            $11::jsonb,
            $12::jsonb,
+           $13,
+           $14::jsonb,
+           $15,
            NOW(),
            NOW()
          )
@@ -368,7 +496,10 @@ export async function createWorkflowDefinition(
           defaultParametersJson,
           outputSchemaJson,
           metadataJson,
-          dagJson
+          dagJson,
+          scheduleNextRunAt,
+          scheduleLastWindowJson,
+          scheduleCatchupCursor
         ]
       );
       if (rows.length === 0) {
@@ -439,6 +570,18 @@ export async function updateWorkflowDefinition(
       edges: 0
     });
 
+    const nextScheduleState = hasTriggers
+      ? computeInitialScheduleMetadata(nextTriggers)
+      : {
+          scheduleNextRunAt: existing.scheduleNextRunAt,
+          scheduleCatchupCursor: existing.scheduleCatchupCursor,
+          scheduleLastWindow: existing.scheduleLastMaterializedWindow
+        } satisfies ScheduleMetadataState;
+
+    const scheduleNextRunAt = nextScheduleState.scheduleNextRunAt;
+    const scheduleCatchupCursor = nextScheduleState.scheduleCatchupCursor;
+    const scheduleLastWindowJson = serializeScheduleWindow(nextScheduleState.scheduleLastWindow);
+
     const { rows } = await client.query<WorkflowDefinitionRow>(
       `UPDATE workflow_definitions
        SET name = $2,
@@ -451,6 +594,9 @@ export async function updateWorkflowDefinition(
            output_schema = $9::jsonb,
            metadata = $10::jsonb,
            dag = $11::jsonb,
+           schedule_next_run_at = $12,
+           schedule_last_materialized_window = $13::jsonb,
+           schedule_catchup_cursor = $14,
            updated_at = NOW()
        WHERE slug = $1
        RETURNING *`,
@@ -465,12 +611,107 @@ export async function updateWorkflowDefinition(
         defaultParametersJson,
         outputSchemaJson,
         metadataJson,
-        dagJson
+        dagJson,
+        scheduleNextRunAt,
+        scheduleLastWindowJson,
+        scheduleCatchupCursor
       ]
     );
     if (rows.length === 0) {
       return;
     }
+    definition = mapWorkflowDefinitionRow(rows[0]);
+  });
+
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
+  return definition;
+}
+
+export async function listDueWorkflowSchedules({
+  limit = 10,
+  now = new Date()
+}: {
+  limit?: number;
+  now?: Date;
+} = {}): Promise<WorkflowDefinitionRecord[]> {
+  const boundedLimit = Math.min(Math.max(limit, 1), 100);
+  const cutoff = now.toISOString();
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowDefinitionRow>(
+      `SELECT *
+       FROM workflow_definitions
+       WHERE schedule_next_run_at IS NOT NULL
+         AND schedule_next_run_at <= $1
+       ORDER BY schedule_next_run_at ASC
+       LIMIT $2`,
+      [cutoff, boundedLimit]
+    );
+    return rows.map(mapWorkflowDefinitionRow);
+  });
+}
+
+export async function updateWorkflowScheduleMetadata(
+  workflowDefinitionId: string,
+  updates: WorkflowScheduleMetadataUpdateInput
+): Promise<WorkflowDefinitionRecord | null> {
+  let definition: WorkflowDefinitionRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const existing = await fetchWorkflowDefinitionById(client, workflowDefinitionId);
+    if (!existing) {
+      return;
+    }
+
+    const hasNextRun = Object.prototype.hasOwnProperty.call(updates, 'scheduleNextRunAt');
+    const hasLastWindow = Object.prototype.hasOwnProperty.call(updates, 'scheduleLastMaterializedWindow');
+    const hasCatchupCursor = Object.prototype.hasOwnProperty.call(updates, 'scheduleCatchupCursor');
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (hasNextRun) {
+      sets.push(`schedule_next_run_at = $${index}`);
+      values.push(updates.scheduleNextRunAt ?? null);
+      index += 1;
+    }
+
+    if (hasLastWindow) {
+      sets.push(`schedule_last_materialized_window = $${index}::jsonb`);
+      values.push(serializeScheduleWindow(updates.scheduleLastMaterializedWindow ?? null));
+      index += 1;
+    }
+
+    if (hasCatchupCursor) {
+      sets.push(`schedule_catchup_cursor = $${index}`);
+      values.push(updates.scheduleCatchupCursor ?? null);
+      index += 1;
+    }
+
+    if (sets.length === 0) {
+      definition = existing;
+      return;
+    }
+
+    sets.push(`updated_at = NOW()`);
+    values.push(workflowDefinitionId);
+
+    const { rows } = await client.query<WorkflowDefinitionRow>(
+      `UPDATE workflow_definitions
+       SET ${sets.join(', ')}
+       WHERE id = $${index}
+       RETURNING *`,
+      values
+    );
+
+    if (rows.length === 0) {
+      return;
+    }
+
     definition = mapWorkflowDefinitionRow(rows[0]);
   });
 

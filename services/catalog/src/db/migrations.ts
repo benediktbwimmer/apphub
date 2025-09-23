@@ -508,6 +508,17 @@ const migrations: Migration[] = [
       `ALTER TABLE job_definitions
          ADD COLUMN IF NOT EXISTS runtime TEXT NOT NULL DEFAULT 'node'`
     ]
+  },
+  {
+    id: '013_workflow_schedule_metadata',
+    statements: [
+      `ALTER TABLE workflow_definitions
+         ADD COLUMN IF NOT EXISTS schedule_next_run_at TIMESTAMPTZ`,
+      `ALTER TABLE workflow_definitions
+         ADD COLUMN IF NOT EXISTS schedule_last_materialized_window JSONB`,
+      `ALTER TABLE workflow_definitions
+         ADD COLUMN IF NOT EXISTS schedule_catchup_cursor TIMESTAMPTZ`
+    ]
   }
 ];
 

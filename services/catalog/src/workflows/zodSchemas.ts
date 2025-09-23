@@ -1,3 +1,4 @@
+import { parseExpression, type ParserOptions } from 'cron-parser';
 import { z } from 'zod';
 
 export type WorkflowJsonValue =
@@ -87,12 +88,81 @@ const serviceHeaderValueSchema = z.union([
     .strict()
 ]);
 
+const isoDateTimeSchema = z
+  .string()
+  .datetime({ offset: true })
+  .or(
+    z
+      .string()
+      .refine((value) => {
+        const parsed = new Date(value);
+        return !Number.isNaN(parsed.getTime());
+      }, 'Invalid ISO timestamp')
+  );
+
+function isValidCronExpression(expression: string, options: ParserOptions = {}) {
+  try {
+    parseExpression(expression, {
+      ...options,
+      currentDate: new Date()
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const workflowTriggerScheduleSchema = z
+  .object({
+    cron: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((value) => isValidCronExpression(value.trim()), 'Invalid cron expression'),
+    timezone: z
+      .string()
+      .min(1)
+      .max(100)
+      .optional()
+      .refine(
+        (value) => {
+          if (!value) {
+            return true;
+          }
+          return isValidCronExpression('* * * * *', { tz: value.trim() });
+        },
+        { message: 'Invalid timezone identifier' }
+      ),
+    startWindow: isoDateTimeSchema.optional(),
+    endWindow: isoDateTimeSchema.optional(),
+    catchUp: z.boolean().optional()
+  })
+  .strict()
+  .refine((value) => {
+    if (!value.startWindow || !value.endWindow) {
+      return true;
+    }
+    const start = new Date(value.startWindow);
+    const end = new Date(value.endWindow);
+    return start.getTime() <= end.getTime();
+  }, 'startWindow must be before endWindow');
+
 export const workflowTriggerSchema = z
   .object({
     type: z.string().min(1),
-    options: jsonValueSchema.optional()
+    options: jsonValueSchema.optional(),
+    schedule: workflowTriggerScheduleSchema.optional()
   })
-  .strict();
+  .strict()
+  .refine(
+    (payload) => {
+      if (payload.type.trim().toLowerCase() !== 'schedule') {
+        return true;
+      }
+      return Boolean(payload.schedule);
+    },
+    { message: 'Schedule triggers require schedule configuration' }
+  );
 
 export const workflowServiceRequestSchema = z
   .object({

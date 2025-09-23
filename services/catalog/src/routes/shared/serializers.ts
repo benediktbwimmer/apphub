@@ -288,6 +288,11 @@ export function serializeWorkflowDefinition(workflow: WorkflowDefinitionRecord) 
     outputSchema: workflow.outputSchema,
     metadata: workflow.metadata,
     dag: workflow.dag,
+    schedule: {
+      nextRunAt: workflow.scheduleNextRunAt,
+      lastWindow: workflow.scheduleLastMaterializedWindow,
+      catchupCursor: workflow.scheduleCatchupCursor
+    },
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt
   };

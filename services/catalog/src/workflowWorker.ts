@@ -8,6 +8,7 @@ import {
 } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
+import { startWorkflowScheduler } from './workflowScheduler';
 
 const WORKFLOW_CONCURRENCY = Number(process.env.WORKFLOW_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
@@ -18,10 +19,29 @@ function log(message: string, meta?: Record<string, unknown>) {
 }
 
 async function runInlineMode() {
-  log('Inline workflow mode detected; worker process will exit. Workflow runs execute synchronously.');
+  log('Inline workflow mode detected; scheduler will run without queue worker. Workflow runs execute synchronously.');
+  const scheduler = startWorkflowScheduler();
+
+  const shutdown = async () => {
+    log('Shutdown signal received');
+    await scheduler.stop();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown();
+  });
+  process.on('SIGTERM', () => {
+    void shutdown();
+  });
+
+  await new Promise(() => {
+    // Keep process alive until terminated.
+  });
 }
 
 async function runQueueWorker() {
+  const scheduler = startWorkflowScheduler();
   const connection = getQueueConnection();
   const worker = new Worker(
     WORKFLOW_QUEUE_NAME,
@@ -50,15 +70,21 @@ async function runQueueWorker() {
     });
   });
 
-  await worker.waitUntilReady();
-  log('Workflow worker ready', {
-    queue: WORKFLOW_QUEUE_NAME,
-    concurrency: WORKFLOW_CONCURRENCY
-  });
+  try {
+    await worker.waitUntilReady();
+    log('Workflow worker ready', {
+      queue: WORKFLOW_QUEUE_NAME,
+      concurrency: WORKFLOW_CONCURRENCY
+    });
+  } catch (err) {
+    await scheduler.stop();
+    throw err;
+  }
 
   const shutdown = async () => {
     log('Shutdown signal received');
     await worker.close();
+    await scheduler.stop();
     try {
       await closeQueueConnection(connection);
     } catch (err) {
