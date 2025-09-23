@@ -84,6 +84,37 @@ export type BundleEditorData = {
   availableVersions: BundleVersionSummary[];
 };
 
+export type BundleVersionDetail = {
+  bundle: {
+    id: string;
+    slug: string;
+    displayName: string | null;
+    description: string | null;
+    latestVersion: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  version: BundleVersionSummary & {
+    id: string;
+    bundleId: string;
+    slug: string;
+    publishedBy: {
+      subject: string;
+      kind: string | null;
+      tokenHash: string | null;
+    } | null;
+    createdAt: string;
+    updatedAt: string;
+    manifest?: unknown;
+    download?: {
+      url: string;
+      expiresAt: string;
+      storage: string;
+      kind: 'local' | 'external';
+    };
+  };
+};
+
 export type SchemaPreview = {
   parametersSchema: Record<string, unknown> | null;
   outputSchema: Record<string, unknown> | null;
@@ -171,6 +202,22 @@ export async function fetchJobBundleEditor(
   const payload = await parseJson<{ data?: BundleEditorData }>(response);
   if (!payload.data) {
     throw new Error('Bundle editor response missing data');
+  }
+  return payload.data;
+}
+
+export async function fetchBundleVersionDetail(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  version: string
+): Promise<BundleVersionDetail> {
+  const response = await fetcher(
+    `${API_BASE_URL}/job-bundles/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`
+  );
+  await ensureOk(response, 'Failed to load bundle version');
+  const payload = await parseJson<{ data?: BundleVersionDetail }>(response);
+  if (!payload.data) {
+    throw new Error('Bundle version response missing data');
   }
   return payload.data;
 }

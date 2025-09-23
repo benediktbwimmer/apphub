@@ -18,6 +18,7 @@ import {
 } from './api';
 import JobCreateDialog from './JobCreateDialog';
 import JobAiEditDialog from './JobAiEditDialog';
+import BundleVersionCompare from './BundleVersionCompare';
 
 function formatDate(value: string | null | undefined): string {
   if (!value) {
@@ -1303,6 +1304,7 @@ function BundleHistoryPanel({ bundle }: BundleHistoryPanelProps) {
           </pre>
         </div>
       )}
+      <BundleVersionCompare bundle={bundle} />
     </div>
   );
 }
