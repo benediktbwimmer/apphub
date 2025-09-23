@@ -210,6 +210,37 @@ export async function regenerateJobBundle(
   return payload.data;
 }
 
+export type BundleAiEditInput = {
+  prompt: string;
+  provider?: 'openai' | 'openrouter' | 'codex';
+  providerOptions?: {
+    openAiApiKey?: string;
+    openAiBaseUrl?: string;
+    openAiMaxOutputTokens?: number;
+    openRouterApiKey?: string;
+    openRouterReferer?: string;
+    openRouterTitle?: string;
+  };
+};
+
+export async function aiEditJobBundle(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  input: BundleAiEditInput
+): Promise<BundleEditorData> {
+  const response = await fetcher(`${API_BASE_URL}/jobs/${encodeURIComponent(slug)}/bundle/ai-edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  await ensureOk(response, 'Failed to edit bundle with AI');
+  const payload = await parseJson<{ data?: BundleEditorData }>(response);
+  if (!payload.data) {
+    throw new Error('AI bundle edit response missing data');
+  }
+  return payload.data;
+}
+
 export async function previewJobSchemas(
   fetcher: AuthorizedFetch,
   input: { entryPoint: string; runtime?: 'node' | 'python' }

@@ -385,9 +385,122 @@ async function testJobBundleLifecycle(): Promise<void> {
   });
 }
 
+async function testJobBundleAiEdit(): Promise<void> {
+  const fixtureDir = path.join(__dirname, 'fixtures', 'codex');
+  process.env.APPHUB_CODEX_MOCK_DIR = fixtureDir;
+  try {
+    await withServer(async (app) => {
+      const bundleSlug = 'bundle-ai-edit';
+      const artifactContent = Buffer.from('module.exports.handler = async () => ({ status: "succeeded" });', 'utf8');
+      const artifactBase64 = artifactContent.toString('base64');
+      const checksum = createHash('sha256').update(artifactContent).digest('hex');
+
+      const publishResponse = await app.inject({
+        method: 'POST',
+        url: '/job-bundles',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: bundleSlug,
+          version: '1.0.0',
+          manifest: {
+            name: 'AI Edit Bundle',
+            version: '1.0.0',
+            entry: 'index.js',
+            capabilities: ['ai']
+          },
+          capabilityFlags: ['ai'],
+          artifact: {
+            data: artifactBase64,
+            filename: 'bundle-ai-edit.tgz',
+            contentType: 'application/gzip',
+            checksum
+          }
+        }
+      });
+      assert.equal(publishResponse.statusCode, 201, publishResponse.payload);
+
+      const createJobResponse = await app.inject({
+        method: 'POST',
+        url: '/jobs',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'ai-edit-job',
+          name: 'AI Edit Job',
+          type: 'manual',
+          entryPoint: `bundle:${bundleSlug}@1.0.0`,
+          version: 1
+        }
+      });
+      assert.equal(createJobResponse.statusCode, 201);
+
+      const aiEditResponse = await app.inject({
+        method: 'POST',
+        url: '/jobs/ai-edit-job/bundle/ai-edit',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          prompt: 'Refactor the handler to log execution while preserving the bundle slug.',
+          provider: 'codex'
+        }
+      });
+      assert.equal(aiEditResponse.statusCode, 201, aiEditResponse.payload);
+
+      const aiEditBody = JSON.parse(aiEditResponse.payload) as {
+        data: {
+          binding: { version: string; slug: string };
+          bundle: { version: string; capabilityFlags: string[] };
+          editor: {
+            files: Array<{ path: string; contents: string; encoding?: string }>;
+          };
+          job: { entryPoint: string };
+        };
+      };
+
+      assert.equal(aiEditBody.data.binding.slug, bundleSlug);
+      assert.equal(aiEditBody.data.binding.version, '1.0.1');
+      assert.equal(aiEditBody.data.bundle.version, '1.0.1');
+      assert.equal(aiEditBody.data.job.entryPoint, `bundle:${bundleSlug}@1.0.1`);
+      assert(aiEditBody.data.bundle.capabilityFlags.includes('ai'));
+
+      const mainFile = aiEditBody.data.editor.files.find((file) => file.path === 'index.js');
+      assert(mainFile);
+      const mainContents =
+        mainFile?.encoding === 'base64'
+          ? Buffer.from(mainFile.contents, 'base64').toString('utf8')
+          : mainFile?.contents ?? '';
+      assert(mainContents.includes('Fixture bundle executed'));
+
+      const editorFetchResponse = await app.inject({
+        method: 'GET',
+        url: '/jobs/ai-edit-job/bundle-editor',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        }
+      });
+      assert.equal(editorFetchResponse.statusCode, 200);
+      const editorFetchBody = JSON.parse(editorFetchResponse.payload) as {
+        data: {
+          binding: { version: string };
+          bundle: { version: string };
+        };
+      };
+      assert.equal(editorFetchBody.data.binding.version, '1.0.1');
+      assert.equal(editorFetchBody.data.bundle.version, '1.0.1');
+    });
+  } finally {
+    delete process.env.APPHUB_CODEX_MOCK_DIR;
+  }
+}
+
 async function run() {
   try {
     await testJobBundleLifecycle();
+    await testJobBundleAiEdit();
   } finally {
     await shutdownEmbeddedPostgres();
     if (bundleStorageDir) {

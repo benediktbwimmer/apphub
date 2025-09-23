@@ -16,6 +16,7 @@ import {
   type JobDetailResponse
 } from './api';
 import JobCreateDialog from './JobCreateDialog';
+import JobAiEditDialog from './JobAiEditDialog';
 
 function formatDate(value: string | null | undefined): string {
   if (!value) {
@@ -200,6 +201,8 @@ export default function JobsPage() {
   const [regenerateSuccess, setRegenerateSuccess] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createRuntime, setCreateRuntime] = useState<'node' | 'python'>('node');
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     refreshRuntimeStatuses();
@@ -230,6 +233,21 @@ export default function JobsPage() {
   const pythonButtonTitle = pythonReady
     ? undefined
     : pythonStatus?.reason ?? 'Python runtime is not ready';
+
+  const currentJobForAi = panelState.detail
+    ? {
+        slug: panelState.detail.job.slug,
+        name: panelState.detail.job.name,
+        runtime: panelState.detail.job.runtime ?? null
+      }
+    : null;
+  const currentBundleForAi = panelState.bundle
+    ? {
+        slug: panelState.bundle.binding.slug,
+        version: panelState.bundle.bundle.version,
+        entryPoint: panelState.bundle.editor.entryPoint
+      }
+    : null;
 
   useEffect(() => {
     if (jobs.length === 0) {
@@ -520,6 +538,41 @@ export default function JobsPage() {
     }
   };
 
+  const handleOpenAiEdit = useCallback(() => {
+    if (!panelState.bundle || aiBusy) {
+      return;
+    }
+    setRegenerateError(null);
+    setRegenerateSuccess(null);
+    setAiDialogOpen(true);
+  }, [panelState.bundle, aiBusy]);
+
+  const handleAiEditComplete = useCallback(
+    (data: BundleEditorData) => {
+      setPanelState((prev) => ({
+        detail: prev.detail ? { ...prev.detail, job: data.job } : prev.detail,
+        detailError: prev.detailError,
+        detailLoading: false,
+        bundle: data,
+        bundleError: null,
+        bundleLoading: false
+      }));
+      setRegenerateError(null);
+      setRegenerateSuccess(`Published ${data.binding.slug}@${data.bundle.version} via AI`);
+      refreshJobs();
+      pushToast({
+        tone: 'success',
+        title: 'Bundle updated',
+        description: `Published ${data.binding.slug}@${data.bundle.version}.`
+      });
+    },
+    [pushToast, refreshJobs]
+  );
+
+  const handleAiBusyChange = useCallback((busy: boolean) => {
+    setAiBusy(busy);
+  }, []);
+
   return (
     <>
       <div className="flex flex-col gap-6">
@@ -656,10 +709,12 @@ export default function JobsPage() {
                 onVersionInputChange={setVersionInput}
                 isDirty={isDirty}
                 onReset={handleReset}
+                onOpenAiEdit={handleOpenAiEdit}
                 onRegenerate={handleRegenerate}
                 regenerating={regenerating}
                 regenerateError={regenerateError}
                 regenerateSuccess={regenerateSuccess}
+                aiBusy={aiBusy}
               />
               <BundleHistoryPanel bundle={panelState.bundle} />
               <JobRunsPanel detail={panelState.detail} />
@@ -675,6 +730,15 @@ export default function JobsPage() {
         defaultRuntime={createRuntime}
         runtimeStatuses={runtimeStatuses}
         onCreated={handleJobCreated}
+      />
+      <JobAiEditDialog
+        open={aiDialogOpen}
+        onClose={() => setAiDialogOpen(false)}
+        authorizedFetch={authorizedFetch}
+        job={currentJobForAi}
+        bundle={currentBundleForAi}
+        onComplete={handleAiEditComplete}
+        onBusyChange={handleAiBusyChange}
       />
     </>
   );
@@ -752,10 +816,12 @@ type BundleEditorPanelProps = {
   onVersionInputChange: (value: string) => void;
   isDirty: boolean;
   onReset: () => void;
+  onOpenAiEdit: () => void;
   onRegenerate: () => void;
   regenerating: boolean;
   regenerateError: string | null;
   regenerateSuccess: string | null;
+  aiBusy: boolean;
 };
 
 function BundleEditorPanel({
@@ -780,10 +846,12 @@ function BundleEditorPanel({
   onVersionInputChange,
   isDirty,
   onReset,
+  onOpenAiEdit,
   onRegenerate,
   regenerating,
   regenerateError,
-  regenerateSuccess
+  regenerateSuccess,
+  aiBusy
 }: BundleEditorPanelProps) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -800,15 +868,23 @@ function BundleEditorPanel({
               type="button"
               className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
               onClick={onReset}
-              disabled={!isDirty || regenerating}
+              disabled={!isDirty || regenerating || aiBusy}
             >
               Reset changes
             </button>
             <button
               type="button"
+              className="rounded-full border border-violet-500/70 px-4 py-1.5 text-xs font-semibold text-violet-700 shadow-sm transition-colors hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-violet-500/60 dark:text-violet-200 dark:hover:bg-violet-500/10"
+              onClick={onOpenAiEdit}
+              disabled={regenerating || aiBusy}
+            >
+              Edit with AI
+            </button>
+            <button
+              type="button"
               className="rounded-full bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:opacity-50"
               onClick={onRegenerate}
-              disabled={regenerating || !isDirty}
+              disabled={regenerating || aiBusy || !isDirty}
             >
               {regenerating ? 'Publishing…' : 'Regenerate bundle'}
             </button>

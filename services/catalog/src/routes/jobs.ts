@@ -32,6 +32,7 @@ import {
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { JOB_BUNDLE_WRITE_SCOPES, JOB_RUN_SCOPES, JOB_WRITE_SCOPES } from './shared/scopes';
 import {
+  aiJobWithBundleOutputSchema,
   jobDefinitionCreateSchema,
   jsonValueSchema
 } from '../workflows/zodSchemas';
@@ -50,6 +51,14 @@ import {
   type AiGeneratedBundleSuggestion,
   type AiGeneratedBundleFile
 } from '../ai/bundlePublisher';
+import { buildCodexContextFiles } from '../ai/contextFiles';
+import { runCodexGeneration } from '../ai/codexRunner';
+import { runOpenAiGeneration } from '../ai/openAiRunner';
+import { runOpenRouterGeneration } from '../ai/openRouterRunner';
+import {
+  DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS,
+  DEFAULT_AI_BUILDER_SYSTEM_PROMPT
+} from '../ai/prompts';
 
 const jobRunRequestSchema = z
   .object({
@@ -202,6 +211,180 @@ function normalizeCapabilityFlagInput(flags: string[] | undefined): string[] {
     seen.add(trimmed);
   }
   return Array.from(seen).sort((a, b) => a.localeCompare(b));
+}
+
+const OPENAI_MAX_TOKENS_DEFAULT = 4_096;
+
+const aiBundleEditProviderSchema = z.enum(['codex', 'openai', 'openrouter']);
+
+const aiBundleEditProviderOptionsSchema = z
+  .object({
+    openAiApiKey: z.string().min(8).max(200).optional(),
+    openAiBaseUrl: z.string().url().max(400).optional(),
+    openAiMaxOutputTokens: z
+      .number({ coerce: true })
+      .int()
+      .min(256)
+      .max(32_000)
+      .optional(),
+    openRouterApiKey: z.string().min(8).max(200).optional(),
+    openRouterReferer: z.string().url().max(600).optional(),
+    openRouterTitle: z.string().min(1).max(200).optional()
+  })
+  .partial()
+  .strict();
+
+const aiBundleEditRequestSchema = z
+  .object({
+    prompt: z.string().min(1).max(2_000),
+    provider: aiBundleEditProviderSchema.optional(),
+    providerOptions: aiBundleEditProviderOptionsSchema.optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const provider = value.provider ?? 'openai';
+    if (provider === 'openai') {
+      const apiKey = value.providerOptions?.openAiApiKey?.trim();
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['providerOptions', 'openAiApiKey'],
+          message: 'OpenAI API key is required when provider is "openai".'
+        });
+      }
+    } else if (provider === 'openrouter') {
+      const apiKey = value.providerOptions?.openRouterApiKey?.trim();
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['providerOptions', 'openRouterApiKey'],
+          message: 'OpenRouter API key is required when provider is "openrouter".'
+        });
+      }
+    }
+  });
+
+function extractManifestCapabilities(manifest: unknown): string[] {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return [];
+  }
+  const record = manifest as Record<string, unknown>;
+  const capabilities = record.capabilities;
+  if (Array.isArray(capabilities)) {
+    return normalizeCapabilityFlagInput(capabilities.filter((entry): entry is string => typeof entry === 'string'));
+  }
+  if (typeof capabilities === 'string') {
+    return normalizeCapabilityFlagInput(capabilities.split(','));
+  }
+  return [];
+}
+
+function buildAiEditMetadataSummary(job: JobDefinitionRecord, snapshot: BundleEditorSnapshot): string {
+  const lines: string[] = [];
+  lines.push('## Job');
+  lines.push(`- slug: ${job.slug}`);
+  lines.push(`- name: ${job.name}`);
+  lines.push(`- type: ${job.type}`);
+  lines.push(`- runtime: ${job.runtime}`);
+  lines.push(`- currentEntryPoint: ${job.entryPoint}`);
+  lines.push('');
+  lines.push('## Bundle');
+  lines.push(`- slug: ${snapshot.binding.slug}`);
+  lines.push(`- version: ${snapshot.binding.version}`);
+  lines.push(`- entryPointFile: ${snapshot.suggestion.entryPoint}`);
+  lines.push(`- manifestPath: ${snapshot.manifestPath}`);
+  const suggestionFlags = normalizeCapabilityFlagInput(snapshot.suggestion.capabilityFlags ?? []);
+  lines.push(`- capabilityFlags: ${suggestionFlags.length > 0 ? suggestionFlags.join(', ') : '(none)'}`);
+  const manifestCapabilities = extractManifestCapabilities(snapshot.suggestion.manifest);
+  lines.push(
+    `- manifestCapabilities: ${manifestCapabilities.length > 0 ? manifestCapabilities.join(', ') : '(none)'}`
+  );
+  if (snapshot.suggestion.description) {
+    lines.push(`- description: ${snapshot.suggestion.description}`);
+  }
+  if (snapshot.suggestion.displayName) {
+    lines.push(`- displayName: ${snapshot.suggestion.displayName}`);
+  }
+  lines.push('');
+  const fileNames = snapshot.suggestion.files.map((file) => file.path).sort();
+  lines.push('## Files');
+  lines.push(`${fileNames.length > 0 ? fileNames.join(', ') : '(none)'}`);
+  lines.push('');
+  lines.push('Ensure the updated bundle keeps the same slug and exposes the entry point while applying the requested changes.');
+  return lines.join('\n');
+}
+
+type AiBundleEditEvaluation = {
+  job: z.infer<typeof aiJobWithBundleOutputSchema>['job'] | null;
+  bundle: AiGeneratedBundleSuggestion | null;
+  errors: string[];
+};
+
+function evaluateAiBundleEditOutput(raw: string): AiBundleEditEvaluation {
+  const errors: string[] = [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    errors.push(`Failed to parse JSON output: ${message}`);
+    return { job: null, bundle: null, errors };
+  }
+
+  const validation = aiJobWithBundleOutputSchema.safeParse(parsed);
+  if (!validation.success) {
+    for (const issue of validation.error.errors) {
+      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+      errors.push(`${path}: ${issue.message}`);
+    }
+    return { job: null, bundle: null, errors };
+  }
+
+  const bundle = validation.data.bundle;
+  const entryPoint = bundle.entryPoint;
+  const files = Array.isArray(bundle.files) ? bundle.files : [];
+  if (!files.some((file) => file.path === entryPoint)) {
+    errors.push(`Bundle is missing entry point file: ${entryPoint}`);
+  }
+
+  const capabilityFlags = normalizeCapabilityFlagInput(bundle.capabilityFlags ?? []);
+  if (!Array.isArray(bundle.capabilityFlags)) {
+    errors.push('bundle.capabilityFlags must be an array of capability identifiers.');
+  }
+  const manifestCapabilities = extractManifestCapabilities(bundle.manifest);
+  const missingManifestCapabilities = manifestCapabilities.filter((cap) => !capabilityFlags.includes(cap));
+  if (missingManifestCapabilities.length > 0) {
+    errors.push(
+      `bundle.capabilityFlags must include manifest capabilities: missing ${missingManifestCapabilities.join(', ')}`
+    );
+  }
+
+  const normalizedBundle: AiGeneratedBundleSuggestion = {
+    slug: bundle.slug,
+    version: bundle.version,
+    entryPoint,
+    manifest: bundle.manifest,
+    manifestPath:
+      typeof bundle.manifestPath === 'string' && bundle.manifestPath.trim().length > 0
+        ? bundle.manifestPath.trim()
+        : 'manifest.json',
+    capabilityFlags,
+    metadata: bundle.metadata ?? null,
+    description: bundle.description ?? null,
+    displayName: bundle.displayName ?? null,
+    files: files.map((file) => ({
+      path: file.path,
+      contents: file.contents,
+      encoding: file.encoding === 'base64' ? 'base64' : 'utf8',
+      executable: file.executable ? true : undefined
+    }))
+  };
+
+  return {
+    job: validation.data.job,
+    bundle: normalizedBundle,
+    errors
+  };
 }
 
 function toEditorFiles(snapshot: BundleEditorSnapshot): AiGeneratedBundleSuggestion['files'] {
@@ -517,6 +700,280 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       request.log.error({ err, slug: job.slug }, 'Failed to load bundle editor');
       reply.status(500);
       return { error: 'Failed to load bundle editor' };
+    }
+  });
+
+  app.post('/jobs/:slug/bundle/ai-edit', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const requiredScopes = Array.from(new Set([...JOB_BUNDLE_WRITE_SCOPES, ...JOB_WRITE_SCOPES]));
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'jobs.bundle-ai-edit',
+      resource: `job:${candidateSlug}`,
+      requiredScopes
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten(),
+        jobSlug: candidateSlug
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = aiBundleEditRequestSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten(),
+        jobSlug: parseParams.data.slug
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    let job = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!job) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'job_not_found',
+        jobSlug: parseParams.data.slug
+      });
+      return { error: 'job not found' };
+    }
+
+    const binding = parseBundleEntryPoint(job.entryPoint);
+    if (!binding) {
+      reply.status(409);
+      await authResult.auth.log('failed', {
+        reason: 'job_bundle_binding_missing',
+        jobSlug: job.slug
+      });
+      return { error: 'job is not bound to a bundle entry point' };
+    }
+
+    let snapshot: BundleEditorSnapshot | null = null;
+    try {
+      snapshot = await loadBundleEditorSnapshot(job);
+    } catch (err) {
+      request.log.error({ err, slug: job.slug }, 'Failed to load bundle snapshot for AI edit');
+    }
+    if (!snapshot) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'bundle_editor_unavailable',
+        jobSlug: job.slug
+      });
+      return { error: 'bundle editor not available for job' };
+    }
+
+    const operatorRequest = parseBody.data.prompt.trim();
+    const provider = parseBody.data.provider ?? 'openai';
+    const providerOptions = parseBody.data.providerOptions ?? {};
+
+    const bundleContext = {
+      slug: snapshot.binding.slug,
+      version: snapshot.binding.version,
+      entryPoint: snapshot.suggestion.entryPoint,
+      manifest: snapshot.suggestion.manifest,
+      manifestPath: snapshot.manifestPath,
+      capabilityFlags: normalizeCapabilityFlagInput(snapshot.suggestion.capabilityFlags ?? []),
+      metadata: snapshot.suggestion.metadata ?? null,
+      description: snapshot.suggestion.description ?? null,
+      displayName: snapshot.suggestion.displayName ?? null,
+      files: snapshot.suggestion.files.map((file) => ({ ...file })),
+      jobSlugs: [job.slug]
+    };
+
+    const metadataSummary = buildAiEditMetadataSummary(job, snapshot);
+    const additionalNotes = `Modify bundle ${binding.slug}@${binding.version} for job ${job.slug}. Preserve the bundle slug and keep the entry point exposed as ${snapshot.suggestion.entryPoint}.`;
+
+    const contextFiles = buildCodexContextFiles({
+      mode: 'job-with-bundle',
+      jobs: [serializeJobDefinition(job)],
+      services: [],
+      workflows: [],
+      bundles: [bundleContext]
+    });
+
+    let rawOutput = '';
+    let summary: string | null = null;
+
+    try {
+      if (provider === 'openai') {
+        const openAiApiKey = providerOptions.openAiApiKey?.trim() ?? '';
+        const openAiBaseUrl = providerOptions.openAiBaseUrl?.trim() || undefined;
+        const maxTokens =
+          typeof providerOptions.openAiMaxOutputTokens === 'number' && Number.isFinite(providerOptions.openAiMaxOutputTokens)
+            ? Math.min(Math.max(Math.trunc(providerOptions.openAiMaxOutputTokens), 256), 32_000)
+            : OPENAI_MAX_TOKENS_DEFAULT;
+
+        const result = await runOpenAiGeneration({
+          mode: 'job-with-bundle',
+          operatorRequest,
+          metadataSummary,
+          additionalNotes,
+          contextFiles,
+          apiKey: openAiApiKey,
+          baseUrl: openAiBaseUrl,
+          maxOutputTokens: maxTokens,
+          systemPrompt: DEFAULT_AI_BUILDER_SYSTEM_PROMPT,
+          responseInstructions: DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS
+        });
+        rawOutput = result.output;
+        summary = result.summary ?? null;
+      } else if (provider === 'openrouter') {
+        const openRouterApiKey = providerOptions.openRouterApiKey?.trim() ?? '';
+        const openRouterReferer = providerOptions.openRouterReferer?.trim() || undefined;
+        const openRouterTitle = providerOptions.openRouterTitle?.trim() || undefined;
+
+        const result = await runOpenRouterGeneration({
+          mode: 'job-with-bundle',
+          operatorRequest,
+          metadataSummary,
+          additionalNotes,
+          contextFiles,
+          apiKey: openRouterApiKey,
+          referer: openRouterReferer,
+          title: openRouterTitle,
+          systemPrompt: DEFAULT_AI_BUILDER_SYSTEM_PROMPT,
+          responseInstructions: DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS
+        });
+        rawOutput = result.output;
+        summary = result.summary ?? null;
+      } else {
+        const result = await runCodexGeneration({
+          mode: 'job-with-bundle',
+          operatorRequest,
+          metadataSummary,
+          additionalNotes,
+          contextFiles,
+          systemPrompt: DEFAULT_AI_BUILDER_SYSTEM_PROMPT,
+          responseInstructions: DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS
+        });
+        rawOutput = result.output;
+        summary = result.summary ?? null;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to run AI generation';
+      reply.status(502);
+      await authResult.auth.log('failed', {
+        reason: 'ai_generation_failed',
+        jobSlug: job.slug,
+        provider,
+        message
+      });
+      request.log.error({ err, slug: job.slug, provider }, 'AI bundle edit generation failed');
+      return { error: message };
+    }
+
+    const evaluation = evaluateAiBundleEditOutput(rawOutput);
+    if (!evaluation.bundle || evaluation.errors.length > 0) {
+      reply.status(422);
+      await authResult.auth.log('failed', {
+        reason: 'ai_bundle_validation_failed',
+        jobSlug: job.slug,
+        errors: evaluation.errors
+      });
+      return { error: evaluation.errors.join('\n') || 'AI response did not include a valid bundle' };
+    }
+
+    const resolvedVersion = await findNextVersion(binding.slug, binding.version);
+    const suggestion: AiGeneratedBundleSuggestion = {
+      ...evaluation.bundle,
+      slug: binding.slug,
+      version: resolvedVersion
+    };
+
+    try {
+      const publishResult = await publishGeneratedBundle(suggestion, {
+        subject: authResult.auth.identity.subject,
+        kind: authResult.auth.identity.kind,
+        tokenHash: authResult.auth.identity.tokenHash
+      });
+
+      const metadataState = extractMetadata(job);
+      const storedSuggestion: AiGeneratedBundleSuggestion = {
+        ...suggestion,
+        slug: publishResult.version.slug,
+        version: publishResult.version.version
+      };
+
+      const nowIso = new Date().toISOString();
+      const truncatedOutput = rawOutput.length > 20_000 ? `${rawOutput.slice(0, 20_000)}…` : rawOutput;
+
+      metadataState.aiBuilder.bundle = cloneSuggestion(storedSuggestion);
+      metadataState.aiBuilder.prompt = operatorRequest;
+      metadataState.aiBuilder.additionalNotes = additionalNotes;
+      metadataState.aiBuilder.metadataSummary = metadataSummary;
+      metadataState.aiBuilder.rawOutput = truncatedOutput;
+      metadataState.aiBuilder.summary = summary ?? null;
+      metadataState.aiBuilder.stdout = '';
+      metadataState.aiBuilder.stderr = '';
+      metadataState.aiBuilder.lastRegeneratedAt = nowIso;
+      metadataState.aiBuilder.history = [
+        ...(metadataState.aiBuilder.history ?? []),
+        {
+          slug: publishResult.version.slug,
+          version: publishResult.version.version,
+          checksum: publishResult.version.checksum,
+          regeneratedAt: nowIso
+        }
+      ];
+      metadataState.aiBuilder.source = 'ai-edit';
+      metadataState.root.aiBuilder = metadataState.aiBuilder;
+
+      const exportSuffix = binding.exportName ? `#${binding.exportName}` : '';
+      const nextEntryPoint = `bundle:${publishResult.version.slug}@${publishResult.version.version}${exportSuffix}`;
+      const updatedJob = await upsertJobDefinition({
+        slug: job.slug,
+        name: job.name,
+        type: job.type,
+        version: job.version,
+        runtime: job.runtime,
+        entryPoint: nextEntryPoint,
+        timeoutMs: job.timeoutMs ?? undefined,
+        retryPolicy: job.retryPolicy ?? undefined,
+        parametersSchema: job.parametersSchema ?? undefined,
+        defaultParameters: job.defaultParameters ?? undefined,
+        outputSchema: job.outputSchema ?? undefined,
+        metadata: metadataState.root as JsonValue
+      });
+      job = updatedJob;
+
+      const refreshed = await loadBundleEditorSnapshot(updatedJob);
+      if (!refreshed) {
+        throw new Error('Failed to refresh bundle editor snapshot');
+      }
+
+      reply.status(201);
+      await authResult.auth.log('succeeded', {
+        action: 'jobs.bundle-ai-edit',
+        jobSlug: job.slug,
+        bundleSlug: publishResult.version.slug,
+        bundleVersion: publishResult.version.version
+      });
+      return { data: toEditorResponse(updatedJob, refreshed) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to publish AI-generated bundle';
+      const isDuplicate = err instanceof Error && /already exists/i.test(err.message);
+      const isInvalid = err instanceof Error && /invalid bundle file path/i.test(err.message);
+      const statusCode = isInvalid ? 400 : isDuplicate ? 409 : 500;
+      reply.status(statusCode);
+      await authResult.auth.log('failed', {
+        reason: isInvalid ? 'invalid_bundle_payload' : isDuplicate ? 'duplicate_bundle_version' : 'exception',
+        jobSlug: job.slug,
+        message
+      });
+      request.log.error({ err, slug: job.slug }, 'Failed to publish AI-edited bundle');
+      return { error: statusCode === 500 ? 'Failed to publish AI-generated bundle' : message };
     }
   });
 
