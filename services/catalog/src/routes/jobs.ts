@@ -214,6 +214,7 @@ function normalizeCapabilityFlagInput(flags: string[] | undefined): string[] {
 }
 
 const OPENAI_MAX_TOKENS_DEFAULT = 4_096;
+const AI_BUNDLE_EDIT_PROMPT_MAX_LENGTH = 10_000;
 
 const aiBundleEditProviderSchema = z.enum(['codex', 'openai', 'openrouter']);
 
@@ -236,7 +237,7 @@ const aiBundleEditProviderOptionsSchema = z
 
 const aiBundleEditRequestSchema = z
   .object({
-    prompt: z.string().min(1).max(2_000),
+    prompt: z.string().min(1).max(AI_BUNDLE_EDIT_PROMPT_MAX_LENGTH),
     provider: aiBundleEditProviderSchema.optional(),
     providerOptions: aiBundleEditProviderOptionsSchema.optional()
   })

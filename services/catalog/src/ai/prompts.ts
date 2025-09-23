@@ -6,7 +6,8 @@ Generate drafts that AppHub can register without edits and strictly follow these
 - When generating bundles, provide complete runnable source files that align with the declared entry point.
 - When generating bundles, include an explicit 'capabilityFlags' list that mirrors the manifest capabilities so operators understand required permissions.
 - Use the reference material and catalog context verbatim. Prefer documented patterns over inventing new conventions.
-- Prefer clarity over verbosity in descriptions and notes. Highlight any required operator follow-up in the optional notes field.`;
+- Prefer clarity over verbosity in descriptions and notes. Highlight any required operator follow-up in the optional notes field.
+- For workflows (including \`workflow-with-jobs\`), always populate the \`notes\` field with a meaningful non-empty string. Do not use null or empty values.`;
 
 export const DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS =
   'Respond with JSON that satisfies the response schema. Do not include explanatory prose outside the JSON payload.';

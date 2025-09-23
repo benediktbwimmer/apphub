@@ -135,6 +135,7 @@ function jobWithBundleOverview(): string {
     '- `job` must satisfy the job definition schema described above.',
     '- `bundle` describes the Node.js bundle to publish and must include:',
     '  - `slug`, `version`, and `entryPoint`.',
+    '    - `version` must be a semantic version string (e.g. "1.0.0") and always encoded as a string value.',
     '  - `manifest` JSON (mirrors the bundle manifest file).',
     '  - `files`: array of objects with `path`, `contents`, optional `encoding` (`utf8` | `base64`), and optional `executable` flag.',
     '  - `capabilityFlags`: array of required capabilities; this should align with the `capabilities` listed in the manifest.',

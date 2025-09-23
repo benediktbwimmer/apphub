@@ -5,6 +5,8 @@ const stringSchema = (format?: string): OpenAPIV3.SchemaObject =>
 
 const integerSchema = (): OpenAPIV3.SchemaObject => ({ type: 'integer' });
 
+const AI_BUNDLE_EDIT_PROMPT_MAX_LENGTH = 10_000;
+
 const nullable = (schema: OpenAPIV3.SchemaObject): OpenAPIV3.SchemaObject => ({
   ...schema,
   nullable: true
@@ -646,7 +648,7 @@ const aiBundleEditRequestSchema: OpenAPIV3.SchemaObject = {
   properties: {
     prompt: {
       type: 'string',
-      maxLength: 2000,
+      maxLength: AI_BUNDLE_EDIT_PROMPT_MAX_LENGTH,
       description: 'Instruction describing the desired edits to apply to the job bundle.'
     },
     provider: {

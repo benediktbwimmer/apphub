@@ -48,6 +48,10 @@ type AiBuilderProvider = 'codex' | 'openai' | 'openrouter';
 
 const aiBuilderProviderSchema = z.enum(['codex', 'openai', 'openrouter']);
 
+const AI_PROMPT_MAX_LENGTH = 10_000;
+const AI_NOTES_MAX_LENGTH = 10_000;
+const AI_RESPONSE_INSTRUCTIONS_MAX_LENGTH = 10_000;
+
 const aiBuilderProviderOptionsSchema = z
   .object({
     openAiApiKey: z.string().min(8).max(200).optional(),
@@ -68,7 +72,12 @@ const aiBuilderProviderOptionsSchema = z
 const aiBuilderPromptOverridesSchema = z
   .object({
     systemPrompt: z.string().trim().min(1).max(6_000).optional(),
-    responseInstructions: z.string().trim().min(1).max(2_000).optional()
+    responseInstructions: z
+      .string()
+      .trim()
+      .min(1)
+      .max(AI_RESPONSE_INSTRUCTIONS_MAX_LENGTH)
+      .optional()
   })
   .partial()
   .strict();
@@ -76,8 +85,8 @@ const aiBuilderPromptOverridesSchema = z
 const aiBuilderSuggestSchema = z
   .object({
     mode: z.enum(['workflow', 'job', 'job-with-bundle', 'workflow-with-jobs']),
-    prompt: z.string().min(1).max(2_000),
-    additionalNotes: z.string().max(2_000).optional(),
+    prompt: z.string().min(1).max(AI_PROMPT_MAX_LENGTH),
+    additionalNotes: z.string().max(AI_NOTES_MAX_LENGTH).optional(),
     provider: aiBuilderProviderSchema.optional(),
     providerOptions: aiBuilderProviderOptionsSchema.optional(),
     promptOverrides: aiBuilderPromptOverridesSchema.optional()
@@ -110,10 +119,10 @@ const aiBuilderContextQuerySchema = z
   .object({
     provider: aiBuilderProviderSchema.optional(),
     mode: z.enum(['workflow', 'job', 'job-with-bundle', 'workflow-with-jobs']).optional(),
-    prompt: z.string().max(2_000).optional(),
-    additionalNotes: z.string().max(2_000).optional(),
+    prompt: z.string().max(AI_PROMPT_MAX_LENGTH).optional(),
+    additionalNotes: z.string().max(AI_NOTES_MAX_LENGTH).optional(),
     systemPrompt: z.string().max(6_000).optional(),
-    responseInstructions: z.string().max(2_000).optional()
+    responseInstructions: z.string().max(AI_RESPONSE_INSTRUCTIONS_MAX_LENGTH).optional()
   })
   .strict();
 
@@ -121,7 +130,7 @@ const aiBuilderJobGenerationSchema = z
   .object({
     id: z.string().min(1),
     prompt: z.string().min(1).optional(),
-    additionalNotes: z.string().max(2_000).optional(),
+    additionalNotes: z.string().max(AI_NOTES_MAX_LENGTH).optional(),
     metadataSummary: z.string().optional(),
     rawOutput: z.string().optional(),
     stdout: z.string().optional(),

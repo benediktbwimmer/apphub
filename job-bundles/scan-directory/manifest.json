@@ -1,0 +1,8 @@
+{
+  "name": "Directory Scanner",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Recursively scans a directory and captures aggregated metadata about files and folders.",
+  "capabilities": ["fs"]
+}
