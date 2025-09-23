@@ -112,16 +112,8 @@ async function testJobEndpoints(): Promise<void> {
     const jobSlugs = jobsBody.data.map((job) => job.slug);
     assert(jobSlugs.includes('repository-ingest'));
     assert(jobSlugs.includes('repository-build'));
-
-    const fsReadJob = jobsBody.data.find((job) => job.slug === 'fs-read-file');
-    assert(fsReadJob);
-    assert.equal(fsReadJob.entryPoint, 'bundle:fs-read-file@1.0.0');
-    assert.equal(fsReadJob.registryRef, 'fs-read-file@1.0.0');
-
-    const fsWriteJob = jobsBody.data.find((job) => job.slug === 'fs-write-file');
-    assert(fsWriteJob);
-    assert.equal(fsWriteJob.entryPoint, 'bundle:fs-write-file@1.0.0');
-    assert.equal(fsWriteJob.registryRef, 'fs-write-file@1.0.0');
+    assert(!jobSlugs.includes('fs-read-file'));
+    assert(!jobSlugs.includes('fs-write-file'));
 
     const unauthorizedCreate = await app.inject({
       method: 'POST',

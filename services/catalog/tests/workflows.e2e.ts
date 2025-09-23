@@ -1433,6 +1433,71 @@ async function testWorkflowEndpoints(): Promise<void> {
       try {
         await writeFile(sourceFilePath, sourceContent, 'utf8');
 
+        type EnsureJobPayload = {
+          slug: string;
+          name: string;
+          type: string;
+          entryPoint: string;
+          parametersSchema: unknown;
+          defaultParameters?: unknown;
+          timeoutMs?: number;
+          retryPolicy?: unknown;
+        };
+
+        async function ensureJobDefinition(payload: EnsureJobPayload): Promise<void> {
+          const response = await app.inject({
+            method: 'POST',
+            url: '/jobs',
+            headers: {
+              Authorization: `Bearer ${OPERATOR_TOKEN}`
+            },
+            payload
+          });
+          if (![201, 409].includes(response.statusCode)) {
+            throw new Error(`failed to ensure job definition for ${payload.slug}: ${response.statusCode}`);
+          }
+        }
+
+        await ensureJobDefinition({
+          slug: 'fs-read-file',
+          name: 'Filesystem Read File',
+          type: 'batch',
+          entryPoint: 'workflows.fs.readFile',
+          parametersSchema: {
+            type: 'object',
+            properties: {
+              hostPath: { type: 'string', minLength: 1 },
+              encoding: { type: 'string', minLength: 1 }
+            },
+            required: ['hostPath']
+          },
+          defaultParameters: { encoding: 'utf8' },
+          timeoutMs: 60_000,
+          retryPolicy: { maxAttempts: 1 }
+        });
+
+        await ensureJobDefinition({
+          slug: 'fs-write-file',
+          name: 'Filesystem Write File',
+          type: 'batch',
+          entryPoint: 'workflows.fs.writeFile',
+          parametersSchema: {
+            type: 'object',
+            properties: {
+              sourcePath: { type: 'string', minLength: 1 },
+              content: { type: 'string' },
+              outputPath: { type: 'string', minLength: 1 },
+              outputFilename: { type: 'string', minLength: 1 },
+              encoding: { type: 'string', minLength: 1 },
+              overwrite: { type: 'boolean' }
+            },
+            required: ['sourcePath', 'content']
+          },
+          defaultParameters: { encoding: 'utf8', overwrite: true },
+          timeoutMs: 60_000,
+          retryPolicy: { maxAttempts: 1 }
+        });
+
         const createFsWorkflowResponse = await app.inject({
           method: 'POST',
           url: '/workflows',

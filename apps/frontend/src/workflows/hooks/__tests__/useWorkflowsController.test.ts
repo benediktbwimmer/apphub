@@ -7,6 +7,7 @@ import type {
   WorkflowRun,
   WorkflowRunStep
 } from '../../types';
+import type { AuthorizedFetch } from '../../api';
 
 const {
   workflowDefinition,
@@ -92,7 +93,10 @@ const {
     createWorkflowDefinitionMock: vi.fn(async () => definition),
     updateWorkflowDefinitionMock: vi.fn(async () => definition),
     fetchWorkflowAssetsMock: vi.fn(async () => [] as WorkflowAssetInventoryEntry[]),
-    fetchWorkflowAssetHistoryMock: vi.fn(async () => ({
+    fetchWorkflowAssetHistoryMock: vi.fn<
+      [AuthorizedFetch, string, string, { limit?: number }?],
+      Promise<WorkflowAssetDetail | null>
+    >(async () => ({
       assetId: 'inventory.dataset',
       producers: [],
       consumers: [],

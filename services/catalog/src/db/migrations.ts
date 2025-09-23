@@ -566,6 +566,12 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_run
          ON workflow_run_step_assets(workflow_run_id, produced_at DESC);`
     ]
+  },
+  {
+    id: '016_remove_filesystem_job_seeds',
+    statements: [
+      `DELETE FROM job_definitions WHERE id IN ('jobdef-fs-read-file', 'jobdef-fs-write-file');`
+    ]
   }
 ];
 
