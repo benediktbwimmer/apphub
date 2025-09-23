@@ -455,6 +455,212 @@ const jobDefinitionResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const jobBundleFileSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['path', 'contents'],
+  properties: {
+    path: { type: 'string', description: 'Relative path of the file inside the bundle.' },
+    contents: { type: 'string', description: 'File contents encoded as UTF-8 text or base64.' },
+    encoding: {
+      type: 'string',
+      enum: ['utf8', 'base64'],
+      description: 'Encoding of the contents value. Defaults to utf8 when omitted.'
+    },
+    executable: {
+      type: 'boolean',
+      description: 'Whether the file should be marked as executable in the generated bundle.'
+    }
+  }
+};
+
+const jobBundleVersionArtifactSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['storage', 'contentType', 'size'],
+  properties: {
+    storage: { type: 'string', description: 'Where the bundle artifact is stored.' },
+    contentType: { type: 'string', description: 'MIME type reported for the bundle artifact.' },
+    size: { type: 'integer', description: 'Size of the bundle artifact in bytes.' }
+  }
+};
+
+const jobBundlePublisherSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['subject', 'kind', 'tokenHash'],
+  properties: {
+    subject: nullable(stringSchema()),
+    kind: nullable(stringSchema()),
+    tokenHash: nullable(stringSchema())
+  }
+};
+
+const jobBundleVersionSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'bundleId',
+    'slug',
+    'version',
+    'checksum',
+    'capabilityFlags',
+    'immutable',
+    'status',
+    'artifact',
+    'metadata',
+    'createdAt',
+    'updatedAt'
+  ],
+  properties: {
+    id: { type: 'string' },
+    bundleId: { type: 'string' },
+    slug: { type: 'string' },
+    version: { type: 'string' },
+    checksum: { type: 'string', description: 'SHA-256 checksum of the stored artifact.' },
+    capabilityFlags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Capability flags declared by the bundle.'
+    },
+    immutable: { type: 'boolean', description: 'Indicates whether further edits to this version are allowed.' },
+    status: { type: 'string', description: 'Lifecycle status of the bundle version.' },
+    artifact: jobBundleVersionArtifactSchema,
+    manifest: jsonValueSchema,
+    metadata: jsonValueSchema,
+    publishedBy: nullable(jobBundlePublisherSchema),
+    publishedAt: nullable(stringSchema('date-time')),
+    deprecatedAt: nullable(stringSchema('date-time')),
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time'),
+    download: {
+      type: 'object',
+      required: ['url', 'expiresAt', 'storage', 'kind'],
+      properties: {
+        url: { type: 'string', format: 'uri' },
+        expiresAt: stringSchema('date-time'),
+        storage: { type: 'string' },
+        kind: { type: 'string' }
+      }
+    }
+  }
+};
+
+const bundleEditorBindingSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['slug', 'version'],
+  properties: {
+    slug: { type: 'string', description: 'Slug of the bundle bound to the job.' },
+    version: { type: 'string', description: 'Version of the bundle referenced by the job entry point.' },
+    exportName: {
+      type: 'string',
+      description: 'Optional export name used when requiring the bundle entry point.',
+      nullable: true
+    }
+  }
+};
+
+const bundleEditorHistoryEntrySchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['slug', 'version'],
+  properties: {
+    slug: { type: 'string' },
+    version: { type: 'string' },
+    checksum: { type: 'string', description: 'Checksum of the generated artifact.' },
+    regeneratedAt: stringSchema('date-time')
+  }
+};
+
+const bundleEditorStateSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['job', 'binding', 'bundle', 'editor', 'aiBuilder', 'history', 'suggestionSource', 'availableVersions'],
+  properties: {
+    job: { $ref: '#/components/schemas/JobDefinition' },
+    binding: bundleEditorBindingSchema,
+    bundle: jobBundleVersionSchema,
+    editor: {
+      type: 'object',
+      required: ['entryPoint', 'manifestPath', 'manifest', 'files'],
+      properties: {
+        entryPoint: { type: 'string', description: 'Relative path of the bundle entry point file.' },
+        manifestPath: { type: 'string', description: 'Path to the manifest file within the bundle.' },
+        manifest: jsonValueSchema,
+        files: { type: 'array', items: jobBundleFileSchema }
+      }
+    },
+    aiBuilder: nullable(jsonValueSchema),
+    history: {
+      type: 'array',
+      items: bundleEditorHistoryEntrySchema,
+      description: 'History of AI generated bundle versions associated with this job.'
+    },
+    suggestionSource: {
+      type: 'string',
+      enum: ['metadata', 'artifact'],
+      description: 'Source used to build the current editor suggestion.'
+    },
+    availableVersions: {
+      type: 'array',
+      items: jobBundleVersionSchema,
+      description: 'Previously published bundle versions available for selection.'
+    }
+  }
+};
+
+const bundleEditorResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: bundleEditorStateSchema
+  }
+};
+
+const aiBundleEditProviderOptionsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  properties: {
+    openAiApiKey: { type: 'string', description: 'API key to authorize calls to OpenAI models.' },
+    openAiBaseUrl: {
+      type: 'string',
+      format: 'uri',
+      description: 'Override for the OpenAI API base URL when routing requests through a proxy.'
+    },
+    openAiMaxOutputTokens: {
+      type: 'integer',
+      minimum: 256,
+      maximum: 32000,
+      description: 'Maximum number of tokens the OpenAI provider may generate in a single response.'
+    },
+    openRouterApiKey: { type: 'string', description: 'API key used when the OpenRouter provider is selected.' },
+    openRouterReferer: {
+      type: 'string',
+      format: 'uri',
+      description: 'Referer value to include when calling OpenRouter.'
+    },
+    openRouterTitle: {
+      type: 'string',
+      description: 'Human readable title supplied to OpenRouter when making a request.'
+    }
+  }
+};
+
+const aiBundleEditRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['prompt'],
+  properties: {
+    prompt: {
+      type: 'string',
+      maxLength: 2000,
+      description: 'Instruction describing the desired edits to apply to the job bundle.'
+    },
+    provider: {
+      type: 'string',
+      enum: ['codex', 'openai', 'openrouter'],
+      description: 'Model provider responsible for generating the bundle edits.'
+    },
+    providerOptions: {
+      allOf: [aiBundleEditProviderOptionsSchema],
+      description: 'Provider-specific configuration such as API keys or maximum output tokens.'
+    }
+  }
+};
+
 const workflowTriggerSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['type'],
@@ -692,6 +898,10 @@ const components: OpenAPIV3.ComponentsObject = {
     JobDefinitionCreateRequest: jobDefinitionCreateRequestSchema,
     JobDefinitionResponse: jobDefinitionResponseSchema,
     JobDefinitionListResponse: jobDefinitionListResponseSchema,
+    JobBundleFile: jobBundleFileSchema,
+    JobBundleVersion: jobBundleVersionSchema,
+    BundleEditorResponse: bundleEditorResponseSchema,
+    AiBundleEditRequest: aiBundleEditRequestSchema,
     WorkflowTrigger: workflowTriggerSchema,
     WorkflowJobStep: workflowJobStepSchema,
     WorkflowServiceStep: workflowServiceStepSchema,
@@ -1072,6 +1282,155 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '500': {
             description: 'The server failed to persist the job definition.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/jobs/{slug}/bundle-editor': {
+      get: {
+        tags: ['Jobs'],
+        summary: 'Fetch bundle editor context for a job',
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Slug of the job definition to inspect.'
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Current bundle editor state for the requested job.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/BundleEditorResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The provided slug failed validation.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '404': {
+            description: 'No job or bundle editor snapshot was found for the provided slug.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '500': {
+            description: 'An unexpected error occurred while loading the bundle editor snapshot.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/jobs/{slug}/bundle/ai-edit': {
+      post: {
+        tags: ['Jobs'],
+        summary: 'Generate bundle edits with AI',
+        description:
+          'Runs an AI provider against the current job bundle and publishes a new version when the response is valid.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Slug of the job whose bundle should be regenerated.'
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AiBundleEditRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'A new bundle version was generated and bound to the job.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/BundleEditorResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'Request parameters or generated bundle payload were invalid.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The request lacked an operator token.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '403': {
+            description: 'The supplied operator token was missing required scopes.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '404': {
+            description: 'No job or bundle editor snapshot was found for the provided slug.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '409': {
+            description: 'The job is not bound to a bundle entry point or the generated version already exists.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '422': {
+            description: 'The AI response did not contain a valid bundle suggestion.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '502': {
+            description: 'The selected AI provider failed to generate a response.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '500': {
+            description: 'The server failed to publish the generated bundle.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' }
