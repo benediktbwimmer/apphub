@@ -12,7 +12,7 @@ This runbook captures the exact steps needed to publish the directory scanning a
 Two job bundles live under `job-bundles/`:
 
 - `scan-directory`: recursively walks a directory, collecting per-file, per-extension, and per-depth metrics with truncation safeguards.
-- `generate-visualizations`: consumes the scan output and emits an HTML dashboard, JSON dataset, and Markdown summary (bundle version `0.1.1`).
+- `generate-visualizations`: consumes the scan output and emits an HTML dashboard, JSON dataset, and Markdown summary (bundle version `0.1.2`).
 
 Rebuild both bundles so the artifacts and checksums are fresh:
 
@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:4000/job-bundles \
 
 > The `tmp/*.json` payloads were generated during development with a short Node script that lifts the manifest, artifact tarball, and checksum into publishable JSON. Regenerate them the same way if you rebuild the bundles from scratch.
 
-Successful responses include `bundle.slug` (`scan-directory` / `generate-visualizations`) and versions `0.1.0` / `0.1.1`.
+Successful responses include `bundle.slug` (`scan-directory` / `generate-visualizations`) and versions `0.1.0` / `0.1.2`.
 
 ## 3. Register Job Definitions
 The catalog must know how to invoke each bundle. POST the following definitions to `/jobs`.
@@ -73,7 +73,22 @@ Highlights:
 - Requires `outputDir` and the nested `scanData` object.
 - Defaults `reportTitle` to “Directory Visualization Report.”
 - Declares an output shape matching the artifact metadata returned by the bundle.
-- `entryPoint` pins the bundle: `bundle:generate-visualizations@0.1.1#handler`.
+- `entryPoint` pins the bundle: `bundle:generate-visualizations@0.1.2#handler`.
+
+If the job already exists, PATCH it to point at the new bundle and update metadata without touching the database:
+
+```bash
+curl -X PATCH http://127.0.0.1:4000/jobs/generate-visualizations \
+  -H 'Authorization: Bearer example-operator-token-123' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "entryPoint": "bundle:generate-visualizations@0.1.2#handler",
+    "metadata": {
+      "bundle": "generate-visualizations@0.1.2",
+      "category": "reporting"
+    }
+  }'
+```
 
 Verify with `curl http://127.0.0.1:4000/jobs -H 'Authorization: Bearer example-operator-token-123'`—the list should include both slugs.
 
@@ -91,7 +106,70 @@ Important fields inside the payload:
 - Workflow slug `directory-insights-report` and version `1`.
 - Parameters require `scanDir` (source directory) and `outputDir` (destination for artifacts); optional `maxEntries`, `reportTitle` carry through.
 - Step `scan` runs `scan-directory`, storing its JSON result in `shared.scanResults`.
-- Step `report` depends on `scan`, forwards shared data via `"{{ shared.scanResults }}"`, and stores the visualization response under `shared.visualization` (files land in `shared.visualization.files`).
+- Step `report` depends on `scan`, forwards shared data via `"{{ shared.scanResults }}"`, stores the visualization response under `shared.visualization` (files land in `shared.visualization.files`), **and declares the report asset** so the catalog tracks the latest artifact set:
+
+```json
+{
+  "id": "report",
+  "name": "Generate Visualization",
+  "type": "job",
+  "jobSlug": "generate-visualizations",
+  "dependsOn": ["scan"],
+  "produces": [
+    {
+      "assetId": "directory.insights.report",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "outputDir": { "type": "string" },
+          "reportTitle": { "type": "string" },
+          "rootPath": { "type": "string" },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "summary": { "type": "object" },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "relativePath": { "type": "string" },
+                "mediaType": { "type": "string" },
+                "description": { "type": "string" },
+                "sizeBytes": { "type": "number" }
+              },
+              "required": [
+                "relativePath",
+                "mediaType",
+                "sizeBytes"
+              ]
+            }
+          }
+        },
+        "required": [
+          "outputDir",
+          "reportTitle",
+          "generatedAt",
+          "artifacts"
+        ]
+      }
+    }
+  ],
+  "parameters": {
+    "scanData": "{{ shared.scanResults }}",
+    "outputDir": "{{ parameters.outputDir }}",
+    "reportTitle": "{{ parameters.reportTitle }}"
+  },
+  "storeResultAs": "visualization"
+}
+```
+
+If the workflow already exists, PATCH it instead of POSTing so the bundle pin and `produces` declaration are applied:
+
+```bash
+curl -X PATCH http://127.0.0.1:4000/workflows/directory-insights-report \
+  -H 'Authorization: Bearer example-operator-token-123' \
+  -H 'Content-Type: application/json' \
+  --data @tmp/directory-workflow-definition.json
+```
 
 Confirm definition:
 
@@ -132,3 +210,20 @@ The workflow result aggregates shared values, so the final run payload includes 
 - If you need to cleanly remove the workflow, delete dependent runs first, then call `DELETE /workflows/:slug`.
 
 With these steps executed, the platform can produce a full directory insight report on demand and the workflow catalog exposes the artifact list via the API and UI.
+
+## 7. Inspecting Workflow Assets
+After recreating or patching the workflow with the `produces` block above and republishing the visualization bundle, the catalog records the latest report under `directory.insights.report`.
+
+- List the current snapshot:
+  ```bash
+  curl -sS http://127.0.0.1:4000/workflows/directory-insights-report/assets | jq
+  ```
+- View the history log:
+  ```bash
+  curl -sS \
+    http://127.0.0.1:4000/workflows/directory-insights-report/assets/directory.insights.report/history | jq
+  ```
+
+Both endpoints are unauthenticated in the default container image; include the operator token if your environment requires authorization.
+
+To fan out this asset into an archived tarball, follow the downstream workflow documented in `docs/directory-insights-archive-workflow.md`.

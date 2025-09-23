@@ -1,6 +1,6 @@
 {
   "name": "Directory Visualization Report",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "entry": "dist/index.js",
   "runtime": "node18",
   "description": "Builds an HTML report with charts and supporting artifacts from directory scan metadata.",

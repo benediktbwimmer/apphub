@@ -1,0 +1,19 @@
+{
+  "reportDir": "/tmp/report",
+  "archiveDir": "/tmp/report-archives",
+  "asset": {
+    "outputDir": "/tmp/report",
+    "reportTitle": "Demo Report",
+    "artifacts": [
+      {
+        "relativePath": "scan-data.json"
+      },
+      {
+        "relativePath": "index.html"
+      },
+      {
+        "relativePath": "summary.md"
+      }
+    ]
+  }
+}

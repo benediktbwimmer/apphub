@@ -34,6 +34,7 @@ import { JOB_BUNDLE_WRITE_SCOPES, JOB_RUN_SCOPES, JOB_WRITE_SCOPES } from './sha
 import {
   aiJobWithBundleOutputSchema,
   jobDefinitionCreateSchema,
+  jobDefinitionUpdateSchema,
   jsonValueSchema
 } from '../workflows/zodSchemas';
 import {
@@ -472,6 +473,84 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       reply.status(500);
       await authResult.auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create job definition' };
+    }
+  });
+
+  app.patch('/jobs/:slug', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'jobs.update',
+      resource: 'jobs',
+      requiredScopes: JOB_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = z.object({ slug: z.string().min(1) }).safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = jobDefinitionUpdateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten(),
+        jobSlug: parseParams.data.slug
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const existing = await getJobDefinitionBySlug(parseParams.data.slug);
+    if (!existing) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'job_not_found',
+        jobSlug: parseParams.data.slug
+      });
+      return { error: 'job not found' };
+    }
+
+    const payload = parseBody.data;
+    const merged = {
+      slug: existing.slug,
+      name: payload.name ?? existing.name,
+      type: payload.type ?? existing.type,
+      version: payload.version ?? existing.version,
+      runtime: payload.runtime ?? existing.runtime,
+      entryPoint: payload.entryPoint ?? existing.entryPoint,
+      timeoutMs: payload.timeoutMs ?? existing.timeoutMs ?? undefined,
+      retryPolicy: payload.retryPolicy ?? existing.retryPolicy ?? undefined,
+      parametersSchema: (payload.parametersSchema ?? existing.parametersSchema ?? undefined) as JsonValue | undefined,
+      defaultParameters: (payload.defaultParameters ?? existing.defaultParameters ?? undefined) as JsonValue | undefined,
+      outputSchema: (payload.outputSchema ?? existing.outputSchema ?? undefined) as JsonValue | undefined,
+      metadata: payload.metadata ?? (existing.metadata ?? undefined)
+    };
+
+    try {
+      const updated = await upsertJobDefinition(merged);
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        action: 'jobs.update',
+        jobSlug: updated.slug
+      });
+      return { data: serializeJobDefinition(updated) };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update job definition';
+      request.log.error({ err, slug: existing.slug }, 'Failed to update job definition');
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'exception',
+        jobSlug: existing.slug,
+        message
+      });
+      return { error: 'Failed to update job definition' };
     }
   });
 

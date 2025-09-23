@@ -821,11 +821,33 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
   await context.update({ metrics: { filesCreated: artifacts.length } });
 
+  const producedAt = new Date().toISOString();
+  const assetPayload = {
+    outputDir,
+    reportTitle: params.reportTitle,
+    rootPath: params.scanData.rootPath,
+    generatedAt: params.scanData.generatedAt ?? producedAt,
+    summary: params.scanData.summary,
+    artifacts: artifacts.map((artifact) => ({
+      relativePath: artifact.relativePath,
+      mediaType: artifact.mediaType,
+      description: artifact.description,
+      sizeBytes: artifact.sizeBytes
+    }))
+  };
+
   return {
     status: 'succeeded',
     result: {
       files: artifacts,
-      count: artifacts.length
+      count: artifacts.length,
+      assets: [
+        {
+          assetId: 'directory.insights.report',
+          payload: assetPayload,
+          producedAt
+        }
+      ]
     }
   } satisfies JobRunResult;
 }
