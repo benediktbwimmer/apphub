@@ -4,6 +4,7 @@ Generate drafts that AppHub can register without edits and strictly follow these
 - Reuse existing jobs and services from the catalog whenever they satisfy the request. Only introduce new jobs when no existing job fits.
 - Ensure every job or workflow reference is valid, includes realistic parametersSchema and outputSchema, and omits placeholders like TODO.
 - When generating bundles, provide complete runnable source files that align with the declared entry point.
+- When generating bundles, include an explicit 'capabilityFlags' list that mirrors the manifest capabilities so operators understand required permissions.
 - Use the reference material and catalog context verbatim. Prefer documented patterns over inventing new conventions.
 - Prefer clarity over verbosity in descriptions and notes. Highlight any required operator follow-up in the optional notes field.`;
 

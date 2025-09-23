@@ -235,12 +235,13 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
                 '    "entryPoint": "index.js",',
                 '    "manifestPath": "manifest.json",',
                 '    "manifest": { /* bundle manifest JSON */ },',
-                '    "capabilityFlags": ["optional", "flags"],',
+                '    "capabilityFlags": ["fs.read", "redis"],',
                 '    "files": [',
                 '      { "path": "index.js", "contents": "// handler source", "encoding": "utf8", "executable": false }',
                 '    ]',
                 '  }',
                 "}",
+                "Mirror the bundle manifest `capabilities` in `capabilityFlags` so required permissions are explicit.",
                 "When producing bundle files, ensure every entry is included in the `files` array and referenced relative to the bundle root.",
                 "You may add optional fields like `metadata` where suitable.",
             ]
@@ -269,7 +270,7 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
                 "For workflow-with-jobs mode, output a JSON object containing `workflow`, `dependencies`, and optional `notes` fields.",
                 "Use `dependencies` to list every job the workflow relies on. Tag catalog jobs with `kind` = `existing-job` and include a short description.",
                 "For new jobs set `kind` = `job` or `job-with-bundle` and provide a reusable `prompt` explaining how to generate that job in the next step.",
-                "When `kind` is `job-with-bundle`, include a `bundleOutline` with the intended entry point and any notable files.",
+                "When `kind` is `job-with-bundle`, include a `bundleOutline` with the intended entry point, required capabilities, and any notable files.",
                 "Keep guidance concise and actionable. Document broader operator follow-up (like secrets to provision) in the `notes` field.",
             ]
         )

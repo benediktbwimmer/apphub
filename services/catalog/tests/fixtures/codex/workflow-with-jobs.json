@@ -48,6 +48,7 @@
       "rationale": "No existing job applies deltas. This job will be generated next with its bundle.",
       "bundleOutline": {
         "entryPoint": "index.js",
+        "capabilities": ["db.write", "fs"],
         "files": [
           {
             "path": "index.js",

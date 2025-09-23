@@ -43,7 +43,12 @@ export type OpenAiGenerationResult = {
   summary?: string | null;
 };
 
-type OpenAiMessage = {
+export type OpenAiPromptOptions = CodexGenerationOptions & {
+  systemPrompt?: string;
+  responseInstructions?: string;
+};
+
+export type OpenAiMessage = {
   role: 'system' | 'user';
   content: string;
 };
@@ -190,7 +195,7 @@ function collectContextSections(contextFiles?: CodexContextFile[]): string {
   return sections.join('\n\n');
 }
 
-function buildUserPrompt(options: OpenAiGenerationOptions): string {
+function buildUserPrompt(options: OpenAiPromptOptions): string {
   const lines: string[] = [];
 
   lines.push(`Requested mode: ${options.mode}`);
@@ -220,7 +225,7 @@ function buildUserPrompt(options: OpenAiGenerationOptions): string {
   return lines.join('\n\n');
 }
 
-function buildMessages(options: OpenAiGenerationOptions): OpenAiMessage[] {
+export function buildOpenAiPromptMessages(options: OpenAiPromptOptions): OpenAiMessage[] {
   const candidateSystemPrompt =
     typeof options.systemPrompt === 'string' ? options.systemPrompt.trim() : '';
   const systemPrompt =
@@ -365,7 +370,7 @@ export async function runOpenAiGeneration(
       headers,
       body: JSON.stringify({
         model,
-        messages: buildMessages(options),
+        messages: buildOpenAiPromptMessages(options),
         response_format:
           options.responseFormat ?? {
             type: 'json_schema',

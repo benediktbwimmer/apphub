@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
@@ -14,12 +15,15 @@ import {
   fetchCodexGenerationJobStatus,
   runCodexGeneration,
   startCodexGenerationJob,
-  type CodexGenerationMode
+  type CodexGenerationMode,
+  type CodexContextFile
 } from '../ai/codexRunner';
 import { buildCodexContextFiles } from '../ai/contextFiles';
-import { runOpenAiGeneration } from '../ai/openAiRunner';
+import { collectBundleContexts, type AiBundleContext } from '../ai/bundleContext';
+import { runOpenAiGeneration, buildOpenAiPromptMessages } from '../ai/openAiRunner';
 import { runOpenRouterGeneration } from '../ai/openRouterRunner';
 import { publishGeneratedBundle, type AiGeneratedBundleSuggestion } from '../ai/bundlePublisher';
+import { estimateTokenBreakdown, estimateTokenCount } from '../ai/tokenCounter';
 import {
   serializeJobBundle,
   serializeJobBundleVersion,
@@ -102,6 +106,17 @@ const aiBuilderSuggestSchema = z
     }
   });
 
+const aiBuilderContextQuerySchema = z
+  .object({
+    provider: aiBuilderProviderSchema.optional(),
+    mode: z.enum(['workflow', 'job', 'job-with-bundle', 'workflow-with-jobs']).optional(),
+    prompt: z.string().max(2_000).optional(),
+    additionalNotes: z.string().max(2_000).optional(),
+    systemPrompt: z.string().max(6_000).optional(),
+    responseInstructions: z.string().max(2_000).optional()
+  })
+  .strict();
+
 const aiBuilderJobGenerationSchema = z
   .object({
     id: z.string().min(1),
@@ -140,6 +155,26 @@ type AiWorkflowPlanPayload = AiWorkflowWithJobsOutput & {
   dependencies: AiWorkflowDependency[];
 };
 
+type AiContextMessagePreview = {
+  role: 'system' | 'user';
+  content: string;
+  tokens: number | null;
+};
+
+type AiContextFilePreview = {
+  path: string;
+  contents: string;
+  bytes: number;
+  tokens: number | null;
+};
+
+type AiContextPreview = {
+  provider: AiBuilderProvider;
+  tokenCount: number | null;
+  messages: AiContextMessagePreview[];
+  contextFiles: AiContextFilePreview[];
+};
+
 type AiSuggestionPayload = {
   mode: CodexGenerationMode;
   raw: string;
@@ -160,6 +195,7 @@ type AiSuggestionPayload = {
   plan?: AiWorkflowPlanPayload | null;
   notes?: string | null;
   summary?: string | null;
+  contextPreview: AiContextPreview;
 };
 
 type CodexEvaluationResult = {
@@ -190,6 +226,7 @@ type AiGenerationSession = {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+  contextPreview: AiContextPreview;
 };
 
 const AI_GENERATION_SESSION_TTL_MS = 60 * 60 * 1_000; // 1 hour
@@ -235,16 +272,92 @@ function summarizeWorkflows(workflows: WorkflowDefinitionRecord[], limit = 8): s
     .join('\n');
 }
 
+function summarizeBundles(bundles: ReadonlyArray<AiBundleContext>, limit = 10): string {
+  if (bundles.length === 0) {
+    return '- none referenced by jobs';
+  }
+  return bundles
+    .slice(0, limit)
+    .map((bundle) => {
+      const capabilities = bundle.capabilityFlags.length > 0 ? bundle.capabilityFlags.join(', ') : 'none';
+      const jobList = bundle.jobSlugs.length > 0 ? bundle.jobSlugs.join(', ') : 'unused';
+      return `- ${bundle.slug}@${bundle.version} (entry: ${bundle.entryPoint}; capabilities: ${capabilities}; jobs: ${jobList})`;
+    })
+    .join('\n');
+}
+
+function buildContextPreview(options: {
+  provider: AiBuilderProvider;
+  mode: CodexGenerationMode;
+  operatorRequest: string;
+  additionalNotes?: string;
+  metadataSummary: string;
+  contextFiles: ReadonlyArray<CodexContextFile>;
+  systemPrompt?: string;
+  responseInstructions?: string;
+}): AiContextPreview {
+  const contextList = Array.from(options.contextFiles);
+  const messages = buildOpenAiPromptMessages({
+    mode: options.mode,
+    operatorRequest: options.operatorRequest,
+    metadataSummary: options.metadataSummary,
+    additionalNotes: options.additionalNotes,
+    contextFiles: contextList,
+    systemPrompt: options.systemPrompt,
+    responseInstructions: options.responseInstructions
+  });
+
+  const tokenEstimates = estimateTokenBreakdown(messages.map((message) => ({ content: message.content })));
+  const messagePreviews: AiContextMessagePreview[] = messages.map((message, index) => ({
+    role: message.role,
+    content: message.content,
+    tokens: tokenEstimates.perMessage[index] ?? null
+  }));
+
+  let contextTokenTotal = tokenEstimates.total ?? 0;
+  let hasMessageTokenFailure = tokenEstimates.total === null;
+
+  const filePreviews: AiContextFilePreview[] = contextList.map((file) => {
+    const tokens = estimateTokenCount(file.contents) ?? null;
+    if (tokens !== null && !hasMessageTokenFailure) {
+      contextTokenTotal += tokens;
+    } else if (tokens === null) {
+      hasMessageTokenFailure = true;
+    }
+    return {
+      path: file.path,
+      contents: file.contents,
+      bytes: Buffer.byteLength(file.contents, 'utf8'),
+      tokens
+    };
+  });
+
+  return {
+    provider: options.provider,
+    tokenCount: hasMessageTokenFailure ? null : contextTokenTotal,
+    messages: messagePreviews,
+    contextFiles: filePreviews
+  } satisfies AiContextPreview;
+}
+
 function buildAiMetadataSummary(data: {
   jobs: Awaited<ReturnType<typeof listJobDefinitions>>;
   services: Awaited<ReturnType<typeof listServices>>;
   workflows: Awaited<ReturnType<typeof listWorkflowDefinitions>>;
+  bundles?: ReadonlyArray<AiBundleContext>;
 }): string {
   const lines: string[] = [];
   lines.push('## Jobs');
   lines.push(summarizeJobs(data.jobs));
   if (data.jobs.length > 12) {
     lines.push(`- … ${data.jobs.length - 12} more jobs omitted`);
+  }
+  const bundles = data.bundles ?? [];
+  lines.push('');
+  lines.push('## Bundles');
+  lines.push(summarizeBundles(bundles));
+  if (bundles.length > 10) {
+    lines.push(`- … ${bundles.length - 10} more bundles omitted`);
   }
   lines.push('');
   lines.push('## Services');
@@ -272,6 +385,35 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeCapabilityList(candidate: unknown): string[] {
+  const set = new Set<string>();
+  if (Array.isArray(candidate)) {
+    for (const entry of candidate) {
+      if (typeof entry !== 'string') {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (trimmed.length === 0) {
+        continue;
+      }
+      set.add(trimmed);
+    }
+    return Array.from(set);
+  }
+  if (typeof candidate === 'string') {
+    return normalizeCapabilityList(candidate.split(','));
+  }
+  return [];
+}
+
+function extractManifestCapabilities(manifest: unknown): string[] {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return [];
+  }
+  const record = manifest as Record<string, unknown>;
+  return normalizeCapabilityList(record.capabilities);
+}
+
 function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvaluationResult {
   const validationErrors: string[] = [];
   const bundleValidationErrors: string[] = [];
@@ -296,6 +438,21 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
       if (!validation.data.bundle.files.some((file) => file.path === validation.data.bundle.entryPoint)) {
         bundleValidationErrors.push(`Bundle is missing entry point file: ${validation.data.bundle.entryPoint}`);
       }
+      const rawCapabilityFlags = validation.data.bundle.capabilityFlags;
+      const capabilityFlags = normalizeCapabilityList(rawCapabilityFlags ?? []);
+      if (bundleSuggestion) {
+        bundleSuggestion.capabilityFlags = capabilityFlags;
+      }
+      if (!Array.isArray(rawCapabilityFlags)) {
+        bundleValidationErrors.push('bundle.capabilityFlags must be provided as an array (include manifest capabilities even if none are required).');
+      }
+      const manifestCapabilities = extractManifestCapabilities(validation.data.bundle.manifest);
+      const missingManifestCapabilities = manifestCapabilities.filter((cap) => !capabilityFlags.includes(cap));
+      if (missingManifestCapabilities.length > 0) {
+        bundleValidationErrors.push(
+          `bundle.capabilityFlags must include manifest capabilities: missing ${missingManifestCapabilities.join(', ')}`
+        );
+      }
     } else {
       for (const issue of validation.error.errors) {
         const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
@@ -308,6 +465,23 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
       const payload: AiWorkflowWithJobsOutput = validation.data;
       suggestion = payload.workflow;
       workflowPlan = payload;
+      for (const dependency of payload.dependencies ?? []) {
+        if (dependency.kind !== 'job-with-bundle') {
+          continue;
+        }
+        if (!dependency.bundleOutline) {
+          validationErrors.push(
+            `bundleOutline is required for job-with-bundle dependency "${dependency.jobSlug}" and must list capabilities.`
+          );
+          continue;
+        }
+        const outlineCapabilities = normalizeCapabilityList(dependency.bundleOutline.capabilities ?? []);
+        if (outlineCapabilities.length === 0) {
+          validationErrors.push(
+            `bundleOutline.capabilities must include at least one capability for job-with-bundle dependency "${dependency.jobSlug}".`
+          );
+        }
+      }
     } else {
       for (const issue of validation.error.errors) {
         const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
@@ -356,6 +530,7 @@ function createAiGenerationSession(init: {
   result?: AiSuggestionPayload | null;
   error?: string | null;
   completedAt?: number;
+  contextPreview: AiContextPreview;
 }): AiGenerationSession {
   const now = Date.now();
   const session: AiGenerationSession = {
@@ -375,8 +550,12 @@ function createAiGenerationSession(init: {
     error: init.error ?? null,
     createdAt: now,
     updatedAt: now,
-    completedAt: init.completedAt
+    completedAt: init.completedAt,
+    contextPreview: init.contextPreview
   };
+  if (session.result && !session.result.contextPreview) {
+    session.result.contextPreview = init.contextPreview;
+  }
   aiGenerationSessions.set(session.id, session);
   return session;
 }
@@ -399,6 +578,7 @@ type AiGenerationResponsePayload = {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  contextPreview: AiContextPreview;
 };
 
 function buildAiGenerationResponse(session: AiGenerationSession): AiGenerationResponsePayload {
@@ -415,7 +595,8 @@ function buildAiGenerationResponse(session: AiGenerationSession): AiGenerationRe
     error: session.error,
     startedAt: new Date(session.createdAt).toISOString(),
     updatedAt: new Date(session.updatedAt).toISOString(),
-    completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : undefined
+    completedAt: session.completedAt ? new Date(session.completedAt).toISOString() : undefined,
+    contextPreview: session.contextPreview
   };
 }
 
@@ -429,6 +610,78 @@ function mergeMapMetadata(base: Record<string, JsonValue>, patch: Record<string,
 }
 
 export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/ai/builder/context', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'ai.builder.context.read',
+      resource: 'ai-builder',
+      requiredScopes: []
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseQuery = aiBuilderContextQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const query = parseQuery.data;
+    const provider: AiBuilderProvider = query.provider ?? 'codex';
+    const mode: CodexGenerationMode = query.mode ?? 'workflow';
+    const operatorRequest = query.prompt?.trim() ?? '';
+    const additionalNotes = query.additionalNotes?.trim() || undefined;
+    const systemPrompt = query.systemPrompt?.trim() || undefined;
+    const responseInstructions = query.responseInstructions?.trim() || undefined;
+
+    try {
+      const [jobs, services, workflows] = await Promise.all([
+        listJobDefinitions(),
+        listServices(),
+        listWorkflowDefinitions()
+      ]);
+
+      const bundleContexts = await collectBundleContexts(jobs);
+      const jobCatalog = jobs.map(serializeJobDefinition);
+      const serviceCatalog = services.map(serializeService);
+      const workflowCatalog = workflows.map(serializeWorkflowDefinition);
+      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
+      const contextFiles = buildCodexContextFiles({
+        mode,
+        jobs: jobCatalog,
+        services: serviceCatalog,
+        workflows: workflowCatalog,
+        bundles: bundleContexts
+      });
+
+      const contextPreview = buildContextPreview({
+        provider,
+        mode,
+        operatorRequest,
+        additionalNotes,
+        metadataSummary,
+        contextFiles,
+        systemPrompt,
+        responseInstructions
+      });
+
+      reply.status(200);
+      return {
+        data: {
+          provider,
+          mode,
+          metadataSummary,
+          contextPreview
+        }
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load AI context';
+      request.log.error({ err, provider, mode }, 'Failed to build AI context preview');
+      reply.status(502);
+      return { error: message };
+    }
+  });
+
   app.post('/ai/builder/generations', async (request, reply) => {
     pruneAiGenerationSessions();
 
@@ -469,15 +722,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         listWorkflowDefinitions()
       ]);
 
+      const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
       const serviceCatalog = services.map(serializeService);
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
-      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
         mode,
         jobs: jobCatalog,
         services: serviceCatalog,
-        workflows: workflowCatalog
+        workflows: workflowCatalog,
+        bundles: bundleContexts
       });
 
       const provider: AiBuilderProvider = payload.provider ?? 'codex';
@@ -485,6 +740,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
       const promptOverrides = payload.promptOverrides ?? undefined;
       const systemPrompt = promptOverrides?.systemPrompt;
       const responseInstructions = promptOverrides?.responseInstructions;
+
+      const contextPreview = buildContextPreview({
+        provider,
+        mode,
+        operatorRequest,
+        additionalNotes,
+        metadataSummary,
+        contextFiles,
+        systemPrompt,
+        responseInstructions
+      });
 
       if (provider === 'openai') {
         const openAiApiKey = providerOptions.openAiApiKey?.trim();
@@ -557,10 +823,12 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             jobSuggestions: undefined,
             plan: evaluation.workflowPlan,
             notes: evaluation.workflowPlan?.notes ?? null,
-            summary: openAiResult.summary ?? null
+            summary: openAiResult.summary ?? null,
+            contextPreview
           },
           error: evaluation.validationErrors.join('\n') || null,
-          completedAt: Date.now()
+          completedAt: Date.now(),
+          contextPreview
         });
 
         reply.status(201);
@@ -641,10 +909,12 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             jobSuggestions: undefined,
             plan: evaluation.workflowPlan,
             notes: evaluation.workflowPlan?.notes ?? null,
-            summary: openRouterResult.summary ?? null
+            summary: openRouterResult.summary ?? null,
+            contextPreview
           },
           error: evaluation.validationErrors.join('\n') || null,
-          completedAt: Date.now()
+          completedAt: Date.now(),
+          contextPreview
         });
 
         reply.status(201);
@@ -709,10 +979,12 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             jobSuggestions: undefined,
             plan: evaluation.workflowPlan,
             notes: evaluation.workflowPlan?.notes ?? null,
-            summary: codexResult.summary ?? null
+            summary: codexResult.summary ?? null,
+            contextPreview
           },
           error: evaluation.validationErrors.join('\n') || null,
-          completedAt: Date.now()
+          completedAt: Date.now(),
+          contextPreview
         });
 
         reply.status(201);
@@ -746,7 +1018,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         summary: null,
         rawOutput: null,
         result: null,
-        error: null
+        error: null,
+        contextPreview
       });
 
       reply.status(202);
@@ -854,7 +1127,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
               jobSuggestions: undefined,
               plan: evaluation.workflowPlan,
               notes: evaluation.workflowPlan?.notes ?? null,
-              summary: status.summary ?? null
+              summary: status.summary ?? null,
+              contextPreview: session.contextPreview
             };
             session.error = null;
             session.completedAt = Date.now();
@@ -943,15 +1217,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         listWorkflowDefinitions()
       ]);
 
+      const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
       const serviceCatalog = services.map(serializeService);
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
-      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows });
+      const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
         mode,
         jobs: jobCatalog,
         services: serviceCatalog,
-        workflows: workflowCatalog
+        workflows: workflowCatalog,
+        bundles: bundleContexts
       });
 
       const provider: AiBuilderProvider = payload.provider ?? 'codex';
@@ -1000,6 +1276,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             ? evaluation.workflowPlan !== null
             : true);
 
+        const contextPreview = buildContextPreview({
+          provider,
+          mode,
+          operatorRequest: payload.prompt.trim(),
+          additionalNotes: payload.additionalNotes ?? undefined,
+          metadataSummary,
+          contextFiles,
+          systemPrompt,
+          responseInstructions
+        });
+
         await authResult.auth.log('succeeded', {
           mode,
           provider,
@@ -1028,7 +1315,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             stdout: '',
             stderr: '',
             metadataSummary,
-            summary: openAiResult.summary ?? null
+            summary: openAiResult.summary ?? null,
+            contextPreview
           }
         };
       }
@@ -1070,6 +1358,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             ? evaluation.workflowPlan !== null
             : true);
 
+        const contextPreview = buildContextPreview({
+          provider,
+          mode,
+          operatorRequest: payload.prompt.trim(),
+          additionalNotes: payload.additionalNotes ?? undefined,
+          metadataSummary,
+          contextFiles,
+          systemPrompt,
+          responseInstructions
+        });
+
         await authResult.auth.log('succeeded', {
           mode,
           provider,
@@ -1098,7 +1397,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             stdout: '',
             stderr: '',
             metadataSummary,
-            summary: openRouterResult.summary ?? null
+            summary: openRouterResult.summary ?? null,
+            contextPreview
           }
         };
       }
@@ -1123,6 +1423,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           : mode === 'workflow-with-jobs'
           ? evaluation.workflowPlan !== null
           : true);
+
+      const contextPreview = buildContextPreview({
+        provider,
+        mode,
+        operatorRequest: payload.prompt.trim(),
+        additionalNotes: payload.additionalNotes ?? undefined,
+        metadataSummary,
+        contextFiles,
+        systemPrompt,
+        responseInstructions
+      });
 
       await authResult.auth.log('succeeded', {
         mode,
@@ -1152,7 +1463,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           stdout: truncate(codexResult.stdout),
           stderr: truncate(codexResult.stderr),
           metadataSummary,
-          summary: codexResult.summary ?? null
+          summary: codexResult.summary ?? null,
+          contextPreview
         }
       };
     } catch (err) {

@@ -12,12 +12,14 @@ import type { ZodIssue } from 'zod';
 import {
   fetchAiGeneration,
   startAiGeneration,
+  fetchAiContextPreview,
   type AiBuilderMode,
   type AiBuilderProvider,
   type AiGenerationState,
   type AiSuggestionResponse,
   type AiWorkflowDependency,
-  type AiWorkflowPlan
+  type AiWorkflowPlan,
+  type AiContextPreview
 } from './api';
 import {
   createWorkflowDefinition,
@@ -128,6 +130,26 @@ function formatSummary(summary: string): string {
   return summary.trim() || 'No catalog metadata summary available.';
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return 'unknown size';
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatTokenCount(tokens: number | null | undefined): string {
+  if (tokens === null || tokens === undefined) {
+    return 'tokens unavailable';
+  }
+  return `${tokens} token${tokens === 1 ? '' : 's'}`;
+}
+
 type AiBuilderDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -166,6 +188,7 @@ export default function AiBuilderDialog({
   const [editorValue, setEditorValue] = useState('');
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] }>({ valid: false, errors: [] });
   const [hasSuggestion, setHasSuggestion] = useState(false);
+  const [contextPreview, setContextPreview] = useState<AiContextPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [baselineValue, setBaselineValue] = useState('');
   const [bundleSuggestion, setBundleSuggestion] = useState<AiBundleSuggestion | null>(null);
@@ -179,11 +202,14 @@ export default function AiBuilderDialog({
   const [generation, setGeneration] = useState<AiGenerationState | null>(null);
   const [generationContext, setGenerationContext] = useState<GenerationContext | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contextRequestIdRef = useRef(0);
   const openAiApiKey = aiSettings.openAiApiKey.trim();
   const openAiMaxOutputTokens = aiSettings.openAiMaxOutputTokens;
   const openRouterApiKey = aiSettings.openRouterApiKey.trim();
   const openRouterReferer = aiSettings.openRouterReferer.trim();
   const openRouterTitle = aiSettings.openRouterTitle.trim();
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
 
   const providerDisplayName = useCallback((candidate: AiBuilderProvider) => PROVIDER_LABELS[candidate], []);
 
@@ -254,6 +280,10 @@ export default function AiBuilderDialog({
       const nextMode = response.mode;
       setMode(nextMode);
 
+      if (response.contextPreview) {
+        setContextPreview(response.contextPreview);
+      }
+
       const initialValue = response.suggestion
         ? JSON.stringify(response.suggestion, null, 2)
         : (response.raw ?? '').trim();
@@ -318,11 +348,14 @@ export default function AiBuilderDialog({
         setJobDrafts([]);
       }
     },
-    []
+    [setContextPreview]
   );
 
   const applyDependencySuggestion = useCallback(
     (dependencyId: string, response: AiSuggestionResponse) => {
+      if (response.contextPreview) {
+        setContextPreview(response.contextPreview);
+      }
       const nextValue = response.suggestion
         ? JSON.stringify(response.suggestion, null, 2)
         : (response.raw ?? '').trim();
@@ -357,7 +390,7 @@ export default function AiBuilderDialog({
         })
       );
     },
-    []
+    [setContextPreview]
   );
 
   const applyGenerationResult = useCallback(
@@ -433,6 +466,8 @@ export default function AiBuilderDialog({
         setStdout(response.stdout ?? '');
         setStderr(response.stderr ?? '');
         setSummaryText(response.summary ?? null);
+        setContextPreview(response.contextPreview ?? response.result?.contextPreview ?? null);
+        setContextPreview(response.contextPreview ?? response.result?.contextPreview ?? null);
 
         if (response.status === 'succeeded' && response.result) {
           applyGenerationResult(response.result, {
@@ -465,6 +500,7 @@ export default function AiBuilderDialog({
         handleGenerationFailure({ kind: 'dependency', dependencyId: target.id, mode: target.mode }, message);
         setPending(false);
         setGenerationContext(null);
+        setContextPreview(null);
         console.error('ai-builder.error', {
           event: 'dependency-generate',
           dependencyId: target.id,
@@ -483,7 +519,8 @@ export default function AiBuilderDialog({
       buildProviderOptionsPayload,
       provider,
       providerDisplayName,
-      providerKeyMessage
+      providerKeyMessage,
+      setContextPreview
     ]
   );
 
@@ -504,6 +541,42 @@ export default function AiBuilderDialog({
     window.localStorage.removeItem(GENERATION_STORAGE_KEY);
   }, []);
 
+  const refreshContextPreview = useCallback(
+    async (selectedProvider: AiBuilderProvider, selectedMode: AiBuilderMode) => {
+      if (!open) {
+        return;
+      }
+      contextRequestIdRef.current += 1;
+      const requestId = contextRequestIdRef.current;
+      setContextLoading(true);
+      setContextError(null);
+      try {
+        const response = await fetchAiContextPreview(authorizedFetch, {
+          provider: selectedProvider,
+          mode: selectedMode
+        });
+        if (contextRequestIdRef.current !== requestId) {
+          return;
+        }
+        setContextPreview(response.contextPreview);
+        if (!hasSuggestion && (!generation || generation.status !== 'succeeded')) {
+          setMetadataSummary(response.metadataSummary ?? '');
+        }
+      } catch (err) {
+        if (contextRequestIdRef.current !== requestId) {
+          return;
+        }
+        setContextPreview(null);
+        setContextError(err instanceof Error ? err.message : 'Failed to load context preview');
+      } finally {
+        if (contextRequestIdRef.current === requestId) {
+          setContextLoading(false);
+        }
+      }
+    },
+    [authorizedFetch, generation, hasSuggestion, open]
+  );
+
   useEffect(() => {
     if (!open) {
       setMode('workflow');
@@ -517,6 +590,10 @@ export default function AiBuilderDialog({
       setStdout('');
       setStderr('');
       setSummaryText(null);
+      setContextPreview(null);
+      setContextError(null);
+      setContextLoading(false);
+      contextRequestIdRef.current += 1;
       setEditorValue('');
       setBaselineValue('');
       setValidation({ valid: false, errors: [] });
@@ -535,7 +612,14 @@ export default function AiBuilderDialog({
         pollTimerRef.current = null;
       }
     }
-  }, [aiSettings.preferredProvider, open]);
+  }, [aiSettings.preferredProvider, open, setContextPreview]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    refreshContextPreview(provider, mode);
+  }, [mode, open, provider, refreshContextPreview]);
 
   useEffect(() => {
     setProvider(aiSettings.preferredProvider);
@@ -680,6 +764,7 @@ export default function AiBuilderDialog({
         setPending(false);
         clearPersistedGeneration();
         setGenerationContext(null);
+        setContextPreview(null);
         console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
       }
     },
@@ -695,7 +780,8 @@ export default function AiBuilderDialog({
       providerKeyMessage,
       persistGeneration,
       prompt,
-      provider
+      provider,
+      setContextPreview
     ]
   );
 
@@ -718,6 +804,7 @@ export default function AiBuilderDialog({
           return;
         }
         setGeneration(next);
+        setContextPreview(next.contextPreview ?? next.result?.contextPreview ?? null);
         setProvider(next.provider);
         setMetadataSummary(next.metadataSummary ?? '');
         setStdout(next.stdout ?? '');
@@ -774,7 +861,8 @@ export default function AiBuilderDialog({
     generation,
     generationContext,
     handleGenerationFailure,
-    providerDisplayName
+    providerDisplayName,
+    setContextPreview
   ]);
 
   const handleModeChange = useCallback(
@@ -791,6 +879,8 @@ export default function AiBuilderDialog({
       setWorkflowNotes(null);
       setGeneration(null);
       setGenerationContext(null);
+      setContextPreview(null);
+      setContextError(null);
       setStdout('');
       setStderr('');
       setSummaryText(null);
@@ -799,9 +889,12 @@ export default function AiBuilderDialog({
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+      if (open) {
+        refreshContextPreview(provider, nextMode);
+      }
       console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode, provider });
     },
-    [clearPersistedGeneration, provider, setJobDrafts, setWorkflowNotes]
+    [clearPersistedGeneration, open, provider, refreshContextPreview, setContextPreview, setJobDrafts, setWorkflowNotes]
   );
 
   const handleProviderChange = useCallback(
@@ -811,9 +904,14 @@ export default function AiBuilderDialog({
       }
       setProvider(nextProvider);
       setPreferredProvider(nextProvider);
+      setContextPreview(null);
+      setContextError(null);
+      if (open) {
+        refreshContextPreview(nextProvider, mode);
+      }
       console.info('ai-builder.usage', { event: 'provider-changed', provider: nextProvider });
     },
-    [provider, setPreferredProvider]
+    [mode, open, provider, refreshContextPreview, setPreferredProvider]
   );
 
   const handleEditorChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -1320,6 +1418,80 @@ export default function AiBuilderDialog({
                 />
               </label>
 
+              <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+                    Model context preview
+                  </h4>
+                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                    {contextLoading ? 'Loading…' : formatTokenCount(contextPreview?.tokenCount ?? null)}
+                  </span>
+                </div>
+                <div className="mt-2 space-y-3">
+                  {contextLoading && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading context…</p>
+                  )}
+                  {!contextLoading && contextError && (
+                    <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                      {contextError}
+                    </p>
+                  )}
+                  {!contextLoading && !contextError && contextPreview && (
+                    <>
+                      <div className="space-y-2">
+                        <h5 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Messages
+                        </h5>
+                        {contextPreview.messages.map((message, index) => (
+                          <details
+                            key={`${message.role}-${index}`}
+                            className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-950/50"
+                          >
+                            <summary className="flex items-center justify-between gap-3 font-semibold text-slate-700 dark:text-slate-100">
+                              <span>{message.role === 'system' ? 'System prompt' : 'User prompt'}</span>
+                              <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                {formatTokenCount(message.tokens)}
+                              </span>
+                            </summary>
+                            <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                              {message.content}
+                            </pre>
+                          </details>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        <h5 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Context files ({contextPreview.contextFiles.length})
+                        </h5>
+                        {contextPreview.contextFiles.map((file) => (
+                          <details
+                            key={file.path}
+                            className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-950/50"
+                          >
+                            <summary className="flex items-center justify-between gap-3 font-semibold text-slate-700 dark:text-slate-100">
+                              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {file.path}
+                              </code>
+                              <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                {formatBytes(file.bytes)}
+                              </span>
+                            </summary>
+                            <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                              {file.contents}
+                            </pre>
+                          </details>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {!contextLoading && !contextError && !contextPreview && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Context preview unavailable.
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-slate-100">
                   Advanced prompt configuration
@@ -1499,19 +1671,28 @@ export default function AiBuilderDialog({
                             </p>
                           )}
                         {isBundle && 'bundleOutline' in dependency && dependency.bundleOutline && (
-                          <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                            Target entry point{' '}
-                            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                              {dependency.bundleOutline.entryPoint}
-                            </code>
-                            {dependency.bundleOutline.files && dependency.bundleOutline.files.length > 0 && (
-                              <>
-                                {' '}
-                                · Expected files{' '}
-                                {dependency.bundleOutline.files.map((file) => file.path).join(', ')}
-                              </>
-                            )}
-                          </p>
+                          <div className="mt-2 space-y-1">
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Target entry point{' '}
+                              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {dependency.bundleOutline.entryPoint}
+                              </code>
+                              {dependency.bundleOutline.files && dependency.bundleOutline.files.length > 0 && (
+                                <>
+                                  {' '}
+                                  · Expected files{' '}
+                                  {dependency.bundleOutline.files.map((file) => file.path).join(', ')}
+                                </>
+                              )}
+                            </p>
+                            {dependency.bundleOutline.capabilities &&
+                              dependency.bundleOutline.capabilities.length > 0 && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  Required capabilities:{' '}
+                                  {dependency.bundleOutline.capabilities.join(', ')}
+                                </p>
+                              )}
+                          </div>
                         )}
                       </div>
                     );
@@ -1747,7 +1928,7 @@ export default function AiBuilderDialog({
               </div>
             )}
 
-            {(generation || hasSuggestion) && metadataSummary && (
+            {metadataSummary && (
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
                   Catalog snapshot shared with {activeProviderLabel}
@@ -1858,3 +2039,4 @@ export default function AiBuilderDialog({
     </div>
   );
 }
+

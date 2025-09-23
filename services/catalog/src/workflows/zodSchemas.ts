@@ -296,6 +296,7 @@ export const aiWorkflowJobWithBundleDependencySchema = z
           .min(1)
           .max(50)
           .optional(),
+        capabilities: z.array(z.string().min(1)).min(1).optional(),
         manifestNotes: z.string().min(1).max(2_000).optional()
       })
       .strict()

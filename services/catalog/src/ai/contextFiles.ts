@@ -7,6 +7,7 @@ import {
   aiWorkflowWithJobsOutputSchema
 } from '../workflows/zodSchemas';
 import type { CodexContextFile, CodexGenerationMode } from './codexRunner';
+import type { AiBundleContext } from './bundleContext';
 
 type JobSummary = {
   slug: string;
@@ -53,6 +54,7 @@ export type BuildCodexContextOptions = {
   jobs: ReadonlyArray<JobSummary>;
   services: ReadonlyArray<ServiceSummary>;
   workflows: ReadonlyArray<WorkflowSummary>;
+  bundles?: ReadonlyArray<AiBundleContext>;
 };
 
 function stringifyJson(value: unknown): string {
@@ -135,6 +137,7 @@ function jobWithBundleOverview(): string {
     '  - `slug`, `version`, and `entryPoint`.',
     '  - `manifest` JSON (mirrors the bundle manifest file).',
     '  - `files`: array of objects with `path`, `contents`, optional `encoding` (`utf8` | `base64`), and optional `executable` flag.',
+    '  - `capabilityFlags`: array of required capabilities; this should align with the `capabilities` listed in the manifest.',
     '',
     'Ensure the bundle contains a file matching the declared `entryPoint`. See `context/schemas/job-with-bundle.json`,',
     '`context/jobs/index.json`, and the service OpenAPI specs under `context/services/` for compatibility details.'
@@ -159,7 +162,11 @@ function workflowWithJobsOverview(): string {
     '      "jobSlug": "new-job",',
     '      "name": "New orchestrator",',
     '      "prompt": "Generation prompt",',
-    '      "bundleOutline": { "entryPoint": "index.js", "files": [{ "path": "index.js", "description": "Main handler" }] }',
+    '      "bundleOutline": {',
+    '        "entryPoint": "index.js",',
+    '        "capabilities": ["fs"],',
+    '        "files": [{ "path": "index.js", "description": "Main handler" }]',
+    '      }',
     '    }',
     '  ],',
     '  "notes": "Optional operator guidance"',
@@ -168,7 +175,7 @@ function workflowWithJobsOverview(): string {
     '',
     '- Include a dependency entry for every workflow job step. Use `existing-job` for catalog jobs that can be referenced immediately.',
     '- For new jobs, supply a concise `prompt` that operators can resend during the job-generation step. Capture any sequencing constraints under `dependsOn`.',
-    '- `job-with-bundle` dependencies should outline the intended bundle entry point and any critical files so operators understand the implementation scope.',
+    '- `job-with-bundle` dependencies should outline the intended bundle entry point, required capabilities, and any critical files so operators understand the implementation scope.',
     '- Keep explanations short but actionable. Reserve broader follow-up guidance for the optional `notes` field (e.g. secrets to configure).'
   ].join('\n');
 }
@@ -190,6 +197,10 @@ function splitOpenApi(openapi: unknown): { metadata: unknown; schema: unknown } 
   }
   const { schema, ...rest } = openapi as Record<string, unknown>;
   return { metadata: rest, schema: schema ?? null };
+}
+
+function ensureTrailingNewline(value: string): string {
+  return value.endsWith('\n') ? value : `${value}\n`;
 }
 
 function buildJobCatalog(jobs: ReadonlyArray<JobSummary>) {
@@ -391,8 +402,130 @@ function buildServiceFiles(services: ReadonlyArray<ServiceSummary>): CodexContex
   return files;
 }
 
+function sanitizeBundleFilePath(originalPath: string, fallback: string): string {
+  const normalized = originalPath
+    .replace(/\\+/g, '/')
+    .replace(/^\.\/+/, '')
+    .split('/')
+    .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+  if (normalized.length === 0) {
+    return fallback;
+  }
+  return normalized
+    .map((segment, index) => {
+      const cleaned = segment.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+      if (cleaned.length > 0) {
+        return cleaned;
+      }
+      return `${fallback}-${index + 1}`;
+    })
+    .join('/');
+}
+
+function buildBundleCatalog(bundles: ReadonlyArray<AiBundleContext>) {
+  return bundles.map((bundle) => ({
+    slug: bundle.slug,
+    version: bundle.version,
+    entryPoint: bundle.entryPoint,
+    capabilityFlags: bundle.capabilityFlags,
+    manifestPath: bundle.manifestPath ?? 'manifest.json',
+    jobSlugs: bundle.jobSlugs,
+    description: bundle.description ?? null,
+    displayName: bundle.displayName ?? null
+  }));
+}
+
+function buildBundleCatalogMarkdown(bundles: ReadonlyArray<AiBundleContext>): string {
+  if (bundles.length === 0) {
+    return [
+      '# Bundle Catalog Overview',
+      '',
+      'No job bundles are in use by the catalog jobs.'
+    ].join('\n');
+  }
+
+  const lines: string[] = [
+    '# Bundle Catalog Overview',
+    '',
+    'Bundles described below are referenced by the current job catalog. Each directory under `context/bundles/` contains the manifest, metadata, and source files for the bundle.'
+  ];
+
+  bundles.forEach((bundle) => {
+    lines.push('', `## ${bundle.slug}@${bundle.version}`, '');
+    lines.push(`- Entry point: \`${bundle.entryPoint}\``);
+    if (bundle.capabilityFlags.length > 0) {
+      lines.push(`- Capabilities: ${bundle.capabilityFlags.join(', ')}`);
+    } else {
+      lines.push('- Capabilities: _none declared_');
+    }
+    if (bundle.jobSlugs.length > 0) {
+      lines.push(`- Used by jobs: ${bundle.jobSlugs.join(', ')}`);
+    }
+    if (bundle.description) {
+      lines.push(`- Description: ${bundle.description}`);
+    }
+  });
+
+  return lines.join('\n');
+}
+
+type BundleFileIndexEntry = {
+  path: string;
+  encoding: 'utf8' | 'base64';
+  executable: boolean;
+  contextPath: string;
+};
+
+function buildBundleFiles(bundles: ReadonlyArray<AiBundleContext>): CodexContextFile[] {
+  const files: CodexContextFile[] = [];
+  const catalog = buildBundleCatalog(bundles);
+  files.push({ path: 'context/bundles/index.json', contents: stringifyJson(catalog) });
+  files.push({ path: 'context/bundles/README.md', contents: `${buildBundleCatalogMarkdown(bundles)}\n` });
+
+  bundles.forEach((bundle, index) => {
+    const slugSegment = sanitizeSegment(bundle.slug, `bundle-${index + 1}`);
+    const versionSegment = sanitizeSegment(bundle.version, `v${index + 1}`);
+    const bundleBasePath = `context/bundles/${slugSegment}/${versionSegment}`;
+    files.push({ path: `${bundleBasePath}/manifest.json`, contents: stringifyJson(bundle.manifest) });
+    files.push({
+      path: `${bundleBasePath}/metadata.json`,
+      contents: stringifyJson({
+        slug: bundle.slug,
+        version: bundle.version,
+        entryPoint: bundle.entryPoint,
+        capabilityFlags: bundle.capabilityFlags,
+        manifestPath: bundle.manifestPath ?? 'manifest.json',
+        jobSlugs: bundle.jobSlugs,
+        description: bundle.description ?? null,
+        displayName: bundle.displayName ?? null,
+        metadata: bundle.metadata ?? null
+      })
+    });
+
+    const fileIndex: BundleFileIndexEntry[] = [];
+    bundle.files.forEach((file, fileIndexValue) => {
+      const encoding = file.encoding === 'base64' ? 'base64' : 'utf8';
+      const sanitized = sanitizeBundleFilePath(file.path, `file-${fileIndexValue + 1}`);
+      const targetPathBase = `${bundleBasePath}/files/${sanitized}`;
+      const contextPath = encoding === 'base64' ? `${targetPathBase}.base64` : targetPathBase;
+      const contents = encoding === 'base64' ? ensureTrailingNewline(file.contents) : ensureTrailingNewline(file.contents);
+      files.push({ path: contextPath, contents });
+      fileIndex.push({
+        path: file.path,
+        encoding,
+        executable: Boolean(file.executable),
+        contextPath
+      });
+    });
+
+    files.push({ path: `${bundleBasePath}/files/index.json`, contents: stringifyJson(fileIndex) });
+  });
+
+  return files;
+}
+
 export function buildCodexContextFiles(options: BuildCodexContextOptions): CodexContextFile[] {
-  const { mode, jobs, services, workflows } = options;
+  const { mode, jobs, services, workflows, bundles = [] } = options;
   const files: CodexContextFile[] = [
     buildJsonSchemaFile('context/schemas/job-definition.json', 'JobDefinition', jobDefinitionCreateSchema),
     { path: 'context/reference/job.md', contents: `${jobDefinitionOverview()}\n` },
@@ -410,6 +543,9 @@ export function buildCodexContextFiles(options: BuildCodexContextOptions): Codex
   ];
 
   files.push(...buildServiceFiles(services));
+  if (bundles.length > 0) {
+    files.push(...buildBundleFiles(bundles));
+  }
 
   // All schemas and catalogs are helpful regardless of mode today, but future modes could filter here.
   return files;

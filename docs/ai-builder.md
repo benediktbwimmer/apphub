@@ -49,6 +49,7 @@ The catalog service checks operator scopes, gathers metadata, and calls the prox
       "prompt": "Generate a Node batch job that applies an inventory delta payload",
       "bundleOutline": {
         "entryPoint": "index.js",
+        "capabilities": ["db.write", "fs"],
         "files": [
           { "path": "index.js", "description": "Entry point that loads and applies the delta" }
         ]
@@ -62,6 +63,8 @@ The catalog service checks operator scopes, gathers metadata, and calls the prox
 
 Operators iterate with the model on the plan, then generate each missing job individually using the provided prompts. The UI keeps track of generation status, surfaces bundle validation warnings (such as a missing entry point), and enables one-click publishing for bundle-backed jobs. Workflow submission stays disabled until every required bundle job has been published; pure workflow edits remain available throughout the review cycle.
 
+Every `job-with-bundle` dependency should list the required sandbox capabilities in `bundleOutline.capabilities`. The follow-up generation step copies these into `bundle.capabilityFlags` so the published bundle advertises its permissions consistently with the manifest.
+
 ## Automated Job Creation
 
 `POST /ai/builder/jobs`
@@ -73,16 +76,17 @@ Payload:
 ```json
 {
   "job": { /* jobDefinitionCreateSchema payload */ },
-  "bundle": {
-    "slug": "…",
-    "version": "…",
-    "entryPoint": "index.js",
-    "manifest": { /* job bundle manifest */ },
-    "files": [
-      { "path": "index.js", "contents": "…" }
-    ]
+    "bundle": {
+      "slug": "…",
+      "version": "…",
+      "entryPoint": "index.js",
+      "manifest": { /* job bundle manifest */ },
+      "capabilityFlags": ["fs.read", "redis"],
+      "files": [
+        { "path": "index.js", "contents": "…" }
+      ]
+    }
   }
-}
 ```
 
 Operators with both `jobs:write` and `job-bundles:write` scopes can submit the edited job spec alongside the Codex-generated bundle blueprint. The API materialises the files, packages them into a tarball, publishes the bundle, and registers the job definition referencing `bundle:<slug>@<version>`. The response includes the persisted job plus bundle metadata (including the generated download link) so the UI can present next steps without additional CLI tooling.

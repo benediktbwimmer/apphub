@@ -6,6 +6,33 @@ import type { AiBuilderProvider } from '../../ai/types';
 export type { AiBuilderProvider } from '../../ai/types';
 export type AiBuilderMode = 'workflow' | 'job' | 'job-with-bundle' | 'workflow-with-jobs';
 
+export type AiContextFile = {
+  path: string;
+  contents: string;
+  bytes: number;
+  tokens?: number | null;
+};
+
+export type AiContextMessage = {
+  role: 'system' | 'user';
+  content: string;
+  tokens: number | null;
+};
+
+export type AiContextPreview = {
+  provider: AiBuilderProvider;
+  tokenCount: number | null;
+  messages: AiContextMessage[];
+  contextFiles: AiContextFile[];
+};
+
+export type AiContextPreviewResponse = {
+  provider: AiBuilderProvider;
+  mode: AiBuilderMode;
+  metadataSummary: string;
+  contextPreview: AiContextPreview;
+};
+
 export type AiBundleFile = {
   path: string;
   contents: string;
@@ -66,6 +93,7 @@ export type AiWorkflowDependencyJobWithBundle = {
       path: string;
       description?: string;
     }>;
+    capabilities?: string[];
     manifestNotes?: string;
   };
   dependsOn?: string[];
@@ -102,6 +130,7 @@ export type AiSuggestionResponse = {
   plan?: AiWorkflowPlan | null;
   notes?: string | null;
   summary?: string | null;
+  contextPreview?: AiContextPreview;
 };
 
 export type AiSuggestRequest = {
@@ -137,6 +166,7 @@ export type AiGenerationState = {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  contextPreview?: AiContextPreview;
 };
 
 function buildError(message: string, status: number, details?: unknown): Error {
@@ -190,6 +220,43 @@ export async function fetchAiGeneration(
   }
 
   return parseGenerationResponse(response);
+}
+
+export async function fetchAiContextPreview(
+  fetcher: AuthorizedFetch,
+  params: {
+    provider: AiBuilderProvider;
+    mode: AiBuilderMode;
+  }
+): Promise<AiContextPreviewResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.provider) {
+    searchParams.set('provider', params.provider);
+  }
+  if (params.mode) {
+    searchParams.set('mode', params.mode);
+  }
+  const response = await fetcher(
+    `${API_BASE_URL}/ai/builder/context${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`,
+    {
+      method: 'GET'
+    }
+  );
+
+  if (!response.ok) {
+    const fallback = (await response.text().catch(() => '')) ?? '';
+    throw buildError(fallback || 'Failed to load AI context preview', response.status, fallback);
+  }
+
+  const payload = (await response.json()) as { data?: unknown };
+  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+    throw new Error('Invalid AI context preview payload');
+  }
+  const data = (payload as { data?: AiContextPreviewResponse }).data;
+  if (!data || typeof data !== 'object') {
+    throw new Error('AI context preview response missing data property');
+  }
+  return data as AiContextPreviewResponse;
 }
 
 export type AiGenerationMetadata = {
