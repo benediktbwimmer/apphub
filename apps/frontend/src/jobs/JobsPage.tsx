@@ -789,6 +789,7 @@ export default function JobsPage() {
                 aiReviewPending={aiReviewPending}
               />
               <BundleHistoryPanel bundle={panelState.bundle} />
+              <BundleVersionCompare bundle={panelState.bundle} />
               <JobRunsPanel detail={panelState.detail} />
             </div>
           )}
@@ -1304,7 +1305,6 @@ function BundleHistoryPanel({ bundle }: BundleHistoryPanelProps) {
           </pre>
         </div>
       )}
-      <BundleVersionCompare bundle={bundle} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import {
   DiffEditor as MonacoDiffEditor,
   type DiffEditorProps as MonacoDiffEditorProps,
-  type OnMount
+  type DiffOnMount
 } from '@monaco-editor/react';
 import { getAppliedTheme, registerThemes, useMonacoTheme } from './useMonacoTheme';
 
@@ -46,7 +46,7 @@ export function DiffViewer({
     [options]
   );
 
-  const handleMount: OnMount = (_editor, monaco) => {
+  const handleMount: DiffOnMount = (_editor, monaco) => {
     registerThemes(monaco);
     monaco.editor.setTheme(getAppliedTheme(theme));
   };
@@ -70,4 +70,3 @@ export function DiffViewer({
 }
 
 export default DiffViewer;
-

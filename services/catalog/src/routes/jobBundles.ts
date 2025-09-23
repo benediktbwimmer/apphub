@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   listBundles as listJobBundles,
@@ -14,7 +14,11 @@ import {
   openLocalBundleArtifact,
   verifyLocalBundleDownload
 } from '../jobs/bundleStorage';
+import { listJobDefinitions } from '../db/jobs';
+import { parseBundleEntryPoint } from '../jobs/bundleEditor';
+import { attemptBundleRecovery } from '../jobs/bundleRecovery';
 import { getJobBundleVersion } from '../db/index';
+import type { JobBundleVersionRecord } from '../db/types';
 import {
   serializeJobBundle,
   serializeJobBundleVersion,
@@ -68,6 +72,45 @@ const jobBundleUpdateSchema = z
   .refine((payload) => payload.deprecated !== undefined || payload.metadata !== undefined, {
     message: 'At least one field must be provided'
   });
+
+async function attemptLocalBundleArtifactRecovery(
+  bundleVersion: JobBundleVersionRecord,
+  log: FastifyBaseLogger
+): Promise<boolean> {
+  const definitions = await listJobDefinitions();
+  for (const definition of definitions) {
+    const binding = parseBundleEntryPoint(definition.entryPoint);
+    if (!binding) {
+      continue;
+    }
+    if (binding.slug !== bundleVersion.slug || binding.version !== bundleVersion.version) {
+      continue;
+    }
+    const logger = (message: string, meta?: Record<string, unknown>) => {
+      log.warn(
+        { slug: bundleVersion.slug, version: bundleVersion.version, ...(meta ?? {}) },
+        message
+      );
+    };
+    const recovered = await attemptBundleRecovery(
+      {
+        binding,
+        definition,
+        bundleRecord: bundleVersion,
+        logger
+      },
+      { allowPublish: false, strictChecksum: false }
+    );
+    if (recovered) {
+      log.info(
+        { slug: bundleVersion.slug, version: bundleVersion.version },
+        'Restored missing local bundle artifact from metadata snapshot'
+      );
+      return true;
+    }
+  }
+  return false;
+}
 
 function decodeBundleArtifactData(encoded: string): Buffer {
   const trimmed = encoded.trim();
@@ -448,6 +491,33 @@ export async function registerJobBundleRoutes(app: FastifyInstance): Promise<voi
         { err, slug: parseParams.data.slug, version: parseParams.data.version },
         'Failed to stream bundle artifact'
       );
+
+      let recovered = false;
+      if (bundleVersion.artifactStorage === 'local') {
+        recovered = await attemptLocalBundleArtifactRecovery(bundleVersion, request.log);
+      }
+
+      if (recovered) {
+        try {
+          await ensureLocalBundleExists(bundleVersion);
+          const stream = await openLocalBundleArtifact(bundleVersion);
+          const filename = sanitizeDownloadFilename(parseQuery.data.filename, bundleVersion.version);
+          if (bundleVersion.artifactSize !== null) {
+            reply.header('Content-Length', String(bundleVersion.artifactSize));
+          }
+          reply.header('Content-Type', bundleVersion.artifactContentType ?? 'application/octet-stream');
+          reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+          reply.header('Cache-Control', 'no-store');
+          reply.status(200);
+          return reply.send(stream);
+        } catch (retryErr) {
+          request.log.error(
+            { err: retryErr, slug: parseParams.data.slug, version: parseParams.data.version },
+            'Failed to stream bundle artifact after recovery attempt'
+          );
+        }
+      }
+
       reply.status(404);
       return { error: message };
     }

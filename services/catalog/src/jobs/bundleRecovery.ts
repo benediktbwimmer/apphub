@@ -9,7 +9,6 @@ import {
   publishGeneratedBundle,
   type AiGeneratedBundleSuggestion
 } from '../ai/bundlePublisher';
-import { getPreseededBundleSuggestion } from '../ai/preseededBundles';
 import { getLocalBundleArtifactPath } from './bundleStorage';
 
 export type BundleBinding = {
@@ -141,11 +140,13 @@ export async function findNextVersion(slug: string, baseVersion: string): Promis
 
 async function restoreArtifactFromSuggestion(
   record: JobBundleVersionRecord,
-  suggestion: AiGeneratedBundleSuggestion
+  suggestion: AiGeneratedBundleSuggestion,
+  options: { strictChecksum?: boolean } = {}
 ): Promise<boolean> {
   if (record.artifactStorage !== 'local') {
     return false;
   }
+  const strictChecksum = options.strictChecksum ?? true;
 
   const prepared = await buildBundleArtifactFromSuggestion(suggestion, {
     slug: record.slug,
@@ -153,7 +154,7 @@ async function restoreArtifactFromSuggestion(
     entryPoint: suggestion.entryPoint
   });
 
-  if (prepared.artifact.checksum !== record.checksum) {
+  if (prepared.artifact.checksum !== record.checksum && strictChecksum) {
     return false;
   }
 
@@ -232,19 +233,27 @@ async function publishNewBundleVersion(
 
 function selectSuggestion(
   definition: JobDefinitionRecord,
-  binding: BundleBinding
+  _binding: BundleBinding
 ): AiGeneratedBundleSuggestion | null {
   const metadataState = extractMetadata(definition);
   if (metadataState.aiBuilder.bundle) {
     return cloneSuggestion(metadataState.aiBuilder.bundle);
   }
-  return getPreseededBundleSuggestion(binding.slug);
+  return null;
 }
 
+export type BundleRecoveryOptions = {
+  allowPublish?: boolean;
+  strictChecksum?: boolean;
+};
+
 export async function attemptBundleRecovery(
-  params: BundleRecoveryParams
+  params: BundleRecoveryParams,
+  options: BundleRecoveryOptions = {}
 ): Promise<BundleRecoveryResult | null> {
   const { binding, definition, bundleRecord, logger } = params;
+  const allowPublish = options.allowPublish ?? true;
+  const strictChecksum = options.strictChecksum ?? true;
 
   const suggestion = selectSuggestion(definition, binding);
   if (!suggestion) {
@@ -258,7 +267,9 @@ export async function attemptBundleRecovery(
 
   if (bundleRecord) {
     try {
-      const restored = await restoreArtifactFromSuggestion(bundleRecord, suggestion);
+      const restored = await restoreArtifactFromSuggestion(bundleRecord, suggestion, {
+        strictChecksum
+      });
       if (restored) {
         const metadataState = extractMetadata(definition);
         metadataState.aiBuilder.bundle = cloneSuggestion(suggestion);
@@ -291,6 +302,10 @@ export async function attemptBundleRecovery(
         error: message
       });
     }
+  }
+
+  if (!allowPublish) {
+    return null;
   }
 
   try {

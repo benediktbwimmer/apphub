@@ -38,15 +38,14 @@ function resolveDownloadUrl(url: string): string {
 async function loadVersionSnapshot(
   fetcher: AuthorizedFetch,
   slug: string,
-  version: string,
-  signal: AbortSignal
+  version: string
 ): Promise<VersionSnapshot> {
   const detail = await fetchBundleVersionDetail(fetcher, slug, version);
   const downloadUrl = detail.version.download?.url;
   if (!downloadUrl) {
     throw new Error('Bundle version does not include a downloadable artifact.');
   }
-  const response = await fetch(resolveDownloadUrl(downloadUrl), { signal });
+  const response = await fetcher(resolveDownloadUrl(downloadUrl));
   if (!response.ok) {
     throw new Error('Failed to download bundle artifact');
   }
@@ -77,8 +76,7 @@ function useBundleVersionSnapshot(
         const snapshot = await loadVersionSnapshot(
           (input, init) => fetcher(input, { ...init, signal: controller.signal }),
           slug,
-          version,
-          controller.signal
+          version
         );
         if (!canceled) {
           setState({ snapshot, loading: false, error: null });
@@ -142,7 +140,12 @@ function describeFile(file: BundleArchiveFile | null): string {
   return file.executable ? 'Executable text file' : 'Text file';
 }
 
-export function BundleVersionCompare({ bundle }: { bundle: BundleEditorData }) {
+type BundleVersionCompareProps = {
+  bundle: BundleEditorData;
+  className?: string;
+};
+
+export function BundleVersionCompare({ bundle, className }: BundleVersionCompareProps) {
   const authorizedFetch = useAuthorizedFetch();
   const slug = bundle.binding.slug;
   const versions = bundle.availableVersions;
@@ -244,8 +247,15 @@ export function BundleVersionCompare({ bundle }: { bundle: BundleEditorData }) {
   const loading = (selection.left ? leftState.loading : false) || (selection.right ? rightState.loading : false);
   const hasEnoughVersions = versions.length >= 2;
 
+  const containerClass = [
+    'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900',
+    className
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className={containerClass}>
       <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Compare versions</h4>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         Select two bundle versions to review changes in their files.
