@@ -6,7 +6,7 @@ import tar, { type ReadEntry } from 'tar';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { logger } from '../observability/logger';
 import type { JobBundleVersionRecord, JsonValue } from '../db';
-import { getLocalBundleArtifactPath } from './bundleStorage';
+import { ensureLocalBundleExists, getLocalBundleArtifactPath } from './bundleStorage';
 
 const DEFAULT_CACHE_ROOT = path.resolve(__dirname, '..', '..', 'data', 'bundle-runtime-cache');
 const DEFAULT_MAX_ENTRIES = Number(process.env.APPHUB_JOB_BUNDLE_CACHE_MAX_ENTRIES ?? 16);
@@ -294,6 +294,7 @@ export class BundleCache {
 
   private async materializeArtifact(record: JobBundleVersionRecord): Promise<string> {
     if (record.artifactStorage === 'local') {
+      await ensureLocalBundleExists(record);
       return getLocalBundleArtifactPath(record);
     }
     const downloadsRoot = path.join(this.cacheRoot, '__downloads');

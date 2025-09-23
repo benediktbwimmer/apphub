@@ -446,6 +446,7 @@ export type JobBundlePublishInput = {
   artifactPath: string;
   artifactContentType?: string | null;
   artifactSize?: number | null;
+  artifactData?: Buffer | null;
   immutable?: boolean;
   metadata?: JsonValue | null;
   publishedBy?: string | null;

@@ -519,6 +519,13 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_definitions
          ADD COLUMN IF NOT EXISTS schedule_catchup_cursor TIMESTAMPTZ`
     ]
+  },
+  {
+    id: '014_job_bundle_artifact_data',
+    statements: [
+      `ALTER TABLE job_bundle_versions
+         ADD COLUMN IF NOT EXISTS artifact_data BYTEA`
+    ]
   }
 ];
 

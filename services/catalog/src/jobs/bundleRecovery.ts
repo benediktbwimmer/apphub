@@ -1,6 +1,3 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-
 import { getJobBundleVersion } from '../db/jobBundles';
 import { upsertJobDefinition } from '../db/jobs';
 import type { JobBundleVersionRecord, JobDefinitionRecord, JsonValue } from '../db/types';
@@ -9,7 +6,7 @@ import {
   publishGeneratedBundle,
   type AiGeneratedBundleSuggestion
 } from '../ai/bundlePublisher';
-import { getLocalBundleArtifactPath } from './bundleStorage';
+import { writeLocalBundleArtifact } from './bundleStorage';
 
 export type BundleBinding = {
   slug: string;
@@ -158,9 +155,7 @@ async function restoreArtifactFromSuggestion(
     return false;
   }
 
-  const targetPath = getLocalBundleArtifactPath(record);
-  await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.writeFile(targetPath, prepared.artifact.data);
+  await writeLocalBundleArtifact(record, prepared.artifact.data);
   return true;
 }
 

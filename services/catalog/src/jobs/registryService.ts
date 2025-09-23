@@ -95,6 +95,7 @@ export async function publishBundleVersion(
     artifactPath: artifactSaveResult.artifactPath,
     artifactSize: artifactSaveResult.size,
     artifactContentType: artifactSaveResult.contentType,
+    artifactData: request.artifact.data,
     publishedBy: actor.subject ?? null,
     publishedByKind: actor.kind ?? null,
     publishedByTokenHash: actor.tokenHash ?? null

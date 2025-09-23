@@ -15,6 +15,7 @@ import {
 import type { JobBundleVersionRecord, JobDefinitionRecord, JsonValue } from '../db/types';
 import {
   createBundleDownloadUrl,
+  ensureLocalBundleExists,
   getLocalBundleArtifactPath
 } from './bundleStorage';
 import {
@@ -161,6 +162,7 @@ async function ensureExtractedWorkspace(version: JobBundleVersionRecord): Promis
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-bundle-editor-'));
   try {
     if (version.artifactStorage === 'local') {
+      await ensureLocalBundleExists(version);
       const artifactPath = getLocalBundleArtifactPath(version);
       await tar.x({ cwd: workspace, file: artifactPath });
       return workspace;
@@ -181,6 +183,7 @@ async function ensureExtractedWorkspace(version: JobBundleVersionRecord): Promis
 
 async function readBundleArtifactBuffer(version: JobBundleVersionRecord): Promise<Buffer> {
   if (version.artifactStorage === 'local') {
+    await ensureLocalBundleExists(version);
     const artifactPath = getLocalBundleArtifactPath(version);
     return fs.readFile(artifactPath);
   }

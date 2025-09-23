@@ -188,6 +188,7 @@ export type JobBundleVersionRow = {
   artifact_path: string;
   artifact_content_type: string | null;
   artifact_size: string | number | null;
+  artifact_data: Buffer | null;
   immutable: boolean;
   status: string;
   published_by: string | null;

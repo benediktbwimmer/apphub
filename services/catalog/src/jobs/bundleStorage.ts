@@ -1,10 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promises as fs, createReadStream } from 'node:fs';
-import type { ReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import type { JobBundleStorageKind, JobBundleVersionRecord } from '../db';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { useConnection } from '../db/utils';
 
 let configuredBackend: JobBundleStorageKind | null = null;
 let localRootDir: string | null = null;
@@ -298,6 +299,68 @@ export function verifyLocalBundleDownload(
   return timingSafeCompare(expected, token);
 }
 
+type ArtifactDataRow = {
+  artifact_data: Buffer | null;
+};
+
+async function fetchBundleArtifactData(record: JobBundleVersionRecord): Promise<Buffer | null> {
+  return useConnection(async (client) => {
+    const { rows } = await client.query<ArtifactDataRow>(
+      'SELECT artifact_data FROM job_bundle_versions WHERE id = $1',
+      [record.id]
+    );
+    return rows[0]?.artifact_data ?? null;
+  });
+}
+
+async function updateStoredBundleArtifact(record: JobBundleVersionRecord, data: Buffer): Promise<void> {
+  await useConnection((client) =>
+    client.query(
+      `UPDATE job_bundle_versions
+          SET artifact_data = $1,
+              artifact_size = $2,
+              updated_at = NOW()
+        WHERE id = $3`,
+      [data, data.byteLength, record.id]
+    )
+  );
+}
+
+async function writeLocalBundleArtifactFile(record: JobBundleVersionRecord, data: Buffer): Promise<string> {
+  const absolute = resolveLocalArtifactAbsolutePath(record);
+  await fs.mkdir(path.dirname(absolute), { recursive: true });
+  await fs.writeFile(absolute, data);
+  return absolute;
+}
+
+async function hydrateLocalBundleArtifact(record: JobBundleVersionRecord): Promise<boolean> {
+  if (record.artifactStorage !== 'local') {
+    return false;
+  }
+  const data = await fetchBundleArtifactData(record);
+  if (!data) {
+    return false;
+  }
+  await writeLocalBundleArtifactFile(record, data);
+  return true;
+}
+
+export async function writeLocalBundleArtifact(
+  record: JobBundleVersionRecord,
+  data: Buffer,
+  options?: { persistToDatabase?: boolean }
+): Promise<void> {
+  if (record.artifactStorage !== 'local') {
+    throw new Error('Cannot write local artifact for non-local storage');
+  }
+  await writeLocalBundleArtifactFile(record, data);
+  if (options?.persistToDatabase === false) {
+    return;
+  }
+  await updateStoredBundleArtifact(record, data);
+  record.artifactSize = data.byteLength;
+}
+
 function resolveLocalArtifactAbsolutePath(record: JobBundleVersionRecord): string {
   if (record.artifactStorage !== 'local') {
     throw new Error('Bundle version is not stored locally');
@@ -314,14 +377,41 @@ function resolveLocalArtifactAbsolutePath(record: JobBundleVersionRecord): strin
 
 export async function openLocalBundleArtifact(
   record: JobBundleVersionRecord
-): Promise<ReadStream> {
+): Promise<NodeJS.ReadableStream> {
+  if (record.artifactStorage !== 'local') {
+    throw new Error('Bundle version is not stored locally');
+  }
   const absolute = resolveLocalArtifactAbsolutePath(record);
-  return createReadStream(absolute);
+  await ensureLocalBundleExists(record);
+  try {
+    return createReadStream(absolute);
+  } catch (err) {
+    const data = await fetchBundleArtifactData(record);
+    if (!data) {
+      throw err;
+    }
+    return Readable.from(data);
+  }
 }
 
 export async function ensureLocalBundleExists(record: JobBundleVersionRecord): Promise<void> {
+  if (record.artifactStorage !== 'local') {
+    return;
+  }
   const absolute = resolveLocalArtifactAbsolutePath(record);
-  await fs.access(absolute);
+  try {
+    await fs.access(absolute);
+    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw err;
+    }
+  }
+  const hydrated = await hydrateLocalBundleArtifact(record);
+  if (!hydrated) {
+    throw new Error('Local bundle artifact is missing and no database copy is available');
+  }
 }
 
 export function getDownloadRoute(slug: string, version: string): string {

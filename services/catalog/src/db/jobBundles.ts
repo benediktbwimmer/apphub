@@ -185,9 +185,14 @@ export async function publishJobBundleVersion(
     throw new Error('Bundle artifact path is required');
   }
   const artifactStorage = input.artifactStorage === 's3' ? 's3' : 'local';
+  const artifactData = input.artifactData ?? null;
+  const artifactSize = input.artifactSize ?? artifactData?.byteLength ?? null;
+
+  if (artifactStorage === 'local' && artifactData === null) {
+    throw new Error('Local bundle artifacts must include binary data');
+  }
   const capabilityFlags = uniqueCapabilityFlags(input.capabilityFlags ?? []);
   const immutable = Boolean(input.immutable);
-  const artifactSize = input.artifactSize ?? null;
   const artifactContentType = input.artifactContentType ?? null;
   const metadata = input.metadata ?? null;
 
@@ -260,6 +265,7 @@ export async function publishJobBundleVersion(
          artifact_path,
          artifact_content_type,
          artifact_size,
+         artifact_data,
          immutable,
          status,
          published_by,
@@ -282,12 +288,13 @@ export async function publishJobBundleVersion(
          $10,
          $11,
          $12,
-         'published',
          $13,
+         'published',
          $14,
          $15,
+         $16,
          NOW(),
-         $16::jsonb,
+         $17::jsonb,
          NOW(),
          NOW()
        )
@@ -304,6 +311,7 @@ export async function publishJobBundleVersion(
         artifactPath,
         artifactContentType,
         artifactSize,
+        artifactData,
         immutable,
         input.publishedBy ?? null,
         input.publishedByKind ?? null,
