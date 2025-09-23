@@ -44,6 +44,12 @@ export type WorkflowJobStepInput = {
   timeoutMs?: number | null;
   retryPolicy?: unknown;
   storeResultAs?: string;
+  bundle?: {
+    slug: string;
+    version?: string | null;
+    exportName?: string | null;
+    strategy?: 'pinned' | 'latest';
+  } | null;
 };
 
 export type WorkflowServiceRequestInput = {

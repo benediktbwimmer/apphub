@@ -504,6 +504,13 @@ export type WorkflowServiceRequestDefinition = {
   body?: JsonValue | null;
 };
 
+export type WorkflowJobStepBundle = {
+  strategy: 'latest' | 'pinned';
+  slug: string;
+  version?: string | null;
+  exportName?: string | null;
+};
+
 export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
   type: 'job';
   jobSlug: string;
@@ -511,6 +518,7 @@ export type WorkflowJobStepDefinition = WorkflowDefinitionStepBase & {
   timeoutMs?: number | null;
   retryPolicy?: JobRetryPolicy | null;
   storeResultAs?: string;
+  bundle?: WorkflowJobStepBundle | null;
 };
 
 export type WorkflowServiceStepDefinition = WorkflowDefinitionStepBase & {

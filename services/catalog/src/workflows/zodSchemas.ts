@@ -115,7 +115,21 @@ export const workflowJobStepSchema = z
     parameters: jsonValueSchema.optional(),
     timeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
     retryPolicy: jobRetryPolicySchema.optional(),
-    storeResultAs: z.string().min(1).max(200).optional()
+    storeResultAs: z.string().min(1).max(200).optional(),
+    bundle: z
+      .object({
+        slug: z.string().min(1),
+        version: z.string().min(1).optional(),
+        exportName: z.string().min(1).optional(),
+        strategy: z.enum(['pinned', 'latest']).optional()
+      })
+      .strict()
+      .refine((value) => value.strategy === 'latest' || (typeof value.version === 'string' && value.version.trim().length > 0), {
+        message: 'Bundle version is required when strategy is pinned',
+        path: ['version']
+      })
+      .optional()
+      .nullable()
   })
   .strict();
 

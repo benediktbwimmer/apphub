@@ -87,6 +87,29 @@ export async function getJobDefinitionBySlug(slug: string): Promise<JobDefinitio
   return useConnection((client) => fetchJobDefinitionBySlug(client, slug));
 }
 
+export async function getJobDefinitionsBySlugs(
+  slugs: string[]
+): Promise<Map<string, JobDefinitionRecord>> {
+  const unique = Array.from(
+    new Set(slugs.map((slug) => slug.trim()).filter((slug) => slug.length > 0))
+  );
+  if (unique.length === 0) {
+    return new Map();
+  }
+  return useConnection(async (client) => {
+    const { rows } = await client.query<JobDefinitionRow>(
+      'SELECT * FROM job_definitions WHERE slug = ANY($1)',
+      [unique]
+    );
+    const map = new Map<string, JobDefinitionRecord>();
+    for (const row of rows) {
+      const record = mapJobDefinitionRow(row);
+      map.set(record.slug.toLowerCase(), record);
+    }
+    return map;
+  });
+}
+
 export async function createJobDefinition(
   input: JobDefinitionCreateInput
 ): Promise<JobDefinitionRecord> {

@@ -11,10 +11,14 @@ import {
   listWorkflowRunSteps,
   listWorkflowRunsForDefinition,
   updateWorkflowDefinition,
-  updateWorkflowRun
+  updateWorkflowRun,
+  getJobDefinitionsBySlugs
 } from '../db/index';
 import type {
+  JobDefinitionRecord,
   WorkflowFanOutTemplateDefinition,
+  WorkflowJobStepBundle,
+  WorkflowJobStepDefinition,
   WorkflowStepDefinition
 } from '../db/types';
 import {
@@ -31,6 +35,7 @@ import {
   type WorkflowStepInput,
   type WorkflowTriggerInput
 } from '../workflows/zodSchemas';
+import { parseBundleEntryPoint } from '../jobs/bundleBinding';
 import {
   enqueueWorkflowRun
 } from '../queue';
@@ -45,6 +50,10 @@ import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import type { JsonValue } from './shared/serializers';
 
+type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
+type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
+type JobDefinitionLookup = Map<string, JobDefinitionRecord>;
+
 function normalizeWorkflowDependsOn(dependsOn?: string[]) {
   if (!dependsOn) {
     return undefined;
@@ -53,7 +62,142 @@ function normalizeWorkflowDependsOn(dependsOn?: string[]) {
   return unique.length > 0 ? unique : undefined;
 }
 
-function normalizeWorkflowFanOutTemplate(template: WorkflowFanOutTemplateInput) {
+function collectWorkflowJobSlugs(steps: WorkflowStepInput[]): string[] {
+  const slugs = new Set<string>();
+  for (const step of steps) {
+    if (step.type === 'service') {
+      continue;
+    }
+    if (step.type === 'fanout') {
+      const template = step.template;
+      if (template.type !== 'service' && typeof template.jobSlug === 'string') {
+        const slug = template.jobSlug.trim().toLowerCase();
+        if (slug) {
+          slugs.add(slug);
+        }
+      }
+      continue;
+    }
+    if (typeof step.jobSlug === 'string') {
+      const slug = step.jobSlug.trim().toLowerCase();
+      if (slug) {
+        slugs.add(slug);
+      }
+    }
+  }
+  return Array.from(slugs);
+}
+
+function lookupJobDefinition(
+  jobDefinitions: JobDefinitionLookup,
+  slug: string | undefined
+): JobDefinitionRecord | undefined {
+  if (!slug) {
+    return undefined;
+  }
+  return jobDefinitions.get(slug.trim().toLowerCase());
+}
+
+function normalizeJobBundle(
+  rawBundle: WorkflowJobStepInput['bundle'] | null | undefined,
+  jobDefinition: JobDefinitionRecord | undefined
+): WorkflowJobStepBundle | null | undefined {
+  if (rawBundle === null) {
+    return null;
+  }
+  const parsed = jobDefinition ? parseBundleEntryPoint(jobDefinition.entryPoint) : null;
+
+  if (rawBundle && rawBundle.strategy === 'latest') {
+    const slugFromInput = typeof rawBundle.slug === 'string' ? rawBundle.slug.trim().toLowerCase() : '';
+    const slug = slugFromInput || parsed?.slug || '';
+    if (!slug) {
+      return parsed
+        ? {
+            strategy: 'latest',
+            slug: parsed.slug,
+            version: null,
+            exportName: parsed.exportName ?? null
+          }
+        : undefined;
+    }
+    const exportName = rawBundle.exportName ?? parsed?.exportName ?? null;
+    return {
+      strategy: 'latest',
+      slug,
+      version: null,
+      exportName
+    } satisfies WorkflowJobStepBundle;
+  }
+
+  if (rawBundle && typeof rawBundle.version === 'string' && rawBundle.version.trim().length > 0) {
+    const slugFromInput = typeof rawBundle.slug === 'string' ? rawBundle.slug.trim().toLowerCase() : '';
+    const slug = slugFromInput || parsed?.slug || '';
+    if (!slug) {
+      return parsed
+        ? {
+            strategy: 'pinned',
+            slug: parsed.slug,
+            version: rawBundle.version.trim(),
+            exportName: rawBundle.exportName ?? parsed.exportName ?? null
+          }
+        : undefined;
+    }
+    const exportName = rawBundle.exportName ?? parsed?.exportName ?? null;
+    return {
+      strategy: 'pinned',
+      slug,
+      version: rawBundle.version.trim(),
+      exportName
+    } satisfies WorkflowJobStepBundle;
+  }
+
+  if (parsed) {
+    return {
+      strategy: 'pinned',
+      slug: parsed.slug,
+      version: parsed.version,
+      exportName: parsed.exportName ?? null
+    } satisfies WorkflowJobStepBundle;
+  }
+
+  return undefined;
+}
+
+function normalizeWorkflowJobStep(
+  step: WorkflowJobStepInput,
+  jobDefinitions: JobDefinitionLookup
+): WorkflowJobStepDefinition {
+  const base = {
+    id: step.id,
+    name: step.name,
+    description: step.description ?? null,
+    dependsOn: normalizeWorkflowDependsOn(step.dependsOn)
+  };
+
+  const jobDefinition = lookupJobDefinition(jobDefinitions, step.jobSlug);
+  const bundle = normalizeJobBundle(step.bundle ?? undefined, jobDefinition);
+
+  const normalized: WorkflowJobStepDefinition = {
+    ...base,
+    type: 'job',
+    jobSlug: step.jobSlug,
+    parameters: step.parameters ?? undefined,
+    timeoutMs: step.timeoutMs ?? null,
+    retryPolicy: step.retryPolicy ?? null,
+    storeResultAs: step.storeResultAs ?? undefined
+  } satisfies WorkflowJobStepDefinition;
+
+  if (bundle !== undefined) {
+    normalized.bundle = bundle;
+  }
+
+  return normalized;
+}
+
+function normalizeWorkflowFanOutTemplate(
+  template: WorkflowFanOutTemplateInput,
+  jobDefinitions: JobDefinitionLookup
+) {
   const base = {
     id: template.id,
     name: template.name,
@@ -77,41 +221,55 @@ function normalizeWorkflowFanOutTemplate(template: WorkflowFanOutTemplateInput) 
     } satisfies WorkflowFanOutTemplateDefinition;
   }
 
-  return {
+  const jobTemplate = template as WorkflowJobTemplateInput;
+  const jobDefinition = lookupJobDefinition(jobDefinitions, jobTemplate.jobSlug);
+  const bundle = normalizeJobBundle(jobTemplate.bundle ?? undefined, jobDefinition);
+
+  const normalized: WorkflowFanOutTemplateDefinition = {
     ...base,
-    type: 'job' as const,
-    jobSlug: template.jobSlug,
-    parameters: template.parameters ?? undefined,
-    timeoutMs: template.timeoutMs ?? null,
-    retryPolicy: template.retryPolicy ?? null,
-    storeResultAs: template.storeResultAs ?? undefined
+    type: 'job',
+    jobSlug: jobTemplate.jobSlug,
+    parameters: jobTemplate.parameters ?? undefined,
+    timeoutMs: jobTemplate.timeoutMs ?? null,
+    retryPolicy: jobTemplate.retryPolicy ?? null,
+    storeResultAs: jobTemplate.storeResultAs ?? undefined
   } satisfies WorkflowFanOutTemplateDefinition;
+
+  if (bundle !== undefined) {
+    normalized.bundle = bundle;
+  }
+
+  return normalized;
 }
 
-function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
-  return steps.map((step) => {
-    const base = {
-      id: step.id,
-      name: step.name,
-      description: step.description ?? null,
-      dependsOn: normalizeWorkflowDependsOn(step.dependsOn)
-    };
+async function normalizeWorkflowSteps(
+  steps: WorkflowStepInput[]
+): Promise<WorkflowStepDefinition[]> {
+  const jobSlugs = collectWorkflowJobSlugs(steps);
+  const jobDefinitions = await getJobDefinitionsBySlugs(jobSlugs);
 
+  return steps.map((step) => {
     if (step.type === 'fanout') {
       return {
-        ...base,
+        id: step.id,
+        name: step.name,
+        description: step.description ?? null,
+        dependsOn: normalizeWorkflowDependsOn(step.dependsOn),
         type: 'fanout' as const,
         collection: step.collection,
-        template: normalizeWorkflowFanOutTemplate(step.template),
+        template: normalizeWorkflowFanOutTemplate(step.template, jobDefinitions),
         maxItems: step.maxItems ?? null,
         maxConcurrency: step.maxConcurrency ?? null,
         storeResultsAs: step.storeResultsAs ?? undefined
-      };
+      } satisfies WorkflowStepDefinition;
     }
 
     if (step.type === 'service') {
       return {
-        ...base,
+        id: step.id,
+        name: step.name,
+        description: step.description ?? null,
+        dependsOn: normalizeWorkflowDependsOn(step.dependsOn),
         type: 'service' as const,
         serviceSlug: step.serviceSlug.trim().toLowerCase(),
         parameters: step.parameters ?? undefined,
@@ -122,18 +280,10 @@ function normalizeWorkflowSteps(steps: WorkflowStepInput[]) {
         captureResponse: step.captureResponse ?? undefined,
         storeResponseAs: step.storeResponseAs ?? undefined,
         request: step.request
-      };
+      } satisfies WorkflowStepDefinition;
     }
 
-    return {
-      ...base,
-      type: 'job' as const,
-      jobSlug: step.jobSlug,
-      parameters: step.parameters ?? undefined,
-      timeoutMs: step.timeoutMs ?? null,
-      retryPolicy: step.retryPolicy ?? null,
-      storeResultAs: step.storeResultAs ?? undefined
-    };
+    return normalizeWorkflowJobStep(step as WorkflowJobStepInput, jobDefinitions);
   });
 }
 
@@ -338,7 +488,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const payload = parseBody.data;
-    const normalizedSteps = normalizeWorkflowSteps(payload.steps);
+    const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
     const triggers = normalizeWorkflowTriggers(payload.triggers);
 
     let dagMetadata: ReturnType<typeof buildWorkflowDagMetadata>;
@@ -445,7 +595,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     if (payload.steps !== undefined) {
-      const normalizedSteps = normalizeWorkflowSteps(payload.steps);
+      const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
       try {
         const dagMetadata = buildWorkflowDagMetadata(normalizedSteps);
         const stepsWithDag = applyDagMetadataToSteps(normalizedSteps, dagMetadata) as WorkflowStepDefinition[];

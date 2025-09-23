@@ -208,7 +208,8 @@ function definitionStepToDraft(step: WorkflowDefinitionStep): WorkflowDraftStep 
     storeResponseAs: step.storeResponseAs,
     request: request ?? (type === 'service' ? { path: '/', method: 'GET' } : undefined),
     parametersText: stringifyJson(parameters ?? {}),
-    requestBodyText: type === 'service' ? stringifyJson(requestBody ?? null) : undefined
+    requestBodyText: type === 'service' ? stringifyJson(requestBody ?? null) : undefined,
+    bundle: step.bundle ?? null
   } satisfies WorkflowDraftStep;
 }
 
@@ -476,7 +477,7 @@ function sanitizeStep(step: WorkflowDraftStep): WorkflowStepInput {
 
   const jobSlug = sanitizeJobSlug(step.jobSlug) ?? '';
 
-  const payload = {
+  const payload: WorkflowJobStepInput = {
     id: step.id,
     name: step.name,
     jobSlug,
@@ -486,7 +487,18 @@ function sanitizeStep(step: WorkflowDraftStep): WorkflowStepInput {
     timeoutMs: step.timeoutMs ?? undefined,
     retryPolicy: step.retryPolicy ?? undefined,
     storeResultAs: step.storeResultAs ?? undefined
-  } satisfies WorkflowStepInput;
+  } satisfies WorkflowJobStepInput;
+
+  if (step.bundle === null) {
+    payload.bundle = null;
+  } else if (step.bundle) {
+    payload.bundle = {
+      slug: step.bundle.slug,
+      version: step.bundle.version ?? undefined,
+      exportName: step.bundle.exportName ?? undefined,
+      strategy: step.bundle.strategy ?? undefined
+    } satisfies WorkflowJobStepInput['bundle'];
+  }
 
   return payload;
 }

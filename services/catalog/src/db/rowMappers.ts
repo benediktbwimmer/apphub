@@ -530,6 +530,40 @@ function parseJobWorkflowStep(
     step.storeResultAs = storeResultAs;
   }
 
+  if (Object.prototype.hasOwnProperty.call(record, 'bundle')) {
+    const rawBundle = record.bundle;
+    if (rawBundle === null) {
+      step.bundle = null;
+    } else if (rawBundle && typeof rawBundle === 'object') {
+      const bundleRecord = rawBundle as Record<string, unknown>;
+      const slugValue = bundleRecord.slug;
+      const slug = typeof slugValue === 'string' ? slugValue.trim().toLowerCase() : '';
+      if (slug) {
+        const strategyRaw = bundleRecord.strategy;
+        const normalizedStrategy =
+          typeof strategyRaw === 'string' && strategyRaw.trim().toLowerCase() === 'latest'
+            ? 'latest'
+            : 'pinned';
+        const versionValue = bundleRecord.version;
+        const version =
+          typeof versionValue === 'string' && versionValue.trim().length > 0
+            ? versionValue.trim()
+            : null;
+        const exportNameValue = bundleRecord.exportName;
+        const exportName =
+          typeof exportNameValue === 'string' && exportNameValue.trim().length > 0
+            ? exportNameValue.trim()
+            : null;
+        step.bundle = {
+          slug,
+          strategy: normalizedStrategy,
+          version: normalizedStrategy === 'latest' ? null : version,
+          exportName
+        };
+      }
+    }
+  }
+
   return step;
 }
 

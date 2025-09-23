@@ -311,7 +311,10 @@ async function registerWorkflowTestHandlers() {
   });
 }
 
-async function createJobDefinition(app: FastifyInstance, payload: { slug: string; name: string }) {
+async function createJobDefinition(
+  app: FastifyInstance,
+  payload: { slug: string; name: string; entryPoint?: string }
+) {
   const response = await app.inject({
     method: 'POST',
     url: '/jobs',
@@ -322,7 +325,7 @@ async function createJobDefinition(app: FastifyInstance, payload: { slug: string
       slug: payload.slug,
       name: payload.name,
       type: 'manual',
-      entryPoint: `tests.${payload.slug}`,
+      entryPoint: payload.entryPoint ?? `tests.${payload.slug}`,
       timeoutMs: 5_000,
       retryPolicy: { maxAttempts: 2 },
       parametersSchema: { type: 'object' },
@@ -601,6 +604,103 @@ async function testWorkflowEndpoints(): Promise<void> {
       };
       assert.equal(cyclicBody.error.reason, 'cycle_detected');
       assert(Array.isArray(cyclicBody.error.detail?.cycle));
+
+      await createJobDefinition(app, {
+        slug: 'workflow-bundle-step',
+        name: 'Workflow Bundle Step',
+        entryPoint: 'bundle:example.workflow@1.2.3#handler'
+      });
+
+      const bundleWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: 'wf-bundle-pinned',
+          name: 'Workflow Bundle Pinned',
+          steps: [
+            {
+              id: 'bundle-step',
+              name: 'Bundle Step',
+              jobSlug: 'workflow-bundle-step'
+            }
+          ]
+        }
+      });
+      assert.equal(bundleWorkflowResponse.statusCode, 201);
+
+      const fetchPinnedWorkflowResponse = await app.inject({
+        method: 'GET',
+        url: '/workflows/wf-bundle-pinned'
+      });
+      assert.equal(fetchPinnedWorkflowResponse.statusCode, 200);
+      const fetchPinnedWorkflowBody = JSON.parse(fetchPinnedWorkflowResponse.payload) as {
+        data: { workflow: { steps: Array<{ bundle?: { strategy?: string; version?: string | null; slug?: string; exportName?: string | null } | null }> } };
+      };
+      const pinnedStep = fetchPinnedWorkflowBody.data.workflow.steps[0];
+      assert(pinnedStep);
+      assert.equal(pinnedStep.bundle?.strategy ?? '', 'pinned');
+      assert.equal(pinnedStep.bundle?.version ?? '', '1.2.3');
+      assert.equal(pinnedStep.bundle?.slug ?? '', 'example.workflow');
+      assert.equal(pinnedStep.bundle?.exportName ?? '', 'handler');
+
+      const { upsertJobDefinition } = await import('../src/db/jobs');
+      await upsertJobDefinition({
+        slug: 'workflow-bundle-step',
+        name: 'Workflow Bundle Step',
+        type: 'manual',
+        runtime: 'node',
+        entryPoint: 'bundle:example.workflow@2.0.0#handler'
+      });
+
+      const fetchPinnedWorkflowAfterUpdate = await app.inject({
+        method: 'GET',
+        url: '/workflows/wf-bundle-pinned'
+      });
+      assert.equal(fetchPinnedWorkflowAfterUpdate.statusCode, 200);
+      const pinnedAfterUpdateBody = JSON.parse(fetchPinnedWorkflowAfterUpdate.payload) as {
+        data: { workflow: { steps: Array<{ bundle?: { version?: string | null } | null }> } };
+      };
+      const pinnedStepAfterUpdate = pinnedAfterUpdateBody.data.workflow.steps[0];
+      assert(pinnedStepAfterUpdate);
+      assert.equal(pinnedStepAfterUpdate.bundle?.version ?? '', '1.2.3');
+
+      const latestWorkflowUpdateResponse = await app.inject({
+        method: 'PATCH',
+        url: '/workflows/wf-bundle-pinned',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          steps: [
+            {
+              id: 'bundle-step',
+              name: 'Bundle Step',
+              jobSlug: 'workflow-bundle-step',
+              bundle: {
+                slug: 'example.workflow',
+                strategy: 'latest'
+              }
+            }
+          ]
+        }
+      });
+      assert.equal(latestWorkflowUpdateResponse.statusCode, 200);
+
+      const fetchLatestWorkflowResponse = await app.inject({
+        method: 'GET',
+        url: '/workflows/wf-bundle-pinned'
+      });
+      assert.equal(fetchLatestWorkflowResponse.statusCode, 200);
+      const latestWorkflowBody = JSON.parse(fetchLatestWorkflowResponse.payload) as {
+        data: { workflow: { steps: Array<{ bundle?: { strategy?: string; version?: string | null } | null }> } };
+      };
+      const latestStep = latestWorkflowBody.data.workflow.steps[0];
+      assert(latestStep);
+      assert.equal(latestStep.bundle?.strategy ?? '', 'latest');
+      assert.equal(latestStep.bundle?.version ?? null, null);
 
       const triggerResponse = await app.inject({
       method: 'POST',

@@ -30,8 +30,11 @@ import {
 import { pythonSandboxRunner } from './sandbox/pythonRunner';
 import { shouldAllowLegacyFallback, shouldUseJobBundle } from '../config/jobBundles';
 import { attemptBundleRecovery, type BundleBinding } from './bundleRecovery';
+import { parseBundleEntryPoint } from './bundleBinding';
 
 const handlers = new Map<string, JobHandler>();
+
+export const WORKFLOW_BUNDLE_CONTEXT_KEY = '__workflowBundle';
 
 type BundleResolutionReason = 'not-found' | 'acquire-failed';
 
@@ -106,35 +109,40 @@ export async function createJobRunForSlug(
   return createJobRun(definition.id, input);
 }
 
-const BUNDLE_ENTRY_REGEX = /^bundle:([a-z0-9][a-z0-9._-]*)@([^#]+?)(?:#([a-zA-Z_$][\w$]*))?$/i;
-
-function parseBundleEntryPoint(entryPoint: string | null | undefined): BundleBinding | null {
-  if (!entryPoint || typeof entryPoint !== 'string') {
-    return null;
-  }
-  const trimmed = entryPoint.trim();
-  const matches = BUNDLE_ENTRY_REGEX.exec(trimmed);
-  if (!matches) {
-    return null;
-  }
-  const [, rawSlug, rawVersion, rawExport] = matches;
-  const slug = rawSlug.toLowerCase();
-  const version = rawVersion.trim();
-  if (!version) {
-    return null;
-  }
-  return {
-    slug,
-    version,
-    exportName: rawExport ?? null
-  } satisfies BundleBinding;
-}
-
 function resolveBundleBinding(definition: JobDefinitionRecord): BundleBinding | null {
   if (definition.runtime !== 'node') {
     return null;
   }
   return parseBundleEntryPoint(definition.entryPoint);
+}
+
+function parseWorkflowBundleOverride(contextValue: JsonValue | null): BundleBinding | null {
+  if (!contextValue || typeof contextValue !== 'object' || Array.isArray(contextValue)) {
+    return null;
+  }
+  const record = contextValue as Record<string, unknown>;
+  const rawBinding = record[WORKFLOW_BUNDLE_CONTEXT_KEY];
+  if (!rawBinding || typeof rawBinding !== 'object' || Array.isArray(rawBinding)) {
+    return null;
+  }
+  const bindingRecord = rawBinding as Record<string, unknown>;
+  const slugValue = bindingRecord.slug;
+  const versionValue = bindingRecord.version;
+  const slug = typeof slugValue === 'string' ? slugValue.trim().toLowerCase() : '';
+  const version = typeof versionValue === 'string' ? versionValue.trim() : '';
+  if (!slug || !version) {
+    return null;
+  }
+  const exportNameValue = bindingRecord.exportName;
+  const exportName =
+    typeof exportNameValue === 'string' && exportNameValue.trim().length > 0
+      ? exportNameValue.trim()
+      : null;
+  return {
+    slug,
+    version,
+    exportName
+  } satisfies BundleBinding;
 }
 
 export async function executeJobRun(runId: string): Promise<JobRunRecord | null> {
@@ -153,7 +161,11 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   }
 
   const staticHandler = handlers.get(definition.slug);
-  const bundleBinding = resolveBundleBinding(definition);
+  let bundleBinding = resolveBundleBinding(definition);
+  const workflowBundleOverride = parseWorkflowBundleOverride(currentRun.context);
+  if (workflowBundleOverride) {
+    bundleBinding = workflowBundleOverride;
+  }
 
   if (!staticHandler && !bundleBinding) {
     await completeJobRun(runId, 'failed', {

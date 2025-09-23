@@ -15,6 +15,7 @@ export type WorkflowFanOutTemplateStep = {
   captureResponse?: boolean;
   storeResponseAs?: string;
   request?: unknown;
+  bundle?: WorkflowStepBundle | null;
 };
 
 export type WorkflowDefinitionStep = {
@@ -40,6 +41,14 @@ export type WorkflowDefinitionStep = {
   template?: WorkflowFanOutTemplateStep | null;
   maxItems?: number | null;
   maxConcurrency?: number | null;
+  bundle?: WorkflowStepBundle | null;
+};
+
+export type WorkflowStepBundle = {
+  slug: string;
+  version?: string | null;
+  strategy?: 'pinned' | 'latest';
+  exportName?: string | null;
 };
 
 export type WorkflowTrigger = {
@@ -164,6 +173,7 @@ export type WorkflowDraftStep = {
   parametersError?: string | null;
   requestBodyText?: string;
   requestBodyError?: string | null;
+  bundle?: WorkflowStepBundle | null;
 };
 
 export type WorkflowDraft = {

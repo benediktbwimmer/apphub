@@ -28,7 +28,11 @@ import {
 import { getServiceBySlug } from './db/services';
 import { fetchFromService } from './clients/serviceClient';
 import { resolveSecret, maskSecret, describeSecret } from './secrets';
-import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
+import {
+  createJobRunForSlug,
+  executeJobRun,
+  WORKFLOW_BUNDLE_CONTEXT_KEY
+} from './jobs/runtime';
 import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
@@ -1532,10 +1536,30 @@ async function executeJobStep(
 
   await ensureJobHandler(step.jobSlug);
 
+  let bundleOverrideContext: Record<string, JsonValue> | undefined;
+  if (step.bundle && step.bundle.strategy !== 'latest') {
+    const version = typeof step.bundle.version === 'string' ? step.bundle.version.trim() : '';
+    const slug = step.bundle.slug?.trim().toLowerCase() ?? '';
+    if (slug && version) {
+      const exportNameValue =
+        typeof step.bundle.exportName === 'string' && step.bundle.exportName.trim().length > 0
+          ? step.bundle.exportName.trim()
+          : null;
+      bundleOverrideContext = {
+        [WORKFLOW_BUNDLE_CONTEXT_KEY]: {
+          slug,
+          version,
+          exportName: exportNameValue
+        }
+      } satisfies Record<string, JsonValue>;
+    }
+  }
+
   const jobRun = await createJobRunForSlug(step.jobSlug, {
     parameters,
     timeoutMs: step.timeoutMs ?? null,
-    maxAttempts: step.retryPolicy?.maxAttempts ?? null
+    maxAttempts: step.retryPolicy?.maxAttempts ?? null,
+    context: bundleOverrideContext
   });
 
   await updateWorkflowRunStep(stepRecord.id, {
