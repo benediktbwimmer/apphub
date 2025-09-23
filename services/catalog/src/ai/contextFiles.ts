@@ -3,7 +3,8 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   jobDefinitionCreateSchema,
   workflowDefinitionCreateSchema,
-  aiJobWithBundleOutputSchema
+  aiJobWithBundleOutputSchema,
+  aiWorkflowWithJobsOutputSchema
 } from '../workflows/zodSchemas';
 import type { CodexContextFile, CodexGenerationMode } from './codexRunner';
 
@@ -137,6 +138,32 @@ function jobWithBundleOverview(): string {
     '',
     'Ensure the bundle contains a file matching the declared `entryPoint`. See `context/schemas/job-with-bundle.json`,',
     '`context/jobs/index.json`, and the service OpenAPI specs under `context/services/` for compatibility details.'
+  ].join('\n');
+}
+
+function workflowWithJobsOverview(): string {
+  return [
+    '# Workflow With Jobs Reference',
+    '',
+    'In `workflow-with-jobs` mode, Codex must deliver a workflow definition alongside any new job bundles required to run it.',
+    '',
+    'Output structure:',
+    '```json',
+    '{',
+    '  "workflow": { /* workflow definition */ },',
+    '  "newJobs": [',
+    '    { "job": { /* job definition */ }, "bundle": { /* bundle spec */ } }',
+    '  ],',
+    '  "notes": "Optional operator guidance"',
+    '}',
+    '```',
+    '',
+    '- Reuse existing jobs from the catalog whenever they satisfy the workflow steps.',
+    '- Only populate `newJobs` for jobs that are not present in the catalog. Every entry must include a Node bundle with runnable source files.',
+    '- Workflow steps should reference job slugs directly. Newly proposed jobs must align with the slugs provided in `newJobs`.',
+    '- Bundles must include the declared `entryPoint` file. Reference the schemas under `context/schemas/` and catalog summaries for compatibility details.',
+    '',
+    'Document any operator follow-up in the optional `notes` field (e.g. manual secret configuration).'
   ].join('\n');
 }
 
@@ -367,6 +394,8 @@ export function buildCodexContextFiles(options: BuildCodexContextOptions): Codex
     { path: 'context/reference/workflow.md', contents: `${workflowDefinitionOverview()}\n` },
     buildJsonSchemaFile('context/schemas/job-with-bundle.json', 'JobWithBundle', aiJobWithBundleOutputSchema),
     { path: 'context/reference/job-with-bundle.md', contents: `${jobWithBundleOverview()}\n` },
+    buildJsonSchemaFile('context/schemas/workflow-with-jobs.json', 'WorkflowWithJobs', aiWorkflowWithJobsOutputSchema),
+    { path: 'context/reference/workflow-with-jobs.md', contents: `${workflowWithJobsOverview()}\n` },
     { path: 'context/reference/services.md', contents: `${serviceReferenceOverview()}\n` },
     { path: 'context/jobs/index.json', contents: stringifyJson(buildJobCatalog(jobs)) },
     { path: 'context/jobs/README.md', contents: `${buildJobCatalogMarkdown(jobs)}\n` },

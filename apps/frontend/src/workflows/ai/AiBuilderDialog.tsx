@@ -26,7 +26,7 @@ import {
 import type { WorkflowDefinition } from '../types';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { ToastPayload } from '../../components/toast/ToastContext';
-import { createJobWithBundle, type AiBundleSuggestion } from './api';
+import { createJobWithBundle, type AiBundleSuggestion, type AiJobSuggestion } from './api';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
 const JOB_SCHEMA = jobDefinitionCreateSchema;
@@ -34,8 +34,21 @@ const JOB_SCHEMA = jobDefinitionCreateSchema;
 const GENERATION_STORAGE_KEY = 'apphub.aiBuilder.activeGeneration';
 const POLL_INTERVAL_MS = 1_500;
 
+type JobDraft = {
+  id: string;
+  slug: string;
+  value: string;
+  validation: { valid: boolean; errors: string[] };
+  bundle: AiBundleSuggestion;
+  bundleErrors: string[];
+  created: boolean;
+  creating: boolean;
+  error: string | null;
+};
+
 const MODE_OPTIONS: { value: AiBuilderMode; label: string }[] = [
   { value: 'workflow', label: 'Workflow' },
+  { value: 'workflow-with-jobs', label: 'Workflow + jobs' },
   { value: 'job', label: 'Job' },
   { value: 'job-with-bundle', label: 'Job + bundle' }
 ];
@@ -46,7 +59,7 @@ function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: 
   }
   try {
     const parsed = JSON.parse(editorValue) as unknown;
-    const schema = mode === 'workflow' ? WORKFLOW_SCHEMA : JOB_SCHEMA;
+    const schema = mode === 'workflow' || mode === 'workflow-with-jobs' ? WORKFLOW_SCHEMA : JOB_SCHEMA;
     const result = schema.safeParse(parsed);
     if (result.success) {
       return { valid: true, errors: [] };
@@ -107,6 +120,8 @@ export default function AiBuilderDialog({
     valid: true,
     errors: []
   });
+  const [jobDrafts, setJobDrafts] = useState<JobDraft[]>([]);
+  const [workflowNotes, setWorkflowNotes] = useState<string | null>(null);
   const [generation, setGeneration] = useState<AiGenerationState | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -132,8 +147,27 @@ export default function AiBuilderDialog({
           errors: []
         }
       );
+      setWorkflowNotes(response.notes ?? null);
+      const jobSuggestions = response.jobSuggestions ?? [];
+      if (jobSuggestions.length > 0) {
+        setJobDrafts(
+          jobSuggestions.map((suggestion: AiJobSuggestion, index) => ({
+            id: `${suggestion.job.slug}-${index}`,
+            slug: suggestion.job.slug,
+            value: JSON.stringify(suggestion.job, null, 2),
+            validation: { valid: true, errors: [] },
+            bundle: suggestion.bundle,
+            bundleErrors: suggestion.bundleValidation.errors ?? [],
+            created: false,
+            creating: false,
+            error: null
+          }))
+        );
+      } else {
+        setJobDrafts([]);
+      }
     },
-    []
+    [setJobDrafts, setWorkflowNotes]
   );
 
   const persistGeneration = useCallback((id: string, modeValue: AiBuilderMode) => {
@@ -168,6 +202,8 @@ export default function AiBuilderDialog({
       setSubmitting(false);
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setJobDrafts([]);
+      setWorkflowNotes(null);
       setGeneration(null);
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
@@ -252,6 +288,8 @@ export default function AiBuilderDialog({
       setBaselineValue('');
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setJobDrafts([]);
+      setWorkflowNotes(null);
       setSummaryText(null);
       const requestMode: AiBuilderMode = mode;
       try {
@@ -293,7 +331,17 @@ export default function AiBuilderDialog({
         console.error('ai-builder.error', { event: 'generate', message, mode: requestMode, error: err });
       }
     },
-    [additionalNotes, applySuggestion, authorizedFetch, clearPersistedGeneration, mode, persistGeneration, prompt]
+    [
+      additionalNotes,
+      applySuggestion,
+      authorizedFetch,
+      clearPersistedGeneration,
+      mode,
+      persistGeneration,
+      prompt,
+      setJobDrafts,
+      setWorkflowNotes
+    ]
   );
 
   useEffect(() => {
@@ -364,6 +412,8 @@ export default function AiBuilderDialog({
       setValidation({ valid: false, errors: [] });
       setBundleSuggestion(null);
       setBundleValidation({ valid: true, errors: [] });
+      setJobDrafts([]);
+      setWorkflowNotes(null);
       setGeneration(null);
       setStdout('');
       setStderr('');
@@ -375,7 +425,7 @@ export default function AiBuilderDialog({
       }
       console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode });
     },
-    [clearPersistedGeneration]
+    [clearPersistedGeneration, setJobDrafts, setWorkflowNotes]
   );
 
   const handleEditorChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -395,7 +445,7 @@ export default function AiBuilderDialog({
     }
     try {
       const json = JSON.parse(editorValue) as unknown;
-      const schema = mode === 'workflow' ? WORKFLOW_SCHEMA : JOB_SCHEMA;
+      const schema = mode === 'workflow' || mode === 'workflow-with-jobs' ? WORKFLOW_SCHEMA : JOB_SCHEMA;
       const result = schema.parse(json);
       return result as WorkflowCreateInput | JobDefinitionCreateInput;
     } catch (err) {
@@ -406,7 +456,38 @@ export default function AiBuilderDialog({
     }
   }, [editorValue, mode]);
 
+  const buildGenerationMetadata = useCallback(() => {
+    if (!generation) {
+      return undefined;
+    }
+    return {
+      id: generation.generationId,
+      prompt: prompt.trim() || undefined,
+      additionalNotes: additionalNotes.trim() || undefined,
+      metadataSummary:
+        generation.metadataSummary ?? (metadataSummary && metadataSummary.trim().length > 0 ? metadataSummary : undefined),
+      rawOutput: generation.result?.raw ?? undefined,
+      stdout: generation.result?.stdout ?? undefined,
+      stderr: generation.result?.stderr ?? undefined,
+      summary: generation.result?.summary ?? undefined
+    };
+  }, [additionalNotes, generation, metadataSummary, prompt]);
+
   const handleSubmitWorkflow = useCallback(async () => {
+    if (mode === 'workflow-with-jobs') {
+      if (jobDrafts.some((draft) => draft.creating)) {
+        setError('Wait for job creation to finish before submitting the workflow.');
+        return;
+      }
+      if (jobDrafts.some((draft) => draft.bundleErrors.length > 0 || !draft.validation.valid)) {
+        setError('Resolve job validation issues before submitting the workflow.');
+        return;
+      }
+      if (jobDrafts.some((draft) => !draft.created)) {
+        setError('Create the generated jobs before submitting the workflow.');
+        return;
+      }
+    }
     const parsed = parseEditorValue() as WorkflowCreateInput | null;
     if (!parsed) {
       return;
@@ -445,7 +526,8 @@ export default function AiBuilderDialog({
     onWorkflowSubmitted,
     pushToast,
     refreshResources,
-    onClose
+    onClose,
+    jobDrafts
   ]);
 
   const handleOpenInBuilder = useCallback(() => {
@@ -461,6 +543,150 @@ export default function AiBuilderDialog({
     onWorkflowPrefill(parsed);
     onClose();
   }, [parseEditorValue, isEdited, mode, onWorkflowPrefill, onClose]);
+
+  const handleJobDraftChange = useCallback((draftId: string, value: string) => {
+    setJobDrafts((current) =>
+      current.map((draft) =>
+        draft.id === draftId
+          ? {
+              ...draft,
+              value,
+              validation: toValidationErrors('job', value),
+              error: null
+            }
+          : draft
+      )
+    );
+  }, []);
+
+  const handleCreateDraftJob = useCallback(
+    async (draftId: string) => {
+      const target = jobDrafts.find((draft) => draft.id === draftId);
+      if (!target || target.creating || target.created) {
+        return;
+      }
+      if (!canCreateJob) {
+        const scopeMessage = 'Your token must include the job-bundles:write scope to create Codex-generated jobs.';
+        setError(scopeMessage);
+        setJobDrafts((current) =>
+          current.map((draft) => (draft.id === draftId ? { ...draft, error: scopeMessage } : draft))
+        );
+        return;
+      }
+      if (target.bundleErrors.length > 0) {
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === draftId
+              ? {
+                  ...draft,
+                  error: 'Fix the bundle issues before creating this job.'
+                }
+              : draft
+          )
+        );
+        return;
+      }
+      const validationResult = toValidationErrors('job', target.value);
+      if (!validationResult.valid) {
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === draftId
+              ? {
+                  ...draft,
+                  validation: validationResult,
+                  error: 'Resolve validation issues before creating this job.'
+                }
+              : draft
+          )
+        );
+        return;
+      }
+
+      let parsedJob: JobDefinitionCreateInput;
+      try {
+        parsedJob = JOB_SCHEMA.parse(JSON.parse(target.value));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Invalid job definition';
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === draftId
+              ? {
+                  ...draft,
+                  validation: toValidationErrors('job', target.value),
+                  error: `Invalid job definition: ${message}`
+                }
+              : draft
+          )
+        );
+        return;
+      }
+
+      setJobDrafts((current) =>
+        current.map((draft) => (draft.id === draftId ? { ...draft, creating: true, error: null } : draft))
+      );
+
+      try {
+        const jobPayload: JobDefinitionCreateInput = {
+          ...parsedJob,
+          entryPoint: `bundle:${target.bundle.slug}@${target.bundle.version}`
+        };
+        const generationPayload = buildGenerationMetadata();
+        const response = await createJobWithBundle(authorizedFetch, {
+          job: jobPayload,
+          bundle: target.bundle,
+          generation: generationPayload
+        });
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === draftId
+              ? {
+                  ...draft,
+                  creating: false,
+                  created: true,
+                  validation: { valid: true, errors: [] }
+                }
+              : draft
+          )
+        );
+        console.info('ai-builder.usage', {
+          event: 'job-submitted',
+          edited: false,
+          mode,
+          jobSlug: response.job.slug,
+          viaWorkflowBuilder: true
+        });
+        pushToast({
+          tone: 'success',
+          title: 'Job created',
+          description: `${response.job.name} registered successfully.`
+        });
+        refreshResources();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create job';
+        setJobDrafts((current) =>
+          current.map((draft) =>
+            draft.id === draftId ? { ...draft, creating: false, error: message } : draft
+          )
+        );
+        console.error('ai-builder.error', {
+          event: 'job-submit',
+          message,
+          mode,
+          error: err,
+          jobSlug: target.slug
+        });
+      }
+    },
+    [
+      authorizedFetch,
+      buildGenerationMetadata,
+      canCreateJob,
+      jobDrafts,
+      mode,
+      pushToast,
+      refreshResources
+    ]
+  );
 
   const handleSubmitJob = useCallback(async () => {
     if (mode !== 'job-with-bundle') {
@@ -486,21 +712,7 @@ export default function AiBuilderDialog({
         ...parsed,
         entryPoint: `bundle:${bundleSuggestion.slug}@${bundleSuggestion.version}`
       };
-      const generationPayload = generation
-        ? {
-            id: generation.generationId,
-            prompt: prompt.trim() || undefined,
-            additionalNotes: additionalNotes.trim() || undefined,
-            metadataSummary:
-              generation.metadataSummary ?? (metadataSummary && metadataSummary.trim().length > 0
-                ? metadataSummary
-                : undefined),
-            rawOutput: generation.result?.raw ?? undefined,
-            stdout: generation.result?.stdout ?? undefined,
-            stderr: generation.result?.stderr ?? undefined,
-            summary: generation.result?.summary ?? undefined
-          }
-        : undefined;
+      const generationPayload = buildGenerationMetadata();
 
       const created: JobDefinitionSummary = (
         await createJobWithBundle(authorizedFetch, {
@@ -539,10 +751,7 @@ export default function AiBuilderDialog({
     onClose,
     bundleSuggestion,
     canCreateJob,
-    generation,
-    metadataSummary,
-    prompt,
-    additionalNotes
+    buildGenerationMetadata
   ]);
 
   const handleDismiss = useCallback(() => {
@@ -560,6 +769,10 @@ export default function AiBuilderDialog({
     return null;
   }
 
+  const allJobDraftsReady =
+    jobDrafts.length === 0 ||
+    jobDrafts.every((draft) => draft.created && draft.bundleErrors.length === 0 && draft.validation.valid && !draft.creating);
+
   const canSubmit =
     validation.valid &&
     !pending &&
@@ -569,6 +782,8 @@ export default function AiBuilderDialog({
       ? Boolean(bundleSuggestion) && bundleValidation.valid && canCreateJob
       : mode === 'job'
       ? false
+      : mode === 'workflow-with-jobs'
+      ? allJobDraftsReady
       : true);
 
   return (
@@ -716,6 +931,109 @@ export default function AiBuilderDialog({
               </div>
             )}
 
+            {mode === 'workflow-with-jobs' && jobDrafts.length > 0 && (
+              <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">New jobs to publish</h4>
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {jobDrafts.filter((draft) => draft.created).length}/{jobDrafts.length} ready
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                  Review each generated job, make edits if needed, and publish it before submitting the workflow.
+                </p>
+                {!canCreateJob && (
+                  <div className="mt-3 rounded-xl border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+                    Add a token with <code>job-bundles:write</code> scope to publish Codex-generated jobs automatically.
+                  </div>
+                )}
+                <div className="mt-3 space-y-3">
+                  {jobDrafts.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className="rounded-xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/80"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h5 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{draft.slug}</h5>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Bundle <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">bundle:{draft.bundle.slug}@{draft.bundle.version}</code>
+                            , entry <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">{draft.bundle.entryPoint}</code>, files {draft.bundle.files.length}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-semibold ${
+                            draft.created
+                              ? 'text-emerald-600 dark:text-emerald-300'
+                              : draft.creating
+                              ? 'text-violet-600 dark:text-violet-300'
+                              : 'text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          {draft.created ? 'Created' : draft.creating ? 'Creating…' : 'Pending'}
+                        </span>
+                      </div>
+
+                      {draft.bundleErrors.length > 0 && (
+                        <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                          <p className="mb-1">Bundle issues:</p>
+                          <ul className="list-disc pl-5">
+                            {draft.bundleErrors.map((issue) => (
+                              <li key={issue}>{issue}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <textarea
+                        className="mt-3 h-40 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                        value={draft.value}
+                        onChange={(event) => handleJobDraftChange(draft.id, event.target.value)}
+                        spellCheck={false}
+                        disabled={draft.creating || draft.created || pending || submitting}
+                      />
+
+                      {draft.validation.errors.length > 0 && (
+                        <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                          <p className="mb-1">Validation issues:</p>
+                          <ul className="list-disc pl-5">
+                            {draft.validation.errors.map((issue) => (
+                              <li key={issue}>{issue}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {draft.error && (
+                        <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+                          {draft.error}
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => handleCreateDraftJob(draft.id)}
+                          disabled={
+                            draft.creating ||
+                            draft.created ||
+                            draft.bundleErrors.length > 0 ||
+                            !draft.validation.valid ||
+                            pending ||
+                            submitting ||
+                            !canCreateJob
+                          }
+                        >
+                          {draft.creating ? 'Creating…' : draft.created ? 'Job created' : 'Create job'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {mode === 'job' && hasSuggestion && (
               <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-xs font-semibold text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-300">
                 Job-only mode generates a definition without publishing a bundle. Use the manual job builder or export the JSON.
@@ -759,6 +1077,15 @@ export default function AiBuilderDialog({
                   {summaryText}
                 </pre>
               </details>
+            )}
+
+            {workflowNotes && (
+              <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Operator follow-up notes</h4>
+                <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                  {workflowNotes}
+                </p>
+              </div>
             )}
 
             {(stdout || stderr) && (
@@ -818,12 +1145,12 @@ export default function AiBuilderDialog({
                 <button
                   type="button"
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={mode === 'workflow' ? handleSubmitWorkflow : handleSubmitJob}
+                  onClick={mode === 'workflow' || mode === 'workflow-with-jobs' ? handleSubmitWorkflow : handleSubmitJob}
                   disabled={!canSubmit}
                 >
                   {submitting
                     ? 'Submitting…'
-                    : mode === 'workflow'
+                    : mode === 'workflow' || mode === 'workflow-with-jobs'
                     ? 'Submit workflow'
                     : mode === 'job-with-bundle'
                     ? 'Submit job + bundle'

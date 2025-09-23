@@ -33,7 +33,7 @@ class ContextFile(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    mode: Literal["workflow", "job", "job-with-bundle"]
+    mode: Literal["workflow", "job", "job-with-bundle", "workflow-with-jobs"]
     operatorRequest: str = Field(default="", description="Operator prompt text")
     metadataSummary: str = Field(default="", description="Catalog metadata summary")
     additionalNotes: Optional[str] = Field(default=None, description="Extra prompt instructions")
@@ -263,6 +263,17 @@ def _build_instructions_text(request: GenerateRequest, workspace: Path) -> str:
             ]
         )
         sections.append(workflow_instructions)
+    elif request.mode == "workflow-with-jobs":
+        workflow_jobs_instructions = "\n".join(
+            [
+                "For workflow-with-jobs mode, write a JSON object with `workflow`, `newJobs`, and optional `notes` fields.",
+                "Reuse existing jobs from the catalog whenever possible; only include missing jobs in `newJobs`.",
+                "Each `newJobs` entry must contain a job definition and a Node bundle whose files include the declared `entryPoint`.",
+                "Ensure workflow steps reference the correct slugs for both existing and newly proposed jobs.",
+                "List any operator follow-up (such as adding secrets) in the `notes` field.",
+            ]
+        )
+        sections.append(workflow_jobs_instructions)
 
     return "\n\n".join(filter(None, sections)) + "\n"
 

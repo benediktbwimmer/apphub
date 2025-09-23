@@ -1,0 +1,77 @@
+{
+  "workflow": {
+    "slug": "sync-inventory",
+    "name": "Sync inventory and notify",
+    "description": "Fetch inventory, apply delta sync, and reuse notification job",
+    "steps": [
+      {
+        "id": "fetch-existing",
+        "name": "Fetch inventory snapshot",
+        "type": "job",
+        "jobSlug": "inventory-fetcher"
+      },
+      {
+        "id": "sync-delta",
+        "name": "Sync new inventory items",
+        "type": "job",
+        "jobSlug": "inventory-sync-delta",
+        "dependsOn": ["fetch-existing"],
+        "storeResultAs": "deltaResult"
+      },
+      {
+        "id": "notify",
+        "name": "Notify stakeholders",
+        "type": "job",
+        "jobSlug": "notification-email",
+        "dependsOn": ["sync-delta"],
+        "parameters": {
+          "subject": "Inventory sync completed",
+          "body": "Processed latest inventory delta."
+        }
+      }
+    ]
+  },
+  "newJobs": [
+    {
+      "job": {
+        "slug": "inventory-sync-delta",
+        "name": "Inventory delta sync",
+        "version": 1,
+        "type": "batch",
+        "runtime": "node",
+        "entryPoint": "bundle:inventory-sync-delta@0.1.0",
+        "timeoutMs": 300000,
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "deltaPath": {
+              "type": "string",
+              "description": "Path to the inventory delta payload"
+            }
+          },
+          "required": ["deltaPath"]
+        },
+        "metadata": {
+          "description": "Sync inventory deltas into the primary catalog"
+        }
+      },
+      "bundle": {
+        "slug": "inventory-sync-delta",
+        "version": "0.1.0",
+        "entryPoint": "index.js",
+        "manifest": {
+          "name": "inventory-sync-delta",
+          "version": "0.1.0",
+          "main": "index.js"
+        },
+        "files": [
+          {
+            "path": "index.js",
+            "contents": "exports.run = async function run(payload) {\n  const { deltaPath } = payload.parameters;\n  console.log('Syncing inventory delta from', deltaPath);\n  return { status: 'synced' };\n};\n"
+          }
+        ]
+      }
+    }
+  ],
+  "notes": "Prefer existing jobs from the catalog; only include new jobs when no suitable match exists."
+}

@@ -2,7 +2,7 @@ import { API_BASE_URL } from '../../config';
 import { ApiError, ensureOk, parseJson } from '../api';
 import type { AuthorizedFetch, WorkflowCreateInput, JobDefinitionCreateInput, JobDefinitionSummary } from '../api';
 
-export type AiBuilderMode = 'workflow' | 'job' | 'job-with-bundle';
+export type AiBuilderMode = 'workflow' | 'job' | 'job-with-bundle' | 'workflow-with-jobs';
 
 export type AiBundleFile = {
   path: string;
@@ -24,6 +24,15 @@ export type AiBundleSuggestion = {
   files: AiBundleFile[];
 };
 
+export type AiJobSuggestion = {
+  job: JobDefinitionCreateInput;
+  bundle: AiBundleSuggestion;
+  bundleValidation: {
+    valid: boolean;
+    errors: string[];
+  };
+};
+
 export type AiSuggestionResponse = {
   mode: AiBuilderMode;
   raw: string;
@@ -40,6 +49,8 @@ export type AiSuggestionResponse = {
     valid: boolean;
     errors: string[];
   };
+  jobSuggestions?: AiJobSuggestion[];
+  notes?: string | null;
   summary?: string | null;
 };
 

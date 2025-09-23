@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-export type CodexGenerationMode = 'workflow' | 'job' | 'job-with-bundle';
+export type CodexGenerationMode = 'workflow' | 'job' | 'job-with-bundle' | 'workflow-with-jobs';
 
 export type CodexContextFile = {
   path: string;
@@ -172,9 +172,11 @@ export async function runCodexGeneration(options: CodexGenerationOptions): Promi
     const fileName =
       options.mode === 'workflow'
         ? 'workflow.json'
+        : options.mode === 'job'
+        ? 'job.json'
         : options.mode === 'job-with-bundle'
         ? 'job-with-bundle.json'
-        : 'job.json';
+        : 'workflow-with-jobs.json';
     const mockPath = path.join(mockDir, fileName);
     const mockContent = await fs.readFile(mockPath, { encoding: 'utf8' });
     return {

@@ -42,10 +42,22 @@ async function testMockJobWithBundleGeneration() {
   assert.equal(result.output.trim(), expected.trim());
 }
 
+async function testMockWorkflowWithJobsGeneration() {
+  process.env.APPHUB_CODEX_MOCK_DIR = mockDir;
+  const result = await runCodexGeneration({
+    mode: 'workflow-with-jobs',
+    operatorRequest: 'Create a workflow and any needed jobs',
+    metadataSummary: 'jobs: ai-orchestrator'
+  });
+  const expected = await readFile(path.join(mockDir, 'workflow-with-jobs.json'), 'utf8');
+  assert.equal(result.output.trim(), expected.trim());
+}
+
 async function run() {
   await testMockWorkflowGeneration();
   await testMockJobGeneration();
   await testMockJobWithBundleGeneration();
+  await testMockWorkflowWithJobsGeneration();
 }
 
 run().catch((err) => {

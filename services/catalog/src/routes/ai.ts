@@ -31,13 +31,15 @@ import { JOB_BUNDLE_WRITE_SCOPES, JOB_WRITE_SCOPES } from './shared/scopes';
 import {
   aiBundleSuggestionSchema,
   aiJobWithBundleOutputSchema,
+  aiWorkflowWithJobsOutputSchema,
   jobDefinitionCreateSchema,
-  workflowDefinitionCreateSchema
+  workflowDefinitionCreateSchema,
+  type AiWorkflowWithJobsOutput
 } from '../workflows/zodSchemas';
 
 const aiBuilderSuggestSchema = z
   .object({
-    mode: z.enum(['workflow', 'job', 'job-with-bundle']),
+    mode: z.enum(['workflow', 'job', 'job-with-bundle', 'workflow-with-jobs']),
     prompt: z.string().min(1).max(2_000),
     additionalNotes: z.string().max(2_000).optional()
   })
@@ -67,6 +69,15 @@ const aiBuilderJobCreateSchema = z
 type WorkflowCreatePayload = z.infer<typeof workflowDefinitionCreateSchema>;
 type JobCreatePayload = z.infer<typeof jobDefinitionCreateSchema>;
 
+type AiBuilderJobSuggestionPayload = {
+  job: JobCreatePayload;
+  bundle: AiGeneratedBundleSuggestion;
+  bundleValidation: {
+    valid: boolean;
+    errors: string[];
+  };
+};
+
 type AiSuggestionPayload = {
   mode: CodexGenerationMode;
   raw: string;
@@ -83,6 +94,8 @@ type AiSuggestionPayload = {
     valid: boolean;
     errors: string[];
   };
+  jobSuggestions?: AiBuilderJobSuggestionPayload[];
+  notes?: string | null;
   summary?: string | null;
 };
 
@@ -91,6 +104,12 @@ type CodexEvaluationResult = {
   validationErrors: string[];
   bundleSuggestion: AiGeneratedBundleSuggestion | null;
   bundleValidationErrors: string[];
+  workflowJobSuggestions: Array<{
+    job: JobCreatePayload;
+    bundle: AiGeneratedBundleSuggestion;
+    bundleValidationErrors: string[];
+  }>;
+  workflowNotes: string | null;
 };
 
 type AiGenerationSessionStatus = 'running' | 'succeeded' | 'failed';
@@ -198,6 +217,12 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
   const bundleValidationErrors: string[] = [];
   let suggestion: WorkflowCreatePayload | JobCreatePayload | null = null;
   let bundleSuggestion: AiGeneratedBundleSuggestion | null = null;
+  const workflowJobSuggestions: Array<{
+    job: JobCreatePayload;
+    bundle: AiGeneratedBundleSuggestion;
+    bundleValidationErrors: string[];
+  }> = [];
+  let workflowNotes: string | null = null;
 
   let parsed: unknown;
   try {
@@ -205,7 +230,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     validationErrors.push(`Failed to parse JSON output: ${message}`);
-    return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors };
+    return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowJobSuggestions, workflowNotes };
   }
 
   if (mode === 'job-with-bundle') {
@@ -216,6 +241,29 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
       if (!validation.data.bundle.files.some((file) => file.path === validation.data.bundle.entryPoint)) {
         bundleValidationErrors.push(`Bundle is missing entry point file: ${validation.data.bundle.entryPoint}`);
       }
+    } else {
+      for (const issue of validation.error.errors) {
+        const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+        validationErrors.push(`${path}: ${issue.message}`);
+      }
+    }
+  } else if (mode === 'workflow-with-jobs') {
+    const validation = aiWorkflowWithJobsOutputSchema.safeParse(parsed);
+    if (validation.success) {
+      const payload: AiWorkflowWithJobsOutput = validation.data;
+      suggestion = payload.workflow;
+      workflowNotes = payload.notes ?? null;
+      payload.newJobs.forEach((entry) => {
+        const bundleIssues: string[] = [];
+        if (!entry.bundle.files.some((file) => file.path === entry.bundle.entryPoint)) {
+          bundleIssues.push(`Bundle is missing entry point file: ${entry.bundle.entryPoint}`);
+        }
+        workflowJobSuggestions.push({
+          job: entry.job,
+          bundle: entry.bundle,
+          bundleValidationErrors: bundleIssues
+        });
+      });
     } else {
       for (const issue of validation.error.errors) {
         const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
@@ -235,7 +283,7 @@ function evaluateCodexOutput(mode: CodexGenerationMode, raw: string): CodexEvalu
     }
   }
 
-  return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors };
+  return { suggestion, validationErrors, bundleSuggestion, bundleValidationErrors, workflowJobSuggestions, workflowNotes };
 }
 
 function pruneAiGenerationSessions(now: number = Date.now()): void {
@@ -397,9 +445,11 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         const evaluationValid =
           evaluation.suggestion !== null &&
           evaluation.validationErrors.length === 0 &&
-          (mode !== 'job-with-bundle'
-            ? true
-            : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
+          (mode === 'job-with-bundle'
+            ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+            : mode === 'workflow-with-jobs'
+            ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+            : true);
 
         const session = createAiGenerationSession({
           proxyJobId: null,
@@ -428,6 +478,18 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
               valid: evaluation.bundleValidationErrors.length === 0,
               errors: evaluation.bundleValidationErrors
             },
+            jobSuggestions:
+              evaluation.workflowJobSuggestions.length > 0
+                ? evaluation.workflowJobSuggestions.map((entry) => ({
+                    job: entry.job,
+                    bundle: entry.bundle,
+                    bundleValidation: {
+                      valid: entry.bundleValidationErrors.length === 0,
+                      errors: entry.bundleValidationErrors
+                    }
+                  }))
+                : undefined,
+            notes: evaluation.workflowNotes,
             summary: codexResult.summary ?? null
           },
           error: evaluation.validationErrors.join('\n') || null,
@@ -531,9 +593,11 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             const evaluationValid =
               evaluation.suggestion !== null &&
               evaluation.validationErrors.length === 0 &&
-              (session.mode !== 'job-with-bundle'
-                ? true
-                : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
+              (session.mode === 'job-with-bundle'
+                ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+                : session.mode === 'workflow-with-jobs'
+                ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+                : true);
 
             session.status = 'succeeded';
             session.rawOutput = status.output;
@@ -553,6 +617,18 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
                 valid: evaluation.bundleValidationErrors.length === 0,
                 errors: evaluation.bundleValidationErrors
               },
+              jobSuggestions:
+                evaluation.workflowJobSuggestions.length > 0
+                  ? evaluation.workflowJobSuggestions.map((entry) => ({
+                      job: entry.job,
+                      bundle: entry.bundle,
+                      bundleValidation: {
+                        valid: entry.bundleValidationErrors.length === 0,
+                        errors: entry.bundleValidationErrors
+                      }
+                    }))
+                  : undefined,
+              notes: evaluation.workflowNotes,
               summary: status.summary ?? null
             };
             session.error = null;
@@ -663,9 +739,11 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
       const valid =
         evaluation.suggestion !== null &&
         evaluation.validationErrors.length === 0 &&
-        (mode !== 'job-with-bundle'
-          ? true
-          : evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0);
+        (mode === 'job-with-bundle'
+          ? evaluation.bundleSuggestion !== null && evaluation.bundleValidationErrors.length === 0
+          : mode === 'workflow-with-jobs'
+          ? evaluation.workflowJobSuggestions.every((entry) => entry.bundleValidationErrors.length === 0)
+          : true);
 
       await authResult.auth.log('succeeded', {
         mode,
@@ -688,6 +766,18 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             valid: evaluation.bundleValidationErrors.length === 0,
             errors: evaluation.bundleValidationErrors
           },
+          jobSuggestions:
+            evaluation.workflowJobSuggestions.length > 0
+              ? evaluation.workflowJobSuggestions.map((entry) => ({
+                  job: entry.job,
+                  bundle: entry.bundle,
+                  bundleValidation: {
+                    valid: entry.bundleValidationErrors.length === 0,
+                    errors: entry.bundleValidationErrors
+                  }
+                }))
+              : undefined,
+          notes: evaluation.workflowNotes,
           stdout: truncate(codexResult.stdout),
           stderr: truncate(codexResult.stderr),
           metadataSummary,

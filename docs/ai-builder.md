@@ -24,13 +24,29 @@ Both endpoints accept the original payload shape:
 
 ```json
 {
-  "mode": "workflow" | "job" | "job-with-bundle",
+  "mode": "workflow" | "workflow-with-jobs" | "job" | "job-with-bundle",
   "prompt": "...",
   "additionalNotes": "optional"
 }
 ```
 
 The catalog service checks operator scopes, gathers metadata, and calls the proxy's `/v1/codex/jobs`. The proxy writes `instructions.md` and `context/metadata.md`, streams `codex exec`, and exposes incremental stdout/stderr so the UI can render progress in real time. In addition to the metadata summary, the server now ships JSON catalogs under `context/jobs/`, `context/workflows/`, and `context/services/`, plus per-service OpenAPI documents when available. Codex can consume these files to reason about existing jobs, workflow shapes, and HTTP endpoints while drafting suggestions. When the CLI finishes, the backend validates the JSON output (using the shared Zod schemas) and stores the result in an in-memory session map so operators can leave the dialog and return later without losing context. In `job-with-bundle` mode the response includes both the job definition and bundle blueprint, along with validation warnings when files or entry points are missing.
+
+### Workflow + Jobs Mode
+
+`workflow-with-jobs` builds on the workflow experience by letting Codex propose any missing jobs alongside the definition. The response looks like:
+
+```json
+{
+  "workflow": { /* workflow definition */ },
+  "newJobs": [
+    { "job": { /* job definition */ }, "bundle": { /* Node bundle */ } }
+  ],
+  "notes": "optional operator follow-up"
+}
+```
+
+Codex should reuse existing job slugs whenever they satisfy the requested steps; `newJobs` is reserved for Node jobs that must be published. The UI highlights each proposed job, surfaces bundle validation issues (such as a missing entry point file), and lets operators publish the bundle inline before submitting the workflow. Submission stays disabled until every generated job has been created successfully.
 
 ## Automated Job Creation
 

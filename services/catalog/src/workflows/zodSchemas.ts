@@ -239,7 +239,16 @@ export const aiJobWithBundleOutputSchema = z
   })
   .strict();
 
+export const aiWorkflowWithJobsOutputSchema = z
+  .object({
+    workflow: workflowDefinitionCreateSchema,
+    newJobs: z.array(aiJobWithBundleOutputSchema).optional().default([]),
+    notes: z.string().min(1).max(5_000).optional()
+  })
+  .strict();
+
 export type AiBundleFile = z.infer<typeof aiBundleFileSchema>;
 export type AiBundleSuggestion = z.infer<typeof aiBundleSuggestionSchema>;
 export type AiJobWithBundleOutput = z.infer<typeof aiJobWithBundleOutputSchema>;
+export type AiWorkflowWithJobsOutput = z.infer<typeof aiWorkflowWithJobsOutputSchema>;
 export type JobDefinitionUpdateInput = z.infer<typeof jobDefinitionUpdateSchema>;
