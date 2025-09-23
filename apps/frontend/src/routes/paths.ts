@@ -6,7 +6,8 @@ export const ROUTE_SEGMENTS = {
   import: 'import',
   settings: 'settings',
   settingsPreview: 'preview',
-  settingsApiAccess: 'api'
+  settingsApiAccess: 'api',
+  settingsAiBuilder: 'ai-builder'
 } as const;
 
 export const ROUTE_PATHS = {
@@ -17,7 +18,8 @@ export const ROUTE_PATHS = {
   import: `/${ROUTE_SEGMENTS.import}`,
   settings: `/${ROUTE_SEGMENTS.settings}`,
   settingsPreview: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsPreview}`,
-  settingsApiAccess: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsApiAccess}`
+  settingsApiAccess: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsApiAccess}`,
+  settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`
 } as const;
 
 export type PrimaryNavKey = 'catalog' | 'apps' | 'jobs' | 'workflows' | 'import' | 'settings';

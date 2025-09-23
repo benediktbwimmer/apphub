@@ -3,7 +3,8 @@ import { PREVIEW_HEIGHT_BOUNDS, PREVIEW_WIDTH_BOUNDS } from './previewLayoutCont
 
 const TABS = [
   { key: 'preview', label: 'Preview Scaling', path: 'preview', description: 'Adjust how embedded previews render inside the catalog and apps gallery.' },
-  { key: 'api', label: 'API Access', path: 'api', description: 'Manage operator tokens stored in your browser.' }
+  { key: 'api', label: 'API Access', path: 'api', description: 'Manage operator tokens stored in your browser.' },
+  { key: 'ai-builder', label: 'AI builder', path: 'ai-builder', description: 'Configure AI builder providers and credentials.' }
 ] as const;
 
 export default function SettingsLayout() {

@@ -13,6 +13,7 @@ import {
   fetchAiGeneration,
   startAiGeneration,
   type AiBuilderMode,
+  type AiBuilderProvider,
   type AiGenerationState,
   type AiSuggestionResponse
 } from './api';
@@ -27,6 +28,7 @@ import type { WorkflowDefinition } from '../types';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { ToastPayload } from '../../components/toast/ToastContext';
 import { createJobWithBundle, type AiBundleSuggestion, type AiJobSuggestion } from './api';
+import { useAiBuilderSettings } from '../../ai/useAiBuilderSettings';
 
 const WORKFLOW_SCHEMA = workflowDefinitionCreateSchema;
 const JOB_SCHEMA = jobDefinitionCreateSchema;
@@ -51,6 +53,19 @@ const MODE_OPTIONS: { value: AiBuilderMode; label: string }[] = [
   { value: 'workflow-with-jobs', label: 'Workflow + jobs' },
   { value: 'job', label: 'Job' },
   { value: 'job-with-bundle', label: 'Job + bundle' }
+];
+
+const PROVIDER_OPTIONS: { value: AiBuilderProvider; label: string; description: string }[] = [
+  {
+    value: 'codex',
+    label: 'Codex CLI',
+    description: 'Runs through the host Codex proxy. Provides streaming stdout/stderr.'
+  },
+  {
+    value: 'openai',
+    label: 'OpenAI GPT-5',
+    description: 'Calls the OpenAI API with high reasoning effort to draft structured output.'
+  }
 ];
 
 function toValidationErrors(mode: AiBuilderMode, editorValue: string): { valid: boolean; errors: string[] } {
@@ -101,6 +116,8 @@ export default function AiBuilderDialog({
   canCreateJob
 }: AiBuilderDialogProps) {
   const { refresh: refreshResources } = useWorkflowResources();
+  const { settings: aiSettings, setPreferredProvider } = useAiBuilderSettings();
+  const [provider, setProvider] = useState<AiBuilderProvider>(aiSettings.preferredProvider);
   const [mode, setMode] = useState<AiBuilderMode>('workflow');
   const [prompt, setPrompt] = useState('');
   const [additionalNotes, setAdditionalNotes] = useState('');
@@ -124,6 +141,8 @@ export default function AiBuilderDialog({
   const [workflowNotes, setWorkflowNotes] = useState<string | null>(null);
   const [generation, setGeneration] = useState<AiGenerationState | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openAiApiKey = aiSettings.openAiApiKey.trim();
+  const openAiMaxOutputTokens = aiSettings.openAiMaxOutputTokens;
 
   const applySuggestion = useCallback(
     (response: AiSuggestionResponse) => {
@@ -170,11 +189,14 @@ export default function AiBuilderDialog({
     [setJobDrafts, setWorkflowNotes]
   );
 
-  const persistGeneration = useCallback((id: string, modeValue: AiBuilderMode) => {
+  const persistGeneration = useCallback((id: string, modeValue: AiBuilderMode, providerValue: AiBuilderProvider) => {
     if (typeof window === 'undefined') {
       return;
     }
-    window.localStorage.setItem(GENERATION_STORAGE_KEY, JSON.stringify({ id, mode: modeValue }));
+    window.localStorage.setItem(
+      GENERATION_STORAGE_KEY,
+      JSON.stringify({ id, mode: modeValue, provider: providerValue })
+    );
   }, []);
 
   const clearPersistedGeneration = useCallback(() => {
@@ -205,12 +227,17 @@ export default function AiBuilderDialog({
       setJobDrafts([]);
       setWorkflowNotes(null);
       setGeneration(null);
+      setProvider(aiSettings.preferredProvider);
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
     }
-  }, [open]);
+  }, [aiSettings.preferredProvider, open]);
+
+  useEffect(() => {
+    setProvider(aiSettings.preferredProvider);
+  }, [aiSettings.preferredProvider]);
 
   useEffect(() => {
     if (!open) {
@@ -231,16 +258,22 @@ export default function AiBuilderDialog({
       return;
     }
     try {
-      const parsed = JSON.parse(stored) as { id?: string; mode?: AiBuilderMode };
+      const parsed = JSON.parse(stored) as { id?: string; mode?: AiBuilderMode; provider?: AiBuilderProvider };
       if (!parsed.id) {
         clearPersistedGeneration();
         return;
+      }
+      if (parsed.provider === 'codex' || parsed.provider === 'openai') {
+        setProvider(parsed.provider);
       }
       setPending(true);
       fetchAiGeneration(authorizedFetch, parsed.id)
         .then((state) => {
           setGeneration(state);
           setMode(state.mode);
+          if (state.provider === 'codex' || state.provider === 'openai') {
+            setProvider(state.provider);
+          }
           setMetadataSummary(state.metadataSummary ?? '');
           setStdout(state.stdout ?? '');
           setStderr(state.stderr ?? '');
@@ -252,7 +285,8 @@ export default function AiBuilderDialog({
             setPending(false);
             clearPersistedGeneration();
           } else if (state.status === 'failed') {
-            setError(state.error ?? 'Codex generation failed');
+            const providerName = state.provider === 'openai' ? 'OpenAI' : 'Codex';
+            setError(state.error ?? `${providerName} generation failed`);
             setPending(false);
             clearPersistedGeneration();
           } else {
@@ -277,6 +311,10 @@ export default function AiBuilderDialog({
         setError('Describe the workflow or job you would like to generate.');
         return;
       }
+      if (provider === 'openai' && openAiApiKey.length === 0) {
+        setError('Add an OpenAI API key in Settings → AI builder before generating with OpenAI.');
+        return;
+      }
       if (pollTimerRef.current) {
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
@@ -296,9 +334,20 @@ export default function AiBuilderDialog({
         const response = await startAiGeneration(authorizedFetch, {
           mode: requestMode,
           prompt: prompt.trim(),
-          additionalNotes: additionalNotes.trim() || undefined
+          additionalNotes: additionalNotes.trim() || undefined,
+          provider,
+          providerOptions:
+            provider === 'openai'
+              ? {
+                  openAiApiKey,
+                  openAiMaxOutputTokens
+                }
+              : undefined
         });
         setGeneration(response);
+        if (response.provider === 'codex' || response.provider === 'openai') {
+          setProvider(response.provider);
+        }
         setMetadataSummary(response.metadataSummary ?? '');
         setStdout(response.stdout ?? '');
         setStderr(response.stderr ?? '');
@@ -310,16 +359,18 @@ export default function AiBuilderDialog({
           setPending(false);
           clearPersistedGeneration();
         } else if (response.status === 'failed') {
-          const failureMessage = response.error ?? 'Codex generation failed';
+          const failureProvider = response.provider === 'openai' ? 'OpenAI' : 'Codex';
+          const failureMessage = response.error ?? `${failureProvider} generation failed`;
           setError(failureMessage);
           setPending(false);
           clearPersistedGeneration();
         } else {
-          persistGeneration(response.generationId, requestMode);
+          persistGeneration(response.generationId, requestMode, provider);
         }
         console.info('ai-builder.usage', {
           event: 'generation-started',
           mode: requestMode,
+          provider,
           promptLength: prompt.trim().length,
           immediateResult: response.status !== 'running'
         });
@@ -337,8 +388,11 @@ export default function AiBuilderDialog({
       authorizedFetch,
       clearPersistedGeneration,
       mode,
+      openAiApiKey,
+      openAiMaxOutputTokens,
       persistGeneration,
       prompt,
+      provider,
       setJobDrafts,
       setWorkflowNotes
     ]
@@ -362,6 +416,9 @@ export default function AiBuilderDialog({
           return;
         }
         setGeneration(next);
+        if (next.provider === 'codex' || next.provider === 'openai') {
+          setProvider(next.provider);
+        }
         setMetadataSummary(next.metadataSummary ?? '');
         setStdout(next.stdout ?? '');
         setStderr(next.stderr ?? '');
@@ -375,7 +432,8 @@ export default function AiBuilderDialog({
           setPending(false);
           clearPersistedGeneration();
         } else if (next.status === 'failed') {
-          setError(next.error ?? 'Codex generation failed');
+          const providerName = next.provider === 'openai' ? 'OpenAI' : 'Codex';
+          setError(next.error ?? `${providerName} generation failed`);
           setPending(false);
           clearPersistedGeneration();
         } else {
@@ -423,9 +481,21 @@ export default function AiBuilderDialog({
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
-      console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode });
+      console.info('ai-builder.usage', { event: 'mode-changed', mode: nextMode, provider });
     },
-    [clearPersistedGeneration, setJobDrafts, setWorkflowNotes]
+    [clearPersistedGeneration, provider, setJobDrafts, setWorkflowNotes]
+  );
+
+  const handleProviderChange = useCallback(
+    (nextProvider: AiBuilderProvider) => {
+      if (nextProvider === provider) {
+        return;
+      }
+      setProvider(nextProvider);
+      setPreferredProvider(nextProvider);
+      console.info('ai-builder.usage', { event: 'provider-changed', provider: nextProvider });
+    },
+    [provider, setPreferredProvider]
   );
 
   const handleEditorChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -469,7 +539,8 @@ export default function AiBuilderDialog({
       rawOutput: generation.result?.raw ?? undefined,
       stdout: generation.result?.stdout ?? undefined,
       stderr: generation.result?.stderr ?? undefined,
-      summary: generation.result?.summary ?? undefined
+      summary: generation.result?.summary ?? undefined,
+      provider: generation.provider
     };
   }, [additionalNotes, generation, metadataSummary, prompt]);
 
@@ -500,7 +571,8 @@ export default function AiBuilderDialog({
         event: 'workflow-submitted',
         edited: isEdited,
         mode,
-        validationErrors: validation.errors.length
+        validationErrors: validation.errors.length,
+        provider: generation?.provider ?? provider
       });
       await onWorkflowSubmitted(created);
       pushToast({
@@ -522,12 +594,14 @@ export default function AiBuilderDialog({
     parseEditorValue,
     isEdited,
     mode,
+    provider,
     validation.errors.length,
     onWorkflowSubmitted,
     pushToast,
     refreshResources,
     onClose,
-    jobDrafts
+    jobDrafts,
+    generation
   ]);
 
   const handleOpenInBuilder = useCallback(() => {
@@ -565,8 +639,8 @@ export default function AiBuilderDialog({
       if (!target || target.creating || target.created) {
         return;
       }
-      if (!canCreateJob) {
-        const scopeMessage = 'Your token must include the job-bundles:write scope to create Codex-generated jobs.';
+    if (!canCreateJob) {
+      const scopeMessage = 'Your token must include the job-bundles:write scope to create AI-generated jobs.';
         setError(scopeMessage);
         setJobDrafts((current) =>
           current.map((draft) => (draft.id === draftId ? { ...draft, error: scopeMessage } : draft))
@@ -694,7 +768,7 @@ export default function AiBuilderDialog({
       return;
     }
     if (!canCreateJob) {
-      setError('Your token must include the job-bundles:write scope to create Codex-generated jobs.');
+      setError('Your token must include the job-bundles:write scope to create AI-generated jobs.');
       return;
     }
     const parsed = parseEditorValue() as JobDefinitionCreateInput | null;
@@ -725,7 +799,8 @@ export default function AiBuilderDialog({
         event: 'job-submitted',
         edited: isEdited,
         mode,
-        jobSlug: created.slug
+        jobSlug: created.slug,
+        provider: generation?.provider ?? provider
       });
       pushToast({
         tone: 'success',
@@ -751,7 +826,9 @@ export default function AiBuilderDialog({
     onClose,
     bundleSuggestion,
     canCreateJob,
-    buildGenerationMetadata
+    buildGenerationMetadata,
+    provider,
+    generation
   ]);
 
   const handleDismiss = useCallback(() => {
@@ -759,11 +836,18 @@ export default function AiBuilderDialog({
       console.info('ai-builder.usage', {
         event: 'dismissed',
         mode,
-        edited: isEdited
+        edited: isEdited,
+        provider: generation?.provider ?? provider
       });
     }
     onClose();
-  }, [hasSuggestion, mode, isEdited, onClose]);
+  }, [generation, hasSuggestion, isEdited, mode, onClose, provider]);
+
+  const activeProvider = generation?.provider ?? provider;
+  const providerSelectionLabel = provider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI';
+  const activeProviderLabel = activeProvider === 'openai' ? 'OpenAI GPT-5' : 'Codex CLI';
+  const providerHasLogs = activeProvider === 'codex';
+  const providerRequiresKey = provider === 'openai' && openAiApiKey.length === 0;
 
   if (!open) {
     return null;
@@ -793,11 +877,32 @@ export default function AiBuilderDialog({
           <div>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">AI Workflow Builder</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Describe the automation you need and let Codex draft a job or workflow definition.
+              Describe the automation you need and let {providerSelectionLabel} draft a job or workflow definition.
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+            <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
+                {PROVIDER_OPTIONS.map(({ value, label }) => {
+                  const isActive = provider === value;
+                  const requireKey = value === 'openai' && !openAiApiKey;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`rounded-full px-4 py-1.5 transition-colors ${
+                        isActive
+                          ? 'bg-violet-600 text-white shadow'
+                          : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
+                      } ${requireKey ? 'opacity-70' : ''}`}
+                      onClick={() => handleProviderChange(value)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
               {MODE_OPTIONS.map(({ value, label }) => {
                 const isActive = mode === value;
                 return (
@@ -816,6 +921,12 @@ export default function AiBuilderDialog({
                 );
               })}
             </div>
+            </div>
+            {providerRequiresKey ? (
+              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">
+                Add an OpenAI API key under Settings → AI builder before generating.
+              </span>
+            ) : null}
             <button
               type="button"
               className="rounded-full border border-slate-200/70 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900 dark:text-slate-300"
@@ -867,9 +978,10 @@ export default function AiBuilderDialog({
                       : 'border-rose-300/70 bg-rose-50/70 text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300'
                   }`}
                 >
-                  {generation.status === 'running' && 'Codex is generating a suggestion. You can close the dialog and return later to resume.'}
-                  {generation.status === 'succeeded' && 'Latest Codex generation completed.'}
-                  {generation.status === 'failed' && (generation.error ?? 'Codex generation failed.')}
+                  {generation.status === 'running' &&
+                    `${activeProviderLabel} is generating a suggestion. You can close the dialog and return later to resume.`}
+                  {generation.status === 'succeeded' && `Latest ${activeProviderLabel} generation completed.`}
+                  {generation.status === 'failed' && (generation.error ?? `${activeProviderLabel} generation failed.`)}
                 </div>
               )}
 
@@ -877,7 +989,7 @@ export default function AiBuilderDialog({
                 <button
                   type="submit"
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={pending || submitting}
+                  disabled={pending || submitting || (provider === 'openai' && openAiApiKey.length === 0)}
                 >
                   {pending ? 'Generating…' : 'Generate suggestion'}
                 </button>
@@ -886,7 +998,7 @@ export default function AiBuilderDialog({
                     type="button"
                     className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
                     onClick={() => handleGenerate()}
-                    disabled={pending || submitting}
+                    disabled={pending || submitting || (provider === 'openai' && openAiApiKey.length === 0)}
                   >
                     Regenerate
                   </button>
@@ -944,7 +1056,7 @@ export default function AiBuilderDialog({
                 </p>
                 {!canCreateJob && (
                   <div className="mt-3 rounded-xl border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-                    Add a token with <code>job-bundles:write</code> scope to publish Codex-generated jobs automatically.
+                    Add a token with <code>job-bundles:write</code> scope to publish AI-generated jobs automatically.
                   </div>
                 )}
                 <div className="mt-3 space-y-3">
@@ -1053,14 +1165,14 @@ export default function AiBuilderDialog({
 
             {mode === 'job-with-bundle' && hasSuggestion && !canCreateJob && (
               <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-                Add a token with <code>job-bundles:write</code> scope to publish Codex-generated bundles automatically.
+                Add a token with <code>job-bundles:write</code> scope to publish AI-generated bundles automatically.
               </div>
             )}
 
             {(generation || hasSuggestion) && metadataSummary && (
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
-                  Catalog snapshot shared with Codex
+                  Catalog snapshot shared with {activeProviderLabel}
                 </summary>
                 <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
                   {formatSummary(metadataSummary)}
@@ -1071,7 +1183,7 @@ export default function AiBuilderDialog({
             {summaryText && (
               <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
-                  Codex summary notes
+                  {activeProviderLabel} summary notes
                 </summary>
                 <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
                   {summaryText}
@@ -1088,10 +1200,12 @@ export default function AiBuilderDialog({
               </div>
             )}
 
-            {(stdout || stderr) && (
+            {providerHasLogs && (stdout || stderr) && (
               <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Codex CLI logs</h4>
+                  <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+                    {activeProvider === 'openai' ? 'OpenAI response log' : 'Codex CLI logs'}
+                  </h4>
                   {generation?.status === 'running' && (
                     <span className="inline-flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-300">
                       <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-violet-500" /> Running…
@@ -1129,7 +1243,11 @@ export default function AiBuilderDialog({
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                {hasSuggestion ? (isEdited ? 'You have modified the generated spec.' : 'Spec matches Codex suggestion.') : 'Generate a suggestion to continue.'}
+                {hasSuggestion
+                  ? isEdited
+                    ? 'You have modified the generated spec.'
+                    : `Spec matches the ${activeProviderLabel} suggestion.`
+                  : 'Generate a suggestion to continue.'}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 {mode === 'workflow' && (

@@ -1,7 +1,9 @@
 import { API_BASE_URL } from '../../config';
 import { ApiError, ensureOk, parseJson } from '../api';
 import type { AuthorizedFetch, WorkflowCreateInput, JobDefinitionCreateInput, JobDefinitionSummary } from '../api';
+import type { AiBuilderProvider } from '../../ai/types';
 
+export type { AiBuilderProvider } from '../../ai/types';
 export type AiBuilderMode = 'workflow' | 'job' | 'job-with-bundle' | 'workflow-with-jobs';
 
 export type AiBundleFile = {
@@ -58,10 +60,16 @@ export type AiSuggestRequest = {
   mode: AiBuilderMode;
   prompt: string;
   additionalNotes?: string;
+  provider?: AiBuilderProvider;
+  providerOptions?: {
+    openAiApiKey?: string;
+    openAiBaseUrl?: string;
+  };
 };
 
 export type AiGenerationState = {
   generationId: string;
+  provider: AiBuilderProvider;
   status: 'running' | 'succeeded' | 'failed';
   mode: AiBuilderMode;
   metadataSummary: string;
@@ -137,6 +145,7 @@ export type AiGenerationMetadata = {
   stdout?: string;
   stderr?: string;
   summary?: string;
+  provider?: AiBuilderProvider;
 };
 
 export type CreateJobWithBundleRequest = {

@@ -8,6 +8,7 @@ import ServiceGallery from '../services/ServiceGallery';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
+import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
@@ -68,6 +69,10 @@ export const appRouteConfig: RouteObject[] = [
           {
             path: ROUTE_SEGMENTS.settingsApiAccess,
             element: <ApiAccessPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsAiBuilder,
+            element: <AiBuilderSettingsPage />
           }
         ]
       },
