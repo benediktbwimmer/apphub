@@ -5,6 +5,7 @@ import process from 'node:process';
 import fs from 'node:fs';
 import type { SandboxParentMessage, SandboxChildMessage, SandboxStartPayload } from './messages';
 import type { SecretReference, JsonValue } from '../../db/types';
+import type { JobResult } from '../runtime';
 
 const builtinModules = new Set(Module.builtinModules);
 for (const name of Module.builtinModules) {
@@ -533,13 +534,53 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
     }
   };
 
+  const rawParams = context.parameters ?? {};
+  const paramsObject =
+    rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
+      ? (rawParams as Record<string, unknown>)
+      : {};
+  const invocationParams = Object.create(context) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(paramsObject)) {
+    invocationParams[key] = value;
+  }
+  invocationParams.parameters = context.parameters;
+
+  const normalizeJobResult = (value: unknown): JobResult => {
+    if (value === null || value === undefined) {
+      return {} satisfies JobResult;
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      const knownKeys = ['status', 'result', 'errorMessage', 'logsUrl', 'metrics', 'context', 'timeoutMs'];
+      const hasJobResultShape = knownKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
+      if (hasJobResultShape) {
+        return record as JobResult;
+      }
+      return {
+        result: record as JsonValue
+      } satisfies JobResult;
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return { result: value } satisfies JobResult;
+    }
+    if (Array.isArray(value)) {
+      return { result: value as JsonValue } satisfies JobResult;
+    }
+    return { result: String(value) } satisfies JobResult;
+  };
+
   try {
-    const result = await Promise.resolve((handler as (ctx: typeof context) => unknown)(context));
+    const handlerOutput = await Promise.resolve(
+      (handler as (params: Record<string, unknown>, ctx: typeof context) => unknown)(
+        invocationParams,
+        context
+      )
+    );
+    const jobResult = sanitizeForIpc(normalizeJobResult(handlerOutput));
     const durationMs = Date.now() - startTime;
-    const serializedResult = sanitizeForIpc(result ?? {});
     send({
       type: 'result',
-      result: serializedResult as any,
+      result: jobResult as any,
       durationMs,
       resourceUsage: process.resourceUsage()
     });

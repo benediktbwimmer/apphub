@@ -149,7 +149,7 @@ type TemplateScope = {
   item?: JsonValue;
 };
 
-const TEMPLATE_PATTERN = /{{\s*([^}]+)\s*}}/g;
+const TEMPLATE_PATTERN = /\$?{{\s*([^}]+)\s*}}/g;
 
 const FANOUT_GLOBAL_MAX_ITEMS = Math.max(
   1,

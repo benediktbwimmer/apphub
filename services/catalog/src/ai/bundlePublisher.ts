@@ -103,17 +103,49 @@ function cloneManifest(manifest: JsonValue): JsonValue {
   return JSON.parse(JSON.stringify(manifest ?? {}));
 }
 
+function normalizeCapabilityList(candidate: unknown, flags?: string[]): string[] {
+  const seen = new Set<string>();
+  if (Array.isArray(candidate)) {
+    for (const entry of candidate) {
+      if (typeof entry !== 'string') {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (!trimmed) {
+        continue;
+      }
+      seen.add(trimmed);
+    }
+  }
+  for (const flag of flags ?? []) {
+    if (typeof flag !== 'string') {
+      continue;
+    }
+    const trimmed = flag.trim();
+    if (!trimmed) {
+      continue;
+    }
+    seen.add(trimmed);
+  }
+  return Array.from(seen).sort((a, b) => a.localeCompare(b));
+}
+
 function normalizeManifestForSuggestion(
   manifest: JsonValue,
-  options: { slug: string; version: string; entryPoint: string }
+  options: { slug: string; version: string; entryPoint: string; capabilityFlags?: string[] }
 ): JsonValue {
+  const capabilityFlags = normalizeCapabilityList(undefined, options.capabilityFlags);
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    return {
+    const base: Record<string, unknown> = {
       name: options.slug,
       version: options.version,
       main: options.entryPoint,
       entry: options.entryPoint
-    } satisfies Record<string, unknown> as JsonValue;
+    };
+    if (capabilityFlags.length > 0) {
+      base.capabilities = capabilityFlags;
+    }
+    return base as JsonValue;
   }
   const nextManifest = cloneManifest(manifest) as Record<string, unknown>;
   if (typeof nextManifest.name !== 'string' || !nextManifest.name) {
@@ -125,6 +157,12 @@ function normalizeManifestForSuggestion(
   }
   if (typeof nextManifest.main !== 'string' || !nextManifest.main) {
     nextManifest.main = options.entryPoint;
+  }
+  const mergedCapabilities = normalizeCapabilityList(nextManifest.capabilities, capabilityFlags);
+  if (mergedCapabilities.length > 0) {
+    nextManifest.capabilities = mergedCapabilities;
+  } else {
+    delete nextManifest.capabilities;
   }
   return nextManifest as JsonValue;
 }
@@ -141,7 +179,12 @@ export async function buildBundleArtifactFromSuggestion(
   try {
     await writeBundleFiles(workspace, suggestion.files);
 
-    const manifest = normalizeManifestForSuggestion(suggestion.manifest, { slug, version, entryPoint });
+    const manifest = normalizeManifestForSuggestion(suggestion.manifest, {
+      slug,
+      version,
+      entryPoint,
+      capabilityFlags: suggestion.capabilityFlags ?? []
+    });
     const manifestPath = suggestion.manifestPath ?? 'manifest.json';
     const manifestTarget = path.join(workspace, manifestPath);
     await fs.mkdir(path.dirname(manifestTarget), { recursive: true });

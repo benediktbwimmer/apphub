@@ -189,7 +189,7 @@ export type BundleRegenerateInput = {
   metadata?: unknown;
   description?: string | null;
   displayName?: string | null;
-  version?: string | null;
+  version?: string;
 };
 
 export async function regenerateJobBundle(

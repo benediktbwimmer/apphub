@@ -12,6 +12,7 @@ import {
   type JobRuntimeStatus,
   type BundleEditorData,
   type BundleEditorFile,
+  type BundleRegenerateInput,
   type JobDetailResponse
 } from './api';
 import JobCreateDialog from './JobCreateDialog';
@@ -478,22 +479,27 @@ export default function JobsPage() {
       return result;
     });
 
+    const versionValue = versionInput.trim();
+    const payload: BundleRegenerateInput = {
+      entryPoint,
+      manifestPath: manifestPath.trim() || 'manifest.json',
+      manifest: manifestValue,
+      files: payloadFiles,
+      capabilityFlags,
+      metadata: panelState.bundle.bundle.metadata ?? undefined,
+      description: undefined,
+      displayName: undefined
+    };
+    if (versionValue.length > 0) {
+      payload.version = versionValue;
+    }
+
     setRegenerating(true);
     setRegenerateError(null);
     setRegenerateSuccess(null);
 
     try {
-      const response = await regenerateJobBundle(authorizedFetch, selectedSlug, {
-        entryPoint,
-        manifestPath: manifestPath.trim() || 'manifest.json',
-        manifest: manifestValue,
-        files: payloadFiles,
-        capabilityFlags,
-        metadata: panelState.bundle.bundle.metadata ?? undefined,
-        description: undefined,
-        displayName: undefined,
-        version: versionInput.trim().length > 0 ? versionInput.trim() : null
-      });
+      const response = await regenerateJobBundle(authorizedFetch, selectedSlug, payload);
       setPanelState((prev) => ({
         detail: prev.detail ? { ...prev.detail, job: response.job } : prev.detail,
         detailError: prev.detailError,
@@ -703,7 +709,7 @@ function JobSummary({ detail, bundle }: JobSummaryProps) {
       <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <dt className="font-semibold text-slate-600 dark:text-slate-300">Entry point</dt>
-          <dd className="text-slate-700 dark:text-slate-200">{definition.entryPoint}</dd>
+          <dd className="text-slate-700 break-words dark:text-slate-200">{definition.entryPoint}</dd>
         </div>
         <div>
           <dt className="font-semibold text-slate-600 dark:text-slate-300">Timeout</dt>
@@ -839,7 +845,7 @@ function BundleEditorPanel({
                     onClick={() => onSelectFile(file.path)}
                     className={`w-full rounded-lg px-3 py-2 text-left text-xs transition-colors ${isActive ? 'bg-violet-100 text-violet-900 dark:bg-violet-600/30 dark:text-violet-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                   >
-                    <div className="font-medium">{file.path}</div>
+                    <div className="font-medium break-words">{file.path}</div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400">
                       {file.encoding === 'base64' ? 'Binary (read-only)' : file.executable ? 'Executable' : 'Text'}
                     </div>
@@ -991,7 +997,7 @@ function BundleHistoryPanel({ bundle }: BundleHistoryPanelProps) {
                 <div className="font-medium text-slate-700 dark:text-slate-200">
                   {entry.slug}@{entry.version}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
+                <div className="text-xs text-slate-500 break-all dark:text-slate-400">
                   Checksum: {entry.checksum ?? 'n/a'}
                 </div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -1012,7 +1018,7 @@ function BundleHistoryPanel({ bundle }: BundleHistoryPanelProps) {
                     {version.status}
                   </span>
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">Checksum: {version.checksum}</div>
+                <div className="text-xs text-slate-500 break-all dark:text-slate-400">Checksum: {version.checksum}</div>
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   Published: {formatDate(version.publishedAt)}
                 </div>
@@ -1024,7 +1030,7 @@ function BundleHistoryPanel({ bundle }: BundleHistoryPanelProps) {
       {bundle.aiBuilder && (
         <div className="mt-6">
           <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">AI builder metadata</h4>
-          <pre className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <pre className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-words dark:bg-slate-800 dark:text-slate-200">
             {JSON.stringify(bundle.aiBuilder, null, 2)}
           </pre>
         </div>
