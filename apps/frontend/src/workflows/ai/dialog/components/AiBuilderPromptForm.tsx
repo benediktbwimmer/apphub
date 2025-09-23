@@ -59,6 +59,17 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
     handleResetPrompts
   } = handlers;
 
+  const sortedContextFiles = contextPreview
+    ? [...contextPreview.contextFiles].sort((a, b) => {
+        const aTokens = a.tokens ?? -1;
+        const bTokens = b.tokens ?? -1;
+        if (aTokens === bTokens) {
+          return b.bytes - a.bytes;
+        }
+        return bTokens - aTokens;
+      })
+    : [];
+
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     void handleGenerate(event);
   };
@@ -95,7 +106,7 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
               {contextLoading ? 'Loading…' : formatTokenCount(contextPreview?.tokenCount ?? null)}
             </span>
           </div>
-          <div className="mt-2 space-y-3">
+          <div className="mt-2 max-h-80 space-y-3 overflow-y-auto pr-1">
             {contextLoading && <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading context…</p>}
             {!contextLoading && contextError && (
               <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">{contextError}</p>
@@ -125,9 +136,9 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
                 </div>
                 <div className="space-y-2">
                   <h5 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Context files ({contextPreview.contextFiles.length})
+                    Context files ({sortedContextFiles.length})
                   </h5>
-                  {contextPreview.contextFiles.map((file) => (
+                  {sortedContextFiles.map((file) => (
                     <details
                       key={file.path}
                       className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-950/50"
@@ -136,8 +147,10 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
                         <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                           {file.path}
                         </code>
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                          {formatBytes(file.bytes)}
+                        <span className="flex items-center gap-2 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                          <span>{formatTokenCount(file.tokens)}</span>
+                          <span aria-hidden="true">•</span>
+                          <span>{formatBytes(file.bytes)}</span>
                         </span>
                       </summary>
                       <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
