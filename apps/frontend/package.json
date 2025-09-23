@@ -13,6 +13,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "ajv": "^8.17.1",
+    "fflate": "^0.8.2",
     "monaco-editor": "^0.53.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
