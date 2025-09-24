@@ -33,6 +33,16 @@ const assetFreshnessSchema = z
     message: 'Freshness must specify at least one field'
   });
 
+const assetAutoMaterializeSchema = z
+  .object({
+    onUpstreamUpdate: z.boolean().optional(),
+    priority: z.number().int().min(0).max(1_000_000).optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'autoMaterialize must specify at least one field'
+  });
+
 const workflowAssetDeclarationSchema = z
   .object({
     assetId: z
@@ -44,7 +54,8 @@ const workflowAssetDeclarationSchema = z
         'Asset ID must start with an alphanumeric character and may include dot, underscore, colon, or dash'
       ),
     schema: jsonObjectSchema.optional(),
-    freshness: assetFreshnessSchema.optional()
+    freshness: assetFreshnessSchema.optional(),
+    autoMaterialize: assetAutoMaterializeSchema.optional()
   })
   .strict();
 

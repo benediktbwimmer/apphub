@@ -487,10 +487,17 @@ export type WorkflowAssetFreshness = {
   cadenceMs?: number | null;
 };
 
+export type WorkflowAssetAutoMaterialize = {
+  onUpstreamUpdate?: boolean | null;
+  priority?: number | null;
+};
+
+
 export type WorkflowAssetDeclaration = {
   assetId: string;
   schema?: JsonValue | null;
   freshness?: WorkflowAssetFreshness | null;
+  autoMaterialize?: WorkflowAssetAutoMaterialize | null;
 };
 
 export type WorkflowDefinitionStepBase = {
@@ -652,6 +659,7 @@ export type WorkflowAssetDeclarationRecord = {
   assetId: string;
   schema: JsonValue | null;
   freshness: WorkflowAssetFreshness | null;
+  autoMaterialize: WorkflowAssetAutoMaterialize | null;
   createdAt: string;
   updatedAt: string;
 };

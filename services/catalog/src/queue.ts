@@ -45,6 +45,7 @@ export const INGEST_QUEUE_NAME = process.env.INGEST_QUEUE_NAME ?? 'apphub_queue'
 export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_queue';
 export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch_queue';
 export const WORKFLOW_QUEUE_NAME = process.env.WORKFLOW_QUEUE_NAME ?? 'apphub_workflow_queue';
+export const ASSET_EVENT_QUEUE_NAME = process.env.ASSET_EVENT_QUEUE_NAME ?? 'apphub_asset_event_queue';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {

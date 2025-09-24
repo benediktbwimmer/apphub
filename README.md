@@ -8,6 +8,7 @@
 apphub/
 ├── docs/
 │   └── architecture.md       # High-level system design + roadmap ideas
+│   └── assets-overview.md    # Auto-materialization events, policies, and worker setup
 ├── services/
 │   └── catalog/              # Fastify-based API serving app metadata + tag autocomplete
 └── apps/
@@ -79,6 +80,27 @@ Fan-out step definitions live alongside traditional `job` and `service` steps. A
 (`collection`), a template step (`template`) that defines the child job/service payload, and optional guardrails such as
 `maxItems`, `maxConcurrency`, and `storeResultsAs` for aggregating child outputs into the shared workflow context. The REST API and
 `workflow.run.*` events expose the generated child step metadata so the frontend can render progress for each dynamic branch.
+
+
+### Asset Materializer
+
+Event-driven asset reconciliation runs in a dedicated worker that listens for
+`asset.produced` and `asset.expired` events. It automatically enqueues workflow
+runs when upstream assets change or freshness windows lapse, and marks those
+runs with `trigger.type = 'auto-materialize'` for auditing. The worker can run
+inline (Redis `inline` mode) or via BullMQ with delayed expiry jobs.
+
+```bash
+cd services/catalog
+npm run materializer
+```
+
+Key environment variables:
+- `ASSET_EVENT_QUEUE_NAME` – BullMQ queue for delayed expiry (`apphub_asset_event_queue` by default).
+- `ASSET_MATERIALIZER_BASE_BACKOFF_MS` / `ASSET_MATERIALIZER_MAX_BACKOFF_MS` – failure backoff window (defaults `120000` / `1800000`).
+- `ASSET_MATERIALIZER_REFRESH_INTERVAL_MS` – graph refresh cadence (default `600000`).
+
+See `docs/assets-overview.md` for auto-materialization policies and event flow details.
 
 ### Frontend
 

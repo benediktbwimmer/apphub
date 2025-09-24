@@ -1,9 +1,8 @@
-# Workflow Assets & Lineage Overview
+# Workflow Assets & Auto-Materialization
+
+Workflow assets turn ad-hoc outputs into first-class records the catalog can index, audit, and reuse. When steps declare which named assets they produce or consume, every run automatically contributes to a shared lineage graph and can participate in automatic freshness reconciliation.
 
 ## Why Assets Matter
-Workflow assets turn ad-hoc outputs into first-class records the catalog can index, audit, and reuse. When steps declare which named assets they produce or consume, every run automatically contributes to a shared lineage graph.
-
-Key benefits:
 - **Ownership & Dependencies:** Producers/consumers are captured for each asset, making it easy to see which steps (and workflows) emit or rely on a given dataset, report, or model.
 - **Always-Fresh Snapshots:** The catalog records the latest payload, schema, freshness hints, producer step status, and run timestamps. Downstream automation can decide when to reuse or regenerate an asset based on declared TTLs or cadence.
 - **History & Auditing:** Each production event is versioned; `/workflows/:slug/assets/:assetId/history` exposes prior payloads so you can diff outputs, trace regressions, or rebuild from a specific run.
@@ -11,7 +10,7 @@ Key benefits:
 - **Automation Hooks:** Structured metadata enables policy checks (e.g. fail deployments if an asset is stale), alerting when high-value assets change, or feeding dashboards with provenance data.
 
 ## Declaring Assets in Workflows
-Inside a workflow definition, attach `produces` and `consumes` blocks to job steps:
+Inside a workflow definition, attach `produces` and `consumes` blocks to job steps. Assets support an optional `autoMaterialize` block in addition to `freshness` when you want the system to trigger reruns.
 
 ```json
 {
@@ -32,12 +31,27 @@ Inside a workflow definition, attach `produces` and `consumes` blocks to job ste
           }
         },
         "required": ["outputDir", "reportTitle", "generatedAt", "artifacts"]
+      },
+      "freshness": { "ttlMs": 3_600_000 },
+      "autoMaterialize": {
+        "onUpstreamUpdate": true,
+        "priority": 5
       }
     }
+  ],
+  "consumes": [
+    { "assetId": "directory.insights.archive" }
   ]
 }
 ```
 
+- `freshness.ttlMs` and `freshness.cadenceMs` schedule delayed `asset.expired` events (via Redis/BullMQ) so assets can be refreshed without polling.
+- `autoMaterialize.onUpstreamUpdate` signals that the producing workflow should automatically run when any consumed asset publishes a newer `asset.produced` event.
+- `autoMaterialize.priority` is reserved for future scheduling heuristics (lower numbers indicate higher priority).
+
+If no `autoMaterialize` block is supplied, workflows continue to behave exactly as before—updates and expirations are ignored by the materializer.
+
+## Returning Assets from Jobs
 At runtime your job handler should include an `assets` array in the returned result:
 
 ```ts
@@ -65,8 +79,26 @@ return {
 };
 ```
 
+## Asset Events
+The workflow orchestrator publishes structured events to the AppHub event bus:
+
+- `asset.produced` – emitted whenever a workflow step records a produced asset. Payload includes the asset id, producing workflow slug/id, run id, step id, producedAt timestamp, and the declared `freshness` block.
+- `asset.expired` – emitted when a scheduled freshness timer (TTL/cadence) elapses. The payload mirrors the produced event and specifies the expiry reason (`ttl` or `cadence`).
+
+Both events flow through Redis (or inline during tests) and are consumed by the asset materializer worker and any other interested services.
+
+## Asset Materializer Worker
+`services/catalog/src/assetMaterializerWorker.ts` maintains an in-memory graph of workflow asset producers/consumers. It:
+
+1. Loads workflow definitions and tracks which workflows produce and consume each asset.
+2. Subscribes to `asset.produced`, `asset.expired`, and `workflow.definition.updated` events.
+3. Enqueues `auto-materialize` workflow runs when upstream assets update or when an asset expires per its freshness policy.
+4. Guards against duplicate inflight runs, applies exponential backoff after repeated failures, and annotates `workflow_runs.trigger` with `{ type: 'auto-materialize', ... }` for auditing.
+
+The worker also processes the `apphub_asset_event_queue` BullMQ queue to fire delayed `asset.expired` events scheduled when assets provide a TTL or cadence.
+
 ## Inspecting Assets via API
-Once declared, the catalog exposes inventory and history endpoints:
+The catalog exposes inventory and history endpoints:
 
 - **List assets for a workflow**
   ```bash
@@ -79,6 +111,14 @@ Once declared, the catalog exposes inventory and history endpoints:
 
 Each record includes producer/consumer step metadata, the most recent payload, schema, freshness hints, and the run/step identifiers that emitted it.
 
+## Database Storage
+`workflow_asset_declarations` persists the `auto_materialize` JSON payload alongside `asset_schema` and `freshness`. Existing data is left untouched; the migration simply adds a nullable column. The API responses that surface asset declarations include the new `autoMaterialize` object when present.
+
+## Operational Notes
+- The worker respects `ASSET_MATERIALIZER_BASE_BACKOFF_MS`, `ASSET_MATERIALIZER_MAX_BACKOFF_MS`, and `ASSET_MATERIALIZER_REFRESH_INTERVAL_MS` environment variables for tuning backoff and graph refresh cadence.
+- Launch the worker via `npm run materializer` (or `npm run dev:materializer` from the repo root during local development).
+- Event handling degrades gracefully when Redis is configured as `inline`; delayed expirations fall back to in-process timers.
+
 ## Design Patterns
 - Use structured payloads (rich JSON objects) so downstream consumers can extract metrics without hitting the filesystem.
 - Include TTL or cadence in the schema if data freshness matters; the catalog stores these hints for monitoring.
@@ -86,4 +126,4 @@ Each record includes producer/consumer step metadata, the most recent payload, s
 - Combine assets with queue-based automation: e.g. a release workflow can block until `directory.insights.report` is fresh, or trigger downstream jobs when an asset changes.
 - Chain assets across workflows. The `directory-insights-archive` workflow (see `docs/directory-insights-archive-workflow.md`) consumes `directory.insights.report` and produces `directory.insights.archive`, making it easy to test event-driven materialization heuristics.
 
-By treating workflow outputs as assets, you gain a built-in lineage system: reproducible artifacts, traceable provenance, and a queryable history that spans every workflow run.
+By treating workflow outputs as assets, you gain a built-in lineage system: reproducible artifacts, traceable provenance, and a queryable history that spans every workflow run while benefiting from automatic reconciliation when assets become stale.

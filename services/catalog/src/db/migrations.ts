@@ -604,7 +604,14 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_execution_history_step
          ON workflow_execution_history(workflow_run_step_id, id);`
     ]
-  }
+  },
+  {
+    id: '018_asset_auto_materialize',
+    statements: [
+      `ALTER TABLE workflow_asset_declarations
+         ADD COLUMN IF NOT EXISTS auto_materialize JSONB;`
+    ]
+  },
 ];
 
 export async function runMigrations(client: PoolClient): Promise<void> {
@@ -628,7 +635,7 @@ export async function runMigrations(client: PoolClient): Promise<void> {
       for (const statement of migration.statements) {
         await client.query(statement);
       }
-      await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [migration.id]);
+      await client.query('INSERT INTO schema_migrations (id) VALUES ($1) ON CONFLICT DO NOTHING', [migration.id]);
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

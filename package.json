@@ -2,7 +2,7 @@
   "name": "apphub",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:workflows\" \"npm run dev:services\" \"npm run dev:frontend\"",
+    "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:workflows\" \"npm run dev:materializer\" \"npm run dev:services\" \"npm run dev:frontend\"",
     "lint": "npm run lint --prefix services/catalog && npm run lint --prefix apps/frontend",
     "build": "npm run build --prefix services/catalog && npm run build --prefix apps/frontend",
     "dev:redis": "redis-server --save \"\" --appendonly no",
@@ -12,7 +12,8 @@
     "dev:frontend": "cd apps/frontend && npm run dev",
     "dev:launches": "cd services/catalog && npm run launches",
     "dev:workflows": "cd services/catalog && npm run workflows",
-    "dev:services": "node scripts/dev-services.js"
+    "dev:services": "node scripts/dev-services.js",
+    "dev:materializer": "cd services/catalog && npm run materializer"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

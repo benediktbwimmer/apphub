@@ -1,5 +1,6 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import net from 'node:net';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import type { JobRunContext, JobResult } from '../src/jobs/runtime';
 import { refreshSecretStore } from '../src/secretStore';
-
+import { emitApphubEvent } from '../src/events';
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
@@ -1619,9 +1620,184 @@ async function testWorkflowEndpoints(): Promise<void> {
   });
 }
 
+
+const delay = (ms: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+async function waitForWorkflowRunCount(
+  workflowDefinitionId: string,
+  expectedCount: number,
+  timeoutMs = 2000
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (runs.length >= expectedCount) {
+      return runs;
+    }
+    await delay(20);
+  }
+  throw new Error(`Timed out waiting for ${expectedCount} workflow runs for ${workflowDefinitionId}`);
+}
+
+async function testAssetMaterializerAutoRuns(): Promise<void> {
+  await ensureEmbeddedPostgres();
+
+  const [{ ensureDatabase }, workflowsModule, { AssetMaterializer }] = await Promise.all([
+    import('../src/db/index'),
+    import('../src/db/workflows'),
+    import('../src/assetMaterializerWorker')
+  ]);
+  const {
+    createWorkflowDefinition,
+    listWorkflowRunsForDefinition,
+    getWorkflowRunById,
+    updateWorkflowRun
+  } = workflowsModule;
+
+  await ensureDatabase();
+
+  const materializer = new AssetMaterializer();
+  await materializer.start();
+
+  const waitForWorkflowRunCount = async (
+    workflowDefinitionId: string,
+    expectedCount: number,
+    timeoutMs = 2000
+  ) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const runs = await listWorkflowRunsForDefinition(workflowDefinitionId, {
+        limit: Math.max(expectedCount, 5)
+      });
+      if (runs.length >= expectedCount) {
+        return runs;
+      }
+      await delay(20);
+    }
+    throw new Error(`Timed out waiting for ${expectedCount} workflow runs for ${workflowDefinitionId}`);
+  };
+
+  const sourceAssetId = `asset.source.${randomUUID()}`;
+  const targetAssetId = `asset.target.${randomUUID()}`;
+
+  try {
+    const sourceWorkflow = await createWorkflowDefinition({
+      slug: `asset-source-${randomUUID()}`.toLowerCase(),
+      name: 'Asset Source',
+      version: 1,
+      steps: [
+        {
+          id: 'emit-source',
+          name: 'Emit Source',
+          type: 'job',
+          jobSlug: 'workflow-step-source',
+          produces: [{ assetId: sourceAssetId }]
+        }
+      ],
+      triggers: [{ type: 'manual' }]
+    });
+
+    const targetWorkflow = await createWorkflowDefinition({
+      slug: `asset-target-${randomUUID()}`.toLowerCase(),
+      name: 'Asset Target',
+      version: 1,
+      steps: [
+        {
+          id: 'build-target',
+          name: 'Build Target',
+          type: 'job',
+          jobSlug: 'workflow-step-target',
+          consumes: [{ assetId: sourceAssetId }],
+          produces: [
+            {
+              assetId: targetAssetId,
+              autoMaterialize: { onUpstreamUpdate: true, priority: 5 }
+            }
+          ]
+        }
+      ],
+      triggers: [{ type: 'manual' }]
+    });
+
+    await delay(150);
+
+    const firstProducedAt = new Date().toISOString();
+    emitApphubEvent({
+      type: 'asset.produced',
+      data: {
+        assetId: sourceAssetId,
+        workflowDefinitionId: sourceWorkflow.id,
+        workflowSlug: sourceWorkflow.slug,
+        workflowRunId: `run-${randomUUID()}`,
+        workflowRunStepId: `step-${randomUUID()}`,
+        stepId: 'emit-source',
+        producedAt: firstProducedAt,
+        freshness: null
+      }
+    });
+
+    const runsAfterFirst = await waitForWorkflowRunCount(targetWorkflow.id, 1);
+    const firstRun = runsAfterFirst[0];
+    assert.equal(firstRun.triggeredBy, 'asset-materializer');
+    const trigger = firstRun.trigger as Record<string, unknown> | null;
+    assert.ok(trigger && trigger.type === 'auto-materialize');
+    assert.equal((trigger as { reason?: string }).reason, 'upstream-update');
+
+    const secondProducedAt = new Date(Date.now() + 1000).toISOString();
+    emitApphubEvent({
+      type: 'asset.produced',
+      data: {
+        assetId: sourceAssetId,
+        workflowDefinitionId: sourceWorkflow.id,
+        workflowSlug: sourceWorkflow.slug,
+        workflowRunId: `run-${randomUUID()}`,
+        workflowRunStepId: `step-${randomUUID()}`,
+        stepId: 'emit-source',
+        producedAt: secondProducedAt,
+        freshness: null
+      }
+    });
+
+    await delay(150);
+    const runsAfterDuplicate = await listWorkflowRunsForDefinition(targetWorkflow.id);
+    assert.equal(runsAfterDuplicate.length, 1);
+
+    await updateWorkflowRun(firstRun.id, {
+      status: 'succeeded',
+      completedAt: new Date().toISOString()
+    });
+    const completedRun = await getWorkflowRunById(firstRun.id);
+    assert.ok(completedRun);
+    emitApphubEvent({ type: 'workflow.run.succeeded', data: { run: completedRun! } });
+    await delay(100);
+
+    const thirdProducedAt = new Date(Date.now() + 2000).toISOString();
+    emitApphubEvent({
+      type: 'asset.produced',
+      data: {
+        assetId: sourceAssetId,
+        workflowDefinitionId: sourceWorkflow.id,
+        workflowSlug: sourceWorkflow.slug,
+        workflowRunId: `run-${randomUUID()}`,
+        workflowRunStepId: `step-${randomUUID()}`,
+        stepId: 'emit-source',
+        producedAt: thirdProducedAt,
+        freshness: null
+      }
+    });
+
+    const runsAfterThird = await waitForWorkflowRunCount(targetWorkflow.id, 2);
+    assert.equal(runsAfterThird.length, 2);
+  } finally {
+    await materializer.stop();
+  }
+}
+
 async function run() {
   try {
     await testWorkflowEndpoints();
+    await testAssetMaterializerAutoRuns();
   } finally {
     await shutdownEmbeddedPostgres();
   }

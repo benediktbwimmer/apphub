@@ -489,7 +489,7 @@ async function replaceWorkflowAssetDeclarations(
   for (const declaration of declarations) {
     const id = randomUUID();
     values.push(
-      `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
+      `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
     );
     params.push(
       id,
@@ -498,7 +498,8 @@ async function replaceWorkflowAssetDeclarations(
       declaration.direction,
       declaration.asset.assetId,
       declaration.asset.schema ?? null,
-      declaration.asset.freshness ?? null
+      declaration.asset.freshness ?? null,
+      declaration.asset.autoMaterialize ?? null
     );
   }
 
@@ -510,13 +511,15 @@ async function replaceWorkflowAssetDeclarations(
        direction,
        asset_id,
        asset_schema,
-       freshness
+       freshness,
+       auto_materialize
      )
      VALUES ${values.join(', ')}
      ON CONFLICT (workflow_definition_id, step_id, direction, asset_id)
      DO UPDATE
        SET asset_schema = EXCLUDED.asset_schema,
            freshness = EXCLUDED.freshness,
+           auto_materialize = EXCLUDED.auto_materialize,
            updated_at = NOW()`,
     params
   );

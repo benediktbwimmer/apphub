@@ -14,6 +14,7 @@ import type {
   WorkflowDefinitionRecord,
   WorkflowRunRecord
 } from './db/index';
+import type { AssetExpiredEventData, AssetProducedEventData } from './assets/types';
 
 type WorkflowAnalyticsStatsEventPayload = {
   workflowId: string;
@@ -69,6 +70,8 @@ export type ApphubEvent =
   | { type: 'workflow.run.succeeded'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.failed'; data: { run: WorkflowRunRecord } }
   | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } }
+  | { type: 'asset.produced'; data: AssetProducedEventData }
+  | { type: 'asset.expired'; data: AssetExpiredEventData }
   | {
       type: 'workflow.analytics.snapshot';
       data: {

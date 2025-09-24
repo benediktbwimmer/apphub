@@ -6,8 +6,7 @@ import {
   getWorkflowRunStepById,
   appendWorkflowExecutionHistory,
   updateWorkflowRun,
-  updateWorkflowRunStep,
-  recordWorkflowRunStepAssets
+  updateWorkflowRunStep
 } from './db/workflows';
 import {
   type JsonValue,
@@ -35,6 +34,7 @@ import {
 } from './db/types';
 import { getServiceBySlug } from './db/services';
 import { fetchFromService } from './clients/serviceClient';
+import { clearStepAssets, persistStepAssets } from './assets/assetEvents';
 import { resolveSecret, maskSecret, describeSecret } from './secrets';
 import {
   createJobRunForSlug,
@@ -1589,6 +1589,7 @@ function extractServiceContextFromRecord(
 
 async function executeStep(
   run: WorkflowRunRecord,
+  definition: WorkflowDefinitionRecord,
   step: WorkflowStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
@@ -1611,7 +1612,7 @@ async function executeStep(
     const fanOutScope = runtimeStep?.fanOut
       ? withStepScope(baseScope, step.id, null, runtimeStep.fanOut)
       : withStepScope(baseScope, step.id, null);
-    return executeFanOutStep(run, step, context, stepIndex, null, fanOutScope);
+    return executeFanOutStep(run, definition, step, context, stepIndex, null, fanOutScope);
   }
 
   const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
@@ -1624,14 +1625,15 @@ async function executeStep(
     : withStepScope(baseScope, step.id, resolvedParameters);
 
   if (step.type === 'service') {
-    return executeServiceStep(run, step, context, stepIndex, resolvedParameters, stepScope, runtimeStep?.fanOut);
+    return executeServiceStep(run, definition, step, context, stepIndex, resolvedParameters, stepScope, runtimeStep?.fanOut);
   }
 
-  return executeJobStep(run, step, context, stepIndex, resolvedParameters, runtimeStep?.fanOut);
+  return executeJobStep(run, definition, step, context, stepIndex, resolvedParameters, runtimeStep?.fanOut);
 }
 
 async function executeFanOutStep(
   run: WorkflowRunRecord,
+  definition: WorkflowDefinitionRecord,
   step: WorkflowFanOutStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
@@ -1840,6 +1842,7 @@ function generateFanOutChildId(parentStepId: string, templateStepId: string, ind
 
 async function executeJobStep(
   run: WorkflowRunRecord,
+  definition: WorkflowDefinitionRecord,
   step: WorkflowJobStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
@@ -1900,7 +1903,7 @@ async function executeJobStep(
         }
       }
     );
-    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    await clearStepAssets({ run, stepId: step.id, stepRecordId: stepRecord.id });
     stepRecord = { ...stepRecord, producedAssets: [] };
   } else {
     stepRecord = await recordStepHeartbeat(stepRecord);
@@ -2002,16 +2005,16 @@ async function executeJobStep(
 
   if (stepRecord.status === 'succeeded') {
     const assetInputs = extractProducedAssetsFromResult(step, executed.result ?? null);
-    const storedAssets = await recordWorkflowRunStepAssets(
-      run.workflowDefinitionId,
-      run.id,
-      stepRecord.id,
-      step.id,
-      assetInputs
-    );
+    const storedAssets = await persistStepAssets({
+      definition,
+      run,
+      stepId: step.id,
+      stepRecordId: stepRecord.id,
+      assets: assetInputs
+    });
     stepRecord = { ...stepRecord, producedAssets: storedAssets };
   } else if (stepRecord.status === 'failed' || stepRecord.status === 'skipped') {
-    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    await clearStepAssets({ run, stepId: step.id, stepRecordId: stepRecord.id });
     stepRecord = { ...stepRecord, producedAssets: [] };
   }
 
@@ -2059,6 +2062,7 @@ async function executeJobStep(
 
 async function executeServiceStep(
   run: WorkflowRunRecord,
+  definition: WorkflowDefinitionRecord,
   step: WorkflowServiceStepDefinition,
   context: WorkflowRuntimeContext,
   stepIndex: number,
@@ -2097,7 +2101,7 @@ async function executeServiceStep(
       }
     );
 
-    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    await clearStepAssets({ run, stepId: step.id, stepRecordId: stepRecord.id });
     stepRecord = { ...stepRecord, producedAssets: [] };
 
     const failureContext = updateStepContext(context, step.id, {
@@ -2183,7 +2187,7 @@ async function executeServiceStep(
         }
       }
     );
-    await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+    await clearStepAssets({ run, stepId: step.id, stepRecordId: stepRecord.id });
     stepRecord = { ...stepRecord, producedAssets: [] };
   } else {
     stepRecord = await recordStepHeartbeat(stepRecord);
@@ -2373,13 +2377,13 @@ async function executeServiceStep(
       );
 
       const assetInputs = extractProducedAssetsFromResult(step, output);
-      const storedAssets = await recordWorkflowRunStepAssets(
-        run.workflowDefinitionId,
-        run.id,
-        stepRecord.id,
-        step.id,
-        assetInputs
-      );
+      const storedAssets = await persistStepAssets({
+        definition,
+        run,
+        stepId: step.id,
+        stepRecordId: stepRecord.id,
+        assets: assetInputs
+      });
       stepRecord = { ...stepRecord, producedAssets: storedAssets };
 
       let successContext = updateStepContext(finalContext, step.id, {
@@ -2482,7 +2486,7 @@ async function executeServiceStep(
     }
   );
 
-  await recordWorkflowRunStepAssets(run.workflowDefinitionId, run.id, stepRecord.id, step.id, []);
+  await clearStepAssets({ run, stepId: step.id, stepRecordId: stepRecord.id });
   stepRecord = { ...stepRecord, producedAssets: [] };
 
   const failureContext = updateStepContext(finalContext, step.id, {
@@ -2848,13 +2852,11 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
           });
         }
 
-        await recordWorkflowRunStepAssets(
-          run.workflowDefinitionId,
-          run.id,
-          state.parentRunStepId,
-          state.parentStepId,
-          []
-        );
+        await clearStepAssets({
+          run,
+          stepId: state.parentStepId,
+          stepRecordId: state.parentRunStepId
+        });
 
         await applyRunContextPatch(run.id, state.parentStepId, context.steps[state.parentStepId], {
           errorMessage: message
@@ -2905,21 +2907,22 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
             ? (parentRuntime.definition as WorkflowFanOutStepDefinition)
             : null;
 
-        const storedParentAssets = parentDefinition
-          ? await recordWorkflowRunStepAssets(
-              run.workflowDefinitionId,
-              run.id,
-              state.parentRunStepId,
-              state.parentStepId,
-              buildFanOutParentAssets(state, parentDefinition)
-            )
-          : await recordWorkflowRunStepAssets(
-              run.workflowDefinitionId,
-              run.id,
-              state.parentRunStepId,
-              state.parentStepId,
-              []
-            );
+        let storedParentAssets: WorkflowRunStepAssetRecord[] = [];
+        if (parentDefinition) {
+          storedParentAssets = await persistStepAssets({
+            definition,
+            run,
+            stepId: state.parentStepId,
+            stepRecordId: state.parentRunStepId,
+            assets: buildFanOutParentAssets(state, parentDefinition)
+          });
+        } else {
+          await clearStepAssets({
+            run,
+            stepId: state.parentStepId,
+            stepRecordId: state.parentRunStepId
+          });
+        }
 
         const parentAssetSummaries = toRuntimeAssetSummaries(storedParentAssets);
 
@@ -3057,7 +3060,7 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
         return;
       }
       const contextClone = toWorkflowContext(serializeContext(context));
-      const wrapped = executeStep(run, runtime.definition, contextClone, runtime.index, runtime)
+      const wrapped = executeStep(run, definition, runtime.definition, contextClone, runtime.index, runtime)
         .then((result) => ({ stepId, result }))
         .catch((error) => ({ stepId, error }));
       inFlight.set(stepId, wrapped);
