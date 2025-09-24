@@ -33,12 +33,14 @@ import {
   fetchOperatorIdentity,
   fetchWorkflowAssets,
   fetchWorkflowAssetHistory,
+  fetchWorkflowAssetPartitions,
   ApiError,
   type WorkflowCreateInput
 } from '../api';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
+  WorkflowAssetPartitions,
   WorkflowDefinition,
   WorkflowFiltersState,
   WorkflowRunMetricsSummary,
@@ -142,6 +144,9 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
   const [assetDetails, setAssetDetails] = useState<Record<string, WorkflowAssetDetail | null>>({});
   const [assetDetailLoading, setAssetDetailLoading] = useState(false);
   const [assetDetailError, setAssetDetailError] = useState<string | null>(null);
+  const [assetPartitionsMap, setAssetPartitionsMap] = useState<Record<string, WorkflowAssetPartitions | null>>({});
+  const [assetPartitionsLoading, setAssetPartitionsLoading] = useState(false);
+  const [assetPartitionsError, setAssetPartitionsError] = useState<string | null>(null);
 
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create');
@@ -191,6 +196,13 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     }
     return assetDetails[`${selectedSlug}:${selectedAssetId}`] ?? null;
   }, [assetDetails, selectedAssetId, selectedSlug]);
+
+  const assetPartitions = useMemo(() => {
+    if (!selectedSlug || !selectedAssetId) {
+      return null;
+    }
+    return assetPartitionsMap[`${selectedSlug}:${selectedAssetId}`] ?? null;
+  }, [assetPartitionsMap, selectedAssetId, selectedSlug]);
 
   const workflowSummaries = useMemo<WorkflowSummary[]>(() => {
     return workflows.map((workflow) => {
@@ -456,6 +468,40 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     [authorizedFetch, pushToast, selectedSlug]
   );
 
+  const loadAssetPartitions = useCallback(
+    async (assetId: string, options: { lookback?: number; force?: boolean } = {}) => {
+      if (!selectedSlug) {
+        return;
+      }
+      const cacheKey = `${selectedSlug}:${assetId}`;
+      if (!options.force && cacheKey in assetPartitionsMap) {
+        return;
+      }
+      setAssetPartitionsLoading(true);
+      setAssetPartitionsError(null);
+      try {
+        const partitions = await fetchWorkflowAssetPartitions(authorizedFetch, selectedSlug, assetId, {
+          lookback: options.lookback
+        });
+        setAssetPartitionsMap((previous) => ({
+          ...previous,
+          [cacheKey]: partitions
+        }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load asset partitions';
+        setAssetPartitionsError(message);
+        pushToast({
+          title: 'Workflow asset partitions',
+          description: message,
+          tone: 'error'
+        });
+      } finally {
+        setAssetPartitionsLoading(false);
+      }
+    },
+    [authorizedFetch, pushToast, selectedSlug, assetPartitionsMap]
+  );
+
   const selectAsset = useCallback(
     (assetId: string) => {
       if (!selectedSlug) {
@@ -466,14 +512,26 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
       if (!(cacheKey in assetDetails)) {
         void loadAssetHistory(assetId);
       }
+      if (!(cacheKey in assetPartitionsMap)) {
+        void loadAssetPartitions(assetId);
+      }
     },
-    [assetDetails, loadAssetHistory, selectedSlug]
+    [assetDetails, assetPartitionsMap, loadAssetHistory, loadAssetPartitions, selectedSlug]
   );
 
   const clearSelectedAsset = useCallback(() => {
     setSelectedAssetId(null);
     setAssetDetailError(null);
+    setAssetPartitionsError(null);
   }, []);
+
+  const refreshAsset = useCallback(
+    (assetId: string) => {
+      void loadAssetHistory(assetId);
+      void loadAssetPartitions(assetId, { force: true });
+    },
+    [loadAssetHistory, loadAssetPartitions]
+  );
 
   const handleAnalyticsSnapshot = useCallback((snapshot: unknown) => {
     if (!snapshot || typeof snapshot !== 'object') {
@@ -596,6 +654,8 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     setSelectedAssetId(null);
     setAssetDetailError(null);
     setAssetDetailLoading(false);
+    setAssetPartitionsError(null);
+    setAssetPartitionsLoading(false);
 
     if (!selectedSlug) {
       return;
@@ -1117,9 +1177,14 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     assetDetail,
     assetDetailLoading,
     assetDetailError,
+    assetPartitions,
+    assetPartitionsLoading,
+    assetPartitionsError,
     selectAsset,
     clearSelectedAsset,
     loadAssetHistory,
+    loadAssetPartitions,
+    refreshAsset,
     workflowRuntimeSummaries,
     workflowAnalytics,
     setWorkflowAnalyticsRange,

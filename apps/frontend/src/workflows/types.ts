@@ -126,12 +126,37 @@ export type WorkflowAssetFreshness = {
   cadenceMs?: number | null;
 };
 
+export type WorkflowAssetAutoMaterialize = {
+  onUpstreamUpdate?: boolean | null;
+  priority?: number | null;
+};
+
+export type WorkflowAssetPartitioning =
+  | {
+      type: 'timeWindow';
+      granularity: 'hour' | 'day' | 'week' | 'month';
+      timezone?: string | null;
+      format?: string | null;
+      lookbackWindows?: number | null;
+    }
+  | {
+      type: 'static';
+      keys: string[];
+    }
+  | {
+      type: 'dynamic';
+      maxKeys?: number | null;
+      retentionDays?: number | null;
+    };
+
 export type WorkflowAssetRoleDescriptor = {
   stepId: string;
   stepName: string;
   stepType: 'job' | 'service' | 'fanout';
-  schema: unknown;
+  schema: unknown | null;
   freshness: WorkflowAssetFreshness | null;
+  autoMaterialize: WorkflowAssetAutoMaterialize | null;
+  partitioning: WorkflowAssetPartitioning | null;
 };
 
 export type WorkflowAssetSnapshot = {
@@ -145,6 +170,7 @@ export type WorkflowAssetSnapshot = {
   payload: unknown;
   schema: unknown;
   freshness: WorkflowAssetFreshness | null;
+  partitionKey: string | null;
   runStartedAt: string | null;
   runCompletedAt: string | null;
 };
@@ -165,6 +191,18 @@ export type WorkflowAssetDetail = {
   consumers: WorkflowAssetRoleDescriptor[];
   history: WorkflowAssetHistoryEntry[];
   limit: number;
+};
+
+export type WorkflowAssetPartitionSummary = {
+  partitionKey: string | null;
+  materializations: number;
+  latest: WorkflowAssetSnapshot | null;
+};
+
+export type WorkflowAssetPartitions = {
+  assetId: string;
+  partitioning: WorkflowAssetPartitioning | null;
+  partitions: WorkflowAssetPartitionSummary[];
 };
 
 export type WorkflowFiltersState = {

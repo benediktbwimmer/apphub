@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
+  WorkflowAssetPartitions,
   WorkflowDefinition,
   WorkflowRun,
   WorkflowRunStep
@@ -20,6 +21,7 @@ const {
   updateWorkflowDefinitionMock,
   fetchWorkflowAssetsMock,
   fetchWorkflowAssetHistoryMock,
+  fetchWorkflowAssetPartitionsMock,
   fetchOperatorIdentityMock
 } = vi.hoisted(() => {
   const definition = {
@@ -103,6 +105,14 @@ const {
       history: [],
       limit: 10
     }) as WorkflowAssetDetail),
+    fetchWorkflowAssetPartitionsMock: vi.fn<
+      [AuthorizedFetch, string, string, { lookback?: number }?],
+      Promise<WorkflowAssetPartitions | null>
+    >(async () => ({
+      assetId: 'inventory.dataset',
+      partitioning: null,
+      partitions: []
+    })),
     fetchOperatorIdentityMock: vi.fn(async () => ({
       scopes: ['workflows:write', 'jobs:write', 'job-bundles:write']
     }))
@@ -208,6 +218,7 @@ vi.mock('../../api', async () => {
     updateWorkflowDefinition: updateWorkflowDefinitionMock,
     fetchWorkflowAssets: fetchWorkflowAssetsMock,
     fetchWorkflowAssetHistory: fetchWorkflowAssetHistoryMock,
+    fetchWorkflowAssetPartitions: fetchWorkflowAssetPartitionsMock,
     fetchOperatorIdentity: fetchOperatorIdentityMock
   };
 });
@@ -227,6 +238,7 @@ beforeEach(() => {
   listWorkflowRunStepsMock.mockClear();
   fetchWorkflowAssetsMock.mockClear();
   fetchWorkflowAssetHistoryMock.mockClear();
+  fetchWorkflowAssetPartitionsMock.mockClear();
   TestSocket.instances = [];
 });
 
@@ -292,7 +304,9 @@ describe('useWorkflowsController', () => {
             stepName: 'Asset Producer',
             stepType: 'job',
             schema: null,
-            freshness: null
+            freshness: null,
+            autoMaterialize: null,
+            partitioning: null
           }
         ],
         consumers: [
@@ -301,7 +315,9 @@ describe('useWorkflowsController', () => {
             stepName: 'Asset Consumer',
             stepType: 'job',
             schema: null,
-            freshness: null
+            freshness: null,
+            autoMaterialize: null,
+            partitioning: null
           }
         ],
         latest: {
@@ -315,6 +331,7 @@ describe('useWorkflowsController', () => {
           payload: { count: 7 },
           schema: { type: 'object' },
           freshness: { ttlMs: 3_600_000 },
+          partitionKey: null,
           runStartedAt: producedAt,
           runCompletedAt: producedAt
         },
@@ -349,7 +366,9 @@ describe('useWorkflowsController', () => {
             stepName: 'Asset Producer',
             stepType: 'job',
             schema: null,
-            freshness: null
+            freshness: null,
+            autoMaterialize: null,
+            partitioning: null
           }
         ],
         consumers: [
@@ -358,7 +377,9 @@ describe('useWorkflowsController', () => {
             stepName: 'Asset Consumer',
             stepType: 'job',
             schema: null,
-            freshness: null
+            freshness: null,
+            autoMaterialize: null,
+            partitioning: null
           }
         ],
         latest: {
@@ -372,6 +393,7 @@ describe('useWorkflowsController', () => {
           payload: { count: 7 },
           schema: { type: 'object' },
           freshness: { ttlMs: 3_600_000 },
+          partitionKey: null,
           runStartedAt: producedAt,
           runCompletedAt: producedAt
         },
@@ -396,6 +418,7 @@ describe('useWorkflowsController', () => {
           payload: { count: 7 },
           schema: { type: 'object' },
           freshness: { ttlMs: 3_600_000 },
+          partitionKey: null,
           runStartedAt: producedAt,
           runCompletedAt: producedAt
         }
@@ -403,6 +426,39 @@ describe('useWorkflowsController', () => {
       limit: 10
     };
     fetchWorkflowAssetHistoryMock.mockResolvedValue(assetDetail);
+
+    const partitions: WorkflowAssetPartitions = {
+      assetId: 'inventory.dataset',
+      partitioning: {
+        type: 'timeWindow',
+        granularity: 'day',
+        timezone: 'UTC',
+        format: 'yyyy-MM-dd',
+        lookbackWindows: 7
+      },
+      partitions: [
+        {
+          partitionKey: '2025-09-23',
+          materializations: 3,
+          latest: {
+            runId: 'run-assets-1',
+            runStatus: 'succeeded',
+            stepId: 'asset-producer',
+            stepName: 'Asset Producer',
+            stepType: 'job',
+            stepStatus: 'succeeded',
+            producedAt,
+            payload: { count: 7 },
+            schema: { type: 'object' },
+            freshness: { ttlMs: 3_600_000 },
+            partitionKey: '2025-09-23',
+            runStartedAt: producedAt,
+            runCompletedAt: producedAt
+          }
+        }
+      ]
+    };
+    fetchWorkflowAssetPartitionsMock.mockResolvedValue(partitions);
 
     const { result } = renderHook(() =>
       useWorkflowsController({
@@ -424,14 +480,19 @@ describe('useWorkflowsController', () => {
     expect(historyCall[2]).toBe('inventory.dataset');
     expect(result.current.assetDetail).toEqual(assetDetail);
     expect(result.current.selectedAssetId).toBe('inventory.dataset');
+    await waitFor(() => expect(fetchWorkflowAssetPartitionsMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.assetPartitionsLoading).toBe(false));
+    expect(result.current.assetPartitions).toEqual(partitions);
 
     fetchWorkflowAssetHistoryMock.mockClear();
+    fetchWorkflowAssetPartitionsMock.mockClear();
 
     await act(async () => {
       result.current.selectAsset('inventory.dataset');
     });
 
     expect(fetchWorkflowAssetHistoryMock).not.toHaveBeenCalled();
+    expect(fetchWorkflowAssetPartitionsMock).not.toHaveBeenCalled();
   });
 
   it('surfaces asset history errors with toast feedback', async () => {

@@ -2,6 +2,7 @@ import { API_BASE_URL } from '../config';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
+  WorkflowAssetPartitions,
   WorkflowDefinition,
   WorkflowRun,
   WorkflowRunStep
@@ -13,7 +14,8 @@ import {
   normalizeWorkflowRunStats,
   normalizeWorkflowRunStep,
   normalizeWorkflowAssetInventoryResponse,
-  normalizeWorkflowAssetDetailResponse
+  normalizeWorkflowAssetDetailResponse,
+  normalizeWorkflowAssetPartitionsResponse
 } from './normalizers';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -365,6 +367,30 @@ export async function fetchWorkflowAssetHistory(
   await ensureOk(response, 'Failed to load workflow asset history');
   const payload = await parseJson<unknown>(response);
   return normalizeWorkflowAssetDetailResponse(payload);
+}
+
+export async function fetchWorkflowAssetPartitions(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  assetId: string,
+  options: { lookback?: number } = {}
+): Promise<WorkflowAssetPartitions | null> {
+  const params = new URLSearchParams();
+  if (options.lookback !== undefined) {
+    params.set('lookback', String(options.lookback));
+  }
+  const query = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/assets/${encodeURIComponent(assetId)}/partitions${
+      query ? `?${query}` : ''
+    }`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  await ensureOk(response, 'Failed to load workflow asset partitions');
+  const payload = await parseJson<unknown>(response);
+  return normalizeWorkflowAssetPartitionsResponse(payload);
 }
 
 export async function createWorkflowDefinition(

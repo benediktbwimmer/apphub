@@ -79,9 +79,12 @@ export default function WorkflowsPage() {
     assetDetail,
     assetDetailLoading,
     assetDetailError,
+    assetPartitions,
+    assetPartitionsLoading,
+    assetPartitionsError,
     selectAsset,
     clearSelectedAsset,
-    loadAssetHistory
+    refreshAsset
   } = useWorkflowsController();
 
   const analytics = selectedSlug ? workflowAnalytics[selectedSlug] : undefined;
@@ -200,7 +203,10 @@ export default function WorkflowsPage() {
             assetDetail={assetDetail}
             assetDetailLoading={assetDetailLoading}
             assetDetailError={assetDetailError}
-            onRefreshAssetDetail={loadAssetHistory}
+            assetPartitions={assetPartitions}
+            assetPartitionsLoading={assetPartitionsLoading}
+            assetPartitionsError={assetPartitionsError}
+            onRefreshAssetDetail={refreshAsset}
           />
 
           {workflowDetail && (

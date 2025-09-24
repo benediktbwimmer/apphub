@@ -1,6 +1,9 @@
 import type {
+  WorkflowAssetAutoMaterialize,
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
+  WorkflowAssetPartitioning,
+  WorkflowAssetPartitions,
   WorkflowAssetRoleDescriptor,
   WorkflowAssetSnapshot,
   WorkflowDefinition,
@@ -622,6 +625,70 @@ function normalizeAssetFreshnessValue(value: unknown): WorkflowAssetRoleDescript
   return Object.keys(freshness).length > 0 ? freshness : null;
 }
 
+function normalizeAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMaterialize | null {
+  const record = toRecord(value);
+  if (!record) {
+    return null;
+  }
+  const auto: WorkflowAssetAutoMaterialize = {};
+  if (typeof record.onUpstreamUpdate === 'boolean') {
+    auto.onUpstreamUpdate = record.onUpstreamUpdate;
+  }
+  if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
+    auto.priority = record.priority;
+  }
+  return Object.keys(auto).length > 0 ? auto : null;
+}
+
+function normalizeAssetPartitioning(value: unknown): WorkflowAssetPartitioning | null {
+  const record = toRecord(value);
+  if (!record) {
+    return null;
+  }
+  const type = typeof record.type === 'string' ? record.type : null;
+  if (type === 'timeWindow') {
+    const granularity = typeof record.granularity === 'string' ? record.granularity : null;
+    if (granularity !== 'hour' && granularity !== 'day' && granularity !== 'week' && granularity !== 'month') {
+      return null;
+    }
+    return {
+      type: 'timeWindow',
+      granularity,
+      timezone: typeof record.timezone === 'string' ? record.timezone : null,
+      format: typeof record.format === 'string' ? record.format : null,
+      lookbackWindows:
+        typeof record.lookbackWindows === 'number' && Number.isFinite(record.lookbackWindows)
+          ? record.lookbackWindows
+          : null
+    };
+  }
+  if (type === 'static') {
+    const keys = Array.isArray(record.keys)
+      ? record.keys.filter((key): key is string => typeof key === 'string' && key.length > 0)
+      : null;
+    if (!keys || keys.length === 0) {
+      return null;
+    }
+    return {
+      type: 'static',
+      keys
+    };
+  }
+  if (type === 'dynamic') {
+    const partitioning: WorkflowAssetPartitioning = {
+      type: 'dynamic',
+      maxKeys:
+        typeof record.maxKeys === 'number' && Number.isFinite(record.maxKeys) ? record.maxKeys : null,
+      retentionDays:
+        typeof record.retentionDays === 'number' && Number.isFinite(record.retentionDays)
+          ? record.retentionDays
+          : null
+    };
+    return partitioning;
+  }
+  return null;
+}
+
 function normalizeAssetRoleDescriptor(raw: unknown): WorkflowAssetRoleDescriptor | null {
   const record = toRecord(raw);
   if (!record) {
@@ -641,7 +708,9 @@ function normalizeAssetRoleDescriptor(raw: unknown): WorkflowAssetRoleDescriptor
     stepName,
     stepType,
     schema: 'schema' in record ? record.schema : null,
-    freshness: normalizeAssetFreshnessValue(record.freshness)
+    freshness: normalizeAssetFreshnessValue(record.freshness),
+    autoMaterialize: normalizeAssetAutoMaterialize(record.autoMaterialize),
+    partitioning: normalizeAssetPartitioning(record.partitioning)
   };
 }
 
@@ -674,6 +743,7 @@ function normalizeAssetSnapshot(raw: unknown): WorkflowAssetSnapshot | null {
     payload: 'payload' in record ? record.payload : null,
     schema: 'schema' in record ? record.schema : null,
     freshness: normalizeAssetFreshnessValue(record.freshness),
+    partitionKey: typeof record.partitionKey === 'string' ? record.partitionKey : null,
     runStartedAt: typeof record.runStartedAt === 'string' ? record.runStartedAt : null,
     runCompletedAt: typeof record.runCompletedAt === 'string' ? record.runCompletedAt : null
   };
@@ -751,6 +821,47 @@ export function normalizeWorkflowAssetDetailResponse(payload: unknown): Workflow
     consumers,
     history,
     limit
+  };
+}
+
+export function normalizeWorkflowAssetPartitionsResponse(payload: unknown): WorkflowAssetPartitions | null {
+  const root = toRecord(payload);
+  if (!root) {
+    return null;
+  }
+  const data = toRecord(root.data);
+  if (!data) {
+    return null;
+  }
+  const assetId = typeof data.assetId === 'string' ? data.assetId : null;
+  if (!assetId) {
+    return null;
+  }
+  const partitioning = normalizeAssetPartitioning(data.partitioning);
+  const partitionsEntries = Array.isArray(data.partitions) ? data.partitions : [];
+  const partitions = partitionsEntries
+    .map((entry) => {
+      const record = toRecord(entry);
+      if (!record) {
+        return null;
+      }
+      const materializations =
+        typeof record.materializations === 'number' && Number.isFinite(record.materializations)
+          ? record.materializations
+          : 0;
+      const latest = 'latest' in record ? normalizeAssetSnapshot(record.latest) : null;
+      return {
+        partitionKey: typeof record.partitionKey === 'string' ? record.partitionKey : null,
+        materializations,
+        latest
+      };
+    })
+    .filter((value): value is WorkflowAssetPartitions['partitions'][number] => Boolean(value));
+
+  return {
+    assetId,
+    partitioning,
+    partitions
   };
 }
 
