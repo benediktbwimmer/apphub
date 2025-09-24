@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import tar from 'tar';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
@@ -26,6 +28,11 @@ const uploadArchiveSchema = z.object({
   contentType: z.string().optional()
 });
 
+const execFileAsync = promisify(execFile);
+const repoRoot = path.resolve(process.cwd(), '..', '..');
+const cliDir = path.resolve(repoRoot, 'apps', 'cli');
+const installLocks = new Map<string, Promise<void>>();
+
 const previewRequestSchema = z.discriminatedUnion('source', [
   z
     .object({
@@ -39,6 +46,14 @@ const previewRequestSchema = z.discriminatedUnion('source', [
     .object({
       source: z.literal('registry'),
       reference: referenceSchema,
+      notes: z.string().optional()
+    })
+    .strict(),
+  z
+    .object({
+      source: z.literal('example'),
+      slug: z.string().min(1),
+      reference: referenceSchema.optional(),
       notes: z.string().optional()
     })
     .strict()
@@ -69,6 +84,151 @@ type UploadPreviewResult = {
   warnings: JobImportWarning[];
   errors: JobImportValidationError[];
 };
+
+const EXAMPLE_JOB_BUNDLE_DEFINITIONS = {
+  'file-relocator': { directory: 'job-bundles/file-relocator' },
+  'retail-sales-csv-loader': { directory: 'job-bundles/retail-sales-csv-loader' },
+  'retail-sales-parquet-builder': { directory: 'job-bundles/retail-sales-parquet-builder' },
+  'retail-sales-visualizer': { directory: 'job-bundles/retail-sales-visualizer' },
+  'fleet-telemetry-metrics': { directory: 'job-bundles/fleet-telemetry-metrics' },
+  'greenhouse-alerts-runner': { directory: 'job-bundles/greenhouse-alerts-runner' },
+  'archive-report': { directory: 'job-bundles/archive-report' },
+  'generate-visualizations': { directory: 'job-bundles/generate-visualizations' },
+  'scan-directory': { directory: 'job-bundles/scan-directory' },
+  'observatory-inbox-normalizer': { directory: 'job-bundles/observatory-inbox-normalizer' },
+  'observatory-duckdb-loader': { directory: 'job-bundles/observatory-duckdb-loader' },
+  'observatory-visualization-runner': { directory: 'job-bundles/observatory-visualization-runner' },
+  'observatory-report-publisher': { directory: 'job-bundles/observatory-report-publisher' }
+} as const;
+
+type ExampleBundleSlug = keyof typeof EXAMPLE_JOB_BUNDLE_DEFINITIONS;
+
+const EXAMPLE_JOB_BUNDLES: Record<ExampleBundleSlug, { directory: string }> = EXAMPLE_JOB_BUNDLE_DEFINITIONS;
+
+type UploadPreviewRequest = Extract<z.infer<typeof previewRequestSchema>, { source: 'upload' }>;
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runNpmInstall(targetDir: string): Promise<void> {
+  try {
+    await execFileAsync('npm', ['install'], {
+      cwd: targetDir,
+      maxBuffer: 32 * 1024 * 1024
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`npm install failed in ${path.relative(repoRoot, targetDir)}: ${message}`);
+  }
+}
+
+async function ensureNpmDependencies(targetDir: string): Promise<void> {
+  const packageJsonPath = path.join(targetDir, 'package.json');
+  if (!(await pathExists(packageJsonPath))) {
+    return;
+  }
+  const nodeModulesPath = path.join(targetDir, 'node_modules');
+  if (await pathExists(nodeModulesPath)) {
+    return;
+  }
+
+  let installPromise = installLocks.get(targetDir);
+  if (!installPromise) {
+    installPromise = runNpmInstall(targetDir).finally(() => {
+      installLocks.delete(targetDir);
+    });
+    installLocks.set(targetDir, installPromise);
+  }
+  await installPromise;
+}
+
+async function ensureCliDependencies(): Promise<void> {
+  await ensureNpmDependencies(cliDir);
+}
+
+type PackagedExampleBundle = {
+  slug: string;
+  version: string;
+  manifest: JsonValue;
+  manifestObject: Record<string, JsonValue>;
+  buffer: Buffer;
+  checksum: string;
+  filename: string;
+  contentType: string;
+};
+
+async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle> {
+  const definition = EXAMPLE_JOB_BUNDLES[slug as ExampleBundleSlug];
+  if (!definition) {
+    throw new Error(`Unknown example bundle slug: ${slug}`);
+  }
+
+  const bundleDir = path.resolve(repoRoot, definition.directory);
+  if (!(await pathExists(bundleDir))) {
+    throw new Error(`Example bundle directory not found: ${path.relative(repoRoot, bundleDir)}`);
+  }
+  await ensureCliDependencies();
+  await ensureNpmDependencies(bundleDir);
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `apphub-example-${slug}-`));
+  try {
+    const filename = `${slug}.tgz`;
+    await execFileAsync('npm', [
+      'exec',
+      '--prefix',
+      cliDir,
+      'tsx',
+      'src/index.ts',
+      'jobs',
+      'package',
+      bundleDir,
+      '--output-dir',
+      tempDir,
+      '--filename',
+      filename,
+      '--force'
+    ], {
+      cwd: repoRoot,
+      maxBuffer: 32 * 1024 * 1024
+    });
+
+    const tarballPath = path.join(tempDir, filename);
+    const tarballBuffer = await fs.readFile(tarballPath);
+    const { manifest, manifestObject } = await extractManifestFromArchive(tarballBuffer);
+    const manifestJson = manifest;
+    if (!manifestJson || typeof manifestJson !== 'object' || Array.isArray(manifestJson)) {
+      throw new Error('Example bundle manifest must be a JSON object');
+    }
+
+    const manifestRecord = manifestJson as Record<string, JsonValue>;
+    const manifestSlugRaw = manifestRecord.slug;
+    const manifestSlug = typeof manifestSlugRaw === 'string' ? manifestSlugRaw.trim().toLowerCase() : slug;
+    const manifestVersionRaw = manifestRecord.version;
+    const manifestVersion =
+      typeof manifestVersionRaw === 'string' && manifestVersionRaw.trim().length > 0
+        ? manifestVersionRaw.trim()
+        : 'unknown';
+
+    return {
+      slug: manifestSlug,
+      version: manifestVersion,
+      manifest: manifestJson,
+      manifestObject: manifestJson as Record<string, JsonValue>,
+      buffer: tarballBuffer,
+      checksum: computeChecksum(tarballBuffer),
+      filename,
+      contentType: 'application/gzip'
+    } satisfies PackagedExampleBundle;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
 
 function normalizeBase64Input(value: string): string {
   const trimmed = value.trim();
@@ -183,7 +343,7 @@ function buildPreviewResponse(
 }
 
 async function prepareUploadPreview(
-  request: z.infer<typeof previewRequestSchema>,
+  request: UploadPreviewRequest,
   buffer: Buffer
 ): Promise<UploadPreviewResult> {
   const { manifest, manifestObject } = await extractManifestFromArchive(buffer);
@@ -257,6 +417,100 @@ async function prepareUploadPreview(
   } satisfies UploadPreviewResult;
 }
 
+function prepareExamplePreview(
+  packaged: PackagedExampleBundle,
+  options: { expectedSlug: string; reference?: string }
+): UploadPreviewResult {
+  const warnings: JobImportWarning[] = [];
+  const errors: JobImportValidationError[] = [];
+
+  let referenceSlug: string | null = null;
+  let referenceVersion: string | null = null;
+  if (options.reference) {
+    try {
+      const parsed = parseReference(options.reference);
+      referenceSlug = parsed.slug;
+      referenceVersion = parsed.version;
+    } catch (err) {
+      errors.push({ code: 'invalid_reference', message: (err as Error).message, field: 'reference' });
+    }
+  }
+
+  const manifestRecord = packaged.manifestObject;
+  const manifestSlugRaw = manifestRecord.slug;
+  const manifestVersionRaw = manifestRecord.version;
+  const manifestSlug = typeof manifestSlugRaw === 'string' ? manifestSlugRaw.trim().toLowerCase() : null;
+  const manifestVersion = typeof manifestVersionRaw === 'string' ? manifestVersionRaw.trim() : null;
+
+  if (!manifestVersion) {
+    errors.push({ code: 'manifest_version_missing', message: 'manifest.json must include a "version" string.' });
+  }
+
+  if (!referenceVersion) {
+    if (manifestVersion) {
+      referenceVersion = manifestVersion;
+    } else {
+      referenceVersion = packaged.version;
+    }
+  } else if (manifestVersion && referenceVersion !== manifestVersion) {
+    warnings.push({
+      code: 'version_mismatch',
+      message: `Reference version ${referenceVersion} does not match manifest version ${manifestVersion}. Using manifest version.`
+    });
+    referenceVersion = manifestVersion;
+  }
+
+  if (!referenceSlug) {
+    if (manifestSlug) {
+      referenceSlug = manifestSlug;
+    } else {
+      referenceSlug = packaged.slug;
+    }
+  } else if (manifestSlug && referenceSlug !== manifestSlug) {
+    warnings.push({
+      code: 'slug_mismatch',
+      message: `Reference slug ${referenceSlug} does not match manifest slug ${manifestSlug}. Using manifest slug.`
+    });
+    referenceSlug = manifestSlug;
+  }
+
+  if (!referenceSlug) {
+    errors.push({ code: 'slug_required', message: 'Bundle manifest must include a slug.' });
+  }
+
+  if (referenceSlug && referenceSlug !== packaged.slug) {
+    warnings.push({
+      code: 'slug_mismatch_config',
+      message: `Bundle directory slug ${packaged.slug} differs from manifest slug ${referenceSlug}.`
+    });
+  }
+
+  if (referenceSlug && referenceSlug !== options.expectedSlug) {
+    warnings.push({
+      code: 'unexpected_slug',
+      message: `Example scenario requested ${options.expectedSlug}, but the bundle manifest slug is ${referenceSlug}.`
+    });
+  }
+
+  const capabilities = collectCapabilities(manifestRecord);
+  const runtime = typeof manifestRecord.runtime === 'string' ? manifestRecord.runtime : null;
+
+  return {
+    slug: referenceSlug ?? packaged.slug,
+    version: referenceVersion ?? packaged.version,
+    manifest: packaged.manifest,
+    manifestObject: packaged.manifestObject,
+    capabilities,
+    runtime,
+    checksum: packaged.checksum,
+    buffer: packaged.buffer,
+    filename: packaged.filename,
+    contentType: packaged.contentType,
+    warnings,
+    errors
+  } satisfies UploadPreviewResult;
+}
+
 function buildConfirmResponse(result: BundlePublishResult, runtime: string | null, capabilities: string[]): JsonValue {
   return {
     job: {
@@ -294,16 +548,24 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
       return { error: 'Registry preview is not implemented yet.' };
     }
 
-    let buffer: Buffer;
     try {
-      buffer = decodeArchiveData(body.archive.data);
-    } catch (err) {
-      reply.status(400);
-      return { error: (err as Error).message };
-    }
-
-    try {
-      const parsed = await prepareUploadPreview(body, buffer);
+      let parsed: UploadPreviewResult;
+      if (body.source === 'upload') {
+        let buffer: Buffer;
+        try {
+          buffer = decodeArchiveData(body.archive.data);
+        } catch (err) {
+          reply.status(400);
+          return { error: (err as Error).message };
+        }
+        parsed = await prepareUploadPreview(body, buffer);
+      } else {
+        const packaged = await packageExampleBundle(body.slug);
+        parsed = prepareExamplePreview(packaged, {
+          expectedSlug: body.slug,
+          reference: body.reference
+        });
+      }
       const schemaPreview = extractSchemasFromBundleVersion({ manifest: parsed.manifestObject });
       reply.status(200);
       return {
@@ -340,16 +602,24 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
       return { error: 'Registry imports are not supported yet.' };
     }
 
-    let buffer: Buffer;
     try {
-      buffer = decodeArchiveData(body.archive.data);
-    } catch (err) {
-      reply.status(400);
-      return { error: (err as Error).message };
-    }
-
-    try {
-      const parsed = await prepareUploadPreview(body, buffer);
+      let parsed: UploadPreviewResult;
+      if (body.source === 'upload') {
+        let buffer: Buffer;
+        try {
+          buffer = decodeArchiveData(body.archive.data);
+        } catch (err) {
+          reply.status(400);
+          return { error: (err as Error).message };
+        }
+        parsed = await prepareUploadPreview(body, buffer);
+      } else {
+        const packaged = await packageExampleBundle(body.slug);
+        parsed = prepareExamplePreview(packaged, {
+          expectedSlug: body.slug,
+          reference: body.reference
+        });
+      }
       if (parsed.errors.length > 0) {
         reply.status(400);
         return { error: parsed.errors.map((item) => item.message).join('\n') };

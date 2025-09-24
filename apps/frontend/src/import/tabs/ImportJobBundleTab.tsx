@@ -240,8 +240,18 @@ export default function ImportJobBundleTab({
       setForm({
         source: scenario.form.source,
         reference: scenario.form.reference ?? '',
-        notes: scenario.form.notes ?? ''
+        notes: scenario.form.notes ?? '',
+        exampleSlug: scenario.exampleSlug ?? null
       });
+
+      if (scenario.exampleSlug) {
+        setArchive(null);
+        analytics.trackEvent('import_example_bundle_loaded', {
+          scenarioId: scenario.id,
+          source: 'example'
+        });
+        return;
+      }
 
       if (scenario.form.source === 'upload') {
         if (!scenario.bundle) {
@@ -387,11 +397,13 @@ export default function ImportJobBundleTab({
               </span>
               <p>
                 Prefills the form with <strong>{scenario.title}</strong>.{' '}
-                {scenario.form.source === 'upload'
-                  ? 'The bundle downloads from the repository so you can preview immediately.'
-                  : 'Using the bundled registry reference to preview or import without extra setup.'}
+                {scenario.exampleSlug
+                  ? 'The bundle builds from source on demand so you can preview or import without downloading artifacts.'
+                  : scenario.form.source === 'upload'
+                    ? 'The bundle downloads from the repository so you can preview immediately.'
+                    : 'Using the bundled registry reference to preview or import without extra setup.'}
               </p>
-              {scenarioLoading ? (
+              {scenario.exampleSlug ? null : scenarioLoading ? (
                 <span className="text-xs font-semibold text-violet-600 dark:text-violet-300">Fetching bundle…</span>
               ) : null}
               {scenarioError ? (
@@ -440,13 +452,18 @@ export default function ImportJobBundleTab({
               accept=".tar.gz,.tgz"
               className={INPUT_CLASSES}
               onChange={handleFileChange}
-              required={!archive}
-              disabled={scenarioLoading}
+              required={!archive && !form.exampleSlug}
+              disabled={scenarioLoading || Boolean(form.exampleSlug)}
             />
-            {archive && (
+            {form.exampleSlug ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Example bundles build automatically; no upload required.
+              </p>
+            ) : null}
+            {archive && !form.exampleSlug && (
               <p className="text-xs text-slate-500 dark:text-slate-400">Selected: {archive.name}</p>
             )}
-          </FormField>
+            </FormField>
         ) : (
           <FormField label="Registry reference" htmlFor="job-reference" hint="Provide slug@version from the bundle registry">
             <input
@@ -485,7 +502,7 @@ export default function ImportJobBundleTab({
             disabled={
               previewLoading ||
               scenarioLoading ||
-              (form.source === 'upload' && !archive) ||
+              (form.source === 'upload' && !form.exampleSlug && !archive) ||
               (form.source === 'registry' && !form.reference.trim())
             }
           >

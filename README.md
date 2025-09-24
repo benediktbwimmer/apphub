@@ -498,7 +498,7 @@ npx tsx apps/cli/src/index.ts jobs test ./examples/summary-job --input-json '{"f
 npx tsx apps/cli/src/index.ts jobs publish ./examples/summary-job --token dev-operator-token
 ```
 
-The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough.
+The CLI creates `apphub.bundle.json`, validates `manifest.json` against the registry schema, emits reproducible tarballs with SHA-256 signatures, and wires a local harness for executing handlers with sample payloads. See `docs/job-bundles.md` for a complete walkthrough. The example importer no longer relies on prebuilt archives—when you load an example bundle, the catalog API packages the sources on demand and streams the result directly into the registry. The first run may take longer while dependencies are installed inside each bundle directory; subsequent imports reuse the compiled output.
 
 ## Current Functionality
 

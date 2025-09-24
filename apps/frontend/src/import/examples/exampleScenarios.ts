@@ -313,18 +313,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
       }
     ],
-    form: {
-      source: 'upload',
-      reference: 'file-relocator@0.1.0',
-      notes: 'Bundle packaged from job-bundles/file-relocator. Works with the file drop watcher service.'
-    },
-    bundle: {
-      filename: 'file-relocator-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/file-relocator-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
-    analyticsTag: 'job__file_relocator'
+  form: {
+    source: 'upload',
+    reference: 'file-relocator@0.1.0',
+    notes: 'Bundle packaged from job-bundles/file-relocator. Works with the file drop watcher service.'
   },
+  exampleSlug: 'file-relocator',
+  analyticsTag: 'job__file_relocator'
+},
   {
     id: 'file-drop-relocation-workflow',
     type: 'workflow',
@@ -395,11 +391,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       reference: 'retail-sales-csv-loader@0.1.0',
       notes: 'Prebuilt bundle from job-bundles/retail-sales-csv-loader. Use services/catalog/data/examples/retail-sales as dataRoot when running.'
     },
-    bundle: {
-      filename: 'retail-sales-csv-loader-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/retail-sales-csv-loader-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
+    exampleSlug: 'retail-sales-csv-loader',
     analyticsTag: 'job__retail_sales_csv_loader'
   },
   {
@@ -434,11 +426,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       reference: 'retail-sales-parquet-builder@0.1.0',
       notes: 'Bundle sourced from job-bundles/retail-sales-parquet-builder. Leave notes to document which partitions you are building.'
     },
-    bundle: {
-      filename: 'retail-sales-parquet-builder-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/retail-sales-parquet-builder-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
+    exampleSlug: 'retail-sales-parquet-builder',
     analyticsTag: 'job__retail_sales_parquet_builder'
   },
   {
@@ -468,11 +456,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       reference: 'retail-sales-visualizer@0.1.0',
       notes: 'Bundle packaged from job-bundles/retail-sales-visualizer. Point parameters at the Parquet output directory when running.'
     },
-    bundle: {
-      filename: 'retail-sales-visualizer-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/retail-sales-visualizer-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
+    exampleSlug: 'retail-sales-visualizer',
     analyticsTag: 'job__retail_sales_visualizer'
   },
   {
@@ -507,11 +491,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       reference: 'fleet-telemetry-metrics@0.1.0',
       notes: 'Bundle built from job-bundles/fleet-telemetry-metrics. Use services/catalog/data/examples/fleet-telemetry as dataRoot when previewing.'
     },
-    bundle: {
-      filename: 'fleet-telemetry-metrics-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/fleet-telemetry-metrics-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
+    exampleSlug: 'fleet-telemetry-metrics',
     analyticsTag: 'job__fleet_telemetry_metrics'
   },
   {
@@ -541,11 +521,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       reference: 'greenhouse-alerts-runner@0.1.0',
       notes: 'Bundle packaged from job-bundles/greenhouse-alerts-runner. Provide telemetryDir pointing at services/catalog/data/examples/fleet-telemetry-rollups.'
     },
-    bundle: {
-      filename: 'greenhouse-alerts-runner-0.1.0.tgz',
-      publicPath: '/examples/job-bundles/greenhouse-alerts-runner-0.1.0.tgz',
-      contentType: 'application/gzip'
-    },
+    exampleSlug: 'greenhouse-alerts-runner',
     analyticsTag: 'job__greenhouse_alerts_runner'
   },
   {

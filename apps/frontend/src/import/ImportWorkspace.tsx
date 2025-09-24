@@ -337,15 +337,28 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
         return;
       }
 
-      const archive = await fetchBundleFile(scenario);
-      const archivePayload = await fileToEncodedPayload(archive);
+      const isExample = Boolean(scenario.exampleSlug);
+
       const baseRequest: Record<string, unknown> = {
-        source: 'upload',
-        archive: archivePayload,
+        source: isExample ? 'example' : 'upload',
         notes: scenario.form.notes?.trim() || undefined
       };
-      if (scenario.form.reference?.trim()) {
-        baseRequest.reference = scenario.form.reference.trim();
+
+      if (isExample) {
+        if (!scenario.exampleSlug) {
+          throw new Error('Example bundle slug is missing.');
+        }
+        baseRequest.slug = scenario.exampleSlug;
+        if (scenario.form.reference?.trim()) {
+          baseRequest.reference = scenario.form.reference.trim();
+        }
+      } else {
+        const archive = await fetchBundleFile(scenario);
+        const archivePayload = await fileToEncodedPayload(archive);
+        baseRequest.archive = archivePayload;
+        if (scenario.form.reference?.trim()) {
+          baseRequest.reference = scenario.form.reference.trim();
+        }
       }
 
       const previewResponse = await authorizedFetch(`${API_BASE_URL}/job-imports/preview`, {

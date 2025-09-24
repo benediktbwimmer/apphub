@@ -85,15 +85,13 @@ Two workflows manage the example, both declared in `services/catalog/src/workflo
 
 ## Running the demo locally
 
-1. Install native dependencies for the DuckDB-powered bundles and package all four jobs:
-   ```bash
-   npm install --prefix job-bundles/observatory-duckdb-loader
-   npm install --prefix job-bundles/observatory-visualization-runner
-   npx tsx apps/cli/src/index.ts jobs package job-bundles/observatory-inbox-normalizer --force
-   npx tsx apps/cli/src/index.ts jobs package job-bundles/observatory-duckdb-loader --force
-   npx tsx apps/cli/src/index.ts jobs package job-bundles/observatory-visualization-runner --force
-   npx tsx apps/cli/src/index.ts jobs package job-bundles/observatory-report-publisher --force
-   ```
+1. Install native dependencies for the DuckDB-powered bundles:
+```bash
+npm install --prefix job-bundles/observatory-duckdb-loader
+npm install --prefix job-bundles/observatory-visualization-runner
+```
+
+The catalog packages each observatory bundle automatically when you import the example jobs. Pre-installing dependencies keeps the first run snappy; otherwise the API runs `npm install` on demand the first time a bundle is requested.
 2. Publish bundles and register the job definitions exported from the example module.
 3. Import the bundled service manifest (`services/examples/environmental-observatory/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. In the future this manifest will use import-time placeholders (see ticket 010) so the importer can prompt for inbox/staging paths and tokens without editing JSON manually.
 
