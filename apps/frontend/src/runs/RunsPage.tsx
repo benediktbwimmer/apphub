@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
+import { ROUTE_PATHS } from '../routes/paths';
 import {
   fetchJobRuns,
   fetchWorkflowRuns,
@@ -122,6 +124,7 @@ function statusChipClass(status: string): string {
 export default function RunsPage() {
   const authorizedFetch = useAuthorizedFetch();
   const { pushToast } = useToasts();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<RunsTabKey>('workflows');
   const [workflowState, setWorkflowState] = useState<WorkflowRunsState>({
     items: [],
@@ -307,6 +310,23 @@ export default function RunsPage() {
     [authorizedFetch, loadJobRuns, pushToast]
   );
 
+  const handleWorkflowSelect = useCallback(
+    (entry: WorkflowRunListItem) => {
+      const slug = entry.workflow.slug;
+      const runId = entry.run.id;
+      if (!slug) {
+        return;
+      }
+      const params = new URLSearchParams();
+      params.set('slug', slug);
+      if (runId) {
+        params.set('run', runId);
+      }
+      navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
+    },
+    [navigate]
+  );
+
   const activeTabConfig = useMemo(() => TABS.find((tab) => tab.key === activeTab) ?? TABS[0], [activeTab]);
 
   return (
@@ -351,6 +371,7 @@ export default function RunsPage() {
           pendingRunId={pendingWorkflowRunId}
           onRefresh={handleWorkflowRefresh}
           onLoadMore={handleWorkflowLoadMore}
+          onSelect={handleWorkflowSelect}
         />
       ) : (
         <JobRunsTable
@@ -371,6 +392,7 @@ type WorkflowRunsTableProps = {
   pendingRunId: string | null;
   onRefresh: () => void;
   onLoadMore: () => void;
+  onSelect: (entry: WorkflowRunListItem) => void;
 };
 
 type JobRunsTableProps = {
@@ -381,7 +403,7 @@ type JobRunsTableProps = {
   onLoadMore: () => void;
 };
 
-function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore }: WorkflowRunsTableProps) {
+function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore, onSelect }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
 
@@ -460,7 +482,11 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore
                 );
                 const isPending = pendingRunId === entry.run.id;
                 return (
-                  <tr key={entry.run.id} className="bg-white/70 dark:bg-slate-900/40">
+                  <tr
+                    key={entry.run.id}
+                    className="cursor-pointer bg-white/70 transition-colors hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10"
+                    onClick={() => onSelect(entry)}
+                  >
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
@@ -492,7 +518,10 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore
                       <button
                         type="button"
                         className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={() => onRetry(entry)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetry(entry);
+                        }}
                         disabled={isPending}
                       >
                         {isPending ? 'Retriggering…' : 'Retrigger'}

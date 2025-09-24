@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import WorkflowsHeader from './components/WorkflowsHeader';
 import WorkflowDefinitionsPanel from './components/WorkflowDefinitionsPanel';
 import WorkflowDetailsCard from './components/WorkflowDetailsCard';
@@ -86,6 +88,26 @@ export default function WorkflowsPage() {
     clearSelectedAsset,
     refreshAsset
   } = useWorkflowsController();
+
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const slugParam = searchParams.get('slug');
+    if (slugParam && slugParam !== selectedSlug) {
+      setSelectedSlug(slugParam);
+    }
+  }, [searchParams, selectedSlug, setSelectedSlug]);
+
+  useEffect(() => {
+    const runParam = searchParams.get('run');
+    if (!runParam || runParam === selectedRunId) {
+      return;
+    }
+    const hasRun = runs.some((run) => run.id === runParam);
+    if (hasRun) {
+      setSelectedRunId(runParam);
+    }
+  }, [searchParams, runs, selectedRunId, setSelectedRunId]);
 
   const analytics = selectedSlug ? workflowAnalytics[selectedSlug] : undefined;
   const stats = analytics?.stats ?? null;

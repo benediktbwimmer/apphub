@@ -1,12 +1,18 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import WorkflowsPage from '../WorkflowsPage';
 import { ApiTokenProvider } from '../../auth/ApiTokenContext';
 import { ToastProvider } from '../../components/toast';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 
 type FetchArgs = Parameters<typeof fetch>;
+
+const nowTimestamp = Date.now();
+const nowIso = new Date(nowTimestamp).toISOString();
+const fiveMinutesAgoIso = new Date(nowTimestamp - 5 * 60 * 1000).toISOString();
+const fourMinutesAgoIso = new Date(nowTimestamp - 4 * 60 * 1000).toISOString();
 
 const workflowDefinition: WorkflowDefinition = {
   id: 'wf-1',
@@ -84,8 +90,22 @@ const runResponse: WorkflowRun = {
   context: {},
   output: null,
   trigger: { type: 'manual' },
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
+  createdAt: nowIso,
+  updatedAt: nowIso
+};
+
+const completedRun: WorkflowRun = {
+  ...runResponse,
+  id: 'run-2',
+  status: 'succeeded',
+  currentStepId: null,
+  currentStepIndex: null,
+  startedAt: fiveMinutesAgoIso,
+  completedAt: fourMinutesAgoIso,
+  durationMs: 60_000,
+  metrics: { totalSteps: 2, completedSteps: 2 },
+  createdAt: fiveMinutesAgoIso,
+  updatedAt: fourMinutesAgoIso
 };
 
 const runStepsResponse: WorkflowRunStep[] = [
@@ -101,6 +121,22 @@ const runStepsResponse: WorkflowRunStep[] = [
     errorMessage: null,
     logsUrl: 'https://example.com/logs/1',
     metrics: { durationMs: 1200 }
+  }
+];
+
+const completedRunSteps: WorkflowRunStep[] = [
+  {
+    id: 'run-step-2',
+    workflowRunId: completedRun.id,
+    stepId: 'step-two',
+    status: 'succeeded',
+    attempt: 1,
+    jobRunId: 'job-run-2',
+    startedAt: fiveMinutesAgoIso,
+    completedAt: fourMinutesAgoIso,
+    errorMessage: null,
+    logsUrl: 'https://example.com/logs/2',
+    metrics: { durationMs: 2000 }
   }
 ];
 
@@ -132,6 +168,8 @@ type FetchMockOptions = {
   services?: { slug: string; status: string }[];
   run?: WorkflowRun;
   runSteps?: WorkflowRunStep[];
+  detailRuns?: WorkflowRun[];
+  runStepsById?: Record<string, WorkflowRunStep[]>;
 };
 
 function createFetchMock(options?: FetchMockOptions) {
@@ -139,6 +177,11 @@ function createFetchMock(options?: FetchMockOptions) {
   const services = options?.services ?? [];
   const run = options?.run ?? runResponse;
   const steps = options?.runSteps ?? runStepsResponse;
+  const detailRuns = options?.detailRuns ?? [];
+  const runStepsById: Record<string, WorkflowRunStep[]> = {
+    [run.id]: steps,
+    ...(options?.runStepsById ?? {})
+  };
   const now = new Date().toISOString();
   const statsPayload = {
     workflowId: workflow.id,
@@ -186,7 +229,7 @@ function createFetchMock(options?: FetchMockOptions) {
 
     if (url.endsWith(`/workflows/${workflow.slug}`) && (!init || init.method === undefined)) {
       return new Response(
-        JSON.stringify({ data: { workflow, runs: [] } }),
+        JSON.stringify({ data: { workflow, runs: detailRuns } }),
         { status: 200 }
       );
     }
@@ -206,15 +249,34 @@ function createFetchMock(options?: FetchMockOptions) {
       return new Response(JSON.stringify({ data: metricsPayload }), { status: 200 });
     }
 
-    if (url.endsWith(`/workflow-runs/${run.id}/steps`)) {
-      return new Response(
-        JSON.stringify({ data: { run, steps } }),
-        { status: 200 }
-      );
+    if (/\/workflow-runs\/.+\/steps$/.test(url)) {
+      const match = url.match(/\/workflow-runs\/([^/]+)\/steps$/);
+      const runId = match?.[1];
+      if (runId) {
+        const responseRun =
+          detailRuns.find((entry) => entry.id === runId) ?? (run.id === runId ? run : detailRuns[0] ?? run);
+        const responseSteps = runStepsById[runId] ?? steps;
+        return new Response(
+          JSON.stringify({ data: { run: responseRun, steps: responseSteps } }),
+          { status: 200 }
+        );
+      }
     }
 
     return new Response('not found', { status: 404 });
   });
+}
+
+function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <ToastProvider>
+        <ApiTokenProvider>
+          <WorkflowsPage />
+        </ApiTokenProvider>
+      </ToastProvider>
+    </MemoryRouter>
+  );
 }
 
 describe('WorkflowsPage manual run flow', () => {
@@ -235,13 +297,7 @@ describe('WorkflowsPage manual run flow', () => {
     const fetchMock = createFetchMock();
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
 
-    render(
-      <ToastProvider>
-        <ApiTokenProvider>
-          <WorkflowsPage />
-        </ApiTokenProvider>
-      </ToastProvider>
-    );
+    renderWorkflowsPage();
 
     await waitFor(() => {
       expect(screen.getByText('Demo Workflow')).toBeVisible();
@@ -321,13 +377,7 @@ describe('WorkflowsPage manual run flow', () => {
     });
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
 
-    render(
-      <ToastProvider>
-        <ApiTokenProvider>
-          <WorkflowsPage />
-        </ApiTokenProvider>
-      </ToastProvider>
-    );
+    renderWorkflowsPage();
 
     await waitFor(() => {
       expect(screen.getByText('Service Workflow')).toBeVisible();
@@ -339,5 +389,30 @@ describe('WorkflowsPage manual run flow', () => {
 
     const submitButton = await screen.findByRole('button', { name: /launch workflow/i });
     expect(submitButton).toBeDisabled();
+  });
+
+  it('selects the workflow and run indicated by query parameters', async () => {
+    const fetchMock = createFetchMock({
+      detailRuns: [{ ...runResponse }, completedRun],
+      runStepsById: { [completedRun.id]: completedRunSteps }
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    renderWorkflowsPage([
+      `/workflows?slug=${workflowDefinition.slug}&run=${completedRun.id}`
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Demo Workflow')).toBeVisible();
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/workflow-runs/${completedRun.id}/steps`),
+        expect.anything()
+      );
+    });
+
+    expect(await screen.findByText(/Run ID: run-2/i)).toBeVisible();
   });
 });
