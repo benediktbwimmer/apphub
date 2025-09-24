@@ -355,6 +355,9 @@ export default function WorkflowAssetPanel({
                             Partition
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Status
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             Materializations
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -367,9 +370,33 @@ export default function WorkflowAssetPanel({
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                         {assetPartitions.partitions.map((partition) => (
-                          <tr key={partition.partitionKey ?? 'default'}>
+                          <tr
+                            key={partition.partitionKey ?? 'default'}
+                            className={partition.isStale ? 'bg-amber-50/70 dark:bg-amber-500/10' : undefined}
+                          >
                             <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                               {partition.partitionKey ?? '—'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                              {partition.isStale ? (
+                                <div className="flex flex-col gap-1">
+                                  <span className="inline-flex w-fit items-center rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
+                                    Stale
+                                  </span>
+                                  {partition.staleMetadata && (
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                                      Since {formatTimestamp(partition.staleMetadata.requestedAt)}
+                                      {partition.staleMetadata.note
+                                        ? ` · ${partition.staleMetadata.note}`
+                                        : partition.staleMetadata.requestedBy
+                                        ? ` · ${partition.staleMetadata.requestedBy}`
+                                        : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-500 dark:text-slate-400">Fresh</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                               {partition.materializations}

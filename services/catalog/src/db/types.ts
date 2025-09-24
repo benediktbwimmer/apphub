@@ -735,6 +735,22 @@ export type WorkflowAssetPartitionSummary = {
   partitionKey: string | null;
   latest: WorkflowAssetSnapshotRecord | null;
   materializationCount: number;
+  isStale: boolean;
+  staleMetadata: {
+    requestedAt: string;
+    requestedBy: string | null;
+    note: string | null;
+  } | null;
+};
+
+export type WorkflowAssetStalePartitionRecord = {
+  workflowDefinitionId: string;
+  assetId: string;
+  partitionKey: string | null;
+  partitionKeyNormalized: string;
+  requestedAt: string;
+  requestedBy: string | null;
+  note: string | null;
 };
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';

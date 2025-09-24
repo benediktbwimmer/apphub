@@ -53,6 +53,18 @@ function nowMs(): number {
   return Date.now();
 }
 
+function normalizePartitionKeyValue(
+  partitionKey: string | null | undefined
+): { raw: string | null; normalized: string } {
+  if (typeof partitionKey === 'string') {
+    const trimmed = partitionKey.trim();
+    if (trimmed.length > 0) {
+      return { raw: trimmed, normalized: trimmed };
+    }
+  }
+  return { raw: null, normalized: '' };
+}
+
 type WorkflowProducedAssetConfig = {
   assetId: string;
   policy: AssetAutoMaterializePolicy | null;
@@ -70,6 +82,7 @@ type AssetProductionRecord = {
   producedAt: string;
   workflowRunId: string;
   workflowSlug: string;
+  partitionKey: string | null;
 };
 
 type FailureState = {
@@ -82,6 +95,7 @@ type AutoRunInfo = {
   reason: 'upstream-update' | 'expiry';
   assetId: string;
   requestedAt: number;
+  partitionKey: string | null;
   context?: Record<string, string>;
 };
 
@@ -92,6 +106,7 @@ type UpstreamTriggerPayload = {
   producedAt: number;
   upstreamWorkflowId: string;
   upstreamRunId: string;
+  partitionKey?: string | null;
 };
 
 type ExpiryTriggerPayload = {
@@ -100,6 +115,7 @@ type ExpiryTriggerPayload = {
   assetNormalizedId: string;
   producedAt: number;
   expiryReason: AssetExpiryReason;
+  partitionKey: string | null;
 };
 
 type AutoTriggerPayload = UpstreamTriggerPayload | ExpiryTriggerPayload;
@@ -107,7 +123,7 @@ type AutoTriggerPayload = UpstreamTriggerPayload | ExpiryTriggerPayload;
 export class AssetMaterializer {
   private workflowConfigs = new Map<string, WorkflowConfig>();
   private assetConsumers = new Map<string, Set<string>>();
-  private latestAssets = new Map<string, AssetProductionRecord>();
+  private latestAssets = new Map<string, Map<string, AssetProductionRecord>>();
   private autoRuns = new Map<string, AutoRunInfo>();
   private inFlight = new Map<string, Set<string>>();
   private failureState = new Map<string, FailureState>();
@@ -234,11 +250,15 @@ export class AssetMaterializer {
       return;
     }
     const assetKey = this.buildAssetKey(event.workflowDefinitionId, canonicalAssetId);
-    this.latestAssets.set(assetKey, {
+    const { raw, normalized } = normalizePartitionKeyValue(event.partitionKey ?? null);
+    const partitionMap = this.latestAssets.get(assetKey) ?? new Map<string, AssetProductionRecord>();
+    partitionMap.set(normalized, {
       producedAt: event.producedAt,
       workflowRunId: event.workflowRunId,
-      workflowSlug: event.workflowSlug
+      workflowSlug: event.workflowSlug,
+      partitionKey: raw
     });
+    this.latestAssets.set(assetKey, partitionMap);
 
     if (!this.workflowConfigs.has(event.workflowDefinitionId)) {
       await this.rebuildGraph();
@@ -262,7 +282,8 @@ export class AssetMaterializer {
         assetNormalizedId: normalizedAssetId,
         producedAt: producedAtMs,
         upstreamWorkflowId: event.workflowDefinitionId,
-        upstreamRunId: event.workflowRunId
+        upstreamRunId: event.workflowRunId,
+        partitionKey: raw
       });
     }
   }
@@ -274,7 +295,9 @@ export class AssetMaterializer {
     }
 
     const assetKey = this.buildAssetKey(event.workflowDefinitionId, canonicalAssetId);
-    const latest = this.latestAssets.get(assetKey);
+    const { raw, normalized } = normalizePartitionKeyValue(event.partitionKey ?? null);
+    const partitionMap = this.latestAssets.get(assetKey);
+    const latest = partitionMap?.get(normalized);
     const eventProducedAtMs = this.parseTimestamp(event.producedAt);
     if (latest) {
       const latestProducedAtMs = this.parseTimestamp(latest.producedAt);
@@ -292,7 +315,8 @@ export class AssetMaterializer {
       assetId: canonicalAssetId,
       assetNormalizedId: this.normalizeAssetId(canonicalAssetId),
       producedAt: eventProducedAtMs,
-      expiryReason: event.reason
+      expiryReason: event.reason,
+      partitionKey: latest?.partitionKey ?? raw
     });
   }
 
@@ -439,17 +463,27 @@ export class AssetMaterializer {
     workflowSlug: string,
     snapshots: WorkflowAssetSnapshotRecord[]
   ): void {
+    const accumulators = new Map<string, Map<string, AssetProductionRecord>>();
+
     for (const snapshot of snapshots) {
       const assetId = this.canonicalAssetId(snapshot.asset.assetId);
       if (!assetId) {
         continue;
       }
       const assetKey = this.buildAssetKey(workflowId, assetId);
-      this.latestAssets.set(assetKey, {
+      const { raw, normalized } = normalizePartitionKeyValue(snapshot.asset.partitionKey);
+      const partitions = accumulators.get(assetKey) ?? new Map<string, AssetProductionRecord>();
+      partitions.set(normalized, {
         producedAt: snapshot.asset.producedAt,
         workflowRunId: snapshot.workflowRunId,
-        workflowSlug
+        workflowSlug,
+        partitionKey: raw
       });
+      accumulators.set(assetKey, partitions);
+    }
+
+    for (const [assetKey, partitions] of accumulators) {
+      this.latestAssets.set(assetKey, partitions);
     }
   }
 
@@ -562,11 +596,17 @@ export class AssetMaterializer {
         return;
       }
       const assetKey = this.buildAssetKey(workflowId, payload.assetId);
-      const record = this.latestAssets.get(assetKey);
-      if (record) {
-        const latestProducedAt = this.parseTimestamp(record.producedAt);
-        if (latestProducedAt > payload.producedAt) {
-          return;
+      const partitionMap = this.latestAssets.get(assetKey);
+      if (partitionMap) {
+        const { normalized } = normalizePartitionKeyValue(
+          payload.partitionKey ?? null
+        );
+        const record = partitionMap.get(normalized);
+        if (record) {
+          const latestProducedAt = this.parseTimestamp(record.producedAt);
+          if (latestProducedAt > payload.producedAt) {
+            return;
+          }
         }
       }
     }
@@ -598,12 +638,14 @@ export class AssetMaterializer {
     payload: AutoTriggerPayload
   ): Promise<void> {
     const trigger = this.buildTriggerPayload(payload);
+    const partitionKey = 'partitionKey' in payload ? payload.partitionKey ?? null : null;
     const run = await createWorkflowRun(workflowId, {
       triggeredBy: 'asset-materializer',
-      trigger
+      trigger,
+      partitionKey
     });
 
-    this.trackAutoRun(workflowId, run.id, payload);
+    this.trackAutoRun(workflowId, run.id, payload, partitionKey);
 
     try {
       await enqueueWorkflowRun(run.id);
@@ -620,7 +662,12 @@ export class AssetMaterializer {
     }
   }
 
-  private trackAutoRun(workflowId: string, runId: string, payload: AutoTriggerPayload): void {
+  private trackAutoRun(
+    workflowId: string,
+    runId: string,
+    payload: AutoTriggerPayload,
+    partitionKey: string | null
+  ): void {
     const set = this.inFlight.get(workflowId) ?? new Set<string>();
     set.add(runId);
     this.inFlight.set(workflowId, set);
@@ -634,12 +681,16 @@ export class AssetMaterializer {
     } else {
       context.expiryReason = payload.expiryReason;
     }
+    if (partitionKey) {
+      context.partitionKey = partitionKey;
+    }
 
     this.autoRuns.set(runId, {
       workflowId,
       reason: payload.reason,
       assetId: payload.assetId,
       requestedAt: nowMs(),
+      partitionKey,
       context
     });
   }
@@ -671,15 +722,22 @@ export class AssetMaterializer {
       reason: payload.reason,
       assetId: payload.assetId
     };
+    if ('partitionKey' in payload && payload.partitionKey) {
+      base.partitionKey = payload.partitionKey;
+    }
     if (payload.reason === 'upstream-update') {
       base.upstream = {
         assetId: payload.assetId,
         workflowId: payload.upstreamWorkflowId,
         runId: payload.upstreamRunId
       } as Record<string, JsonValue>;
+      if (payload.partitionKey) {
+        (base.upstream as Record<string, JsonValue>).partitionKey = payload.partitionKey;
+      }
     } else {
       base.expiry = {
-        reason: payload.expiryReason
+        reason: payload.expiryReason,
+        partitionKey: payload.partitionKey ?? null
       } as Record<string, JsonValue>;
     }
     return base;
@@ -693,15 +751,17 @@ export class AssetMaterializer {
     let latest: number | null = null;
     for (const produced of config.producedAssets.values()) {
       const assetKey = this.buildAssetKey(workflowId, produced.assetId);
-      const record = this.latestAssets.get(assetKey);
-      if (!record) {
+      const partitionMap = this.latestAssets.get(assetKey);
+      if (!partitionMap) {
         continue;
       }
-      const producedAt = this.parseTimestamp(record.producedAt);
-      if (!Number.isFinite(producedAt)) {
-        continue;
+      for (const record of partitionMap.values()) {
+        const producedAt = this.parseTimestamp(record.producedAt);
+        if (!Number.isFinite(producedAt)) {
+          continue;
+        }
+        latest = latest === null ? producedAt : Math.max(latest, producedAt);
       }
-      latest = latest === null ? producedAt : Math.max(latest, producedAt);
     }
     return latest;
   }

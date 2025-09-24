@@ -295,6 +295,16 @@ export type WorkflowAssetSnapshotRow = {
   run_completed_at: string | null;
 };
 
+export type WorkflowAssetStalePartitionRow = {
+  workflow_definition_id: string;
+  asset_id: string;
+  partition_key: string | null;
+  partition_key_normalized: string;
+  requested_at: string;
+  requested_by: string | null;
+  note: string | null;
+};
+
 export type WorkflowRunStepRow = {
   id: string;
   workflow_run_id: string;

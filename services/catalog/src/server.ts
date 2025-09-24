@@ -11,6 +11,7 @@ import { registerJobRoutes } from './routes/jobs';
 import { registerJobBundleRoutes } from './routes/jobBundles';
 import { registerAiRoutes } from './routes/ai';
 import { registerWorkflowRoutes } from './routes/workflows';
+import { registerAssetRoutes } from './routes/assets';
 import { registerServiceRoutes } from './routes/services';
 import { registerRepositoryRoutes } from './routes/repositories';
 import { registerAdminRoutes } from './routes/admin';
@@ -60,6 +61,7 @@ export async function buildServer() {
   await app.register(async (instance) => registerJobBundleRoutes(instance));
   await app.register(async (instance) => registerAiRoutes(instance));
   await app.register(async (instance) => registerWorkflowRoutes(instance));
+  await app.register(async (instance) => registerAssetRoutes(instance));
   await app.register(async (instance) => registerServiceRoutes(instance, { registry }));
   await app.register(async (instance) => registerRepositoryRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));

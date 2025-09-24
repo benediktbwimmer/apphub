@@ -454,7 +454,9 @@ describe('useWorkflowsController', () => {
             partitionKey: '2025-09-23',
             runStartedAt: producedAt,
             runCompletedAt: producedAt
-          }
+          },
+          isStale: false,
+          staleMetadata: null
         }
       ]
     };

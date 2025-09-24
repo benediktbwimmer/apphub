@@ -29,7 +29,8 @@ import {
   type WorkflowAssetSnapshotRecord,
   type WorkflowAssetPartitionSummary,
   type WorkflowExecutionHistoryRecord,
-  type WorkflowExecutionHistoryEventInput
+  type WorkflowExecutionHistoryEventInput,
+  type WorkflowAssetStalePartitionRecord
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -38,7 +39,8 @@ import {
   mapWorkflowAssetDeclarationRow,
   mapWorkflowRunStepAssetRow,
   mapWorkflowAssetSnapshotRow,
-  mapWorkflowExecutionHistoryRow
+  mapWorkflowExecutionHistoryRow,
+  mapWorkflowAssetStalePartitionRow
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
@@ -47,7 +49,8 @@ import type {
   WorkflowAssetDeclarationRow,
   WorkflowRunStepAssetRow,
   WorkflowAssetSnapshotRow,
-  WorkflowExecutionHistoryRow
+  WorkflowExecutionHistoryRow,
+  WorkflowAssetStalePartitionRow
 } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
 
@@ -101,6 +104,18 @@ type AssetDeclarationRowInput = {
   direction: WorkflowAssetDirection;
   asset: WorkflowAssetDeclaration;
 };
+
+function normalizePartitionKeyValue(
+  partitionKey: string | null | undefined
+): { raw: string | null; normalized: string } {
+  if (typeof partitionKey === 'string') {
+    const trimmed = partitionKey.trim();
+    if (trimmed.length > 0) {
+      return { raw: trimmed, normalized: trimmed };
+    }
+  }
+  return { raw: null, normalized: '' };
+}
 
 function normalizeTimeRange({ from, to }: AnalyticsOptions): AnalyticsTimeRange {
   const resolvedTo = to ?? new Date();
@@ -596,17 +611,17 @@ async function fetchLatestWorkflowAssetSnapshots(
   workflowDefinitionId: string
 ): Promise<WorkflowAssetSnapshotRecord[]> {
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
-    `SELECT DISTINCT ON (asset.asset_id)
+    `SELECT DISTINCT ON (asset.asset_id, COALESCE(asset.partition_key, ''))
          asset.*,
-         step.status AS step_status,
-         run.status AS run_status,
-         run.started_at AS run_started_at,
-         run.completed_at AS run_completed_at
+            step.status AS step_status,
+            run.status AS run_status,
+            run.started_at AS run_started_at,
+            run.completed_at AS run_completed_at
        FROM workflow_run_step_assets asset
        JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
        WHERE asset.workflow_definition_id = $1
-       ORDER BY asset.asset_id, asset.produced_at DESC`,
+       ORDER BY asset.asset_id, COALESCE(asset.partition_key, ''), asset.produced_at DESC`,
     [workflowDefinitionId]
   );
   return rows.map(mapWorkflowAssetSnapshotRow);
@@ -648,6 +663,36 @@ async function fetchWorkflowAssetHistory(
   return rows.map(mapWorkflowAssetSnapshotRow);
 }
 
+async function fetchWorkflowAssetStalePartitions(
+  client: PoolClient,
+  workflowDefinitionId: string
+): Promise<WorkflowAssetStalePartitionRecord[]> {
+  const { rows } = await client.query<WorkflowAssetStalePartitionRow>(
+    `SELECT *
+       FROM workflow_asset_stale_partitions
+      WHERE workflow_definition_id = $1
+      ORDER BY requested_at DESC`,
+    [workflowDefinitionId]
+  );
+  return rows.map(mapWorkflowAssetStalePartitionRow);
+}
+
+async function fetchWorkflowAssetStalePartitionsForAsset(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string
+): Promise<WorkflowAssetStalePartitionRecord[]> {
+  const { rows } = await client.query<WorkflowAssetStalePartitionRow>(
+    `SELECT *
+       FROM workflow_asset_stale_partitions
+      WHERE workflow_definition_id = $1
+        AND asset_id = $2
+      ORDER BY requested_at DESC`,
+    [workflowDefinitionId, assetId]
+  );
+  return rows.map(mapWorkflowAssetStalePartitionRow);
+}
+
 async function fetchWorkflowAssetPartitions(
   client: PoolClient,
   workflowDefinitionId: string,
@@ -667,25 +712,67 @@ async function fetchWorkflowAssetPartitions(
      ORDER BY COALESCE(asset.partition_key, ''), asset.produced_at DESC`,
     [workflowDefinitionId, assetId]
   );
+  const staleRecords = await fetchWorkflowAssetStalePartitionsForAsset(
+    client,
+    workflowDefinitionId,
+    assetId
+  );
+  const staleByNormalized = new Map<string, WorkflowAssetStalePartitionRecord>();
+  for (const record of staleRecords) {
+    staleByNormalized.set(record.partitionKeyNormalized, record);
+  }
 
-  const partitions = new Map<string, { latest: WorkflowAssetSnapshotRecord; count: number }>();
+  const partitions = new Map<
+    string,
+    {
+      partitionKey: string | null;
+      latest: WorkflowAssetSnapshotRecord | null;
+      materializationCount: number;
+      stale: WorkflowAssetStalePartitionRecord | null;
+    }
+  >();
 
   for (const row of rows) {
     const snapshot = mapWorkflowAssetSnapshotRow(row);
-    const key = row.partition_key ?? '';
-    const existing = partitions.get(key);
+    const { raw, normalized } = normalizePartitionKeyValue(row.partition_key);
+    const existing = partitions.get(normalized);
     if (existing) {
-      existing.count += 1;
-    } else {
-      partitions.set(key, { latest: snapshot, count: 1 });
+      existing.materializationCount += 1;
+      continue;
+    }
+
+    partitions.set(normalized, {
+      partitionKey: raw,
+      latest: snapshot,
+      materializationCount: 1,
+      stale: staleByNormalized.get(normalized) ?? null
+    });
+  }
+
+  for (const record of staleRecords) {
+    if (!partitions.has(record.partitionKeyNormalized)) {
+      partitions.set(record.partitionKeyNormalized, {
+        partitionKey: record.partitionKey,
+        latest: null,
+        materializationCount: 0,
+        stale: record
+      });
     }
   }
 
-  return Array.from(partitions.entries()).map(([key, data]) => ({
+  return Array.from(partitions.values()).map((entry) => ({
     assetId,
-    partitionKey: key.length > 0 ? key : null,
-    latest: data.latest,
-    materializationCount: data.count
+    partitionKey: entry.partitionKey,
+    latest: entry.latest,
+    materializationCount: entry.materializationCount,
+    isStale: Boolean(entry.stale),
+    staleMetadata: entry.stale
+      ? {
+          requestedAt: entry.stale.requestedAt,
+          requestedBy: entry.stale.requestedBy,
+          note: entry.stale.note ?? null
+        }
+      : null
   } satisfies WorkflowAssetPartitionSummary));
 }
 
@@ -783,6 +870,68 @@ export async function listWorkflowAssetPartitions(
   assetId: string
 ): Promise<WorkflowAssetPartitionSummary[]> {
   return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId));
+}
+
+export async function listWorkflowAssetStalePartitions(
+  workflowDefinitionId: string
+): Promise<WorkflowAssetStalePartitionRecord[]> {
+  return useConnection((client) => fetchWorkflowAssetStalePartitions(client, workflowDefinitionId));
+}
+
+export async function markWorkflowAssetPartitionStale(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null,
+  options: { requestedBy?: string | null; note?: string | null } = {}
+): Promise<void> {
+  const { raw, normalized } = normalizePartitionKeyValue(partitionKey);
+  const requestedBy = options.requestedBy ?? null;
+  const note = typeof options.note === 'string' && options.note.trim().length > 0 ? options.note.trim().slice(0, 500) : null;
+
+  await useConnection((client) =>
+    client.query(
+      `INSERT INTO workflow_asset_stale_partitions (
+         workflow_definition_id,
+         asset_id,
+         partition_key,
+         partition_key_normalized,
+         requested_at,
+         requested_by,
+         note
+       ) VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         NOW(),
+         $5,
+         $6
+       )
+       ON CONFLICT (workflow_definition_id, asset_id, partition_key_normalized)
+       DO UPDATE
+         SET requested_at = NOW(),
+             requested_by = EXCLUDED.requested_by,
+             note = EXCLUDED.note`,
+      [workflowDefinitionId, assetId, raw, normalized, requestedBy, note]
+    )
+  );
+}
+
+export async function clearWorkflowAssetPartitionStale(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null
+): Promise<void> {
+  const { normalized } = normalizePartitionKeyValue(partitionKey);
+  await useConnection((client) =>
+    client.query(
+      `DELETE FROM workflow_asset_stale_partitions
+        WHERE workflow_definition_id = $1
+          AND asset_id = $2
+          AND partition_key_normalized = $3`,
+      [workflowDefinitionId, assetId, normalized]
+    )
+  );
 }
 
 export async function createWorkflowDefinition(

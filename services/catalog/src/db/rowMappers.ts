@@ -48,7 +48,8 @@ import {
   type WorkflowAssetPartitioning,
   type WorkflowRunStepAssetRecord,
   type WorkflowAssetSnapshotRecord,
-  type WorkflowExecutionHistoryRecord
+  type WorkflowExecutionHistoryRecord,
+  type WorkflowAssetStalePartitionRecord
 } from './types';
 import type {
   BuildRow,
@@ -71,7 +72,8 @@ import type {
   WorkflowRunStepRow,
   WorkflowRunStepAssetRow,
   WorkflowAssetSnapshotRow,
-  WorkflowExecutionHistoryRow
+  WorkflowExecutionHistoryRow,
+  WorkflowAssetStalePartitionRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1514,4 +1516,18 @@ export function mapWorkflowAssetSnapshotRow(
     runStartedAt: row.run_started_at ?? null,
     runCompletedAt: row.run_completed_at ?? null
   } satisfies WorkflowAssetSnapshotRecord;
+}
+
+export function mapWorkflowAssetStalePartitionRow(
+  row: WorkflowAssetStalePartitionRow
+): WorkflowAssetStalePartitionRecord {
+  return {
+    workflowDefinitionId: row.workflow_definition_id,
+    assetId: row.asset_id,
+    partitionKey: row.partition_key,
+    partitionKeyNormalized: row.partition_key_normalized,
+    requestedAt: row.requested_at,
+    requestedBy: row.requested_by,
+    note: row.note
+  } satisfies WorkflowAssetStalePartitionRecord;
 }

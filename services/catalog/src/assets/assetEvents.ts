@@ -6,7 +6,10 @@ import {
   getQueueConnection,
   isInlineQueueMode
 } from '../queue';
-import { recordWorkflowRunStepAssets } from '../db/workflows';
+import {
+  recordWorkflowRunStepAssets,
+  clearWorkflowAssetPartitionStale
+} from '../db/workflows';
 import type {
   WorkflowDefinitionRecord,
   WorkflowRunRecord,
@@ -32,8 +35,23 @@ function logError(message: string, meta?: Record<string, JsonValue>) {
   logger.error(message, meta);
 }
 
-function buildAssetKey(workflowDefinitionId: string, assetId: string): string {
-  return `${workflowDefinitionId}:${assetId}`;
+function normalizePartitionKey(partitionKey: string | null | undefined): string {
+  if (typeof partitionKey === 'string') {
+    const trimmed = partitionKey.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+function buildAssetKey(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null | undefined
+): string {
+  const normalizedPartition = normalizePartitionKey(partitionKey);
+  return `${workflowDefinitionId}:${assetId}:${normalizedPartition}`;
 }
 
 function buildJobId(reason: AssetExpiryReason, assetKey: string): string {
@@ -86,7 +104,8 @@ function toExpiredEvent(data: AssetExpiryJobData): AssetExpiredEventData {
     freshness: asset.freshness,
     expiresAt: data.expiresAt,
     requestedAt: data.requestedAt,
-    reason: data.reason
+    reason: data.reason,
+    partitionKey: asset.partitionKey ?? null
   } satisfies AssetExpiredEventData;
 }
 
@@ -191,14 +210,15 @@ function buildProducedEventData(options: {
     workflowRunStepId: options.stepRecordId,
     stepId: options.stepId,
     producedAt,
-    freshness: options.asset.freshness ?? null
+    freshness: options.asset.freshness ?? null,
+    partitionKey: options.asset.partitionKey ?? null
   } satisfies AssetProducedEventData;
 }
 
 async function scheduleFreshnessEvents(event: AssetProducedEventData) {
   const freshness = event.freshness;
   const producedAtMs = parseTimestamp(event.producedAt);
-  const assetKey = buildAssetKey(event.workflowDefinitionId, event.assetId);
+  const assetKey = buildAssetKey(event.workflowDefinitionId, event.assetId, event.partitionKey);
   const requestedAt = new Date().toISOString();
 
   await clearScheduledExpiry(assetKey, 'ttl');
@@ -260,6 +280,20 @@ export async function handleAssetsProduced(options: {
       });
       emitApphubEvent({ type: 'asset.produced', data: event });
       await scheduleFreshnessEvents(event);
+      try {
+        await clearWorkflowAssetPartitionStale(
+          options.definition.id,
+          asset.assetId,
+          asset.partitionKey ?? null
+        );
+      } catch (clearErr) {
+        logError('Failed to clear stale flag for asset partition', {
+          workflowDefinitionId: options.definition.id,
+          assetId: asset.assetId,
+          partitionKey: asset.partitionKey ?? null,
+          error: clearErr instanceof Error ? clearErr.message : 'unknown'
+        });
+      }
     } catch (err) {
       logError('Failed to emit asset production metadata', {
         workflowDefinitionId: options.definition.id,
@@ -312,4 +346,3 @@ export async function clearStepAssets(options: {
     []
   );
 }
-

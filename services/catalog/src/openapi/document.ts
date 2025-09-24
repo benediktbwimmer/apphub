@@ -859,6 +859,169 @@ const workflowDefinitionResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const assetGraphProducerSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'workflowId',
+    'workflowSlug',
+    'workflowName',
+    'stepId',
+    'stepName',
+    'stepType',
+    'partitioning',
+    'autoMaterialize',
+    'freshness'
+  ],
+  properties: {
+    workflowId: { type: 'string' },
+    workflowSlug: { type: 'string' },
+    workflowName: { type: 'string' },
+    stepId: { type: 'string' },
+    stepName: { type: 'string' },
+    stepType: { type: 'string', enum: ['job', 'service', 'fanout'] },
+    partitioning: nullable(jsonValueSchema),
+    autoMaterialize: nullable(jsonValueSchema),
+    freshness: nullable(jsonValueSchema)
+  }
+};
+
+const assetGraphConsumerSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['workflowId', 'workflowSlug', 'workflowName', 'stepId', 'stepName', 'stepType'],
+  properties: {
+    workflowId: { type: 'string' },
+    workflowSlug: { type: 'string' },
+    workflowName: { type: 'string' },
+    stepId: { type: 'string' },
+    stepName: { type: 'string' },
+    stepType: { type: 'string', enum: ['job', 'service', 'fanout'] }
+  }
+};
+
+const assetGraphMaterializationSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'workflowId',
+    'workflowSlug',
+    'workflowName',
+    'runId',
+    'stepId',
+    'stepName',
+    'stepType',
+    'runStatus',
+    'stepStatus',
+    'producedAt',
+    'partitionKey',
+    'freshness',
+    'runStartedAt',
+    'runCompletedAt'
+  ],
+  properties: {
+    workflowId: { type: 'string' },
+    workflowSlug: { type: 'string' },
+    workflowName: { type: 'string' },
+    runId: { type: 'string' },
+    stepId: { type: 'string' },
+    stepName: { type: 'string' },
+    stepType: { type: 'string', enum: ['job', 'service', 'fanout'] },
+    runStatus: { type: 'string', enum: ['pending', 'running', 'succeeded', 'failed', 'canceled'] },
+    stepStatus: { type: 'string', enum: ['pending', 'running', 'succeeded', 'failed', 'skipped'] },
+    producedAt: stringSchema('date-time'),
+    partitionKey: nullable(stringSchema()),
+    freshness: nullable(jsonValueSchema),
+    runStartedAt: nullable(stringSchema('date-time')),
+    runCompletedAt: nullable(stringSchema('date-time'))
+  }
+};
+
+const assetGraphStalePartitionSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['workflowId', 'workflowSlug', 'workflowName', 'partitionKey', 'requestedAt', 'requestedBy', 'note'],
+  properties: {
+    workflowId: { type: 'string' },
+    workflowSlug: { type: 'string' },
+    workflowName: { type: 'string' },
+    partitionKey: nullable(stringSchema()),
+    requestedAt: stringSchema('date-time'),
+    requestedBy: nullable(stringSchema()),
+    note: nullable(stringSchema())
+  }
+};
+
+const assetGraphNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'assetId',
+    'normalizedAssetId',
+    'producers',
+    'consumers',
+    'latestMaterializations',
+    'stalePartitions',
+    'hasStalePartitions'
+  ],
+  properties: {
+    assetId: { type: 'string' },
+    normalizedAssetId: { type: 'string' },
+    producers: { type: 'array', items: assetGraphProducerSchema },
+    consumers: { type: 'array', items: assetGraphConsumerSchema },
+    latestMaterializations: { type: 'array', items: assetGraphMaterializationSchema },
+    stalePartitions: { type: 'array', items: assetGraphStalePartitionSchema },
+    hasStalePartitions: { type: 'boolean' }
+  }
+};
+
+const assetGraphEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'fromAssetId',
+    'fromAssetNormalizedId',
+    'toAssetId',
+    'toAssetNormalizedId',
+    'workflowId',
+    'workflowSlug',
+    'workflowName',
+    'stepId',
+    'stepName',
+    'stepType'
+  ],
+  properties: {
+    fromAssetId: { type: 'string' },
+    fromAssetNormalizedId: { type: 'string' },
+    toAssetId: { type: 'string' },
+    toAssetNormalizedId: { type: 'string' },
+    workflowId: { type: 'string' },
+    workflowSlug: { type: 'string' },
+    workflowName: { type: 'string' },
+    stepId: { type: 'string' },
+    stepName: { type: 'string' },
+    stepType: { type: 'string', enum: ['job', 'service', 'fanout'] }
+  }
+};
+
+const assetGraphResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['assets', 'edges'],
+      properties: {
+        assets: { type: 'array', items: assetGraphNodeSchema },
+        edges: { type: 'array', items: assetGraphEdgeSchema }
+      }
+    }
+  }
+};
+
+const assetMarkStaleRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  properties: {
+    partitionKey: { type: 'string', minLength: 1, maxLength: 200 },
+    note: { type: 'string', minLength: 1, maxLength: 500 }
+  },
+  additionalProperties: false
+};
+
 const healthResponseSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['status'],
@@ -913,6 +1076,14 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowDefinitionCreateRequest: workflowDefinitionCreateRequestSchema,
     WorkflowDefinitionResponse: workflowDefinitionResponseSchema,
     WorkflowDefinitionListResponse: workflowDefinitionListResponseSchema,
+    AssetGraphProducer: assetGraphProducerSchema,
+    AssetGraphConsumer: assetGraphConsumerSchema,
+    AssetGraphMaterialization: assetGraphMaterializationSchema,
+    AssetGraphStalePartition: assetGraphStalePartitionSchema,
+    AssetGraphNode: assetGraphNodeSchema,
+    AssetGraphEdge: assetGraphEdgeSchema,
+    AssetGraphResponse: assetGraphResponseSchema,
+    AssetMarkStaleRequest: assetMarkStaleRequestSchema,
     HealthResponse: healthResponseSchema,
     ErrorResponse: errorResponseSchema
   },
@@ -1433,6 +1604,135 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '500': {
             description: 'The server failed to publish the generated bundle.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/assets/graph': {
+      get: {
+        tags: ['Workflows'],
+        summary: 'Retrieve workflow asset dependency graph',
+        description:
+          'Returns producers, consumers, latest materializations, and stale partitions for all declared workflow assets.',
+        responses: {
+          '200': {
+            description: 'Asset dependency graph data.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AssetGraphResponse' }
+              }
+            }
+          },
+          '500': {
+            description: 'The server failed to aggregate asset metadata.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/workflows/{slug}/assets/{assetId}/stale': {
+      post: {
+        tags: ['Workflows'],
+        summary: 'Mark a workflow asset partition as stale',
+        description:
+          'Flags a workflow asset or partition as stale so operators can track manual refresh requirements. Requires the workflows:run scope.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
+          {
+            name: 'assetId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', maxLength: 200 }
+          }
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AssetMarkStaleRequest' }
+            }
+          }
+        },
+        responses: {
+          '204': { description: 'The asset partition was marked stale.' },
+          '400': {
+            description: 'The request parameters or partition key were invalid.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '403': {
+            description: 'The operator token lacks the required scope.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '404': {
+            description: 'The workflow or asset was not found.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      },
+      delete: {
+        tags: ['Workflows'],
+        summary: 'Clear a stale flag for a workflow asset partition',
+        description:
+          'Removes a stale flag previously recorded for a workflow asset or partition. Requires the workflows:run scope.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
+          {
+            name: 'assetId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._:-]*$', maxLength: 200 }
+          },
+          {
+            name: 'partitionKey',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', minLength: 1, maxLength: 200 },
+            description: 'Partition key to clear for partitioned assets.'
+          }
+        ],
+        responses: {
+          '204': { description: 'The stale flag was cleared.' },
+          '400': {
+            description: 'The supplied partition key was invalid.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '403': {
+            description: 'The operator token lacks the required scope.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '404': {
+            description: 'The workflow or asset was not found.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' }

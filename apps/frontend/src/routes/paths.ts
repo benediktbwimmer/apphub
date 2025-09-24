@@ -1,5 +1,6 @@
 export const ROUTE_SEGMENTS = {
   catalog: 'catalog',
+  assets: 'assets',
   apps: 'services',
   runs: 'runs',
   jobs: 'jobs',
@@ -13,6 +14,7 @@ export const ROUTE_SEGMENTS = {
 
 export const ROUTE_PATHS = {
   catalog: `/${ROUTE_SEGMENTS.catalog}`,
+  assets: `/${ROUTE_SEGMENTS.assets}`,
   apps: `/${ROUTE_SEGMENTS.apps}`,
   runs: `/${ROUTE_SEGMENTS.runs}`,
   jobs: `/${ROUTE_SEGMENTS.jobs}`,
@@ -24,7 +26,15 @@ export const ROUTE_PATHS = {
   settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`
 } as const;
 
-export type PrimaryNavKey = 'catalog' | 'apps' | 'runs' | 'jobs' | 'workflows' | 'import' | 'settings';
+export type PrimaryNavKey =
+  | 'catalog'
+  | 'assets'
+  | 'apps'
+  | 'runs'
+  | 'jobs'
+  | 'workflows'
+  | 'import'
+  | 'settings';
 
 export type PrimaryNavigationItem = {
   key: PrimaryNavKey;
@@ -34,6 +44,7 @@ export type PrimaryNavigationItem = {
 
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'catalog', label: 'Catalog', path: ROUTE_PATHS.catalog },
+  { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
   { key: 'apps', label: 'Apps', path: ROUTE_PATHS.apps },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
   { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },

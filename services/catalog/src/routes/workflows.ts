@@ -1209,8 +1209,18 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const latestSnapshots = await listLatestWorkflowAssetSnapshots(workflow.id);
     const latestByAsset = new Map<string, WorkflowAssetSnapshotRecord>();
     for (const snapshot of latestSnapshots) {
-      latestByAsset.set(snapshot.asset.assetId, snapshot);
-      ensureEntry(snapshot.asset.assetId);
+      const assetId = snapshot.asset.assetId;
+      ensureEntry(assetId);
+      const existing = latestByAsset.get(assetId);
+      if (!existing) {
+        latestByAsset.set(assetId, snapshot);
+        continue;
+      }
+      const existingTime = Date.parse(existing.asset.producedAt);
+      const nextTime = Date.parse(snapshot.asset.producedAt);
+      if (Number.isNaN(existingTime) || (!Number.isNaN(nextTime) && nextTime > existingTime)) {
+        latestByAsset.set(assetId, snapshot);
+      }
     }
 
     const payload = Array.from(assets.values())
@@ -1413,7 +1423,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
             assetId: parseParams.data.assetId,
             partitionKey: key,
             latest: null,
-            materializationCount: 0
+            materializationCount: 0,
+            isStale: false,
+            staleMetadata: null
           });
         }
       }
@@ -1422,7 +1434,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         assetId: parseParams.data.assetId,
         partitionKey: null,
         latest: null,
-        materializationCount: 0
+        materializationCount: 0,
+        isStale: false,
+        staleMetadata: null
       });
     }
 
@@ -1452,7 +1466,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return {
         partitionKey: entry.partitionKey,
         materializations: entry.materializationCount,
-        latest
+        latest,
+        isStale: entry.isStale,
+        staleMetadata: entry.staleMetadata
       };
     });
 

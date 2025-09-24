@@ -197,6 +197,12 @@ export type WorkflowAssetPartitionSummary = {
   partitionKey: string | null;
   materializations: number;
   latest: WorkflowAssetSnapshot | null;
+  isStale: boolean;
+  staleMetadata: {
+    requestedAt: string;
+    requestedBy: string | null;
+    note: string | null;
+  } | null;
 };
 
 export type WorkflowAssetPartitions = {

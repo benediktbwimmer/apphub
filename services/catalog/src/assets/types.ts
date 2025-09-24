@@ -1,6 +1,6 @@
 import type { WorkflowAssetFreshness } from '../db/types';
 
-export type AssetExpiryReason = 'ttl' | 'cadence';
+export type AssetExpiryReason = 'ttl' | 'cadence' | 'manual';
 
 export type AssetAutoMaterializePolicy = {
   onUpstreamUpdate?: boolean;
@@ -18,6 +18,7 @@ export type AssetProducedEventData = {
   stepId: string;
   producedAt: string;
   freshness: WorkflowAssetFreshness | null;
+  partitionKey: string | null;
 };
 
 export type AssetExpiredEventData = {
@@ -32,6 +33,7 @@ export type AssetExpiredEventData = {
   requestedAt: string;
   reason: AssetExpiryReason;
   freshness: WorkflowAssetFreshness | null;
+  partitionKey: string | null;
 };
 
 export type AssetExpiryJobData = {

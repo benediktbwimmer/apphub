@@ -850,10 +850,32 @@ export function normalizeWorkflowAssetPartitionsResponse(payload: unknown): Work
           ? record.materializations
           : 0;
       const latest = 'latest' in record ? normalizeAssetSnapshot(record.latest) : null;
+      const isStale = record.isStale === true;
+      const staleRecord = toRecord(record.staleMetadata);
+      const staleMetadata = staleRecord
+        ? {
+            requestedAt:
+              typeof staleRecord.requestedAt === 'string' ? staleRecord.requestedAt : new Date(0).toISOString(),
+            requestedBy:
+              typeof staleRecord.requestedBy === 'string' && staleRecord.requestedBy.trim().length > 0
+                ? staleRecord.requestedBy
+                : null,
+            note:
+              typeof staleRecord.note === 'string' && staleRecord.note.trim().length > 0
+                ? staleRecord.note
+                : null
+          }
+        : null;
+      const partitionKeyValue =
+        typeof record.partitionKey === 'string' && record.partitionKey.trim().length > 0
+          ? record.partitionKey
+          : null;
       return {
-        partitionKey: typeof record.partitionKey === 'string' ? record.partitionKey : null,
+        partitionKey: partitionKeyValue,
         materializations,
-        latest
+        latest,
+        isStale,
+        staleMetadata
       };
     })
     .filter((value): value is WorkflowAssetPartitions['partitions'][number] => Boolean(value));

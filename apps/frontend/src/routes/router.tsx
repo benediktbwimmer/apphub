@@ -13,6 +13,7 @@ import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
+import AssetsPage from '../dataAssets/AssetsPage';
 
 export const appRouteConfig: RouteObject[] = [
   {
@@ -26,6 +27,10 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: ROUTE_SEGMENTS.catalog,
         element: <CatalogRoute />
+      },
+      {
+        path: ROUTE_SEGMENTS.assets,
+        element: <AssetsPage />
       },
       {
         path: ROUTE_SEGMENTS.apps,
