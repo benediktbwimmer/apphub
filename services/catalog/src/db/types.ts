@@ -502,6 +502,7 @@ export type WorkflowAssetFreshness = {
 export type WorkflowAssetAutoMaterialize = {
   onUpstreamUpdate?: boolean | null;
   priority?: number | null;
+  parameterDefaults?: JsonValue | null;
 };
 
 export type WorkflowAssetPartitioning =
@@ -741,6 +742,10 @@ export type WorkflowAssetPartitionSummary = {
     requestedBy: string | null;
     note: string | null;
   } | null;
+  parameters: JsonValue | null;
+  parametersSource: string | null;
+  parametersCapturedAt: string | null;
+  parametersUpdatedAt: string | null;
 };
 
 export type WorkflowAssetStalePartitionRecord = {
@@ -751,6 +756,17 @@ export type WorkflowAssetStalePartitionRecord = {
   requestedAt: string;
   requestedBy: string | null;
   note: string | null;
+};
+
+export type WorkflowAssetPartitionParametersRecord = {
+  workflowDefinitionId: string;
+  assetId: string;
+  partitionKey: string | null;
+  partitionKeyNormalized: string;
+  parameters: JsonValue;
+  source: string;
+  capturedAt: string;
+  updatedAt: string;
 };
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';

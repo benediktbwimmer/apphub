@@ -12,7 +12,7 @@ type AssetDetailsPanelProps = {
   partitionsError: string | null;
   onMarkStale: (partitionKey: string | null) => void;
   onClearStale: (partitionKey: string | null) => void;
-  onTriggerRun: (partitionKey: string | null) => void;
+  onTriggerRun: (partition: WorkflowAssetPartitions['partitions'][number]) => void;
   pendingActionKeys: Set<string>;
 };
 
@@ -176,14 +176,42 @@ export function AssetDetailsPanel({
                     const markKey = buildActionKey('mark', partitionKey);
                     const clearKey = buildActionKey('clear', partitionKey);
                     const runKey = buildActionKey('run', partitionKey);
+                    const paramsKey = buildActionKey('params', partitionKey);
                     const latest = partition.latest;
+                    const parameterSourceLabel = (() => {
+                      const source = partition.parametersSource;
+                      if (!source) {
+                        return null;
+                      }
+                      switch (source) {
+                        case 'workflow-run':
+                          return 'Parameters captured from workflow run';
+                        case 'manual':
+                          return 'Manually stored parameters';
+                        case 'system':
+                          return 'System parameters';
+                        default:
+                          return source;
+                      }
+                    })();
+                    const parameterUpdatedAt = partition.parametersUpdatedAt
+                      ? formatTimestamp(partition.parametersUpdatedAt)
+                      : null;
                     return (
                       <tr
                         key={partitionKey ?? 'default'}
                         className={partition.isStale ? 'bg-amber-50/70 dark:bg-amber-500/10' : undefined}
                       >
                         <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-100">
-                          {partitionKey ?? '—'}
+                          <div className="flex flex-col gap-1">
+                            <span>{partitionKey ?? '—'}</span>
+                            {parameterSourceLabel && (
+                              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                {parameterSourceLabel}
+                                {parameterUpdatedAt ? ` · ${parameterUpdatedAt}` : ''}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                           {partition.isStale ? (
@@ -247,8 +275,8 @@ export function AssetDetailsPanel({
                             <button
                               type="button"
                               className="inline-flex items-center rounded-full border border-indigo-500/70 bg-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 transition-colors hover:bg-indigo-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-400/60 dark:bg-indigo-500/10 dark:text-indigo-200"
-                              onClick={() => onTriggerRun(partitionKey)}
-                              disabled={pendingActionKeys.has(runKey)}
+                              onClick={() => onTriggerRun(partition)}
+                              disabled={pendingActionKeys.has(runKey) || pendingActionKeys.has(paramsKey)}
                             >
                               Recompute
                             </button>

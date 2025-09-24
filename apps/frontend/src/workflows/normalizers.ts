@@ -876,12 +876,25 @@ export function normalizeWorkflowAssetPartitionsResponse(payload: unknown): Work
         typeof record.partitionKey === 'string' && record.partitionKey.trim().length > 0
           ? record.partitionKey
           : null;
+      const parameters = 'parameters' in record ? (record.parameters as unknown) : null;
+      const parametersSource =
+        typeof record.parametersSource === 'string' && record.parametersSource.trim().length > 0
+          ? record.parametersSource
+          : null;
+      const parametersCapturedAt =
+        typeof record.parametersCapturedAt === 'string' ? record.parametersCapturedAt : null;
+      const parametersUpdatedAt =
+        typeof record.parametersUpdatedAt === 'string' ? record.parametersUpdatedAt : null;
       return {
         partitionKey: partitionKeyValue,
         materializations,
         latest,
         isStale,
-        staleMetadata
+        staleMetadata,
+        parameters,
+        parametersSource,
+        parametersCapturedAt,
+        parametersUpdatedAt
       };
     })
     .filter((value): value is WorkflowAssetPartitions['partitions'][number] => Boolean(value));

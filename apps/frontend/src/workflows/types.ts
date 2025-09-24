@@ -130,6 +130,7 @@ export type WorkflowAssetFreshness = {
 export type WorkflowAssetAutoMaterialize = {
   onUpstreamUpdate?: boolean | null;
   priority?: number | null;
+  parameterDefaults?: unknown;
 };
 
 export type WorkflowAssetPartitioning =
@@ -204,6 +205,10 @@ export type WorkflowAssetPartitionSummary = {
     requestedBy: string | null;
     note: string | null;
   } | null;
+  parameters: unknown;
+  parametersSource: string | null;
+  parametersCapturedAt: string | null;
+  parametersUpdatedAt: string | null;
 };
 
 export type WorkflowAssetPartitions = {

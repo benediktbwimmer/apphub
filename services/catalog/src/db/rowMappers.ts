@@ -49,7 +49,8 @@ import {
   type WorkflowRunStepAssetRecord,
   type WorkflowAssetSnapshotRecord,
   type WorkflowExecutionHistoryRecord,
-  type WorkflowAssetStalePartitionRecord
+  type WorkflowAssetStalePartitionRecord,
+  type WorkflowAssetPartitionParametersRecord
 } from './types';
 import type {
   BuildRow,
@@ -73,7 +74,8 @@ import type {
   WorkflowRunStepAssetRow,
   WorkflowAssetSnapshotRow,
   WorkflowExecutionHistoryRow,
-  WorkflowAssetStalePartitionRow
+  WorkflowAssetStalePartitionRow,
+  WorkflowAssetPartitionParametersRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -195,6 +197,12 @@ function parseAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMaterialize
   }
   if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
     policy.priority = record.priority;
+  }
+  if ('parameterDefaults' in record) {
+    const parsed = toJsonValue(record.parameterDefaults);
+    if (parsed !== null) {
+      policy.parameterDefaults = parsed;
+    }
   }
   return Object.keys(policy).length > 0 ? policy : null;
 }
@@ -1530,4 +1538,19 @@ export function mapWorkflowAssetStalePartitionRow(
     requestedBy: row.requested_by,
     note: row.note
   } satisfies WorkflowAssetStalePartitionRecord;
+}
+
+export function mapWorkflowAssetPartitionParametersRow(
+  row: WorkflowAssetPartitionParametersRow
+): WorkflowAssetPartitionParametersRecord {
+  return {
+    workflowDefinitionId: row.workflow_definition_id,
+    assetId: row.asset_id,
+    partitionKey: row.partition_key,
+    partitionKeyNormalized: row.partition_key_normalized,
+    parameters: (row.parameters as JsonValue) ?? {},
+    source: row.source,
+    capturedAt: row.captured_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowAssetPartitionParametersRecord;
 }

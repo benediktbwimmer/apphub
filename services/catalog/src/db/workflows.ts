@@ -30,7 +30,8 @@ import {
   type WorkflowAssetPartitionSummary,
   type WorkflowExecutionHistoryRecord,
   type WorkflowExecutionHistoryEventInput,
-  type WorkflowAssetStalePartitionRecord
+  type WorkflowAssetStalePartitionRecord,
+  type WorkflowAssetPartitionParametersRecord
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -40,7 +41,8 @@ import {
   mapWorkflowRunStepAssetRow,
   mapWorkflowAssetSnapshotRow,
   mapWorkflowExecutionHistoryRow,
-  mapWorkflowAssetStalePartitionRow
+  mapWorkflowAssetStalePartitionRow,
+  mapWorkflowAssetPartitionParametersRow
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
@@ -50,7 +52,8 @@ import type {
   WorkflowRunStepAssetRow,
   WorkflowAssetSnapshotRow,
   WorkflowExecutionHistoryRow,
-  WorkflowAssetStalePartitionRow
+  WorkflowAssetStalePartitionRow,
+  WorkflowAssetPartitionParametersRow
 } from './rowTypes';
 import { useConnection, useTransaction } from './utils';
 
@@ -699,6 +702,90 @@ async function fetchWorkflowAssetStalePartitionsForAsset(
   return rows.map(mapWorkflowAssetStalePartitionRow);
 }
 
+async function fetchWorkflowAssetPartitionParameters(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string
+): Promise<WorkflowAssetPartitionParametersRecord[]> {
+  const { rows } = await client.query<WorkflowAssetPartitionParametersRow>(
+    `SELECT *
+       FROM workflow_asset_partition_parameters
+      WHERE workflow_definition_id = $1
+        AND asset_id = $2
+      ORDER BY updated_at DESC`,
+    [workflowDefinitionId, assetId]
+  );
+  return rows.map(mapWorkflowAssetPartitionParametersRow);
+}
+
+async function fetchWorkflowAssetPartitionParametersByKey(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null
+): Promise<WorkflowAssetPartitionParametersRecord | null> {
+  const { normalized } = normalizePartitionKeyValue(partitionKey);
+  const { rows } = await client.query<WorkflowAssetPartitionParametersRow>(
+    `SELECT *
+       FROM workflow_asset_partition_parameters
+      WHERE workflow_definition_id = $1
+        AND asset_id = $2
+        AND partition_key_normalized = $3
+      LIMIT 1`,
+    [workflowDefinitionId, assetId, normalized]
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowAssetPartitionParametersRow(rows[0]);
+}
+
+async function upsertWorkflowAssetPartitionParameters(
+  client: PoolClient,
+  input: {
+    workflowDefinitionId: string;
+    assetId: string;
+    partitionKey: string | null;
+    parameters: JsonValue;
+    source: string;
+  }
+): Promise<void> {
+  const { workflowDefinitionId, assetId, partitionKey, parameters, source } = input;
+  const { raw, normalized } = normalizePartitionKeyValue(partitionKey);
+  await client.query(
+    `INSERT INTO workflow_asset_partition_parameters (
+       workflow_definition_id,
+       asset_id,
+       partition_key,
+       partition_key_normalized,
+       parameters,
+       source
+     ) VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+     ON CONFLICT (workflow_definition_id, asset_id, partition_key_normalized)
+     DO UPDATE
+       SET parameters = EXCLUDED.parameters,
+           source = EXCLUDED.source,
+           updated_at = NOW()`,
+    [workflowDefinitionId, assetId, raw, normalized, JSON.stringify(parameters ?? null), source]
+  );
+}
+
+async function deleteWorkflowAssetPartitionParameters(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null
+): Promise<void> {
+  const { normalized } = normalizePartitionKeyValue(partitionKey);
+  await client.query(
+    `DELETE FROM workflow_asset_partition_parameters
+      WHERE workflow_definition_id = $1
+        AND asset_id = $2
+        AND partition_key_normalized = $3`,
+    [workflowDefinitionId, assetId, normalized]
+  );
+}
+
 async function fetchWorkflowAssetPartitions(
   client: PoolClient,
   workflowDefinitionId: string,
@@ -726,9 +813,18 @@ async function fetchWorkflowAssetPartitions(
     workflowDefinitionId,
     assetId
   );
+  const parameterRecords = await fetchWorkflowAssetPartitionParameters(
+    client,
+    workflowDefinitionId,
+    assetId
+  );
   const staleByNormalized = new Map<string, WorkflowAssetStalePartitionRecord>();
   for (const record of staleRecords) {
     staleByNormalized.set(record.partitionKeyNormalized, record);
+  }
+  const parametersByNormalized = new Map<string, WorkflowAssetPartitionParametersRecord>();
+  for (const record of parameterRecords) {
+    parametersByNormalized.set(record.partitionKeyNormalized, record);
   }
 
   const partitions = new Map<
@@ -738,6 +834,7 @@ async function fetchWorkflowAssetPartitions(
       latest: WorkflowAssetSnapshotRecord | null;
       materializationCount: number;
       stale: WorkflowAssetStalePartitionRecord | null;
+      parameters: WorkflowAssetPartitionParametersRecord | null;
     }
   >();
 
@@ -754,7 +851,8 @@ async function fetchWorkflowAssetPartitions(
       partitionKey: raw,
       latest: snapshot,
       materializationCount: 1,
-      stale: staleByNormalized.get(normalized) ?? null
+      stale: staleByNormalized.get(normalized) ?? null,
+      parameters: parametersByNormalized.get(normalized) ?? null
     });
   }
 
@@ -764,7 +862,20 @@ async function fetchWorkflowAssetPartitions(
         partitionKey: record.partitionKey,
         latest: null,
         materializationCount: 0,
-        stale: record
+        stale: record,
+        parameters: parametersByNormalized.get(record.partitionKeyNormalized) ?? null
+      });
+    }
+  }
+
+  for (const [normalized, record] of parametersByNormalized) {
+    if (!partitions.has(normalized)) {
+      partitions.set(normalized, {
+        partitionKey: record.partitionKey,
+        latest: null,
+        materializationCount: 0,
+        stale: staleByNormalized.get(normalized) ?? null,
+        parameters: record
       });
     }
   }
@@ -781,7 +892,11 @@ async function fetchWorkflowAssetPartitions(
           requestedBy: entry.stale.requestedBy,
           note: entry.stale.note ?? null
         }
-      : null
+      : null,
+    parameters: entry.parameters ? entry.parameters.parameters : null,
+    parametersSource: entry.parameters ? entry.parameters.source : null,
+    parametersCapturedAt: entry.parameters ? entry.parameters.capturedAt : null,
+    parametersUpdatedAt: entry.parameters ? entry.parameters.updatedAt : null
   } satisfies WorkflowAssetPartitionSummary));
 }
 
@@ -940,6 +1055,44 @@ export async function clearWorkflowAssetPartitionStale(
           AND partition_key_normalized = $3`,
       [workflowDefinitionId, assetId, normalized]
     )
+  );
+}
+
+export async function getWorkflowAssetPartitionParameters(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null
+): Promise<WorkflowAssetPartitionParametersRecord | null> {
+  return useConnection((client) =>
+    fetchWorkflowAssetPartitionParametersByKey(client, workflowDefinitionId, assetId, partitionKey)
+  );
+}
+
+export async function setWorkflowAssetPartitionParameters(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null,
+  parameters: JsonValue,
+  source: 'manual' | 'workflow-run' | 'system' = 'manual'
+): Promise<void> {
+  await useConnection((client) =>
+    upsertWorkflowAssetPartitionParameters(client, {
+      workflowDefinitionId,
+      assetId,
+      partitionKey,
+      parameters,
+      source
+    })
+  );
+}
+
+export async function removeWorkflowAssetPartitionParameters(
+  workflowDefinitionId: string,
+  assetId: string,
+  partitionKey: string | null
+): Promise<void> {
+  await useConnection((client) =>
+    deleteWorkflowAssetPartitionParameters(client, workflowDefinitionId, assetId, partitionKey)
   );
 }
 
@@ -1731,9 +1884,29 @@ export async function recordWorkflowRunStepAssets(
          produced_at
        )
        VALUES ${values.join(', ')}
-       RETURNING *`,
+      RETURNING *`,
       params
     );
+
+    const runRecord = await fetchWorkflowRunById(client, workflowRunId);
+    if (runRecord) {
+      const seenPartitions = new Set<string>();
+      for (const row of rows) {
+        const partitionKey = row.partition_key ?? runRecord.partitionKey ?? null;
+        const { normalized } = normalizePartitionKeyValue(partitionKey);
+        if (seenPartitions.has(normalized)) {
+          continue;
+        }
+        seenPartitions.add(normalized);
+        await upsertWorkflowAssetPartitionParameters(client, {
+          workflowDefinitionId,
+          assetId: row.asset_id,
+          partitionKey,
+          parameters: runRecord.parameters,
+          source: 'workflow-run'
+        });
+      }
+    }
 
     return rows.map(mapWorkflowRunStepAssetRow);
   });

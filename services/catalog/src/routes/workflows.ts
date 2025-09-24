@@ -17,7 +17,10 @@ import {
   listWorkflowAssetDeclarationsBySlug,
   listLatestWorkflowAssetSnapshots,
   listWorkflowAssetHistory,
-  listWorkflowAssetPartitions
+  listWorkflowAssetPartitions,
+  getWorkflowAssetPartitionParameters,
+  setWorkflowAssetPartitionParameters,
+  removeWorkflowAssetPartitionParameters
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -39,6 +42,7 @@ import {
   workflowDefinitionUpdateSchema,
   workflowTriggerSchema,
   jsonValueSchema,
+  workflowAssetPartitionParametersSchema,
   type WorkflowFanOutTemplateInput,
   type WorkflowStepInput,
   type WorkflowTriggerInput,
@@ -775,6 +779,12 @@ const workflowAssetPartitionsQuerySchema = z
   })
   .partial();
 
+const workflowAssetPartitionParamsQuerySchema = z
+  .object({
+    partitionKey: z.string().min(1).max(200).optional()
+  })
+  .partial();
+
 export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void> {
   app.get('/workflows', async (_request, reply) => {
     try {
@@ -1481,7 +1491,11 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
             latest: null,
             materializationCount: 0,
             isStale: false,
-            staleMetadata: null
+            staleMetadata: null,
+            parameters: null,
+            parametersSource: null,
+            parametersCapturedAt: null,
+            parametersUpdatedAt: null
           });
         }
       }
@@ -1492,7 +1506,11 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         latest: null,
         materializationCount: 0,
         isStale: false,
-        staleMetadata: null
+        staleMetadata: null,
+        parameters: null,
+        parametersSource: null,
+        parametersCapturedAt: null,
+        parametersUpdatedAt: null
       });
     }
 
@@ -1524,7 +1542,12 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         materializations: entry.materializationCount,
         latest,
         isStale: entry.isStale,
-        staleMetadata: entry.staleMetadata
+        staleMetadata: entry.staleMetadata,
+        parameters: entry.parameters,
+        parametersSource: entry.parametersSource,
+        parametersCapturedAt: entry.parametersCapturedAt,
+        parametersUpdatedAt: entry.parametersUpdatedAt,
+        assetId: entry.assetId
       };
     });
 
@@ -1547,6 +1570,219 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         partitions: partitionSummaries
       }
     };
+  });
+
+  app.put('/workflows/:slug/assets/:assetId/partition-parameters', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflows.run',
+      resource: `workflow:${candidateSlug}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowAssetParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowAssetPartitionParametersSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten(),
+        workflowSlug: parseParams.data.slug,
+        assetId: parseParams.data.assetId
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'workflow_not_found',
+        workflowSlug: parseParams.data.slug
+      });
+      return { error: 'workflow not found' };
+    }
+
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetMatches = assetDeclarations.filter(
+      (declaration) =>
+        declaration.workflowDefinitionId === workflow.id &&
+        declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+    );
+
+    if (assetMatches.length === 0) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'asset_not_found',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId
+      });
+      return { error: 'asset not found for workflow' };
+    }
+
+    const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
+    const rawPartitionKey = parseBody.data.partitionKey ?? null;
+    const candidateKey = typeof rawPartitionKey === 'string' ? rawPartitionKey.trim() : '';
+    const validation = validatePartitionKey(partitioningSpec, candidateKey);
+    if (!validation.ok) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_partition_key',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId,
+        partitionKey: candidateKey,
+        error: validation.error
+      });
+      return { error: validation.error };
+    }
+
+    const normalizedPartitionKey = validation.key.trim();
+    const effectivePartitionKey = normalizedPartitionKey.length > 0 ? normalizedPartitionKey : null;
+
+    await setWorkflowAssetPartitionParameters(
+      workflow.id,
+      parseParams.data.assetId,
+      effectivePartitionKey,
+      parseBody.data.parameters,
+      'manual'
+    );
+
+    const record = await getWorkflowAssetPartitionParameters(
+      workflow.id,
+      parseParams.data.assetId,
+      effectivePartitionKey
+    );
+
+    await authResult.auth.log('succeeded', {
+      reason: 'partition_parameters_updated',
+      workflowSlug: workflow.slug,
+      assetId: parseParams.data.assetId,
+      partitionKey: effectivePartitionKey
+    });
+
+    reply.status(200);
+    return {
+      data: {
+        assetId: parseParams.data.assetId,
+        partitionKey: record?.partitionKey ?? effectivePartitionKey,
+        parameters: record?.parameters ?? parseBody.data.parameters,
+        source: record?.source ?? 'manual',
+        capturedAt: record?.capturedAt ?? new Date().toISOString(),
+        updatedAt: record?.updatedAt ?? new Date().toISOString()
+      }
+    };
+  });
+
+  app.delete('/workflows/:slug/assets/:assetId/partition-parameters', async (request, reply) => {
+    const rawParams = request.params as Record<string, unknown> | undefined;
+    const candidateSlug = typeof rawParams?.slug === 'string' ? rawParams.slug : 'unknown';
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflows.run',
+      resource: `workflow:${candidateSlug}`,
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowAssetParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowAssetPartitionParamsQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_query',
+        details: parseQuery.error.flatten(),
+        workflowSlug: parseParams.data.slug,
+        assetId: parseParams.data.assetId
+      });
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'workflow_not_found',
+        workflowSlug: parseParams.data.slug
+      });
+      return { error: 'workflow not found' };
+    }
+
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetMatches = assetDeclarations.filter(
+      (declaration) =>
+        declaration.workflowDefinitionId === workflow.id &&
+        declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+    );
+
+    if (assetMatches.length === 0) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'asset_not_found',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId
+      });
+      return { error: 'asset not found for workflow' };
+    }
+
+    const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
+    const rawPartitionKey = parseQuery.data.partitionKey ?? null;
+    const candidateKey = typeof rawPartitionKey === 'string' ? rawPartitionKey.trim() : '';
+    const validation = validatePartitionKey(partitioningSpec, candidateKey);
+    if (!validation.ok) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_partition_key',
+        workflowSlug: workflow.slug,
+        assetId: parseParams.data.assetId,
+        partitionKey: candidateKey,
+        error: validation.error
+      });
+      return { error: validation.error };
+    }
+
+    const normalizedPartitionKey = validation.key.trim();
+    const effectivePartitionKey = normalizedPartitionKey.length > 0 ? normalizedPartitionKey : null;
+
+    await removeWorkflowAssetPartitionParameters(
+      workflow.id,
+      parseParams.data.assetId,
+      effectivePartitionKey
+    );
+
+    await authResult.auth.log('succeeded', {
+      reason: 'partition_parameters_removed',
+      workflowSlug: workflow.slug,
+      assetId: parseParams.data.assetId,
+      partitionKey: effectivePartitionKey
+    });
+
+    reply.status(204).send();
+    return;
   });
 
   app.post('/workflows/:slug/run', async (request, reply) => {

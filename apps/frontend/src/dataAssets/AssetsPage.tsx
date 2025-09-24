@@ -6,13 +6,16 @@ import {
   clearAssetPartitionStale,
   fetchAssetGraph,
   markAssetPartitionStale,
-  triggerWorkflowRun
+  triggerWorkflowRun,
+  saveAssetPartitionParameters,
+  deleteAssetPartitionParameters
 } from './api';
-import type { WorkflowAssetPartitions } from '../workflows/types';
+import type { WorkflowAssetPartitionSummary, WorkflowAssetPartitions } from '../workflows/types';
 import { fetchWorkflowAssetPartitions } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
 import { ApiError } from '../workflows/api';
+import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
 
 function buildPendingKey(action: string, slug: string, partitionKey: string | null): string {
   return `${action}:${slug}:${partitionKey ?? '::default::'}`;
@@ -30,6 +33,7 @@ export default function AssetsPage() {
   const [partitionsLoading, setPartitionsLoading] = useState(false);
   const [partitionsError, setPartitionsError] = useState<string | null>(null);
   const [pendingActionKeys, setPendingActionKeys] = useState<Set<string>>(new Set());
+  const [pendingRunPartition, setPendingRunPartition] = useState<WorkflowAssetPartitionSummary | null>(null);
 
   const refreshGraph = useCallback(async () => {
     const data = await fetchAssetGraph(authorizedFetch);
@@ -169,6 +173,10 @@ export default function AssetsPage() {
     []
   );
 
+  const handleRequestRun = useCallback((partition: WorkflowAssetPartitionSummary) => {
+    setPendingRunPartition(partition);
+  }, []);
+
   const handleMarkStale = useCallback(
     async (partitionKey: string | null) => {
       if (!selectedAsset || !selectedWorkflowSlug) {
@@ -222,15 +230,47 @@ export default function AssetsPage() {
   );
 
   const handleTriggerRun = useCallback(
-    async (partitionKey: string | null) => {
+    async ({
+      partitionKey,
+      parameters,
+      persistParameters
+    }: {
+      partitionKey: string | null;
+      parameters: unknown;
+      persistParameters?: boolean;
+    }) => {
       if (!selectedAsset || !selectedWorkflowSlug) {
-        return;
+        throw new Error('Select an asset to trigger a run');
       }
       const actionKey = buildPendingKey('run', selectedWorkflowSlug, partitionKey);
       await withPendingAction(actionKey, async () => {
         try {
+          if (persistParameters) {
+            await saveAssetPartitionParameters(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, {
+              partitionKey: partitionKey ?? null,
+              parameters
+            });
+            setPendingRunPartition((current) => {
+              if (!current) {
+                return current;
+              }
+              const currentKey = current.partitionKey ?? null;
+              if (currentKey !== (partitionKey ?? null)) {
+                return current;
+              }
+              return {
+                ...current,
+                parameters,
+                parametersSource: 'manual',
+                parametersCapturedAt: new Date().toISOString(),
+                parametersUpdatedAt: new Date().toISOString()
+              } satisfies WorkflowAssetPartitionSummary;
+            });
+          }
+
           const run = await triggerWorkflowRun(authorizedFetch, selectedWorkflowSlug, {
-            partitionKey
+            partitionKey,
+            parameters
           });
           pushToast({
             tone: 'success',
@@ -242,10 +282,89 @@ export default function AssetsPage() {
         } catch (err) {
           const message = err instanceof ApiError ? err.message : 'Failed to trigger recompute';
           pushToast({ tone: 'error', title: 'Recompute failed', description: message });
+          throw err;
         }
       });
     },
-    [authorizedFetch, loadPartitions, pushToast, refreshGraph, selectedAsset, selectedWorkflowSlug, withPendingAction]
+    [
+      authorizedFetch,
+      loadPartitions,
+      pushToast,
+      refreshGraph,
+      selectedAsset,
+      selectedWorkflowSlug,
+      withPendingAction
+    ]
+  );
+
+  const handleRunDialogSubmit = useCallback(
+    async ({
+      partitionKey,
+      parameters,
+      persistParameters
+    }: {
+      partitionKey: string | null;
+      parameters: unknown;
+      persistParameters: boolean;
+    }) => {
+      await handleTriggerRun({ partitionKey, parameters, persistParameters });
+    },
+    [handleTriggerRun]
+  );
+
+  const handleClearStoredParameters = useCallback(
+    async (partitionKey: string | null) => {
+      if (!selectedAsset || !selectedWorkflowSlug) {
+        throw new Error('Select an asset to clear stored parameters');
+      }
+      const actionKey = buildPendingKey('params', selectedWorkflowSlug, partitionKey);
+      await withPendingAction(actionKey, async () => {
+        try {
+          await deleteAssetPartitionParameters(
+            authorizedFetch,
+            selectedWorkflowSlug,
+            selectedAsset.assetId,
+            partitionKey ?? undefined
+          );
+          pushToast({
+            tone: 'success',
+            title: 'Stored parameters cleared',
+            description: partitionKey ? `Partition ${partitionKey}` : 'Default partition'
+          });
+          setPendingRunPartition((current) => {
+            if (!current) {
+              return current;
+            }
+            const currentKey = current.partitionKey ?? null;
+            if (currentKey !== (partitionKey ?? null)) {
+              return current;
+            }
+            return {
+              ...current,
+              parameters: null,
+              parametersSource: null,
+              parametersCapturedAt: null,
+              parametersUpdatedAt: null
+            } satisfies WorkflowAssetPartitionSummary;
+          });
+          await loadPartitions(selectedAsset, selectedWorkflowSlug);
+          await refreshGraph();
+        } catch (err) {
+          const message = err instanceof ApiError ? err.message : 'Failed to clear stored parameters';
+          pushToast({ tone: 'error', title: 'Clear parameters failed', description: message });
+          throw err;
+        }
+      });
+    },
+    [
+      authorizedFetch,
+      loadPartitions,
+      pushToast,
+      refreshGraph,
+      selectedAsset,
+      selectedWorkflowSlug,
+      withPendingAction
+    ]
   );
 
   return (
@@ -283,11 +402,20 @@ export default function AssetsPage() {
             partitionsError={partitionsError}
             onMarkStale={handleMarkStale}
             onClearStale={handleClearStale}
-            onTriggerRun={handleTriggerRun}
+            onTriggerRun={handleRequestRun}
             pendingActionKeys={pendingActionKeys}
           />
         </div>
       )}
+      <AssetRecomputeDialog
+        open={Boolean(pendingRunPartition)}
+        workflowSlug={selectedWorkflowSlug}
+        assetId={selectedAsset?.assetId ?? null}
+        partition={pendingRunPartition}
+        onClose={() => setPendingRunPartition(null)}
+        onSubmit={handleRunDialogSubmit}
+        onClearStored={pendingRunPartition ? handleClearStoredParameters : undefined}
+      />
     </div>
   );
 }

@@ -305,6 +305,17 @@ export type WorkflowAssetStalePartitionRow = {
   note: string | null;
 };
 
+export type WorkflowAssetPartitionParametersRow = {
+  workflow_definition_id: string;
+  asset_id: string;
+  partition_key: string | null;
+  partition_key_normalized: string;
+  parameters: unknown;
+  source: string;
+  captured_at: string;
+  updated_at: string;
+};
+
 export type WorkflowRunStepRow = {
   id: string;
   workflow_run_id: string;

@@ -649,6 +649,24 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_asset_stale_partitions_requested_at
          ON workflow_asset_stale_partitions (requested_at DESC);`
     ]
+  },
+  {
+    id: '021_workflow_partition_parameters',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_asset_partition_parameters (
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         asset_id TEXT NOT NULL,
+         partition_key TEXT,
+         partition_key_normalized TEXT NOT NULL,
+         parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         source TEXT NOT NULL DEFAULT 'system',
+         captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (workflow_definition_id, asset_id, partition_key_normalized)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_asset_partition_parameters_asset
+         ON workflow_asset_partition_parameters (workflow_definition_id, asset_id, partition_key_normalized);`
+    ]
   }
 ];
 

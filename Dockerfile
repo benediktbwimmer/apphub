@@ -153,6 +153,17 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
+[program:auto-materializer-worker]
+command=node services/catalog/dist/assetMaterializerWorker.js
+directory=/app
+priority=55
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
 [program:frontend]
 command=serve -s apps/frontend/dist -l tcp://0.0.0.0:%(ENV_FRONTEND_PORT)s --no-port-switching
 directory=/app

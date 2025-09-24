@@ -8,7 +8,8 @@ import { logger } from './observability/logger';
 import {
   listWorkflowDefinitions,
   listLatestWorkflowAssetSnapshots,
-  createWorkflowRun
+  createWorkflowRun,
+  getWorkflowAssetPartitionParameters
 } from './db/workflows';
 import {
   type WorkflowDefinitionRecord,
@@ -57,6 +58,122 @@ function cloneJsonValue<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function isJsonObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeParameterLayer(
+  base: JsonValue | undefined,
+  overlay: JsonValue | null | undefined
+): JsonValue {
+  if (overlay === undefined) {
+    return base === undefined ? {} : cloneJsonValue(base);
+  }
+  if (overlay === null) {
+    return null;
+  }
+  if (isJsonObject(overlay)) {
+    const baseObject = isJsonObject(base) ? base : {};
+    const result: Record<string, JsonValue> = {};
+    for (const [key, value] of Object.entries(baseObject)) {
+      result[key] = cloneJsonValue(value);
+    }
+    for (const [key, value] of Object.entries(overlay)) {
+      result[key] = mergeParameterLayer(baseObject[key], value);
+    }
+    return result;
+  }
+  return cloneJsonValue(overlay);
+}
+
+function startOfIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+  const clone = new Date(date.getTime());
+  switch (granularity) {
+    case 'hour':
+      clone.setUTCMinutes(0, 0, 0);
+      return clone;
+    case 'day':
+      clone.setUTCHours(0, 0, 0, 0);
+      return clone;
+    case 'week': {
+      clone.setUTCHours(0, 0, 0, 0);
+      const weekday = clone.getUTCDay();
+      const offset = (weekday + 6) % 7; // Monday start
+      clone.setUTCDate(clone.getUTCDate() - offset);
+      return clone;
+    }
+    case 'month':
+    default:
+      clone.setUTCDate(1);
+      clone.setUTCHours(0, 0, 0, 0);
+      return clone;
+  }
+}
+
+function addIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+  const clone = new Date(date.getTime());
+  switch (granularity) {
+    case 'hour':
+      clone.setUTCHours(clone.getUTCHours() + 1);
+      break;
+    case 'day':
+      clone.setUTCDate(clone.getUTCDate() + 1);
+      break;
+    case 'week':
+      clone.setUTCDate(clone.getUTCDate() + 7);
+      break;
+    case 'month':
+    default:
+      clone.setUTCMonth(clone.getUTCMonth() + 1);
+      break;
+  }
+  return startOfIntervalUTC(clone, granularity);
+}
+
+function parseTimeWindowPartitionStart(
+  partitioning: Extract<WorkflowAssetDeclaration['partitioning'], { type: 'timeWindow' }>,
+  key: string
+): Date | null {
+  if (!key) {
+    return null;
+  }
+  let parseTarget = key;
+  const format = partitioning.format ?? null;
+  if (format === 'YYYY-MM-DD') {
+    parseTarget = `${key}T00:00:00Z`;
+  } else if (format === 'YYYY-MM-DDTHH') {
+    parseTarget = `${key}:00:00Z`;
+  } else if (format === 'YYYY-MM-DDTHH:mm') {
+    parseTarget = `${key}:00Z`;
+  }
+  const parsed = new Date(parseTarget);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return startOfIntervalUTC(parsed, partitioning.granularity);
+}
+
+function buildDerivedPartitionParameters(
+  partitioning: WorkflowAssetDeclaration['partitioning'] | null,
+  partitionKey: string | null
+): JsonValue | null {
+  if (!partitionKey) {
+    return null;
+  }
+  const hints: Record<string, JsonValue> = {
+    partitionKey
+  };
+  if (partitioning && partitioning.type === 'timeWindow') {
+    const start = parseTimeWindowPartitionStart(partitioning, partitionKey);
+    if (start) {
+      const end = addIntervalUTC(start, partitioning.granularity);
+      hints.windowStart = start.toISOString();
+      hints.windowEnd = end.toISOString();
+    }
+  }
+  return hints;
+}
+
 function normalizePartitionKeyValue(
   partitionKey: string | null | undefined
 ): { raw: string | null; normalized: string } {
@@ -72,6 +189,8 @@ function normalizePartitionKeyValue(
 type WorkflowProducedAssetConfig = {
   assetId: string;
   policy: AssetAutoMaterializePolicy | null;
+  parameterDefaults: JsonValue | null;
+  partitioning: WorkflowAssetDeclaration['partitioning'] | null;
 };
 
 type WorkflowConfig = {
@@ -518,9 +637,12 @@ export class AssetMaterializer {
           if (policy?.onUpstreamUpdate) {
             onUpstreamUpdate = true;
           }
+          const parameterDefaults = declaration.autoMaterialize?.parameterDefaults ?? null;
           producedAssets.set(normalized, {
             assetId,
-            policy: policy ?? null
+            policy: policy ?? null,
+            parameterDefaults: parameterDefaults !== null ? cloneJsonValue(parameterDefaults) : null,
+            partitioning: declaration.partitioning ?? null
           });
         }
       }
@@ -555,6 +677,36 @@ export class AssetMaterializer {
       onUpstreamUpdate
     };
     return config;
+  }
+
+  private async resolveRunParameters(
+    config: WorkflowConfig,
+    assetConfig: WorkflowProducedAssetConfig | undefined,
+    partitionKey: string | null
+  ): Promise<JsonValue> {
+    let parameters: JsonValue = cloneJsonValue(config.defaultParameters);
+
+    if (assetConfig && assetConfig.parameterDefaults !== null && assetConfig.parameterDefaults !== undefined) {
+      parameters = mergeParameterLayer(parameters, assetConfig.parameterDefaults);
+    }
+
+    if (assetConfig) {
+      const stored = await getWorkflowAssetPartitionParameters(
+        config.id,
+        assetConfig.assetId,
+        partitionKey
+      );
+      if (stored) {
+        parameters = mergeParameterLayer(parameters, stored.parameters);
+      }
+    }
+
+    const derived = buildDerivedPartitionParameters(assetConfig?.partitioning ?? null, partitionKey);
+    if (derived) {
+      parameters = mergeParameterLayer(parameters, derived);
+    }
+
+    return parameters;
   }
 
   private parseAutoMaterializePolicy(
@@ -645,9 +797,11 @@ export class AssetMaterializer {
   ): Promise<void> {
     const trigger = this.buildTriggerPayload(payload);
     const partitionKey = 'partitionKey' in payload ? payload.partitionKey ?? null : null;
+    const assetConfig = config.producedAssets.get(payload.assetNormalizedId);
+    const parameters = await this.resolveRunParameters(config, assetConfig, partitionKey);
     const run = await createWorkflowRun(workflowId, {
       triggeredBy: 'asset-materializer',
-      parameters: cloneJsonValue(config.defaultParameters),
+      parameters,
       trigger,
       partitionKey
     });

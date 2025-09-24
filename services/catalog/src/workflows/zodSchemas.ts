@@ -36,7 +36,8 @@ const assetFreshnessSchema = z
 const assetAutoMaterializeSchema = z
   .object({
     onUpstreamUpdate: z.boolean().optional(),
-    priority: z.number().int().min(0).max(1_000_000).optional()
+    priority: z.number().int().min(0).max(1_000_000).optional(),
+    parameterDefaults: jsonValueSchema.optional()
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -90,6 +91,13 @@ const workflowAssetDeclarationSchema = z
     freshness: assetFreshnessSchema.optional(),
     autoMaterialize: assetAutoMaterializeSchema.optional(),
     partitioning: assetPartitioningSchema.optional()
+  })
+  .strict();
+
+export const workflowAssetPartitionParametersSchema = z
+  .object({
+    partitionKey: z.string().min(1).max(200).optional().nullable(),
+    parameters: jsonValueSchema
   })
   .strict();
 
