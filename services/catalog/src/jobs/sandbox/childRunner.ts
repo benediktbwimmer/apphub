@@ -62,7 +62,11 @@ const FS_MODULES = new Set<string>([
   'fs/promises',
   'node:fs/promises',
   'fs/constants',
-  'node:fs/constants'
+  'node:fs/constants',
+  'zlib',
+  'node:zlib',
+  'zlib/constants',
+  'node:zlib/constants'
 ]);
 
 const NETWORK_MODULES = new Set<string>([
