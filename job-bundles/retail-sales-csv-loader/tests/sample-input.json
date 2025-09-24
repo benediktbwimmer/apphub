@@ -1,0 +1,4 @@
+{
+  "dataRoot": "services/catalog/data/examples/retail-sales",
+  "partitionKey": "2024-01-01"
+}

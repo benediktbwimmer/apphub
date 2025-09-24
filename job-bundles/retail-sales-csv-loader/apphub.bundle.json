@@ -1,0 +1,14 @@
+{
+  "slug": "retail-sales-csv-loader",
+  "entry": "src/index.ts",
+  "outDir": "dist",
+  "manifestPath": "manifest.json",
+  "artifactDir": "artifacts",
+  "files": [
+    "manifest.json",
+    "dist/**/*"
+  ],
+  "tests": {
+    "sampleInputPath": "tests/sample-input.json"
+  }
+}

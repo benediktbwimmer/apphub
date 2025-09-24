@@ -150,5 +150,6 @@ API helpers:
 - When migrating workflows, update `produces` declarations first so subsequent runs populate lineage immediately.
 - Combine assets with queue-based automation: e.g. a release workflow can block until `directory.insights.report` is fresh, or trigger downstream jobs when an asset changes.
 - Chain assets across workflows. The `directory-insights-archive` workflow (see `docs/directory-insights-archive-workflow.md`) consumes `directory.insights.report` and produces `directory.insights.archive`, making it easy to test event-driven materialization heuristics.
+- Explore the retail sales example (`docs/retail-sales-workflows.md`) for a partitioned ingest + auto-materialized reporting pipeline that emits Parquet files, SVG plots, and a static dashboard.
 
 By treating workflow outputs as assets, you gain a built-in lineage system: reproducible artifacts, traceable provenance, and a queryable history that spans every workflow run while benefiting from automatic reconciliation when assets become stale.
