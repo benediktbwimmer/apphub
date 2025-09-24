@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { API_BASE_URL } from '../config';
 import { useAuth } from './useAuth';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -6,6 +7,19 @@ type FetchArgs = Parameters<typeof fetch>;
 type FetchInput = FetchArgs[0];
 
 type FetchInit = FetchArgs[1];
+
+const API_BASE = API_BASE_URL.replace(/\/$/, '');
+
+function resolveInput(input: FetchInput): FetchInput {
+  if (typeof input === 'string') {
+    if (/^https?:\/\//i.test(input)) {
+      return input;
+    }
+    const normalizedPath = input.startsWith('/') ? input : `/${input}`;
+    return `${API_BASE}${normalizedPath}`;
+  }
+  return input;
+}
 
 export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => Promise<Response> {
   const { activeToken } = useAuth();
@@ -18,7 +32,7 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
         headers.set('Authorization', `Bearer ${tokenValue}`);
       }
 
-      return fetch(input, {
+      return fetch(resolveInput(input), {
         ...init,
         headers,
         credentials: 'include'

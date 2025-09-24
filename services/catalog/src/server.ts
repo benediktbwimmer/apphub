@@ -23,7 +23,8 @@ export async function buildServer() {
   const app = Fastify();
 
   await app.register(cors, {
-    origin: true
+    origin: true,
+    credentials: true
   });
 
   await app.register(cookie);

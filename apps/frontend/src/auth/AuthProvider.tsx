@@ -8,6 +8,7 @@ import {
   type CreateApiKeyInput,
   type CreateApiKeyResult
 } from './context';
+import { API_BASE_URL } from '../config';
 
 async function parseJson<T>(response: Response): Promise<T> {
   const text = await response.text();
@@ -30,6 +31,19 @@ function extractErrorMessage(payload: unknown): string | null {
     return candidate.error;
   }
   return null;
+}
+
+const API_BASE = API_BASE_URL.replace(/\/$/, '');
+
+function resolveInput(input: RequestInfo | URL): RequestInfo | URL {
+  if (typeof input === 'string') {
+    if (/^https?:\/\//i.test(input)) {
+      return input;
+    }
+    const normalizedPath = input.startsWith('/') ? input : `/${input}`;
+    return `${API_BASE}${normalizedPath}`;
+  }
+  return input;
 }
 
 export function AuthProvider({ children }: PropsWithChildren<unknown>) {
@@ -55,7 +69,7 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
       if (!headers.has('Content-Type') && init?.body && !(init.body instanceof FormData)) {
         headers.set('Content-Type', 'application/json');
       }
-      return fetch(input, {
+      return fetch(resolveInput(input), {
         ...init,
         credentials: 'include',
         headers
@@ -201,4 +215,3 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
