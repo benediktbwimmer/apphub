@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { JobBundleVersionSummary, JobDefinitionSummary, ServiceSummary } from '../../api';
@@ -102,5 +102,57 @@ describe('WorkflowStepCard', () => {
     const updatedStep = onUpdateSpy.mock.calls.at(-1)?.[0];
     expect(updatedStep?.bundle?.strategy).toBe('pinned');
     expect(updatedStep?.bundle?.version).toBe('1.2.3');
+  });
+
+  it('renders validation feedback for missing service request paths', () => {
+    const timestamp = new Date().toISOString();
+    const service: ServiceSummary = {
+      id: 'svc-1',
+      slug: 'webhook-service',
+      displayName: 'Webhook service',
+      kind: 'http',
+      baseUrl: 'https://example.invalid',
+      status: 'healthy',
+      statusMessage: null,
+      metadata: null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    const step: WorkflowDraftStep = {
+      id: 'notify',
+      name: 'Notify external system',
+      type: 'service',
+      serviceSlug: 'webhook-service',
+      description: null,
+      dependsOn: [],
+      parameters: {},
+      timeoutMs: null,
+      retryPolicy: null,
+      parametersText: '',
+      parametersError: null,
+      request: { method: 'POST', path: '' },
+      requestBodyText: '',
+      requestBodyError: null
+    };
+
+    render(
+      <WorkflowStepCard
+        step={step}
+        index={0}
+        allSteps={[step]}
+        jobs={[] as JobDefinitionSummary[]}
+        services={[service]}
+        bundleVersionState={{}}
+        onLoadBundleVersions={async () => undefined}
+        errors={[{ path: 'notify.request.path', message: 'Provide a request path for the service step.' }]}
+        onUpdate={() => undefined}
+        onRemove={() => undefined}
+        onMoveUp={() => undefined}
+        onMoveDown={() => undefined}
+      />
+    );
+
+    expect(screen.getByText('Provide a request path for the service step.')).toBeInTheDocument();
   });
 });

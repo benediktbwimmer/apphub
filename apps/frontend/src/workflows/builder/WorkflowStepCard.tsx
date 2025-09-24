@@ -833,6 +833,11 @@ export function WorkflowStepCard({
                 placeholder="/api/v1/run"
                 className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
               />
+              {fieldErrors['request.path'] && (
+                <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                  {fieldErrors['request.path'][0]}
+                </p>
+              )}
             </FormField>
           </div>
 
