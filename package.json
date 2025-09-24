@@ -16,9 +16,12 @@
     "dev:materializer": "cd services/catalog && npm run materializer"
   },
   "devDependencies": {
-    "concurrently": "^9.0.1"
+    "@types/node": "^20.14.2",
+    "concurrently": "^9.0.1",
+    "typescript": "^5.4.5"
   },
   "dependencies": {
+    "duckdb": "^1.4.0",
     "parquetjs-lite": "^0.8.7"
   }
 }

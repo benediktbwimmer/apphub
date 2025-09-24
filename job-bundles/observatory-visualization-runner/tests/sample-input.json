@@ -1,0 +1,8 @@
+{
+  "parameters": {
+    "warehousePath": "services/catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb",
+    "plotsDir": "services/catalog/data/examples/environmental-observatory/plots",
+    "partitionKey": "2025-08-01T09",
+    "lookbackHours": 6
+  }
+}

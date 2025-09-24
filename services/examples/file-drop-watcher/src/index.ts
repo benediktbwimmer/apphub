@@ -8,6 +8,7 @@ type DropStatus = 'queued' | 'launching' | 'launched' | 'completed' | 'failed';
 type DropRecord = {
   dropId: string;
   sourcePath: string;
+  sourceFiles: string[];
   relativePath: string;
   destinationDir: string;
   destinationFilename: string;
@@ -22,6 +23,7 @@ type DropRecord = {
     bytesMoved?: number | null;
     durationMs?: number | null;
   };
+  observatoryHour?: string;
 };
 
 type DropActivityEntry = {
@@ -93,6 +95,22 @@ function buildDropId(relativePath: string): string {
   return `${idComponent}-${Date.now().toString(36)}-${randomSuffix}`;
 }
 
+function extractObservatoryHour(relativePath: string): string | null {
+  const match = relativePath.match(/_(\d{10})\.csv$/i);
+  if (!match) {
+    return null;
+  }
+  const timestamp = match[1];
+  const year = timestamp.slice(0, 4);
+  const month = timestamp.slice(4, 6);
+  const day = timestamp.slice(6, 8);
+  const hour = timestamp.slice(8, 10);
+  if (!year || !month || !day || !hour) {
+    return null;
+  }
+  return `${year}-${month}-${day}T${hour}`;
+}
+
 const watchRoot = path.resolve(process.env.FILE_WATCH_ROOT ?? DEFAULT_WATCH_ROOT);
 const archiveRoot = path.resolve(process.env.FILE_ARCHIVE_DIR ?? DEFAULT_ARCHIVE_ROOT);
 const workflowSlug = (process.env.FILE_DROP_WORKFLOW_SLUG ?? 'file-drop-relocation').trim();
@@ -103,6 +121,22 @@ const debounceMs = Math.max(200, Math.min(5000, Number.parseInt(process.env.FILE
 const maxLaunchAttempts = Math.max(1, Math.min(10, Number.parseInt(process.env.FILE_WATCH_MAX_ATTEMPTS ?? '3', 10) || 3));
 const port = Number.parseInt(process.env.PORT ?? '4310', 10) || 4310;
 const host = process.env.HOST ?? '0.0.0.0';
+const strategy = (process.env.FILE_WATCH_STRATEGY ?? 'relocation').trim().toLowerCase();
+const observatoryStagingDir = path.resolve(
+  process.env.FILE_WATCH_STAGING_DIR ?? path.join(watchRoot, '..', 'staging')
+);
+const observatoryWarehousePath = path.resolve(
+  process.env.FILE_WATCH_WAREHOUSE_PATH ?? path.join(watchRoot, '..', 'warehouse', 'observatory.duckdb')
+);
+const observatoryMaxFiles = Math.max(
+  1,
+  Number.parseInt(process.env.FILE_WATCH_MAX_FILES ?? '64', 10) || 64
+);
+const observatoryVacuum = parseBoolean(process.env.FILE_WATCH_VACUUM, false);
+const autoCompleteOnLaunch = parseBoolean(
+  process.env.FILE_WATCH_AUTO_COMPLETE,
+  strategy === 'observatory'
+);
 
 const app = Fastify({ logger: true });
 
@@ -141,6 +175,13 @@ function recordActivity(record: DropRecord, note: string | null = null) {
   recentActivity.unshift(entry);
   if (recentActivity.length > 25) {
     recentActivity.length = 25;
+  }
+}
+
+function releaseRecord(record: DropRecord) {
+  releaseRecord(record);
+  for (const filePath of record.sourceFiles) {
+    sourceToDropId.delete(filePath);
   }
 }
 
@@ -201,22 +242,46 @@ async function registerFile(filePath: string, source: 'startup' | 'watch') {
     return;
   }
   const normalizedRelative = toPosixRelative(relative);
-  const dropId = buildDropId(normalizedRelative);
+  let dropId = buildDropId(normalizedRelative);
+  let observatoryHour: string | undefined;
 
+  if (strategy === 'observatory') {
+    const hour = extractObservatoryHour(normalizedRelative);
+    if (!hour) {
+      app.log.warn({ filePath: absolute }, 'Skipping file: unable to extract hour partition for observatory workflow');
+      return;
+    }
+    observatoryHour = hour;
+    dropId = `observatory-${hour}`;
+  }
+
+  sourceToDropId.set(absolute, dropId);
+
+  const existing = drops.get(dropId);
+  if (existing) {
+    if (!existing.sourceFiles.includes(absolute)) {
+      existing.sourceFiles.push(absolute);
+    }
+    recordActivity(existing, source === 'startup' ? 'Observed additional file for queued drop' : 'Detected additional file for drop');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
   const record: DropRecord = {
     dropId,
     sourcePath: absolute,
-    relativePath: normalizedRelative,
-    destinationDir: archiveRoot,
-    destinationFilename: path.basename(absolute),
+    sourceFiles: [absolute],
+    relativePath: strategy === 'observatory' ? observatoryHour ?? normalizedRelative : normalizedRelative,
+    destinationDir: strategy === 'observatory' ? observatoryStagingDir : archiveRoot,
+    destinationFilename: strategy === 'observatory' ? `${observatoryHour ?? path.basename(absolute)}` : path.basename(absolute),
     status: 'queued',
-    observedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    attempts: 0
+    observedAt: timestamp,
+    updatedAt: timestamp,
+    attempts: 0,
+    observatoryHour
   };
 
   drops.set(dropId, record);
-  sourceToDropId.set(absolute, dropId);
   metrics.filesObserved += 1;
   metrics.lastEventAt = record.observedAt;
   recordActivity(record, source === 'startup' ? 'Queued existing file' : 'Detected new file');
@@ -247,23 +312,55 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
   recordActivity(record, attempt > 1 ? `Retrying workflow launch (#${attempt})` : 'Launching workflow');
   metrics.triggerAttempts += 1;
 
-  const body = {
-    parameters: {
-      dropId: record.dropId,
-      sourcePath: record.sourcePath,
-      relativePath: record.relativePath,
-      destinationDir: record.destinationDir,
-      destinationFilename: record.destinationFilename
-    },
-    triggeredBy: 'file-drop-watcher',
-    trigger: {
-      type: 'file-drop',
-      options: {
-        dropId: record.dropId,
-        relativePath: record.relativePath
-      }
+  let body: Record<string, unknown>;
+  if (strategy === 'observatory') {
+    const hour = record.observatoryHour ?? extractObservatoryHour(record.relativePath) ?? new Date().toISOString().slice(0, 13).replace(':', '');
+    const parameters: Record<string, unknown> = {
+      hour,
+      inboxDir: watchRoot,
+      stagingDir: observatoryStagingDir,
+      warehousePath: observatoryWarehousePath
+    };
+    if (observatoryMaxFiles) {
+      parameters.maxFiles = observatoryMaxFiles;
     }
-  };
+    if (observatoryVacuum) {
+      parameters.vacuum = observatoryVacuum;
+    }
+    const relativeFiles = record.sourceFiles.map((file) =>
+      toPosixRelative(path.relative(watchRoot, file))
+    );
+    body = {
+      partitionKey: hour,
+      parameters,
+      triggeredBy: 'observatory-file-watcher',
+      trigger: {
+        type: 'file-drop',
+        options: {
+          hour,
+          files: relativeFiles
+        }
+      }
+    } satisfies Record<string, unknown>;
+  } else {
+    body = {
+      parameters: {
+        dropId: record.dropId,
+        sourcePath: record.sourcePath,
+        relativePath: record.relativePath,
+        destinationDir: record.destinationDir,
+        destinationFilename: record.destinationFilename
+      },
+      triggeredBy: 'file-drop-watcher',
+      trigger: {
+        type: 'file-drop',
+        options: {
+          dropId: record.dropId,
+          relativePath: record.relativePath
+        }
+      }
+    } satisfies Record<string, unknown>;
+  }
 
   const headers: Record<string, string> = {
     'content-type': 'application/json'
@@ -283,12 +380,19 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
     }
     const payload = (await response.json()) as { data?: { id?: string; status?: string } };
     record.runId = typeof payload?.data?.id === 'string' ? payload.data.id : undefined;
-    record.status = 'launched';
     record.updatedAt = new Date().toISOString();
     record.errorMessage = null;
     metrics.launches += 1;
     metrics.lastEventAt = record.updatedAt;
-    recordActivity(record, 'Workflow run launched');
+    if (autoCompleteOnLaunch) {
+      record.status = 'completed';
+      metrics.completions += 1;
+      recordActivity(record, 'Workflow run launched (auto-completed)');
+      releaseRecord(record);
+    } else {
+      record.status = 'launched';
+      recordActivity(record, 'Workflow run launched');
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     metrics.triggerFailures += 1;
@@ -302,7 +406,7 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
     }
     record.status = 'failed';
     recordActivity(record, `Launch failed permanently: ${message}`);
-    sourceToDropId.delete(record.sourcePath);
+    releaseRecord(record);
     app.log.error({ dropId: record.dropId, error: message }, 'Failed to launch workflow after retries');
   }
 }

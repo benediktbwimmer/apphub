@@ -442,7 +442,8 @@ export async function buildBundle(
     format: 'cjs',
     sourcemap: true,
     minify: Boolean(options.minify),
-    logLevel: 'silent'
+    logLevel: 'silent',
+    external: context.config.externals
   });
 
   if (result.errors.length > 0) {

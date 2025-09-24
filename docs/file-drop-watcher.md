@@ -50,6 +50,12 @@ flowchart TD
 | `FILE_WATCH_ROOT` | `services/catalog/data/examples/file-drop/inbox` | Directory to monitor for new files. |
 | `FILE_ARCHIVE_DIR` | `services/catalog/data/examples/file-drop/archive` | Root directory for relocated files. |
 | `FILE_DROP_WORKFLOW_SLUG` | `file-drop-relocation` | Workflow triggered when a new file arrives. |
+| `FILE_WATCH_STRATEGY` | `relocation` | Launch behaviour. Set to `observatory` to trigger the environmental observatory ingest workflow. |
+| `FILE_WATCH_STAGING_DIR` | Derived from `FILE_WATCH_ROOT` | Observatory mode: destination staging directory passed to the ingest workflow. |
+| `FILE_WATCH_WAREHOUSE_PATH` | Derived from `FILE_WATCH_ROOT` | Observatory mode: DuckDB path passed to the ingest workflow. |
+| `FILE_WATCH_MAX_FILES` | `64` | Observatory mode: upper bound for files processed per hour. |
+| `FILE_WATCH_VACUUM` | `false` | Observatory mode: whether the DuckDB loader should run `VACUUM` after appends. |
+| `FILE_WATCH_AUTO_COMPLETE` | `true` when strategy = `observatory` | Auto-mark runs as completed after launch (observatory mode uses this to avoid callback wiring). |
 | `CATALOG_API_BASE_URL` | `http://127.0.0.1:4000` | Catalog API origin used to trigger runs. |
 | `CATALOG_API_TOKEN` | _required_ | Operator token with `workflows:run` scope. |
 | `FILE_WATCH_RESUME_EXISTING` | `true` | When enabled, queue files that already exist in the watch directory on startup. |
@@ -62,3 +68,24 @@ flowchart TD
 - Add a second workflow step that post-processes relocated files (e.g., extracting archives) and extend the watcher callback payload to show downstream metrics.
 - Toggle the watcher retry parameters to simulate transient API outages and observe how the dashboard tracks retries.
 - Wire the watcher into a cloud storage bucket (via `aws-sdk` or `gcsfs`) instead of a local directory for more realistic ingest pipelines.
+
+## Using the Watcher for the Environmental Observatory Example
+
+Reuse the watcher to trigger the `observatory-hourly-ingest` workflow automatically whenever instruments drop new hourly CSVs into the inbox. From the repository root:
+
+```bash
+cd services/examples/file-drop-watcher
+npm install
+
+FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/environmental-observatory/inbox \
+FILE_WATCH_STAGING_DIR=$(pwd)/../../catalog/data/examples/environmental-observatory/staging \
+FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb \
+FILE_DROP_WORKFLOW_SLUG=observatory-hourly-ingest \
+FILE_WATCH_STRATEGY=observatory \
+CATALOG_API_TOKEN=dev-ops-token \
+npm run dev
+```
+
+The watcher batches files by hour, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
+
+> Tip: the repository ships a ready-made service manifest at `services/examples/environmental-observatory/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings so operators can launch it without retyping the environment variables.

@@ -57,6 +57,11 @@ export function normalizeBundleConfig(
   const tests = merged.tests ?? {};
   const pythonEntry = merged.pythonEntry?.trim() || DEFAULT_PYTHON_ENTRY;
   const pythonRequirementsPath = merged.pythonRequirementsPath?.trim();
+  const externals = Array.isArray(merged.externals)
+    ? merged.externals
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+    : [];
 
   return {
     slug,
@@ -67,7 +72,8 @@ export function normalizeBundleConfig(
     files,
     tests,
     pythonEntry,
-    pythonRequirementsPath
+    pythonRequirementsPath,
+    externals
   } satisfies NormalizedBundleConfig;
 }
 

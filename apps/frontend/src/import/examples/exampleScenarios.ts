@@ -249,6 +249,44 @@ const fleetTelemetryAlertsForm = {
 
 export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
+    id: 'observatory-file-watcher-service',
+    type: 'service-manifest',
+    title: 'Observatory file watcher',
+    summary: 'Registers the observatory watcher service configured for hourly ingest.',
+    description:
+      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging directory, and DuckDB warehouse so new drops automatically trigger `observatory-hourly-ingest`.',
+    difficulty: 'beginner',
+    tags: ['observatory', 'automation'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      },
+      {
+        label: 'File watcher guide',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/file-drop-watcher.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Service manifest',
+        path: 'services/examples/environmental-observatory/service-manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/examples/environmental-observatory/service-manifest.json'
+      },
+      {
+        label: 'Watcher service',
+        path: 'services/examples/file-drop-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+      }
+    ],
+    form: {
+      repo: 'https://github.com/benediktbwimmer/apphub.git',
+      ref: 'main',
+      configPath: 'services/examples/environmental-observatory/service-manifest.json'
+    },
+    analyticsTag: 'service__observatory_file_watcher'
+  },
+  {
     id: 'file-relocator-job',
     type: 'job',
     title: 'File drop relocator job',
@@ -586,6 +624,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'Populates the import workspace with every curated example shipped in this repository. Useful when seeding a fresh environment or demo workspace.',
     tags: ['quickstart'],
     includes: [
+      'observatory-file-watcher-service',
       'file-relocator-job',
       'file-drop-relocation-workflow',
       'retail-sales-csv-loader-job',

@@ -1,0 +1,8 @@
+{
+  "name": "observatory-visualization-runner",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "duckdb": "^1.4.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Visualization Runner",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Queries DuckDB snapshots to build SVG plots and metrics for the observatory dashboards.",
+  "capabilities": ["fs"]
+}

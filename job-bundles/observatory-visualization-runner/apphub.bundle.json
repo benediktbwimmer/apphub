@@ -1,0 +1,23 @@
+{
+  "slug": "observatory-visualization-runner",
+  "entry": "src/index.ts",
+  "outDir": "dist",
+  "manifestPath": "manifest.json",
+  "artifactDir": "artifacts",
+  "files": [
+    "manifest.json",
+    "dist/**/*",
+    "node_modules/duckdb/**/*",
+    "node_modules/@mapbox/node-pre-gyp/**/*"
+  ],
+  "externals": [
+    "duckdb",
+    "@mapbox/node-pre-gyp",
+    "aws-sdk",
+    "mock-aws-s3",
+    "nock"
+  ],
+  "tests": {
+    "sampleInputPath": "tests/sample-input.json"
+  }
+}

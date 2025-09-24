@@ -32,6 +32,7 @@ export type BundleConfig = {
   tests?: BundleTestConfig;
   pythonEntry?: string;
   pythonRequirementsPath?: string;
+  externals?: string[];
 };
 
 export type NormalizedBundleConfig = Required<
@@ -40,6 +41,7 @@ export type NormalizedBundleConfig = Required<
   files: string[];
   tests: BundleTestConfig;
   pythonRequirementsPath?: string;
+  externals: string[];
 };
 
 export type PackageResult = {
