@@ -1,0 +1,8 @@
+{
+  "name": "Fleet Telemetry Metrics",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Aggregates greenhouse instrument CSV readings into telemetry assets partitioned by instrument.",
+  "capabilities": ["fs"]
+}

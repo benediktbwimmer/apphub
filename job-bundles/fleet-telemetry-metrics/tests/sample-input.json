@@ -1,0 +1,5 @@
+{
+  "dataRoot": "services/catalog/data/examples/fleet-telemetry",
+  "instrumentId": "instrument_A",
+  "day": "2024-01-02"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Greenhouse Alerts Runner",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Evaluates telemetry partitions and publishes greenhouse alert summaries.",
+  "capabilities": ["fs"]
+}
