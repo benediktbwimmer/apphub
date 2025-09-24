@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement, type PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockedFunction } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import WorkflowsPage from '../WorkflowsPage';
 import { ToastProvider } from '../../components/toast';
@@ -22,7 +23,7 @@ vi.mock('../../auth/useAuth', () => {
   };
 });
 
-const mockedUseAuth = useAuth as unknown as vi.Mock;
+const mockedUseAuth = useAuth as unknown as MockedFunction<typeof useAuth>;
 
 type FetchArgs = Parameters<typeof fetch>;
 

@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MockedFunction } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { PropsWithChildren } from 'react';
 import { RequireOperatorToken } from '../RequireOperatorToken';
@@ -16,7 +17,7 @@ vi.mock('../../auth/useAuth', () => {
   };
 });
 
-const mockedUseAuth = useAuth as unknown as vi.Mock;
+const mockedUseAuth = useAuth as unknown as MockedFunction<typeof useAuth>;
 
 describe('RequireOperatorToken', () => {
   afterEach(() => {

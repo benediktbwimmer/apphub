@@ -15,6 +15,12 @@ import {
   type AppHubEventHandler,
   type AppHubEventsClient
 } from '../../../events/context';
+import type {
+  ApiKeySummary,
+  AuthContextValue,
+  CreateApiKeyInput,
+  CreateApiKeyResult
+} from '../../../auth/context';
 
 const {
   workflowDefinition,
@@ -152,30 +158,48 @@ const analyticsMetrics = {
   ]
 };
 
-function createAuthMockValue() {
+function createAuthMockValue(): AuthContextValue {
+  const nowIso = new Date().toISOString();
+  const identity = {
+    subject: 'user@example.com',
+    kind: 'user' as const,
+    scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
+    userId: 'usr_1',
+    sessionId: 'sess_1',
+    apiKeyId: null,
+    displayName: 'Test User',
+    email: 'user@example.com',
+    roles: ['admin']
+  } satisfies NonNullable<AuthContextValue['identity']>;
+
+  const apiKeySummary: ApiKeySummary = {
+    id: 'key-1',
+    name: 'Operator key',
+    prefix: 'op',
+    scopes: ['workflows:run'],
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null
+  };
+
   return {
-    identity: {
-      subject: 'user@example.com',
-      kind: 'user' as const,
-      scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
-      userId: 'usr_1',
-      sessionId: 'sess_1',
-      apiKeyId: null,
-      displayName: 'Test User',
-      email: 'user@example.com',
-      roles: ['admin']
-    },
+    identity,
     identityLoading: false,
     identityError: null,
-    refreshIdentity: vi.fn(),
+    refreshIdentity: vi.fn<[], Promise<void>>(async () => {}),
     apiKeys: [],
     apiKeysLoading: false,
     apiKeysError: null,
-    refreshApiKeys: vi.fn(),
-    createApiKey: vi.fn(),
-    revokeApiKey: vi.fn(),
+    refreshApiKeys: vi.fn<[], Promise<void>>(async () => {}),
+    createApiKey: vi.fn<[CreateApiKeyInput], Promise<CreateApiKeyResult>>(async () => ({
+      key: apiKeySummary,
+      token: 'token'
+    })),
+    revokeApiKey: vi.fn<[string], Promise<void>>(async () => {}),
     activeToken: null,
-    setActiveToken: vi.fn()
+    setActiveToken: vi.fn<[string | null], void>(() => {})
   };
 }
 
