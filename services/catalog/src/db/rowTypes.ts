@@ -232,6 +232,7 @@ export type WorkflowAssetDeclarationRow = {
   asset_id: string;
   asset_schema: unknown;
   freshness: unknown;
+  auto_materialize: unknown;
   created_at: string;
   updated_at: string;
 };

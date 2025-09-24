@@ -43,6 +43,7 @@ import {
   type WorkflowScheduleWindow,
   type WorkflowAssetDeclaration,
   type WorkflowAssetDeclarationRecord,
+  type WorkflowAssetAutoMaterialize,
   type WorkflowAssetDirection,
   type WorkflowRunStepAssetRecord,
   type WorkflowAssetSnapshotRecord,
@@ -180,6 +181,21 @@ export function parseStringArray(value: unknown): string[] {
   return [];
 }
 
+function parseAssetAutoMaterialize(value: unknown): WorkflowAssetAutoMaterialize | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const policy: WorkflowAssetAutoMaterialize = {};
+  if (typeof record.onUpstreamUpdate === 'boolean') {
+    policy.onUpstreamUpdate = record.onUpstreamUpdate;
+  }
+  if (typeof record.priority === 'number' && Number.isFinite(record.priority)) {
+    policy.priority = record.priority;
+  }
+  return Object.keys(policy).length > 0 ? policy : null;
+}
+
 function parseAssetFreshness(value: unknown): WorkflowAssetDeclaration['freshness'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -261,6 +277,11 @@ function parseWorkflowAssetDeclarations(value: unknown): WorkflowAssetDeclaratio
     const freshness = parseAssetFreshness(record.freshness);
     if (freshness) {
       declaration.freshness = freshness;
+    }
+
+    const autoPolicy = parseAssetAutoMaterialize(record.autoMaterialize ?? record.auto_materialize);
+    if (autoPolicy) {
+      declaration.autoMaterialize = autoPolicy;
     }
 
     declarations.push(declaration);
@@ -1279,6 +1300,7 @@ export function mapWorkflowAssetDeclarationRow(
 ): WorkflowAssetDeclarationRecord {
   const schema = toJsonObjectOrNull(row.asset_schema);
   const freshness = parseAssetFreshness(row.freshness);
+  const autoMaterialize = parseAssetAutoMaterialize(row.auto_materialize);
 
   const direction: WorkflowAssetDirection = row.direction === 'consumes' ? 'consumes' : 'produces';
 
@@ -1290,6 +1312,7 @@ export function mapWorkflowAssetDeclarationRow(
     assetId: row.asset_id,
     schema,
     freshness: freshness ?? null,
+    autoMaterialize: autoMaterialize ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowAssetDeclarationRecord;

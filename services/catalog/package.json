@@ -15,7 +15,8 @@
     "launches": "tsx src/launchWorker.ts",
     "workflows": "tsx src/workflowWorker.ts",
     "test:e2e": "APPHUB_EVENTS_MODE=inline tsx tests/ingestion.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobs.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobRegistry.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/workflows.e2e.ts && APPHUB_EVENTS_MODE=inline tsx tests/jobSandbox.e2e.ts",
-    "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts"
+    "publish:ai-bundle": "tsx src/scripts/publishAiBundle.ts",
+    "materializer": "tsx src/assetMaterializerWorker.ts"
   },
   "keywords": [
     "webapps",
