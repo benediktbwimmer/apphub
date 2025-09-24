@@ -1,0 +1,4 @@
+{
+  "module": "github.com/apphub/examples/environmental-observatory",
+  "manifestPath": "./service-manifest.json"
+}

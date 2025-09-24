@@ -8,6 +8,12 @@ COPY services/catalog/ ./
 RUN npm run build
 RUN npm prune --omit=dev
 
+FROM node:20-slim AS cli-build
+WORKDIR /app/apps/cli
+COPY apps/cli/package.json apps/cli/package-lock.json ./
+RUN npm ci
+COPY apps/cli/ ./
+
 FROM node:20 AS frontend-build
 WORKDIR /app/apps/frontend
 ARG VITE_API_BASE_URL=http://localhost:4000
@@ -69,6 +75,8 @@ COPY --from=catalog-build /app/services/catalog/package.json services/catalog/pa
 COPY --from=catalog-build /app/services/catalog/package-lock.json services/catalog/package-lock.json
 COPY --from=catalog-build /app/services/catalog/node_modules services/catalog/node_modules
 COPY --from=catalog-build /app/services/catalog/dist services/catalog/dist
+COPY --from=cli-build /app/apps/cli apps/cli
+COPY job-bundles job-bundles
 COPY --from=frontend-build /app/apps/frontend/dist apps/frontend/dist
 COPY scripts/postgres-start.sh scripts/postgres-start.sh
 RUN chmod +x scripts/postgres-start.sh

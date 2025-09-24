@@ -269,6 +269,11 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     ],
     assets: [
       {
+        label: 'Service config',
+        path: 'services/examples/environmental-observatory/service-config.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/examples/environmental-observatory/service-config.json'
+      },
+      {
         label: 'Service manifest',
         path: 'services/examples/environmental-observatory/service-manifest.json',
         href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/examples/environmental-observatory/service-manifest.json'
@@ -282,7 +287,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       repo: 'https://github.com/benediktbwimmer/apphub.git',
       ref: 'main',
-      configPath: 'services/examples/environmental-observatory/service-manifest.json',
+      configPath: 'services/examples/environmental-observatory/service-config.json',
+      module: 'github.com/apphub/examples/environmental-observatory',
       variables: {
         FILE_WATCH_ROOT: 'services/catalog/data/examples/environmental-observatory/inbox',
         FILE_WATCH_STAGING_DIR: 'services/catalog/data/examples/environmental-observatory/staging',

@@ -29,7 +29,7 @@ const uploadArchiveSchema = z.object({
 });
 
 const execFileAsync = promisify(execFile);
-const repoRoot = path.resolve(process.cwd(), '..', '..');
+const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 const cliDir = path.resolve(repoRoot, 'apps', 'cli');
 const installLocks = new Map<string, Promise<void>>();
 
