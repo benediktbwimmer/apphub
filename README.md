@@ -7,22 +7,32 @@
 ```
 apphub/
 ├── docs/
-│   └── architecture.md       # High-level system design + roadmap ideas
+│   ├── architecture.md       # High-level system design + roadmap ideas
 │   └── assets-overview.md    # Auto-materialization events, policies, and worker setup
+├── packages/
+│   ├── shared/               # Shared types + registries consumed by multiple services
+│   └── examples/             # Placeholder workspace for the consolidated example registry
 ├── services/
-│   └── catalog/              # Fastify-based API serving app metadata + tag autocomplete
+│   └── catalog/              # Fastify API + background workers
 └── apps/
+    ├── cli/                  # Workspace-aware job bundle tooling
     └── frontend/             # Vite + React search UI with tag-driven autocomplete
 ```
 
 ## Getting Started
 
+### Install Dependencies
+
+```bash
+npm install
+```
+
+All packages are managed through npm workspaces, so a single install at the repo root prepares every app, service, and shared module.
+
 ### Catalog API
 
 ```bash
-cd services/catalog
-npm install
-npm run dev
+npm run dev --workspace @apphub/catalog
 ```
 
 The API listens on `http://localhost:4000` by default and serves:
@@ -44,8 +54,7 @@ Use `POST /apps/:id/retry` to manually requeue a failed repository; the UI offer
 `GET /apps/:id/history` returns the latest ingestion events including status, message, attempt number, commit SHA (when available), and duration in milliseconds for deeper debugging.
 
 ```bash
-cd services/catalog
-npm run ingest
+npm run ingest --workspace @apphub/catalog
 ```
 
 Ensure a Redis instance is running and reachable via `REDIS_URL` before starting the worker.
@@ -66,8 +75,7 @@ downstream processing.
 Spin up the workflow coordinator alongside the API and workers:
 
 ```bash
-cd services/catalog
-npm run workflows
+npm run workflows --workspace @apphub/catalog
 ```
 
 Runtime configuration highlights:
@@ -91,8 +99,7 @@ runs with `trigger.type = 'auto-materialize'` for auditing. The worker can run
 inline (Redis `inline` mode) or via BullMQ with delayed expiry jobs.
 
 ```bash
-cd services/catalog
-npm run materializer
+npm run materializer --workspace @apphub/catalog
 ```
 
 Key environment variables:
@@ -112,10 +119,8 @@ See `docs/file-drop-watcher.md` for setup instructions and a deeper walk-through
 ### Frontend
 
 ```bash
-cd apps/frontend
-npm install
-cp .env.example .env.local    # Update if the API runs elsewhere
-npm run dev
+cp apps/frontend/.env.example apps/frontend/.env.local    # Update if the API runs elsewhere
+npm run dev --workspace @apphub/frontend
 ```
 
 The Vite dev server binds to `http://localhost:5173`.
@@ -485,15 +490,14 @@ The script tags the image with the current Git SHA by default and optionally app
 End-to-end suite spins up the catalog API, BullMQ worker (using an in-memory Redis mock), and a temporary Git repository to verify the full ingestion loop:
 
 ```bash
-cd services/catalog
-npm run test:e2e
+npm run test:e2e --workspace @apphub/catalog
 ```
 
 The script launches an embedded PostgreSQL instance, registers a sample repo, waits for ingestion to finish, and asserts that history events capture status transitions, attempt counts, commit SHA, and duration.
 
 ### Job Bundle CLI
 
-Developer tooling for dynamic job bundles lives in `apps/cli`. Install dependencies with `npm install --prefix apps/cli`, then use the `apphub` binary to scaffold, test, and publish bundles:
+Developer tooling for dynamic job bundles lives in `apps/cli`. The workspace is wired into the root install, so once `npm install` completes you can use the `apphub` binary to scaffold, test, and publish bundles:
 
 ```bash
 npx tsx apps/cli/src/index.ts jobs package ./examples/summary-job

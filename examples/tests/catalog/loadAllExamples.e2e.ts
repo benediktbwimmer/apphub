@@ -1,4 +1,4 @@
-import '../../../services/catalog/tests/setupTestEnv';
+import '@apphub/catalog-tests/setupTestEnv';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -131,7 +131,7 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   );
   const previousServiceConfig = process.env.SERVICE_CONFIG_PATH;
   process.env.SERVICE_CONFIG_PATH = `!${serviceConfigPath}`;
-  const { buildServer } = await import('../../../services/catalog/src/server');
+  const { buildServer } = await import('@apphub/catalog/server');
   const app = await buildServer();
   await app.ready();
   try {

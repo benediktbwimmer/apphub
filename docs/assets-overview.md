@@ -154,7 +154,7 @@ API helpers:
 
 ## Operational Notes
 - The worker respects `ASSET_MATERIALIZER_BASE_BACKOFF_MS`, `ASSET_MATERIALIZER_MAX_BACKOFF_MS`, and `ASSET_MATERIALIZER_REFRESH_INTERVAL_MS` environment variables for tuning backoff and graph refresh cadence.
-- Launch the worker via `npm run materializer` (or `npm run dev:materializer` from the repo root during local development).
+- Launch the worker via `npm run materializer --workspace @apphub/catalog` (or `npm run dev:materializer` from the repo root during local development).
 - Event handling degrades gracefully when Redis is configured as `inline`; delayed expirations fall back to in-process timers.
 
 ## Design Patterns

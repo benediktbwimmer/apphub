@@ -1,13 +1,13 @@
 {
-  "name": "catalog",
+  "name": "@apphub/catalog",
   "version": "0.1.0",
   "description": "Metadata and search API for containerized web applications",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "lint": "tsc --noEmit",
+    "lint": "tsc -b --pretty false",
     "build": "npm run build:ts && npm run build:assets",
-    "build:ts": "tsc",
+    "build:ts": "tsc -b",
     "build:assets": "node scripts/copyPythonHarness.js",
     "start": "node dist/server.js",
     "ingest": "tsx src/ingestionWorker.ts",
@@ -26,6 +26,7 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
+    "@apphub/shared": "0.1.0",
     "@aws-sdk/client-s3": "^3.614.0",
     "@aws-sdk/s3-request-presigner": "^3.614.0",
     "@dqbd/tiktoken": "^1.0.22",

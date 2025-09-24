@@ -1,7 +1,7 @@
 # Ticket 012: Centralize Example Metadata in a Typed Registry Package
 
 ## Problem Statement
-Example jobs, services, and workflows are defined through duplicated maps scattered across the codebase (`services/catalog/src/routes/jobImports.ts`, `shared/exampleJobBundles.ts`, `apps/frontend/src/import/examples/exampleScenarios.ts`, and test helpers). Each copy diverges over time, forcing manual edits whenever paths or slugs change. The frontend reaches into `examples/` via brittle relative imports, while the backend reads JSON directly from disk. There is no single source of truth for example metadata, making it hard to evolve the example catalog or power new tooling.
+Example jobs, services, and workflows are defined through duplicated maps scattered across the codebase (`services/catalog/src/routes/jobImports.ts`, `packages/shared/src/exampleJobBundles.ts`, `apps/frontend/src/import/examples/exampleScenarios.ts`, and test helpers). Each copy diverges over time, forcing manual edits whenever paths or slugs change. The frontend reaches into `examples/` via brittle relative imports, while the backend reads JSON directly from disk. There is no single source of truth for example metadata, making it hard to evolve the example catalog or power new tooling.
 
 ## Goals
 - Create a `packages/examples-registry` workspace package that exports typed definitions for all example bundles, workflows, services, and scenario bundles.

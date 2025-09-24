@@ -7,16 +7,16 @@ import tailwindcss from '@tailwindcss/vite';
 
 const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
-const workflowSchemaPath = resolve(workspaceRoot, 'services', 'catalog', 'src', 'workflows', 'zodSchemas.ts');
-const aiPromptsPath = resolve(workspaceRoot, 'services', 'catalog', 'src', 'ai', 'prompts.ts');
+const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
+const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
 
 // https://vite.dev/config/
 const config: UserConfig & { test: VitestUserConfig['test'] } = {
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@apphub/workflow-schemas': workflowSchemaPath,
-      '@apphub/ai-prompts': aiPromptsPath
+      '@apphub/catalog': catalogSrcPath,
+      '@apphub/shared': sharedSrcPath
     }
   },
   server: {

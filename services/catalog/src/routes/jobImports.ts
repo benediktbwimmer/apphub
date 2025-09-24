@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
 import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
+import { EXAMPLE_JOB_BUNDLES, type ExampleJobBundleSlug } from '@apphub/shared';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { JOB_BUNDLE_WRITE_SCOPES } from './shared/scopes';
 import { publishBundleVersion } from '../jobs/registryService';
@@ -85,26 +86,6 @@ type UploadPreviewResult = {
   warnings: JobImportWarning[];
   errors: JobImportValidationError[];
 };
-
-const EXAMPLE_JOB_BUNDLE_DEFINITIONS = {
-  'file-relocator': { directory: 'examples/file-drop/jobs/file-relocator' },
-  'retail-sales-csv-loader': { directory: 'examples/retail-sales/jobs/retail-sales-csv-loader' },
-  'retail-sales-parquet-builder': { directory: 'examples/retail-sales/jobs/retail-sales-parquet-builder' },
-  'retail-sales-visualizer': { directory: 'examples/retail-sales/jobs/retail-sales-visualizer' },
-  'fleet-telemetry-metrics': { directory: 'examples/fleet-telemetry/jobs/fleet-telemetry-metrics' },
-  'greenhouse-alerts-runner': { directory: 'examples/fleet-telemetry/jobs/greenhouse-alerts-runner' },
-  'archive-report': { directory: 'examples/directory-insights/jobs/archive-report' },
-  'generate-visualizations': { directory: 'examples/directory-insights/jobs/generate-visualizations' },
-  'scan-directory': { directory: 'examples/directory-insights/jobs/scan-directory' },
-  'observatory-inbox-normalizer': { directory: 'examples/environmental-observatory/jobs/observatory-inbox-normalizer' },
-  'observatory-duckdb-loader': { directory: 'examples/environmental-observatory/jobs/observatory-duckdb-loader' },
-  'observatory-visualization-runner': { directory: 'examples/environmental-observatory/jobs/observatory-visualization-runner' },
-  'observatory-report-publisher': { directory: 'examples/environmental-observatory/jobs/observatory-report-publisher' }
-} as const;
-
-type ExampleBundleSlug = keyof typeof EXAMPLE_JOB_BUNDLE_DEFINITIONS;
-
-const EXAMPLE_JOB_BUNDLES: Record<ExampleBundleSlug, { directory: string }> = EXAMPLE_JOB_BUNDLE_DEFINITIONS;
 
 type ExamplesCatalogIndex = {
   jobs: Record<string, string>;
@@ -249,7 +230,7 @@ async function ensureExampleJobDefinition(slug: string, version: string): Promis
 }
 
 async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle> {
-  const definition = EXAMPLE_JOB_BUNDLES[slug as ExampleBundleSlug];
+  const definition = EXAMPLE_JOB_BUNDLES[slug as ExampleJobBundleSlug];
   if (!definition) {
     throw new Error(`Unknown example bundle slug: ${slug}`);
   }

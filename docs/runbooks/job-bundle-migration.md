@@ -24,7 +24,7 @@ Fallback executions mark the job run with `metrics.bundleFallback = true` and in
 1. **Staging Validation**
    - Deploy catalog service with bundle runtime changes to staging.
 - Set `APPHUB_JOB_BUNDLES_ENABLE_SLUGS=fs-read-file,fs-write-file`.
-   - Run end-to-end smoke tests (`npm run test:e2e` in `services/catalog`, or targeted job workflows) and manual job triggers.
+   - Run end-to-end smoke tests (`npm run test:e2e --workspace @apphub/catalog`, or targeted job workflows) and manual job triggers.
    - Confirm job runs execute via sandbox (presence of `sandbox` metrics/context). Investigate any `bundleFallback` entries.
 
 2. **Telemetry Review**

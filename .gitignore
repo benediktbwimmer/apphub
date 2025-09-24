@@ -14,6 +14,7 @@ services/catalog/tests/fixtures/*.db
 services/data/*
 services/data/*.db-*
 services/catalog/dist/
+packages/*/dist/
 
 # Frontend build outputs
 apps/frontend/dist/

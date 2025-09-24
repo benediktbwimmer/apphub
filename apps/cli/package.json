@@ -7,7 +7,7 @@
     "apphub": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b",
     "dev": "tsx watch src/index.ts",
     "test": "tsx --test tests/**/*.test.ts"
   },

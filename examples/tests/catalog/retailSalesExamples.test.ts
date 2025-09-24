@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import '../../../services/catalog/tests/setupTestEnv';
-import { enumeratePartitionKeys } from '../../../services/catalog/src/workflows/partitioning';
+import '@apphub/catalog-tests/setupTestEnv';
+import { enumeratePartitionKeys } from '@apphub/catalog/workflows/partitioning';
 import {
   jobDefinitionCreateSchema,
   workflowDefinitionCreateSchema
-} from '../../../services/catalog/src/workflows/zodSchemas';
+} from '@apphub/catalog/workflows/zodSchemas';
 import {
   loadExampleJobDefinition,
   loadExampleWorkflowDefinition

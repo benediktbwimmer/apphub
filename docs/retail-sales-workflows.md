@@ -169,7 +169,7 @@ Use the history endpoint to fetch specific partitions (e.g. `?partitionKey=2024-
 ## 6. Reference definitions
 
 - Job and workflow definitions: `examples/retail-sales/workflows/`
-- Validation test: `services/catalog/tests/retailSalesExamples.test.ts`
+- Validation test: `examples/tests/catalog/retailSalesExamples.test.ts`
 - Sample CSV data: `examples/retail-sales/data/`
 
 These examples provide a ready-made playground for partition-aware pipelines and asset-driven auto materialization. Combine them with the existing directory insights demo to explore fan-out steps, bundle packaging, and downstream automation end-to-end.

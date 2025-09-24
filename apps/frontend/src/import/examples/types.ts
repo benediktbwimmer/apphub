@@ -1,5 +1,5 @@
 import type { WorkflowCreateInput } from '../../workflows/api';
-import type { ExampleJobBundleSlug } from '../../../../../shared/exampleJobBundles';
+import type { ExampleJobBundleSlug } from '@apphub/shared';
 
 export type ExampleScenarioType = 'service-manifest' | 'app' | 'job' | 'workflow' | 'scenario';
 

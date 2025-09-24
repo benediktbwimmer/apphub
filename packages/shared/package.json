@@ -1,0 +1,26 @@
+{
+  "name": "@apphub/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./exampleJobBundles": {
+      "types": "./dist/exampleJobBundles.d.ts",
+      "require": "./dist/exampleJobBundles.js",
+      "default": "./dist/exampleJobBundles.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

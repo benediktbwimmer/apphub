@@ -42,7 +42,7 @@ ORDER BY id;
 ```
 
 ## Manual Recovery Steps
-1. **Validate Environment:** Ensure workers are online (`npm run workflows`) and Redis connectivity is healthy.
+1. **Validate Environment:** Ensure workers are online (`npm run workflows --workspace @apphub/catalog`) and Redis connectivity is healthy.
 2. **Check History:** Query `workflow_execution_history` for `step.timeout` events to confirm which steps were retried or exhausted.
 3. **Requeue If Needed:** If automation has not retried a stalled run, enqueue it manually: `node -e "require('./dist/queue').enqueueWorkflowRun('<run-id>')"` (or use the API endpoint once exposed).
 4. **Reset Run:** To force a full rerun, update `workflow_run_steps` for the affected run to `pending`, clear `job_run_id`, `last_heartbeat_at`, and increment `retry_count` as needed, then enqueue the run. Always append a manual event to `workflow_execution_history` describing the intervention.

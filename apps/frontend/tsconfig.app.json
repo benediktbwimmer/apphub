@@ -1,11 +1,11 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "skipLibCheck": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",
@@ -13,22 +13,21 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "composite": true,
     "resolveJsonModule": true,
     "allowArbitraryExtensions": true,
     "jsx": "react-jsx",
-    "baseUrl": "./",
-    "paths": {
-      "@apphub/ai-prompts": ["../../services/catalog/src/ai/prompts.ts"],
-      "@apphub/workflow-schemas": ["../../services/catalog/src/workflows/zodSchemas.ts"]
-    },
 
     /* Linting */
-    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../services/catalog" }
+  ]
 }

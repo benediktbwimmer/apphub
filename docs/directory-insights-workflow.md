@@ -3,7 +3,7 @@
 This runbook captures the exact steps needed to publish the directory scanning and visualization bundles, register their jobs, and create the `directory-insights-report` workflow inside the running catalog API. Follow it any time the container image is reset or when you need to re-seed a fresh environment.
 
 ## Prerequisites
-- The catalog service is running (inside the `apphub` container or via `npm run dev`).
+- The catalog service is running (inside the `apphub` container or via `npm run dev --workspace @apphub/catalog`).
 - You have an operator token with `job-bundles:write`, `jobs:write`, and `workflows:write` scopes (`example-operator-token-123` from the default config works).
 - Node 20+ and the repository source tree are available (already true inside the container at `/app`).
 - Commands below assume execution from the repository root.

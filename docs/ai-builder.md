@@ -112,6 +112,6 @@ The bundle handler mirrors the server-side runner: it writes instructions into a
 - `npx tsx services/catalog/tests/codexRunner.test.ts` exercises the CLI mock path and ensures `APPHUB_CODEX_MOCK_DIR` is respected.
 - `CODEX_PROXY_KEEP_WORKSPACES=1` (or `APPHUB_CODEX_DEBUG_WORKSPACES=1`) keeps the proxy's temporary workspaces on disk for inspection.
 - Generations persist server-side for one hour (`CODEX_PROXY_JOB_RETENTION_SECONDS` / in-memory session TTL) so you can resume polling later.
-- The frontend uses Vite aliases to import `zodSchemas.ts` directly; run `npm run dev` in `apps/frontend` to verify hot reload.
+- The frontend uses Vite aliases to import `zodSchemas.ts` directly; run `npm run dev --workspace @apphub/frontend` to verify hot reload.
 
 For a full end-to-end check, publish the bundle, generate a workflow plan through the AI builder, publish any bundle-backed jobs the plan calls for, and then submit the workflow. The new workflow appears in the sidebar without a page reload, and manual runs continue to work through the existing controls.

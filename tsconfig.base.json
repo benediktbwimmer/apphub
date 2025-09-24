@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {
+      "@apphub/catalog": ["services/catalog/src"],
+      "@apphub/catalog/*": ["services/catalog/src/*"],
+      "@apphub/catalog-tests": ["services/catalog/tests"],
+      "@apphub/catalog-tests/*": ["services/catalog/tests/*"],
+      "@apphub/frontend": ["apps/frontend/src"],
+      "@apphub/frontend/*": ["apps/frontend/src/*"],
+      "@apphub/cli": ["apps/cli/src"],
+      "@apphub/cli/*": ["apps/cli/src/*"],
+      "@apphub/shared": ["packages/shared/src/index.ts"],
+      "@apphub/shared/*": ["packages/shared/src/*"]
+    }
+  }
+}
