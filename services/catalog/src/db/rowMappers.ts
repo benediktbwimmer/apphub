@@ -1,4 +1,4 @@
-import type { ManifestEnvVarInput } from '../serviceManifestTypes';
+import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
 import {
   type BuildRecord,
   type IngestStatus,
@@ -114,7 +114,7 @@ export function parseLaunchEnv(value: unknown): LaunchEnvVar[] {
   return [];
 }
 
-export function parseManifestEnv(value: unknown): ManifestEnvVarInput[] {
+export function parseManifestEnv(value: unknown): ResolvedManifestEnvVar[] {
   if (!value) {
     return [];
   }
@@ -128,7 +128,7 @@ export function parseManifestEnv(value: unknown): ManifestEnvVarInput[] {
         if (!key) {
           return null;
         }
-        const clone: ManifestEnvVarInput = { key };
+        const clone: ResolvedManifestEnvVar = { key };
         if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
           const rawValue = (entry as any).value;
           if (rawValue === undefined || rawValue === null) {
@@ -153,7 +153,7 @@ export function parseManifestEnv(value: unknown): ManifestEnvVarInput[] {
         }
         return clone;
       })
-      .filter((entry): entry is ManifestEnvVarInput => Boolean(entry));
+      .filter((entry): entry is ResolvedManifestEnvVar => Boolean(entry));
   }
   if (typeof value === 'string') {
     try {

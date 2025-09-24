@@ -36,6 +36,7 @@ import {
 import {
   manifestFileSchema,
   type ManifestEnvVarInput,
+  type ResolvedManifestEnvVar,
   type ManifestLoadError
 } from './serviceManifestTypes';
 
@@ -272,9 +273,11 @@ function resolveManifestPaths(options?: { includeDefault?: boolean }): string[] 
   return deduped;
 }
 
-type EnvVar = ManifestEnvVarInput;
+type EnvVar = ResolvedManifestEnvVar;
 
-function normalizeEnvReference(entry: ManifestEnvVarInput['fromService']): ManifestEnvVarInput['fromService'] | undefined {
+function normalizeEnvReference(
+  entry: ManifestEnvVarInput['fromService']
+): ResolvedManifestEnvVar['fromService'] | undefined {
   if (!entry) {
     return undefined;
   }
@@ -289,7 +292,7 @@ function normalizeEnvReference(entry: ManifestEnvVarInput['fromService']): Manif
   };
 }
 
-function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[] | undefined {
+function cloneEnvVars(env?: ManifestEnvVarInput[] | null): EnvVar[] | undefined {
   if (!env || !Array.isArray(env)) {
     return undefined;
   }
@@ -298,10 +301,10 @@ function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[]
     .map((entry) => {
       const key = entry.key.trim();
       if (!key) {
-        return { key: '' } as ManifestEnvVarInput;
+        return { key: '' } as EnvVar;
       }
-      const clone: ManifestEnvVarInput = { key };
-      if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+      const clone: EnvVar = { key };
+      if (typeof entry.value === 'string') {
         clone.value = entry.value;
       }
       const ref = normalizeEnvReference(entry.fromService);
@@ -310,10 +313,10 @@ function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[]
       }
       return clone;
     })
-    .filter((entry) => entry.key.length > 0);
+    .filter((entry) => entry.key.length > 0 && (entry.value !== undefined || entry.fromService !== undefined));
 }
 
-function toLaunchEnvVars(env?: ManifestEnvVarInput[] | null): LaunchEnvVar[] {
+function toLaunchEnvVars(env?: EnvVar[] | null): LaunchEnvVar[] {
   if (!env || env.length === 0) {
     return [];
   }
@@ -992,6 +995,21 @@ async function loadManifest(): Promise<ManifestLoadResult> {
       path: error.source,
       error: error.error.message
     });
+  }
+
+  for (const placeholder of configResult.placeholders) {
+    if (placeholder.missing) {
+      log('warn', 'service manifest placeholder unresolved', {
+        placeholder: placeholder.name,
+        occurrences: placeholder.occurrences.map((occurrence) => ({ ...occurrence }))
+      });
+    }
+    if (placeholder.conflicts.length > 0) {
+      log('warn', 'service manifest placeholder conflict', {
+        placeholder: placeholder.name,
+        conflicts: placeholder.conflicts
+      });
+    }
   }
 
   const includeDefaultManifest = configResult.usedConfigs.length === 0;

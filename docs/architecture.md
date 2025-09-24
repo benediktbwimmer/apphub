@@ -84,7 +84,7 @@ graph TD
    - Optional warm pool for popular apps.
 
 5. **Service Discovery & Health Tracking**
-   - Operators sync JSON manifests describing external services through registry import endpoints; the catalog does not auto-ingest manifests at startup.
+  - Operators sync JSON manifests describing external services through registry import endpoints; the catalog does not auto-ingest manifests at startup. Manifests can embed placeholder variables (for example `${CATALOG_API_TOKEN}` or an object form with metadata) so the API and UI prompt for values before the manifest is applied.
    - A background poller probes each service's health endpoint, updates status/metadata in PostgreSQL, and publishes `service.updated` events over Redis/WebSocket so consumers can react immediately.
    - Operators or services themselves can register/patch definitions at runtime using `POST /services` and `PATCH /services/:slug` with a shared token, enabling dynamic onboarding without code changes.
 

@@ -12,15 +12,33 @@
         { "key": "PORT", "value": "4310" },
         {
           "key": "FILE_WATCH_ROOT",
-          "value": "../../catalog/data/examples/environmental-observatory/inbox"
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_ROOT",
+              "default": "../../catalog/data/examples/environmental-observatory/inbox",
+              "description": "Directory monitored for incoming hourly CSV drops."
+            }
+          }
         },
         {
           "key": "FILE_WATCH_STAGING_DIR",
-          "value": "../../catalog/data/examples/environmental-observatory/staging"
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_STAGING_DIR",
+              "default": "../../catalog/data/examples/environmental-observatory/staging",
+              "description": "Staging directory where normalized files are copied prior to ingest."
+            }
+          }
         },
         {
           "key": "FILE_WATCH_WAREHOUSE_PATH",
-          "value": "../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb"
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_WAREHOUSE_PATH",
+              "default": "../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb",
+              "description": "Destination DuckDB database storing observatory snapshots."
+            }
+          }
         },
         { "key": "FILE_WATCH_STRATEGY", "value": "observatory" },
         { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-hourly-ingest" },
@@ -28,7 +46,15 @@
         { "key": "FILE_WATCH_VACUUM", "value": "false" },
         { "key": "FILE_WATCH_AUTO_COMPLETE", "value": "true" },
         { "key": "CATALOG_API_BASE_URL", "value": "http://127.0.0.1:4000" },
-        { "key": "CATALOG_API_TOKEN", "value": "replace-with-operator-token" }
+        {
+          "key": "CATALOG_API_TOKEN",
+          "value": {
+            "$var": {
+              "name": "CATALOG_API_TOKEN",
+              "description": "Operator API token used to trigger workflows and update run status."
+            }
+          }
+        }
       ]
     }
   ]

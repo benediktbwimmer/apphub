@@ -30,6 +30,7 @@ export type ServiceManifestScenario = ExampleScenarioBase<'service-manifest'> & 
     commit?: string;
     configPath?: string;
     module?: string;
+    variables?: Record<string, string>;
   };
 };
 

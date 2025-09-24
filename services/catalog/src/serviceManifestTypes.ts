@@ -10,16 +10,42 @@ const manifestEnvReferenceSchema = z
   })
   .strict();
 
+const manifestPlaceholderDetailsSchema = z
+  .object({
+    name: z.string().min(1),
+    default: z.string().optional(),
+    description: z.string().optional()
+  })
+  .strict();
+
+export type ManifestPlaceholderDetails = z.infer<typeof manifestPlaceholderDetailsSchema>;
+
+const manifestPlaceholderValueSchema = z
+  .object({
+    $var: manifestPlaceholderDetailsSchema
+  })
+  .strict();
+
+export type ManifestPlaceholderValue = z.infer<typeof manifestPlaceholderValueSchema>;
+
+const manifestEnvValueSchema = z.union([z.string(), manifestPlaceholderValueSchema]);
+
 export const manifestEnvVarSchema = z
   .object({
     key: z.string().min(1),
-    value: z.string().optional(),
+    value: manifestEnvValueSchema.optional(),
     fromService: manifestEnvReferenceSchema.optional()
   })
   .strict()
   .refine((entry) => entry.value !== undefined || entry.fromService !== undefined, {
     message: 'env entry must define either value or fromService'
   });
+
+export type ManifestEnvVarValue = z.infer<typeof manifestEnvValueSchema>;
+
+export type ResolvedManifestEnvVar = Omit<ManifestEnvVarInput, 'value'> & {
+  value?: string;
+};
 
 export const manifestTagSchema = z
   .object({

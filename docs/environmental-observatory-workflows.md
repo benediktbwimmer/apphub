@@ -93,7 +93,7 @@ npm install --prefix job-bundles/observatory-visualization-runner
 
 The catalog packages each observatory bundle automatically when you import the example jobs. Pre-installing dependencies keeps the first run snappy; otherwise the API runs `npm install` on demand the first time a bundle is requested.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`services/examples/environmental-observatory/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. In the future this manifest will use import-time placeholders (see ticket 010) so the importer can prompt for inbox/staging paths and tokens without editing JSON manually.
+3. Import the bundled service manifest (`services/examples/environmental-observatory/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. When importing through the UI the catalog now prompts for the inbox, staging, and warehouse paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
 4. Launch the file-drop watcher in observatory mode so new inbox files trigger `observatory-hourly-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash

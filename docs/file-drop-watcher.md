@@ -88,4 +88,4 @@ npm run dev
 
 The watcher batches files by hour, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
 
-> Tip: the repository ships a ready-made service manifest at `services/examples/environmental-observatory/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings so operators can launch it without retyping the environment variables.
+> Tip: the repository ships a ready-made service manifest at `services/examples/environmental-observatory/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand.

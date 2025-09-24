@@ -2,6 +2,23 @@ import { useCallback, useState, type FormEvent } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 
+export type ManifestPlaceholderOccurrence =
+  | { kind: 'service'; serviceSlug: string; envKey: string; source: string }
+  | { kind: 'network'; networkId: string; envKey: string; source: string }
+  | { kind: 'network-service'; networkId: string; serviceSlug: string; envKey: string; source: string }
+  | { kind: 'app-launch'; networkId: string; appId: string; envKey: string; source: string };
+
+export type ManifestPlaceholder = {
+  name: string;
+  description?: string;
+  defaultValue?: string;
+  value?: string;
+  required: boolean;
+  missing: boolean;
+  occurrences: ManifestPlaceholderOccurrence[];
+  conflicts: string[];
+};
+
 export type ImportManifestForm = {
   repo: string;
   ref: string;
@@ -24,9 +41,14 @@ type NormalizedRequestBody = {
   commit?: string;
   configPath?: string;
   module?: string;
+  variables?: Record<string, string>;
 };
 
-function buildRequestBody(form: ImportManifestForm): NormalizedRequestBody {
+function buildRequestBody(
+  form: ImportManifestForm,
+  variables: Record<string, string>,
+  placeholders: ManifestPlaceholder[]
+): NormalizedRequestBody {
   const body: NormalizedRequestBody = {
     repo: form.repo.trim()
   };
@@ -51,7 +73,55 @@ function buildRequestBody(form: ImportManifestForm): NormalizedRequestBody {
     body.module = moduleValue;
   }
 
+  const variableEntries = Object.entries(variables)
+    .map(([key, value]) => [key.trim(), value] as const)
+    .filter(([key]) => key.length > 0);
+
+  if (variableEntries.length > 0) {
+    const placeholderMap = new Map(placeholders.map((placeholder) => [placeholder.name, placeholder]));
+    const filtered = variableEntries
+      .map(([key, value]) => {
+        const placeholder = placeholderMap.get(key);
+        const trimmedValue = value.trim();
+        if (!placeholder) {
+          return trimmedValue.length > 0 ? ([key, trimmedValue] as const) : null;
+        }
+        if (!placeholder.required && trimmedValue.length === 0) {
+          return null;
+        }
+        return [key, trimmedValue] as const;
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry));
+
+    if (filtered.length > 0) {
+      body.variables = Object.fromEntries(filtered);
+    }
+  }
+
   return body;
+}
+
+function hydrateVariables(
+  placeholders: ManifestPlaceholder[],
+  existing: Record<string, string>
+): Record<string, string> {
+  const hydrated: Record<string, string> = {};
+  for (const placeholder of placeholders) {
+    if (Object.prototype.hasOwnProperty.call(existing, placeholder.name)) {
+      hydrated[placeholder.name] = existing[placeholder.name];
+      continue;
+    }
+    if (placeholder.value !== undefined) {
+      hydrated[placeholder.name] = placeholder.value;
+      continue;
+    }
+    if (placeholder.defaultValue !== undefined) {
+      hydrated[placeholder.name] = placeholder.defaultValue;
+      continue;
+    }
+    hydrated[placeholder.name] = '';
+  }
+  return hydrated;
 }
 
 export function useImportServiceManifest() {
@@ -70,6 +140,8 @@ export function useImportServiceManifest() {
   const [lastRequestBody, setLastRequestBody] = useState<NormalizedRequestBody | null>(null);
   const [resultVersion, setResultVersion] = useState(0);
   const [errorVersion, setErrorVersion] = useState(0);
+  const [placeholders, setPlaceholders] = useState<ManifestPlaceholder[]>([]);
+  const [variables, setVariables] = useState<Record<string, string>>({});
 
   const importManifest = useCallback(
     async (body: NormalizedRequestBody) => {
@@ -80,22 +152,43 @@ export function useImportServiceManifest() {
       });
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
+        const payload = await response.json().catch(() => null);
+        if (response.status === 400 && payload && Array.isArray(payload.placeholders)) {
+          const incoming = payload.placeholders as ManifestPlaceholder[];
+          setPlaceholders(incoming);
+          setVariables((prev) => hydrateVariables(incoming, prev));
+          const message =
+            typeof payload.error === 'string'
+              ? payload.error
+              : 'Import requires placeholder values';
+          throw new Error(message);
+        }
+
         const message = payload?.error ?? `Import failed with status ${response.status}`;
         throw new Error(typeof message === 'string' ? message : 'Import failed');
       }
 
       const payload = await response.json();
+      clearPlaceholders();
       setResult(payload.data as ImportManifestResult);
       setResultVersion((prev) => prev + 1);
       setError(null);
       setLastRequestBody(body);
     },
-    [authorizedFetch]
+    [authorizedFetch, clearPlaceholders]
   );
 
   const updateField = useCallback((field: keyof ImportManifestForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const updateVariable = useCallback((name: string, value: string) => {
+    setVariables((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const clearPlaceholders = useCallback(() => {
+    setPlaceholders([]);
+    setVariables({});
   }, []);
 
   const handleSubmit = useCallback(
@@ -109,7 +202,7 @@ export function useImportServiceManifest() {
       setError(null);
       setResult(null);
       try {
-        const body = buildRequestBody(form);
+        const body = buildRequestBody(form, variables, placeholders);
         if (!body.repo) {
           throw new Error('Repository URL is required');
         }
@@ -123,12 +216,13 @@ export function useImportServiceManifest() {
         setSubmitting(false);
       }
     },
-    [form, importManifest, submitting]
+    [form, importManifest, placeholders, submitting, variables]
   );
 
   const resetResult = useCallback(() => {
     setResult(null);
-  }, []);
+    clearPlaceholders();
+  }, [clearPlaceholders]);
 
   const handleReimport = useCallback(async () => {
     if (reimporting || submitting || !lastRequestBody) {
@@ -160,6 +254,10 @@ export function useImportServiceManifest() {
     handleSubmit,
     resetResult,
     handleReimport,
-    canReimport: lastRequestBody !== null
+    canReimport: lastRequestBody !== null,
+    placeholders,
+    variables,
+    updateVariable,
+    setVariables
   };
 }

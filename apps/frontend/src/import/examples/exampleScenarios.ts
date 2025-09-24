@@ -282,7 +282,13 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       repo: 'https://github.com/benediktbwimmer/apphub.git',
       ref: 'main',
-      configPath: 'services/examples/environmental-observatory/service-manifest.json'
+      configPath: 'services/examples/environmental-observatory/service-manifest.json',
+      variables: {
+        FILE_WATCH_ROOT: 'services/catalog/data/examples/environmental-observatory/inbox',
+        FILE_WATCH_STAGING_DIR: 'services/catalog/data/examples/environmental-observatory/staging',
+        FILE_WATCH_WAREHOUSE_PATH: 'services/catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb',
+        CATALOG_API_TOKEN: 'replace-with-operator-token'
+      }
     },
     analyticsTag: 'service__observatory_file_watcher'
   },

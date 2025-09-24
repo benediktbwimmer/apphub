@@ -1,4 +1,4 @@
-import type { ManifestEnvVarInput } from '../serviceManifestTypes';
+import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
 
 export type TagKV = {
   key: string;
@@ -64,7 +64,7 @@ export type ServiceNetworkMemberRecord = {
   memberRepositoryId: string;
   launchOrder: number;
   waitForBuild: boolean;
-  env: ManifestEnvVarInput[];
+  env: ResolvedManifestEnvVar[];
   dependsOn: string[];
   createdAt: string;
   updatedAt: string;
@@ -82,7 +82,7 @@ export type ServiceNetworkMemberInput = {
   memberRepositoryId: string;
   launchOrder?: number;
   waitForBuild?: boolean;
-  env?: ManifestEnvVarInput[];
+  env?: ResolvedManifestEnvVar[];
   dependsOn?: string[];
 };
 

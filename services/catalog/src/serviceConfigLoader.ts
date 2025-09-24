@@ -10,8 +10,12 @@ import {
   serviceNetworkSchema,
   type ManifestEntryInput,
   type ManifestEnvVarInput,
+  type ManifestEnvVarValue,
   type ManifestLoadError,
-  type ManifestServiceNetworkInput
+  type ManifestPlaceholderDetails,
+  type ManifestPlaceholderValue,
+  type ManifestServiceNetworkInput,
+  type ResolvedManifestEnvVar
 } from './serviceManifestTypes';
 
 const DEFAULT_SERVICE_CONFIG_PATH = path.resolve(__dirname, '..', '..', 'service-config.json');
@@ -29,7 +33,8 @@ const serviceConfigImportSchema = z
     repo: z.string().min(1),
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
-    configPath: z.string().min(1).optional()
+    configPath: z.string().min(1).optional(),
+    variables: z.record(z.string().min(1), z.string()).optional()
   })
   .strict();
 
@@ -47,13 +52,40 @@ const serviceConfigSchema = z
 
 type ServiceConfig = z.infer<typeof serviceConfigSchema>;
 
-export type LoadedManifestEntry = ManifestEntryInput & {
+export type LoadedManifestEntry = Omit<ManifestEntryInput, 'env'> & {
+  env?: ResolvedManifestEnvVar[];
   sources: string[];
   baseUrlSource: 'manifest' | 'env';
 };
 
-export type LoadedServiceNetwork = ManifestServiceNetworkInput & {
+type LoadedNetworkService = Omit<ManifestServiceNetworkInput['services'][number], 'env' | 'app'> & {
+  env?: ResolvedManifestEnvVar[];
+  app: Omit<ManifestServiceNetworkInput['services'][number]['app'], 'launchEnv'> & {
+    launchEnv?: ResolvedManifestEnvVar[];
+  };
+};
+
+export type LoadedServiceNetwork = Omit<ManifestServiceNetworkInput, 'env' | 'services'> & {
+  env?: ResolvedManifestEnvVar[];
+  services: LoadedNetworkService[];
   sources: string[];
+};
+
+export type ManifestPlaceholderOccurrence =
+  | { kind: 'service'; serviceSlug: string; envKey: string; source: string }
+  | { kind: 'network'; networkId: string; envKey: string; source: string }
+  | { kind: 'network-service'; networkId: string; serviceSlug: string; envKey: string; source: string }
+  | { kind: 'app-launch'; networkId: string; appId: string; envKey: string; source: string };
+
+export type ManifestPlaceholderSummary = {
+  name: string;
+  description?: string;
+  defaultValue?: string;
+  value?: string;
+  required: boolean;
+  missing: boolean;
+  occurrences: ManifestPlaceholderOccurrence[];
+  conflicts: string[];
 };
 
 export type ServiceConfigLoadResult = {
@@ -61,6 +93,7 @@ export type ServiceConfigLoadResult = {
   networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
   usedConfigs: string[];
+  placeholders: ManifestPlaceholderSummary[];
 };
 
 export type ClearServiceConfigImportsResult = {
@@ -78,13 +111,250 @@ type ConfigLoadResult = {
   errors: ManifestLoadError[];
 };
 
+type PlaceholderValueSource = 'default' | 'variable';
+
+type PlaceholderEntry = {
+  name: string;
+  description?: string;
+  defaultValue?: string;
+  value?: string;
+  valueSource?: PlaceholderValueSource;
+  required: boolean;
+  missing: boolean;
+  occurrences: ManifestPlaceholderOccurrence[];
+  conflicts: string[];
+  missingNotified: boolean;
+  conflictNotified: boolean;
+};
+
+type PlaceholderCollector = Map<string, PlaceholderEntry>;
+
+type PlaceholderMode = 'collect' | 'enforce';
+
+type PlaceholderOwner =
+  | { kind: 'service'; serviceSlug: string }
+  | { kind: 'network'; networkId: string }
+  | { kind: 'network-service'; networkId: string; serviceSlug: string }
+  | { kind: 'app-launch'; networkId: string; appId: string };
+
 type ConfigLoadOptions = {
   filePath: string;
   sourceLabel: string;
   expectedModule?: string | null;
   visitedModules: VisitedModules;
   repoRoot?: string;
+  variables?: Record<string, string> | null;
+  placeholderCollector: PlaceholderCollector;
+  placeholderMode: PlaceholderMode;
 };
+
+type PlaceholderDetection =
+  | { type: 'none' }
+  | { type: 'literal'; value: string }
+  | {
+      type: 'placeholder';
+      details: {
+        name: string;
+        defaultValue?: string;
+        description?: string;
+      };
+    };
+
+function createPlaceholderCollector(): PlaceholderCollector {
+  return new Map();
+}
+
+function detectPlaceholder(value: ManifestEnvVarValue | undefined): PlaceholderDetection {
+  if (value === undefined) {
+    return { type: 'none' };
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^\$\{([A-Za-z0-9_]+)\}$/);
+    if (match) {
+      return { type: 'placeholder', details: { name: match[1] } };
+    }
+    return { type: 'literal', value };
+  }
+  const placeholder = (value as ManifestPlaceholderValue).$var as ManifestPlaceholderDetails;
+  return {
+    type: 'placeholder',
+    details: {
+      name: placeholder.name,
+      defaultValue: placeholder.default,
+      description: placeholder.description
+    }
+  };
+}
+
+function ensurePlaceholderEntry(collector: PlaceholderCollector, name: string): PlaceholderEntry {
+  const normalized = name.trim();
+  const existing = collector.get(normalized);
+  if (existing) {
+    return existing;
+  }
+  const entry: PlaceholderEntry = {
+    name: normalized,
+    required: false,
+    missing: false,
+    occurrences: [],
+    conflicts: [],
+    missingNotified: false,
+    conflictNotified: false
+  };
+  collector.set(normalized, entry);
+  return entry;
+}
+
+function recordPlaceholderOccurrence(
+  entry: PlaceholderEntry,
+  owner: PlaceholderOwner,
+  envKey: string,
+  sourceLabel: string
+) {
+  let occurrence: ManifestPlaceholderOccurrence;
+  switch (owner.kind) {
+    case 'service':
+      occurrence = {
+        kind: 'service',
+        serviceSlug: owner.serviceSlug,
+        envKey,
+        source: sourceLabel
+      };
+      break;
+    case 'network':
+      occurrence = {
+        kind: 'network',
+        networkId: owner.networkId,
+        envKey,
+        source: sourceLabel
+      };
+      break;
+    case 'network-service':
+      occurrence = {
+        kind: 'network-service',
+        networkId: owner.networkId,
+        serviceSlug: owner.serviceSlug,
+        envKey,
+        source: sourceLabel
+      };
+      break;
+    case 'app-launch':
+      occurrence = {
+        kind: 'app-launch',
+        networkId: owner.networkId,
+        appId: owner.appId,
+        envKey,
+        source: sourceLabel
+      };
+      break;
+    default: {
+      const unexpected: never = owner;
+      throw new Error(`Unhandled placeholder owner ${(unexpected as { kind: string }).kind}`);
+    }
+  }
+  entry.occurrences.push(occurrence);
+}
+
+function appendConflict(entry: PlaceholderEntry, message: string) {
+  if (!entry.conflicts.includes(message)) {
+    entry.conflicts.push(message);
+  }
+}
+
+function applyPlaceholderMetadata(
+  entry: PlaceholderEntry,
+  metadata: { description?: string; defaultValue?: string },
+  sourceLabel: string
+) {
+  if (metadata.description && !entry.description) {
+    entry.description = metadata.description;
+  }
+  if (metadata.defaultValue !== undefined) {
+    if (entry.defaultValue === undefined) {
+      entry.defaultValue = metadata.defaultValue;
+    } else if (entry.defaultValue !== metadata.defaultValue) {
+      appendConflict(
+        entry,
+        `Conflicting default values for placeholder ${entry.name}: "${entry.defaultValue}" vs "${metadata.defaultValue}" (source ${sourceLabel})`
+      );
+    }
+  }
+}
+
+function resolvePlaceholderValue(
+  params: {
+    entry: PlaceholderEntry;
+    owner: PlaceholderOwner;
+    envKey: string;
+    sourceLabel: string;
+    details: { name: string; defaultValue?: string; description?: string };
+    variables?: Record<string, string> | null;
+  }
+): { value?: string; missing: boolean } {
+  const { entry, owner, envKey, sourceLabel, details, variables } = params;
+  recordPlaceholderOccurrence(entry, owner, envKey, sourceLabel);
+  applyPlaceholderMetadata(entry, { description: details.description, defaultValue: details.defaultValue }, sourceLabel);
+
+  if (details.defaultValue === undefined) {
+    entry.required = true;
+  }
+
+  const hasVariable = Boolean(variables && Object.prototype.hasOwnProperty.call(variables, entry.name));
+  const providedValue = hasVariable ? (variables as Record<string, string>)[entry.name] : undefined;
+  if (hasVariable) {
+    const value = providedValue ?? '';
+    if (entry.valueSource === 'variable') {
+      if (entry.value !== value) {
+        appendConflict(
+          entry,
+          `Conflicting values provided for placeholder ${entry.name}: "${entry.value}" vs "${value}"`
+        );
+      }
+    } else {
+      entry.value = value;
+      entry.valueSource = 'variable';
+    }
+    entry.missing = false;
+    return { value, missing: false };
+  }
+
+  if (details.defaultValue !== undefined) {
+    const value = details.defaultValue;
+    if (!entry.valueSource) {
+      entry.value = value;
+      entry.valueSource = 'default';
+    } else if (entry.valueSource === 'default' && entry.value !== value) {
+      appendConflict(
+        entry,
+        `Conflicting default values for placeholder ${entry.name}: "${entry.value}" vs "${value}"`
+      );
+    }
+    entry.missing = false;
+    return { value, missing: false };
+  }
+
+  entry.missing = true;
+  return { value: undefined, missing: true };
+}
+
+function summarizePlaceholders(collector: PlaceholderCollector): ManifestPlaceholderSummary[] {
+  const summaries = Array.from(collector.values()).map<ManifestPlaceholderSummary>((entry) => {
+    const missing = entry.missing || (entry.required && entry.value === undefined);
+    return {
+      name: entry.name,
+      description: entry.description,
+      defaultValue: entry.defaultValue,
+      value: entry.value,
+      required: entry.required,
+      missing,
+      occurrences: [...entry.occurrences],
+      conflicts: [...entry.conflicts]
+    };
+  });
+  summaries.sort((a, b) => a.name.localeCompare(b.name));
+  return summaries;
+}
 
 function resolveConfiguredPaths(envValue: string | undefined, defaults: string[]): string[] {
   let includeDefaults = true;
@@ -166,31 +436,110 @@ export async function clearServiceConfigImports(
   return { cleared, skipped, errors };
 }
 
-function cloneEnvVars(env?: ManifestEnvVarInput[] | null): ManifestEnvVarInput[] | undefined {
+function resolveEnvVars(params: {
+  env?: ManifestEnvVarInput[] | null;
+  owner: PlaceholderOwner;
+  sourceLabel: string;
+  collector: PlaceholderCollector;
+  variables?: Record<string, string> | null;
+  placeholderMode: PlaceholderMode;
+  errors: ManifestLoadError[];
+}): ResolvedManifestEnvVar[] | undefined {
+  const { env, owner, sourceLabel, collector, variables, placeholderMode, errors } = params;
   if (!env || !Array.isArray(env)) {
     return undefined;
   }
-  return env
-    .filter((entry): entry is ManifestEnvVarInput => Boolean(entry && typeof entry.key === 'string'))
-    .map((entry) => {
-      const key = entry.key.trim();
-      if (!key) {
-        return { key: '' } as ManifestEnvVarInput;
-      }
-      const clone: ManifestEnvVarInput = { key };
-      if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
-        clone.value = entry.value;
-      }
-      if (entry.fromService) {
+
+  const resolved: ResolvedManifestEnvVar[] = [];
+
+  for (const entry of env) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+
+    const clone: ResolvedManifestEnvVar = { key };
+
+    if (entry.fromService && typeof entry.fromService.service === 'string') {
+      const service = entry.fromService.service.trim().toLowerCase();
+      if (service) {
         clone.fromService = {
-          service: entry.fromService.service.trim().toLowerCase(),
+          service,
           property: entry.fromService.property,
           fallback: entry.fromService.fallback
         };
       }
-      return clone;
-    })
-    .filter((entry) => entry.key.length > 0);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+      const detection = detectPlaceholder(entry.value as ManifestEnvVarValue);
+      if (detection.type === 'literal') {
+        clone.value = detection.value;
+      } else if (detection.type === 'placeholder') {
+        const placeholderName = detection.details.name.trim();
+        if (!placeholderName) {
+          errors.push({
+            source: sourceLabel,
+            error: new Error(`placeholder name missing for env ${key}`)
+          });
+          if (placeholderMode === 'enforce') {
+            continue;
+          }
+        } else {
+          const placeholderEntry = ensurePlaceholderEntry(collector, placeholderName);
+          const result = resolvePlaceholderValue({
+            entry: placeholderEntry,
+            owner,
+            envKey: key,
+            sourceLabel,
+            details: {
+              name: placeholderName,
+              defaultValue: detection.details.defaultValue,
+              description: detection.details.description
+            },
+            variables
+          });
+
+          if (placeholderEntry.conflicts.length > 0 && placeholderMode === 'enforce' && !placeholderEntry.conflictNotified) {
+            placeholderEntry.conflictNotified = true;
+            const message =
+              placeholderEntry.conflicts[placeholderEntry.conflicts.length - 1] ??
+              `Conflicting values for placeholder ${placeholderName}`;
+            errors.push({ source: sourceLabel, error: new Error(message) });
+          }
+
+          if (result.value !== undefined) {
+            clone.value = result.value;
+          }
+
+          if (result.missing) {
+            if (placeholderMode === 'enforce' && !placeholderEntry.missingNotified) {
+              placeholderEntry.missingNotified = true;
+              errors.push({
+                source: sourceLabel,
+                error: new Error(`placeholder ${placeholderName} requires a value for ${key}`)
+              });
+            }
+            if (placeholderMode === 'enforce') {
+              continue;
+            }
+          }
+        }
+      }
+    }
+
+    if (!clone.value && !clone.fromService && placeholderMode === 'enforce') {
+      // invalid entry without value or fromService
+      continue;
+    }
+
+    resolved.push(clone);
+  }
+
+  return resolved.length > 0 ? resolved : undefined;
 }
 
 type TagInput = { key: string; value: string };
@@ -251,14 +600,29 @@ function addManifestEntries(
   target: LoadedManifestEntry[],
   entries: ManifestEntryInput[],
   moduleSource: string,
-  sourceLabel: string
+  sourceLabel: string,
+  options: {
+    collector: PlaceholderCollector;
+    variables?: Record<string, string> | null;
+    placeholderMode: PlaceholderMode;
+    errors: ManifestLoadError[];
+  }
 ) {
   for (const entry of entries) {
     const slug = entry.slug.trim().toLowerCase();
+    const env = resolveEnvVars({
+      env: entry.env,
+      owner: { kind: 'service', serviceSlug: slug },
+      sourceLabel,
+      collector: options.collector,
+      variables: options.variables,
+      placeholderMode: options.placeholderMode,
+      errors: options.errors
+    });
     target.push({
       ...entry,
       slug,
-      env: cloneEnvVars(entry.env),
+      env,
       sources: [moduleSource, sourceLabel],
       baseUrlSource: 'manifest'
     });
@@ -269,30 +633,68 @@ function addManifestNetworks(
   target: LoadedServiceNetwork[],
   networks: ManifestServiceNetworkInput[],
   moduleSource: string,
-  sourceLabel: string
+  sourceLabel: string,
+  options: {
+    collector: PlaceholderCollector;
+    variables?: Record<string, string> | null;
+    placeholderMode: PlaceholderMode;
+    errors: ManifestLoadError[];
+  }
 ) {
   for (const network of networks) {
+    const networkId = network.id.trim().toLowerCase();
     const normalizedServices = network.services.map((service) => {
       const slug = service.serviceSlug.trim().toLowerCase();
+      const serviceEnv = resolveEnvVars({
+        env: service.env,
+        owner: { kind: 'network-service', networkId, serviceSlug: slug },
+        sourceLabel,
+        collector: options.collector,
+        variables: options.variables,
+        placeholderMode: options.placeholderMode,
+        errors: options.errors
+      });
+      const launchEnv = resolveEnvVars({
+        env: service.app.launchEnv,
+        owner: {
+          kind: 'app-launch',
+          networkId,
+          appId: service.app.id.trim().toLowerCase()
+        },
+        sourceLabel,
+        collector: options.collector,
+        variables: options.variables,
+        placeholderMode: options.placeholderMode,
+        errors: options.errors
+      });
       return {
         ...service,
         serviceSlug: slug,
         dependsOn: service.dependsOn?.map((dep) => dep.trim().toLowerCase()) ?? undefined,
-        env: cloneEnvVars(service.env),
+        env: serviceEnv,
         app: {
           ...service.app,
           id: service.app.id.trim().toLowerCase(),
           tags: cloneTags(service.app.tags),
-          launchEnv: cloneEnvVars(service.app.launchEnv)
+          launchEnv
         }
       };
+    });
+    const networkEnv = resolveEnvVars({
+      env: network.env,
+      owner: { kind: 'network', networkId },
+      sourceLabel,
+      collector: options.collector,
+      variables: options.variables,
+      placeholderMode: options.placeholderMode,
+      errors: options.errors
     });
 
     target.push({
       ...network,
-      id: network.id.trim().toLowerCase(),
+      id: networkId,
       services: normalizedServices,
-      env: cloneEnvVars(network.env),
+      env: networkEnv,
       tags: cloneTags(network.tags),
       sources: [moduleSource, sourceLabel]
     });
@@ -300,7 +702,16 @@ function addManifestNetworks(
 }
 
 async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLoadResult> {
-  const { filePath, sourceLabel, expectedModule, visitedModules, repoRoot } = options;
+  const {
+    filePath,
+    sourceLabel,
+    expectedModule,
+    visitedModules,
+    repoRoot,
+    variables,
+    placeholderCollector,
+    placeholderMode
+  } = options;
   const errors: ManifestLoadError[] = [];
 
   let config: ServiceConfig;
@@ -330,11 +741,21 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   const moduleSource = `module:${moduleId}`;
 
   if (config.services?.length) {
-    addManifestEntries(entries, config.services, moduleSource, sourceLabel);
+    addManifestEntries(entries, config.services, moduleSource, sourceLabel, {
+      collector: placeholderCollector,
+      variables,
+      placeholderMode,
+      errors
+    });
   }
 
   if (config.networks?.length) {
-    addManifestNetworks(networks, config.networks, moduleSource, sourceLabel);
+    addManifestNetworks(networks, config.networks, moduleSource, sourceLabel, {
+      collector: placeholderCollector,
+      variables,
+      placeholderMode,
+      errors
+    });
   }
 
   if (config.manifestPath) {
@@ -343,8 +764,18 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     const manifestSourceLabel = joinSourceLabel(sourceLabel, toRepoRelativePath(manifestFullPath, repoRoot));
     try {
       const manifestDescriptors = await readManifestDescriptors(manifestFullPath);
-      addManifestEntries(entries, manifestDescriptors.entries, moduleSource, manifestSourceLabel);
-      addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel);
+      addManifestEntries(entries, manifestDescriptors.entries, moduleSource, manifestSourceLabel, {
+        collector: placeholderCollector,
+        variables,
+        placeholderMode,
+        errors
+      });
+      addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel, {
+        collector: placeholderCollector,
+        variables,
+        placeholderMode,
+        errors
+      });
     } catch (err) {
       errors.push({ source: manifestSourceLabel, error: err as Error });
     }
@@ -354,7 +785,11 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     if (visitedModules.has(child.module)) {
       continue;
     }
-    const childResult = await loadConfigImport(child, visitedModules);
+    const childResult = await loadConfigImport(child, visitedModules, {
+      placeholderCollector,
+      placeholderMode,
+      expectedModuleOverride: undefined
+    });
     entries.push(...childResult.entries);
     networks.push(...childResult.networks);
     errors.push(...childResult.errors);
@@ -366,7 +801,11 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
 async function loadConfigImport(
   importConfig: ServiceConfigImport,
   visitedModules: VisitedModules,
-  expectedModuleOverride?: string | null
+  options: {
+    expectedModuleOverride?: string | null;
+    placeholderCollector: PlaceholderCollector;
+    placeholderMode: PlaceholderMode;
+  }
 ) {
   const errors: ManifestLoadError[] = [];
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-'));
@@ -408,13 +847,16 @@ async function loadConfigImport(
     const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
     const sourceLabel = joinSourceLabel(`${baseLabel}#${commitLabel}`, configPathRelative);
     const expectedModule =
-      expectedModuleOverride === undefined ? importConfig.module : expectedModuleOverride;
+      options.expectedModuleOverride === undefined ? importConfig.module : options.expectedModuleOverride;
     const result = await loadConfigRecursive({
       filePath: configFilePath,
       sourceLabel,
       expectedModule,
       visitedModules,
-      repoRoot: tempDir
+      repoRoot: tempDir,
+      variables: importConfig.variables ?? null,
+      placeholderCollector: options.placeholderCollector,
+      placeholderMode: options.placeholderMode
     });
     moduleId = result.moduleId;
     entries = result.entries;
@@ -434,6 +876,7 @@ async function loadConfigImport(
 
 export async function loadServiceConfigurations(configPaths: string[]): Promise<ServiceConfigLoadResult> {
   const visitedModules: VisitedModules = new Map();
+  const placeholderCollector = createPlaceholderCollector();
   const entries: LoadedManifestEntry[] = [];
   const networks: LoadedServiceNetwork[] = [];
   const errors: ManifestLoadError[] = [];
@@ -450,7 +893,10 @@ export async function loadServiceConfigurations(configPaths: string[]): Promise<
       filePath: configPath,
       sourceLabel: configPath,
       visitedModules,
-      repoRoot: path.dirname(configPath)
+      repoRoot: path.dirname(configPath),
+      variables: null,
+      placeholderCollector,
+      placeholderMode: 'enforce'
     });
     usedConfigs.push(configPath);
     entries.push(...result.entries);
@@ -458,7 +904,8 @@ export async function loadServiceConfigurations(configPaths: string[]): Promise<
     errors.push(...result.errors);
   }
 
-  return { entries, networks, errors, usedConfigs };
+  const placeholders = summarizePlaceholders(placeholderCollector);
+  return { entries, networks, errors, usedConfigs, placeholders };
 }
 
 export type ServiceConfigImportRequest = {
@@ -467,6 +914,7 @@ export type ServiceConfigImportRequest = {
   commit?: string | null;
   configPath?: string | null;
   module?: string | null;
+  variables?: Record<string, string> | null;
 };
 
 export type ServiceConfigImportPreview = {
@@ -475,6 +923,7 @@ export type ServiceConfigImportPreview = {
   entries: LoadedManifestEntry[];
   networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
+  placeholders: ManifestPlaceholderSummary[];
 };
 
 export async function previewServiceConfigImport(
@@ -486,11 +935,17 @@ export async function previewServiceConfigImport(
     repo: payload.repo,
     ref: payload.ref?.trim() || undefined,
     commit: payload.commit?.trim() ? payload.commit.trim() : undefined,
-    configPath: payload.configPath?.trim() || undefined
+    configPath: payload.configPath?.trim() || undefined,
+    variables: payload.variables ?? undefined
   };
 
   const visitedModules: VisitedModules = new Map();
-  const result = await loadConfigImport(importConfig, visitedModules, expectedModule);
+  const placeholderCollector = createPlaceholderCollector();
+  const result = await loadConfigImport(importConfig, visitedModules, {
+    expectedModuleOverride: expectedModule,
+    placeholderCollector,
+    placeholderMode: 'collect'
+  });
   if (!result.moduleId) {
     const firstError = result.errors[0];
     if (firstError) {
@@ -509,12 +964,15 @@ export async function previewServiceConfigImport(
     });
   }
 
+  const placeholders = summarizePlaceholders(placeholderCollector);
+
   return {
     moduleId: result.moduleId,
     resolvedCommit: result.resolvedCommit ?? null,
     entries: result.entries,
     networks: result.networks,
-    errors: result.errors
+    errors: result.errors,
+    placeholders
   };
 }
 
@@ -541,12 +999,22 @@ export async function appendServiceConfigImport(
     throw new DuplicateModuleImportError(descriptor.module);
   }
 
+  const normalizedVariables = descriptor.variables
+    ? Object.fromEntries(
+        Object.entries(descriptor.variables)
+          .map(([key, value]) => [key.trim(), value])
+          .filter(([key]) => key.length > 0)
+      )
+    : undefined;
+
   const newImport: ServiceConfigImport = {
     module: descriptor.module,
     repo: descriptor.repo,
     ref: descriptor.ref,
     commit: descriptor.resolvedCommit ?? descriptor.commit,
-    configPath: descriptor.configPath
+    configPath: descriptor.configPath,
+    variables:
+      normalizedVariables && Object.keys(normalizedVariables).length > 0 ? normalizedVariables : undefined
   };
 
   imports.push(newImport);

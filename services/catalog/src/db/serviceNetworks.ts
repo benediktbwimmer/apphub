@@ -1,7 +1,5 @@
 import { useConnection, useTransaction } from './utils';
-import {
-  type ManifestEnvVarInput
-} from '../serviceManifestTypes';
+import { type ResolvedManifestEnvVar } from '../serviceManifestTypes';
 import {
   type ServiceNetworkRecord,
   type ServiceNetworkMemberInput,
@@ -19,7 +17,7 @@ import type {
   ServiceNetworkRow
 } from './rowTypes';
 
-function serializeManifestEnv(entries: ManifestEnvVarInput[] | undefined): string {
+function serializeManifestEnv(entries: ResolvedManifestEnvVar[] | undefined): string {
   if (!entries || entries.length === 0) {
     return '[]';
   }

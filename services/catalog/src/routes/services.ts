@@ -50,6 +50,23 @@ function ensureServiceRegistryAuthorized(request: FastifyRequest, reply: Fastify
   return true;
 }
 
+function normalizeVariables(input?: Record<string, string> | null): Record<string, string> | undefined {
+  if (!input) {
+    return undefined;
+  }
+  const entries = Object.entries(input)
+    .map(([key, value]) => [key.trim(), value] as const)
+    .filter(([key]) => key.length > 0);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    normalized[key] = value;
+  }
+  return normalized;
+}
+
 function toMetadataObject(value: JsonValue | null): Record<string, JsonValue> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return { ...(value as Record<string, JsonValue>) };
@@ -106,7 +123,8 @@ const serviceConfigImportSchema = z
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
-    module: z.string().min(1).optional()
+    module: z.string().min(1).optional(),
+    variables: z.record(z.string().min(1), z.string()).optional()
   })
   .strict();
 
@@ -211,10 +229,11 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     const commit = payload.commit?.trim() || undefined;
     const configPath = payload.configPath?.trim() || undefined;
     const moduleHint = payload.module?.trim() || undefined;
+    const variables = normalizeVariables(payload.variables ?? undefined);
 
     let preview;
     try {
-      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint });
+      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint, variables });
     } catch (err) {
       reply.status(400);
       return { error: (err as Error).message };
@@ -224,6 +243,24 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       reply.status(400);
       return {
         error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
+      };
+    }
+
+    const conflicts = preview.placeholders.filter((placeholder) => placeholder.conflicts.length > 0);
+    if (conflicts.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest placeholders conflict. Resolve the manifest defaults or supply explicit values.',
+        placeholders: preview.placeholders
+      };
+    }
+
+    const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
+    if (missing.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest requires placeholder values before import',
+        placeholders: preview.placeholders
       };
     }
 
@@ -242,7 +279,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         ref,
         commit,
         configPath,
-        resolvedCommit: preview.resolvedCommit
+        resolvedCommit: preview.resolvedCommit,
+        variables
       });
     } catch (err) {
       if (err instanceof DuplicateModuleImportError) {
@@ -283,10 +321,11 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     const commit = payload.commit?.trim() || undefined;
     const configPath = payload.configPath?.trim() || undefined;
     const moduleHint = payload.module?.trim() || undefined;
+    const variables = normalizeVariables(payload.variables ?? undefined);
 
     let preview;
     try {
-      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint });
+      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint, variables });
     } catch (err) {
       reply.status(400);
       return { error: (err as Error).message };
@@ -296,6 +335,24 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       reply.status(400);
       return {
         error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
+      };
+    }
+
+    const conflicts = preview.placeholders.filter((placeholder) => placeholder.conflicts.length > 0);
+    if (conflicts.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest placeholders conflict. Resolve the manifest defaults or supply explicit values.',
+        placeholders: preview.placeholders
+      };
+    }
+
+    const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
+    if (missing.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest requires placeholder values before import',
+        placeholders: preview.placeholders
       };
     }
 
@@ -314,7 +371,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         ref,
         commit,
         configPath,
-        resolvedCommit: preview.resolvedCommit
+        resolvedCommit: preview.resolvedCommit,
+        variables
       });
     } catch (err) {
       if (err instanceof DuplicateModuleImportError) {

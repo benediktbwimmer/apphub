@@ -4,51 +4,52 @@ import os from 'node:os';
 import path from 'node:path';
 import { clearServiceConfigImports, loadServiceConfigurations } from '../src/serviceConfigLoader';
 
-async function createTempConfig() {
+async function createTempConfig(manifestOverride?: Record<string, unknown>) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-test-'));
   const manifestPath = path.join(dir, 'service-manifest.json');
   const configPath = path.join(dir, 'service-config.json');
 
-  const manifest = {
-    services: [
-      {
-        slug: 'example-service',
-        displayName: 'Example Service',
-        kind: 'example',
-        baseUrl: 'http://localhost:5000',
-        env: [
-          { key: 'FOO', value: 'bar' },
-          { key: 'BAZ', value: 'qux' }
-        ]
-      }
-    ],
-    networks: [
-      {
-        id: 'demo-network',
-        name: 'Demo Network',
-        description: 'Example network',
-        repoUrl: 'https://example.com/demo-network.git',
-        dockerfilePath: 'Dockerfile',
-        env: [{ key: 'NETWORK_MODE', value: 'demo' }],
-        services: [
-          {
-            serviceSlug: 'example-service',
-            launchOrder: 1,
-            waitForBuild: true,
-            env: [{ key: 'SERVICE_TOKEN', value: 'secret' }],
-            app: {
-              id: 'example-service-app',
-              name: 'Example Service App',
-              description: 'Runtime app',
-              repoUrl: 'https://example.com/example-service.git',
-              dockerfilePath: 'Dockerfile',
-              launchEnv: [{ key: 'APP_MODE', value: 'demo' }]
+  const manifest =
+    manifestOverride ?? {
+      services: [
+        {
+          slug: 'example-service',
+          displayName: 'Example Service',
+          kind: 'example',
+          baseUrl: 'http://localhost:5000',
+          env: [
+            { key: 'FOO', value: 'bar' },
+            { key: 'BAZ', value: 'qux' }
+          ]
+        }
+      ],
+      networks: [
+        {
+          id: 'demo-network',
+          name: 'Demo Network',
+          description: 'Example network',
+          repoUrl: 'https://example.com/demo-network.git',
+          dockerfilePath: 'Dockerfile',
+          env: [{ key: 'NETWORK_MODE', value: 'demo' }],
+          services: [
+            {
+              serviceSlug: 'example-service',
+              launchOrder: 1,
+              waitForBuild: true,
+              env: [{ key: 'SERVICE_TOKEN', value: 'secret' }],
+              app: {
+                id: 'example-service-app',
+                name: 'Example Service App',
+                description: 'Runtime app',
+                repoUrl: 'https://example.com/example-service.git',
+                dockerfilePath: 'Dockerfile',
+                launchEnv: [{ key: 'APP_MODE', value: 'demo' }]
+              }
             }
-          }
-        ]
-      }
-    ]
-  };
+          ]
+        }
+      ]
+    };
 
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
 
@@ -83,6 +84,80 @@ async function createTempConfig() {
     assert.equal(network.services[0]?.serviceSlug, 'example-service');
     assert.deepEqual(network.services[0]?.env, [{ key: 'SERVICE_TOKEN', value: 'secret' }]);
     assert.deepEqual(network.env, [{ key: 'NETWORK_MODE', value: 'demo' }]);
+    assert.equal(result.placeholders.length, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+})();
+
+(async () => {
+  const manifest = {
+    services: [
+      {
+        slug: 'placeholder-service',
+        displayName: 'Placeholder Service',
+        kind: 'example',
+        baseUrl: 'http://localhost:6000',
+        env: [
+          {
+            key: 'ROOT_PATH',
+            value: { $var: { name: 'ROOT_PATH', default: '/tmp/data', description: 'Base directory' } }
+          }
+        ]
+      }
+    ]
+  };
+
+  const { dir, configPath } = await createTempConfig(manifest);
+  try {
+    const result = await loadServiceConfigurations([configPath]);
+    assert.equal(result.errors.length, 0, 'expected no errors when defaults provided');
+    assert.equal(result.entries.length, 1);
+    const service = result.entries[0];
+    assert.deepEqual(service.env, [{ key: 'ROOT_PATH', value: '/tmp/data' }]);
+    assert.equal(result.placeholders.length, 1);
+    const placeholder = result.placeholders[0];
+    assert.equal(placeholder.name, 'ROOT_PATH');
+    assert.equal(placeholder.missing, false);
+    assert.equal(placeholder.value, '/tmp/data');
+    assert.equal(placeholder.required, false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+})();
+
+(async () => {
+  const manifest = {
+    services: [
+      {
+        slug: 'needs-token',
+        displayName: 'Needs Token',
+        kind: 'example',
+        baseUrl: 'http://localhost:6100',
+        env: [{ key: 'API_TOKEN', value: '${API_TOKEN}' }]
+      }
+    ]
+  };
+
+  const { dir, configPath } = await createTempConfig(manifest);
+  try {
+    const result = await loadServiceConfigurations([configPath]);
+    assert(result.errors.length >= 1, 'expected missing placeholder to produce an error');
+    const messages = result.errors.map((entry) => entry.error.message);
+    assert(messages.some((message) => /placeholder API_TOKEN/i.test(message)));
+    assert.equal(result.placeholders.length, 1);
+    const placeholder = result.placeholders[0];
+    assert.equal(placeholder.name, 'API_TOKEN');
+    assert.equal(placeholder.missing, true);
+    assert(placeholder.required);
+    assert.equal(placeholder.value, undefined);
+    assert.equal(placeholder.occurrences.length, 1);
+    const occurrence = placeholder.occurrences[0];
+    assert.equal(occurrence.kind, 'service');
+    if (occurrence.kind === 'service') {
+      assert.equal(occurrence.serviceSlug, 'needs-token');
+      assert.equal(occurrence.envKey, 'API_TOKEN');
+    }
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

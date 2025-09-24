@@ -7,7 +7,7 @@ import {
   FormSection
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
-import { useImportServiceManifest } from '../useImportServiceManifest';
+import { useImportServiceManifest, type ManifestPlaceholder } from '../useImportServiceManifest';
 import type { ServiceManifestScenario } from '../examples';
 import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 
@@ -18,6 +18,28 @@ const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
 
 const GRID_SECTION_CLASSES = 'grid gap-4 md:grid-cols-2';
+
+function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
+  if (!placeholder.occurrences.length) {
+    return '';
+  }
+  return placeholder.occurrences
+    .map((occurrence) => {
+      switch (occurrence.kind) {
+        case 'service':
+          return `Service ${occurrence.serviceSlug} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+        case 'network':
+          return `Network ${occurrence.networkId} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+        case 'network-service':
+          return `Network ${occurrence.networkId} → service ${occurrence.serviceSlug} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+        case 'app-launch':
+          return `App ${occurrence.appId} (network ${occurrence.networkId}) · env ${occurrence.envKey} (source: ${occurrence.source})`;
+        default:
+          return `env ${occurrence.envKey} (source: ${occurrence.source})`;
+      }
+    })
+    .join('; ');
+}
 
 type ServiceManifestsTabProps = {
   onImported?: () => void;
@@ -51,7 +73,11 @@ export default function ServiceManifestsTab({
     resetResult,
     handleReimport,
     canReimport,
-    reimporting
+    reimporting,
+    placeholders,
+    variables,
+    updateVariable,
+    setVariables
   } = useImportServiceManifest();
   const { pushToast } = useToasts();
   const summaryRef = useRef<HTMLDivElement | null>(null);
@@ -70,7 +96,8 @@ export default function ServiceManifestsTab({
       module: scenario.form.module ?? ''
     });
     resetResult();
-  }, [scenario, scenarioRequestToken, resetResult, setForm]);
+    setVariables(scenario.form.variables ?? {});
+  }, [scenario, scenarioRequestToken, resetResult, setForm, setVariables]);
 
   useEffect(() => {
     if (!result) {
@@ -258,6 +285,47 @@ export default function ServiceManifestsTab({
             />
           </FormField>
         </div>
+        {placeholders.length > 0 && (
+          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/60 bg-white/70 p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-600 dark:text-violet-300">
+                Placeholder variables
+              </span>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Provide values for required placeholders before importing. Optional fields fall back to the manifest
+                defaults when left blank.
+              </p>
+            </div>
+            <div className="flex flex-col gap-4">
+              {placeholders.map((placeholder) => {
+                const normalizedId = placeholder.name.toLowerCase().replace(/[^a-z0-9]+/gi, '-');
+                const inputId = `manifest-variable-${normalizedId}`;
+                const label = placeholder.required ? placeholder.name : `${placeholder.name} (optional)`;
+                const usage = describePlaceholderUsages(placeholder);
+                const value = variables[placeholder.name] ?? '';
+                return (
+                  <FormField key={placeholder.name} label={label} htmlFor={inputId}>
+                    <input
+                      id={inputId}
+                      className={INPUT_CLASSES}
+                      value={value}
+                      onChange={(event) => updateVariable(placeholder.name, event.target.value)}
+                      required={placeholder.required}
+                      placeholder={!placeholder.required && placeholder.defaultValue ? placeholder.defaultValue : undefined}
+                    />
+                    <div className="mt-2 flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
+                      {placeholder.description ? <p>{placeholder.description}</p> : null}
+                      {usage ? <p>Used by {usage}</p> : null}
+                      {placeholder.defaultValue !== undefined && !placeholder.required ? (
+                        <p>Default: {placeholder.defaultValue}</p>
+                      ) : null}
+                    </div>
+                  </FormField>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <FormActions>
           <FormButton type="submit" disabled={submitting}>
             {submitting ? 'Importing…' : 'Import service manifest'}

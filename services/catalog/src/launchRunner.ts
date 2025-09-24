@@ -28,7 +28,7 @@ import {
   runDockerCommand,
   parseEnvPort
 } from './docker';
-import type { ManifestEnvVarInput } from './serviceManifestTypes';
+import type { ResolvedManifestEnvVar } from './serviceManifestTypes';
 import {
   updateServiceRuntimeForRepository,
   clearServiceRuntimeForRepository
@@ -242,7 +242,7 @@ type ServiceRuntimeInfo = {
 type RuntimeContext = Map<string, ServiceRuntimeInfo>;
 
 function resolveEnvValueFromService(
-  ref: NonNullable<ManifestEnvVarInput['fromService']>,
+  ref: NonNullable<ResolvedManifestEnvVar['fromService']>,
   runtime: RuntimeContext
 ): string | undefined {
   const target = ref.service.trim().toLowerCase();
@@ -270,7 +270,7 @@ function resolveEnvValueFromService(
 }
 
 function resolveEnvEntries(
-  entries: ManifestEnvVarInput[] | undefined,
+  entries: ResolvedManifestEnvVar[] | undefined,
   runtime: RuntimeContext
 ): LaunchEnvVar[] {
   if (!entries || entries.length === 0) {

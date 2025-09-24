@@ -222,7 +222,14 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
 
   const importServiceManifestScenario = useCallback(
     async (scenario: ServiceManifestScenario) => {
-      const body: Record<string, string> = { repo: scenario.form.repo };
+      const body: {
+        repo: string;
+        ref?: string;
+        commit?: string;
+        configPath?: string;
+        module?: string;
+        variables?: Record<string, string>;
+      } = { repo: scenario.form.repo };
       if (scenario.form.ref) {
         body.ref = scenario.form.ref;
       }
@@ -234,6 +241,9 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
       }
       if (scenario.form.module) {
         body.module = scenario.form.module;
+      }
+      if (scenario.form.variables) {
+        body.variables = scenario.form.variables;
       }
       const response = await authorizedFetch(`${API_BASE_URL}/service-networks/import`, {
         method: 'POST',
