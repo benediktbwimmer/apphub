@@ -1,6 +1,61 @@
 import type { WorkflowCreateInput } from '../../workflows/api';
 import type { ExampleScenario } from './types';
 
+const fileDropRelocationWorkflowForm = {
+  slug: 'file-drop-relocation',
+  name: 'File drop relocation',
+  version: 1,
+  description: 'Moves dropped files into the archive directory and notifies the watcher service.',
+  parametersSchema: {
+    type: 'object',
+    properties: {
+      dropId: { type: 'string', minLength: 1 },
+      sourcePath: { type: 'string', minLength: 1 },
+      relativePath: { type: 'string', minLength: 1 },
+      destinationDir: { type: 'string', minLength: 1 },
+      destinationFilename: { type: 'string', minLength: 1 }
+    },
+    required: ['dropId', 'sourcePath', 'relativePath', 'destinationDir']
+  },
+  steps: [
+    {
+      id: 'relocate',
+      name: 'Relocate file',
+      type: 'job' as const,
+      jobSlug: 'file-relocator',
+      parameters: {
+        dropId: '{{ parameters.dropId }}',
+        sourcePath: '{{ parameters.sourcePath }}',
+        relativePath: '{{ parameters.relativePath }}',
+        destinationDir: '{{ parameters.destinationDir }}',
+        destinationFilename: '{{ parameters.destinationFilename }}'
+      },
+      storeResultAs: 'relocatedFile',
+      retryPolicy: { maxAttempts: 2, strategy: 'fixed', initialDelayMs: 2_000 }
+    },
+    {
+      id: 'notify-watcher',
+      name: 'Notify watcher',
+      type: 'service' as const,
+      serviceSlug: 'file-drop-watcher',
+      dependsOn: ['relocate'],
+      timeoutMs: 5_000,
+      request: {
+        method: 'POST',
+        path: '/api/drops/{{ parameters.dropId }}/complete',
+        body: {
+          dropId: '{{ parameters.dropId }}',
+          runId: '{{ run.id }}',
+          status: '{{ steps.relocate.status }}',
+          file: '{{ shared.relocatedFile }}'
+        }
+      },
+      allowDegraded: true
+    }
+  ],
+  triggers: [{ type: 'manual' }]
+} as const satisfies WorkflowCreateInput;
+
 const telemetryAssetSchema = {
   type: 'object',
   properties: {
@@ -193,6 +248,88 @@ const fleetTelemetryAlertsForm = {
 } as const satisfies WorkflowCreateInput;
 
 export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
+  {
+    id: 'file-relocator-job',
+    type: 'job',
+    title: 'File drop relocator job',
+    summary: 'Moves a newly dropped file into the archive directory.',
+    description:
+      'Uploads the `file-relocator` bundle (0.1.0). The watcher service triggers this job to move files out of the inbox and into `services/catalog/data/examples/file-drop/archive`, returning metadata for the dashboard.',
+    difficulty: 'beginner',
+    tags: ['file drop', 'automation'],
+    docs: [
+      {
+        label: 'File drop watcher scenario',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/file-drop-watcher.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'job-bundles/file-relocator/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/job-bundles/file-relocator/manifest.json'
+      },
+      {
+        label: 'Watcher service',
+        path: 'services/examples/file-drop-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'file-relocator@0.1.0',
+      notes: 'Bundle packaged from job-bundles/file-relocator. Works with the file drop watcher service.'
+    },
+    bundle: {
+      filename: 'file-relocator-0.1.0.tgz',
+      publicPath: '/examples/job-bundles/file-relocator-0.1.0.tgz',
+      contentType: 'application/gzip'
+    },
+    analyticsTag: 'job__file_relocator'
+  },
+  {
+    id: 'file-drop-relocation-workflow',
+    type: 'workflow',
+    title: 'File drop relocation',
+    summary: 'Relocates dropped files and updates the watcher dashboard.',
+    description:
+      'Imports the `file-drop-relocation` workflow definition. Step one runs the relocator job; step two calls back into the watcher service via a workflow service step so the dashboard can record completions.',
+    difficulty: 'beginner',
+    tags: ['file drop', 'service'],
+    docs: [
+      {
+        label: 'File drop watcher scenario',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/file-drop-watcher.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Watcher service',
+        path: 'services/examples/file-drop-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+      },
+      {
+        label: 'Relocator bundle',
+        path: 'job-bundles/file-relocator/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/job-bundles/file-relocator'
+      }
+    ],
+    form: fileDropRelocationWorkflowForm,
+    includes: ['file-relocator-job'],
+    analyticsTag: 'workflow__file_drop_relocation'
+  },
+  {
+    id: 'file-drop-scenario-pack',
+    type: 'scenario',
+    title: 'File drop watcher demo',
+    summary: 'Loads the relocator job and workflow used by the watcher service.',
+    description:
+      'Prefills the importer with the relocator bundle and workflow so you can pair the watcher service with ready-made definitions.',
+    tags: ['file drop', 'automation'],
+    includes: ['file-relocator-job', 'file-drop-relocation-workflow'],
+    focus: 'workflows',
+    analyticsTag: 'bundle__file_drop_watcher'
+  },
   {
     id: 'retail-sales-csv-loader-job',
     type: 'job',
@@ -449,6 +586,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'Populates the import workspace with every curated example shipped in this repository. Useful when seeding a fresh environment or demo workspace.',
     tags: ['quickstart'],
     includes: [
+      'file-relocator-job',
+      'file-drop-relocation-workflow',
       'retail-sales-csv-loader-job',
       'retail-sales-parquet-job',
       'retail-sales-visualizer-job',
