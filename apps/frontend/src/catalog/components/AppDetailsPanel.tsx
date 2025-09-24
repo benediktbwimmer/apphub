@@ -102,7 +102,7 @@ function rowsFromEnv(env: LaunchEnvVar[] = []): LaunchEnvRow[] {
   );
 }
 
-type AppCardProps = {
+type AppDetailsPanelProps = {
   app: AppRecord;
   activeTokens: string[];
   highlightEnabled: boolean;
@@ -1408,7 +1408,7 @@ function HistoryTimeline({ entry }: { entry?: HistoryState[string] }) {
   );
 }
 
-function AppCard({
+function AppDetailsPanel({
   app,
   activeTokens,
   highlightEnabled,
@@ -1429,7 +1429,7 @@ function AppCard({
   launchingId,
   stoppingLaunchId,
   launchErrors
-}: AppCardProps) {
+}: AppDetailsPanelProps) {
   const [infoOpen, setInfoOpen] = useState(false);
   const infoPopoverRef = useRef<HTMLDivElement | null>(null);
   const [showBuildSummary, setShowBuildSummary] = useState(false);
@@ -1647,4 +1647,4 @@ function AppCard({
   );
 }
 
-export default AppCard;
+export default AppDetailsPanel;

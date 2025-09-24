@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCatalog } from './useCatalog';
 import SearchSection from './components/SearchSection';
 import FilterPanel from './components/FilterPanel';
 import AppGrid from './components/AppGrid';
 import AppList from './components/AppList';
+import AppDetailsPanel from './components/AppDetailsPanel';
 
 type CatalogPageProps = {
   searchSeed?: string;
@@ -12,6 +13,7 @@ type CatalogPageProps = {
 
 function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
   const [viewMode, setViewMode] = useState<'preview' | 'list'>('preview');
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const {
     inputValue,
     setInputValue,
@@ -47,6 +49,43 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
       onSeedApplied?.();
     }
   }, [searchSeed, inputValue, setInputValue, onSeedApplied]);
+
+  useEffect(() => {
+    if (!searchSeed) {
+      return;
+    }
+    const match = apps.find((app) => app.id === searchSeed);
+    if (match) {
+      setSelectedAppId(match.id);
+    }
+  }, [apps, searchSeed]);
+
+  useEffect(() => {
+    if (viewMode === 'list') {
+      setSelectedAppId(null);
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (!selectedAppId) {
+      return;
+    }
+    const exists = apps.some((app) => app.id === selectedAppId);
+    if (!exists) {
+      setSelectedAppId(null);
+    }
+  }, [apps, selectedAppId]);
+
+  const selectedApp = useMemo(() => {
+    if (!selectedAppId) {
+      return null;
+    }
+    return apps.find((app) => app.id === selectedAppId) ?? null;
+  }, [apps, selectedAppId]);
+
+  const handleSelectApp = (id: string) => {
+    setSelectedAppId((current) => (current === id ? current : id));
+  };
 
   const appliedTags = parsedQuery.tags;
 
@@ -103,24 +142,45 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
               apps={apps}
               activeTokens={activeTokens}
               highlightEnabled={highlightEnabled}
-              retryingId={retryingId}
-              onRetry={handlers.retryIngestion}
-              historyState={historyState}
-              onToggleHistory={handlers.toggleHistory}
-              buildState={buildState}
-              onToggleBuilds={handlers.toggleBuilds}
-              onLoadMoreBuilds={handlers.loadMoreBuilds}
-              onToggleLogs={handlers.toggleLogs}
-              onRetryBuild={handlers.retryBuild}
-              onTriggerBuild={handlers.triggerBuild}
-              launchLists={launchLists}
-              onToggleLaunches={handlers.toggleLaunches}
-              onLaunch={handlers.launchApp}
-              onStopLaunch={handlers.stopLaunch}
-              launchingId={launchingId}
-              stoppingLaunchId={stoppingLaunchId}
-              launchErrors={launchErrors}
+              selectedAppId={selectedAppId}
+              onSelectApp={handleSelectApp}
             />
+            {selectedApp && (
+              <div className="mt-6 flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{selectedApp.name}</h2>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+                    onClick={() => setSelectedAppId(null)}
+                  >
+                    Close details
+                  </button>
+                </div>
+                <AppDetailsPanel
+                  app={selectedApp}
+                  activeTokens={activeTokens}
+                  highlightEnabled={highlightEnabled}
+                  retryingId={retryingId}
+                  onRetry={handlers.retryIngestion}
+                  historyEntry={historyState[selectedApp.id]}
+                  onToggleHistory={handlers.toggleHistory}
+                  buildEntry={buildState[selectedApp.id]}
+                  onToggleBuilds={handlers.toggleBuilds}
+                  onLoadMoreBuilds={handlers.loadMoreBuilds}
+                  onToggleLogs={handlers.toggleLogs}
+                  onRetryBuild={handlers.retryBuild}
+                  onTriggerBuild={handlers.triggerBuild}
+                  launchEntry={launchLists[selectedApp.id]}
+                  onToggleLaunches={handlers.toggleLaunches}
+                  onLaunch={handlers.launchApp}
+                  onStopLaunch={handlers.stopLaunch}
+                  launchingId={launchingId}
+                  stoppingLaunchId={stoppingLaunchId}
+                  launchErrors={launchErrors}
+                />
+              </div>
+            )}
           </div>
         ) : (
           <AppList

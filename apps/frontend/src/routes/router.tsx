@@ -1,6 +1,7 @@
 import { Navigate, type RouterProviderProps, createBrowserRouter, type RouteObject } from 'react-router-dom';
 import AppLayout from '../App';
 import CatalogRoute from './CatalogRoute';
+import OverviewRoute from './OverviewRoute';
 import ImportRoute from './ImportRoute';
 import LegacyImportRedirect from './LegacyImportRedirect';
 import { RequireOperatorToken } from './RequireOperatorToken';
@@ -12,6 +13,7 @@ import ApiAccessPage from '../settings/ApiAccessPage';
 import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
+import AdminToolsPage from '../settings/AdminToolsPage';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
 
@@ -22,7 +24,11 @@ export const appRouteConfig: RouteObject[] = [
     children: [
       {
         index: true,
-        element: <Navigate to={ROUTE_PATHS.catalog} replace />
+        element: <Navigate to={ROUTE_PATHS.overview} replace />
+      },
+      {
+        path: ROUTE_SEGMENTS.overview,
+        element: <OverviewRoute />
       },
       {
         path: ROUTE_SEGMENTS.catalog,
@@ -87,6 +93,14 @@ export const appRouteConfig: RouteObject[] = [
           {
             path: ROUTE_SEGMENTS.settingsAiBuilder,
             element: <AiBuilderSettingsPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsAdmin,
+            element: (
+              <RequireOperatorToken>
+                <AdminToolsPage />
+              </RequireOperatorToken>
+            )
           }
         ]
       },
@@ -100,7 +114,7 @@ export const appRouteConfig: RouteObject[] = [
       },
       {
         path: '*',
-        element: <Navigate to={ROUTE_PATHS.catalog} replace />
+        element: <Navigate to={ROUTE_PATHS.overview} replace />
       }
     ]
   }

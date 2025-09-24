@@ -1,4 +1,5 @@
 export const ROUTE_SEGMENTS = {
+  overview: 'overview',
   catalog: 'catalog',
   assets: 'assets',
   apps: 'services',
@@ -9,10 +10,12 @@ export const ROUTE_SEGMENTS = {
   settings: 'settings',
   settingsPreview: 'preview',
   settingsApiAccess: 'api',
-  settingsAiBuilder: 'ai-builder'
+  settingsAiBuilder: 'ai-builder',
+  settingsAdmin: 'admin'
 } as const;
 
 export const ROUTE_PATHS = {
+  overview: `/${ROUTE_SEGMENTS.overview}`,
   catalog: `/${ROUTE_SEGMENTS.catalog}`,
   assets: `/${ROUTE_SEGMENTS.assets}`,
   apps: `/${ROUTE_SEGMENTS.apps}`,
@@ -23,10 +26,12 @@ export const ROUTE_PATHS = {
   settings: `/${ROUTE_SEGMENTS.settings}`,
   settingsPreview: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsPreview}`,
   settingsApiAccess: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsApiAccess}`,
-  settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`
+  settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`,
+  settingsAdmin: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAdmin}`
 } as const;
 
 export type PrimaryNavKey =
+  | 'overview'
   | 'catalog'
   | 'assets'
   | 'apps'
@@ -43,6 +48,7 @@ export type PrimaryNavigationItem = {
 };
 
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
+  { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
   { key: 'catalog', label: 'Catalog', path: ROUTE_PATHS.catalog },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
   { key: 'apps', label: 'Apps', path: ROUTE_PATHS.apps },

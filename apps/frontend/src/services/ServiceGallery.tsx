@@ -4,25 +4,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
-
-type ServiceSummary = {
-  id: string;
-  slug: string;
-  displayName: string;
-  kind: string;
-  baseUrl: string;
-  status: string;
-  statusMessage: string | null;
-  capabilities: unknown;
-  metadata: unknown;
-  lastHealthyAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type ServicesResponse = {
-  data?: ServiceSummary[];
-};
+import type { ServiceSummary, ServicesResponse } from './types';
 
 const REFRESH_INTERVAL_MS = 15000;
 const STATUS_ORDER = ['healthy', 'degraded', 'unknown', 'unreachable'] as const;

@@ -13,6 +13,8 @@ import {
   type WorkflowRunListItem,
   type RunListMeta
 } from './api';
+import { listWorkflowRunSteps } from '../workflows/api';
+import type { WorkflowRun, WorkflowRunStep } from '../workflows/types';
 
 type RunsTabKey = 'workflows' | 'jobs';
 
@@ -164,6 +166,11 @@ export default function RunsPage() {
   });
   const [pendingWorkflowRunId, setPendingWorkflowRunId] = useState<string | null>(null);
   const [pendingJobRunId, setPendingJobRunId] = useState<string | null>(null);
+  const [selectedWorkflowEntry, setSelectedWorkflowEntry] = useState<WorkflowRunListItem | null>(null);
+  const [workflowRunDetail, setWorkflowRunDetail] = useState<{ run: WorkflowRun; steps: WorkflowRunStep[] } | null>(null);
+  const [workflowDetailLoading, setWorkflowDetailLoading] = useState(false);
+  const [workflowDetailError, setWorkflowDetailError] = useState<string | null>(null);
+  const [selectedJobEntry, setSelectedJobEntry] = useState<JobRunListItem | null>(null);
 
   const workflowReloadTimer = useRef<number | null>(null);
   const jobReloadTimer = useRef<number | null>(null);
@@ -273,6 +280,65 @@ export default function RunsPage() {
   }, [activeTab, jobState.loaded, jobState.loading, loadJobRuns]);
 
   useEffect(() => {
+    if (!selectedWorkflowEntry) {
+      setWorkflowRunDetail(null);
+      setWorkflowDetailError(null);
+      setWorkflowDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setWorkflowDetailLoading(true);
+    setWorkflowDetailError(null);
+    listWorkflowRunSteps(authorizedFetch, selectedWorkflowEntry.run.id)
+      .then((detail) => {
+        if (!cancelled) {
+          setWorkflowRunDetail(detail);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load workflow run detail';
+          setWorkflowDetailError(message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWorkflowDetailLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, selectedWorkflowEntry]);
+
+  useEffect(() => {
+    if (activeTab !== 'workflows') {
+      setSelectedWorkflowEntry(null);
+    }
+    if (activeTab !== 'jobs') {
+      setSelectedJobEntry(null);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedWorkflowEntry) {
+      const exists = workflowState.items.some((item) => item.run.id === selectedWorkflowEntry.run.id);
+      if (!exists) {
+        setSelectedWorkflowEntry(null);
+      }
+    }
+  }, [workflowState.items, selectedWorkflowEntry]);
+
+  useEffect(() => {
+    if (selectedJobEntry) {
+      const exists = jobState.items.some((item) => item.run.id === selectedJobEntry.run.id);
+      if (!exists) {
+        setSelectedJobEntry(null);
+      }
+    }
+  }, [jobState.items, selectedJobEntry]);
+
+  useEffect(() => {
     return () => {
       if (workflowReloadTimer.current !== null) {
         window.clearTimeout(workflowReloadTimer.current);
@@ -369,22 +435,13 @@ export default function RunsPage() {
     [authorizedFetch, loadJobRuns, pushToast]
   );
 
-  const handleWorkflowSelect = useCallback(
-    (entry: WorkflowRunListItem) => {
-      const slug = entry.workflow.slug;
-      const runId = entry.run.id;
-      if (!slug) {
-        return;
-      }
-      const params = new URLSearchParams();
-      params.set('slug', slug);
-      if (runId) {
-        params.set('run', runId);
-      }
-      navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
-    },
-    [navigate]
-  );
+  const handleWorkflowSelect = useCallback((entry: WorkflowRunListItem) => {
+    setSelectedWorkflowEntry((current) => (current && current.run.id === entry.run.id ? null : entry));
+  }, []);
+
+  const handleJobSelect = useCallback((entry: JobRunListItem) => {
+    setSelectedJobEntry((current) => (current && current.run.id === entry.run.id ? null : entry));
+  }, []);
 
   const activeTabConfig = useMemo(() => TABS.find((tab) => tab.key === activeTab) ?? TABS[0], [activeTab]);
 
@@ -424,22 +481,51 @@ export default function RunsPage() {
       </div>
 
       {activeTab === 'workflows' ? (
-        <WorkflowRunsTable
-          state={workflowState}
-          onRetry={handleWorkflowRetrigger}
-          pendingRunId={pendingWorkflowRunId}
-          onReload={handleWorkflowReload}
-          onLoadMore={handleWorkflowLoadMore}
-          onSelect={handleWorkflowSelect}
-        />
+        <div className="flex flex-col gap-4">
+          <WorkflowRunsTable
+            state={workflowState}
+            onRetry={handleWorkflowRetrigger}
+            pendingRunId={pendingWorkflowRunId}
+            onReload={handleWorkflowReload}
+            onLoadMore={handleWorkflowLoadMore}
+            onSelect={handleWorkflowSelect}
+            selectedRunId={selectedWorkflowEntry?.run.id ?? null}
+          />
+          {selectedWorkflowEntry && (
+            <WorkflowRunDetailPanel
+              entry={selectedWorkflowEntry}
+              detail={workflowRunDetail}
+              loading={workflowDetailLoading}
+              error={workflowDetailError}
+              onClose={() => setSelectedWorkflowEntry(null)}
+              onViewWorkflow={() => {
+                const params = new URLSearchParams();
+                params.set('slug', selectedWorkflowEntry.workflow.slug);
+                params.set('run', selectedWorkflowEntry.run.id);
+                navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
+              }}
+            />
+          )}
+        </div>
       ) : (
-        <JobRunsTable
-          state={jobState}
-          onRetry={handleJobRetrigger}
-          pendingRunId={pendingJobRunId}
-          onReload={handleJobReload}
-          onLoadMore={handleJobLoadMore}
-        />
+        <div className="flex flex-col gap-4">
+          <JobRunsTable
+            state={jobState}
+            onRetry={handleJobRetrigger}
+            pendingRunId={pendingJobRunId}
+            onReload={handleJobReload}
+            onLoadMore={handleJobLoadMore}
+            onSelect={handleJobSelect}
+            selectedRunId={selectedJobEntry?.run.id ?? null}
+          />
+          {selectedJobEntry && (
+            <JobRunDetailPanel
+              entry={selectedJobEntry}
+              onClose={() => setSelectedJobEntry(null)}
+              onViewJob={() => navigate(ROUTE_PATHS.jobs)}
+            />
+          )}
+        </div>
       )}
     </div>
   );
@@ -452,6 +538,7 @@ type WorkflowRunsTableProps = {
   onReload: () => void;
   onLoadMore: () => void;
   onSelect: (entry: WorkflowRunListItem) => void;
+  selectedRunId: string | null;
 };
 
 type JobRunsTableProps = {
@@ -460,9 +547,11 @@ type JobRunsTableProps = {
   pendingRunId: string | null;
   onReload: () => void;
   onLoadMore: () => void;
+  onSelect: (entry: JobRunListItem) => void;
+  selectedRunId: string | null;
 };
 
-function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect }: WorkflowRunsTableProps) {
+function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect, selectedRunId }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
 
@@ -536,11 +625,17 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore,
                   entry.run.durationMs
                 );
                 const isPending = pendingRunId === entry.run.id;
+                const isSelected = selectedRunId === entry.run.id;
                 return (
                   <tr
                     key={entry.run.id}
-                    className="cursor-pointer bg-white/70 transition-colors hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10"
+                    className={`cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-violet-100/70 dark:bg-violet-500/20'
+                        : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
+                    }`}
                     onClick={() => onSelect(entry)}
+                    aria-selected={isSelected}
                   >
                     <td className="px-4 py-3">
                       <span
@@ -610,7 +705,239 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore,
   );
 }
 
-function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore }: JobRunsTableProps) {
+type WorkflowRunDetailPanelProps = {
+  entry: WorkflowRunListItem;
+  detail: { run: WorkflowRun; steps: WorkflowRunStep[] } | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onViewWorkflow: () => void;
+};
+
+function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onViewWorkflow }: WorkflowRunDetailPanelProps) {
+  const run = detail?.run ?? entry.run;
+  const steps = detail?.steps ?? [];
+  const duration = computeDurationMs(run.startedAt, run.completedAt, run.durationMs);
+
+  return (
+    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Workflow run detail
+          </span>
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{entry.workflow.name}</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(run.status)}`}>
+            {run.status}
+          </span>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+            onClick={onViewWorkflow}
+          >
+            View workflow
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <InfoRow label="Run ID" value={run.id} />
+        <InfoRow label="Workflow slug" value={entry.workflow.slug} />
+        <InfoRow label="Triggered by" value={run.triggeredBy ?? '—'} />
+        <InfoRow label="Partition" value={run.partitionKey ?? '—'} />
+        <InfoRow label="Started" value={formatDateTime(run.startedAt)} />
+        <InfoRow label="Completed" value={formatDateTime(run.completedAt)} />
+        <InfoRow label="Duration" value={formatDuration(duration) ?? '—'} />
+        <InfoRow label="Current step" value={run.currentStepId ?? '—'} />
+      </div>
+
+      {run.errorMessage && (
+        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+          {run.errorMessage}
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <JsonPreview title="Parameters" value={run.parameters} />
+        <JsonPreview title="Context" value={run.context} />
+        <JsonPreview title="Output" value={run.output} />
+        <JsonPreview title="Trigger payload" value={run.trigger} />
+      </div>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Step timeline</h4>
+          {loading && <span className="text-xs text-slate-500 dark:text-slate-400">Loading steps…</span>}
+        </div>
+        {error && (
+          <div className="rounded-xl border border-amber-300/70 bg-amber-50/70 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+            {error}
+          </div>
+        )}
+        {!loading && steps.length === 0 && !error && (
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+            No steps recorded yet.
+          </div>
+        )}
+        {steps.length > 0 && (
+          <ul className="flex flex-col gap-2">
+            {steps.map((step) => {
+              const stepDuration = computeDurationMs(step.startedAt, step.completedAt, null);
+              return (
+                <li
+                  key={step.id}
+                  className="rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">{step.stepId}</span>
+                      {step.parentStepId && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Parent: {step.parentStepId}</span>
+                      )}
+                    </div>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(step.status)}`}>
+                      {step.status}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs text-slate-500 dark:text-slate-400 md:grid-cols-2">
+                    <span>Started {formatDateTime(step.startedAt)}</span>
+                    <span>Completed {formatDateTime(step.completedAt)}</span>
+                    <span>Duration {formatDuration(stepDuration) ?? '—'}</span>
+                    {step.errorMessage && <span className="text-rose-600 dark:text-rose-300">Error: {step.errorMessage}</span>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+type JobRunDetailPanelProps = {
+  entry: JobRunListItem;
+  onClose: () => void;
+  onViewJob: () => void;
+};
+
+function JobRunDetailPanel({ entry, onClose, onViewJob }: JobRunDetailPanelProps) {
+  const duration = computeDurationMs(entry.run.startedAt, entry.run.completedAt, entry.run.durationMs);
+
+  return (
+    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Job run detail
+          </span>
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{entry.job.name}</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}>
+            {entry.run.status}
+          </span>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+            onClick={onViewJob}
+          >
+            View jobs
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <InfoRow label="Run ID" value={entry.run.id} />
+        <InfoRow label="Job slug" value={entry.job.slug} />
+        <InfoRow label="Runtime" value={entry.job.runtime} />
+        <InfoRow label="Started" value={formatDateTime(entry.run.startedAt)} />
+        <InfoRow label="Completed" value={formatDateTime(entry.run.completedAt)} />
+        <InfoRow label="Duration" value={formatDuration(duration) ?? '—'} />
+        <InfoRow label="Attempt" value={`${entry.run.attempt} of ${entry.run.maxAttempts ?? '∞'}`} />
+        <InfoRow label="Timeout" value={entry.run.timeoutMs ? `${Math.round(entry.run.timeoutMs / 1000)}s` : '—'} />
+      </div>
+
+      {entry.run.errorMessage && (
+        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+          {entry.run.errorMessage}
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <JsonPreview title="Parameters" value={entry.run.parameters} />
+        <JsonPreview title="Context" value={entry.run.context} />
+        <JsonPreview title="Result" value={entry.run.result} />
+        <JsonPreview title="Metrics" value={entry.run.metrics} />
+      </div>
+    </div>
+  );
+}
+
+type InfoRowProps = {
+  label: string;
+  value: string;
+};
+
+function InfoRow({ label, value }: InfoRowProps) {
+  return (
+    <div className="flex flex-col gap-1 rounded-xl border border-slate-200/70 bg-slate-50/70 p-3 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
+      <span className="font-medium text-slate-800 dark:text-slate-100">{value}</span>
+    </div>
+  );
+}
+
+type JsonPreviewProps = {
+  title: string;
+  value: unknown;
+};
+
+function JsonPreview({ title, value }: JsonPreviewProps) {
+  let content: string | null = null;
+  if (value !== null && value !== undefined) {
+    try {
+      content = JSON.stringify(value, null, 2);
+    } catch {
+      content = String(value);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/70 p-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
+        {title}
+      </span>
+      {content ? (
+        <pre className="max-h-48 overflow-auto rounded-lg bg-slate-950/80 p-3 text-xs text-slate-100 dark:bg-slate-950/60">
+          {content}
+        </pre>
+      ) : (
+        <span className="text-xs text-slate-500 dark:text-slate-400">No data</span>
+      )}
+    </div>
+  );
+}
+
+function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect, selectedRunId }: JobRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
 
@@ -684,8 +1011,18 @@ function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore }: Jo
                   entry.run.durationMs
                 );
                 const isPending = pendingRunId === entry.run.id;
+                const isSelected = selectedRunId === entry.run.id;
                 return (
-                  <tr key={entry.run.id} className="bg-white/70 dark:bg-slate-900/40">
+                  <tr
+                    key={entry.run.id}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-violet-100/70 dark:bg-violet-500/20'
+                        : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
+                    }`}
+                    onClick={() => onSelect(entry)}
+                    aria-selected={isSelected}
+                  >
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
@@ -717,7 +1054,10 @@ function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore }: Jo
                       <button
                         type="button"
                         className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={() => onRetry(entry)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetry(entry);
+                        }}
                         disabled={isPending}
                       >
                         {isPending ? 'Retriggering…' : 'Retrigger'}
