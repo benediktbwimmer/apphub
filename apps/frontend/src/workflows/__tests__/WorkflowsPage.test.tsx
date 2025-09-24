@@ -1,11 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createElement } from 'react';
+import { createElement, type PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import WorkflowsPage from '../WorkflowsPage';
-import { ApiTokenProvider } from '../../auth/ApiTokenContext';
 import { ToastProvider } from '../../components/toast';
+import { useAuth } from '../../auth/useAuth';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 import {
   AppHubEventsContext,
@@ -13,12 +13,50 @@ import {
   type AppHubEventsClient
 } from '../../events/context';
 
+vi.mock('../../auth/useAuth', () => {
+  const useAuthMock = vi.fn();
+  const AuthProviderMock = ({ children }: PropsWithChildren<unknown>) => <>{children}</>;
+  return {
+    useAuth: useAuthMock,
+    AuthProvider: AuthProviderMock
+  };
+});
+
+const mockedUseAuth = useAuth as unknown as vi.Mock;
+
 type FetchArgs = Parameters<typeof fetch>;
 
 const nowTimestamp = Date.now();
 const nowIso = new Date(nowTimestamp).toISOString();
 const fiveMinutesAgoIso = new Date(nowTimestamp - 5 * 60 * 1000).toISOString();
 const fourMinutesAgoIso = new Date(nowTimestamp - 4 * 60 * 1000).toISOString();
+
+function createAuthMockValue() {
+  return {
+    identity: {
+      subject: 'user@example.com',
+      kind: 'user' as const,
+      scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
+      userId: 'usr_1',
+      sessionId: 'sess_1',
+      apiKeyId: null,
+      displayName: 'Test User',
+      email: 'user@example.com',
+      roles: ['admin']
+    },
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    activeToken: null,
+    setActiveToken: vi.fn()
+  };
+}
 
 const workflowDefinition: WorkflowDefinition = {
   id: 'wf-1',
@@ -270,11 +308,7 @@ function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
         createElement(
           ToastProvider,
           null,
-          createElement(
-            ApiTokenProvider,
-            null,
-            createElement(WorkflowsPage)
-          )
+          createElement(WorkflowsPage)
         )
       )
     )
@@ -283,14 +317,12 @@ function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
 
 describe('WorkflowsPage manual run flow', () => {
   beforeEach(() => {
-    const now = new Date().toISOString();
-    window.localStorage.setItem("apphub.apiTokens.v1", JSON.stringify([{ id: 'test-token', label: 'Test token', token: 'test-token-value', createdAt: now, lastUsedAt: null }]));
-    window.localStorage.setItem("apphub.activeTokenId.v1", 'test-token');
+    mockedUseAuth.mockReturnValue(createAuthMockValue());
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    window.localStorage.clear();
+    mockedUseAuth.mockReset();
   });
 
   it('submits manual run parameters and surfaces run + step data', async () => {

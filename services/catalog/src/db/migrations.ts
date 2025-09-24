@@ -582,6 +582,129 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_asset_partition_parameters_asset
          ON workflow_asset_partition_parameters (workflow_definition_id, asset_id, partition_key_normalized);`
     ]
+  },
+  {
+    id: '022_auth_users_sessions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS users (
+         id TEXT PRIMARY KEY,
+         primary_email TEXT NOT NULL,
+         display_name TEXT,
+         avatar_url TEXT,
+         kind TEXT NOT NULL DEFAULT 'user',
+         status TEXT NOT NULL DEFAULT 'active',
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_login_at TIMESTAMPTZ
+       );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_primary_email
+         ON users (LOWER(primary_email));`,
+      `CREATE TABLE IF NOT EXISTS user_identities (
+         id TEXT PRIMARY KEY,
+         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         provider TEXT NOT NULL,
+         provider_subject TEXT NOT NULL,
+         email TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_seen_at TIMESTAMPTZ,
+         UNIQUE (provider, provider_subject)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_user_identities_user
+         ON user_identities(user_id);`,
+      `CREATE TABLE IF NOT EXISTS roles (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         description TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS role_scopes (
+         role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+         scope TEXT NOT NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (role_id, scope)
+       );`,
+      `CREATE TABLE IF NOT EXISTS user_roles (
+         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (user_id, role_id)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_user_roles_user
+         ON user_roles(user_id);`,
+      `CREATE TABLE IF NOT EXISTS sessions (
+         id TEXT PRIMARY KEY,
+         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         session_token_hash TEXT NOT NULL,
+         refresh_token_hash TEXT,
+         ip TEXT,
+         user_agent TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         expires_at TIMESTAMPTZ NOT NULL,
+         last_seen_at TIMESTAMPTZ
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_sessions_user
+         ON sessions(user_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+         ON sessions(expires_at);`,
+      `CREATE TABLE IF NOT EXISTS api_keys (
+         id TEXT PRIMARY KEY,
+         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         name TEXT,
+         prefix TEXT NOT NULL UNIQUE,
+         token_hash TEXT NOT NULL UNIQUE,
+         scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+         metadata JSONB,
+         created_by_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+         last_used_at TIMESTAMPTZ,
+         expires_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         revoked_at TIMESTAMPTZ
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_api_keys_user
+         ON api_keys(user_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_api_keys_prefix
+         ON api_keys(prefix);`,
+      `CREATE TABLE IF NOT EXISTS api_key_events (
+         id BIGSERIAL PRIMARY KEY,
+         api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+         user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+         event TEXT NOT NULL,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_api_key_events_key_created
+         ON api_key_events(api_key_id, created_at DESC);`,
+      `INSERT INTO roles (id, slug, description)
+         VALUES
+           ('role-viewer', 'viewer', 'Default read-only operator role'),
+           ('role-editor', 'editor', 'Can modify workflows and jobs'),
+           ('role-admin', 'admin', 'Full administrative access')
+       ON CONFLICT (slug) DO UPDATE
+         SET description = EXCLUDED.description;`,
+      `INSERT INTO role_scopes (role_id, scope)
+         VALUES
+           ('role-viewer', 'jobs:run'),
+           ('role-viewer', 'workflows:run'),
+           ('role-viewer', 'job-bundles:read'),
+           ('role-viewer', 'auth:manage-api-keys'),
+           ('role-editor', 'jobs:run'),
+           ('role-editor', 'workflows:run'),
+           ('role-editor', 'job-bundles:read'),
+           ('role-editor', 'jobs:write'),
+           ('role-editor', 'workflows:write'),
+           ('role-editor', 'auth:manage-api-keys'),
+           ('role-admin', 'jobs:run'),
+           ('role-admin', 'workflows:run'),
+           ('role-admin', 'job-bundles:read'),
+           ('role-admin', 'jobs:write'),
+           ('role-admin', 'workflows:write'),
+           ('role-admin', 'job-bundles:write'),
+           ('role-admin', 'auth:manage-api-keys')
+       ON CONFLICT DO NOTHING;`
+    ]
   }
 ];
 

@@ -1,19 +1,19 @@
 import type { PropsWithChildren } from 'react';
 import { useEffect, useRef } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useApiTokens } from '../auth/useApiTokens';
+import { useAuth } from '../auth/useAuth';
 import { useAnalytics } from '../utils/useAnalytics';
 import { ROUTE_PATHS } from './paths';
 
 export function RequireOperatorToken({ children }: PropsWithChildren<unknown>) {
-  const { tokens } = useApiTokens();
+  const { identity, identityLoading } = useAuth();
   const location = useLocation();
   const analytics = useAnalytics();
   const warnedPath = useRef<string | null>(null);
-  const hasOperatorToken = tokens.length > 0;
+  const hasIdentity = Boolean(identity);
 
   useEffect(() => {
-    if (hasOperatorToken) {
+    if (identityLoading || hasIdentity) {
       warnedPath.current = null;
       return;
     }
@@ -28,9 +28,9 @@ export function RequireOperatorToken({ children }: PropsWithChildren<unknown>) {
       from: location.pathname,
       to: ROUTE_PATHS.settingsApiAccess
     });
-  }, [analytics, hasOperatorToken, location.pathname]);
+  }, [analytics, hasIdentity, identityLoading, location.pathname]);
 
-  if (!hasOperatorToken) {
+  if (!identity && !identityLoading) {
     return <Navigate to={ROUTE_PATHS.settingsApiAccess} replace state={{ from: location.pathname }} />;
   }
 

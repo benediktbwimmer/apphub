@@ -27,8 +27,7 @@ const {
   updateWorkflowDefinitionMock,
   fetchWorkflowAssetsMock,
   fetchWorkflowAssetHistoryMock,
-  fetchWorkflowAssetPartitionsMock,
-  fetchOperatorIdentityMock
+  fetchWorkflowAssetPartitionsMock
 } = vi.hoisted(() => {
   const definition = {
     id: 'wf-1',
@@ -118,14 +117,10 @@ const {
       assetId: 'inventory.dataset',
       partitioning: null,
       partitions: []
-    })),
-    fetchOperatorIdentityMock: vi.fn(async () => ({
-      scopes: ['workflows:write', 'jobs:write', 'job-bundles:write']
     }))
   };
 });
 
-let activeTokenMock: { id: string } | null = { id: 'token-1' };
 
 const analyticsNow = new Date().toISOString();
 const analyticsStats = {
@@ -157,6 +152,33 @@ const analyticsMetrics = {
   ]
 };
 
+function createAuthMockValue() {
+  return {
+    identity: {
+      subject: 'user@example.com',
+      kind: 'user' as const,
+      scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
+      userId: 'usr_1',
+      sessionId: 'sess_1',
+      apiKeyId: null,
+      displayName: 'Test User',
+      email: 'user@example.com',
+      roles: ['admin']
+    },
+    identityLoading: false,
+    identityError: null,
+    refreshIdentity: vi.fn(),
+    apiKeys: [],
+    apiKeysLoading: false,
+    apiKeysError: null,
+    refreshApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    activeToken: null,
+    setActiveToken: vi.fn()
+  };
+}
+
 const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input.toString();
   if (url.endsWith(`/workflows/${workflowDefinition.slug}/run`) && init?.method === 'POST') {
@@ -171,12 +193,14 @@ const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: Reques
   return new Response(JSON.stringify({ data: [] }), { status: 200 });
 });
 
+let authValue = createAuthMockValue();
+
 vi.mock('../../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: () => authorizedFetchMock
 }));
 
-vi.mock('../../../auth/useApiTokens', () => ({
-  useApiTokens: () => ({ activeToken: activeTokenMock })
+vi.mock('../../../auth/useAuth', () => ({
+  useAuth: () => authValue
 }));
 
 const pushToastMock = vi.fn();
@@ -202,8 +226,7 @@ vi.mock('../../api', async () => {
     updateWorkflowDefinition: updateWorkflowDefinitionMock,
     fetchWorkflowAssets: fetchWorkflowAssetsMock,
     fetchWorkflowAssetHistory: fetchWorkflowAssetHistoryMock,
-    fetchWorkflowAssetPartitions: fetchWorkflowAssetPartitionsMock,
-    fetchOperatorIdentity: fetchOperatorIdentityMock
+    fetchWorkflowAssetPartitions: fetchWorkflowAssetPartitionsMock
   };
 });
 
@@ -213,7 +236,7 @@ let appHubClient: AppHubEventsClient;
 let wrapper: ({ children }: { children: ReactNode }) => ReactElement;
 
 beforeEach(() => {
-  activeTokenMock = { id: 'token-1' };
+  authValue = createAuthMockValue();
   authorizedFetchMock.mockClear();
   pushToastMock.mockClear();
   listWorkflowDefinitionsMock.mockClear();
@@ -259,7 +282,10 @@ describe('useWorkflowsController', () => {
   });
 
   it('prevents manual runs when no active token is configured', async () => {
-    activeTokenMock = null;
+    authValue = {
+      ...createAuthMockValue(),
+      identity: null
+    };
 
     const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
@@ -272,7 +298,7 @@ describe('useWorkflowsController', () => {
       await result.current.handleManualRun({ parameters: {} });
     });
 
-    expect(result.current.manualRunError).toContain('Add an operator token');
+    expect(result.current.manualRunError).toContain('Sign in');
   });
 
   it('loads workflow assets when a workflow is selected', async () => {

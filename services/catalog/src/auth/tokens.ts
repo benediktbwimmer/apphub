@@ -1,9 +1,18 @@
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { FastifyRequest } from 'fastify';
 import { recordAuditLog } from '../db/audit';
 import type { JsonValue } from '../db/types';
+import { getAuthConfig } from '../config/auth';
+import {
+  resolveSession,
+  createSessionCookieOptions,
+  createExpiredSessionCookieOptions
+} from './sessionManager';
+import type { SessionWithAccess } from '../db/sessions';
+import { findActiveApiKeyByHash, markApiKeyUsage } from '../db/apiKeys';
+import { getUserWithAccess } from '../db/users';
+import { hashSha256 } from './crypto';
 
 type OperatorScope =
   | 'jobs:write'
@@ -11,7 +20,8 @@ type OperatorScope =
   | 'workflows:write'
   | 'workflows:run'
   | 'job-bundles:write'
-  | 'job-bundles:read';
+  | 'job-bundles:read'
+  | 'auth:manage-api-keys';
 
 const ALL_SCOPES: OperatorScope[] = [
   'jobs:write',
@@ -19,8 +29,11 @@ const ALL_SCOPES: OperatorScope[] = [
   'workflows:write',
   'workflows:run',
   'job-bundles:write',
-  'job-bundles:read'
+  'job-bundles:read',
+  'auth:manage-api-keys'
 ];
+
+export const OPERATOR_SCOPES: readonly OperatorScope[] = [...ALL_SCOPES];
 
 const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'jobs:write': ['job-bundles:write', 'job-bundles:read'],
@@ -28,7 +41,8 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'workflows:write': [],
   'workflows:run': [],
   'job-bundles:write': ['job-bundles:read'],
-  'job-bundles:read': []
+  'job-bundles:read': [],
+  'auth:manage-api-keys': []
 };
 
 type OperatorKind = 'user' | 'service';
@@ -47,25 +61,47 @@ export type OperatorIdentity = {
   scopes: Set<OperatorScope>;
   kind: OperatorKind;
   tokenHash: string;
+  userId?: string;
+  sessionId?: string;
+  apiKeyId?: string;
+  displayName?: string | null;
+  email?: string | null;
+  roles?: string[];
 };
 
-export type AuthorizationResult =
-  | {
-      ok: true;
-      identity: OperatorIdentity;
-      log: (status: 'succeeded' | 'failed', metadata?: Record<string, JsonValue>) => Promise<void>;
-    }
-  | {
-      ok: false;
-      statusCode: number;
-      error: string;
-    };
+type SessionCookieInstruction = {
+  name: string;
+  value: string;
+  options: {
+    httpOnly: boolean;
+    sameSite: 'strict';
+    secure: boolean;
+    path: string;
+    maxAge: number;
+  };
+};
 
 type AuthorizationOptions = {
   action: string;
   resource: string;
   requiredScopes: OperatorScope[];
 };
+
+export type AuthorizationSuccess = {
+  ok: true;
+  identity: OperatorIdentity;
+  log: (status: 'succeeded' | 'failed', metadata?: Record<string, JsonValue>) => Promise<void>;
+  sessionCookie?: SessionCookieInstruction;
+};
+
+export type AuthorizationFailure = {
+  ok: false;
+  statusCode: number;
+  error: string;
+  sessionCookie?: SessionCookieInstruction;
+};
+
+export type AuthorizationResult = AuthorizationSuccess | AuthorizationFailure;
 
 type TokenCacheEntry = {
   identity: OperatorIdentity;
@@ -74,7 +110,7 @@ type TokenCacheEntry = {
 let tokenCache: Map<string, TokenCacheEntry> | null = null;
 
 function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+  return hashSha256(token);
 }
 
 function addScope(target: Set<OperatorScope>, scope: OperatorScope) {
@@ -221,6 +257,16 @@ function findIdentityForToken(token: string): OperatorIdentity | null {
   return entry?.identity ?? null;
 }
 
+function buildScopeSet(rawScopes: Iterable<string>): Set<OperatorScope> {
+  const scopes = new Set<OperatorScope>();
+  for (const scope of rawScopes) {
+    if ((ALL_SCOPES as string[]).includes(scope)) {
+      addScope(scopes, scope as OperatorScope);
+    }
+  }
+  return scopes;
+}
+
 function hasRequiredScopes(identity: OperatorIdentity, required: OperatorScope[]): boolean {
   if (required.length === 0) {
     return true;
@@ -233,74 +279,106 @@ function hasRequiredScopes(identity: OperatorIdentity, required: OperatorScope[]
   return true;
 }
 
-async function logAuthorizationFailure(options: {
-  request: FastifyRequest;
-  action: string;
-  resource: string;
-  token?: string | null;
-  reason: string;
-  detail?: JsonValue;
-}): Promise<void> {
-  await recordAuditLog({
-    actor: null,
-    actorType: 'unknown',
-    tokenHash: options.token ? hashToken(options.token) : null,
-    scopes: [],
-    action: options.action,
-    resource: options.resource,
-    status: options.reason,
-    ip: options.request.ip,
-    userAgent: typeof options.request.headers['user-agent'] === 'string'
-      ? options.request.headers['user-agent']
-      : null,
-    metadata: options.detail ?? null
-  });
+function getCookies(request: FastifyRequest): Record<string, string> {
+  const candidate = (request as FastifyRequest & { cookies?: Record<string, string> }).cookies;
+  if (!candidate) {
+    return {};
+  }
+  return candidate;
 }
 
-export async function authorizeOperatorAction(
+function buildIdentityFromSession(session: SessionWithAccess): OperatorIdentity {
+  const scopes = buildScopeSet(session.scopes);
+  if (scopes.size === 0) {
+    for (const scope of ALL_SCOPES) {
+      addScope(scopes, scope);
+    }
+  }
+  const subject = session.user.primaryEmail || `user:${session.user.id}`;
+  return {
+    subject,
+    scopes,
+    kind: session.user.kind,
+    tokenHash: session.session.sessionTokenHash,
+    userId: session.user.id,
+    sessionId: session.session.id,
+    displayName: session.user.displayName,
+    email: session.user.primaryEmail,
+    roles: session.roles.map((role) => role.slug)
+  } satisfies OperatorIdentity;
+}
+
+async function resolveSessionIdentity(
   request: FastifyRequest,
-  options: AuthorizationOptions
-): Promise<AuthorizationResult> {
-  const token = extractBearerToken(request.headers.authorization);
-  if (!token) {
-    await logAuthorizationFailure({
-      request,
-      action: options.action,
-      resource: options.resource,
-      reason: 'missing_token'
-    });
-    return { ok: false, statusCode: 401, error: 'authorization required' };
+  cookieValue: string,
+  cookieName: string
+): Promise<{ identity: OperatorIdentity; sessionCookie?: SessionCookieInstruction } | null> {
+  const result = await resolveSession({
+    cookieValue,
+    ip: request.ip,
+    userAgent: typeof request.headers['user-agent'] === 'string'
+      ? request.headers['user-agent']
+      : null
+  });
+  if (!result) {
+    return null;
   }
-
-  const identity = findIdentityForToken(token);
-  if (!identity) {
-    await logAuthorizationFailure({
-      request,
-      action: options.action,
-      resource: options.resource,
-      token,
-      reason: 'invalid_token'
-    });
-    return { ok: false, statusCode: 403, error: 'forbidden' };
+  const identity = buildIdentityFromSession(result.session);
+  let sessionCookie: SessionCookieInstruction | undefined;
+  if (result.renewedCookieValue) {
+    sessionCookie = {
+      name: cookieName,
+      value: result.renewedCookieValue,
+      options: createSessionCookieOptions()
+    } satisfies SessionCookieInstruction;
   }
+  return { identity, sessionCookie };
+}
 
-  if (!hasRequiredScopes(identity, options.requiredScopes)) {
-    await logAuthorizationFailure({
-      request,
-      action: options.action,
-      resource: options.resource,
-      token,
-      reason: 'insufficient_scope',
-      detail: { requiredScopes: options.requiredScopes }
-    });
-    return { ok: false, statusCode: 403, error: 'forbidden' };
+async function resolveApiKeyIdentity(token: string): Promise<OperatorIdentity | null> {
+  const record = await findActiveApiKeyByHash(hashToken(token));
+  if (!record) {
+    return null;
   }
+  const access = await getUserWithAccess(record.userId);
+  if (!access) {
+    return null;
+  }
+  const userScopeSet = new Set(access.scopes);
+  const requestedScopes = record.scopes.length > 0 ? record.scopes : Array.from(userScopeSet);
+  const filteredScopes = requestedScopes.filter((scope) => userScopeSet.has(scope));
+  const scopes = buildScopeSet(filteredScopes);
+  if (scopes.size === 0) {
+    return null;
+  }
+  await markApiKeyUsage(record.id);
+  return {
+    subject: `api-key:${record.prefix}`,
+    scopes,
+    kind: access.user.kind,
+    tokenHash: record.tokenHash,
+    userId: access.user.id,
+    apiKeyId: record.id,
+    displayName: access.user.displayName,
+    email: access.user.primaryEmail,
+    roles: access.roles.map((role) => role.slug)
+  } satisfies OperatorIdentity;
+}
 
+function buildSuccessResult(
+  request: FastifyRequest,
+  identity: OperatorIdentity,
+  options: AuthorizationOptions,
+  sessionCookie?: SessionCookieInstruction
+): AuthorizationSuccess {
   request.operatorIdentity = identity;
-
+  const userAgent = typeof request.headers['user-agent'] === 'string'
+    ? request.headers['user-agent']
+    : null;
   return {
     ok: true,
     identity,
+    sessionCookie,
     async log(status, metadata) {
       await recordAuditLog({
         actor: identity.subject,
@@ -311,13 +389,165 @@ export async function authorizeOperatorAction(
         resource: options.resource,
         status,
         ip: request.ip,
-        userAgent: typeof request.headers['user-agent'] === 'string'
-          ? request.headers['user-agent']
-          : null,
+        userAgent,
         metadata: metadata ?? null
       });
     }
-  };
+  } satisfies AuthorizationSuccess;
+}
+
+async function logAuthorizationFailure(input: {
+  request: FastifyRequest;
+  action: string;
+  resource: string;
+  reason: string;
+  token?: string | null;
+  tokenHash?: string | null;
+  detail?: JsonValue;
+}): Promise<void> {
+  const userAgent = typeof input.request.headers['user-agent'] === 'string'
+    ? input.request.headers['user-agent']
+    : null;
+  const hashed = input.tokenHash ?? (input.token ? hashToken(input.token) : null);
+  await recordAuditLog({
+    actor: null,
+    actorType: 'unknown',
+    tokenHash: hashed,
+    scopes: [],
+    action: input.action,
+    resource: input.resource,
+    status: input.reason,
+    ip: input.request.ip,
+    userAgent,
+    metadata: input.detail ?? null
+  });
+}
+
+export async function authorizeOperatorAction(
+  request: FastifyRequest,
+  options: AuthorizationOptions
+): Promise<AuthorizationResult> {
+  const config = getAuthConfig();
+  const cookies = getCookies(request);
+  const cookieName = config.sessionCookieName;
+  const sessionCookieValue = cookies[cookieName];
+  let sessionCookieInstruction: SessionCookieInstruction | undefined;
+
+  if (config.sessionSecret && sessionCookieValue) {
+    const sessionResult = await resolveSessionIdentity(request, sessionCookieValue, cookieName);
+    if (sessionResult) {
+      if (!hasRequiredScopes(sessionResult.identity, options.requiredScopes)) {
+        await logAuthorizationFailure({
+          request,
+          action: options.action,
+          resource: options.resource,
+          reason: 'insufficient_scope',
+          tokenHash: sessionResult.identity.tokenHash,
+          detail: { requiredScopes: options.requiredScopes }
+        });
+        return {
+          ok: false,
+          statusCode: 403,
+          error: 'forbidden',
+          sessionCookie: sessionResult.sessionCookie
+        } satisfies AuthorizationFailure;
+      }
+      return buildSuccessResult(request, sessionResult.identity, options, sessionResult.sessionCookie);
+    }
+    sessionCookieInstruction = {
+      name: cookieName,
+      value: '',
+      options: createExpiredSessionCookieOptions()
+    } satisfies SessionCookieInstruction;
+  }
+
+  const bearerToken = extractBearerToken(request.headers.authorization);
+  if (bearerToken) {
+    const apiKeyIdentity = await resolveApiKeyIdentity(bearerToken);
+    if (apiKeyIdentity) {
+      if (!hasRequiredScopes(apiKeyIdentity, options.requiredScopes)) {
+        await logAuthorizationFailure({
+          request,
+          action: options.action,
+          resource: options.resource,
+          reason: 'insufficient_scope',
+          tokenHash: apiKeyIdentity.tokenHash,
+          detail: { requiredScopes: options.requiredScopes }
+        });
+        return {
+          ok: false,
+          statusCode: 403,
+          error: 'forbidden',
+          sessionCookie: sessionCookieInstruction
+        } satisfies AuthorizationFailure;
+      }
+      return buildSuccessResult(request, apiKeyIdentity, options, sessionCookieInstruction);
+    }
+
+    if (config.legacyTokensEnabled) {
+      const legacyIdentity = findIdentityForToken(bearerToken);
+      if (legacyIdentity) {
+        if (!hasRequiredScopes(legacyIdentity, options.requiredScopes)) {
+          await logAuthorizationFailure({
+            request,
+            action: options.action,
+            resource: options.resource,
+            reason: 'insufficient_scope',
+            tokenHash: legacyIdentity.tokenHash,
+            detail: { requiredScopes: options.requiredScopes }
+          });
+          return {
+            ok: false,
+            statusCode: 403,
+            error: 'forbidden',
+            sessionCookie: sessionCookieInstruction
+          } satisfies AuthorizationFailure;
+        }
+        return buildSuccessResult(request, legacyIdentity, options, sessionCookieInstruction);
+      }
+    }
+
+    await logAuthorizationFailure({
+      request,
+      action: options.action,
+      resource: options.resource,
+      reason: 'invalid_token',
+      token: bearerToken
+    });
+    return {
+      ok: false,
+      statusCode: 403,
+      error: 'forbidden',
+      sessionCookie: sessionCookieInstruction
+    } satisfies AuthorizationFailure;
+  }
+
+  if (sessionCookieInstruction) {
+    await logAuthorizationFailure({
+      request,
+      action: options.action,
+      resource: options.resource,
+      reason: 'invalid_session'
+    });
+    return {
+      ok: false,
+      statusCode: 401,
+      error: 'authorization required',
+      sessionCookie: sessionCookieInstruction
+    } satisfies AuthorizationFailure;
+  }
+
+  await logAuthorizationFailure({
+    request,
+    action: options.action,
+    resource: options.resource,
+    reason: 'missing_token'
+  });
+  return {
+    ok: false,
+    statusCode: 401,
+    error: 'authorization required'
+  } satisfies AuthorizationFailure;
 }
 
 export type { OperatorScope };

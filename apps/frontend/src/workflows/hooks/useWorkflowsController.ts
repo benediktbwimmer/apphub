@@ -7,7 +7,7 @@ import {
 } from 'react';
 import { API_BASE_URL } from '../../config';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
-import { useApiTokens } from '../../auth/useApiTokens';
+import { useAuth } from '../../auth/useAuth';
 import { useToasts } from '../../components/toast';
 import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
 import {
@@ -31,7 +31,6 @@ import {
   listWorkflowDefinitions,
   listWorkflowRunSteps,
   updateWorkflowDefinition,
-  fetchOperatorIdentity,
   fetchWorkflowAssets,
   fetchWorkflowAssetHistory,
   fetchWorkflowAssetPartitions,
@@ -155,8 +154,10 @@ export function useWorkflowsController() {
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
 
   const authorizedFetch = useAuthorizedFetch();
-  const { activeToken } = useApiTokens();
-  const hasActiveToken = Boolean(activeToken);
+  const { identity } = useAuth();
+  const identityScopes = useMemo(() => new Set(identity?.scopes ?? []), [identity]);
+  const isAuthenticated = Boolean(identity);
+  const canRunWorkflowsScope = identityScopes.has('workflows:run');
   const { pushToast } = useToasts();
 
   const selectedRun = useMemo(
@@ -581,41 +582,16 @@ export function useWorkflowsController() {
   }, [selectedRunId]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!hasActiveToken) {
+    if (!identity) {
       setCanEditWorkflows(false);
+      setCanUseAiBuilder(false);
       setCanCreateAiJobs(false);
       return;
     }
-    const loadIdentity = async () => {
-      try {
-        const identity = await fetchOperatorIdentity(authorizedFetch);
-        if (cancelled) {
-          return;
-        }
-        if (identity && Array.isArray(identity.scopes)) {
-          const scopes = new Set(identity.scopes);
-          setCanEditWorkflows(scopes.has('workflows:write'));
-          setCanUseAiBuilder(scopes.has('workflows:write') || scopes.has('jobs:write'));
-          setCanCreateAiJobs(scopes.has('jobs:write') && scopes.has('job-bundles:write'));
-        } else {
-          setCanEditWorkflows(false);
-          setCanUseAiBuilder(false);
-          setCanCreateAiJobs(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setCanEditWorkflows(false);
-          setCanUseAiBuilder(false);
-          setCanCreateAiJobs(false);
-        }
-      }
-    };
-    void loadIdentity();
-    return () => {
-      cancelled = true;
-    };
-  }, [authorizedFetch, hasActiveToken, activeToken?.id]);
+    setCanEditWorkflows(identityScopes.has('workflows:write'));
+    setCanUseAiBuilder(identityScopes.has('workflows:write') || identityScopes.has('jobs:write'));
+    setCanCreateAiJobs(identityScopes.has('jobs:write') && identityScopes.has('job-bundles:write'));
+  }, [identity, identityScopes]);
 
   useEffect(() => {
     void loadWorkflows();
@@ -800,8 +776,12 @@ export function useWorkflowsController() {
         setManualRunError('Select a workflow before launching a run.');
         return;
       }
-      if (!hasActiveToken) {
-        setManualRunError('Add an operator token under Settings → API Access before launching workflows.');
+      if (!isAuthenticated) {
+        setManualRunError('Sign in to launch workflows.');
+        return;
+      }
+      if (!canRunWorkflowsScope) {
+        setManualRunError('You do not have permission to launch workflows.');
         return;
       }
       setManualRunPending(true);
@@ -842,7 +822,7 @@ export function useWorkflowsController() {
         setManualRunPending(false);
       }
     },
-    [authorizedFetch, hasActiveToken, updateRuntimeSummary]
+    [authorizedFetch, canRunWorkflowsScope, isAuthenticated, updateRuntimeSummary]
   );
 
   const handleRefresh = useCallback(() => {
@@ -1089,7 +1069,8 @@ export function useWorkflowsController() {
     handleAiWorkflowSubmitted,
     loadWorkflowDetail,
     loadWorkflows,
-    hasActiveToken,
+    isAuthenticated,
+    canRunWorkflowsScope,
     setAiBuilderOpen,
     authorizedFetch,
     pushToast

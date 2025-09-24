@@ -71,7 +71,8 @@ export default function WorkflowsPage() {
     handleAiWorkflowPrefill,
     handleAiWorkflowSubmitted,
     loadWorkflowDetail,
-    hasActiveToken,
+    isAuthenticated,
+    canRunWorkflowsScope,
     authorizedFetch,
     pushToast,
     assetInventory,
@@ -158,11 +159,15 @@ export default function WorkflowsPage() {
         onRefresh={handleRefresh}
       />
 
-      {!hasActiveToken && (
+      {!isAuthenticated ? (
         <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          Save an operator token under Settings → API Access to enable workflow mutations and manual runs.
+          Sign in under Settings → API Access to run workflows and make changes.
         </div>
-      )}
+      ) : !canRunWorkflowsScope ? (
+        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+          Your account does not have permission to launch workflows. Contact an administrator to request access.
+        </div>
+      ) : null}
 
       <WorkflowFilters
         searchTerm={searchTerm}
@@ -190,13 +195,13 @@ export default function WorkflowsPage() {
         <div className="flex flex-col gap-6">
           <ManualRunPanel
             workflow={workflowDetail}
-            onSubmit={handleManualRun}
-            pending={manualRunPending}
-            error={manualRunError}
-            authorized={hasActiveToken}
-            lastRun={lastTriggeredRun}
-            unreachableServices={unreachableServiceSlugs}
-          />
+          onSubmit={handleManualRun}
+          pending={manualRunPending}
+          error={manualRunError}
+          authorized={canRunWorkflowsScope}
+          lastRun={lastTriggeredRun}
+          unreachableServices={unreachableServiceSlugs}
+        />
 
           {workflowDetail && (
             <WorkflowGraph

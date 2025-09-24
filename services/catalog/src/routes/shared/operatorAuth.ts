@@ -25,7 +25,13 @@ export async function requireOperatorScopes(
   const auth = await authorizeOperatorAction(request, options);
   if (!auth.ok) {
     reply.status(auth.statusCode);
+    if (auth.sessionCookie) {
+      reply.setCookie(auth.sessionCookie.name, auth.sessionCookie.value, auth.sessionCookie.options);
+    }
     return { ok: false, statusCode: auth.statusCode, error: auth.error };
+  }
+  if (auth.sessionCookie) {
+    reply.setCookie(auth.sessionCookie.name, auth.sessionCookie.value, auth.sessionCookie.options);
   }
   return { ok: true, auth };
 }

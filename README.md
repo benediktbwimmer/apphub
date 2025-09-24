@@ -113,6 +113,60 @@ npm run dev
 
 The Vite dev server binds to `http://localhost:5173`.
 
+### Docker Images
+
+Build the combined API + worker + frontend image:
+
+```bash
+docker build -t apphub:latest .
+```
+
+#### Local development
+
+Run everything (API, workers, Redis, Postgres, static frontend) inside the container with transient data:
+
+```bash
+docker run --rm -it \
+  --name apphub-dev \
+  -p 4000:4000 \
+  -p 4173:4173 \
+  -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
+  -e APPHUB_AUTH_SSO_ENABLED=false \
+  -e APPHUB_LEGACY_OPERATOR_TOKENS=true \
+  -e APPHUB_OPERATOR_TOKENS='[{"token":"dev-token","subject":"local-operator","scopes":"*"}]' \
+  apphub:latest
+```
+
+You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend). Use the bearer token `dev-token` for manual API calls while testing.
+
+Persist Postgres/Redis state by adding `-v apphub-data:/app/data` to the command above.
+
+#### Production
+
+Launch the same image with hardened auth settings, external Postgres/Redis, and SSO enabled:
+
+```bash
+docker run -d \
+  --name apphub \
+  --restart unless-stopped \
+  -p 0.0.0.0:4000:4000 \
+  -p 0.0.0.0:4173:4173 \
+  -v apphub-data:/app/data \
+  -e APPHUB_SESSION_SECRET=$(openssl rand -hex 32) \
+  -e APPHUB_SESSION_COOKIE_SECURE=true \
+  -e APPHUB_AUTH_SSO_ENABLED=true \
+  -e APPHUB_OIDC_ISSUER=https://accounts.google.com \
+  -e APPHUB_OIDC_CLIENT_ID=your-oauth-client-id \
+  -e APPHUB_OIDC_CLIENT_SECRET=your-oauth-client-secret \
+  -e APPHUB_OIDC_REDIRECT_URI=https://your-domain.example/auth/callback \
+  -e APPHUB_OIDC_ALLOWED_DOMAINS=example.com \
+  -e DATABASE_URL=postgres://apphub:secret@db-host:5432/apphub \
+  -e REDIS_URL=redis://redis-host:6379 \
+  apphub:latest
+```
+
+Terminate legacy operator tokens (`APPHUB_LEGACY_OPERATOR_TOKENS=false`) once every automation client has migrated to user-issued API keys. Frontend traffic typically flows through a TLS-terminating reverse proxy that maps the public hostname to ports `4173` (static UI) and `4000` (API/websocket).
+
 ### Environment Variables
 
 `apps/frontend/.env.example`
@@ -188,6 +242,27 @@ SERVICE_NETWORK_BUILD_TIMEOUT_MS=600000
 SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS=2000
 SERVICE_NETWORK_LAUNCH_TIMEOUT_MS=300000
 SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS=2000
+```
+
+**Authentication & sessions**
+
+```bash
+APPHUB_SESSION_SECRET=                   # Required: random string used to sign session cookies
+APPHUB_SESSION_COOKIE=apphub_session     # Override the session cookie name
+APPHUB_LOGIN_STATE_COOKIE=apphub_login_state
+APPHUB_SESSION_TTL_SECONDS=43200         # Session lifetime (default 12h)
+APPHUB_SESSION_RENEW_SECONDS=1800        # Renew window when active (default 30m)
+APPHUB_SESSION_COOKIE_SECURE=true        # Secure cookies only over HTTPS
+APPHUB_AUTH_SSO_ENABLED=false            # Enable OAuth2/OIDC login when true
+APPHUB_OIDC_ISSUER=                      # OIDC issuer URL (required when SSO enabled)
+APPHUB_OIDC_CLIENT_ID=
+APPHUB_OIDC_CLIENT_SECRET=
+APPHUB_OIDC_REDIRECT_URI=https://your-domain.example/auth/callback
+APPHUB_OIDC_ALLOWED_DOMAINS=example.com,internal.example
+APPHUB_AUTH_API_KEY_SCOPE=auth:manage-api-keys
+APPHUB_LEGACY_OPERATOR_TOKENS=true       # Allow bearer tokens during migration
+APPHUB_OPERATOR_TOKENS=                  # Optional JSON array of legacy tokens
+APPHUB_OPERATOR_TOKENS_PATH=             # Path to JSON file with legacy tokens
 ```
 
 **Workflow orchestration**

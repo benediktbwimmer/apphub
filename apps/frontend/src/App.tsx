@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { ApiTokenProvider } from './auth/ApiTokenContext';
+import { AuthProvider } from './auth/AuthProvider';
 import { AiBuilderSettingsProvider } from './ai/AiBuilderSettingsProvider';
 import Navbar from './components/Navbar';
 import { PreviewScaleProvider } from './settings/PreviewScaleProvider';
@@ -7,7 +7,7 @@ import { AppHubEventsProvider } from './events/AppHubEventsProvider';
 
 function AppLayout() {
   return (
-    <ApiTokenProvider>
+    <AuthProvider>
       <AiBuilderSettingsProvider>
         <PreviewScaleProvider>
           <AppHubEventsProvider>
@@ -20,7 +20,7 @@ function AppLayout() {
           </AppHubEventsProvider>
         </PreviewScaleProvider>
       </AiBuilderSettingsProvider>
-    </ApiTokenProvider>
+    </AuthProvider>
   );
 }
 

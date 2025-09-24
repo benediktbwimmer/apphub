@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
@@ -24,6 +25,8 @@ export async function buildServer() {
   await app.register(cors, {
     origin: true
   });
+
+  await app.register(cookie);
 
   await app.register(websocket, {
     options: {

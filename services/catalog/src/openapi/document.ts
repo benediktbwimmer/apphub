@@ -275,6 +275,97 @@ const repositoryResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const operatorIdentitySchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['subject', 'kind', 'scopes'],
+  properties: {
+    subject: { type: 'string', description: 'Identifier for the authenticated principal (user email, service name, or token subject).' },
+    kind: {
+      type: 'string',
+      description: 'Identity classification.',
+      enum: ['user', 'service']
+    },
+    scopes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Granted operator scopes.'
+    },
+    userId: nullable(stringSchema()),
+    sessionId: nullable(stringSchema()),
+    apiKeyId: nullable(stringSchema()),
+    displayName: nullable(stringSchema()),
+    email: nullable(stringSchema()),
+    roles: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Role slugs assigned to the identity.'
+    }
+  }
+};
+
+const identityResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: { $ref: '#/components/schemas/OperatorIdentity' }
+  }
+};
+
+const apiKeySchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'prefix', 'scopes', 'createdAt', 'updatedAt'],
+  properties: {
+    id: { type: 'string' },
+    name: nullable(stringSchema()),
+    prefix: { type: 'string', description: 'Stable API key prefix used for support diagnostics.' },
+    scopes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Scopes granted to the API key.'
+    },
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time'),
+    lastUsedAt: nullable(stringSchema('date-time')),
+    expiresAt: nullable(stringSchema('date-time')),
+    revokedAt: nullable(stringSchema('date-time'))
+  }
+};
+
+const apiKeyListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['keys'],
+      properties: {
+        keys: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/ApiKey' }
+        }
+      }
+    }
+  }
+};
+
+const apiKeyCreateResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['key', 'token'],
+      properties: {
+        key: { $ref: '#/components/schemas/ApiKey' },
+        token: {
+          type: 'string',
+          description: 'Full API key token. This value is only returned once at creation time.'
+        }
+      }
+    }
+  }
+};
+
 const createRepositoryRequestSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['id', 'name', 'description', 'repoUrl', 'dockerfilePath'],
@@ -1058,6 +1149,8 @@ const components: OpenAPIV3.ComponentsObject = {
     Repository: repositorySchema,
     RepositoryListResponse: repositoryListResponseSchema,
     RepositoryResponse: repositoryResponseSchema,
+    OperatorIdentity: operatorIdentitySchema,
+    IdentityResponse: identityResponseSchema,
     RepositoryCreateRequest: createRepositoryRequestSchema,
     TagFacet: tagFacetSchema,
     StatusFacet: statusFacetSchema,
@@ -1083,6 +1176,9 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowDefinitionCreateRequest: workflowDefinitionCreateRequestSchema,
     WorkflowDefinitionResponse: workflowDefinitionResponseSchema,
     WorkflowDefinitionListResponse: workflowDefinitionListResponseSchema,
+    ApiKey: apiKeySchema,
+    ApiKeyListResponse: apiKeyListResponseSchema,
+    ApiKeyCreateResponse: apiKeyCreateResponseSchema,
     AssetGraphProducer: assetGraphProducerSchema,
     AssetGraphConsumer: assetGraphConsumerSchema,
     AssetGraphMaterialization: assetGraphMaterializationSchema,
@@ -1128,6 +1224,7 @@ export const openApiDocument: OpenAPIV3.Document = {
   ],
   tags: [
     { name: 'System', description: 'Service health and operational endpoints.' },
+    { name: 'Auth', description: 'Authentication, session management, and identity inspection.' },
     { name: 'Apps', description: 'Search and management of ingested repositories.' },
     { name: 'Services', description: 'Runtime services discovered and managed by Apphub.' },
     { name: 'Jobs', description: 'Reusable job definitions executed by the platform.' },
@@ -1135,6 +1232,201 @@ export const openApiDocument: OpenAPIV3.Document = {
   ],
   components,
   paths: {
+    '/auth/login': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Initiate OIDC login',
+        description: 'Generates an OAuth authorization request and redirects the browser to the configured identity provider.',
+        parameters: [
+          {
+            name: 'redirectTo',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Optional relative path to redirect to after successful authentication.'
+          }
+        ],
+        responses: {
+          '302': { description: 'Redirect to the external identity provider.' },
+          '400': {
+            description: 'The request query parameters were invalid.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '503': {
+            description: 'Single sign-on is not enabled on this instance.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/auth/callback': {
+      get: {
+        tags: ['Auth'],
+        summary: 'OIDC login callback',
+        description: 'Handles the OAuth authorization response, issues a secure session cookie, and redirects back to the application.',
+        parameters: [
+          { name: 'state', in: 'query', schema: { type: 'string' }, required: true },
+          { name: 'code', in: 'query', schema: { type: 'string' }, required: true }
+        ],
+        responses: {
+          '302': { description: 'User is redirected to the requested application page.' },
+          '400': {
+            description: 'The login state or authorization payload was invalid.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The authenticated identity is not allowed to access the platform.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '500': {
+            description: 'The identity provider request failed.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/auth/logout': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Terminate current session',
+        description: 'Revokes the caller\'s active session and clears the session cookie.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '204': { description: 'The session was terminated.' }
+        }
+      }
+    },
+    '/auth/identity': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Retrieve authenticated identity',
+        description: 'Returns the subject, scopes, and metadata for the active session, API key, or operator token.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '200': {
+            description: 'Identity details.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/IdentityResponse' } }
+            }
+          },
+          '401': {
+            description: 'No valid session or authorization token was provided.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller did not have permission to inspect identity information.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/auth/api-keys': {
+      get: {
+        tags: ['Auth'],
+        summary: 'List API keys',
+        description: 'Returns the API keys owned by the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '200': {
+            description: 'API keys for the current user.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ApiKeyListResponse' } }
+            }
+          },
+          '401': {
+            description: 'No valid session or authorization token was provided.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      post: {
+        tags: ['Auth'],
+        summary: 'Create API key',
+        description: 'Mints a new API key scoped to the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  scopes: { type: 'array', items: { type: 'string' } },
+                  expiresAt: stringSchema('date-time')
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'API key created successfully.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ApiKeyCreateResponse' } }
+            }
+          },
+          '400': {
+            description: 'The API key request payload was invalid.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'No valid session or authorization token was provided.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/auth/api-keys/{id}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'Revoke API key',
+        description: 'Revokes an API key owned by the authenticated user.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '204': { description: 'The API key was revoked.' },
+          '401': {
+            description: 'No valid session or authorization token was provided.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'No API key matched the supplied identifier.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
     '/health': {
       get: {
         tags: ['System'],

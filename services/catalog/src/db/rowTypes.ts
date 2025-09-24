@@ -350,3 +350,68 @@ export type WorkflowExecutionHistoryRow = {
   event_payload: unknown;
   created_at: string;
 };
+
+export type UserRow = {
+  id: string;
+  primary_email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  kind: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string | null;
+};
+
+export type UserIdentityRow = {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_subject: string;
+  email: string | null;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string | null;
+};
+
+export type SessionRow = {
+  id: string;
+  user_id: string;
+  session_token_hash: string;
+  refresh_token_hash: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  last_seen_at: string | null;
+};
+
+export type ApiKeyRow = {
+  id: string;
+  user_id: string;
+  name: string | null;
+  prefix: string;
+  token_hash: string;
+  scopes: unknown;
+  metadata: unknown;
+  created_by_session_id: string | null;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  revoked_at: string | null;
+};
+
+export type RoleRow = {
+  id: string;
+  slug: string;
+  description: string | null;
+  created_at: string;
+};
+
+export type RoleScopeRow = {
+  role_id: string;
+  scope: string;
+  created_at: string;
+};
