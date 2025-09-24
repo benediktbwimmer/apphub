@@ -18,6 +18,7 @@ import {
   type JobImportConfirmResult
 } from '../useJobImportWorkflow';
 import type { JobScenario } from '../examples';
+import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 
 const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
@@ -181,9 +182,19 @@ type ImportJobBundleTabProps = {
   scenario?: JobScenario | null;
   scenarioRequestToken?: number;
   onScenarioCleared?: () => void;
+  scenarioOptions?: { id: string; title: string }[];
+  activeScenarioId?: string | null;
+  onScenarioSelected?: (id: string) => void;
 };
 
-export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onScenarioCleared }: ImportJobBundleTabProps) {
+export default function ImportJobBundleTab({
+  scenario,
+  scenarioRequestToken,
+  onScenarioCleared,
+  scenarioOptions,
+  activeScenarioId,
+  onScenarioSelected
+}: ImportJobBundleTabProps) {
   const {
     form,
     setForm,
@@ -399,6 +410,7 @@ export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onS
           </div>
         </div>
       ) : null}
+      <ScenarioSwitcher options={scenarioOptions ?? []} activeId={activeScenarioId ?? null} onSelect={onScenarioSelected} />
       <FormSection as="form" onSubmit={handlePreviewSubmit} aria-label="Import job bundle">
         <div className="flex flex-col gap-2">
           <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Source</span>

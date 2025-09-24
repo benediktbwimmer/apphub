@@ -1,4 +1,6 @@
-export type ExampleScenarioType = 'service-manifest' | 'app' | 'job';
+import type { WorkflowCreateInput } from '../../workflows/api';
+
+export type ExampleScenarioType = 'service-manifest' | 'app' | 'job' | 'workflow' | 'scenario';
 
 export type ExampleScenarioAsset = {
   label: string;
@@ -55,7 +57,17 @@ export type JobScenario = ExampleScenarioBase<'job'> & {
   };
 };
 
-export type ExampleScenario = ServiceManifestScenario | AppScenario | JobScenario;
+export type WorkflowScenario = ExampleScenarioBase<'workflow'> & {
+  form: WorkflowCreateInput;
+  includes?: string[];
+};
+
+export type ScenarioBundle = ExampleScenarioBase<'scenario'> & {
+  includes: string[];
+  focus?: 'service-manifests' | 'apps' | 'jobs' | 'workflows';
+};
+
+export type ExampleScenario = ServiceManifestScenario | AppScenario | JobScenario | WorkflowScenario | ScenarioBundle;
 
 export function isScenarioType<T extends ExampleScenarioType>(scenario: ExampleScenario, type: T): scenario is Extract<ExampleScenario, { type: T }> {
   return scenario.type === type;
@@ -66,17 +78,31 @@ export function groupScenariosByType(scenarios: ExampleScenario[]) {
     'service-manifest': ServiceManifestScenario[];
     app: AppScenario[];
     job: JobScenario[];
+    workflow: WorkflowScenario[];
+    scenario: ScenarioBundle[];
   }>(
     (acc, scenario) => {
-      if (scenario.type === 'service-manifest') {
-        acc['service-manifest'].push(scenario);
-      } else if (scenario.type === 'app') {
-        acc.app.push(scenario);
-      } else {
-        acc.job.push(scenario);
+      switch (scenario.type) {
+        case 'service-manifest':
+          acc['service-manifest'].push(scenario);
+          break;
+        case 'app':
+          acc.app.push(scenario);
+          break;
+        case 'job':
+          acc.job.push(scenario);
+          break;
+        case 'workflow':
+          acc.workflow.push(scenario);
+          break;
+        case 'scenario':
+          acc.scenario.push(scenario);
+          break;
+        default:
+          break;
       }
       return acc;
     },
-    { 'service-manifest': [], app: [], job: [] }
+    { 'service-manifest': [], app: [], job: [], workflow: [], scenario: [] }
   );
 }

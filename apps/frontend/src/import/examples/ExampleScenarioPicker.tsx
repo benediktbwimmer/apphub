@@ -26,12 +26,14 @@ type ExampleScenarioPickerProps = {
 };
 
 const TYPE_LABELS: Record<ExampleScenarioType, string> = {
+  scenario: 'Scenarios',
   'service-manifest': 'Service manifests',
   app: 'Apps',
-  job: 'Jobs'
+  job: 'Jobs',
+  workflow: 'Workflows'
 };
 
-const ORDERED_TYPES: ExampleScenarioType[] = ['service-manifest', 'app', 'job'];
+const ORDERED_TYPES: ExampleScenarioType[] = ['scenario', 'service-manifest', 'app', 'job', 'workflow'];
 
 const DIFFICULTY_LABELS = {
   beginner: 'Beginner',
@@ -70,12 +72,20 @@ function TypeFilterButton({
 function ScenarioCard({
   scenario,
   onApply,
-  isActive
+  isActive,
+  lookupScenarioById
 }: {
   scenario: ExampleScenario;
   onApply: (scenario: ExampleScenario) => void;
   isActive: boolean;
+  lookupScenarioById: (id: string) => ExampleScenario | null;
 }) {
+  const includedScenarios = scenario.type === 'scenario'
+    ? scenario.includes
+        .map((id) => lookupScenarioById(id))
+        .filter((value): value is ExampleScenario => value !== null)
+    : [];
+
   return (
     <article className={`${SCENARIO_CARD_CLASSES} ${isActive ? 'ring-2 ring-violet-500/60' : ''}`}>
       <header className="flex flex-col gap-1">
@@ -97,8 +107,23 @@ function ScenarioCard({
           ))}
         </ul>
       )}
-      {(scenario.docs?.length || scenario.assets?.length) && (
+      {(scenario.docs?.length || scenario.assets?.length || includedScenarios.length > 0) && (
         <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {includedScenarios.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <span className={SECTION_HEADER_CLASSES}>Loads the following</span>
+              <ul className="flex flex-col gap-1">
+                {includedScenarios.map((included) => (
+                  <li key={included.id} className="text-slate-600 dark:text-slate-300">
+                    <strong className="text-slate-700 dark:text-slate-100">{included.title}</strong>
+                    <span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-400 dark:text-slate-500">
+                      {TYPE_LABELS[included.type] ?? included.type}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {scenario.docs?.length ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className={SECTION_HEADER_CLASSES}>Further reading</span>
@@ -164,9 +189,17 @@ export function ExampleScenarioPicker({
   onApply
 }: ExampleScenarioPickerProps) {
   const grouped = useMemo(() => groupScenariosByType(scenarios), [scenarios]);
-  const [selectedType, setSelectedType] = useState<ExampleScenarioType>('service-manifest');
+  const [selectedType, setSelectedType] = useState<ExampleScenarioType>(() =>
+    scenarios.some((scenario) => scenario.type === 'scenario') ? 'scenario' : 'service-manifest'
+  );
 
   const scenarioList = grouped[selectedType];
+  const lookupScenarioById = useMemo(() => {
+    const entries = scenarios.map((scenario) => [scenario.id, scenario] as const);
+    return new Map(entries);
+  }, [scenarios]);
+
+  const getScenarioById = (id: string) => lookupScenarioById.get(id) ?? null;
 
   if (!open) {
     return null;
@@ -190,7 +223,7 @@ export function ExampleScenarioPicker({
             </button>
           </div>
           <nav className="flex flex-col gap-2">
-            {ORDERED_TYPES.map((type) => (
+            {ORDERED_TYPES.filter((type) => grouped[type].length > 0).map((type) => (
               <TypeFilterButton
                 key={type}
                 type={type}
@@ -215,6 +248,7 @@ export function ExampleScenarioPicker({
                 scenario={scenario}
                 onApply={onApply}
                 isActive={scenario.id === activeScenarioIds[selectedType]}
+                lookupScenarioById={getScenarioById}
               />
             ))
           )}

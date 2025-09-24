@@ -54,6 +54,8 @@ export type WorkflowJobStepInput = {
   timeoutMs?: number | null;
   retryPolicy?: unknown;
   storeResultAs?: string;
+  produces?: WorkflowAssetDeclarationInput[];
+  consumes?: WorkflowAssetDeclarationInput[];
   bundle?: {
     slug: string;
     version?: string | null;
@@ -68,6 +70,44 @@ export type WorkflowServiceRequestInput = {
   headers?: Record<string, string | { secret: { source: 'env' | 'store'; key: string; prefix?: string } }>;
   query?: Record<string, string | number | boolean>;
   body?: unknown;
+};
+
+export type WorkflowAssetFreshnessInput = {
+  maxAgeMs?: number;
+  ttlMs?: number;
+  cadenceMs?: number;
+};
+
+export type WorkflowAssetAutoMaterializeInput = {
+  onUpstreamUpdate?: boolean;
+  priority?: number;
+  parameterDefaults?: unknown;
+};
+
+export type WorkflowAssetPartitioningInput =
+  | {
+      type: 'static';
+      keys: string[];
+    }
+  | {
+      type: 'timeWindow';
+      granularity: 'hour' | 'day' | 'week' | 'month';
+      timezone?: string;
+      format?: string;
+      lookbackWindows?: number;
+    }
+  | {
+      type: 'dynamic';
+      maxKeys?: number;
+      retentionDays?: number;
+    };
+
+export type WorkflowAssetDeclarationInput = {
+  assetId: string;
+  schema?: Record<string, unknown>;
+  freshness?: WorkflowAssetFreshnessInput;
+  autoMaterialize?: WorkflowAssetAutoMaterializeInput;
+  partitioning?: WorkflowAssetPartitioningInput;
 };
 
 export type WorkflowServiceStepInput = {
@@ -85,6 +125,8 @@ export type WorkflowServiceStepInput = {
   captureResponse?: boolean;
   storeResponseAs?: string;
   request: WorkflowServiceRequestInput;
+  produces?: WorkflowAssetDeclarationInput[];
+  consumes?: WorkflowAssetDeclarationInput[];
 };
 
 export type WorkflowStepInput = WorkflowJobStepInput | WorkflowServiceStepInput;

@@ -9,6 +9,7 @@ import {
 import { useToasts } from '../../components/toast';
 import { useImportServiceManifest } from '../useImportServiceManifest';
 import type { ServiceManifestScenario } from '../examples';
+import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 
 const SERVICE_MANIFEST_DOC_URL =
   'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#service-manifests';
@@ -23,9 +24,20 @@ type ServiceManifestsTabProps = {
   scenario?: ServiceManifestScenario | null;
   scenarioRequestToken?: number;
   onScenarioCleared?: () => void;
+  scenarioOptions?: { id: string; title: string }[];
+  activeScenarioId?: string | null;
+  onScenarioSelected?: (id: string) => void;
 };
 
-export default function ServiceManifestsTab({ onImported, scenario, scenarioRequestToken, onScenarioCleared }: ServiceManifestsTabProps) {
+export default function ServiceManifestsTab({
+  onImported,
+  scenario,
+  scenarioRequestToken,
+  onScenarioCleared,
+  scenarioOptions,
+  activeScenarioId,
+  onScenarioSelected
+}: ServiceManifestsTabProps) {
   const {
     form,
     updateField,
@@ -190,6 +202,11 @@ export default function ServiceManifestsTab({ onImported, scenario, scenarioRequ
           </div>
         </div>
       ) : null}
+      <ScenarioSwitcher
+        options={scenarioOptions ?? []}
+        activeId={activeScenarioId ?? null}
+        onSelect={onScenarioSelected}
+      />
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Import service manifest">
         <FormField label="Service manifest repository" htmlFor="manifest-repo">
           <input

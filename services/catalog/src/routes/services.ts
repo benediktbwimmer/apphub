@@ -36,8 +36,7 @@ function extractBearerToken(header: unknown): string | null {
 
 function ensureServiceRegistryAuthorized(request: FastifyRequest, reply: FastifyReply): boolean {
   if (!SERVICE_REGISTRY_TOKEN) {
-    reply.status(503);
-    return false;
+    return true;
   }
   const token = extractBearerToken(request.headers.authorization);
   if (!token) {

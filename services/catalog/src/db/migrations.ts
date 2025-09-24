@@ -337,62 +337,6 @@ const migrations: Migration[] = [
     ]
   },
   {
-    id: '005_workflow_filesystem_jobs',
-    statements: [
-      `INSERT INTO job_definitions (
-         id,
-         slug,
-         name,
-         version,
-         type,
-         entry_point,
-         parameters_schema,
-         default_parameters,
-         timeout_ms,
-         retry_policy,
-         metadata
-       ) VALUES
-         (
-           'jobdef-fs-read-file',
-           'fs-read-file',
-           'Filesystem Read File',
-           1,
-           'batch',
-           'workflows.fs.readFile',
-           '{"type":"object","properties":{"hostPath":{"type":"string","minLength":1},"encoding":{"type":"string","minLength":1}},"required":["hostPath"]}'::jsonb,
-           '{"encoding":"utf8"}'::jsonb,
-           60000,
-           '{"maxAttempts":1}'::jsonb,
-           '{"description":"Reads a file from the host filesystem and returns its contents."}'::jsonb
-         ),
-         (
-           'jobdef-fs-write-file',
-           'fs-write-file',
-           'Filesystem Write File',
-           1,
-           'batch',
-           'workflows.fs.writeFile',
-           '{"type":"object","properties":{"sourcePath":{"type":"string","minLength":1},"content":{"type":"string"},"outputPath":{"type":"string","minLength":1},"outputFilename":{"type":"string","minLength":1},"encoding":{"type":"string","minLength":1},"overwrite":{"type":"boolean"}},"required":["sourcePath","content"]}'::jsonb,
-           '{"encoding":"utf8","overwrite":true}'::jsonb,
-           60000,
-           '{"maxAttempts":1}'::jsonb,
-           '{"description":"Writes summary content next to a host filesystem file."}'::jsonb
-         )
-       ON CONFLICT (slug) DO UPDATE
-       SET
-         name = EXCLUDED.name,
-         version = EXCLUDED.version,
-         type = EXCLUDED.type,
-         entry_point = EXCLUDED.entry_point,
-         parameters_schema = EXCLUDED.parameters_schema,
-         default_parameters = EXCLUDED.default_parameters,
-         timeout_ms = EXCLUDED.timeout_ms,
-         retry_policy = EXCLUDED.retry_policy,
-         metadata = EXCLUDED.metadata,
-         updated_at = NOW();`
-    ]
-  },
-  {
     id: '006_job_registry_schema',
     statements: [
       `CREATE TABLE IF NOT EXISTS job_bundles (
@@ -436,29 +380,6 @@ const migrations: Migration[] = [
          ON job_bundle_versions(bundle_id, status);`,
       `CREATE INDEX IF NOT EXISTS idx_job_bundle_versions_published_at
          ON job_bundle_versions(bundle_id, published_at DESC);`
-    ]
-  },
-  {
-    id: '007_filesystem_job_bundles',
-    statements: [
-      `UPDATE job_definitions
-         SET entry_point = 'bundle:fs-read-file@1.0.0',
-             metadata = jsonb_set(
-               jsonb_set(coalesce(metadata, '{}'::jsonb), '{registryRef}', to_jsonb('fs-read-file@1.0.0'::text), true),
-               '{legacyHandler}',
-               to_jsonb('workflows.fs.readFile'::text),
-               true
-             )
-       WHERE slug = 'fs-read-file';`,
-      `UPDATE job_definitions
-         SET entry_point = 'bundle:fs-write-file@1.0.0',
-             metadata = jsonb_set(
-               jsonb_set(coalesce(metadata, '{}'::jsonb), '{registryRef}', to_jsonb('fs-write-file@1.0.0'::text), true),
-               '{legacyHandler}',
-               to_jsonb('workflows.fs.writeFile'::text),
-               true
-             )
-      WHERE slug = 'fs-write-file';`
     ]
   },
   {
@@ -565,12 +486,6 @@ const migrations: Migration[] = [
          ON workflow_run_step_assets(asset_id, produced_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_run
          ON workflow_run_step_assets(workflow_run_id, produced_at DESC);`
-    ]
-  },
-  {
-    id: '016_remove_filesystem_job_seeds',
-    statements: [
-      `DELETE FROM job_definitions WHERE id IN ('jobdef-fs-read-file', 'jobdef-fs-write-file');`
     ]
   },
   {

@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { API_BASE_URL } from '../config';
+import { fileToEncodedPayload, type EncodedFilePayload } from '../utils/fileEncoding';
 
 export type JobImportSource = 'upload' | 'registry';
 
@@ -87,10 +88,38 @@ const DEFAULT_FORM: JobImportFormState = {
   notes: ''
 };
 
+function buildPreviewRequestBody(
+  form: JobImportFormState,
+  archivePayload: EncodedFilePayload | null
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    source: form.source,
+    notes: form.notes.trim() ? form.notes.trim() : undefined
+  };
+
+  if (form.source === 'upload') {
+    if (!archivePayload) {
+      throw new Error('Bundle archive is required for uploads');
+    }
+    body.archive = archivePayload;
+    if (form.reference.trim()) {
+      body.reference = form.reference.trim();
+    }
+  } else {
+    if (!form.reference.trim()) {
+      throw new Error('Registry reference (slug@version) is required');
+    }
+    body.reference = form.reference.trim();
+  }
+
+  return body;
+}
+
 export function useJobImportWorkflow(): UseJobImportWorkflowResult {
   const authorizedFetch = useAuthorizedFetch();
   const [form, setForm] = useState<JobImportFormState>(DEFAULT_FORM);
   const [archive, setArchiveState] = useState<File | null>(null);
+  const lastEncodedArchive = useRef<EncodedFilePayload | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewValidationErrors, setPreviewValidationErrors] = useState<JobImportValidationError[]>([]);
@@ -105,6 +134,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     setPreviewValidationErrors([]);
     setConfirmResult(null);
     setConfirmError(null);
+    lastEncodedArchive.current = null;
   }, []);
 
   const setFormField = useCallback(
@@ -127,6 +157,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
   const setArchive = useCallback(
     (file: File | null) => {
       setArchiveState(file);
+      lastEncodedArchive.current = null;
       resetPreviewState();
     },
     [resetPreviewState]
@@ -138,6 +169,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
       resetPreviewState();
       if (nextForm.source !== 'upload') {
         setArchiveState(null);
+        lastEncodedArchive.current = null;
       }
     },
     [resetPreviewState]
@@ -152,31 +184,21 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     setPreviewLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('source', form.source);
-
-      if (form.notes.trim()) {
-        formData.append('notes', form.notes.trim());
-      }
-
+      let archivePayload: EncodedFilePayload | null = null;
       if (form.source === 'upload') {
         if (!archive) {
           throw new Error('Bundle archive is required for uploads');
         }
-        formData.append('archive', archive);
-        if (form.reference.trim()) {
-          formData.append('reference', form.reference.trim());
-        }
-      } else {
-        if (!form.reference.trim()) {
-          throw new Error('Registry reference (slug@version) is required');
-        }
-        formData.append('reference', form.reference.trim());
+        archivePayload = await fileToEncodedPayload(archive);
+        lastEncodedArchive.current = archivePayload;
       }
+
+      const body = buildPreviewRequestBody(form, archivePayload);
 
       const response = await authorizedFetch(`${API_BASE_URL}/job-imports/preview`, {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
       });
 
       const payload = await response.json().catch(() => null);
@@ -212,28 +234,34 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
 
   const confirmImport = useCallback(async () => {
     if (!previewResult) {
-      setConfirmError('Generate a preview before confirming import');
+      setConfirmError('Generate a preview before confirming');
       return false;
     }
     if (previewResult.errors.length > 0) {
       setConfirmError('Resolve preview errors before confirming');
       return false;
     }
-
     setConfirmError(null);
+    setConfirmResult(null);
     setConfirmLoading(true);
 
     try {
-      const reference = `${previewResult.bundle.slug}@${previewResult.bundle.version}`;
-      const body = {
-        bundle: {
-          source: form.source,
-          reference,
-          checksum: previewResult.bundle.checksum ?? undefined,
-          dryRunId: previewResult.dryRun?.id,
-          metadata: form.notes.trim() ? { notes: form.notes.trim() } : undefined
+      let archivePayload: EncodedFilePayload | null = lastEncodedArchive.current;
+      if (form.source === 'upload') {
+        if (!archivePayload) {
+          if (!archive) {
+            throw new Error('Bundle archive is required for uploads');
+          }
+          archivePayload = await fileToEncodedPayload(archive);
+          lastEncodedArchive.current = archivePayload;
         }
-      };
+      }
+
+      const reference = `${previewResult.bundle.slug}@${previewResult.bundle.version}`;
+      const body = buildPreviewRequestBody(
+        { ...form, reference },
+        form.source === 'upload' ? archivePayload : null
+      );
 
       const response = await authorizedFetch(`${API_BASE_URL}/job-imports`, {
         method: 'POST',
@@ -260,11 +288,12 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     } finally {
       setConfirmLoading(false);
     }
-  }, [authorizedFetch, form.notes, form.source, previewResult]);
+  }, [archive, authorizedFetch, form, previewResult]);
 
   const reset = useCallback(() => {
     setForm(DEFAULT_FORM);
     setArchiveState(null);
+    lastEncodedArchive.current = null;
     resetPreviewState();
   }, [resetPreviewState]);
 

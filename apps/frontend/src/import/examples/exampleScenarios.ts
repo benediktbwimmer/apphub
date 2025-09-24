@@ -1,72 +1,198 @@
+import type { WorkflowCreateInput } from '../../workflows/api';
 import type { ExampleScenario } from './types';
 
+const telemetryAssetSchema = {
+  type: 'object',
+  properties: {
+    partitionKey: { type: 'string' },
+    instrumentId: { type: 'string' },
+    day: { type: 'string' },
+    aggregatedAt: { type: 'string', format: 'date-time' },
+    sourceFiles: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          relativePath: { type: 'string' },
+          samples: { type: 'number' }
+        },
+        required: ['relativePath']
+      }
+    },
+    metrics: {
+      type: 'object',
+      properties: {
+        samples: { type: 'number' },
+        temperatureC: {
+          type: 'object',
+          properties: {
+            min: { type: 'number' },
+            max: { type: 'number' },
+            mean: { type: 'number' }
+          },
+          required: ['min', 'max', 'mean']
+        },
+        humidityPct: {
+          type: 'object',
+          properties: {
+            min: { type: 'number' },
+            max: { type: 'number' },
+            mean: { type: 'number' }
+          },
+          required: ['min', 'max', 'mean']
+        }
+      },
+      required: ['samples', 'temperatureC', 'humidityPct']
+    },
+    anomalyWindow: {
+      type: 'object',
+      properties: {
+        flagged: { type: 'boolean' },
+        reason: { type: 'string' },
+        firstSample: { type: 'string', format: 'date-time' },
+        lastSample: { type: 'string', format: 'date-time' }
+      },
+      required: ['flagged']
+    }
+  },
+  required: ['partitionKey', 'instrumentId', 'aggregatedAt', 'metrics']
+};
+
+const alertsAssetSchema = {
+  type: 'object',
+  properties: {
+    generatedAt: { type: 'string', format: 'date-time' },
+    windowHours: { type: 'number' },
+    temperatureLimitC: { type: 'number' },
+    humidityLimitPct: { type: 'number' },
+    totalPartitions: { type: 'number' },
+    flaggedInstruments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          partitionKey: { type: 'string' },
+          instrumentId: { type: 'string' },
+          reason: { type: 'string' },
+          lastReadingAt: { type: 'string', format: 'date-time' },
+          latestMetrics: { type: 'object' }
+        },
+        required: ['partitionKey', 'instrumentId', 'reason']
+      }
+    }
+  },
+  required: ['generatedAt', 'flaggedInstruments']
+};
+
+const fleetTelemetryDailyRollupForm = {
+  slug: 'fleet-telemetry-daily-rollup',
+  name: 'Fleet Telemetry Daily Rollup',
+  version: 1,
+  description: 'Aggregates instrument CSV readings into partitioned telemetry assets.',
+  parametersSchema: {
+    type: 'object',
+    properties: {
+      dataRoot: { type: 'string', minLength: 1 },
+      instrumentId: { type: 'string', minLength: 1 },
+      day: { type: 'string', minLength: 1 },
+      temperatureLimitC: { type: 'number' },
+      humidityLimitPct: { type: 'number' },
+      outputDir: { type: 'string', minLength: 1 }
+    },
+    required: ['dataRoot', 'instrumentId', 'day', 'outputDir']
+  },
+  defaultParameters: {
+    temperatureLimitC: 30,
+    humidityLimitPct: 65,
+    outputDir: 'services/catalog/data/examples/fleet-telemetry-rollups'
+  },
+  steps: [
+    {
+      id: 'compute-telemetry',
+      name: 'Compute telemetry rollup',
+      type: 'job' as const,
+      jobSlug: 'fleet-telemetry-metrics',
+      parameters: {
+        dataRoot: '{{ parameters.dataRoot }}',
+        instrumentId: '{{ parameters.instrumentId }}',
+        day: '{{ parameters.day }}',
+        temperatureLimitC: '{{ parameters.temperatureLimitC }}',
+        humidityLimitPct: '{{ parameters.humidityLimitPct }}',
+        outputDir: '{{ parameters.outputDir }}'
+      },
+      storeResultAs: 'instrumentTelemetry',
+      produces: [
+        {
+          assetId: 'greenhouse.telemetry.instrument',
+          partitioning: {
+            type: 'dynamic',
+            maxKeys: 1000,
+            retentionDays: 120
+          },
+          freshness: {
+            ttlMs: 86_400_000
+          },
+          schema: telemetryAssetSchema
+        }
+      ]
+    }
+  ],
+  triggers: [{ type: 'manual' }]
+} as const satisfies WorkflowCreateInput;
+
+const fleetTelemetryAlertsForm = {
+  slug: 'fleet-telemetry-alerts',
+  name: 'Fleet Telemetry Alerts',
+  version: 1,
+  description: 'Evaluates telemetry partitions and raises greenhouse alerts when thresholds are breached.',
+  parametersSchema: {
+    type: 'object',
+    properties: {
+      telemetryDir: { type: 'string', minLength: 1 },
+      windowHours: { type: 'number', minimum: 1, maximum: 168 },
+      temperatureLimitC: { type: 'number' },
+      humidityLimitPct: { type: 'number' }
+    },
+    required: ['telemetryDir', 'windowHours']
+  },
+  defaultParameters: {
+    telemetryDir: 'services/catalog/data/examples/fleet-telemetry-rollups',
+    windowHours: 24,
+    temperatureLimitC: 30,
+    humidityLimitPct: 65
+  },
+  steps: [
+    {
+      id: 'scan-instruments',
+      name: 'Scan instrument telemetry',
+      type: 'job' as const,
+      jobSlug: 'greenhouse-alerts-runner',
+      parameters: {
+        telemetryDir: '{{ parameters.telemetryDir }}',
+        windowHours: '{{ parameters.windowHours }}',
+        temperatureLimitC: '{{ parameters.temperatureLimitC }}',
+        humidityLimitPct: '{{ parameters.humidityLimitPct }}'
+      },
+      consumes: [{ assetId: 'greenhouse.telemetry.instrument' }],
+      produces: [
+        {
+          assetId: 'greenhouse.telemetry.alerts',
+          autoMaterialize: {
+            onUpstreamUpdate: true,
+            priority: 6,
+            parameterDefaults: {
+              windowHours: 24
+            }
+          },
+          schema: alertsAssetSchema
+        }
+      ]
+    }
+  ],
+  triggers: [{ type: 'manual' }]
+} as const satisfies WorkflowCreateInput;
+
 export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
-  {
-    id: 'service-manifest-dev-stack',
-    type: 'service-manifest',
-    title: 'Dev stack service manifest',
-    summary: 'Registers the local AppHub developer stack services from this repository.',
-    description:
-      'Imports the manifest at `services/service-manifest.json` to register the proxy, AI connector, and tagging services that ship with the repository. Useful when populating a fresh environment without hunting for URLs.',
-    difficulty: 'beginner',
-    tags: ['ready in dev', 'uses local services'],
-    docs: [
-      {
-        label: 'Service manifests guide',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#service-manifests'
-      }
-    ],
-    assets: [
-      {
-        label: 'services/service-manifest.json',
-        path: 'services/service-manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/service-manifest.json'
-      }
-    ],
-    form: {
-      repo: 'https://github.com/benediktbwimmer/apphub.git',
-      ref: 'main',
-      configPath: 'services/service-manifest.json',
-      module: 'apphub-dev-stack'
-    },
-    analyticsTag: 'service_manifest__dev_stack'
-  },
-  {
-    id: 'apphub-core-app',
-    type: 'app',
-    title: 'Register the AppHub repository',
-    summary: 'Queues ingestion for this repository using the root Dockerfile.',
-    description:
-      'Demonstrates app registration by pointing the form at the current repository. Ingestion will build the root Dockerfile and surface detected integrations in the catalog.',
-    difficulty: 'beginner',
-    tags: ['monorepo', 'docker'],
-    docs: [
-      {
-        label: 'App onboarding playbook',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps'
-      }
-    ],
-    assets: [
-      {
-        label: 'Dockerfile',
-        path: 'Dockerfile',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/Dockerfile'
-      }
-    ],
-    form: {
-      id: 'apphub-core',
-      name: 'AppHub Core',
-      description: 'Main AppHub repository (services, workers, UI).',
-      repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
-      dockerfilePath: 'Dockerfile',
-      tags: [
-        { key: 'language', value: 'typescript' },
-        { key: 'framework', value: 'fastify' }
-      ],
-      sourceType: 'remote'
-    },
-    analyticsTag: 'app__apphub_core'
-  },
   {
     id: 'retail-sales-csv-loader-job',
     type: 'job',
@@ -246,5 +372,92 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       contentType: 'application/gzip'
     },
     analyticsTag: 'job__greenhouse_alerts_runner'
+  },
+  {
+    id: 'fleet-telemetry-daily-rollup-workflow',
+    type: 'workflow',
+    title: 'Fleet telemetry daily rollup',
+    summary: 'Creates dynamic telemetry partitions and propagates freshness metadata.',
+    description:
+      'Imports the `fleet-telemetry-daily-rollup` workflow definition. It executes the metrics job with templated parameters, registers `greenhouse.telemetry.instrument` as a dynamic asset, and keeps freshness targets aligned while emitting JSON rollups.',
+    difficulty: 'intermediate',
+    tags: ['fleet telemetry', 'dynamic partitions'],
+    docs: [
+      {
+        label: 'Fleet telemetry walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/fleet-telemetry-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/catalog/src/workflows/examples/fleetTelemetryExamples.ts'
+      }
+    ],
+    form: fleetTelemetryDailyRollupForm,
+    includes: ['fleet-telemetry-metrics-job'],
+    analyticsTag: 'workflow__fleet_telemetry_rollup'
+  },
+  {
+    id: 'fleet-telemetry-alerts-workflow',
+    type: 'workflow',
+    title: 'Fleet telemetry alerts',
+    summary: 'Monitors telemetry rollups and triggers greenhouse alerts.',
+    description:
+      'Imports the `fleet-telemetry-alerts` workflow definition. It consumes the telemetry asset, materialises alert snapshots, and demonstrates auto-materialize rules reacting to upstream updates.',
+    difficulty: 'intermediate',
+    tags: ['fleet telemetry', 'auto-materialize'],
+    docs: [
+      {
+        label: 'Fleet telemetry walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/fleet-telemetry-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/catalog/src/workflows/examples/fleetTelemetryExamples.ts'
+      }
+    ],
+    form: fleetTelemetryAlertsForm,
+    includes: ['fleet-telemetry-metrics-job', 'greenhouse-alerts-runner-job', 'fleet-telemetry-daily-rollup-workflow'],
+    analyticsTag: 'workflow__fleet_telemetry_alerts'
+  },
+  {
+    id: 'fleet-telemetry-scenario-pack',
+    type: 'scenario',
+    title: 'Fleet telemetry demo',
+    summary: 'Loads jobs and workflows required to replay the fleet telemetry walkthrough.',
+    description:
+      'Prefills the job importer with the metrics and alerts bundles, loads both workflow definitions, and keeps everything focused on the workflow tab so you can validate dependencies in one pass.',
+    tags: ['fleet telemetry', 'end-to-end'],
+    includes: [
+      'fleet-telemetry-metrics-job',
+      'greenhouse-alerts-runner-job',
+      'fleet-telemetry-daily-rollup-workflow',
+      'fleet-telemetry-alerts-workflow'
+    ],
+    focus: 'workflows',
+    analyticsTag: 'bundle__fleet_telemetry'
+  },
+  {
+    id: 'all-examples-scenario-pack',
+    type: 'scenario',
+    title: 'Load every example',
+    summary: 'Applies all service, app, job, and workflow examples in one click.',
+    description:
+      'Populates the import workspace with every curated example shipped in this repository. Useful when seeding a fresh environment or demo workspace.',
+    tags: ['quickstart'],
+    includes: [
+      'retail-sales-csv-loader-job',
+      'retail-sales-parquet-job',
+      'retail-sales-visualizer-job',
+      'fleet-telemetry-metrics-job',
+      'greenhouse-alerts-runner-job',
+      'fleet-telemetry-daily-rollup-workflow',
+      'fleet-telemetry-alerts-workflow'
+    ],
+    focus: 'workflows',
+    analyticsTag: 'bundle__all_examples'
   }
 ];

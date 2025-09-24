@@ -10,6 +10,7 @@ import { Spinner } from '../../components';
 import { useToasts } from '../../components/toast';
 import { type AppRecord, type IngestionEvent, useImportApp } from '../useImportApp';
 import type { AppScenario } from '../examples';
+import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 
 const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
@@ -75,9 +76,21 @@ type ImportAppsTabProps = {
   scenario?: AppScenario | null;
   scenarioRequestToken?: number;
   onScenarioCleared?: () => void;
+  scenarioOptions?: { id: string; title: string }[];
+  activeScenarioId?: string | null;
+  onScenarioSelected?: (id: string) => void;
 };
 
-export default function ImportAppsTab({ onAppRegistered, onViewCatalog, scenario, scenarioRequestToken, onScenarioCleared }: ImportAppsTabProps) {
+export default function ImportAppsTab({
+  onAppRegistered,
+  onViewCatalog,
+  scenario,
+  scenarioRequestToken,
+  onScenarioCleared,
+  scenarioOptions,
+  activeScenarioId,
+  onScenarioSelected
+}: ImportAppsTabProps) {
   const {
     form,
     setForm,
@@ -306,6 +319,7 @@ export default function ImportAppsTab({ onAppRegistered, onViewCatalog, scenario
           </div>
         </div>
       ) : null}
+      <ScenarioSwitcher options={scenarioOptions ?? []} activeId={activeScenarioId ?? null} onSelect={onScenarioSelected} />
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Register application">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Application details</h2>
