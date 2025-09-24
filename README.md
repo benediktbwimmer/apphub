@@ -104,8 +104,8 @@ See `docs/assets-overview.md` for auto-materialization policies and event flow d
 
 ### File Drop Watcher Demo
 
-A new sample service (`services/examples/file-drop-watcher`) demonstrates how external automations can trigger workflows. It watches
-`services/catalog/data/examples/file-drop/inbox` for new files, launches the `file-drop-relocation` workflow, and updates a simple dashboard once files land in the archive directory. Import the relocator job and workflow via the "File drop watcher demo" example scenario, then drop files into the inbox to replay the flow locally.
+A new sample service (`examples/file-drop/services/file-drop-watcher`) demonstrates how external automations can trigger workflows. It watches
+`examples/file-drop/data/inbox` for new files, launches the `file-drop-relocation` workflow, and updates a simple dashboard once files land in the archive directory. Import the relocator job and workflow via the "File drop watcher demo" example scenario, then drop files into the inbox to replay the flow locally.
 
 See `docs/file-drop-watcher.md` for setup instructions and a deeper walk-through.
 

@@ -1,8 +1,0 @@
-{
-  "parameters": {
-    "inboxDir": "services/catalog/data/examples/environmental-observatory/inbox",
-    "stagingDir": "services/catalog/data/examples/environmental-observatory/staging",
-    "hour": "2025-08-01T09",
-    "maxFiles": 10
-  }
-}

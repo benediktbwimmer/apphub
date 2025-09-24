@@ -4,10 +4,10 @@ The environmental observatory scenario models a network of field instruments tha
 
 ## Data drop and directory layout
 
-Each instrument pushes an hourly CSV into an inbox (`services/catalog/data/examples/environmental-observatory/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHH>.csv` and include per-reading metadata. The normalizer workflow copies matching files into hour-stamped folders under `staging/` before handing them to DuckDB:
+Each instrument pushes an hourly CSV into an inbox (`examples/environmental-observatory/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHH>.csv` and include per-reading metadata. The normalizer workflow copies matching files into hour-stamped folders under `staging/` before handing them to DuckDB:
 
 ```
-services/catalog/data/examples/environmental-observatory/
+examples/environmental-observatory/data/
   inbox/
     instrument_alpha_2025080109.csv
     instrument_alpha_2025080110.csv
@@ -36,10 +36,10 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `job-bundles/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, extracts metadata, and emits the partitioned raw asset. |
-| `job-bundles/observatory-duckdb-loader` | `observatory-duckdb-loader` | Appends normalized readings into a DuckDB file, producing a curated snapshot asset with per-hour partitions. |
-| `job-bundles/observatory-visualization-runner` | `observatory-visualization-runner` | Queries DuckDB for fresh aggregates, saves plot PNGs/SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
-| `job-bundles/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
+| `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, extracts metadata, and emits the partitioned raw asset. |
+| `examples/environmental-observatory/jobs/observatory-duckdb-loader` | `observatory-duckdb-loader` | Appends normalized readings into a DuckDB file, producing a curated snapshot asset with per-hour partitions. |
+| `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries DuckDB for fresh aggregates, saves plot PNGs/SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
+| `examples/environmental-observatory/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the catalog API once built.
 
@@ -56,7 +56,7 @@ The lineage graph forms a linear chain: inbox → DuckDB → plots → reports. 
 
 ## Workflows
 
-Two workflows manage the example, both declared in `services/catalog/src/workflows/examples/environmentalObservatoryExamples.ts`.
+Two workflows manage the example. Their JSON definitions live in `examples/environmental-observatory/workflows/`.
 
 ### 1. `observatory-hourly-ingest`
 
@@ -65,7 +65,7 @@ Two workflows manage the example, both declared in `services/catalog/src/workflo
   1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by hour. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off DuckDB ingestion.
   2. `observatory-duckdb-loader` consumes the raw asset, appends data into `warehouse/observatory.duckdb`, and produces `observatory.timeseries.duckdb` with `freshness.ttlMs` for fail-safe refreshes.
 - **Parameters:** `inboxDir`, `stagingDir`, `warehousePath`, `hour`, and optional quality thresholds.
-- **Default directories:** Match the example layout under `services/catalog/data/examples/environmental-observatory/`.
+- **Default directories:** Match the example layout under `examples/environmental-observatory/data/`.
 
 ### 2. `observatory-daily-publication`
 
@@ -87,32 +87,32 @@ Two workflows manage the example, both declared in `services/catalog/src/workflo
 
 1. Install native dependencies for the DuckDB-powered bundles:
 ```bash
-npm install --prefix job-bundles/observatory-duckdb-loader
-npm install --prefix job-bundles/observatory-visualization-runner
+npm install --prefix examples/environmental-observatory/jobs/observatory-duckdb-loader
+npm install --prefix examples/environmental-observatory/jobs/observatory-visualization-runner
 ```
 
 The catalog packages each observatory bundle automatically when you import the example jobs. Pre-installing dependencies keeps the first run snappy; otherwise the API runs `npm install` on demand the first time a bundle is requested.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`services/examples/environmental-observatory/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. When importing through the UI the catalog now prompts for the inbox, staging, and warehouse paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. When importing through the UI the catalog now prompts for the inbox, staging, and warehouse paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
 4. Launch the file-drop watcher in observatory mode so new inbox files trigger `observatory-hourly-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash
-   cd services/examples/file-drop-watcher
+   cd examples/environmental-observatory/services/observatory-file-watcher
    npm install
 
-   FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/environmental-observatory/inbox \
-   FILE_WATCH_STAGING_DIR=$(pwd)/../../catalog/data/examples/environmental-observatory/staging \
-   FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb \
+   FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
+   FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
+   FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
    FILE_DROP_WORKFLOW_SLUG=observatory-hourly-ingest \
    FILE_WATCH_STRATEGY=observatory \
    CATALOG_API_TOKEN=dev-ops-token \
    npm run dev
    ```
    Override `CATALOG_API_BASE_URL` if the catalog API is not running on `127.0.0.1:4000`.
-5. Register both workflows using the JSON emitted by:
+5. Register both workflows by copying the curated JSON definitions:
    ```bash
-   node -e "process.stdout.write(JSON.stringify(require('./services/catalog/src/workflows/examples/environmentalObservatoryExamples').observatoryHourlyIngestWorkflow, null, 2))" > tmp/observatory-hourly-ingest.json
-   node -e "process.stdout.write(JSON.stringify(require('./services/catalog/src/workflows/examples/environmentalObservatoryExamples').observatoryDailyPublicationWorkflow, null, 2))" > tmp/observatory-daily-publication.json
+   cp examples/environmental-observatory/workflows/observatory-hourly-ingest.json tmp/observatory-hourly-ingest.json
+   cp examples/environmental-observatory/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
 6. Simulate an instrument drop by writing new hourly CSV files into `inbox` (the watcher will mirror them into `staging/<hour>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash
@@ -123,9 +123,9 @@ The catalog packages each observatory bundle automatically when you import the e
        "partitionKey": "2025-08-01T09",
        "parameters": {
          "hour": "2025-08-01T09",
-         "inboxDir": "services/catalog/data/examples/environmental-observatory/inbox",
-         "stagingDir": "services/catalog/data/examples/environmental-observatory/staging",
-         "warehousePath": "services/catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb"
+         "inboxDir": "examples/environmental-observatory/data/inbox",
+         "stagingDir": "examples/environmental-observatory/data/staging",
+         "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb"
        }
      }'
    ```
@@ -135,6 +135,6 @@ The catalog packages each observatory bundle automatically when you import the e
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 
-8. After the visualization workflow emits `observatory.visualizations.hourly`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `services/catalog/data/examples/environmental-observatory/reports/<hour>/` to view the Markdown, HTML, and JSON outputs side by side.
+8. After the visualization workflow emits `observatory.visualizations.hourly`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory/data/reports/<hour>/` to view the Markdown, HTML, and JSON outputs side by side.
 
 This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, DuckDB snapshots, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

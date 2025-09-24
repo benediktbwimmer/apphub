@@ -1,0 +1,54 @@
+{
+  "slug": "greenhouse-alerts-runner",
+  "name": "Greenhouse Alerts Runner",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:greenhouse-alerts-runner@0.1.0#handler",
+  "timeoutMs": 90000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "fixed",
+    "initialDelayMs": 5000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "telemetryDir": { "type": "string", "minLength": 1 },
+      "windowHours": { "type": "number", "minimum": 1, "maximum": 168 },
+      "temperatureLimitC": { "type": "number" },
+      "humidityLimitPct": { "type": "number" }
+    },
+    "required": ["windowHours"]
+  },
+  "defaultParameters": {
+    "telemetryDir": "examples/fleet-telemetry/data/rollups",
+    "windowHours": 24,
+    "temperatureLimitC": 30,
+    "humidityLimitPct": 65
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "generatedAt": { "type": "string", "format": "date-time" },
+      "windowHours": { "type": "number" },
+      "temperatureLimitC": { "type": "number" },
+      "humidityLimitPct": { "type": "number" },
+      "totalPartitions": { "type": "number" },
+      "flaggedInstruments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "partitionKey": { "type": "string" },
+            "instrumentId": { "type": "string" },
+            "reason": { "type": "string" },
+            "lastReadingAt": { "type": "string", "format": "date-time" },
+            "latestMetrics": { "type": "object" }
+          },
+          "required": ["partitionKey", "instrumentId", "reason"]
+        }
+      }
+    },
+    "required": ["generatedAt", "flaggedInstruments"]
+  }
+}

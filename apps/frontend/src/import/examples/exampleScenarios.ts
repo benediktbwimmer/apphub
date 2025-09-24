@@ -159,7 +159,7 @@ const fleetTelemetryDailyRollupForm = {
   defaultParameters: {
     temperatureLimitC: 30,
     humidityLimitPct: 65,
-    outputDir: 'services/catalog/data/examples/fleet-telemetry-rollups'
+    outputDir: 'examples/fleet-telemetry/data/rollups'
   },
   steps: [
     {
@@ -211,7 +211,7 @@ const fleetTelemetryAlertsForm = {
     required: ['telemetryDir', 'windowHours']
   },
   defaultParameters: {
-    telemetryDir: 'services/catalog/data/examples/fleet-telemetry-rollups',
+    telemetryDir: 'examples/fleet-telemetry/data/rollups',
     windowHours: 24,
     temperatureLimitC: 30,
     humidityLimitPct: 65
@@ -270,29 +270,29 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Service config',
-        path: 'services/examples/environmental-observatory/service-config.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/examples/environmental-observatory/service-config.json'
+        path: 'examples/environmental-observatory/service-manifests/service-config.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/service-manifests/service-config.json'
       },
       {
         label: 'Service manifest',
-        path: 'services/examples/environmental-observatory/service-manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/examples/environmental-observatory/service-manifest.json'
+        path: 'examples/environmental-observatory/service-manifests/service-manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/service-manifests/service-manifest.json'
       },
       {
         label: 'Watcher service',
-        path: 'services/examples/file-drop-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
       }
     ],
     form: {
       repo: 'https://github.com/benediktbwimmer/apphub.git',
       ref: 'main',
-      configPath: 'services/examples/environmental-observatory/service-config.json',
+      configPath: 'examples/environmental-observatory/service-manifests/service-config.json',
       module: 'github.com/apphub/examples/environmental-observatory',
       variables: {
-        FILE_WATCH_ROOT: 'services/catalog/data/examples/environmental-observatory/inbox',
-        FILE_WATCH_STAGING_DIR: 'services/catalog/data/examples/environmental-observatory/staging',
-        FILE_WATCH_WAREHOUSE_PATH: 'services/catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb',
+        FILE_WATCH_ROOT: 'examples/environmental-observatory/data/inbox',
+        FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory/data/staging',
+        FILE_WATCH_WAREHOUSE_PATH: 'examples/environmental-observatory/data/warehouse/observatory.duckdb',
         CATALOG_API_TOKEN: 'replace-with-operator-token'
       }
     },
@@ -304,7 +304,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'File drop relocator job',
     summary: 'Moves a newly dropped file into the archive directory.',
     description:
-      'Uploads the `file-relocator` bundle (0.1.0). The watcher service triggers this job to move files out of the inbox and into `services/catalog/data/examples/file-drop/archive`, returning metadata for the dashboard.',
+      'Uploads the `file-relocator` bundle (0.1.0). The watcher service triggers this job to move files out of the inbox and into `examples/file-drop/data/archive`, returning metadata for the dashboard.',
     difficulty: 'beginner',
     tags: ['file drop', 'automation'],
     docs: [
@@ -316,19 +316,19 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'job-bundles/file-relocator/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/job-bundles/file-relocator/manifest.json'
+        path: 'examples/file-drop/jobs/file-relocator/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/file-drop/jobs/file-relocator/manifest.json'
       },
       {
         label: 'Watcher service',
-        path: 'services/examples/file-drop-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
       }
     ],
   form: {
     source: 'upload',
     reference: 'file-relocator@0.1.0',
-    notes: 'Bundle packaged from job-bundles/file-relocator. Works with the file drop watcher service.'
+    notes: 'Bundle packaged from examples/file-drop/jobs/file-relocator. Works with the file drop watcher service.'
   },
   exampleSlug: 'file-relocator',
   analyticsTag: 'job__file_relocator'
@@ -351,13 +351,13 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Watcher service',
-        path: 'services/examples/file-drop-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/examples/file-drop-watcher'
+        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
       },
       {
         label: 'Relocator bundle',
-        path: 'job-bundles/file-relocator/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/job-bundles/file-relocator'
+        path: 'examples/file-drop/jobs/file-relocator/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/file-drop/jobs/file-relocator'
       }
     ],
     form: fileDropRelocationWorkflowForm,
@@ -382,7 +382,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Retail sales CSV loader',
     summary: 'Stages the CSV ingest job that seeds `retail.sales.raw` partitions.',
     description:
-      'Uploads the `retail-sales-csv-loader` bundle (0.1.0) so you can preview the ingest job against the sample dataset in `services/catalog/data/examples/retail-sales`. Perfect for exercising the ingest loop end-to-end.',
+      'Uploads the `retail-sales-csv-loader` bundle (0.1.0) so you can preview the ingest job against the sample dataset in `examples/retail-sales/data`. Perfect for exercising the ingest loop end-to-end.',
     difficulty: 'beginner',
     tags: ['ingest', 'retail sales'],
     docs: [
@@ -394,14 +394,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Sample CSV dataset',
-        path: 'services/catalog/data/examples/retail-sales/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/catalog/data/examples/retail-sales'
+        path: 'examples/retail-sales/data/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/retail-sales/data'
       }
     ],
     form: {
       source: 'upload',
       reference: 'retail-sales-csv-loader@0.1.0',
-      notes: 'Prebuilt bundle from job-bundles/retail-sales-csv-loader. Use services/catalog/data/examples/retail-sales as dataRoot when running.'
+      notes: 'Prebuilt bundle from examples/retail-sales/jobs/retail-sales-csv-loader. Use examples/retail-sales/data as dataRoot when running.'
     },
     exampleSlug: 'retail-sales-csv-loader',
     analyticsTag: 'job__retail_sales_csv_loader'
@@ -424,19 +424,19 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'job-bundles/retail-sales-parquet-builder/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/job-bundles/retail-sales-parquet-builder/manifest.json'
+        path: 'examples/retail-sales/jobs/retail-sales-parquet-builder/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/retail-sales/jobs/retail-sales-parquet-builder/manifest.json'
       },
       {
         label: 'Sample CSV dataset',
-        path: 'services/catalog/data/examples/retail-sales/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/catalog/data/examples/retail-sales'
+        path: 'examples/retail-sales/data/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/retail-sales/data'
       }
     ],
     form: {
       source: 'upload',
       reference: 'retail-sales-parquet-builder@0.1.0',
-      notes: 'Bundle sourced from job-bundles/retail-sales-parquet-builder. Leave notes to document which partitions you are building.'
+      notes: 'Bundle sourced from examples/retail-sales/jobs/retail-sales-parquet-builder. Leave notes to document which partitions you are building.'
     },
     exampleSlug: 'retail-sales-parquet-builder',
     analyticsTag: 'job__retail_sales_parquet_builder'
@@ -459,14 +459,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Visualization job manifest',
-        path: 'job-bundles/retail-sales-visualizer/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/job-bundles/retail-sales-visualizer/manifest.json'
+        path: 'examples/retail-sales/jobs/retail-sales-visualizer/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/retail-sales/jobs/retail-sales-visualizer/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: 'retail-sales-visualizer@0.1.0',
-      notes: 'Bundle packaged from job-bundles/retail-sales-visualizer. Point parameters at the Parquet output directory when running.'
+      notes: 'Bundle packaged from examples/retail-sales/jobs/retail-sales-visualizer. Point parameters at the Parquet output directory when running.'
     },
     exampleSlug: 'retail-sales-visualizer',
     analyticsTag: 'job__retail_sales_visualizer'
@@ -477,7 +477,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Fleet telemetry metrics',
     summary: 'Aggregates raw instrument CSVs into rollup artifacts.',
     description:
-      'Uploads the `fleet-telemetry-metrics` bundle (0.1.0). With the dataset under `services/catalog/data/examples/fleet-telemetry`, you can preview the rollup workflow and emit metrics per instrument/day.',
+      'Uploads the `fleet-telemetry-metrics` bundle (0.1.0). With the dataset under `examples/fleet-telemetry/data/raw`, you can preview the rollup workflow and emit metrics per instrument/day.',
     difficulty: 'intermediate',
     tags: ['dynamic partitions', 'fleet telemetry'],
     docs: [
@@ -489,19 +489,19 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Telemetry dataset',
-        path: 'services/catalog/data/examples/fleet-telemetry/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/catalog/data/examples/fleet-telemetry'
+        path: 'examples/fleet-telemetry/data/raw/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/fleet-telemetry/data/raw'
       },
       {
         label: 'Bundle manifest',
-        path: 'job-bundles/fleet-telemetry-metrics/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/job-bundles/fleet-telemetry-metrics/manifest.json'
+        path: 'examples/fleet-telemetry/jobs/fleet-telemetry-metrics/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/fleet-telemetry/jobs/fleet-telemetry-metrics/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: 'fleet-telemetry-metrics@0.1.0',
-      notes: 'Bundle built from job-bundles/fleet-telemetry-metrics. Use services/catalog/data/examples/fleet-telemetry as dataRoot when previewing.'
+      notes: 'Bundle built from examples/fleet-telemetry/jobs/fleet-telemetry-metrics. Use examples/fleet-telemetry/data/raw as dataRoot when previewing.'
     },
     exampleSlug: 'fleet-telemetry-metrics',
     analyticsTag: 'job__fleet_telemetry_metrics'
@@ -512,7 +512,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Greenhouse alerts runner',
     summary: 'Consumes telemetry rollups to raise greenhouse alerts.',
     description:
-      'Uploads the `greenhouse-alerts-runner` bundle (0.1.0). Point the parameters at the rollup directory (`services/catalog/data/examples/fleet-telemetry-rollups`) to replay alert evaluation against the example metrics.',
+      'Uploads the `greenhouse-alerts-runner` bundle (0.1.0). Point the parameters at the rollup directory (`examples/fleet-telemetry/data/rollups`) to replay alert evaluation against the example metrics.',
     difficulty: 'intermediate',
     tags: ['alerts', 'fleet telemetry'],
     docs: [
@@ -524,14 +524,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Telemetry rollups',
-        path: 'services/catalog/data/examples/fleet-telemetry-rollups/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/services/catalog/data/examples/fleet-telemetry-rollups'
+        path: 'examples/fleet-telemetry/data/rollups/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/fleet-telemetry/data/rollups'
       }
     ],
     form: {
       source: 'upload',
       reference: 'greenhouse-alerts-runner@0.1.0',
-      notes: 'Bundle packaged from job-bundles/greenhouse-alerts-runner. Provide telemetryDir pointing at services/catalog/data/examples/fleet-telemetry-rollups.'
+      notes: 'Bundle packaged from examples/fleet-telemetry/jobs/greenhouse-alerts-runner. Provide telemetryDir pointing at examples/fleet-telemetry/data/rollups.'
     },
     exampleSlug: 'greenhouse-alerts-runner',
     analyticsTag: 'job__greenhouse_alerts_runner'
@@ -554,7 +554,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/catalog/src/workflows/examples/fleetTelemetryExamples.ts'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/fleet-telemetry/workflows/fleet-telemetry-daily-rollup.json'
       }
     ],
     form: fleetTelemetryDailyRollupForm,
@@ -579,7 +579,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/services/catalog/src/workflows/examples/fleetTelemetryExamples.ts'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/fleet-telemetry/workflows/fleet-telemetry-alerts.json'
       }
     ],
     form: fleetTelemetryAlertsForm,

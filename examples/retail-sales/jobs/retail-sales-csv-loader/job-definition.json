@@ -1,0 +1,26 @@
+{
+  "slug": "retail-sales-csv-loader",
+  "name": "Retail Sales CSV Loader",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:retail-sales-csv-loader@0.1.0#handler",
+  "timeoutMs": 60000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "exponential"
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "dataRoot": { "type": "string", "minLength": 1 },
+      "partitionKey": { "type": "string", "minLength": 1 },
+      "datasetName": { "type": "string" },
+      "sampleSize": { "type": "number", "minimum": 1, "maximum": 20 }
+    },
+    "required": ["dataRoot", "partitionKey"]
+  },
+  "defaultParameters": {
+    "datasetName": "retail_sales",
+    "sampleSize": 5
+  }
+}

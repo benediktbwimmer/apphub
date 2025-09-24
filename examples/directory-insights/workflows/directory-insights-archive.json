@@ -1,0 +1,82 @@
+{
+  "slug": "directory-insights-archive",
+  "name": "Directory Insights Archive",
+  "version": 1,
+  "description": "Compresses the directory insights report artifacts into a tarball.",
+  "parametersSchema": {
+    "type": "object",
+    "required": ["reportAsset", "archiveDir"],
+    "properties": {
+      "reportAsset": { "type": "object" },
+      "archiveDir": { "type": "string", "minLength": 1 },
+      "archiveName": { "type": "string", "minLength": 1 }
+    }
+  },
+  "defaultParameters": {
+    "archiveDir": "examples/directory-insights/data/archives",
+    "reportAsset": {
+      "assetId": "directory.insights.report",
+      "outputDir": "examples/directory-insights/data/output",
+      "artifacts": [
+        { "relativePath": "scan-data.json" },
+        { "relativePath": "index.html" },
+        { "relativePath": "summary.md" }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "id": "zip-report",
+      "name": "Archive report artifacts",
+      "type": "job",
+      "jobSlug": "archive-report",
+      "parameters": {
+        "reportDir": "{{ parameters.reportAsset.outputDir }}",
+        "archiveDir": "{{ parameters.archiveDir }}",
+        "archiveName": "{{ parameters.archiveName }}",
+        "asset": "{{ parameters.reportAsset }}"
+      },
+      "consumes": [
+        { "assetId": "directory.insights.report" }
+      ],
+      "produces": [
+        {
+          "assetId": "directory.insights.archive",
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "parameterDefaults": {
+              "archiveDir": "examples/directory-insights/data/archives",
+              "reportAsset": {
+                "assetId": "directory.insights.report",
+                "outputDir": "examples/directory-insights/data/output",
+                "artifacts": [
+                  { "relativePath": "scan-data.json" },
+                  { "relativePath": "index.html" },
+                  { "relativePath": "summary.md" }
+                ]
+              }
+            }
+          },
+          "schema": {
+            "type": "object",
+            "required": ["archivePath", "generatedAt", "artifactCount"],
+            "properties": {
+              "archivePath": { "type": "string" },
+              "archiveDir": { "type": "string" },
+              "archiveName": { "type": "string" },
+              "sourceAssetId": { "type": "string" },
+              "sourceOutputDir": { "type": "string" },
+              "reportTitle": { "type": ["string", "null"] },
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "artifactCount": { "type": "number" },
+              "artifacts": { "type": "array" }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" }
+  ]
+}

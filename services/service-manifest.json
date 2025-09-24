@@ -36,8 +36,8 @@
       "kind": "workflow-automation",
       "baseUrl": "http://127.0.0.1:4310",
       "healthEndpoint": "/healthz",
-      "devCommand": "FILE_WATCH_ROOT=../../catalog/data/examples/file-drop/inbox FILE_ARCHIVE_DIR=../../catalog/data/examples/file-drop/archive CATALOG_API_BASE_URL=http://127.0.0.1:4000 CATALOG_API_TOKEN=dev-ops-token PORT=4310 npm run dev",
-      "workingDir": "services/examples/file-drop-watcher"
+      "devCommand": "FILE_WATCH_ROOT=../../data/inbox FILE_ARCHIVE_DIR=../../data/archive CATALOG_API_BASE_URL=http://127.0.0.1:4000 CATALOG_API_TOKEN=dev-ops-token PORT=4310 npm run dev",
+      "workingDir": "examples/file-drop/services/file-drop-watcher"
     }
   ]
 }

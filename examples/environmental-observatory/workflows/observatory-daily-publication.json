@@ -1,0 +1,157 @@
+{
+  "slug": "observatory-daily-publication",
+  "name": "Observatory Visualization & Reports",
+  "version": 1,
+  "description": "Generates plots and publishes hourly status reports from DuckDB snapshots.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "warehousePath": { "type": "string", "minLength": 1 },
+      "plotsDir": { "type": "string", "minLength": 1 },
+      "reportsDir": { "type": "string", "minLength": 1 },
+      "partitionKey": { "type": "string", "minLength": 1 },
+      "lookbackHours": { "type": "number", "minimum": 1, "maximum": 336 },
+      "siteFilter": { "type": "string" },
+      "reportTemplate": { "type": "string" }
+    },
+    "required": ["warehousePath", "plotsDir", "reportsDir", "partitionKey"]
+  },
+  "defaultParameters": {
+    "lookbackHours": 72,
+    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+    "plotsDir": "examples/environmental-observatory/data/plots",
+    "reportsDir": "examples/environmental-observatory/data/reports"
+  },
+  "steps": [
+    {
+      "id": "generate-plots",
+      "name": "Generate observatory plots",
+      "type": "job",
+      "jobSlug": "observatory-visualization-runner",
+      "parameters": {
+        "warehousePath": "{{ parameters.warehousePath }}",
+        "plotsDir": "{{ parameters.plotsDir }}",
+        "partitionKey": "{{ parameters.partitionKey }}",
+        "lookbackHours": "{{ parameters.lookbackHours }}",
+        "siteFilter": "{{ parameters.siteFilter }}"
+      },
+      "storeResultAs": "visualizations",
+      "consumes": [
+        { "assetId": "observatory.timeseries.duckdb" }
+      ],
+      "produces": [
+        {
+          "assetId": "observatory.visualizations.hourly",
+          "freshness": { "ttlMs": 86400000 },
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "priority": 6
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "partitionKey": { "type": "string" },
+              "plotsDir": { "type": "string" },
+              "lookbackHours": { "type": "number" },
+              "artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "mediaType": { "type": "string" },
+                    "description": { "type": "string" },
+                    "sizeBytes": { "type": "number" }
+                  },
+                  "required": ["relativePath", "mediaType"]
+                }
+              },
+              "metrics": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": ["generatedAt", "partitionKey", "plotsDir", "artifacts"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "publish-report",
+      "name": "Publish status report",
+      "type": "job",
+      "jobSlug": "observatory-report-publisher",
+      "dependsOn": ["generate-plots"],
+      "parameters": {
+        "reportsDir": "{{ parameters.reportsDir }}",
+        "plotsDir": "{{ parameters.plotsDir }}",
+        "partitionKey": "{{ parameters.partitionKey }}",
+        "reportTemplate": "{{ parameters.reportTemplate }}",
+        "visualizationAsset": "{{ shared.visualizations }}"
+      },
+      "consumes": [
+        { "assetId": "observatory.visualizations.hourly" }
+      ],
+      "produces": [
+        {
+          "assetId": "observatory.reports.status",
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "priority": 7
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "reportsDir": { "type": "string" },
+              "reportFiles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "mediaType": { "type": "string" },
+                    "sizeBytes": { "type": "number" }
+                  },
+                  "required": ["relativePath", "mediaType"]
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "instrumentCount": { "type": "number" },
+                  "siteCount": { "type": "number" },
+                  "alertCount": { "type": "number" }
+                }
+              },
+              "plotsReferenced": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "altText": { "type": "string" }
+                  },
+                  "required": ["relativePath"]
+                }
+              }
+            },
+            "required": ["generatedAt", "reportsDir", "reportFiles"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" },
+    {
+      "type": "schedule",
+      "schedule": {
+        "cron": "15 * * * *",
+        "timezone": "UTC",
+        "catchUp": false
+      }
+    }
+  ]
+}

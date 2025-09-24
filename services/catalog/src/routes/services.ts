@@ -119,14 +119,41 @@ const gitShaSchema = z
 
 const serviceConfigImportSchema = z
   .object({
-    repo: z.string().min(1),
+    repo: z.string().min(1).optional(),
+    path: z.string().min(1).optional(),
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
     module: z.string().min(1).optional(),
     variables: z.record(z.string().min(1), z.string()).optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasRepo = typeof value.repo === 'string' && value.repo.trim().length > 0;
+    const hasPath = typeof value.path === 'string' && value.path.trim().length > 0;
+
+    if (hasRepo === hasPath) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide exactly one of "repo" or "path" when importing service configs.'
+      });
+    }
+
+    if (!hasRepo) {
+      if (value.ref) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'The "ref" field can only be used with git-based imports.'
+        });
+      }
+      if (value.commit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'The "commit" field can only be used with git-based imports.'
+        });
+      }
+    }
+  });
 
 export type ServiceRoutesOptions = {
   registry: {
@@ -224,7 +251,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     }
 
     const payload = parseBody.data;
-    const repo = payload.repo.trim();
+    const repo = payload.repo?.trim() || null;
+    const localPath = payload.path?.trim() || null;
     const ref = payload.ref?.trim() || undefined;
     const commit = payload.commit?.trim() || undefined;
     const configPath = payload.configPath?.trim() || undefined;
@@ -233,7 +261,15 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
 
     let preview;
     try {
-      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint, variables });
+      preview = await previewServiceConfigImport({
+        repo,
+        path: localPath,
+        ref,
+        commit,
+        configPath,
+        module: moduleHint,
+        variables
+      });
     } catch (err) {
       reply.status(400);
       return { error: (err as Error).message };
@@ -275,7 +311,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     try {
       await appendServiceConfigImport(targetConfigPath, {
         module: preview.moduleId,
-        repo,
+        repo: repo ?? undefined,
+        path: localPath ?? undefined,
         ref,
         commit,
         configPath,
@@ -316,7 +353,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     }
 
     const payload = parseBody.data;
-    const repo = payload.repo.trim();
+    const repo = payload.repo?.trim() || null;
+    const localPath = payload.path?.trim() || null;
     const ref = payload.ref?.trim() || undefined;
     const commit = payload.commit?.trim() || undefined;
     const configPath = payload.configPath?.trim() || undefined;
@@ -325,7 +363,15 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
 
     let preview;
     try {
-      preview = await previewServiceConfigImport({ repo, ref, commit, configPath, module: moduleHint, variables });
+      preview = await previewServiceConfigImport({
+        repo,
+        path: localPath,
+        ref,
+        commit,
+        configPath,
+        module: moduleHint,
+        variables
+      });
     } catch (err) {
       reply.status(400);
       return { error: (err as Error).message };
@@ -367,7 +413,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     try {
       await appendServiceConfigImport(targetConfigPath, {
         module: preview.moduleId,
-        repo,
+        repo: repo ?? undefined,
+        path: localPath ?? undefined,
         ref,
         commit,
         configPath,

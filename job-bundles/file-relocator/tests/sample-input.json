@@ -1,7 +1,0 @@
-{
-  "dropId": "sample-drop",
-  "sourcePath": "services/catalog/data/examples/file-drop/inbox/sample.txt",
-  "relativePath": "sample.txt",
-  "destinationDir": "services/catalog/data/examples/file-drop/archive",
-  "destinationFilename": "sample.txt"
-}

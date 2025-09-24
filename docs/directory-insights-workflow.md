@@ -9,7 +9,7 @@ This runbook captures the exact steps needed to publish the directory scanning a
 - Commands below assume execution from the repository root.
 
 ## 1. Package the Job Bundles
-Two job bundles live under `job-bundles/`:
+Two job bundles live under `examples/directory-insights/jobs/`:
 
 - `scan-directory`: recursively walks a directory, collecting per-file, per-extension, and per-depth metrics with truncation safeguards.
 - `generate-visualizations`: consumes the scan output and emits an HTML dashboard, JSON dataset, and Markdown summary (bundle version `0.1.2`).
@@ -17,8 +17,8 @@ Two job bundles live under `job-bundles/`:
 Rebuild both bundles so the artifacts and checksums are fresh:
 
 ```bash
-npx tsx apps/cli/src/index.ts jobs package job-bundles/scan-directory --force
-npx tsx apps/cli/src/index.ts jobs package job-bundles/generate-visualizations --force
+npx tsx apps/cli/src/index.ts jobs package examples/directory-insights/jobs/scan-directory --force
+npx tsx apps/cli/src/index.ts jobs package examples/directory-insights/jobs/generate-visualizations --force
 ```
 
 The commands regenerate `artifacts/*.tgz` and matching `.sha256` files referenced by the publish payloads in the next step.

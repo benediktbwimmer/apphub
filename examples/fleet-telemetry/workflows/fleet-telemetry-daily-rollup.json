@@ -1,0 +1,112 @@
+{
+  "slug": "fleet-telemetry-daily-rollup",
+  "name": "Fleet Telemetry Daily Rollup",
+  "version": 1,
+  "description": "Aggregates instrument CSV readings into partitioned telemetry assets.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "dataRoot": { "type": "string", "minLength": 1 },
+      "instrumentId": { "type": "string", "minLength": 1 },
+      "day": { "type": "string", "minLength": 1 },
+      "temperatureLimitC": { "type": "number" },
+      "humidityLimitPct": { "type": "number" },
+      "outputDir": { "type": "string", "minLength": 1 }
+    },
+    "required": ["dataRoot", "instrumentId", "day", "outputDir"]
+  },
+  "defaultParameters": {
+    "temperatureLimitC": 30,
+    "humidityLimitPct": 65,
+    "outputDir": "examples/fleet-telemetry/data/rollups"
+  },
+  "steps": [
+    {
+      "id": "compute-telemetry",
+      "name": "Compute telemetry rollup",
+      "type": "job",
+      "jobSlug": "fleet-telemetry-metrics",
+      "parameters": {
+        "dataRoot": "{{ parameters.dataRoot }}",
+        "instrumentId": "{{ parameters.instrumentId }}",
+        "day": "{{ parameters.day }}",
+        "temperatureLimitC": "{{ parameters.temperatureLimitC }}",
+        "humidityLimitPct": "{{ parameters.humidityLimitPct }}",
+        "outputDir": "{{ parameters.outputDir }}"
+      },
+      "storeResultAs": "instrumentTelemetry",
+      "produces": [
+        {
+          "assetId": "greenhouse.telemetry.instrument",
+          "partitioning": {
+            "type": "dynamic",
+            "maxKeys": 1000,
+            "retentionDays": 120
+          },
+          "freshness": {
+            "ttlMs": 86400000
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "partitionKey": { "type": "string" },
+              "instrumentId": { "type": "string" },
+              "day": { "type": "string" },
+              "aggregatedAt": { "type": "string", "format": "date-time" },
+              "sourceFiles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "samples": { "type": "number" }
+                  },
+                  "required": ["relativePath"]
+                }
+              },
+              "metrics": {
+                "type": "object",
+                "properties": {
+                  "samples": { "type": "number" },
+                  "temperatureC": {
+                    "type": "object",
+                    "properties": {
+                      "min": { "type": "number" },
+                      "max": { "type": "number" },
+                      "mean": { "type": "number" }
+                    },
+                    "required": ["min", "max", "mean"]
+                  },
+                  "humidityPct": {
+                    "type": "object",
+                    "properties": {
+                      "min": { "type": "number" },
+                      "max": { "type": "number" },
+                      "mean": { "type": "number" }
+                    },
+                    "required": ["min", "max", "mean"]
+                  }
+                },
+                "required": ["samples", "temperatureC", "humidityPct"]
+              },
+              "anomalyWindow": {
+                "type": "object",
+                "properties": {
+                  "flagged": { "type": "boolean" },
+                  "reason": { "type": "string" },
+                  "firstSample": { "type": "string", "format": "date-time" },
+                  "lastSample": { "type": "string", "format": "date-time" }
+                },
+                "required": ["flagged"]
+              }
+            },
+            "required": ["partitionKey", "instrumentId", "aggregatedAt", "metrics"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" }
+  ]
+}

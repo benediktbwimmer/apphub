@@ -1,0 +1,27 @@
+{
+  "slug": "retail-sales-visualizer",
+  "name": "Retail Sales Visualizer",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:retail-sales-visualizer@0.1.0#handler",
+  "timeoutMs": 90000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "fixed",
+    "initialDelayMs": 5000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "warehouseDir": { "type": "string", "minLength": 1 },
+      "outputDir": { "type": "string", "minLength": 1 },
+      "reportTitle": { "type": "string" },
+      "lookback": { "type": "number", "minimum": 1, "maximum": 90 }
+    },
+    "required": ["warehouseDir", "outputDir"]
+  },
+  "defaultParameters": {
+    "reportTitle": "Retail Sales Daily Report",
+    "lookback": 14
+  }
+}

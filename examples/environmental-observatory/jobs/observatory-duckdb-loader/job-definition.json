@@ -1,0 +1,48 @@
+{
+  "slug": "observatory-duckdb-loader",
+  "name": "Observatory DuckDB Loader",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:observatory-duckdb-loader@0.1.0#handler",
+  "timeoutMs": 180000,
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "strategy": "exponential",
+    "initialDelayMs": 10000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "warehousePath": { "type": "string", "minLength": 1 },
+      "hour": { "type": "string", "minLength": 1 },
+      "rawAsset": { "type": "object" },
+      "vacuum": { "type": "boolean" }
+    },
+    "required": ["warehousePath", "hour", "rawAsset"]
+  },
+  "defaultParameters": {
+    "vacuum": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "partitionKey": { "type": "string" },
+      "warehousePath": { "type": "string" },
+      "appendedRows": { "type": "number" },
+      "totalRows": { "type": "number" },
+      "tables": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "rowCount": { "type": "number" }
+          },
+          "required": ["name", "rowCount"]
+        }
+      },
+      "checkpointCreatedAt": { "type": "string", "format": "date-time" }
+    },
+    "required": ["partitionKey", "warehousePath", "appendedRows", "checkpointCreatedAt"]
+  }
+}

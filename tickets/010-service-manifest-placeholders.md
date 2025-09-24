@@ -29,7 +29,7 @@ The environmental observatory example (and future manifests) need interactive co
    - Persist entered values across retries and pass them with the import request.
 
 4. **Example Update**
-   - Convert `services/examples/environmental-observatory/service-manifest.json` to use placeholders for inbox/staging/warehouse/token.
+   - Convert `examples/environmental-observatory/service-manifests/service-manifest.json` to use placeholders for inbox/staging/warehouse/token.
    - Update documentation to guide operators on how prompts appear during import.
 
 5. **Testing & Validation**

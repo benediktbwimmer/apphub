@@ -9,10 +9,10 @@ This runbook adds a downstream workflow that consumes the `directory.insights.re
 - Commands assume execution from the repository root on the host.
 
 ## 1. Package the Archive Job Bundle
-The archive job lives in `job-bundles/archive-report`. Regenerate its artifact to pick up source edits:
+The archive job lives in `examples/directory-insights/jobs/archive-report`. Regenerate its artifact to pick up source edits:
 
 ```bash
-npx tsx apps/cli/src/index.ts jobs package job-bundles/archive-report --force
+npx tsx apps/cli/src/index.ts jobs package examples/directory-insights/jobs/archive-report --force
 ```
 
 The CLI writes `artifacts/archive-report-0.1.1.tgz` plus the matching `.sha256` checksum. Both files are required for publishing.

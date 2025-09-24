@@ -1,0 +1,110 @@
+{
+  "slug": "retail-sales-insights",
+  "name": "Retail Sales Insights Publishing",
+  "version": 1,
+  "description": "Aggregates Parquet partitions, renders plots, and publishes a static dashboard.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "warehouseDir": { "type": "string", "minLength": 1 },
+      "outputDir": { "type": "string", "minLength": 1 },
+      "reportTitle": { "type": "string" },
+      "lookback": { "type": "number", "minimum": 1, "maximum": 90 }
+    },
+    "required": ["warehouseDir", "outputDir"]
+  },
+  "defaultParameters": {
+    "reportTitle": "Retail Sales Daily Report",
+    "lookback": 14
+  },
+  "steps": [
+    {
+      "id": "render-report",
+      "name": "Render dashboard",
+      "type": "job",
+      "jobSlug": "retail-sales-visualizer",
+      "parameters": {
+        "warehouseDir": "{{ parameters.warehouseDir }}",
+        "outputDir": "{{ parameters.outputDir }}",
+        "reportTitle": "{{ parameters.reportTitle }}",
+        "lookback": "{{ parameters.lookback }}"
+      },
+      "storeResultAs": "report",
+      "consumes": [
+        { "assetId": "retail.sales.parquet" }
+      ],
+      "produces": [
+        {
+          "assetId": "retail.sales.report",
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "priority": 4
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "reportTitle": { "type": "string" },
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "partitions": { "type": "number" },
+              "totalRevenue": { "type": "number" },
+              "totalUnits": { "type": "number" },
+              "averageOrderValue": { "type": "number" },
+              "revenueSeries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": { "type": "string" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["partitionKey", "revenue"]
+                }
+              },
+              "topCategories": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "category": { "type": "string" },
+                    "revenue": { "type": "number" },
+                    "share": { "type": "number" }
+                  },
+                  "required": ["category", "revenue"]
+                }
+              },
+              "topRegions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "region": { "type": "string" },
+                    "revenue": { "type": "number" },
+                    "share": { "type": "number" }
+                  },
+                  "required": ["region", "revenue"]
+                }
+              },
+              "artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "mediaType": { "type": "string" },
+                    "description": { "type": "string" },
+                    "sizeBytes": { "type": "number" }
+                  },
+                  "required": ["relativePath", "mediaType"]
+                }
+              }
+            },
+            "required": ["reportTitle", "generatedAt", "partitions", "totalRevenue", "artifacts"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" }
+  ]
+}

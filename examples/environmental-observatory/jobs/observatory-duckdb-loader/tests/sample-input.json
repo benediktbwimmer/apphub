@@ -1,0 +1,25 @@
+{
+  "parameters": {
+    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+    "hour": "2025-08-01T09",
+    "rawAsset": {
+      "partitionKey": "2025-08-01T09",
+      "hour": "2025-08-01T09",
+      "stagingDir": "examples/environmental-observatory/data/staging",
+      "sourceFiles": [
+        {
+          "relativePath": "2025-08-01T09/instrument_alpha_2025080109.csv",
+          "instrumentId": "instrument_alpha",
+          "site": "west-basin",
+          "rows": 6
+        },
+        {
+          "relativePath": "2025-08-01T09/instrument_bravo_2025080109.csv",
+          "instrumentId": "instrument_bravo",
+          "site": "hillcrest",
+          "rows": 6
+        }
+      ]
+    }
+  }
+}

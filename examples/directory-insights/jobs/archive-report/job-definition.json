@@ -1,0 +1,35 @@
+{
+  "slug": "archive-report",
+  "name": "Directory Report Archiver",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:archive-report@0.1.1#handler",
+  "timeoutMs": 180000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "fixed",
+    "initialDelayMs": 10000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "reportDir": { "type": "string", "minLength": 1 },
+      "archiveDir": { "type": "string", "minLength": 1 },
+      "archiveName": { "type": "string" },
+      "asset": { "type": "object" }
+    },
+    "required": ["reportDir", "archiveDir", "asset"]
+  },
+  "defaultParameters": {
+    "archiveName": "directory-report.tar.gz"
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "archivePath": { "type": "string" },
+      "bytesWritten": { "type": "number" },
+      "artifactCount": { "type": "number" }
+    },
+    "required": ["archivePath", "bytesWritten", "artifactCount"]
+  }
+}

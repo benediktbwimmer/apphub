@@ -1,0 +1,61 @@
+{
+  "services": [
+    {
+      "slug": "observatory-file-watcher",
+      "displayName": "Observatory File Watcher",
+      "kind": "workflow-watcher",
+      "baseUrl": "http://127.0.0.1:4310",
+      "healthEndpoint": "/healthz",
+      "devCommand": "npm run dev",
+      "workingDir": "examples/environmental-observatory/services/observatory-file-watcher",
+      "env": [
+        { "key": "PORT", "value": "4310" },
+        {
+          "key": "FILE_WATCH_ROOT",
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_ROOT",
+              "default": "examples/environmental-observatory/data/inbox",
+              "description": "Directory monitored for incoming hourly CSV drops."
+            }
+          }
+        },
+        {
+          "key": "FILE_WATCH_STAGING_DIR",
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_STAGING_DIR",
+              "default": "examples/environmental-observatory/data/staging",
+              "description": "Staging directory where normalized files are copied prior to ingest."
+            }
+          }
+        },
+        {
+          "key": "FILE_WATCH_WAREHOUSE_PATH",
+          "value": {
+            "$var": {
+              "name": "FILE_WATCH_WAREHOUSE_PATH",
+              "default": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+              "description": "Destination DuckDB database storing observatory snapshots."
+            }
+          }
+        },
+        { "key": "FILE_WATCH_STRATEGY", "value": "observatory" },
+        { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-hourly-ingest" },
+        { "key": "FILE_WATCH_MAX_FILES", "value": "64" },
+        { "key": "FILE_WATCH_VACUUM", "value": "false" },
+        { "key": "FILE_WATCH_AUTO_COMPLETE", "value": "true" },
+        { "key": "CATALOG_API_BASE_URL", "value": "http://127.0.0.1:4000" },
+        {
+          "key": "CATALOG_API_TOKEN",
+          "value": {
+            "$var": {
+              "name": "CATALOG_API_TOKEN",
+              "description": "Operator API token used to trigger workflows and update run status."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

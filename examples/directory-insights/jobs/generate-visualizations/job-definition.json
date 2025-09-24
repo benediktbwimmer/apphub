@@ -1,0 +1,45 @@
+{
+  "slug": "generate-visualizations",
+  "name": "Directory Visualization Builder",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:generate-visualizations@0.1.2#handler",
+  "timeoutMs": 180000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "fixed",
+    "initialDelayMs": 5000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "outputDir": { "type": "string", "minLength": 1 },
+      "reportTitle": { "type": "string" },
+      "scanData": { "type": "object" }
+    },
+    "required": ["outputDir", "scanData"]
+  },
+  "defaultParameters": {
+    "reportTitle": "Directory Visualization Report"
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "relativePath": { "type": "string" },
+            "mediaType": { "type": "string" },
+            "description": { "type": "string" },
+            "sizeBytes": { "type": "number" }
+          },
+          "required": ["relativePath", "mediaType", "sizeBytes"]
+        }
+      },
+      "count": { "type": "number" }
+    },
+    "required": ["files", "count"]
+  }
+}

@@ -30,13 +30,40 @@ const gitShaSchema = z
 const serviceConfigImportSchema = z
   .object({
     module: z.string().min(1),
-    repo: z.string().min(1),
+    repo: z.string().min(1).optional(),
+    path: z.string().min(1).optional(),
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
     variables: z.record(z.string().min(1), z.string()).optional()
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasRepo = typeof value.repo === 'string' && value.repo.trim().length > 0;
+    const hasPath = typeof value.path === 'string' && value.path.trim().length > 0;
+
+    if (hasRepo === hasPath) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide exactly one of "repo" or "path" when importing service configs.'
+      });
+    }
+
+    if (!hasRepo) {
+      if (value.ref) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'The "ref" field can only be used with git-based imports.'
+        });
+      }
+      if (value.commit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'The "commit" field can only be used with git-based imports.'
+        });
+      }
+    }
+  });
 
 export type ServiceConfigImport = z.infer<typeof serviceConfigImportSchema>;
 
@@ -814,38 +841,51 @@ async function loadConfigImport(
   let networks: LoadedServiceNetwork[] = [];
   let resolvedCommit: string | null = null;
   try {
-    const cloneArgs: string[] = [];
-    if (!importConfig.commit) {
-      cloneArgs.push('--depth', '1');
-    }
-    if (importConfig.ref) {
-      cloneArgs.push('--branch', importConfig.ref);
-      cloneArgs.push('--single-branch');
-    }
-    await git.clone(importConfig.repo, tempDir, cloneArgs);
-    const repoGit = simpleGit(tempDir);
+    let repoRoot: string;
+    let sourceLabelBase: string;
 
-    if (importConfig.commit) {
-      await repoGit.checkout(importConfig.commit);
-    } else if (importConfig.ref) {
-      await repoGit.checkout(importConfig.ref);
-    }
+    if (importConfig.repo) {
+      const cloneArgs: string[] = [];
+      if (!importConfig.commit) {
+        cloneArgs.push('--depth', '1');
+      }
+      if (importConfig.ref) {
+        cloneArgs.push('--branch', importConfig.ref);
+        cloneArgs.push('--single-branch');
+      }
+      await git.clone(importConfig.repo, tempDir, cloneArgs);
+      const repoGit = simpleGit(tempDir);
 
-    try {
-      const headSha = await repoGit.revparse(['HEAD']);
-      resolvedCommit = headSha.trim();
-    } catch (err) {
-      errors.push({
-        source: `git:${importConfig.repo}`,
-        error: new Error(`failed to resolve HEAD commit: ${(err as Error).message}`)
-      });
+      if (importConfig.commit) {
+        await repoGit.checkout(importConfig.commit);
+      } else if (importConfig.ref) {
+        await repoGit.checkout(importConfig.ref);
+      }
+
+      try {
+        const headSha = await repoGit.revparse(['HEAD']);
+        resolvedCommit = headSha.trim();
+      } catch (err) {
+        errors.push({
+          source: `git:${importConfig.repo}`,
+          error: new Error(`failed to resolve HEAD commit: ${(err as Error).message}`)
+        });
+      }
+
+      repoRoot = tempDir;
+      const baseLabel = `git:${importConfig.repo}`;
+      const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
+      sourceLabelBase = `${baseLabel}#${commitLabel}`;
+    } else if (importConfig.path) {
+      repoRoot = path.resolve(importConfig.path);
+      sourceLabelBase = `path:${repoRoot}`;
+    } else {
+      throw new Error('service import must provide either a git repository or a local path');
     }
 
     const configPathRelative = importConfig.configPath ?? 'service-config.json';
-    const configFilePath = path.resolve(tempDir, configPathRelative);
-    const baseLabel = `git:${importConfig.repo}`;
-    const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
-    const sourceLabel = joinSourceLabel(`${baseLabel}#${commitLabel}`, configPathRelative);
+    const configFilePath = path.resolve(repoRoot, configPathRelative);
+    const sourceLabel = joinSourceLabel(sourceLabelBase, configPathRelative);
     const expectedModule =
       options.expectedModuleOverride === undefined ? importConfig.module : options.expectedModuleOverride;
     const result = await loadConfigRecursive({
@@ -853,7 +893,7 @@ async function loadConfigImport(
       sourceLabel,
       expectedModule,
       visitedModules,
-      repoRoot: tempDir,
+      repoRoot,
       variables: importConfig.variables ?? null,
       placeholderCollector: options.placeholderCollector,
       placeholderMode: options.placeholderMode
@@ -863,8 +903,13 @@ async function loadConfigImport(
     networks = result.networks;
     errors.push(...result.errors);
   } catch (err) {
+    const sourceLabel = importConfig.repo
+      ? `git:${importConfig.repo}`
+      : importConfig.path
+        ? `path:${path.resolve(importConfig.path)}`
+        : 'service-import';
     errors.push({
-      source: `git:${importConfig.repo}`,
+      source: sourceLabel,
       error: err as Error
     });
   } finally {
@@ -909,7 +954,8 @@ export async function loadServiceConfigurations(configPaths: string[]): Promise<
 }
 
 export type ServiceConfigImportRequest = {
-  repo: string;
+  repo?: string | null;
+  path?: string | null;
   ref?: string | null;
   commit?: string | null;
   configPath?: string | null;
@@ -932,7 +978,8 @@ export async function previewServiceConfigImport(
   const expectedModule = payload.module?.trim() || null;
   const importConfig: ServiceConfigImport = {
     module: expectedModule ?? '__preview__',
-    repo: payload.repo,
+    repo: payload.repo?.trim() || undefined,
+    path: payload.path?.trim() || undefined,
     ref: payload.ref?.trim() || undefined,
     commit: payload.commit?.trim() ? payload.commit.trim() : undefined,
     configPath: payload.configPath?.trim() || undefined,
@@ -958,8 +1005,13 @@ export async function previewServiceConfigImport(
   }
 
   if (expectedModule && expectedModule !== result.moduleId) {
+    const sourceLabel = payload.repo
+      ? `git:${payload.repo}`
+      : payload.path
+        ? `path:${payload.path}`
+        : 'service-import';
     result.errors.push({
-      source: `git:${payload.repo}`,
+      source: sourceLabel,
       error: new Error(`requested module ${expectedModule} but config exports ${result.moduleId}`)
     });
   }
@@ -1010,6 +1062,7 @@ export async function appendServiceConfigImport(
   const newImport: ServiceConfigImport = {
     module: descriptor.module,
     repo: descriptor.repo,
+    path: descriptor.path,
     ref: descriptor.ref,
     commit: descriptor.resolvedCommit ?? descriptor.commit,
     configPath: descriptor.configPath,

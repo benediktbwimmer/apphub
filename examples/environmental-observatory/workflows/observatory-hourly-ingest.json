@@ -1,0 +1,142 @@
+{
+  "slug": "observatory-hourly-ingest",
+  "name": "Observatory Hourly Ingest",
+  "version": 1,
+  "description": "Normalizes inbox CSVs and persists hourly readings into DuckDB.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "inboxDir": { "type": "string", "minLength": 1 },
+      "stagingDir": { "type": "string", "minLength": 1 },
+      "warehousePath": { "type": "string", "minLength": 1 },
+      "hour": { "type": "string", "minLength": 1 },
+      "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
+      "vacuum": { "type": "boolean" }
+    },
+    "required": ["inboxDir", "stagingDir", "warehousePath", "hour"]
+  },
+  "defaultParameters": {
+    "maxFiles": 64,
+    "vacuum": false,
+    "inboxDir": "examples/environmental-observatory/data/inbox",
+    "stagingDir": "examples/environmental-observatory/data/staging",
+    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb"
+  },
+  "steps": [
+    {
+      "id": "normalize-inbox",
+      "name": "Normalize inbox files",
+      "type": "job",
+      "jobSlug": "observatory-inbox-normalizer",
+      "parameters": {
+        "inboxDir": "{{ parameters.inboxDir }}",
+        "stagingDir": "{{ parameters.stagingDir }}",
+        "hour": "{{ parameters.hour }}",
+        "maxFiles": "{{ parameters.maxFiles }}"
+      },
+      "storeResultAs": "normalizedOutput",
+      "produces": [
+        {
+          "assetId": "observatory.timeseries.raw",
+          "partitioning": {
+            "type": "timeWindow",
+            "granularity": "hour",
+            "format": "YYYY-MM-DDTHH",
+            "lookbackWindows": 168
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "partitionKey": { "type": "string" },
+              "hour": { "type": "string" },
+              "instrumentCount": { "type": "number" },
+              "recordCount": { "type": "number" },
+              "sourceFiles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "relativePath": { "type": "string" },
+                    "site": { "type": "string" },
+                    "instrumentId": { "type": "string" },
+                    "rows": { "type": "number" }
+                  },
+                  "required": ["relativePath", "rows"]
+                }
+              },
+              "stagingDir": { "type": "string" },
+              "normalizedAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["partitionKey", "hour", "recordCount", "sourceFiles", "normalizedAt"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "load-duckdb",
+      "name": "Append to DuckDB",
+      "type": "job",
+      "jobSlug": "observatory-duckdb-loader",
+      "dependsOn": ["normalize-inbox"],
+      "parameters": {
+        "warehousePath": "{{ parameters.warehousePath }}",
+        "hour": "{{ parameters.hour }}",
+        "rawAsset": "{{ shared.normalizedOutput }}",
+        "vacuum": "{{ parameters.vacuum }}"
+      },
+      "storeResultAs": "duckdbSnapshot",
+      "consumes": [
+        { "assetId": "observatory.timeseries.raw" }
+      ],
+      "produces": [
+        {
+          "assetId": "observatory.timeseries.duckdb",
+          "partitioning": {
+            "type": "timeWindow",
+            "granularity": "hour",
+            "format": "YYYY-MM-DDTHH",
+            "lookbackWindows": 168
+          },
+          "freshness": { "ttlMs": 3600000 },
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "priority": 5
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "partitionKey": { "type": "string" },
+              "warehousePath": { "type": "string" },
+              "appendedRows": { "type": "number" },
+              "totalRows": { "type": "number" },
+              "tables": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "rowCount": { "type": "number" }
+                  },
+                  "required": ["name", "rowCount"]
+                }
+              },
+              "checkpointCreatedAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["partitionKey", "warehousePath", "appendedRows", "checkpointCreatedAt"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" },
+    {
+      "type": "schedule",
+      "schedule": {
+        "cron": "5 * * * *",
+        "timezone": "UTC",
+        "catchUp": true
+      }
+    }
+  ]
+}

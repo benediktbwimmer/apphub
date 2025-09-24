@@ -1,0 +1,185 @@
+{
+  "slug": "retail-sales-daily-ingest",
+  "name": "Retail Sales Daily Ingest",
+  "version": 1,
+  "description": "Loads partitioned CSV exports and builds Parquet snapshots.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "dataRoot": { "type": "string", "minLength": 1 },
+      "warehouseDir": { "type": "string", "minLength": 1 },
+      "datasetName": { "type": "string" },
+      "partitionKey": { "type": "string", "minLength": 1 }
+    },
+    "required": ["dataRoot", "warehouseDir", "partitionKey"]
+  },
+  "defaultParameters": {
+    "datasetName": "retail_sales"
+  },
+  "steps": [
+    {
+      "id": "load-partition",
+      "name": "Load partition CSV",
+      "type": "job",
+      "jobSlug": "retail-sales-csv-loader",
+      "parameters": {
+        "dataRoot": "{{ parameters.dataRoot }}",
+        "datasetName": "{{ parameters.datasetName }}",
+        "partitionKey": "{{ parameters.partitionKey }}"
+      },
+      "storeResultAs": "rawPartition",
+      "produces": [
+        {
+          "assetId": "retail.sales.raw",
+          "partitioning": {
+            "type": "timeWindow",
+            "granularity": "day",
+            "format": "YYYY-MM-DD",
+            "lookbackWindows": 30
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "partitionKey": { "type": "string" },
+              "sourceFile": { "type": "string" },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "units": { "type": "number" },
+                  "revenue": { "type": "number" },
+                  "averageOrderValue": { "type": "number" }
+                },
+                "required": ["units", "revenue"]
+              },
+              "byCategory": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "category": { "type": "string" },
+                    "units": { "type": "number" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["category", "revenue"]
+                }
+              },
+              "byRegion": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "region": { "type": "string" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["region", "revenue"]
+                }
+              },
+              "channels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "channel": { "type": "string" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["channel", "revenue"]
+                }
+              }
+            },
+            "required": ["partitionKey", "sourceFile", "totals"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "build-parquet",
+      "name": "Build Parquet artifacts",
+      "type": "job",
+      "jobSlug": "retail-sales-parquet-builder",
+      "dependsOn": ["load-partition"],
+      "parameters": {
+        "warehouseDir": "{{ parameters.warehouseDir }}",
+        "partitionKey": "{{ shared.rawPartition.partitionKey }}",
+        "rawPartition": "{{ shared.rawPartition }}"
+      },
+      "storeResultAs": "warehousePartition",
+      "consumes": [
+        { "assetId": "retail.sales.raw" }
+      ],
+      "produces": [
+        {
+          "assetId": "retail.sales.parquet",
+          "partitioning": {
+            "type": "timeWindow",
+            "granularity": "day",
+            "format": "YYYY-MM-DD",
+            "lookbackWindows": 30
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "partitionKey": { "type": "string" },
+              "parquetFile": { "type": "string" },
+              "summaryFile": { "type": "string" },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "units": { "type": "number" },
+                  "revenue": { "type": "number" },
+                  "averageOrderValue": { "type": "number" }
+                },
+                "required": ["units", "revenue"]
+              },
+              "byCategory": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "category": { "type": "string" },
+                    "units": { "type": "number" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["category", "revenue"]
+                }
+              },
+              "byRegion": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "region": { "type": "string" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["region", "revenue"]
+                }
+              },
+              "channels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "channel": { "type": "string" },
+                    "revenue": { "type": "number" }
+                  },
+                  "required": ["channel", "revenue"]
+                }
+              }
+            },
+            "required": ["partitionKey", "parquetFile", "summaryFile", "totals"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" },
+    {
+      "type": "schedule",
+      "schedule": {
+        "cron": "30 5 * * *",
+        "timezone": "UTC",
+        "catchUp": false
+      }
+    }
+  ]
+}

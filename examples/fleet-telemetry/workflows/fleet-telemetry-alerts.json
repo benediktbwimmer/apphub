@@ -1,0 +1,79 @@
+{
+  "slug": "fleet-telemetry-alerts",
+  "name": "Fleet Telemetry Alerts",
+  "version": 1,
+  "description": "Evaluates telemetry partitions and raises greenhouse alerts when thresholds are breached.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "telemetryDir": { "type": "string", "minLength": 1 },
+      "windowHours": { "type": "number", "minimum": 1, "maximum": 168 },
+      "temperatureLimitC": { "type": "number" },
+      "humidityLimitPct": { "type": "number" }
+    },
+    "required": ["telemetryDir", "windowHours"]
+  },
+  "defaultParameters": {
+    "telemetryDir": "examples/fleet-telemetry/data/rollups",
+    "windowHours": 24,
+    "temperatureLimitC": 30,
+    "humidityLimitPct": 65
+  },
+  "steps": [
+    {
+      "id": "scan-instruments",
+      "name": "Scan instrument telemetry",
+      "type": "job",
+      "jobSlug": "greenhouse-alerts-runner",
+      "parameters": {
+        "telemetryDir": "{{ parameters.telemetryDir }}",
+        "windowHours": "{{ parameters.windowHours }}",
+        "temperatureLimitC": "{{ parameters.temperatureLimitC }}",
+        "humidityLimitPct": "{{ parameters.humidityLimitPct }}"
+      },
+      "consumes": [
+        { "assetId": "greenhouse.telemetry.instrument" }
+      ],
+      "produces": [
+        {
+          "assetId": "greenhouse.telemetry.alerts",
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "priority": 6,
+            "parameterDefaults": {
+              "windowHours": 24
+            }
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "windowHours": { "type": "number" },
+              "temperatureLimitC": { "type": "number" },
+              "humidityLimitPct": { "type": "number" },
+              "totalPartitions": { "type": "number" },
+              "flaggedInstruments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": { "type": "string" },
+                    "instrumentId": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "lastReadingAt": { "type": "string", "format": "date-time" },
+                    "latestMetrics": { "type": "object" }
+                  },
+                  "required": ["partitionKey", "instrumentId", "reason"]
+                }
+              }
+            },
+            "required": ["generatedAt", "flaggedInstruments"]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" }
+  ]
+}

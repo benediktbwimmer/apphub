@@ -6,10 +6,10 @@ The file drop watcher showcases how an external service can orchestrate AppHub w
 
 | Component | Description |
 | --- | --- |
-| `services/examples/file-drop-watcher` | Fastify service that watches the configured directory using `chokidar`, triggers the workflow, and serves `/api/stats` + a dashboard UI. |
-| `job-bundles/file-relocator` | Example job bundle that moves a single file to the archival directory while emitting a JSON summary. |
+| `examples/file-drop/services/file-drop-watcher` | Fastify service that watches the configured directory using `chokidar`, triggers the workflow, and serves `/api/stats` + a dashboard UI. |
+| `examples/file-drop/jobs/file-relocator` | Example job bundle that moves a single file to the archival directory while emitting a JSON summary. |
 | `file-drop-relocation` workflow | Orchestrates the relocation job and calls back into the watcher service when the job completes. |
-| `services/catalog/data/examples/file-drop` | Sample inbox/archive directory tree for local demos. |
+| `examples/file-drop/data` | Sample inbox/archive directory tree for local demos. |
 
 ## Running the Demo
 
@@ -17,7 +17,7 @@ The file drop watcher showcases how an external service can orchestrate AppHub w
 2. Install dependencies for the watcher service and start it:
 
    ```bash
-   cd services/examples/file-drop-watcher
+   cd examples/file-drop/services/file-drop-watcher
    npm install
    FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/file-drop/inbox \
    FILE_ARCHIVE_DIR=$(pwd)/../../catalog/data/examples/file-drop/archive \
@@ -28,7 +28,7 @@ The file drop watcher showcases how an external service can orchestrate AppHub w
    The dashboard becomes available at <http://127.0.0.1:4310/>. Adjust `CATALOG_API_BASE_URL` if your catalog API listens elsewhere.
 
 3. Import the example job and workflow via the frontend importer (activate the **File drop relocation** example scenario). This uploads the `file-relocator@0.1.0` bundle and registers the workflow.
-4. Drop a file into `services/catalog/data/examples/file-drop/inbox`. Within a couple of seconds the watcher enqueues the workflow run, relocates the file into `archive/`, and the dashboard updates the recent activity table.
+4. Drop a file into `examples/file-drop/data/inbox`. Within a couple of seconds the watcher enqueues the workflow run, relocates the file into `archive/`, and the dashboard updates the recent activity table.
 
 ## Workflow Definition Summary
 
@@ -47,8 +47,8 @@ flowchart TD
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FILE_WATCH_ROOT` | `services/catalog/data/examples/file-drop/inbox` | Directory to monitor for new files. |
-| `FILE_ARCHIVE_DIR` | `services/catalog/data/examples/file-drop/archive` | Root directory for relocated files. |
+| `FILE_WATCH_ROOT` | `examples/file-drop/data/inbox` | Directory to monitor for new files. |
+| `FILE_ARCHIVE_DIR` | `examples/file-drop/data/archive` | Root directory for relocated files. |
 | `FILE_DROP_WORKFLOW_SLUG` | `file-drop-relocation` | Workflow triggered when a new file arrives. |
 | `FILE_WATCH_STRATEGY` | `relocation` | Launch behaviour. Set to `observatory` to trigger the environmental observatory ingest workflow. |
 | `FILE_WATCH_STAGING_DIR` | Derived from `FILE_WATCH_ROOT` | Observatory mode: destination staging directory passed to the ingest workflow. |
@@ -74,7 +74,7 @@ flowchart TD
 Reuse the watcher to trigger the `observatory-hourly-ingest` workflow automatically whenever instruments drop new hourly CSVs into the inbox. From the repository root:
 
 ```bash
-cd services/examples/file-drop-watcher
+cd examples/file-drop/services/file-drop-watcher
 npm install
 
 FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/environmental-observatory/inbox \
@@ -88,4 +88,4 @@ npm run dev
 
 The watcher batches files by hour, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
 
-> Tip: the repository ships a ready-made service manifest at `services/examples/environmental-observatory/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand.
+> Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand.

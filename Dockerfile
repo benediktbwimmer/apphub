@@ -76,7 +76,7 @@ COPY --from=catalog-build /app/services/catalog/package-lock.json services/catal
 COPY --from=catalog-build /app/services/catalog/node_modules services/catalog/node_modules
 COPY --from=catalog-build /app/services/catalog/dist services/catalog/dist
 COPY --from=cli-build /app/apps/cli apps/cli
-COPY job-bundles job-bundles
+COPY examples examples
 COPY --from=frontend-build /app/apps/frontend/dist apps/frontend/dist
 COPY scripts/postgres-start.sh scripts/postgres-start.sh
 RUN chmod +x scripts/postgres-start.sh
