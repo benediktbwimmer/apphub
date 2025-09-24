@@ -143,6 +143,11 @@ export function useImportServiceManifest() {
   const [placeholders, setPlaceholders] = useState<ManifestPlaceholder[]>([]);
   const [variables, setVariables] = useState<Record<string, string>>({});
 
+  const clearPlaceholders = useCallback(() => {
+    setPlaceholders([]);
+    setVariables({});
+  }, [setPlaceholders, setVariables]);
+
   const importManifest = useCallback(
     async (body: NormalizedRequestBody) => {
       const response = await authorizedFetch(`${API_BASE_URL}/service-networks/import`, {
@@ -184,11 +189,6 @@ export function useImportServiceManifest() {
 
   const updateVariable = useCallback((name: string, value: string) => {
     setVariables((prev) => ({ ...prev, [name]: value }));
-  }, []);
-
-  const clearPlaceholders = useCallback(() => {
-    setPlaceholders([]);
-    setVariables({});
   }, []);
 
   const handleSubmit = useCallback(

@@ -7,7 +7,11 @@ import {
   FormSection
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
-import { useImportServiceManifest, type ManifestPlaceholder } from '../useImportServiceManifest';
+import {
+  useImportServiceManifest,
+  type ManifestPlaceholder,
+  type ManifestPlaceholderOccurrence
+} from '../useImportServiceManifest';
 import type { ServiceManifestScenario } from '../examples';
 import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
 
@@ -24,7 +28,7 @@ function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
     return '';
   }
   return placeholder.occurrences
-    .map((occurrence) => {
+    .map((occurrence: ManifestPlaceholderOccurrence) => {
       switch (occurrence.kind) {
         case 'service':
           return `Service ${occurrence.serviceSlug} · env ${occurrence.envKey} (source: ${occurrence.source})`;
