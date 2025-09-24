@@ -137,16 +137,19 @@ docker run --rm -it \
   --name apphub-dev \
   -p 4000:4000 \
   -p 4173:4173 \
+  -p 6379:6379 \
+  -e NODE_ENV=development \
   -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
+  -e APPHUB_SESSION_COOKIE_SECURE=false \
   -e APPHUB_AUTH_SSO_ENABLED=false \
   -e APPHUB_LEGACY_OPERATOR_TOKENS=true \
   -e APPHUB_OPERATOR_TOKENS='[{"token":"dev-token","subject":"local-operator","scopes":"*"}]' \
   apphub:latest
 ```
 
-You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend). Use the bearer token `dev-token` for manual API calls while testing.
+You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend). Use the bearer token `dev-token` for manual API calls while testing. When you prefer to manage tokens via a file, mount it in the container and set `APPHUB_OPERATOR_TOKENS_PATH` instead of `APPHUB_OPERATOR_TOKENS`.
 
-Persist Postgres/Redis state by adding `-v apphub-data:/app/data` to the command above.
+Persist Postgres/Redis state by adding `-v apphub-data:/app/data` to the command above (the default run uses in-container volumes that reset on exit).
 
 #### Production
 
