@@ -984,13 +984,17 @@ export async function nukeCatalogEverything(): Promise<NukeCatalogCounts> {
     `);
 
     for (const { tablename } of rows) {
-      const quoted = quoteIdentifier(tablename);
+      const identifier = quoteIdentifier(tablename);
       const { rows: countRows } = await client.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM ${quoted}`
+        `SELECT COUNT(*)::text AS count FROM ${identifier}`
       );
       counts[tablename] = Number(countRows[0]?.count ?? 0);
-      await client.query(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`);
     }
+
+    await client.query('DROP SCHEMA public CASCADE');
+    await client.query('CREATE SCHEMA public');
+    await client.query('GRANT ALL ON SCHEMA public TO CURRENT_USER');
+    await client.query('GRANT ALL ON SCHEMA public TO PUBLIC');
 
     return counts;
   });
