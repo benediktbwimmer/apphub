@@ -35,7 +35,19 @@ Inside a workflow definition, attach `produces` and `consumes` blocks to job ste
       "freshness": { "ttlMs": 3_600_000 },
       "autoMaterialize": {
         "onUpstreamUpdate": true,
-        "priority": 5
+        "priority": 5,
+        "parameterDefaults": {
+          "archiveDir": "/app/tmp/directory-insights/archives",
+          "reportAsset": {
+            "assetId": "directory.insights.report",
+            "outputDir": "/app/tmp/directory-insights/output",
+            "artifacts": [
+              { "relativePath": "scan-data.json" },
+              { "relativePath": "index.html" },
+              { "relativePath": "summary.md" }
+            ]
+          }
+        }
       }
     }
   ],
@@ -48,6 +60,7 @@ Inside a workflow definition, attach `produces` and `consumes` blocks to job ste
 - `freshness.ttlMs` and `freshness.cadenceMs` schedule delayed `asset.expired` events (via Redis/BullMQ) so assets can be refreshed without polling.
 - `autoMaterialize.onUpstreamUpdate` signals that the producing workflow should automatically run when any consumed asset publishes a newer `asset.produced` event.
 - `autoMaterialize.priority` is reserved for future scheduling heuristics (lower numbers indicate higher priority).
+- `autoMaterialize.parameterDefaults` seeds workflow inputs when the materializer fires. Combine this with `defaultParameters` or persisted partition parameters so downstream jobs have fully-resolved paths and payload stubs.
 
 If no `autoMaterialize` block is supplied, workflows continue to behave exactly as before—updates and expirations are ignored by the materializer.
 

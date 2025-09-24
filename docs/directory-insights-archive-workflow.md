@@ -106,6 +106,18 @@ Example payload:
       }
     }
   },
+  "defaultParameters": {
+    "archiveDir": "/app/tmp/directory-insights/archives",
+    "reportAsset": {
+      "assetId": "directory.insights.report",
+      "outputDir": "/app/tmp/directory-insights/output",
+      "artifacts": [
+        { "relativePath": "scan-data.json" },
+        { "relativePath": "index.html" },
+        { "relativePath": "summary.md" }
+      ]
+    }
+  },
   "steps": [
     {
       "id": "zip-report",
@@ -138,6 +150,21 @@ Example payload:
               "artifactCount": { "type": "number" },
               "artifacts": { "type": "array" }
             }
+          },
+          "autoMaterialize": {
+            "onUpstreamUpdate": true,
+            "parameterDefaults": {
+              "archiveDir": "/app/tmp/directory-insights/archives",
+              "reportAsset": {
+                "assetId": "directory.insights.report",
+                "outputDir": "/app/tmp/directory-insights/output",
+                "artifacts": [
+                  { "relativePath": "scan-data.json" },
+                  { "relativePath": "index.html" },
+                  { "relativePath": "summary.md" }
+                ]
+              }
+            }
           }
         }
       ],
@@ -163,7 +190,13 @@ curl -X PATCH http://127.0.0.1:4000/workflows/directory-insights-archive \
 ```
 
 ## 4. Run the Archive Workflow
-1. Generate or refresh the upstream report asset (see `directory-insights-workflow.md`). Make note of the `archive` and `report` directories you supply.
+Make sure the directories referenced in the definition exist inside the catalog container:
+
+```bash
+docker exec apphub mkdir -p /app/tmp/directory-insights/output /app/tmp/directory-insights/archives
+```
+
+1. Generate or refresh the upstream report asset (see `directory-insights-workflow.md`).
 2. Fetch the latest asset payload:
    ```bash
    REPORT_ASSET=$(curl -sS \
@@ -181,6 +214,8 @@ curl -X PATCH http://127.0.0.1:4000/workflows/directory-insights-archive \
      --data @tmp/archive-run.json
    ```
 4. Inspect the run and confirm that `archiveResult.archivePath` points to a `.tar.gz` file containing the original artifacts.
+
+The initial manual run seeds the stored parameters and validates the archive location. With the `autoMaterialize` block in place, subsequent `directory.insights.report` materializations automatically enqueue `directory-insights-archive` using those defaults.
 
 ## 5. Verify the New Asset
 List the archive asset and its history:
