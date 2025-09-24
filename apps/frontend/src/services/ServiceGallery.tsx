@@ -14,6 +14,10 @@ const STATUS_PRIORITY = STATUS_ORDER.reduce<Record<string, number>>((acc, status
 }, {});
 const UNKNOWN_STATUS_PRIORITY = STATUS_ORDER.length;
 
+function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSummary[] } {
+  return Array.isArray((payload as { data?: unknown }).data);
+}
+
 function extractRuntimeUrl(service: ServiceSummary): string | null {
   const metadata = service.metadata;
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
@@ -43,6 +47,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { height } = usePreviewLayout();
+  const displayName = service.displayName ?? service.slug;
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -75,7 +80,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
     <article
       ref={containerRef}
       className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/60 shadow-lg shadow-slate-900/30 dark:border-slate-700/60 dark:bg-slate-900/80"
-      aria-label={service.displayName}
+      aria-label={displayName}
     >
       <div className="absolute right-3 top-3 z-10">
         <button
@@ -89,8 +94,8 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
       </div>
       <div style={{ height: isFullscreen ? '100%' : `${height}px` }}>
         <iframe
-          src={embedUrl ?? undefined}
-          title={service.displayName}
+          src={embedUrl}
+          title={displayName}
           loading="lazy"
           allow="autoplay; fullscreen; clipboard-read; clipboard-write"
           allowFullScreen
@@ -98,7 +103,7 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
           className="h-full w-full border-0"
         />
       </div>
-      <span className="sr-only">{service.displayName}</span>
+      <span className="sr-only">{displayName}</span>
     </article>
   );
 }
@@ -137,7 +142,7 @@ export default function ServiceGallery() {
         if (!mounted) {
           return;
         }
-        setServices(Array.isArray(payload.data) ? payload.data : []);
+        setServices(hasServiceData(payload) ? payload.data : []);
         setError(null);
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') {
@@ -189,7 +194,9 @@ export default function ServiceGallery() {
       if (priorityA !== priorityB) {
         return priorityA - priorityB;
       }
-      return a.service.displayName.localeCompare(b.service.displayName);
+      const nameA = a.service.displayName ?? a.service.slug;
+      const nameB = b.service.displayName ?? b.service.slug;
+      return nameA.localeCompare(nameB);
     });
 
     return entries;

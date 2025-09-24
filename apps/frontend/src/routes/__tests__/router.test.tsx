@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { appRouteConfig } from '../router';
 import { ROUTE_SEGMENTS } from '../paths';
 
-vi.mock('reactflow', () => ({}), { virtual: true });
+vi.mock('reactflow', () => ({}));
 vi.mock('../../dataAssets/AssetsPage', () => ({ default: () => null }));
 
 describe('appRouteConfig', () => {

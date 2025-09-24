@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { createElement, type ReactNode } from 'react';
+import { createElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   WorkflowAssetDetail,
@@ -210,7 +210,7 @@ vi.mock('../../api', async () => {
 import { useWorkflowsController } from '../useWorkflowsController';
 
 let appHubClient: AppHubEventsClient;
-let wrapper: ({ children }: { children: React.ReactNode }) => JSX.Element;
+let wrapper: ({ children }: { children: ReactNode }) => ReactElement;
 
 beforeEach(() => {
   activeTokenMock = { id: 'token-1' };
@@ -231,7 +231,7 @@ beforeEach(() => {
       };
     }
   };
-  wrapper = ({ children }) =>
+  wrapper = ({ children }: { children: ReactNode }): ReactElement =>
     createElement(AppHubEventsContext.Provider, { value: appHubClient }, children);
 });
 

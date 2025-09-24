@@ -215,7 +215,15 @@ export type CatalogSocketEvent =
   | { type: 'workflow.run.running'; data: { run: unknown } }
   | { type: 'workflow.run.succeeded'; data: { run: unknown } }
   | { type: 'workflow.run.failed'; data: { run: unknown } }
-  | { type: 'workflow.run.canceled'; data: { run: unknown } };
+  | { type: 'workflow.run.canceled'; data: { run: unknown } }
+  | { type: 'job.run.updated'; data: { run: unknown } }
+  | { type: 'job.run.pending'; data: { run: unknown } }
+  | { type: 'job.run.running'; data: { run: unknown } }
+  | { type: 'job.run.succeeded'; data: { run: unknown } }
+  | { type: 'job.run.failed'; data: { run: unknown } }
+  | { type: 'job.run.canceled'; data: { run: unknown } }
+  | { type: 'job.run.expired'; data: { run: unknown } }
+  | { type: 'workflow.analytics.snapshot'; data: unknown };
 
 export type SearchParseResult = {
   tags: string[];
