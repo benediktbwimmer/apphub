@@ -919,28 +919,30 @@ export async function getAllRepositories(): Promise<RepositoryRecord[]> {
   });
 }
 
-export async function nukeCatalogDatabase(): Promise<{
-  repositories: number;
-  builds: number;
-  launches: number;
-  tags: number;
-}> {
+const RUN_DATA_NUKE_TABLES = [
+  'service_network_launch_members',
+  'service_network_members',
+  'service_networks',
+  'launches',
+  'builds'
+] as const;
+
+const FULL_NUKE_TABLES = [
+  ...RUN_DATA_NUKE_TABLES,
+  'repository_previews',
+  'repository_tags',
+  'ingestion_events',
+  'repository_search',
+  'services',
+  'repositories',
+  'tags'
+] as const;
+
+export type NukeCatalogCounts = Record<string, number>;
+
+async function truncateTables(tables: readonly string[]): Promise<NukeCatalogCounts> {
   return useTransaction(async (client) => {
-    const counts: Record<string, number> = {};
-    const tables = [
-      'service_network_launch_members',
-      'service_network_members',
-      'service_networks',
-      'launches',
-      'builds',
-      'repository_previews',
-      'repository_tags',
-      'ingestion_events',
-      'repository_search',
-      'services',
-      'repositories',
-      'tags'
-    ];
+    const counts: NukeCatalogCounts = {};
 
     for (const table of tables) {
       const { rows } = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${table}`);
@@ -948,11 +950,14 @@ export async function nukeCatalogDatabase(): Promise<{
       await client.query(`TRUNCATE TABLE ${table} CASCADE`);
     }
 
-    return {
-      repositories: counts.repositories ?? 0,
-      builds: counts.builds ?? 0,
-      launches: counts.launches ?? 0,
-      tags: counts.tags ?? 0
-    };
+    return counts;
   });
+}
+
+export async function nukeCatalogRunData(): Promise<NukeCatalogCounts> {
+  return truncateTables(RUN_DATA_NUKE_TABLES);
+}
+
+export async function nukeCatalogDatabase(): Promise<NukeCatalogCounts> {
+  return truncateTables(FULL_NUKE_TABLES);
 }

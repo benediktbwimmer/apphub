@@ -4,17 +4,19 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 
 export default function AdminToolsPage() {
   const authorizedFetch = useAuthorizedFetch();
-  const [isNuking, setIsNuking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isNukingRunData, setIsNukingRunData] = useState(false);
+  const [isNukingCatalog, setIsNukingCatalog] = useState(false);
+  const [runDataError, setRunDataError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
-  const parseErrorMessage = useCallback((raw: string | null | undefined) => {
+  const parseErrorMessage = useCallback((raw: string | null | undefined, fallback: string) => {
     if (!raw) {
-      return 'Failed to nuke the catalog database.';
+      return fallback;
     }
 
     const trimmed = raw.trim();
     if (!trimmed) {
-      return 'Failed to nuke the catalog database.';
+      return fallback;
     }
 
     try {
@@ -29,8 +31,39 @@ export default function AdminToolsPage() {
     return trimmed.slice(0, 200);
   }, []);
 
+  const handleNukeRunData = useCallback(async () => {
+    if (isNukingRunData || isNukingCatalog) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This will permanently delete run data, including builds, launches, and service network state. Continue?'
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsNukingRunData(true);
+    setRunDataError(null);
+
+    try {
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke/run-data`, { method: 'POST' });
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(parseErrorMessage(bodyText, 'Failed to delete catalog run data.'));
+      }
+
+      window.location.reload();
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Failed to delete catalog run data.';
+      setRunDataError(message);
+    } finally {
+      setIsNukingRunData(false);
+    }
+  }, [authorizedFetch, isNukingCatalog, isNukingRunData, parseErrorMessage]);
+
   const handleNukeCatalog = useCallback(async () => {
-    if (isNuking) {
+    if (isNukingCatalog || isNukingRunData) {
       return;
     }
 
@@ -41,24 +74,26 @@ export default function AdminToolsPage() {
       return;
     }
 
-    setIsNuking(true);
-    setError(null);
+    setIsNukingCatalog(true);
+    setCatalogError(null);
 
     try {
       const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke`, { method: 'POST' });
       if (!response.ok) {
         const bodyText = await response.text();
-        throw new Error(parseErrorMessage(bodyText));
+        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the catalog database.'));
       }
 
       window.location.reload();
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the catalog database.';
-      setError(message);
+      setCatalogError(message);
     } finally {
-      setIsNuking(false);
+      setIsNukingCatalog(false);
     }
-  }, [authorizedFetch, isNuking, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCatalog, isNukingRunData, parseErrorMessage]);
+
+  const isBusy = isNukingRunData || isNukingCatalog;
 
   return (
     <div className="flex flex-col gap-6">
@@ -75,27 +110,47 @@ export default function AdminToolsPage() {
             Danger zone
           </h3>
           <p className="text-sm text-rose-700 dark:text-rose-200">
-            Nuking the catalog wipes every app, build, launch, service, and workflow record. There is no undo.
+            Use these controls to delete run data (builds, launches, service network state) or wipe the entire
+            catalog. There is no undo.
           </p>
         </div>
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="text-sm font-medium text-rose-700 dark:text-rose-200">
-            Permanently delete all catalog data
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">Delete run data only</div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              onClick={handleNukeRunData}
+              disabled={isBusy}
+            >
+              {isNukingRunData ? 'Nuking run data…' : 'Nuke run data'}
+            </button>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
-            onClick={handleNukeCatalog}
-            disabled={isNuking}
-          >
-            {isNuking ? 'Nuking catalog…' : 'Nuke catalog'}
-          </button>
+          {runDataError && (
+            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+              {runDataError}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">
+              Permanently delete all catalog data
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              onClick={handleNukeCatalog}
+              disabled={isBusy}
+            >
+              {isNukingCatalog ? 'Nuking catalog…' : 'Nuke catalog'}
+            </button>
+          </div>
+          {catalogError && (
+            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+              {catalogError}
+            </p>
+          )}
         </div>
-        {error && (
-          <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
-            {error}
-          </p>
-        )}
       </section>
     </div>
   );
