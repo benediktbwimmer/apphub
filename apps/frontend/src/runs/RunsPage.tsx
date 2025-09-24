@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
@@ -489,23 +489,21 @@ export default function RunsPage() {
             onReload={handleWorkflowReload}
             onLoadMore={handleWorkflowLoadMore}
             onSelect={handleWorkflowSelect}
-            selectedRunId={selectedWorkflowEntry?.run.id ?? null}
+            selectedEntry={selectedWorkflowEntry}
+            detail={workflowRunDetail}
+            detailLoading={workflowDetailLoading}
+            detailError={workflowDetailError}
+            onCloseDetail={() => setSelectedWorkflowEntry(null)}
+            onViewWorkflow={() => {
+              if (!selectedWorkflowEntry) {
+                return;
+              }
+              const params = new URLSearchParams();
+              params.set('slug', selectedWorkflowEntry.workflow.slug);
+              params.set('run', selectedWorkflowEntry.run.id);
+              navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
+            }}
           />
-          {selectedWorkflowEntry && (
-            <WorkflowRunDetailPanel
-              entry={selectedWorkflowEntry}
-              detail={workflowRunDetail}
-              loading={workflowDetailLoading}
-              error={workflowDetailError}
-              onClose={() => setSelectedWorkflowEntry(null)}
-              onViewWorkflow={() => {
-                const params = new URLSearchParams();
-                params.set('slug', selectedWorkflowEntry.workflow.slug);
-                params.set('run', selectedWorkflowEntry.run.id);
-                navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
-              }}
-            />
-          )}
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -516,15 +514,10 @@ export default function RunsPage() {
             onReload={handleJobReload}
             onLoadMore={handleJobLoadMore}
             onSelect={handleJobSelect}
-            selectedRunId={selectedJobEntry?.run.id ?? null}
+            selectedEntry={selectedJobEntry}
+            onCloseDetail={() => setSelectedJobEntry(null)}
+            onViewJob={() => navigate(ROUTE_PATHS.jobs)}
           />
-          {selectedJobEntry && (
-            <JobRunDetailPanel
-              entry={selectedJobEntry}
-              onClose={() => setSelectedJobEntry(null)}
-              onViewJob={() => navigate(ROUTE_PATHS.jobs)}
-            />
-          )}
         </div>
       )}
     </div>
@@ -538,7 +531,12 @@ type WorkflowRunsTableProps = {
   onReload: () => void;
   onLoadMore: () => void;
   onSelect: (entry: WorkflowRunListItem) => void;
-  selectedRunId: string | null;
+  selectedEntry: WorkflowRunListItem | null;
+  detail: { run: WorkflowRun; steps: WorkflowRunStep[] } | null;
+  detailLoading: boolean;
+  detailError: string | null;
+  onCloseDetail: () => void;
+  onViewWorkflow: () => void;
 };
 
 type JobRunsTableProps = {
@@ -548,12 +546,28 @@ type JobRunsTableProps = {
   onReload: () => void;
   onLoadMore: () => void;
   onSelect: (entry: JobRunListItem) => void;
-  selectedRunId: string | null;
+  selectedEntry: JobRunListItem | null;
+  onCloseDetail: () => void;
+  onViewJob: () => void;
 };
 
-function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect, selectedRunId }: WorkflowRunsTableProps) {
+function WorkflowRunsTable({
+  state,
+  onRetry,
+  pendingRunId,
+  onReload,
+  onLoadMore,
+  onSelect,
+  selectedEntry,
+  detail,
+  detailLoading,
+  detailError,
+  onCloseDetail,
+  onViewWorkflow
+}: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
+  const selectedRunId = selectedEntry?.run.id ?? null;
 
   if (loading && !state.loaded) {
     return <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">Loading workflow runs…</div>;
@@ -626,58 +640,76 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore,
                 );
                 const isPending = pendingRunId === entry.run.id;
                 const isSelected = selectedRunId === entry.run.id;
+                const detailForEntry = isSelected && detail?.run.id === entry.run.id ? detail : null;
+                const detailErrorForEntry = isSelected ? detailError : null;
+                const detailLoadingForEntry = isSelected ? detailLoading : false;
                 return (
-                  <tr
-                    key={entry.run.id}
-                    className={`cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-violet-100/70 dark:bg-violet-500/20'
-                        : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
-                    }`}
-                    onClick={() => onSelect(entry)}
-                    aria-selected={isSelected}
-                  >
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
-                      >
-                        {entry.run.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex flex-col text-sm">
-                        <span className="font-semibold text-slate-800 dark:text-slate-100">
-                          {entry.workflow.name}
+                  <Fragment key={entry.run.id}>
+                    <tr
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-violet-100/70 dark:bg-violet-500/20'
+                          : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
+                      }`}
+                      onClick={() => onSelect(entry)}
+                      aria-selected={isSelected}
+                    >
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
+                        >
+                          {entry.run.status}
                         </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{entry.workflow.slug}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {entry.run.triggeredBy ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDateTime(entry.run.startedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDateTime(entry.run.completedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDuration(durationMs)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRetry(entry);
-                        }}
-                        disabled={isPending}
-                      >
-                        {isPending ? 'Retriggering…' : 'Retrigger'}
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-col text-sm">
+                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                            {entry.workflow.name}
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">{entry.workflow.slug}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {entry.run.triggeredBy ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDateTime(entry.run.startedAt)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDateTime(entry.run.completedAt)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDuration(durationMs)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRetry(entry);
+                          }}
+                          disabled={isPending}
+                        >
+                          {isPending ? 'Retriggering…' : 'Retrigger'}
+                        </button>
+                      </td>
+                    </tr>
+                    {isSelected && (
+                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                        <td colSpan={7} className="px-4 pb-6 pt-2 text-left align-top">
+                          <WorkflowRunDetailPanel
+                            entry={entry}
+                            detail={detailForEntry}
+                            loading={detailLoadingForEntry}
+                            error={detailErrorForEntry}
+                            onClose={onCloseDetail}
+                            onViewWorkflow={onViewWorkflow}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })
             )}
@@ -937,9 +969,20 @@ function JsonPreview({ title, value }: JsonPreviewProps) {
   );
 }
 
-function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect, selectedRunId }: JobRunsTableProps) {
+function JobRunsTable({
+  state,
+  onRetry,
+  pendingRunId,
+  onReload,
+  onLoadMore,
+  onSelect,
+  selectedEntry,
+  onCloseDetail,
+  onViewJob
+}: JobRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
+  const selectedRunId = selectedEntry?.run.id ?? null;
 
   if (loading && !state.loaded) {
     return <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">Loading job runs…</div>;
@@ -1013,57 +1056,65 @@ function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSe
                 const isPending = pendingRunId === entry.run.id;
                 const isSelected = selectedRunId === entry.run.id;
                 return (
-                  <tr
-                    key={entry.run.id}
-                    className={`cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-violet-100/70 dark:bg-violet-500/20'
-                        : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
-                    }`}
-                    onClick={() => onSelect(entry)}
-                    aria-selected={isSelected}
-                  >
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
-                      >
-                        {entry.run.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex flex-col text-sm">
-                        <span className="font-semibold text-slate-800 dark:text-slate-100">
-                          {entry.job.name}
+                  <Fragment key={entry.run.id}>
+                    <tr
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-violet-100/70 dark:bg-violet-500/20'
+                          : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
+                      }`}
+                      onClick={() => onSelect(entry)}
+                      aria-selected={isSelected}
+                    >
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
+                        >
+                          {entry.run.status}
                         </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{entry.job.slug}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {entry.job.runtime}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDateTime(entry.run.startedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDateTime(entry.run.completedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDuration(durationMs)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRetry(entry);
-                        }}
-                        disabled={isPending}
-                      >
-                        {isPending ? 'Retriggering…' : 'Retrigger'}
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-col text-sm">
+                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                            {entry.job.name}
+                          </span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400">{entry.job.slug}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {entry.job.runtime}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDateTime(entry.run.startedAt)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDateTime(entry.run.completedAt)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        {formatDuration(durationMs)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRetry(entry);
+                          }}
+                          disabled={isPending}
+                        >
+                          {isPending ? 'Retriggering…' : 'Retrigger'}
+                        </button>
+                      </td>
+                    </tr>
+                    {isSelected && (
+                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                        <td colSpan={7} className="px-4 pb-6 pt-2 text-left align-top">
+                          <JobRunDetailPanel entry={entry} onClose={onCloseDetail} onViewJob={onViewJob} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })
             )}
