@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { FormField } from '../../components/form';
+import { Spinner } from '../../components';
 import type { JobBundleVersionSummary, JobDefinitionSummary, ServiceSummary } from '../api';
 import type { WorkflowDraftStep } from '../types';
 import type { DraftValidationIssue } from './state';
@@ -664,11 +665,7 @@ export function WorkflowStepCard({
                       className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:disabled:bg-slate-800"
                     >
                       <option value="">
-                        {bundleVersionInfo?.loading
-                          ? 'Loading versions…'
-                          : versionOptions.length > 0
-                            ? 'Select a version…'
-                            : 'No versions available'}
+                        {versionOptions.length > 0 ? 'Select a version…' : 'No versions available'}
                       </option>
                       {versionOptions.map((version) => (
                         <option key={version.id} value={version.version}>
@@ -676,6 +673,11 @@ export function WorkflowStepCard({
                         </option>
                       ))}
                     </select>
+                    {bundleVersionInfo?.loading && (
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <Spinner label="Loading versions…" size="xs" className="gap-1" iconClassName="border" />
+                      </p>
+                    )}
                     {bundleVersionInfo?.error && (
                       <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
                         {bundleVersionInfo.error}

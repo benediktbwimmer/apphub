@@ -2,6 +2,7 @@ import type { AssetGraphNode } from '../types';
 import type { WorkflowAssetPartitions } from '../../workflows/types';
 import { formatTimestamp } from '../../workflows/formatters';
 import StatusBadge from '../../workflows/components/StatusBadge';
+import { Spinner } from '../../components';
 
 type AssetDetailsPanelProps = {
   asset: AssetGraphNode | null;
@@ -165,7 +166,9 @@ export function AssetDetailsPanel({
             <p className="text-sm text-rose-600 dark:text-rose-400">{partitionsError}</p>
           )}
           {partitionsLoading && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Loading partitions…</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              <Spinner label="Loading partitions…" size="xs" />
+            </p>
           )}
           {!partitionsLoading && !partitionsError && partitions && (
             <div className="overflow-hidden rounded-xl border border-slate-200/70 dark:border-slate-700/60">

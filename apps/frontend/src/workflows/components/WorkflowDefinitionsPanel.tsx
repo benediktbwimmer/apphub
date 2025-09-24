@@ -1,3 +1,4 @@
+import { Spinner } from '../../components';
 import StatusBadge from './StatusBadge';
 import type { WorkflowSummary } from '../normalizers';
 
@@ -26,7 +27,7 @@ export default function WorkflowDefinitionsPanel({
       <div className="mt-4 flex flex-col gap-2">
         {workflowsLoading && (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
-            Loading workflows…
+            <Spinner label="Loading workflows…" size="sm" />
           </div>
         )}
         {workflowsError && !workflowsLoading && (

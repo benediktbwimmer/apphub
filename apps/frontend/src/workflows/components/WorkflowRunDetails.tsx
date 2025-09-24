@@ -1,4 +1,5 @@
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
+import { Spinner } from '../../components';
 import { formatDuration, formatTimestamp } from '../formatters';
 import { toRecord } from '../normalizers';
 import StatusBadge from './StatusBadge';
@@ -68,7 +69,11 @@ export default function WorkflowRunDetails({ run, steps, stepsLoading, stepsErro
         <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">No output captured for this run.</p>
       ) : null}
 
-      {stepsLoading && <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading step details…</p>}
+      {stepsLoading && (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+          <Spinner label="Loading step details…" size="xs" />
+        </p>
+      )}
       {stepsError && !stepsLoading && (
         <p className="mt-3 text-sm font-semibold text-rose-600 dark:text-rose-300">{stepsError}</p>
       )}

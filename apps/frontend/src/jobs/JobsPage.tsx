@@ -3,6 +3,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { Editor } from '../components/Editor';
 import DiffViewer from '../components/DiffViewer';
+import { Spinner } from '../components';
 import { useToasts } from '../components/toast';
 import {
   fetchJobs,
@@ -679,9 +680,11 @@ export default function JobsPage() {
         <div className="flex flex-col items-start gap-3 lg:items-end">
           <div className="flex flex-wrap gap-2">
             {runtimeStatusLoading ? (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                Checking runtimes…
-              </span>
+              <Spinner
+                label="Checking runtimes…"
+                size="xs"
+                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              />
             ) : runtimeStatuses.length > 0 ? (
               runtimeStatuses.map((status) => {
                 const label = status.runtime === 'python' ? 'Python runtime' : 'Node runtime';
@@ -738,7 +741,13 @@ export default function JobsPage() {
             <div className="mb-4 flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Job catalog</h2>
-                {jobsLoading && <span className="text-xs text-slate-500 dark:text-slate-400">Loading…</span>}
+                {jobsLoading && (
+                  <Spinner
+                    label="Loading jobs…"
+                    size="xs"
+                    className="text-xs text-slate-500 dark:text-slate-400"
+                  />
+                )}
               </div>
               {jobsError && (
                 <p className="text-xs text-red-600 dark:text-red-400">{jobsError}</p>
@@ -800,7 +809,7 @@ export default function JobsPage() {
         <section className="flex-1">
           {panelState.detailLoading || panelState.bundleLoading ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-              Loading job details…
+              <Spinner label="Loading job details…" />
             </div>
           ) : null}
           {(panelState.detailError || panelState.bundleError) && !panelState.bundleLoading ? (

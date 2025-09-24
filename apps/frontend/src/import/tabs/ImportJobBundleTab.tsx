@@ -7,6 +7,7 @@ import {
   FormSection
 } from '../../components/form';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
+import { Spinner } from '../../components';
 import { useToasts } from '../../components/toast';
 import { useAnalytics } from '../../utils/useAnalytics';
 import {
@@ -476,7 +477,7 @@ export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onS
               (form.source === 'registry' && !form.reference.trim())
             }
           >
-            {previewLoading ? 'Validating…' : 'Validate bundle'}
+            {previewLoading ? <Spinner label="Validating…" size="xs" /> : 'Validate bundle'}
           </FormButton>
           <FormButton type="button" variant="secondary" size="sm" onClick={handleReset}>
             Reset form
@@ -559,7 +560,7 @@ export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onS
                 onClick={handleConfirm}
                 disabled={!canConfirm || confirmLoading || scenarioLoading}
               >
-                {confirmLoading ? 'Importing…' : 'Confirm import'}
+                {confirmLoading ? <Spinner label="Importing…" size="xs" /> : 'Confirm import'}
               </FormButton>
               <FormButton type="button" variant="secondary" size="sm" onClick={handleReset}>
                 Start over

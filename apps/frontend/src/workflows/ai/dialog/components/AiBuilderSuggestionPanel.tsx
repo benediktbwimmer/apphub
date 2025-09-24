@@ -445,8 +445,8 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{providerLogTitle}</h4>
             {generation?.status === 'running' && (
-              <span className="inline-flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-300">
-                <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-violet-500" /> Running…
+              <span className="text-xs font-semibold text-violet-600 dark:text-violet-300">
+                <span className="running-indicator">Running…</span>
               </span>
             )}
             {generation?.status === 'succeeded' && (

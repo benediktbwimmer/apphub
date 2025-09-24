@@ -164,3 +164,75 @@
   }
 
 }
+
+@layer components {
+  .running-badge {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .running-badge::before {
+    content: '';
+    position: absolute;
+    inset: -125% 0;
+    background: linear-gradient(120deg, transparent 0%, rgba(56, 189, 248, 0.25) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: running-sheen 1.6s linear infinite;
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  .running-badge > * {
+    position: relative;
+  }
+
+  .running-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
+  }
+
+  .running-indicator::before,
+  .running-indicator::after {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 9999px;
+    background-color: rgba(56, 189, 248, 0.85);
+    animation: running-dot 0.9s ease-in-out infinite;
+  }
+
+  .running-indicator::after {
+    animation-delay: 0.3s;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .running-indicator::before,
+    .running-indicator::after {
+      background-color: rgba(125, 211, 252, 0.9);
+    }
+  }
+}
+
+@keyframes running-sheen {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
+}
+
+@keyframes running-dot {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+

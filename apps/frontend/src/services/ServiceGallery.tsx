@@ -4,6 +4,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
+import { Spinner } from '../components';
 import type { ServiceSummary, ServicesResponse } from './types';
 
 const REFRESH_INTERVAL_MS = 15000;
@@ -216,7 +217,7 @@ export default function ServiceGallery() {
           </div>
         ) : loading ? (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
-            Loading services…
+            <Spinner label="Loading services" size="sm" />
           </div>
         ) : previewableServices.length === 0 ? (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">

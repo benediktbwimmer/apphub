@@ -1,4 +1,5 @@
 import type { WorkflowDefinition } from '../types';
+import { Spinner } from '../../components';
 
 type WorkflowDetailsCardProps = {
   workflow: WorkflowDefinition | null;
@@ -32,7 +33,9 @@ export default function WorkflowDetailsCard({
         )}
       </div>
       {loading && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading workflow details…</p>
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+          <Spinner label="Loading workflow details…" size="xs" />
+        </p>
       )}
       {error && !loading && (
         <p className="mt-3 text-sm font-semibold text-rose-600 dark:text-rose-300">{error}</p>

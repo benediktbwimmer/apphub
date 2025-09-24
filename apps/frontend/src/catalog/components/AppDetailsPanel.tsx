@@ -3,6 +3,7 @@ import { usePreviewLayout } from '../../settings/previewLayoutContext';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
 import { normalizePreviewUrl } from '../../utils/url';
+import { Spinner } from '../../components';
 import {
   formatBytes,
   formatDuration,
@@ -38,7 +39,8 @@ const STATUS_BADGE_VARIANTS: Record<string, string> = {
   seed: 'border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-200',
   pending: 'border-amber-300/70 bg-amber-50/80 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
   processing: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  running: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
+  running:
+    'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200 running-badge',
   succeeded:
     'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
   ready:
@@ -1123,7 +1125,7 @@ function BuildTimeline({
       </form>
       {entry.loading && (
         <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-          Loading builds…
+          <Spinner label="Loading builds…" size="xs" />
         </div>
       )}
       {entry.error && !entry.loading && (
@@ -1224,7 +1226,9 @@ function BuildTimeline({
             {logOpen && (
               <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
                 {logLoading && (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">Loading logs…</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    <Spinner label="Loading logs…" size="xs" />
+                  </div>
                 )}
                 {logError && !logLoading && (
                   <div className="text-sm font-medium text-rose-600 dark:text-rose-300">{logError}</div>
@@ -1254,7 +1258,7 @@ function BuildTimeline({
           onClick={() => onLoadMore(appId)}
           disabled={entry.loadingMore}
         >
-          {entry.loadingMore ? 'Loading…' : 'Load more builds'}
+          {entry.loadingMore ? <Spinner label="Loading more…" size="xs" /> : 'Load more builds'}
         </button>
       )}
     </div>
@@ -1280,7 +1284,7 @@ function LaunchTimeline({
     <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
       {entry.loading && (
         <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-          Loading launches…
+          <Spinner label="Loading launches…" size="xs" />
         </div>
       )}
       {entry.error && (
@@ -1361,7 +1365,7 @@ function HistoryTimeline({ entry }: { entry?: HistoryState[string] }) {
     <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
       {entry.loading && (
         <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-          Loading history…
+          <Spinner label="Loading history…" size="xs" />
         </div>
       )}
       {entry.error && (

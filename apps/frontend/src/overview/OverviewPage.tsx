@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useOverviewData } from './useOverviewData';
 import { ROUTE_PATHS } from '../routes/paths';
+import { Spinner } from '../components';
 import type { AppRecord, StatusFacet } from '../catalog/types';
 import type { ServiceSummary } from '../services/types';
 import type { JobRunListItem, WorkflowRunListItem } from '../runs/api';
@@ -100,7 +101,7 @@ function runStatusBadge(status: string): string {
     case 'succeeded':
       return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
     case 'running':
-      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300 running-badge';
     case 'failed':
       return 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
     case 'pending':
@@ -286,7 +287,7 @@ function Card({ title, actionLabel, actionHref, children, loading }: CardProps) 
       </div>
       {loading ? (
         <div className="flex h-32 items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-          Loading…
+          <Spinner label="Loading…" />
         </div>
       ) : (
         children

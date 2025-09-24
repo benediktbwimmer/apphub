@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import DiffViewer from '../components/DiffViewer';
+import { Spinner } from '../components';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type { AuthorizedFetch } from '../workflows/api';
@@ -308,7 +309,9 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
             <p className="mt-3 text-xs text-rose-600 dark:text-rose-300">{combinedError}</p>
           )}
           {loading && (
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Loading bundle artifacts…</p>
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              <Spinner label="Loading bundle artifacts…" size="xs" />
+            </p>
           )}
           {!loading && diffItems.length === 0 && (
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">

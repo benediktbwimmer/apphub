@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { Spinner } from '../components';
 import { useToasts } from '../components/toast';
 import { ROUTE_PATHS } from '../routes/paths';
 import { useAppHubEvent } from '../events/context';
@@ -570,7 +571,11 @@ function WorkflowRunsTable({
   const selectedRunId = selectedEntry?.run.id ?? null;
 
   if (loading && !state.loaded) {
-    return <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">Loading workflow runs…</div>;
+    return (
+      <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">
+        <Spinner label="Loading workflow runs…" />
+      </div>
+    );
   }
 
   if (error && items.length === 0) {
@@ -729,7 +734,7 @@ function WorkflowRunsTable({
             onClick={onLoadMore}
             disabled={loadingMore || loading}
           >
-            {loadingMore ? 'Loading…' : 'Load more'}
+            {loadingMore ? <Spinner label="Loading more…" size="xs" /> : 'Load more'}
           </button>
         </div>
       )}
@@ -808,7 +813,11 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Step timeline</h4>
-          {loading && <span className="text-xs text-slate-500 dark:text-slate-400">Loading steps…</span>}
+          {loading && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              <Spinner label="Loading steps…" size="xs" />
+            </span>
+          )}
         </div>
         {error && (
           <div className="rounded-xl border border-amber-300/70 bg-amber-50/70 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -985,7 +994,11 @@ function JobRunsTable({
   const selectedRunId = selectedEntry?.run.id ?? null;
 
   if (loading && !state.loaded) {
-    return <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">Loading job runs…</div>;
+    return (
+      <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">
+        <Spinner label="Loading job runs…" />
+      </div>
+    );
   }
 
   if (error && items.length === 0) {
@@ -1134,7 +1147,7 @@ function JobRunsTable({
             onClick={onLoadMore}
             disabled={loadingMore || loading}
           >
-            {loadingMore ? 'Loading…' : 'Load more'}
+            {loadingMore ? <Spinner label="Loading more…" size="xs" /> : 'Load more'}
           </button>
         </div>
       )}

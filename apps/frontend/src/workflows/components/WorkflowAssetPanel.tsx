@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Spinner } from '../../components';
 import { formatDuration, formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
 import type {
@@ -183,7 +184,11 @@ export default function WorkflowAssetPanel({
         <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{error}</p>
       )}
 
-      {loading && <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading assets…</p>}
+      {loading && (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+          <Spinner label="Loading assets…" size="xs" />
+        </p>
+      )}
 
       {!loading && !error && !hasAssets && (
         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">No assets declared for this workflow.</p>
@@ -267,7 +272,9 @@ export default function WorkflowAssetPanel({
             <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{assetDetailError}</p>
           )}
           {assetDetailLoading && (
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Loading history…</p>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              <Spinner label="Loading history…" size="xs" />
+            </p>
           )}
           {!assetDetailLoading && !assetDetailError && assetDetail && (
             <div className="mt-3 space-y-4">
@@ -335,7 +342,9 @@ export default function WorkflowAssetPanel({
               <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{assetPartitionsError}</p>
             )}
             {assetPartitionsLoading && (
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Loading partitions…</p>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                <Spinner label="Loading partitions…" size="xs" />
+              </p>
             )}
             {!assetPartitionsLoading && !assetPartitionsError && assetPartitions && (
               <div className="mt-3 space-y-3">

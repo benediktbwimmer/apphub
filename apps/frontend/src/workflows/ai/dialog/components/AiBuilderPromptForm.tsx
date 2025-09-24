@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react';
+import { Spinner } from '../../../components';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState } from '../types';
 import { formatBytes, formatTokenCount } from '../utils';
 
@@ -103,11 +104,19 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Model context preview</h4>
             <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-              {contextLoading ? 'Loading…' : formatTokenCount(contextPreview?.tokenCount ?? null)}
+              {contextLoading ? (
+                <Spinner label="Loading…" size="xs" className="gap-1" iconClassName="border" />
+              ) : (
+                formatTokenCount(contextPreview?.tokenCount ?? null)
+              )}
             </span>
           </div>
           <div className="mt-2 max-h-80 space-y-3 overflow-y-auto pr-1">
-            {contextLoading && <p className="text-[11px] text-slate-500 dark:text-slate-400">Loading context…</p>}
+            {contextLoading && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                <Spinner label="Loading context…" size="xs" className="gap-1" iconClassName="border" />
+              </p>
+            )}
             {!contextLoading && contextError && (
               <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">{contextError}</p>
             )}

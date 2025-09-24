@@ -14,6 +14,7 @@ import type { WorkflowAssetPartitionSummary, WorkflowAssetPartitions } from '../
 import { ApiError, fetchWorkflowAssetPartitions, getWorkflowDetail } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
+import { Spinner } from '../components';
 import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
 
 function buildPendingKey(action: string, slug: string, partitionKey: string | null): string {
@@ -443,7 +444,7 @@ export default function AssetsPage() {
 
       {loading ? (
         <div className="flex h-[520px] items-center justify-center rounded-3xl border border-slate-200/70 bg-white/70 text-sm text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40 dark:text-slate-300">
-          Loading asset graph…
+          <Spinner label="Loading asset graph…" />
         </div>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">

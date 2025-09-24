@@ -3,7 +3,7 @@ export function getStatusBadgeClasses(status: string): string {
     case 'succeeded':
       return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/40 dark:border-emerald-400/40 dark:text-emerald-300';
     case 'running':
-      return 'bg-sky-500/10 text-sky-600 border-sky-500/40 dark:border-sky-400/40 dark:text-sky-300';
+      return 'bg-sky-500/10 text-sky-600 border-sky-500/40 dark:border-sky-400/40 dark:text-sky-300 running-badge';
     case 'failed':
       return 'bg-rose-500/10 text-rose-600 border-rose-500/40 dark:border-rose-400/40 dark:text-rose-300';
     case 'canceled':

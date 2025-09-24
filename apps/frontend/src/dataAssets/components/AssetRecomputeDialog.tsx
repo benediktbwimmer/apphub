@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
-import { Editor } from '../../components/Editor';
+import { Editor, Spinner } from '../../components';
 import { formatTimestamp } from '../../workflows/formatters';
 import type { WorkflowAssetPartitionSummary } from '../../workflows/types';
 
@@ -633,7 +633,7 @@ export function AssetRecomputeDialog({
 
             {workflowParametersLoading && (
               <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-400">
-                Loading workflow defaults…
+                <Spinner label="Loading workflow defaults…" size="xs" />
               </div>
             )}
 

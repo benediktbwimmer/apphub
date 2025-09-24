@@ -6,6 +6,7 @@ import {
   FormFeedback,
   FormSection
 } from '../../components/form';
+import { Spinner } from '../../components';
 import { useToasts } from '../../components/toast';
 import { type AppRecord, type IngestionEvent, useImportApp } from '../useImportApp';
 import type { AppScenario } from '../examples';
@@ -459,7 +460,11 @@ export default function ImportAppsTab({ onAppRegistered, onViewCatalog, scenario
               </button>
             )}
           </div>
-          {historyLoading && <p className="text-sm text-slate-500 dark:text-slate-400">Loading history…</p>}
+          {historyLoading && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              <Spinner label="Loading history…" size="xs" />
+            </p>
+          )}
           {historyError && <FormFeedback tone="error">{historyError}</FormFeedback>}
           {!historyLoading && !historyError && renderHistory(history)}
         </div>

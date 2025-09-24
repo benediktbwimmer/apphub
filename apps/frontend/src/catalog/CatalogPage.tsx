@@ -5,6 +5,7 @@ import FilterPanel from './components/FilterPanel';
 import AppGrid from './components/AppGrid';
 import AppList from './components/AppList';
 import AppDetailsPanel from './components/AppDetailsPanel';
+import { Spinner } from '../components';
 
 type CatalogPageProps = {
   searchSeed?: string;
@@ -110,7 +111,7 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
       <section className="flex flex-col gap-6">
         {loading && (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
-            Loading apps…
+            <Spinner label="Loading apps…" size="sm" />
           </div>
         )}
         {error && !loading && (

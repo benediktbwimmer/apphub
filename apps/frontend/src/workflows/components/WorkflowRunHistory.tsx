@@ -1,5 +1,6 @@
 import { formatDuration, formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
+import { Spinner } from '../../components';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRuntimeSummary } from '../types';
 
 type WorkflowRunHistoryProps = {
@@ -42,7 +43,11 @@ export default function WorkflowRunHistory({
           </button>
         )}
       </div>
-      {loading && <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Loading runs…</p>}
+      {loading && (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+          <Spinner label="Loading runs…" size="xs" />
+        </p>
+      )}
       {!loading && runs.length === 0 && (
         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">No runs yet.</p>
       )}
