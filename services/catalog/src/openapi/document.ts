@@ -957,7 +957,9 @@ const assetGraphNodeSchema: OpenAPIV3.SchemaObject = {
     'consumers',
     'latestMaterializations',
     'stalePartitions',
-    'hasStalePartitions'
+  'hasStalePartitions',
+  'hasOutdatedUpstreams',
+  'outdatedUpstreamAssetIds'
   ],
   properties: {
     assetId: { type: 'string' },
@@ -966,7 +968,12 @@ const assetGraphNodeSchema: OpenAPIV3.SchemaObject = {
     consumers: { type: 'array', items: assetGraphConsumerSchema },
     latestMaterializations: { type: 'array', items: assetGraphMaterializationSchema },
     stalePartitions: { type: 'array', items: assetGraphStalePartitionSchema },
-    hasStalePartitions: { type: 'boolean' }
+    hasStalePartitions: { type: 'boolean' },
+    hasOutdatedUpstreams: { type: 'boolean' },
+    outdatedUpstreamAssetIds: {
+      type: 'array',
+      items: { type: 'string' }
+    }
   }
 };
 

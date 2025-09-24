@@ -188,6 +188,10 @@ function normalizeNode(raw: unknown): AssetGraphNode | null {
   const stalePartitions = staleRaw
     .map((entry) => normalizeStalePartition(entry))
     .filter((entry): entry is AssetGraphStalePartition => Boolean(entry));
+  const outdatedRaw = Array.isArray(record.outdatedUpstreamAssetIds) ? record.outdatedUpstreamAssetIds : [];
+  const outdatedUpstreamAssetIds = outdatedRaw
+    .map((value) => (typeof value === 'string' && value.length > 0 ? value : null))
+    .filter((value): value is string => Boolean(value));
 
   return {
     assetId,
@@ -196,7 +200,9 @@ function normalizeNode(raw: unknown): AssetGraphNode | null {
     consumers,
     latestMaterializations,
     stalePartitions,
-    hasStalePartitions: asBoolean(record.hasStalePartitions, stalePartitions.length > 0)
+    hasStalePartitions: asBoolean(record.hasStalePartitions, stalePartitions.length > 0),
+    hasOutdatedUpstreams: asBoolean(record.hasOutdatedUpstreams, outdatedUpstreamAssetIds.length > 0),
+    outdatedUpstreamAssetIds
   };
 }
 

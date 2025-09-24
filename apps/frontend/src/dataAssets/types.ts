@@ -54,6 +54,8 @@ export type AssetGraphNode = {
   latestMaterializations: AssetGraphMaterialization[];
   stalePartitions: AssetGraphStalePartition[];
   hasStalePartitions: boolean;
+  hasOutdatedUpstreams: boolean;
+  outdatedUpstreamAssetIds: string[];
 };
 
 export type AssetGraphEdge = {

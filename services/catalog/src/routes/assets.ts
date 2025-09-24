@@ -176,6 +176,20 @@ function ensureAggregateNode(map: Map<string, AssetGraphNode>, assetId: string):
   return node;
 }
 
+function getLatestProducedAt(materializations: AssetGraphMaterialization[]): number | null {
+  let latest: number | null = null;
+  for (const materialization of materializations) {
+    const producedAt = Date.parse(materialization.producedAt);
+    if (Number.isNaN(producedAt)) {
+      continue;
+    }
+    if (latest === null || producedAt > latest) {
+      latest = producedAt;
+    }
+  }
+  return latest;
+}
+
 function mapSnapshotToMaterialization(
   snapshot: WorkflowAssetSnapshotRecord,
   workflowId: string,
@@ -380,12 +394,23 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const assets = Array.from(aggregates.values()).map((node) => ({
-      assetId: node.assetId,
-      normalizedAssetId: node.normalizedAssetId,
-      producers: node.producers,
-      consumers: node.consumers,
-      latestMaterializations: node.latestMaterializations.sort((a, b) => {
+    const latestProducedAtByAsset = new Map<string, number | null>();
+    for (const node of aggregates.values()) {
+      latestProducedAtByAsset.set(node.normalizedAssetId, getLatestProducedAt(node.latestMaterializations));
+    }
+
+    const upstreamByAsset = new Map<string, Set<string>>();
+    for (const edge of edges) {
+      const upstream = upstreamByAsset.get(edge.toAssetNormalizedId);
+      if (upstream) {
+        upstream.add(edge.fromAssetNormalizedId);
+      } else {
+        upstreamByAsset.set(edge.toAssetNormalizedId, new Set([edge.fromAssetNormalizedId]));
+      }
+    }
+
+    const assets = Array.from(aggregates.values()).map((node) => {
+      const latestMaterializations = [...node.latestMaterializations].sort((a, b) => {
         const aTime = Date.parse(a.producedAt);
         const bTime = Date.parse(b.producedAt);
         if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
@@ -398,10 +423,42 @@ export async function registerAssetRoutes(app: FastifyInstance): Promise<void> {
           return 1;
         }
         return 0;
-      }),
-      stalePartitions: node.stalePartitions,
-      hasStalePartitions: node.stalePartitions.length > 0
-    }));
+      });
+
+      const upstreamSources = upstreamByAsset.get(node.normalizedAssetId);
+      const downstreamProducedAt = latestProducedAtByAsset.get(node.normalizedAssetId) ?? null;
+      const outdatedUpstreams = new Set<string>();
+
+      if (upstreamSources) {
+        for (const upstreamNormalizedId of upstreamSources) {
+          const upstreamNode = aggregates.get(upstreamNormalizedId);
+          if (!upstreamNode) {
+            continue;
+          }
+          const upstreamProducedAt = latestProducedAtByAsset.get(upstreamNormalizedId) ?? null;
+          if (upstreamProducedAt === null) {
+            continue;
+          }
+          if (downstreamProducedAt === null || upstreamProducedAt > downstreamProducedAt) {
+            outdatedUpstreams.add(upstreamNode.assetId);
+          }
+        }
+      }
+
+      const outdatedUpstreamAssetIds = Array.from(outdatedUpstreams).sort((a, b) => a.localeCompare(b));
+
+      return {
+        assetId: node.assetId,
+        normalizedAssetId: node.normalizedAssetId,
+        producers: node.producers,
+        consumers: node.consumers,
+        latestMaterializations,
+        stalePartitions: node.stalePartitions,
+        hasStalePartitions: node.stalePartitions.length > 0,
+        hasOutdatedUpstreams: outdatedUpstreamAssetIds.length > 0,
+        outdatedUpstreamAssetIds
+      };
+    });
 
     assets.sort((a, b) => a.assetId.localeCompare(b.assetId));
     edges.sort((a, b) => {

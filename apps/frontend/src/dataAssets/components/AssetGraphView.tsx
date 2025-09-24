@@ -50,25 +50,74 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
       return { nodes: [] as Node[], edges: [] as Edge[] };
     }
 
-    const coreNodes: Node[] = data.assets.map((asset) => ({
-      id: asset.normalizedAssetId,
-      data: {
-        label: asset.assetId,
-        hasStale: asset.hasStalePartitions,
-        latest: asset.latestMaterializations[0] ?? null
-      },
-      position: { x: 0, y: 0 },
-      selectable: true,
-      style: {
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
-        borderRadius: 18,
-        border: asset.hasStalePartitions ? '2px solid #f97316' : '1px solid rgba(148, 163, 184, 0.6)',
-        background: asset.hasStalePartitions ? 'rgba(254, 215, 170, 0.3)' : '#ffffff',
-        boxShadow: '0 18px 32px -24px rgba(15, 23, 42, 0.45)',
-        padding: 12
+    const coreNodes: Node[] = data.assets.map((asset) => {
+      const badges: JSX.Element[] = [];
+      if (asset.hasOutdatedUpstreams) {
+        badges.push(
+          <span
+            key="needs-refresh"
+            className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-500/10 dark:text-sky-200"
+          >
+            Needs refresh
+          </span>
+        );
       }
-    }));
+      if (asset.hasStalePartitions) {
+        badges.push(
+          <span
+            key="stale"
+            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/10 dark:text-amber-200"
+          >
+            Stale partitions
+          </span>
+        );
+      }
+
+      const border = asset.hasStalePartitions
+        ? '2px solid #f97316'
+        : asset.hasOutdatedUpstreams
+          ? '2px solid #0ea5e9'
+          : '1px solid rgba(148, 163, 184, 0.6)';
+      const background = asset.hasStalePartitions
+        ? 'rgba(254, 215, 170, 0.3)'
+        : asset.hasOutdatedUpstreams
+          ? 'rgba(224, 242, 254, 0.6)'
+          : '#ffffff';
+
+      return {
+        id: asset.normalizedAssetId,
+        data: {
+          label: (
+            <div className="flex h-full flex-col justify-between text-left">
+              <div>
+                <div className="text-sm font-semibold leading-5 text-slate-700 dark:text-slate-100">
+                  {asset.assetId}
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
+                  {asset.normalizedAssetId}
+                </div>
+              </div>
+              {badges.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {badges}
+                </div>
+              ) : null}
+            </div>
+          )
+        },
+        position: { x: 0, y: 0 },
+        selectable: true,
+        style: {
+          width: NODE_WIDTH,
+          height: NODE_HEIGHT,
+          borderRadius: 18,
+          border,
+          background,
+          boxShadow: '0 18px 32px -24px rgba(15, 23, 42, 0.45)',
+          padding: 12
+        }
+      } satisfies Node;
+    });
 
     const coreEdges: Edge[] = data.edges.map((edge) => ({
       id: `${edge.fromAssetNormalizedId}->${edge.toAssetNormalizedId}@${edge.workflowId}:${edge.stepId}`,

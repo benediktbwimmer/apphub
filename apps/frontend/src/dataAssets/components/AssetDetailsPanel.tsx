@@ -43,6 +43,12 @@ export function AssetDetailsPanel({
   const producers = asset.producers;
   const consumers = asset.consumers;
   const selectedProducer = producers.find((producer) => producer.workflowSlug === selectedWorkflowSlug);
+  const outdatedUpstreamList = asset.outdatedUpstreamAssetIds;
+  const outdatedUpstreamMessage = asset.hasOutdatedUpstreams && outdatedUpstreamList.length > 0
+    ? outdatedUpstreamList.length === 1
+      ? `${outdatedUpstreamList[0]} was recomputed after this asset. Trigger a recompute to refresh downstream data.`
+      : `Upstream assets ${outdatedUpstreamList.join(', ')} were recomputed after this asset. Trigger a recompute to refresh downstream data.`
+    : null;
 
   return (
     <div className="flex h-[520px] flex-col gap-4 overflow-hidden rounded-3xl border border-slate-200/70 bg-white/90 p-5 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/40">
@@ -54,12 +60,25 @@ export function AssetDetailsPanel({
               {asset.normalizedAssetId}
             </p>
           </div>
-          {asset.hasStalePartitions && (
-            <span className="inline-flex items-center rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
-              Stale partitions
-            </span>
-          )}
+          <div className="flex flex-col items-end gap-2">
+            {asset.hasOutdatedUpstreams && (
+              <span className="inline-flex items-center rounded-full bg-sky-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-500/20 dark:text-sky-200">
+                Needs refresh
+              </span>
+            )}
+            {asset.hasStalePartitions && (
+              <span className="inline-flex items-center rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
+                Stale partitions
+              </span>
+            )}
+          </div>
         </div>
+
+        {outdatedUpstreamMessage ? (
+          <div className="rounded-xl border border-sky-400/50 bg-sky-50 px-3 py-2 text-sm text-sky-700 shadow-sm dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-200">
+            {outdatedUpstreamMessage}
+          </div>
+        ) : null}
 
         {producers.length > 0 && (
           <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
