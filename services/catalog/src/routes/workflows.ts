@@ -69,6 +69,68 @@ type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
 type JobDefinitionLookup = Map<string, JobDefinitionRecord>;
 
+const toEpochMillis = (value: string | Date | null | undefined): number | null => {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const compareNullableTimestamps = (next: number | null, current: number | null): number => {
+  if (next === null && current === null) {
+    return 0;
+  }
+  if (next === null) {
+    return -1;
+  }
+  if (current === null) {
+    return 1;
+  }
+  if (next > current) {
+    return 1;
+  }
+  if (next < current) {
+    return -1;
+  }
+  return 0;
+};
+
+const isNewerAssetSnapshot = (
+  current: WorkflowAssetSnapshotRecord,
+  candidate: WorkflowAssetSnapshotRecord
+): boolean => {
+  const producedComparison = compareNullableTimestamps(
+    toEpochMillis(candidate.asset.producedAt),
+    toEpochMillis(current.asset.producedAt)
+  );
+  if (producedComparison !== 0) {
+    return producedComparison > 0;
+  }
+
+  const updatedComparison = compareNullableTimestamps(
+    toEpochMillis(candidate.asset.updatedAt),
+    toEpochMillis(current.asset.updatedAt)
+  );
+  if (updatedComparison !== 0) {
+    return updatedComparison > 0;
+  }
+
+  const createdComparison = compareNullableTimestamps(
+    toEpochMillis(candidate.asset.createdAt),
+    toEpochMillis(current.asset.createdAt)
+  );
+  if (createdComparison !== 0) {
+    return createdComparison > 0;
+  }
+
+  return candidate.workflowRunId > current.workflowRunId;
+};
+
 function normalizeAssetPartitioning(
   partitioning: WorkflowAssetDeclarationInput['partitioning']
 ): WorkflowAssetDeclaration['partitioning'] | undefined {
@@ -1212,13 +1274,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const assetId = snapshot.asset.assetId;
       ensureEntry(assetId);
       const existing = latestByAsset.get(assetId);
-      if (!existing) {
-        latestByAsset.set(assetId, snapshot);
-        continue;
-      }
-      const existingTime = Date.parse(existing.asset.producedAt);
-      const nextTime = Date.parse(snapshot.asset.producedAt);
-      if (Number.isNaN(existingTime) || (!Number.isNaN(nextTime) && nextTime > existingTime)) {
+      if (!existing || isNewerAssetSnapshot(existing, snapshot)) {
         latestByAsset.set(assetId, snapshot);
       }
     }
@@ -1473,8 +1529,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     });
 
     partitionSummaries.sort((a, b) => {
-      const aTime = a.latest?.producedAt ? new Date(a.latest.producedAt).getTime() : null;
-      const bTime = b.latest?.producedAt ? new Date(b.latest.producedAt).getTime() : null;
+      const aTime = toEpochMillis(a.latest?.producedAt ?? null);
+      const bTime = toEpochMillis(b.latest?.producedAt ?? null);
       if (aTime !== null && bTime !== null && aTime !== bTime) {
         return bTime - aTime;
       }

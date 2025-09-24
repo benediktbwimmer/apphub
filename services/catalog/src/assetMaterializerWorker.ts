@@ -53,6 +53,10 @@ function nowMs(): number {
   return Date.now();
 }
 
+function cloneJsonValue<T extends JsonValue>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function normalizePartitionKeyValue(
   partitionKey: string | null | undefined
 ): { raw: string | null; normalized: string } {
@@ -73,6 +77,7 @@ type WorkflowProducedAssetConfig = {
 type WorkflowConfig = {
   id: string;
   slug: string;
+  defaultParameters: JsonValue;
   producedAssets: Map<string, WorkflowProducedAssetConfig>; // key: normalized asset id
   consumes: Set<string>; // normalized asset ids
   onUpstreamUpdate: boolean;
@@ -544,6 +549,7 @@ export class AssetMaterializer {
     const config: WorkflowConfig = {
       id: definition.id,
       slug: definition.slug,
+      defaultParameters: definition.defaultParameters ?? {},
       producedAssets,
       consumes,
       onUpstreamUpdate
@@ -641,6 +647,7 @@ export class AssetMaterializer {
     const partitionKey = 'partitionKey' in payload ? payload.partitionKey ?? null : null;
     const run = await createWorkflowRun(workflowId, {
       triggeredBy: 'asset-materializer',
+      parameters: cloneJsonValue(config.defaultParameters),
       trigger,
       partitionKey
     });

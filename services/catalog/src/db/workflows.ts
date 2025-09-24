@@ -621,7 +621,11 @@ async function fetchLatestWorkflowAssetSnapshots(
        JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
        WHERE asset.workflow_definition_id = $1
-       ORDER BY asset.asset_id, COALESCE(asset.partition_key, ''), asset.produced_at DESC`,
+       ORDER BY asset.asset_id,
+                COALESCE(asset.partition_key, ''),
+                asset.produced_at DESC,
+                asset.created_at DESC,
+                asset.id DESC`,
     [workflowDefinitionId]
   );
   return rows.map(mapWorkflowAssetSnapshotRow);
@@ -656,7 +660,9 @@ async function fetchWorkflowAssetHistory(
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
         AND asset.asset_id = $2${partitionClause}
-     ORDER BY asset.produced_at DESC
+     ORDER BY asset.produced_at DESC,
+              asset.created_at DESC,
+              asset.id DESC
      LIMIT $${limitIndex}`,
     params
   );
@@ -709,7 +715,10 @@ async function fetchWorkflowAssetPartitions(
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
         AND asset.asset_id = $2
-     ORDER BY COALESCE(asset.partition_key, ''), asset.produced_at DESC`,
+     ORDER BY COALESCE(asset.partition_key, ''),
+              asset.produced_at DESC,
+              asset.created_at DESC,
+              asset.id DESC`,
     [workflowDefinitionId, assetId]
   );
   const staleRecords = await fetchWorkflowAssetStalePartitionsForAsset(

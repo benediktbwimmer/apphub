@@ -1913,6 +1913,11 @@ async function testAssetMaterializerAutoRuns(): Promise<void> {
       triggers: [{ type: 'manual' }]
     });
 
+    const targetDefaults = {
+      environment: 'production',
+      region: 'us-east-1'
+    };
+
     const targetWorkflow = await createWorkflowDefinition({
       slug: `asset-target-${randomUUID()}`.toLowerCase(),
       name: 'Asset Target',
@@ -1932,7 +1937,8 @@ async function testAssetMaterializerAutoRuns(): Promise<void> {
           ]
         }
       ],
-      triggers: [{ type: 'manual' }]
+      triggers: [{ type: 'manual' }],
+      defaultParameters: targetDefaults
     });
 
     await delay(150);
@@ -1958,6 +1964,7 @@ async function testAssetMaterializerAutoRuns(): Promise<void> {
     const trigger = firstRun.trigger as Record<string, unknown> | null;
     assert.ok(trigger && trigger.type === 'auto-materialize');
     assert.equal((trigger as { reason?: string }).reason, 'upstream-update');
+    assert.deepEqual(firstRun.parameters, targetDefaults);
 
     const secondProducedAt = new Date(Date.now() + 1000).toISOString();
     emitApphubEvent({
