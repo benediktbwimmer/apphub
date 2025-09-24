@@ -25,6 +25,7 @@ COPY apps/frontend/ ./
 COPY services/catalog/src/workflows /app/services/catalog/src/workflows
 COPY services/catalog/src/ai /app/services/catalog/src/ai
 COPY shared /app/shared
+COPY examples /app/examples
 RUN npm run build
 
 FROM node:20-slim AS runtime

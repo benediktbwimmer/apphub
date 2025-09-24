@@ -13,6 +13,8 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "resolveJsonModule": true,
+    "allowArbitraryExtensions": true,
     "jsx": "react-jsx",
     "baseUrl": "./",
     "paths": {

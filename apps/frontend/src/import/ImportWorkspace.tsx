@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import ServiceManifestsTab from './tabs/ServiceManifestsTab';
 import ImportAppsTab from './tabs/ImportAppsTab';
 import ImportJobBundleTab from './tabs/ImportJobBundleTab';
@@ -21,6 +22,8 @@ import { Spinner } from '../components';
 import { useToasts } from '../components/toast';
 import { API_BASE_URL } from '../config';
 import { fileToEncodedPayload } from '../utils/fileEncoding';
+import { FormActions, FormButton, FormField, FormFeedback } from '../components/form';
+import type { ManifestPlaceholder } from './useImportServiceManifest';
 
 export type ImportSubtab = 'service-manifests' | 'apps' | 'jobs' | 'workflows';
 
@@ -71,6 +74,79 @@ type AutoImportState = {
   step: string | null;
   errors: string[];
 };
+
+type ServiceImportQueue = {
+  bundleId: string;
+  service: ServiceManifestScenario[];
+  app: AppScenario[];
+  job: JobScenario[];
+  workflow: WorkflowScenario[];
+};
+
+type ServicePlaceholderModalState = {
+  scenario: ServiceManifestScenario;
+  placeholders: ManifestPlaceholder[];
+  variables: Record<string, string>;
+  queue: ServiceImportQueue;
+  errors: string[];
+};
+
+function mergeServiceVariables(
+  base?: Record<string, string>,
+  overrides?: Record<string, string>
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+  if (base) {
+    for (const [key, value] of Object.entries(base)) {
+      merged[key] = typeof value === 'string' ? value : String(value ?? '');
+    }
+  }
+  if (overrides) {
+    for (const [key, value] of Object.entries(overrides)) {
+      merged[key] = typeof value === 'string' ? value : String(value ?? '');
+    }
+  }
+  return merged;
+}
+
+function normalizeVariablesForRequest(variables: Record<string, string>): Record<string, string> | undefined {
+  const entries = Object.entries(variables)
+    .map(([key, value]) => [key.trim(), (value ?? '').trim()] as const)
+    .filter(([key, value]) => key.length > 0 && value.length > 0);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    normalized[key] = value;
+  }
+  return normalized;
+}
+
+function hydratePlaceholderVariables(
+  placeholders: ManifestPlaceholder[],
+  existing: Record<string, string>
+): Record<string, string> {
+  const hydrated: Record<string, string> = { ...existing };
+  for (const placeholder of placeholders) {
+    const name = placeholder.name;
+    const existingValue = typeof hydrated[name] === 'string' ? hydrated[name].trim() : '';
+    if (existingValue.length > 0) {
+      hydrated[name] = existingValue;
+      continue;
+    }
+    if (typeof placeholder.value === 'string' && placeholder.value.trim().length > 0) {
+      hydrated[name] = placeholder.value.trim();
+      continue;
+    }
+    if (typeof placeholder.defaultValue === 'string' && placeholder.defaultValue.trim().length > 0) {
+      hydrated[name] = placeholder.defaultValue.trim();
+      continue;
+    }
+    hydrated[name] = '';
+  }
+  return hydrated;
+}
 
 function findScenarioById<TScenario extends ExampleScenario>(
   id: string,
@@ -194,11 +270,23 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
   const scenarioTokenRef = useRef(0);
   const autoImportedScenariosRef = useRef(new Set<string>());
   const [autoImportState, setAutoImportState] = useState<AutoImportState>({ status: 'idle', step: null, errors: [] });
+  const [servicePlaceholderModal, setServicePlaceholderModal] = useState<ServicePlaceholderModalState | null>(null);
+  const [serviceModalSubmitting, setServiceModalSubmitting] = useState(false);
+  const [serviceModalError, setServiceModalError] = useState<string | null>(null);
 
   const getNextScenarioToken = useCallback(() => {
     scenarioTokenRef.current += 1;
     return Date.now() + scenarioTokenRef.current;
   }, []);
+
+  useEffect(() => {
+    if (!servicePlaceholderModal) {
+      setServiceModalSubmitting(false);
+      setServiceModalError(null);
+    } else {
+      setServiceModalError(null);
+    }
+  }, [servicePlaceholderModal]);
 
   const scenarioById = useMemo(() => new Map(EXAMPLE_SCENARIOS.map((entry) => [entry.id, entry])), []);
 
@@ -220,44 +308,60 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
     });
   }, [pushToast]);
 
-  const importServiceManifestScenario = useCallback(
-    async (scenario: ServiceManifestScenario) => {
-      const body: {
-        repo: string;
-        ref?: string;
-        commit?: string;
-        configPath?: string;
-        module?: string;
-        variables?: Record<string, string>;
-      } = { repo: scenario.form.repo };
-      if (scenario.form.ref) {
-        body.ref = scenario.form.ref;
+  const attemptServiceImportScenario = useCallback(
+    async (
+      scenario: ServiceManifestScenario,
+      overrides?: Record<string, string>
+    ): Promise<
+      | { kind: 'success' }
+      | { kind: 'placeholders'; placeholders: ManifestPlaceholder[]; variables: Record<string, string> }
+    > => {
+      const overrideVariables = mergeServiceVariables({}, overrides ?? {});
+      const normalizedVariables = overrides ? normalizeVariablesForRequest(overrideVariables) : undefined;
+
+      const body: Record<string, unknown> = {
+        repo: scenario.form.repo.trim()
+      };
+      const ref = scenario.form.ref?.trim();
+      if (ref) {
+        body.ref = ref;
       }
-      if (scenario.form.commit) {
-        body.commit = scenario.form.commit;
+      const commit = scenario.form.commit?.trim();
+      if (commit) {
+        body.commit = commit;
       }
-      if (scenario.form.configPath) {
-        body.configPath = scenario.form.configPath;
+      const configPath = scenario.form.configPath?.trim();
+      if (configPath) {
+        body.configPath = configPath;
       }
-      if (scenario.form.module) {
-        body.module = scenario.form.module;
+      const moduleValue = scenario.form.module?.trim();
+      if (moduleValue) {
+        body.module = moduleValue;
       }
-      if (scenario.form.variables) {
-        body.variables = scenario.form.variables;
+      if (normalizedVariables) {
+        body.variables = normalizedVariables;
       }
+
       const response = await authorizedFetch(`${API_BASE_URL}/service-networks/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
+
       if (response.ok || response.status === 409) {
-        return;
+        return { kind: 'success' };
       }
+
       const payload = await response.json().catch(() => null);
-      let message = typeof payload?.error === 'string' ? payload.error : `Service manifest import failed (${response.status})`;
-      if (/service registry disabled/i.test(message)) {
-        message = `${message}. Start the service registry worker (npm run dev:services) and retry.`;
+      if (response.status === 400 && payload && Array.isArray(payload.placeholders)) {
+        const placeholders = payload.placeholders as ManifestPlaceholder[];
+        const baseVariables = mergeServiceVariables(scenario.form.variables ?? {}, overrides ?? {});
+        const hydratedVariables = hydratePlaceholderVariables(placeholders, baseVariables);
+        return { kind: 'placeholders', placeholders, variables: hydratedVariables };
       }
+
+      const message =
+        typeof payload?.error === 'string' ? payload.error : `Service manifest import failed (${response.status})`;
       throw new Error(message);
     },
     [authorizedFetch]
@@ -439,44 +543,65 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
     [authorizedFetch]
   );
 
-  const autoImportIncludes = useCallback(
-    async (bundleId: string, includeIds: string[]) => {
-      if (includeIds.length === 0) {
-        return;
-      }
-      if (autoImportedScenariosRef.current.has(bundleId)) {
-        return;
-      }
-      autoImportedScenariosRef.current.add(bundleId);
-      const scenarios = includeIds
-        .map((id) => scenarioById.get(id))
-        .filter((candidate): candidate is ExampleScenario => candidate !== undefined);
-      if (scenarios.length === 0) {
-        return;
-      }
-
-      const grouped = groupScenariosByType(scenarios);
+  const processAutoImportQueue = useCallback(
+    async (queue: ServiceImportQueue, errors: string[]) => {
       const totalItems =
-        grouped['service-manifest'].length + grouped.app.length + grouped.job.length + grouped.workflow.length;
+        queue.service.length + queue.app.length + queue.job.length + queue.workflow.length;
       if (totalItems === 0) {
+        completeAutoImport(errors);
         return;
       }
-      const errors: string[] = [];
 
-      if (grouped['service-manifest'].length > 0) {
+      // Services
+      let remainingQueue: ServiceImportQueue = {
+        bundleId: queue.bundleId,
+        service: [...queue.service],
+        app: [...queue.app],
+        job: [...queue.job],
+        workflow: [...queue.workflow]
+      };
+
+      while (remainingQueue.service.length > 0) {
+        const [scenario, ...rest] = remainingQueue.service;
         setAutoImportRunning('Importing service manifests');
-        for (const scenario of grouped['service-manifest']) {
-          try {
-            await importServiceManifestScenario(scenario);
-          } catch (err) {
-            errors.push(`${scenario.title}: ${(err as Error).message}`);
+        try {
+          const result = await attemptServiceImportScenario(scenario);
+          if (result.kind === 'placeholders') {
+            setAutoImportRunning('Awaiting service placeholder values');
+            setActiveSubtab('service-manifests');
+            pushToast({
+              tone: 'info',
+              title: 'Service manifest placeholders required',
+              description: `Provide values for ${scenario.title} to continue importing examples.`
+            });
+            setServicePlaceholderModal({
+              scenario,
+              placeholders: result.placeholders,
+              variables: result.variables,
+              queue: {
+                bundleId: remainingQueue.bundleId,
+                service: rest,
+                app: remainingQueue.app,
+                job: remainingQueue.job,
+                workflow: remainingQueue.workflow
+              },
+              errors
+            });
+            return;
           }
+        } catch (err) {
+          errors.push(`${scenario.title}: ${(err as Error).message}`);
         }
+        remainingQueue = {
+          ...remainingQueue,
+          service: rest
+        };
       }
 
-      if (grouped.app.length > 0) {
+      // Apps
+      if (remainingQueue.app.length > 0) {
         setAutoImportRunning('Registering example apps');
-        for (const scenario of grouped.app) {
+        for (const scenario of remainingQueue.app) {
           try {
             await importAppScenario(scenario);
           } catch (err) {
@@ -485,9 +610,10 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
         }
       }
 
-      if (grouped.job.length > 0) {
+      // Jobs
+      if (remainingQueue.job.length > 0) {
         setAutoImportRunning('Uploading job bundles');
-        for (const scenario of grouped.job) {
+        for (const scenario of remainingQueue.job) {
           try {
             await importJobScenario(scenario);
           } catch (err) {
@@ -496,9 +622,10 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
         }
       }
 
-      if (grouped.workflow.length > 0) {
+      // Workflows
+      if (remainingQueue.workflow.length > 0) {
         setAutoImportRunning('Creating workflows');
-        for (const scenario of grouped.workflow) {
+        for (const scenario of remainingQueue.workflow) {
           try {
             await importWorkflowScenario(scenario);
           } catch (err) {
@@ -509,8 +636,97 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
 
       completeAutoImport(errors);
     },
-    [completeAutoImport, importAppScenario, importJobScenario, importServiceManifestScenario, importWorkflowScenario, scenarioById, setAutoImportRunning]
+    [attemptServiceImportScenario, completeAutoImport, importAppScenario, importJobScenario, importWorkflowScenario, pushToast, setActiveSubtab, setAutoImportRunning]
   );
+
+  const autoImportIncludes = useCallback(
+    async (bundleId: string, includeIds: string[]) => {
+      if (includeIds.length === 0) {
+        return;
+      }
+      if (autoImportedScenariosRef.current.has(bundleId)) {
+        return;
+      }
+      autoImportedScenariosRef.current.add(bundleId);
+
+      const scenarios = includeIds
+        .map((id) => scenarioById.get(id))
+        .filter((candidate): candidate is ExampleScenario => candidate !== undefined);
+      if (scenarios.length === 0) {
+        completeAutoImport([]);
+        return;
+      }
+
+      const grouped = groupScenariosByType(scenarios);
+      const queue: ServiceImportQueue = {
+        bundleId,
+        service: [...grouped['service-manifest']],
+        app: [...grouped.app],
+        job: [...grouped.job],
+        workflow: [...grouped.workflow]
+      };
+
+      await processAutoImportQueue(queue, []);
+    },
+    [completeAutoImport, processAutoImportQueue, scenarioById]
+  );
+
+  const handleServiceModalVariableChange = useCallback((name: string, value: string) => {
+    setServicePlaceholderModal((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        variables: {
+          ...prev.variables,
+          [name]: value
+        }
+      };
+    });
+  }, []);
+
+  const handleServiceModalSubmit = useCallback(async () => {
+    if (!servicePlaceholderModal) {
+      return;
+    }
+    const modalState = servicePlaceholderModal;
+    setServiceModalSubmitting(true);
+    setServiceModalError(null);
+    try {
+      const result = await attemptServiceImportScenario(modalState.scenario, modalState.variables);
+      if (result.kind === 'placeholders') {
+        setServicePlaceholderModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                placeholders: result.placeholders,
+                variables: result.variables
+              }
+            : prev
+        );
+        return;
+      }
+
+      setServicePlaceholderModal(null);
+      await processAutoImportQueue(modalState.queue, modalState.errors);
+    } catch (err) {
+      setServiceModalError((err as Error).message);
+    } finally {
+      setServiceModalSubmitting(false);
+    }
+  }, [attemptServiceImportScenario, processAutoImportQueue, servicePlaceholderModal]);
+
+  const handleServiceModalCancel = useCallback(() => {
+    if (!servicePlaceholderModal) {
+      return;
+    }
+    const modalState = servicePlaceholderModal;
+    autoImportedScenariosRef.current.delete(modalState.queue.bundleId);
+    setServicePlaceholderModal(null);
+    const errors = [...modalState.errors, `${modalState.scenario.title}: import canceled by user`];
+    completeAutoImport(errors);
+  }, [completeAutoImport, servicePlaceholderModal]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -812,12 +1028,24 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
   }, [handleApplyScenario, loadAllExamplesScenario]);
 
   return (
-    <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-500 dark:text-violet-300">
-            Import workspace
-          </span>
+    <>
+      <ServicePlaceholderDialog
+        open={Boolean(servicePlaceholderModal)}
+        scenario={servicePlaceholderModal?.scenario ?? null}
+        placeholders={servicePlaceholderModal?.placeholders ?? []}
+        variables={servicePlaceholderModal?.variables ?? {}}
+        onChange={handleServiceModalVariableChange}
+        onSubmit={handleServiceModalSubmit}
+        onCancel={handleServiceModalCancel}
+        submitting={serviceModalSubmitting}
+        error={serviceModalError}
+      />
+      <div className="flex flex-col gap-8">
+        <header className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-500 dark:text-violet-300">
+              Import workspace
+            </span>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
             Manage manifests, register apps, and publish jobs
           </h1>
@@ -945,6 +1173,126 @@ export default function ImportWorkspace({ onAppRegistered, onManifestImported, o
         onClose={handleClosePicker}
         onApply={handleApplyScenario}
       />
+      </div>
+    </>
+  );
+}
+
+type ServicePlaceholderDialogProps = {
+  open: boolean;
+  scenario: ServiceManifestScenario | null;
+  placeholders: ManifestPlaceholder[];
+  variables: Record<string, string>;
+  submitting: boolean;
+  error: string | null;
+  onChange: (name: string, value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+};
+
+const PLACEHOLDER_INPUT_CLASSES =
+  'rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40';
+
+function ServicePlaceholderDialog({
+  open,
+  scenario,
+  placeholders,
+  variables,
+  submitting,
+  error,
+  onChange,
+  onSubmit,
+  onCancel
+}: ServicePlaceholderDialogProps) {
+  if (!open || !scenario) {
+    return null;
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSubmit();
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-8"
+    >
+      <div className="relative w-full max-w-2xl rounded-3xl bg-white p-6 text-slate-800 shadow-2xl dark:bg-slate-900 dark:text-slate-100">
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
+              Example service manifest
+            </span>
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{scenario.title}</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-300">{scenario.summary}</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            Cancel import
+          </button>
+        </div>
+
+        <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-4">
+            {placeholders.map((placeholder) => {
+              const normalizedId = placeholder.name.toLowerCase().replace(/[^a-z0-9]+/gi, '-');
+              const hintContent = (
+                <span className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
+                  {placeholder.description ? <span>{placeholder.description}</span> : null}
+                  {placeholder.defaultValue !== undefined && placeholder.defaultValue !== null && placeholder.defaultValue !== '' ? (
+                    <span>
+                      Default: <code>{placeholder.defaultValue}</code>
+                    </span>
+                  ) : null}
+                  {placeholder.conflicts.length > 0 ? (
+                    <span className="text-rose-500">Conflicts: {placeholder.conflicts.join(', ')}</span>
+                  ) : null}
+                </span>
+              );
+              const label = placeholder.required || placeholder.missing
+                ? `${placeholder.name} *`
+                : placeholder.name;
+              const value = variables[placeholder.name] ?? '';
+              return (
+                <FormField key={placeholder.name} label={label} htmlFor={normalizedId} hint={hintContent}>
+                  <input
+                    id={normalizedId}
+                    type="text"
+                    className={PLACEHOLDER_INPUT_CLASSES}
+                    value={value}
+                    onChange={(event) => onChange(placeholder.name, event.target.value)}
+                    required={placeholder.required}
+                    disabled={submitting}
+                  />
+                </FormField>
+              );
+            })}
+          </div>
+
+          {error ? <FormFeedback tone="error">{error}</FormFeedback> : null}
+
+          <FormActions>
+            <FormButton
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={onCancel}
+              disabled={submitting}
+            >
+              Cancel
+            </FormButton>
+            <FormButton type="submit" size="sm" disabled={submitting}>
+              {submitting ? <Spinner size="xs" label="Importing" /> : 'Import service manifest'}
+            </FormButton>
+          </FormActions>
+        </form>
+      </div>
     </div>
   );
 }

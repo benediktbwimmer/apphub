@@ -1,5 +1,11 @@
 import type { WorkflowCreateInput } from '../../workflows/api';
 import type { ExampleScenario } from './types';
+import directoryInsightsArchiveWorkflow from '../../../../../examples/directory-insights/workflows/directory-insights-archive.json' assert { type: 'json' };
+import directoryInsightsReportWorkflow from '../../../../../examples/directory-insights/workflows/directory-insights-report.json' assert { type: 'json' };
+import observatoryDailyPublicationWorkflow from '../../../../../examples/environmental-observatory/workflows/observatory-daily-publication.json' assert { type: 'json' };
+import observatoryHourlyIngestWorkflow from '../../../../../examples/environmental-observatory/workflows/observatory-hourly-ingest.json' assert { type: 'json' };
+import retailSalesDailyIngestWorkflow from '../../../../../examples/retail-sales/workflows/retail-sales-daily-ingest.json' assert { type: 'json' };
+import retailSalesInsightsWorkflow from '../../../../../examples/retail-sales/workflows/retail-sales-insights.json' assert { type: 'json' };
 
 const fileDropRelocationWorkflowForm = {
   slug: 'file-drop-relocation',
@@ -55,6 +61,18 @@ const fileDropRelocationWorkflowForm = {
   ],
   triggers: [{ type: 'manual' }]
 } as const satisfies WorkflowCreateInput;
+
+const retailSalesDailyIngestWorkflowForm = retailSalesDailyIngestWorkflow as WorkflowCreateInput;
+
+const retailSalesInsightsWorkflowForm = retailSalesInsightsWorkflow as WorkflowCreateInput;
+
+const observatoryHourlyIngestWorkflowForm = observatoryHourlyIngestWorkflow as WorkflowCreateInput;
+
+const observatoryDailyPublicationWorkflowForm = observatoryDailyPublicationWorkflow as WorkflowCreateInput;
+
+const directoryInsightsReportWorkflowForm = directoryInsightsReportWorkflow as WorkflowCreateInput;
+
+const directoryInsightsArchiveWorkflowForm = directoryInsightsArchiveWorkflow as WorkflowCreateInput;
 
 const telemetryAssetSchema = {
   type: 'object',
@@ -293,10 +311,51 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         FILE_WATCH_ROOT: 'examples/environmental-observatory/data/inbox',
         FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory/data/staging',
         FILE_WATCH_WAREHOUSE_PATH: 'examples/environmental-observatory/data/warehouse/observatory.duckdb',
-        CATALOG_API_TOKEN: 'replace-with-operator-token'
+        CATALOG_API_TOKEN: 'dev-token'
       }
     },
     analyticsTag: 'service__observatory_file_watcher'
+  },
+  {
+    id: 'observatory-file-watcher-app',
+    type: 'app',
+    title: 'Observatory file watcher app',
+    summary: 'Packages the watcher service into a container image.',
+    description:
+      'Registers the watcher repository so AppHub can build and launch it as a container. The Dockerfile installs dependencies, builds the TypeScript project, and runs the compiled watcher entry point.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'workflow watcher'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Watcher repository',
+        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+      },
+      {
+        label: 'Dockerfile',
+        path: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/services/observatory-file-watcher/Dockerfile'
+      }
+    ],
+    form: {
+      id: 'observatory-file-watcher',
+      name: 'Observatory File Watcher',
+      description: 'Watches the observatory inbox for hourly CSV drops and triggers ingest workflows automatically.',
+      repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
+      dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+      tags: [
+        { key: 'language', value: 'typescript' },
+        { key: 'framework', value: 'fastify' }
+      ],
+      sourceType: 'remote'
+    },
+    analyticsTag: 'app__observatory_file_watcher'
   },
   {
     id: 'file-relocator-job',
@@ -537,6 +596,370 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'job__greenhouse_alerts_runner'
   },
   {
+    id: 'scan-directory-job',
+    type: 'job',
+    title: 'Directory scanner job',
+    summary: 'Indexes a directory tree and captures per-file metadata.',
+    description:
+      'Uploads the `scan-directory` bundle (0.1.0). Use it to crawl `examples/directory-insights/data/output` or any workspace directory before generating visualizations.',
+    difficulty: 'intermediate',
+    tags: ['directory insights', 'fs capability'],
+    docs: [
+      {
+        label: 'Directory insights walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/directory-insights-workflow.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/directory-insights/jobs/scan-directory/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/directory-insights/jobs/scan-directory/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'scan-directory@0.1.0',
+      notes: 'Bundle sourced from examples/directory-insights/jobs/scan-directory. Provide scanDir pointing at a workspace directory when previewing.'
+    },
+    exampleSlug: 'scan-directory',
+    analyticsTag: 'job__scan_directory'
+  },
+  {
+    id: 'generate-visualizations-job',
+    type: 'job',
+    title: 'Directory visualization builder',
+    summary: 'Renders HTML, Markdown, and JSON reports from scan metadata.',
+    description:
+      'Uploads the `generate-visualizations` bundle (0.1.2) to turn directory scan outputs into shareable reports for the insights demo.',
+    difficulty: 'intermediate',
+    tags: ['directory insights', 'reporting'],
+    docs: [
+      {
+        label: 'Directory insights walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/directory-insights-workflow.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Visualization job manifest',
+        path: 'examples/directory-insights/jobs/generate-visualizations/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/directory-insights/jobs/generate-visualizations/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'generate-visualizations@0.1.2',
+      notes: 'Bundle built from examples/directory-insights/jobs/generate-visualizations. Point scanData at the scan-directory output when running.'
+    },
+    exampleSlug: 'generate-visualizations',
+    analyticsTag: 'job__generate_visualizations'
+  },
+  {
+    id: 'archive-report-job',
+    type: 'job',
+    title: 'Directory report archiver',
+    summary: 'Compresses generated reports and artifacts into a tarball.',
+    description:
+      'Uploads the `archive-report` bundle (0.1.1) so you can archive directory insight artifacts and publish `directory.insights.archive` assets.',
+    difficulty: 'beginner',
+    tags: ['directory insights', 'automation'],
+    docs: [
+      {
+        label: 'Directory insights archive guide',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/directory-insights-archive-workflow.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Archive job manifest',
+        path: 'examples/directory-insights/jobs/archive-report/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/directory-insights/jobs/archive-report/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'archive-report@0.1.1',
+      notes: 'Bundle packaged from examples/directory-insights/jobs/archive-report. Use alongside the directory insights workflows to archive generated reports.'
+    },
+    exampleSlug: 'archive-report',
+    analyticsTag: 'job__archive_report'
+  },
+  {
+    id: 'observatory-inbox-normalizer-job',
+    type: 'job',
+    title: 'Observatory inbox normalizer',
+    summary: 'Stages hourly CSV drops into standardized observatory assets.',
+    description:
+      'Uploads the `observatory-inbox-normalizer` bundle (0.1.0). Pair it with the hourly ingest workflow to emit `observatory.timeseries.raw` assets from inbox files.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'ingest'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'observatory-inbox-normalizer@0.1.0',
+      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-inbox-normalizer. Configure inbox/staging directories to match your environment.'
+    },
+    exampleSlug: 'observatory-inbox-normalizer',
+    analyticsTag: 'job__observatory_inbox_normalizer'
+  },
+  {
+    id: 'observatory-duckdb-loader-job',
+    type: 'job',
+    title: 'Observatory DuckDB loader',
+    summary: 'Appends normalized readings into DuckDB snapshots.',
+    description:
+      'Uploads the `observatory-duckdb-loader` bundle (0.1.0) to materialize `observatory.timeseries.duckdb` assets after normalization completes.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'duckdb'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'observatory-duckdb-loader@0.1.0',
+      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-duckdb-loader. Point warehousePath at the DuckDB database you want to populate.'
+    },
+    exampleSlug: 'observatory-duckdb-loader',
+    analyticsTag: 'job__observatory_duckdb_loader'
+  },
+  {
+    id: 'observatory-visualization-runner-job',
+    type: 'job',
+    title: 'Observatory visualization runner',
+    summary: 'Builds SVG plots and metrics from DuckDB timeseries.',
+    description:
+      'Uploads the `observatory-visualization-runner` bundle (0.1.0). Use it to generate observatory dashboards and feed the publication workflow.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'visualization'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'observatory-visualization-runner@0.1.0',
+      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-visualization-runner. Provide warehousePath and plotsDir when previewing.'
+    },
+    exampleSlug: 'observatory-visualization-runner',
+    analyticsTag: 'job__observatory_visualization_runner'
+  },
+  {
+    id: 'observatory-report-publisher-job',
+    type: 'job',
+    title: 'Observatory report publisher',
+    summary: 'Publishes observatory status reports referencing generated plots.',
+    description:
+      'Uploads the `observatory-report-publisher` bundle (0.1.0). Combine it with visualization outputs to render Markdown, HTML, and JSON reports.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'reporting'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: 'observatory-report-publisher@0.1.0',
+      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-report-publisher. Supply reportsDir and visualization asset metadata before running.'
+    },
+    exampleSlug: 'observatory-report-publisher',
+    analyticsTag: 'job__observatory_report_publisher'
+  },
+  {
+    id: 'retail-sales-daily-ingest-workflow',
+    type: 'workflow',
+    title: 'Retail sales daily ingest',
+    summary: 'Ingests CSV exports and builds curated Parquet assets.',
+    description:
+      'Imports the `retail-sales-daily-ingest` workflow definition. It runs the CSV loader and Parquet builder jobs to materialize `retail.sales.raw` and `retail.sales.parquet` partitions for a given day.',
+    difficulty: 'intermediate',
+    tags: ['retail sales', 'ingest'],
+    docs: [
+      {
+        label: 'Retail sales workflow walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/retail-sales-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/retail-sales/workflows/retail-sales-daily-ingest.json'
+      }
+    ],
+    form: retailSalesDailyIngestWorkflowForm,
+    includes: ['retail-sales-csv-loader-job', 'retail-sales-parquet-job'],
+    analyticsTag: 'workflow__retail_sales_ingest'
+  },
+  {
+    id: 'retail-sales-insights-workflow',
+    type: 'workflow',
+    title: 'Retail sales insights publishing',
+    summary: 'Transforms Parquet partitions into dashboards and artifacts.',
+    description:
+      'Imports the `retail-sales-insights` workflow definition. It reads curated Parquet data and renders static HTML, Markdown, and JSON reports for the retail demo.',
+    difficulty: 'intermediate',
+    tags: ['retail sales', 'reporting'],
+    docs: [
+      {
+        label: 'Retail sales workflow walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/retail-sales-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/retail-sales/workflows/retail-sales-insights.json'
+      }
+    ],
+    form: retailSalesInsightsWorkflowForm,
+    includes: ['retail-sales-visualizer-job'],
+    analyticsTag: 'workflow__retail_sales_insights'
+  },
+  {
+    id: 'observatory-hourly-ingest-workflow',
+    type: 'workflow',
+    title: 'Observatory hourly ingest',
+    summary: 'Normalizes inbox CSV drops and appends them into DuckDB.',
+    description:
+      'Imports the `observatory-hourly-ingest` workflow definition so you can replay the hourly ingestion loop and emit observatory telemetry assets.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'ingest'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-hourly-ingest.json'
+      }
+    ],
+    form: observatoryHourlyIngestWorkflowForm,
+    includes: ['observatory-inbox-normalizer-job', 'observatory-duckdb-loader-job'],
+    analyticsTag: 'workflow__observatory_hourly_ingest'
+  },
+  {
+    id: 'observatory-daily-publication-workflow',
+    type: 'workflow',
+    title: 'Observatory daily publication',
+    summary: 'Generates observatory visualizations and publishes reports.',
+    description:
+      'Imports the `observatory-daily-publication` workflow definition. It renders visualizations from DuckDB snapshots and publishes hourly status reports with linked artifacts.',
+    difficulty: 'intermediate',
+    tags: ['observatory', 'reporting'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-daily-publication.json'
+      }
+    ],
+    form: observatoryDailyPublicationWorkflowForm,
+    includes: [
+      'observatory-visualization-runner-job',
+      'observatory-report-publisher-job',
+      'observatory-hourly-ingest-workflow'
+    ],
+    analyticsTag: 'workflow__observatory_daily_publication'
+  },
+  {
+    id: 'directory-insights-report-workflow',
+    type: 'workflow',
+    title: 'Directory insights report',
+    summary: 'Scans directories and renders interactive reports.',
+    description:
+      'Imports the `directory-insights-report` workflow definition. It runs the scan and visualization jobs to emit the `directory.insights.report` asset.',
+    difficulty: 'intermediate',
+    tags: ['directory insights', 'reporting'],
+    docs: [
+      {
+        label: 'Directory insights walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/directory-insights-workflow.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/directory-insights/workflows/directory-insights-report.json'
+      }
+    ],
+    form: directoryInsightsReportWorkflowForm,
+    includes: ['scan-directory-job', 'generate-visualizations-job'],
+    analyticsTag: 'workflow__directory_insights_report'
+  },
+  {
+    id: 'directory-insights-archive-workflow',
+    type: 'workflow',
+    title: 'Directory insights archive',
+    summary: 'Archives directory insight artifacts into compressed bundles.',
+    description:
+      'Imports the `directory-insights-archive` workflow definition to package visualization artifacts into a tarball and emit the `directory.insights.archive` asset.',
+    difficulty: 'beginner',
+    tags: ['directory insights', 'automation'],
+    docs: [
+      {
+        label: 'Directory insights archive guide',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/directory-insights-archive-workflow.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/directory-insights/workflows/directory-insights-archive.json'
+      }
+    ],
+    form: directoryInsightsArchiveWorkflowForm,
+    includes: ['archive-report-job', 'directory-insights-report-workflow'],
+    analyticsTag: 'workflow__directory_insights_archive'
+  },
+  {
     id: 'fleet-telemetry-daily-rollup-workflow',
     type: 'workflow',
     title: 'Fleet telemetry daily rollup',
@@ -613,15 +1036,29 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     tags: ['quickstart'],
     includes: [
       'observatory-file-watcher-service',
+      'observatory-file-watcher-app',
+      'scan-directory-job',
+      'generate-visualizations-job',
+      'archive-report-job',
+      'observatory-inbox-normalizer-job',
+      'observatory-duckdb-loader-job',
+      'observatory-visualization-runner-job',
+      'observatory-report-publisher-job',
       'file-relocator-job',
-      'file-drop-relocation-workflow',
       'retail-sales-csv-loader-job',
       'retail-sales-parquet-job',
       'retail-sales-visualizer-job',
       'fleet-telemetry-metrics-job',
       'greenhouse-alerts-runner-job',
+      'file-drop-relocation-workflow',
+      'retail-sales-daily-ingest-workflow',
+      'retail-sales-insights-workflow',
       'fleet-telemetry-daily-rollup-workflow',
-      'fleet-telemetry-alerts-workflow'
+      'fleet-telemetry-alerts-workflow',
+      'observatory-hourly-ingest-workflow',
+      'observatory-daily-publication-workflow',
+      'directory-insights-report-workflow',
+      'directory-insights-archive-workflow'
     ],
     focus: 'workflows',
     analyticsTag: 'bundle__all_examples'

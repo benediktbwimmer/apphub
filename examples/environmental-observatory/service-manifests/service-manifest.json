@@ -51,6 +51,7 @@
           "value": {
             "$var": {
               "name": "CATALOG_API_TOKEN",
+              "default": "dev-token",
               "description": "Operator API token used to trigger workflows and update run status."
             }
           }
