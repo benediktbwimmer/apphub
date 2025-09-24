@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   WorkflowAssetDetail,
@@ -9,6 +10,11 @@ import type {
   WorkflowRunStep
 } from '../../types';
 import type { AuthorizedFetch } from '../../api';
+import {
+  AppHubEventsContext,
+  type AppHubEventHandler,
+  type AppHubEventsClient
+} from '../../../events/context';
 
 const {
   workflowDefinition,
@@ -165,28 +171,6 @@ const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: Reques
   return new Response(JSON.stringify({ data: [] }), { status: 200 });
 });
 
-class TestSocket {
-  static instances: TestSocket[] = [];
-  url: string;
-  readyState = 1;
-  onopen: ((event: Event) => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  close = vi.fn(() => {
-    this.readyState = 3;
-    this.onclose?.({} as CloseEvent);
-  });
-  send = vi.fn();
-  constructor(url: string) {
-    this.url = url;
-    TestSocket.instances.push(this);
-    setTimeout(() => {
-      this.onopen?.({} as Event);
-    }, 0);
-  }
-}
-
 vi.mock('../../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: () => authorizedFetchMock
 }));
@@ -225,11 +209,10 @@ vi.mock('../../api', async () => {
 
 import { useWorkflowsController } from '../useWorkflowsController';
 
+let appHubClient: AppHubEventsClient;
+let wrapper: ({ children }: { children: React.ReactNode }) => JSX.Element;
+
 beforeEach(() => {
-  (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = class {
-    static OPEN = 1;
-    static CLOSED = 3;
-  } as unknown as typeof WebSocket;
   activeTokenMock = { id: 'token-1' };
   authorizedFetchMock.mockClear();
   pushToastMock.mockClear();
@@ -239,7 +222,17 @@ beforeEach(() => {
   fetchWorkflowAssetsMock.mockClear();
   fetchWorkflowAssetHistoryMock.mockClear();
   fetchWorkflowAssetPartitionsMock.mockClear();
-  TestSocket.instances = [];
+  const subscribers = new Set<AppHubEventHandler>();
+  appHubClient = {
+    subscribe: (handler) => {
+      subscribers.add(handler);
+      return () => {
+        subscribers.delete(handler);
+      };
+    }
+  };
+  wrapper = ({ children }) =>
+    createElement(AppHubEventsContext.Provider, { value: appHubClient }, children);
 });
 
 afterEach(() => {
@@ -248,11 +241,7 @@ afterEach(() => {
 
 describe('useWorkflowsController', () => {
   it('loads workflows and refreshes run data', async () => {
-    const { result, unmount } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.workflowsLoading).toBe(false));
     await waitFor(() => expect(listWorkflowDefinitionsMock).toHaveBeenCalled());
@@ -267,19 +256,12 @@ describe('useWorkflowsController', () => {
     });
     expect(result.current.manualRunError).toBeNull();
     expect(result.current.lastTriggeredRun?.id).toBe('run-1');
-
-    unmount();
-    expect(TestSocket.instances[0]?.close).toHaveBeenCalled();
   });
 
   it('prevents manual runs when no active token is configured', async () => {
     activeTokenMock = null;
 
-    const { result } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.workflowsLoading).toBe(false));
     await waitFor(() => expect(listWorkflowDefinitionsMock).toHaveBeenCalled());
@@ -340,11 +322,7 @@ describe('useWorkflowsController', () => {
     ];
     fetchWorkflowAssetsMock.mockResolvedValue(assetInventory);
 
-    const { result } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.workflowsLoading).toBe(false));
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
@@ -466,11 +444,7 @@ describe('useWorkflowsController', () => {
     };
     fetchWorkflowAssetPartitionsMock.mockResolvedValue(partitions);
 
-    const { result } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
@@ -505,11 +479,7 @@ describe('useWorkflowsController', () => {
     fetchWorkflowAssetsMock.mockResolvedValue([]);
     fetchWorkflowAssetHistoryMock.mockRejectedValueOnce(new Error('history failure'));
 
-    const { result } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     await waitFor(() => expect(result.current.assetInventoryLoading).toBe(false));
@@ -531,11 +501,7 @@ describe('useWorkflowsController', () => {
     const { ApiError } = await import('../../api');
     fetchWorkflowAssetsMock.mockRejectedValueOnce(new ApiError('inventory failure', 500));
 
-    const { result } = renderHook(() =>
-      useWorkflowsController({
-        createWebSocket: (url) => new TestSocket(url) as unknown as WebSocket
-      })
-    );
+    const { result } = renderHook(() => useWorkflowsController(), { wrapper });
 
     await waitFor(() => expect(result.current.selectedSlug).toBe('demo-workflow'));
     await waitFor(() => expect(fetchWorkflowAssetsMock).toHaveBeenCalled());

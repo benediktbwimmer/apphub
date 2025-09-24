@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEventHandler } from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { useAppHubEvent, type AppHubSocketEvent } from '../events/context';
 import { API_BASE_URL, BUILD_PAGE_SIZE, INGEST_STATUSES } from './constants';
 import type {
   AppRecord,
   BuildListMeta,
   BuildSummary,
   BuildTimelineState,
-  CatalogSocketEvent,
   HistoryState,
   IngestionEvent,
   LaunchListState,
@@ -1113,170 +1113,46 @@ export function useCatalog(): UseCatalogResult {
     });
   }, []);
 
-  useEffect(() => {
-    let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let pongTimer: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
-    let attempt = 0;
-
-    const resolveWebsocketUrl = () => {
-      try {
-        const apiUrl = new URL(API_BASE_URL);
-        const wsUrl = new URL(apiUrl.toString());
-        wsUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl.hash = '';
-        wsUrl.search = '';
-        wsUrl.pathname = `${apiUrl.pathname.replace(/\/$/, '')}/ws`;
-        return wsUrl.toString();
-      } catch {
-        const sanitized = API_BASE_URL.replace(/^https?:\/\//, '');
-        const protocol = API_BASE_URL.startsWith('https') ? 'wss://' : 'ws://';
-        return `${protocol}${sanitized.replace(/\/$/, '')}/ws`;
+  const handleRepositorySocketEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: 'repository.updated' }>) => {
+      if (event.data?.repository) {
+        handleRepositoryUpdate(event.data.repository);
       }
-    };
+    },
+    [handleRepositoryUpdate]
+  );
 
-    const clearHeartbeat = () => {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
+  const handleIngestionSocketEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: 'repository.ingestion-event' }>) => {
+      if (event.data?.event) {
+        handleIngestionEvent(event.data.event);
       }
-      if (pongTimer) {
-        clearTimeout(pongTimer);
-        pongTimer = null;
+    },
+    [handleIngestionEvent]
+  );
+
+  const handleBuildSocketEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: 'build.updated' }>) => {
+      if (event.data?.build) {
+        handleBuildUpdate(event.data.build);
       }
-    };
+    },
+    [handleBuildUpdate]
+  );
 
-    const startHeartbeat = () => {
-      clearHeartbeat();
-      heartbeatTimer = setInterval(() => {
-        if (closed || !socket || socket.readyState !== WebSocket.OPEN) {
-          return;
-        }
-        try {
-          socket.send('ping');
-        } catch {
-          // Swallow network errors and let the reconnect logic handle failures.
-        }
-        if (pongTimer) {
-          clearTimeout(pongTimer);
-        }
-        pongTimer = setTimeout(() => {
-          if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.close();
-          }
-        }, 10_000);
-      }, 30_000);
-    };
-
-    const handlePong = () => {
-      if (pongTimer) {
-        clearTimeout(pongTimer);
-        pongTimer = null;
+  const handleLaunchSocketEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: 'launch.updated' }>) => {
+      if (event.data?.launch && event.data.repositoryId) {
+        handleLaunchUpdate(event.data.repositoryId, event.data.launch);
       }
-    };
+    },
+    [handleLaunchUpdate]
+  );
 
-    const connect = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      const url = resolveWebsocketUrl();
-      socket = new WebSocket(url);
-
-      socket.onopen = () => {
-        attempt = 0;
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
-        startHeartbeat();
-      };
-
-      socket.onmessage = (event) => {
-        if (typeof event.data !== 'string') {
-          return;
-        }
-
-        let payload: unknown;
-        try {
-          payload = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-
-        const envelope = payload as CatalogSocketEvent;
-
-        switch (envelope.type) {
-          case 'connection.ack':
-            startHeartbeat();
-            return;
-          case 'pong':
-            handlePong();
-            return;
-          case 'repository.updated':
-            if (envelope.data?.repository) {
-              handleRepositoryUpdate(envelope.data.repository);
-            }
-            return;
-          case 'repository.ingestion-event':
-            if (envelope.data?.event) {
-              handleIngestionEvent(envelope.data.event);
-            }
-            return;
-          case 'build.updated':
-            if (envelope.data?.build) {
-              handleBuildUpdate(envelope.data.build);
-            }
-            return;
-          case 'launch.updated':
-            if (envelope.data?.launch && envelope.data?.repositoryId) {
-              handleLaunchUpdate(envelope.data.repositoryId, envelope.data.launch);
-            }
-            return;
-          default:
-            return;
-        }
-      };
-
-      const scheduleReconnect = (delay: number) => {
-        if (closed) {
-          return;
-        }
-        reconnectTimer = setTimeout(connect, delay);
-      };
-
-      socket.onclose = () => {
-        if (closed) {
-          return;
-        }
-        clearHeartbeat();
-        attempt += 1;
-        const delay = Math.min(10_000, 500 * 2 ** attempt);
-        scheduleReconnect(delay);
-        socket = null;
-      };
-
-      socket.onerror = () => {
-        clearHeartbeat();
-        socket?.close();
-      };
-    };
-
-    connect();
-
-    return () => {
-      closed = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      clearHeartbeat();
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-      }
-    };
-  }, [handleRepositoryUpdate, handleIngestionEvent, handleBuildUpdate, handleLaunchUpdate]);
+  useAppHubEvent('repository.updated', handleRepositorySocketEvent);
+  useAppHubEvent('repository.ingestion-event', handleIngestionSocketEvent);
+  useAppHubEvent('build.updated', handleBuildSocketEvent);
+  useAppHubEvent('launch.updated', handleLaunchSocketEvent);
 
   return {
     inputValue,

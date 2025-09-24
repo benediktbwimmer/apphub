@@ -1,11 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import WorkflowsPage from '../WorkflowsPage';
 import { ApiTokenProvider } from '../../auth/ApiTokenContext';
 import { ToastProvider } from '../../components/toast';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
+import {
+  AppHubEventsContext,
+  type AppHubEventHandler,
+  type AppHubEventsClient
+} from '../../events/context';
 
 type FetchArgs = Parameters<typeof fetch>;
 
@@ -140,29 +146,6 @@ const completedRunSteps: WorkflowRunStep[] = [
   }
 ];
 
-class WebSocketMock {
-  static instances: WebSocketMock[] = [];
-  public readyState: number = 1;
-  public onopen: ((event: Event) => void) | null = null;
-  public onmessage: ((event: MessageEvent) => void) | null = null;
-  public onclose: ((event: CloseEvent) => void) | null = null;
-  public onerror: ((event: Event) => void) | null = null;
-  public url: string;
-
-  constructor(url: string) {
-    this.url = url;
-    WebSocketMock.instances.push(this);
-    setTimeout(() => {
-      this.onopen?.(new Event('open'));
-    }, 0);
-  }
-  send(): void {}
-  close(): void {
-    this.readyState = 3;
-    this.onclose?.({} as CloseEvent);
-  }
-}
-
 type FetchMockOptions = {
   workflow?: WorkflowDefinition;
   services?: { slug: string; status: string }[];
@@ -268,20 +251,38 @@ function createFetchMock(options?: FetchMockOptions) {
 }
 
 function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
+  const subscribers = new Set<AppHubEventHandler>();
+  const client: AppHubEventsClient = {
+    subscribe: (handler) => {
+      subscribers.add(handler);
+      return () => {
+        subscribers.delete(handler);
+      };
+    }
+  };
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <ToastProvider>
-        <ApiTokenProvider>
-          <WorkflowsPage />
-        </ApiTokenProvider>
-      </ToastProvider>
-    </MemoryRouter>
+    createElement(
+      AppHubEventsContext.Provider,
+      { value: client },
+      createElement(
+        MemoryRouter,
+        { initialEntries },
+        createElement(
+          ToastProvider,
+          null,
+          createElement(
+            ApiTokenProvider,
+            null,
+            createElement(WorkflowsPage)
+          )
+        )
+      )
+    )
   );
 }
 
 describe('WorkflowsPage manual run flow', () => {
   beforeEach(() => {
-    (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = WebSocketMock as unknown as typeof WebSocket;
     const now = new Date().toISOString();
     window.localStorage.setItem("apphub.apiTokens.v1", JSON.stringify([{ id: 'test-token', label: 'Test token', token: 'test-token-value', createdAt: now, lastUsedAt: null }]));
     window.localStorage.setItem("apphub.activeTokenId.v1", 'test-token');
@@ -289,7 +290,6 @@ describe('WorkflowsPage manual run flow', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    WebSocketMock.instances = [];
     window.localStorage.clear();
   });
 

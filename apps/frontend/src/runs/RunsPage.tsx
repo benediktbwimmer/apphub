@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
 import { ROUTE_PATHS } from '../routes/paths';
+import { useAppHubEvent } from '../events/context';
 import {
   fetchJobRuns,
   fetchWorkflowRuns,
@@ -23,6 +24,25 @@ type RunsTab = {
 
 const WORKFLOW_PAGE_SIZE = 20;
 const JOB_PAGE_SIZE = 25;
+
+const WORKFLOW_RUN_EVENT_TYPES = [
+  'workflow.run.updated',
+  'workflow.run.pending',
+  'workflow.run.running',
+  'workflow.run.succeeded',
+  'workflow.run.failed',
+  'workflow.run.canceled'
+] as const;
+
+const JOB_RUN_EVENT_TYPES = [
+  'job.run.updated',
+  'job.run.pending',
+  'job.run.running',
+  'job.run.succeeded',
+  'job.run.failed',
+  'job.run.canceled',
+  'job.run.expired'
+] as const;
 
 type WorkflowRunsState = {
   items: WorkflowRunListItem[];
@@ -145,6 +165,9 @@ export default function RunsPage() {
   const [pendingWorkflowRunId, setPendingWorkflowRunId] = useState<string | null>(null);
   const [pendingJobRunId, setPendingJobRunId] = useState<string | null>(null);
 
+  const workflowReloadTimer = useRef<number | null>(null);
+  const jobReloadTimer = useRef<number | null>(null);
+
   const loadWorkflowRuns = useCallback(
     async (options?: { offset?: number; append?: boolean }) => {
       const { offset = 0, append = false } = options ?? {};
@@ -219,6 +242,26 @@ export default function RunsPage() {
     [authorizedFetch]
   );
 
+  const scheduleWorkflowReload = useCallback(() => {
+    if (workflowReloadTimer.current !== null) {
+      return;
+    }
+    workflowReloadTimer.current = window.setTimeout(() => {
+      workflowReloadTimer.current = null;
+      void loadWorkflowRuns();
+    }, 250);
+  }, [loadWorkflowRuns]);
+
+  const scheduleJobReload = useCallback(() => {
+    if (jobReloadTimer.current !== null) {
+      return;
+    }
+    jobReloadTimer.current = window.setTimeout(() => {
+      jobReloadTimer.current = null;
+      void loadJobRuns();
+    }, 250);
+  }, [loadJobRuns]);
+
   useEffect(() => {
     void loadWorkflowRuns();
   }, [loadWorkflowRuns]);
@@ -229,6 +272,22 @@ export default function RunsPage() {
     }
   }, [activeTab, jobState.loaded, jobState.loading, loadJobRuns]);
 
+  useEffect(() => {
+    return () => {
+      if (workflowReloadTimer.current !== null) {
+        window.clearTimeout(workflowReloadTimer.current);
+        workflowReloadTimer.current = null;
+      }
+      if (jobReloadTimer.current !== null) {
+        window.clearTimeout(jobReloadTimer.current);
+        jobReloadTimer.current = null;
+      }
+    };
+  }, []);
+
+  useAppHubEvent(WORKFLOW_RUN_EVENT_TYPES, scheduleWorkflowReload);
+  useAppHubEvent(JOB_RUN_EVENT_TYPES, scheduleJobReload);
+
   const workflowNextOffset = workflowState.meta?.nextOffset ?? null;
   const workflowHasMore = Boolean(workflowState.meta?.hasMore && workflowNextOffset !== null);
   const jobNextOffset = jobState.meta?.nextOffset ?? null;
@@ -237,14 +296,6 @@ export default function RunsPage() {
   const workflowLoadingMore = workflowState.loadingMore;
   const jobLoading = jobState.loading;
   const jobLoadingMore = jobState.loadingMore;
-
-  const handleWorkflowRefresh = useCallback(() => {
-    void loadWorkflowRuns();
-  }, [loadWorkflowRuns]);
-
-  const handleJobRefresh = useCallback(() => {
-    void loadJobRuns();
-  }, [loadJobRuns]);
 
   const handleWorkflowLoadMore = useCallback(() => {
     if (!workflowHasMore || workflowNextOffset === null || workflowLoadingMore || workflowLoading) {
@@ -259,6 +310,14 @@ export default function RunsPage() {
     }
     void loadJobRuns({ offset: jobNextOffset, append: true });
   }, [jobHasMore, jobNextOffset, jobLoadingMore, jobLoading, loadJobRuns]);
+
+  const handleWorkflowReload = useCallback(() => {
+    void loadWorkflowRuns();
+  }, [loadWorkflowRuns]);
+
+  const handleJobReload = useCallback(() => {
+    void loadJobRuns();
+  }, [loadJobRuns]);
 
   const handleWorkflowRetrigger = useCallback(
     async (entry: WorkflowRunListItem) => {
@@ -369,7 +428,7 @@ export default function RunsPage() {
           state={workflowState}
           onRetry={handleWorkflowRetrigger}
           pendingRunId={pendingWorkflowRunId}
-          onRefresh={handleWorkflowRefresh}
+          onReload={handleWorkflowReload}
           onLoadMore={handleWorkflowLoadMore}
           onSelect={handleWorkflowSelect}
         />
@@ -378,7 +437,7 @@ export default function RunsPage() {
           state={jobState}
           onRetry={handleJobRetrigger}
           pendingRunId={pendingJobRunId}
-          onRefresh={handleJobRefresh}
+          onReload={handleJobReload}
           onLoadMore={handleJobLoadMore}
         />
       )}
@@ -390,7 +449,7 @@ type WorkflowRunsTableProps = {
   state: WorkflowRunsState;
   onRetry: (entry: WorkflowRunListItem) => void;
   pendingRunId: string | null;
-  onRefresh: () => void;
+  onReload: () => void;
   onLoadMore: () => void;
   onSelect: (entry: WorkflowRunListItem) => void;
 };
@@ -399,11 +458,11 @@ type JobRunsTableProps = {
   state: JobRunsState;
   onRetry: (entry: JobRunListItem) => void;
   pendingRunId: string | null;
-  onRefresh: () => void;
+  onReload: () => void;
   onLoadMore: () => void;
 };
 
-function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore, onSelect }: WorkflowRunsTableProps) {
+function WorkflowRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore, onSelect }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
 
@@ -418,7 +477,8 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore
         <button
           type="button"
           className="self-start rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
-          onClick={onRefresh}
+          onClick={onReload}
+          disabled={loading}
         >
           Retry
         </button>
@@ -430,14 +490,9 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore
     <div className="rounded-2xl border border-slate-200/70 bg-white/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50">
       <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
         <span>Workflow runs</span>
-        <button
-          type="button"
-          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          onClick={onRefresh}
-          disabled={loading || loadingMore}
-        >
-          Refresh
-        </button>
+        {loading && state.loaded && (
+          <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Updating…</span>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
@@ -555,7 +610,7 @@ function WorkflowRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore
   );
 }
 
-function JobRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore }: JobRunsTableProps) {
+function JobRunsTable({ state, onRetry, pendingRunId, onReload, onLoadMore }: JobRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
 
@@ -570,7 +625,8 @@ function JobRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore }: J
         <button
           type="button"
           className="self-start rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
-          onClick={onRefresh}
+          onClick={onReload}
+          disabled={loading}
         >
           Retry
         </button>
@@ -582,14 +638,9 @@ function JobRunsTable({ state, onRetry, pendingRunId, onRefresh, onLoadMore }: J
     <div className="rounded-2xl border border-slate-200/70 bg-white/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50">
       <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
         <span>Job runs</span>
-        <button
-          type="button"
-          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          onClick={onRefresh}
-          disabled={loading || loadingMore}
-        >
-          Refresh
-        </button>
+        {loading && state.loaded && (
+          <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Updating…</span>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">

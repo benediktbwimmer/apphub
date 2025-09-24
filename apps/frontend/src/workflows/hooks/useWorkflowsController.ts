@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
 import { useApiTokens } from '../../auth/useApiTokens';
 import { useToasts } from '../../components/toast';
+import { useAppHubEvent, type AppHubSocketEvent } from '../../events/context';
 import {
   buildFilterOptions,
   buildStatusOptions,
@@ -61,8 +62,6 @@ const WORKFLOW_RUN_EVENT_TYPES = [
   'workflow.run.canceled'
 ] as const;
 
-type WorkflowRunEventType = (typeof WORKFLOW_RUN_EVENT_TYPES)[number];
-
 type ManualRunResponse = {
   data: WorkflowRun;
 };
@@ -99,29 +98,9 @@ export const INITIAL_FILTERS: WorkflowFiltersState = {
   tags: []
 };
 
-export type UseWorkflowsControllerOptions = {
-  createWebSocket?: (url: string) => WebSocket;
-};
-
 export type WorkflowsController = ReturnType<typeof useWorkflowsController>;
 
-function resolveWorkflowWebsocketUrl(): string {
-  try {
-    const apiUrl = new URL(API_BASE_URL);
-    const wsUrl = new URL(apiUrl.toString());
-    wsUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.hash = '';
-    wsUrl.search = '';
-    wsUrl.pathname = `${apiUrl.pathname.replace(/\/$/, '')}/ws`;
-    return wsUrl.toString();
-  } catch {
-    const sanitized = API_BASE_URL.replace(/^https?:\/\//, '');
-    const protocol = API_BASE_URL.startsWith('https') ? 'wss://' : 'ws://';
-    return `${protocol}${sanitized.replace(/\/$/, '')}/ws`;
-  }
-}
-
-export function useWorkflowsController(options?: UseWorkflowsControllerOptions) {
+export function useWorkflowsController() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [workflowsError, setWorkflowsError] = useState<string | null>(null);
@@ -705,15 +684,8 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
     void loadRunSteps(selectedRunId);
   }, [selectedRunId, loadRunSteps]);
 
-  useEffect(() => {
-    let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let pongTimer: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
-    let attempt = 0;
-
-    const handleDefinitionEvent = (payload: unknown) => {
+  const applyWorkflowDefinitionUpdate = useCallback(
+    (payload: unknown) => {
       const definition = normalizeWorkflowDefinition(payload);
       if (!definition) {
         return;
@@ -743,9 +715,12 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
         selectedSlugRef.current = definition.slug;
         setSelectedSlug(definition.slug);
       }
-    };
+    },
+    [seedRuntimeSummaryFromMetadata, setWorkflowDetail, setWorkflows, setSelectedSlug]
+  );
 
-    const handleRunEvent = (payload: unknown) => {
+  const applyWorkflowRunUpdate = useCallback(
+    (payload: unknown) => {
       const run = normalizeWorkflowRun(payload);
       if (!run) {
         return;
@@ -784,140 +759,40 @@ export function useWorkflowsController(options?: UseWorkflowsControllerOptions) 
       ) {
         void loadRunSteps(run.id);
       }
-    };
+    },
+    [loadRunSteps, setRuns, setSelectedRunId, updateRuntimeSummary]
+  );
 
-    const clearHeartbeat = () => {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
+  const handleWorkflowDefinitionEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: 'workflow.definition.updated' }>) => {
+      if (event.data?.workflow) {
+        applyWorkflowDefinitionUpdate(event.data.workflow);
       }
-      if (pongTimer) {
-        clearTimeout(pongTimer);
-        pongTimer = null;
+    },
+    [applyWorkflowDefinitionUpdate]
+  );
+
+  const handleWorkflowRunEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_RUN_EVENT_TYPES[number] }>) => {
+      if (event.data?.run) {
+        applyWorkflowRunUpdate(event.data.run);
       }
-    };
+    },
+    [applyWorkflowRunUpdate]
+  );
 
-    const startHeartbeat = () => {
-      clearHeartbeat();
-      heartbeatTimer = setInterval(() => {
-        if (closed || !socket || socket.readyState !== WebSocket.OPEN) {
-          return;
-        }
-        try {
-          socket.send('ping');
-        } catch {
-          // Ignore send errors and defer to the reconnect logic.
-        }
-        if (pongTimer) {
-          clearTimeout(pongTimer);
-        }
-        pongTimer = setTimeout(() => {
-          if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.close();
-          }
-        }, 10_000);
-      }, 30_000);
-    };
-
-    const handlePong = () => {
-      if (pongTimer) {
-        clearTimeout(pongTimer);
-        pongTimer = null;
+  const handleAnalyticsEvent = useCallback(
+    (event: Extract<AppHubSocketEvent, { type: typeof WORKFLOW_ANALYTICS_EVENT }>) => {
+      if (event.data) {
+        handleAnalyticsSnapshot(event.data);
       }
-    };
+    },
+    [handleAnalyticsSnapshot]
+  );
 
-    const connect = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-
-      socket = options?.createWebSocket?.(resolveWorkflowWebsocketUrl()) ??
-        new WebSocket(resolveWorkflowWebsocketUrl());
-
-      socket.onopen = () => {
-        attempt = 0;
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
-        startHeartbeat();
-      };
-
-      socket.onmessage = (event) => {
-        if (typeof event.data !== 'string') {
-          return;
-        }
-        let payload: unknown;
-        try {
-          payload = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-        if (!payload || typeof payload !== 'object') {
-          return;
-        }
-        const type = (payload as { type?: unknown }).type;
-        if (type === 'connection.ack') {
-          startHeartbeat();
-          return;
-        }
-        if (type === 'pong') {
-          handlePong();
-          return;
-        }
-        if (type === 'workflow.definition.updated') {
-          const workflowPayload = (payload as { data?: { workflow?: unknown } }).data?.workflow;
-          handleDefinitionEvent(workflowPayload);
-          return;
-        }
-        if (type === WORKFLOW_ANALYTICS_EVENT) {
-          const analyticsPayload = (payload as { data?: unknown }).data;
-          handleAnalyticsSnapshot(analyticsPayload);
-          return;
-        }
-        if (typeof type === 'string' && WORKFLOW_RUN_EVENT_TYPES.includes(type as WorkflowRunEventType)) {
-          const runPayload = (payload as { data?: { run?: unknown } }).data?.run;
-          handleRunEvent(runPayload);
-        }
-      };
-
-      socket.onclose = () => {
-        if (closed) {
-          return;
-        }
-        clearHeartbeat();
-        attempt += 1;
-        const delay = Math.min(10_000, 500 * 2 ** attempt);
-        reconnectTimer = setTimeout(connect, delay);
-        socket = null;
-      };
-
-      socket.onerror = () => {
-        clearHeartbeat();
-        socket?.close();
-      };
-    };
-
-    connect();
-
-    return () => {
-      closed = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      clearHeartbeat();
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-      }
-    };
-  }, [
-    loadRunSteps,
-    seedRuntimeSummaryFromMetadata,
-    updateRuntimeSummary,
-    options,
-    handleAnalyticsSnapshot
-  ]);
+  useAppHubEvent('workflow.definition.updated', handleWorkflowDefinitionEvent);
+  useAppHubEvent(WORKFLOW_RUN_EVENT_TYPES, handleWorkflowRunEvent);
+  useAppHubEvent(WORKFLOW_ANALYTICS_EVENT, handleAnalyticsEvent);
 
   const handleManualRun = useCallback(
     async (input: { parameters: unknown; triggeredBy?: string | null }) => {

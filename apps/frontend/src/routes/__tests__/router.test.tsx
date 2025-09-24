@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { appRouteConfig } from '../router';
 import { ROUTE_SEGMENTS } from '../paths';
+
+vi.mock('reactflow', () => ({}), { virtual: true });
+vi.mock('../../dataAssets/AssetsPage', () => ({ default: () => null }));
 
 describe('appRouteConfig', () => {
   it('registers canonical top-level routes', () => {
