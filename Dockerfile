@@ -18,6 +18,7 @@ RUN ln -s /app/apps/frontend/node_modules /app/node_modules
 COPY apps/frontend/ ./
 COPY services/catalog/src/workflows /app/services/catalog/src/workflows
 COPY services/catalog/src/ai /app/services/catalog/src/ai
+COPY shared /app/shared
 RUN npm run build
 
 FROM node:20-slim AS runtime
