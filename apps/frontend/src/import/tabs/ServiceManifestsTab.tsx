@@ -29,17 +29,18 @@ function describePlaceholderUsages(placeholder: ManifestPlaceholder) {
   }
   return placeholder.occurrences
     .map((occurrence: ManifestPlaceholderOccurrence) => {
+      const { envKey, source } = occurrence;
       switch (occurrence.kind) {
         case 'service':
-          return `Service ${occurrence.serviceSlug} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+          return `Service ${occurrence.serviceSlug} · env ${envKey} (source: ${source})`;
         case 'network':
-          return `Network ${occurrence.networkId} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+          return `Network ${occurrence.networkId} · env ${envKey} (source: ${source})`;
         case 'network-service':
-          return `Network ${occurrence.networkId} → service ${occurrence.serviceSlug} · env ${occurrence.envKey} (source: ${occurrence.source})`;
+          return `Network ${occurrence.networkId} → service ${occurrence.serviceSlug} · env ${envKey} (source: ${source})`;
         case 'app-launch':
-          return `App ${occurrence.appId} (network ${occurrence.networkId}) · env ${occurrence.envKey} (source: ${occurrence.source})`;
+          return `App ${occurrence.appId} (network ${occurrence.networkId}) · env ${envKey} (source: ${source})`;
         default:
-          return `env ${occurrence.envKey} (source: ${occurrence.source})`;
+          return `env ${envKey} (source: ${source})`;
       }
     })
     .join('; ');
