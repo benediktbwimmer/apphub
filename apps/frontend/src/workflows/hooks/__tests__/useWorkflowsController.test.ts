@@ -456,7 +456,11 @@ describe('useWorkflowsController', () => {
             runCompletedAt: producedAt
           },
           isStale: false,
-          staleMetadata: null
+          staleMetadata: null,
+          parameters: null,
+          parametersSource: null,
+          parametersCapturedAt: null,
+          parametersUpdatedAt: null
         }
       ]
     };
