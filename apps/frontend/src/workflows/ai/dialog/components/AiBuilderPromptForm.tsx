@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import { Spinner } from '../../../components';
+import { Spinner } from '../../../../components';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState } from '../types';
 import { formatBytes, formatTokenCount } from '../utils';
 

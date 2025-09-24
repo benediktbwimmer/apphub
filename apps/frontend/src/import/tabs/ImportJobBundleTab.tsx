@@ -247,8 +247,8 @@ export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onS
           if (cancelled) {
             return;
           }
-          const filename = scenario.bundle.filename || `${scenario.id}.tar.gz`;
-          const contentType = scenario.bundle.contentType ?? blob.type || 'application/gzip';
+      const filename = scenario.bundle.filename || `${scenario.id}.tar.gz`;
+      const contentType = scenario.bundle.contentType ?? (blob.type || 'application/gzip');
           const file = new File([blob], filename, { type: contentType });
           setArchive(file);
           analytics.trackEvent('import_example_bundle_loaded', {
