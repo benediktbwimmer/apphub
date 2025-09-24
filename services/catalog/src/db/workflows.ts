@@ -26,6 +26,7 @@ import {
   type WorkflowRunStepAssetRecord,
   type WorkflowRunStepAssetInput,
   type WorkflowAssetSnapshotRecord,
+  type WorkflowAssetPartitionSummary,
   type WorkflowExecutionHistoryRecord,
   type WorkflowExecutionHistoryEventInput
 } from './types';
@@ -428,7 +429,9 @@ function extractStepAssetDeclarations(
         asset: {
           assetId: asset.assetId.trim(),
           schema: asset.schema ?? null,
-          freshness: asset.freshness ?? null
+          freshness: asset.freshness ?? null,
+          autoMaterialize: asset.autoMaterialize ?? null,
+          partitioning: asset.partitioning ?? null
         }
       });
     }
@@ -445,7 +448,8 @@ function extractStepAssetDeclarations(
         asset: {
           assetId: asset.assetId.trim(),
           schema: asset.schema ?? null,
-          freshness: asset.freshness ?? null
+          freshness: asset.freshness ?? null,
+          partitioning: asset.partitioning ?? null
         }
       });
     }
@@ -489,7 +493,7 @@ async function replaceWorkflowAssetDeclarations(
   for (const declaration of declarations) {
     const id = randomUUID();
     values.push(
-      `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
+      `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
     );
     params.push(
       id,
@@ -499,7 +503,8 @@ async function replaceWorkflowAssetDeclarations(
       declaration.asset.assetId,
       declaration.asset.schema ?? null,
       declaration.asset.freshness ?? null,
-      declaration.asset.autoMaterialize ?? null
+      declaration.asset.autoMaterialize ?? null,
+      declaration.asset.partitioning ?? null
     );
   }
 
@@ -512,7 +517,8 @@ async function replaceWorkflowAssetDeclarations(
        asset_id,
        asset_schema,
        freshness,
-       auto_materialize
+       auto_materialize,
+       partitioning
      )
      VALUES ${values.join(', ')}
      ON CONFLICT (workflow_definition_id, step_id, direction, asset_id)
@@ -520,6 +526,7 @@ async function replaceWorkflowAssetDeclarations(
        SET asset_schema = EXCLUDED.asset_schema,
            freshness = EXCLUDED.freshness,
            auto_materialize = EXCLUDED.auto_materialize,
+           partitioning = EXCLUDED.partitioning,
            updated_at = NOW()`,
     params
   );
@@ -608,8 +615,43 @@ async function fetchWorkflowAssetHistory(
   client: PoolClient,
   workflowDefinitionId: string,
   assetId: string,
-  limit: number
+  limit: number,
+  partitionKey?: string | null
 ): Promise<WorkflowAssetSnapshotRecord[]> {
+  const params: unknown[] = [workflowDefinitionId, assetId];
+  let partitionClause = '';
+
+  if (partitionKey) {
+    params.push(partitionKey);
+    partitionClause = ' AND asset.partition_key = $3';
+  }
+
+  params.push(limit);
+  const limitIndex = params.length;
+
+  const { rows } = await client.query<WorkflowAssetSnapshotRow>(
+    `SELECT asset.*,
+            step.status AS step_status,
+            run.status AS run_status,
+            run.started_at AS run_started_at,
+            run.completed_at AS run_completed_at
+       FROM workflow_run_step_assets asset
+       JOIN workflow_run_steps step ON step.id = asset.workflow_run_step_id
+       JOIN workflow_runs run ON run.id = asset.workflow_run_id
+      WHERE asset.workflow_definition_id = $1
+        AND asset.asset_id = $2${partitionClause}
+     ORDER BY asset.produced_at DESC
+     LIMIT $${limitIndex}`,
+    params
+  );
+  return rows.map(mapWorkflowAssetSnapshotRow);
+}
+
+async function fetchWorkflowAssetPartitions(
+  client: PoolClient,
+  workflowDefinitionId: string,
+  assetId: string
+): Promise<WorkflowAssetPartitionSummary[]> {
   const { rows } = await client.query<WorkflowAssetSnapshotRow>(
     `SELECT asset.*,
             step.status AS step_status,
@@ -621,11 +663,29 @@ async function fetchWorkflowAssetHistory(
        JOIN workflow_runs run ON run.id = asset.workflow_run_id
       WHERE asset.workflow_definition_id = $1
         AND asset.asset_id = $2
-      ORDER BY asset.produced_at DESC
-      LIMIT $3`,
-    [workflowDefinitionId, assetId, limit]
+     ORDER BY COALESCE(asset.partition_key, ''), asset.produced_at DESC`,
+    [workflowDefinitionId, assetId]
   );
-  return rows.map(mapWorkflowAssetSnapshotRow);
+
+  const partitions = new Map<string, { latest: WorkflowAssetSnapshotRecord; count: number }>();
+
+  for (const row of rows) {
+    const snapshot = mapWorkflowAssetSnapshotRow(row);
+    const key = row.partition_key ?? '';
+    const existing = partitions.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      partitions.set(key, { latest: snapshot, count: 1 });
+    }
+  }
+
+  return Array.from(partitions.entries()).map(([key, data]) => ({
+    assetId,
+    partitionKey: key.length > 0 ? key : null,
+    latest: data.latest,
+    materializationCount: data.count
+  } satisfies WorkflowAssetPartitionSummary));
 }
 
 async function fetchWorkflowDefinitionById(
@@ -709,12 +769,19 @@ export async function listLatestWorkflowAssetSnapshots(
 export async function listWorkflowAssetHistory(
   workflowDefinitionId: string,
   assetId: string,
-  { limit = 10 }: { limit?: number } = {}
+  { limit = 10, partitionKey }: { limit?: number; partitionKey?: string | null } = {}
 ): Promise<WorkflowAssetSnapshotRecord[]> {
   const normalizedLimit = Math.max(1, Math.min(limit, 100));
   return useConnection((client) =>
-    fetchWorkflowAssetHistory(client, workflowDefinitionId, assetId, normalizedLimit)
+    fetchWorkflowAssetHistory(client, workflowDefinitionId, assetId, normalizedLimit, partitionKey)
   );
+}
+
+export async function listWorkflowAssetPartitions(
+  workflowDefinitionId: string,
+  assetId: string
+): Promise<WorkflowAssetPartitionSummary[]> {
+  return useConnection((client) => fetchWorkflowAssetPartitions(client, workflowDefinitionId, assetId));
 }
 
 export async function createWorkflowDefinition(
@@ -1047,6 +1114,10 @@ export async function createWorkflowRun(
   const currentStepIndex = input.currentStepIndex ?? null;
   const triggeredBy = input.triggeredBy ?? null;
   const trigger = input.trigger ?? MANUAL_TRIGGER;
+  const partitionKey =
+    typeof input.partitionKey === 'string' && input.partitionKey.trim().length > 0
+      ? input.partitionKey.trim()
+      : null;
 
   let run: WorkflowRunRecord | null = null;
 
@@ -1064,6 +1135,7 @@ export async function createWorkflowRun(
          metrics,
          triggered_by,
          trigger,
+         partition_key,
          started_at,
          completed_at,
          duration_ms,
@@ -1081,6 +1153,7 @@ export async function createWorkflowRun(
          NULL,
          $8,
          $9::jsonb,
+         $10,
          NULL,
          NULL,
          NULL,
@@ -1097,7 +1170,8 @@ export async function createWorkflowRun(
         currentStepId,
         currentStepIndex,
         triggeredBy,
-        trigger
+        trigger,
+        partitionKey
       ]
     );
     if (rows.length === 0) {
@@ -1184,6 +1258,15 @@ export async function updateWorkflowRun(
     const nextDurationMs =
       updates.durationMs !== undefined ? updates.durationMs : existing.duration_ms ?? null;
     const nextOutput = updates.output !== undefined ? updates.output ?? null : existing.output ?? null;
+    let nextPartitionKey = existing.partition_key ?? null;
+    if (Object.prototype.hasOwnProperty.call(updates, 'partitionKey')) {
+      const rawPartition = updates.partitionKey;
+      if (typeof rawPartition === 'string' && rawPartition.trim().length > 0) {
+        nextPartitionKey = rawPartition.trim();
+      } else {
+        nextPartitionKey = null;
+      }
+    }
 
     const { rows: updatedRows } = await client.query<WorkflowRunRow>(
       `UPDATE workflow_runs
@@ -1197,9 +1280,10 @@ export async function updateWorkflowRun(
            metrics = $9::jsonb,
            triggered_by = $10,
            trigger = $11::jsonb,
-           started_at = $12,
-           completed_at = $13,
-           duration_ms = $14,
+           partition_key = $12,
+           started_at = $13,
+           completed_at = $14,
+           duration_ms = $15,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -1215,6 +1299,7 @@ export async function updateWorkflowRun(
         nextMetrics,
         nextTriggeredBy,
         nextTrigger,
+        nextPartitionKey,
         nextStartedAt,
         nextCompletedAt,
         nextDurationMs
@@ -1231,6 +1316,7 @@ export async function updateWorkflowRun(
       JSON.stringify(existing.metrics ?? {}) !== JSON.stringify(updated.metrics ?? {}) ||
       existing.current_step_id !== updated.currentStepId ||
       existing.current_step_index !== updated.currentStepIndex ||
+      existing.partition_key !== updated.partitionKey ||
       existing.error_message !== updated.errorMessage ||
       JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
   });
@@ -1415,7 +1501,7 @@ export async function recordWorkflowRunStepAssets(
       const id = randomUUID();
       const producedAt = asset.producedAt ?? now;
       values.push(
-        `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
+        `($${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++}, $${index++})`
       );
       params.push(
         id,
@@ -1427,6 +1513,7 @@ export async function recordWorkflowRunStepAssets(
         asset.payload ?? null,
         asset.schema ?? null,
         asset.freshness ?? null,
+        asset.partitionKey ?? null,
         producedAt
       );
     }
@@ -1442,6 +1529,7 @@ export async function recordWorkflowRunStepAssets(
          payload,
          asset_schema,
          freshness,
+         partition_key,
          produced_at
        )
        VALUES ${values.join(', ')}

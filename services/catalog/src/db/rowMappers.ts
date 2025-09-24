@@ -45,6 +45,7 @@ import {
   type WorkflowAssetDeclarationRecord,
   type WorkflowAssetAutoMaterialize,
   type WorkflowAssetDirection,
+  type WorkflowAssetPartitioning,
   type WorkflowRunStepAssetRecord,
   type WorkflowAssetSnapshotRecord,
   type WorkflowExecutionHistoryRecord
@@ -222,6 +223,76 @@ function parseAssetFreshness(value: unknown): WorkflowAssetDeclaration['freshnes
   return Object.keys(freshness).length > 0 ? freshness : null;
 }
 
+function parseAssetPartitioning(value: unknown): WorkflowAssetPartitioning | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const rawType = typeof candidate.type === 'string' ? candidate.type.trim() : '';
+  if (!rawType) {
+    return null;
+  }
+
+  if (rawType === 'timeWindow') {
+    const granularity = typeof candidate.granularity === 'string' ? candidate.granularity.trim() : '';
+    if (!['hour', 'day', 'week', 'month'].includes(granularity)) {
+      return null;
+    }
+    const partition: WorkflowAssetPartitioning = {
+      type: 'timeWindow',
+      granularity: granularity as 'hour' | 'day' | 'week' | 'month'
+    };
+    const timezone = typeof candidate.timezone === 'string' ? candidate.timezone.trim() : '';
+    if (timezone) {
+      partition.timezone = timezone;
+    }
+    const format = typeof candidate.format === 'string' ? candidate.format.trim() : '';
+    if (format) {
+      partition.format = format;
+    }
+    const lookback = candidate.lookbackWindows ?? candidate.lookback_windows;
+    if (typeof lookback === 'number' && Number.isFinite(lookback) && lookback > 0) {
+      partition.lookbackWindows = Math.floor(lookback);
+    }
+    return partition;
+  }
+
+  if (rawType === 'static') {
+    const keysSource = candidate.keys;
+    const keys: string[] = [];
+    if (Array.isArray(keysSource)) {
+      for (const entry of keysSource) {
+        if (typeof entry === 'string') {
+          const key = entry.trim();
+          if (key) {
+            keys.push(key);
+          }
+        }
+      }
+    }
+    if (keys.length === 0) {
+      return null;
+    }
+    return { type: 'static', keys } satisfies WorkflowAssetPartitioning;
+  }
+
+  if (rawType === 'dynamic') {
+    const partition: WorkflowAssetPartitioning = { type: 'dynamic' };
+    const maxKeys = candidate.maxKeys ?? candidate.max_keys;
+    if (typeof maxKeys === 'number' && Number.isFinite(maxKeys) && maxKeys > 0) {
+      partition.maxKeys = Math.floor(maxKeys);
+    }
+    const retentionDays = candidate.retentionDays ?? candidate.retention_days;
+    if (typeof retentionDays === 'number' && Number.isFinite(retentionDays) && retentionDays > 0) {
+      partition.retentionDays = Math.floor(retentionDays);
+    }
+    return partition;
+  }
+
+  return null;
+}
+
 function parseWorkflowAssetDeclarations(value: unknown): WorkflowAssetDeclaration[] {
   if (!value) {
     return [];
@@ -282,6 +353,13 @@ function parseWorkflowAssetDeclarations(value: unknown): WorkflowAssetDeclaratio
     const autoPolicy = parseAssetAutoMaterialize(record.autoMaterialize ?? record.auto_materialize);
     if (autoPolicy) {
       declaration.autoMaterialize = autoPolicy;
+    }
+
+    const partitioningValue =
+      record.partitioning ?? (record as Record<string, unknown>).assetPartitioning ?? record.asset_partitioning;
+    const partitioning = parseAssetPartitioning(partitioningValue);
+    if (partitioning) {
+      declaration.partitioning = partitioning;
     }
 
     declarations.push(declaration);
@@ -1301,6 +1379,7 @@ export function mapWorkflowAssetDeclarationRow(
   const schema = toJsonObjectOrNull(row.asset_schema);
   const freshness = parseAssetFreshness(row.freshness);
   const autoMaterialize = parseAssetAutoMaterialize(row.auto_materialize);
+  const partitioning = parseAssetPartitioning(row.partitioning);
 
   const direction: WorkflowAssetDirection = row.direction === 'consumes' ? 'consumes' : 'produces';
 
@@ -1313,6 +1392,7 @@ export function mapWorkflowAssetDeclarationRow(
     schema,
     freshness: freshness ?? null,
     autoMaterialize: autoMaterialize ?? null,
+    partitioning: partitioning ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowAssetDeclarationRecord;
@@ -1332,6 +1412,7 @@ export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
     metrics: toJsonValue(row.metrics),
     triggeredBy: row.triggered_by,
     trigger: toJsonValue(row.trigger),
+    partitionKey: row.partition_key ?? null,
     startedAt: row.started_at,
     completedAt: row.completed_at,
     durationMs: row.duration_ms,
@@ -1353,6 +1434,7 @@ export function mapWorkflowRunStepAssetRow(
     payload: toJsonValue(row.payload),
     schema: toJsonObjectOrNull(row.asset_schema),
     freshness: parseAssetFreshness(row.freshness) ?? null,
+    partitionKey: row.partition_key ?? null,
     producedAt: row.produced_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -1407,7 +1489,22 @@ export function mapWorkflowExecutionHistoryRow(
 export function mapWorkflowAssetSnapshotRow(
   row: WorkflowAssetSnapshotRow
 ): WorkflowAssetSnapshotRecord {
-  const assetRecord = mapWorkflowRunStepAssetRow(row as WorkflowRunStepAssetRow);
+  const assetRow: WorkflowRunStepAssetRow = {
+    id: row.id,
+    workflow_definition_id: row.workflow_definition_id,
+    workflow_run_id: row.workflow_run_id,
+    workflow_run_step_id: row.workflow_run_step_id,
+    step_id: row.step_id,
+    asset_id: row.asset_id,
+    payload: row.payload,
+    asset_schema: row.asset_schema,
+    freshness: row.freshness,
+    partition_key: row.partition_key,
+    produced_at: row.produced_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+  const assetRecord = mapWorkflowRunStepAssetRow(assetRow);
   return {
     asset: assetRecord,
     workflowRunId: row.workflow_run_id,

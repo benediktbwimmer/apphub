@@ -233,6 +233,7 @@ export type WorkflowAssetDeclarationRow = {
   asset_schema: unknown;
   freshness: unknown;
   auto_materialize: unknown;
+  partitioning: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -250,6 +251,7 @@ export type WorkflowRunRow = {
   metrics: unknown;
   triggered_by: string | null;
   trigger: unknown;
+  partition_key: string | null;
   started_at: string | null;
   completed_at: string | null;
   duration_ms: number | null;
@@ -267,6 +269,7 @@ export type WorkflowRunStepAssetRow = {
   payload: unknown;
   asset_schema: unknown;
   freshness: unknown;
+  partition_key: string | null;
   produced_at: string;
   created_at: string;
   updated_at: string;
@@ -282,6 +285,7 @@ export type WorkflowAssetSnapshotRow = {
   payload: unknown;
   asset_schema: unknown;
   freshness: unknown;
+  partition_key: string | null;
   produced_at: string;
   created_at: string;
   updated_at: string;

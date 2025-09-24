@@ -42,6 +42,39 @@ const assetAutoMaterializeSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: 'autoMaterialize must specify at least one field'
   });
+const assetStaticPartitionSchema = z
+  .object({
+    type: z.literal('static'),
+    keys: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(500)
+  })
+  .strict();
+
+const assetTimePartitionSchema = z
+  .object({
+    type: z.literal('timeWindow'),
+    granularity: z.enum(['hour', 'day', 'week', 'month']),
+    timezone: z.string().min(1).max(100).optional(),
+    format: z.string().min(1).max(100).optional(),
+    lookbackWindows: z.number().int().min(1).max(10_000).optional()
+  })
+  .strict();
+
+const assetDynamicPartitionSchema = z
+  .object({
+    type: z.literal('dynamic'),
+    maxKeys: z.number().int().min(1).max(100_000).optional(),
+    retentionDays: z.number().int().min(1).max(10_000).optional()
+  })
+  .strict();
+
+const assetPartitioningSchema = z.union([
+  assetStaticPartitionSchema,
+  assetTimePartitionSchema,
+  assetDynamicPartitionSchema
+]);
 
 const workflowAssetDeclarationSchema = z
   .object({
@@ -55,7 +88,8 @@ const workflowAssetDeclarationSchema = z
       ),
     schema: jsonObjectSchema.optional(),
     freshness: assetFreshnessSchema.optional(),
-    autoMaterialize: assetAutoMaterializeSchema.optional()
+    autoMaterialize: assetAutoMaterializeSchema.optional(),
+    partitioning: assetPartitioningSchema.optional()
   })
   .strict();
 

@@ -7,11 +7,16 @@ import {
 import type {
   WorkflowDefinitionRecord,
   WorkflowScheduleWindow,
-  WorkflowTriggerDefinition
+  WorkflowTriggerDefinition,
+  WorkflowAssetPartitioning
 } from './db/types';
 import { enqueueWorkflowRun } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
+import {
+  collectPartitionedAssetsFromSteps,
+  deriveTimeWindowPartitionKey
+} from './workflows/partitioning';
 
 const DEFAULT_INTERVAL_MS = Number(process.env.WORKFLOW_SCHEDULER_INTERVAL_MS ?? 5_000);
 const DEFAULT_BATCH_SIZE = Number(process.env.WORKFLOW_SCHEDULER_BATCH_SIZE ?? 10);
@@ -160,6 +165,20 @@ async function materializeSchedule(
   const catchupEnabled = Boolean(schedule.catchUp);
   const occurrenceLimit = catchupEnabled ? Math.max(maxWindows, 1) : 1;
 
+  const partitionSpecs = Array.from(collectPartitionedAssetsFromSteps(definition.steps).values());
+  const referenceTimePartition = partitionSpecs.length > 0 && partitionSpecs.every((spec) => spec?.type === 'timeWindow')
+    ? (partitionSpecs[0] as Extract<WorkflowAssetPartitioning, { type: 'timeWindow' }>)
+    : null;
+  if (partitionSpecs.length > 0 && !referenceTimePartition) {
+    log(
+      'Skipping scheduler-driven partitioning because workflow uses non time-window partitioning',
+      {
+        workflowId: definition.id,
+        workflowSlug: definition.slug
+      }
+    );
+  }
+
   let cursor = parseScheduleDate(definition.scheduleCatchupCursor) ??
     parseScheduleDate(definition.scheduleNextRunAt);
 
@@ -197,11 +216,34 @@ async function materializeSchedule(
       }
     };
 
+    if (partitionSpecs.length > 0 && !referenceTimePartition) {
+      log('Partitioned assets require explicit partition keys; skipping scheduled run', {
+        workflowId: definition.id,
+        workflowSlug: definition.slug
+      });
+      break;
+    }
+
+    let partitionKey: string | null = null;
+    if (referenceTimePartition && windowEndIso) {
+      const occurrenceDate = new Date(windowEndIso);
+      if (Number.isNaN(occurrenceDate.getTime())) {
+        logError('Unable to derive partition key from schedule window', {
+          workflowId: definition.id,
+          workflowSlug: definition.slug,
+          windowEnd: windowEndIso
+        });
+        break;
+      }
+      partitionKey = deriveTimeWindowPartitionKey(referenceTimePartition, occurrenceDate);
+    }
+
     try {
       const run = await createWorkflowRun(definition.id, {
         parameters: definition.defaultParameters ?? {},
         trigger: triggerPayload,
-        triggeredBy: 'scheduler'
+        triggeredBy: 'scheduler',
+        partitionKey
       });
       await enqueueWorkflowRun(run.id);
       log('Enqueued scheduled workflow run', {

@@ -132,6 +132,7 @@ type WorkflowStepServiceContext = {
 type StepAssetRuntimeSummary = {
   assetId: string;
   producedAt: string | null;
+  partitionKey?: string | null;
   payload?: JsonValue | null;
   schema?: JsonValue | null;
   freshness?: WorkflowAssetFreshness | null;
@@ -553,6 +554,7 @@ function toRuntimeAssetSummaries(
   return records.map((record) => ({
     assetId: record.assetId,
     producedAt: record.producedAt ?? null,
+    partitionKey: record.partitionKey ?? null,
     payload: (record.payload ?? null) as JsonValue | null,
     schema: (record.schema ?? null) as JsonValue | null,
     freshness: record.freshness ?? null
@@ -584,6 +586,12 @@ function parseRuntimeAssets(value: JsonValue | null | undefined): StepAssetRunti
       producedAt = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
     }
 
+    const partitionRaw = record.partitionKey ?? record.partition_key;
+    const partitionKey =
+      typeof partitionRaw === 'string' && partitionRaw.trim().length > 0
+        ? partitionRaw.trim()
+        : null;
+
     const schemaValue = record.schema ?? record.assetSchema ?? record.asset_schema;
     const schema =
       schemaValue && typeof schemaValue === 'object' && !Array.isArray(schemaValue)
@@ -599,6 +607,7 @@ function parseRuntimeAssets(value: JsonValue | null | undefined): StepAssetRunti
     summaries.push({
       assetId,
       producedAt,
+      partitionKey,
       payload,
       schema,
       freshness
@@ -608,9 +617,14 @@ function parseRuntimeAssets(value: JsonValue | null | undefined): StepAssetRunti
   return summaries.length > 0 ? summaries : undefined;
 }
 
+type ExtractAssetOptions = {
+  defaultPartitionKey?: string | null;
+};
+
 function extractProducedAssetsFromResult(
   step: WorkflowStepDefinition,
-  result: JsonValue | null
+  result: JsonValue | null,
+  options: ExtractAssetOptions = {}
 ): WorkflowRunStepAssetInput[] {
   if (!result || !Array.isArray(step.produces) || step.produces.length === 0) {
     return [];
@@ -633,6 +647,10 @@ function extractProducedAssetsFromResult(
   }
 
   const outputs = new Map<string, WorkflowRunStepAssetInput>();
+  const defaultPartitionKey =
+    typeof options.defaultPartitionKey === 'string' && options.defaultPartitionKey.trim().length > 0
+      ? options.defaultPartitionKey.trim()
+      : null;
 
   const applyAsset = (rawAssetId: string, value: unknown) => {
     const normalizedKey = rawAssetId.trim().toLowerCase();
@@ -648,6 +666,8 @@ function extractProducedAssetsFromResult(
     const input: WorkflowRunStepAssetInput = {
       assetId
     };
+
+    let partitionKey: string | null = null;
 
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const record = value as Record<string, unknown>;
@@ -667,6 +687,8 @@ function extractProducedAssetsFromResult(
         delete clone.asset_freshness;
         delete clone.producedAt;
         delete clone.produced_at;
+        delete clone.partitionKey;
+        delete clone.partition_key;
         if (Object.keys(clone).length > 0) {
           input.payload = clone as unknown as JsonValue;
         }
@@ -690,6 +712,11 @@ function extractProducedAssetsFromResult(
           input.producedAt = parsed.toISOString();
         }
       }
+
+      const partitionValue = record.partitionKey ?? record.partition_key;
+      if (typeof partitionValue === 'string' && partitionValue.trim().length > 0) {
+        partitionKey = partitionValue.trim();
+      }
     } else if (value !== undefined) {
       input.payload = (value ?? null) as JsonValue | null;
     }
@@ -701,11 +728,25 @@ function extractProducedAssetsFromResult(
       input.freshness = declaration.freshness;
     }
 
-    outputs.set(assetId, {
+    if (declaration.partitioning) {
+      if (!partitionKey && defaultPartitionKey) {
+        partitionKey = defaultPartitionKey;
+      }
+      if (!partitionKey) {
+        throw new Error(`Partition key required for asset ${assetId}`);
+      }
+      input.partitionKey = partitionKey;
+    } else if (partitionKey) {
+      input.partitionKey = partitionKey;
+    }
+
+    const dedupeKey = `${normalizedKey}::${input.partitionKey ?? ''}`;
+    outputs.set(dedupeKey, {
       assetId,
       payload: input.payload ?? null,
       schema: input.schema ?? null,
       freshness: input.freshness ?? null,
+      partitionKey: input.partitionKey ?? null,
       producedAt: input.producedAt
     });
   };
@@ -744,13 +785,15 @@ function extractProducedAssetsFromResult(
   }
 
   return Array.from(outputs.values()).map((output) => {
-    if (!output.schema && declarations.get(output.assetId.toLowerCase())?.schema) {
-      output.schema = declarations.get(output.assetId.toLowerCase())?.schema ?? null;
+    const declaration = declarations.get(output.assetId.toLowerCase());
+    const next: WorkflowRunStepAssetInput = { ...output };
+    if (!next.schema && declaration?.schema) {
+      next.schema = declaration.schema;
     }
-    if (!output.freshness && declarations.get(output.assetId.toLowerCase())?.freshness) {
-      output.freshness = declarations.get(output.assetId.toLowerCase())?.freshness ?? null;
+    if (!next.freshness && declaration?.freshness) {
+      next.freshness = declaration.freshness;
     }
-    return output;
+    return next;
   });
 }
 function parseServiceRuntimeContext(value: JsonValue | null | undefined): WorkflowStepServiceContext | undefined {
@@ -2004,7 +2047,9 @@ async function executeJobStep(
   );
 
   if (stepRecord.status === 'succeeded') {
-    const assetInputs = extractProducedAssetsFromResult(step, executed.result ?? null);
+    const assetInputs = extractProducedAssetsFromResult(step, executed.result ?? null, {
+      defaultPartitionKey: run.partitionKey
+    });
     const storedAssets = await persistStepAssets({
       definition,
       run,
@@ -2376,7 +2421,9 @@ async function executeServiceStep(
         }
       );
 
-      const assetInputs = extractProducedAssetsFromResult(step, output);
+      const assetInputs = extractProducedAssetsFromResult(step, output, {
+        defaultPartitionKey: run.partitionKey
+      });
       const storedAssets = await persistStepAssets({
         definition,
         run,

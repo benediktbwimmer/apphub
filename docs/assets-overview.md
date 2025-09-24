@@ -112,7 +112,32 @@ The catalog exposes inventory and history endpoints:
 Each record includes producer/consumer step metadata, the most recent payload, schema, freshness hints, and the run/step identifiers that emitted it.
 
 ## Database Storage
-`workflow_asset_declarations` persists the `auto_materialize` JSON payload alongside `asset_schema` and `freshness`. Existing data is left untouched; the migration simply adds a nullable column. The API responses that surface asset declarations include the new `autoMaterialize` object when present.
+`workflow_asset_declarations` persists both the `auto_materialize` and `partitioning` JSON payloads alongside each asset's schema and freshness hints. Existing records remain valid thanks to nullable columns, and API responses include the new `autoMaterialize` and `partitioning` objects when present.
+
+## Partitioned Assets
+
+Some datasets are naturally partitioned (e.g. daily exports, per-customer snapshots). Declare these by adding a `partitioning` block to the asset definition:
+
+```json
+{
+  "assetId": "reports.partitioned",
+  "partitioning": {
+    "type": "static",
+    "keys": ["2024-01", "2024-02", "2024-03"]
+  }
+}
+```
+
+Supported partition strategies:
+- `static`: enumerate a finite list of partition keys.
+- `timeWindow`: rolling hourly/daily/weekly/monthly windows (optionally with a timezone and custom key format).
+- `dynamic`: keys discovered at runtime (the catalog records every novel key it sees).
+
+When a workflow produces a partitioned asset, the run **must** supply a `partitionKey` (via the `/workflows/:slug/run` payload). If the job handler omits `partitionKey` from the emitted asset, the orchestrator defaults to the run-level key so lineage stays consistent.
+
+API helpers:
+- `GET /workflows/:slug/assets/:assetId/history?partitionKey=2024-01` filters history to a specific partition.
+- `GET /workflows/:slug/assets/:assetId/partitions` lists known partitions, their materialization counts, and the latest run metadata. For static/time-window assets the response also includes upcoming partitions that have not yet materialized.
 
 ## Operational Notes
 - The worker respects `ASSET_MATERIALIZER_BASE_BACKOFF_MS`, `ASSET_MATERIALIZER_MAX_BACKOFF_MS`, and `ASSET_MATERIALIZER_REFRESH_INTERVAL_MS` environment variables for tuning backoff and graph refresh cadence.

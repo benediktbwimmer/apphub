@@ -492,12 +492,30 @@ export type WorkflowAssetAutoMaterialize = {
   priority?: number | null;
 };
 
+export type WorkflowAssetPartitioning =
+  | {
+      type: 'timeWindow';
+      granularity: 'hour' | 'day' | 'week' | 'month';
+      timezone?: string | null;
+      format?: string | null;
+      lookbackWindows?: number | null;
+    }
+  | {
+      type: 'static';
+      keys: string[];
+    }
+  | {
+      type: 'dynamic';
+      maxKeys?: number | null;
+      retentionDays?: number | null;
+    };
 
 export type WorkflowAssetDeclaration = {
   assetId: string;
   schema?: JsonValue | null;
   freshness?: WorkflowAssetFreshness | null;
   autoMaterialize?: WorkflowAssetAutoMaterialize | null;
+  partitioning?: WorkflowAssetPartitioning | null;
 };
 
 export type WorkflowDefinitionStepBase = {
@@ -660,6 +678,7 @@ export type WorkflowAssetDeclarationRecord = {
   schema: JsonValue | null;
   freshness: WorkflowAssetFreshness | null;
   autoMaterialize: WorkflowAssetAutoMaterialize | null;
+  partitioning: WorkflowAssetPartitioning | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -674,6 +693,7 @@ export type WorkflowRunStepAssetRecord = {
   payload: JsonValue | null;
   schema: JsonValue | null;
   freshness: WorkflowAssetFreshness | null;
+  partitionKey: string | null;
   producedAt: string;
   createdAt: string;
   updatedAt: string;
@@ -685,6 +705,7 @@ export type WorkflowRunStepAssetInput = {
   schema?: JsonValue | null;
   freshness?: WorkflowAssetFreshness | null;
   producedAt?: string | null;
+  partitionKey?: string | null;
 };
 
 export type WorkflowAssetSnapshotRecord = {
@@ -695,6 +716,13 @@ export type WorkflowAssetSnapshotRecord = {
   runStatus: WorkflowRunStatus;
   runStartedAt: string | null;
   runCompletedAt: string | null;
+};
+
+export type WorkflowAssetPartitionSummary = {
+  assetId: string;
+  partitionKey: string | null;
+  latest: WorkflowAssetSnapshotRecord | null;
+  materializationCount: number;
 };
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
@@ -712,6 +740,7 @@ export type WorkflowRunRecord = {
   metrics: JsonValue | null;
   triggeredBy: string | null;
   trigger: JsonValue | null;
+  partitionKey: string | null;
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
@@ -727,6 +756,7 @@ export type WorkflowRunCreateInput = {
   context?: JsonValue;
   currentStepId?: string | null;
   currentStepIndex?: number | null;
+  partitionKey?: string | null;
 };
 
 export type WorkflowRunUpdateInput = {
@@ -748,6 +778,7 @@ export type WorkflowRunUpdateInput = {
   startedAt?: string | null;
   completedAt?: string | null;
   durationMs?: number | null;
+  partitionKey?: string | null;
 };
 
 export type WorkflowRunStepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';

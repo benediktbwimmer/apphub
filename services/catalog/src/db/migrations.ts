@@ -612,6 +612,27 @@ const migrations: Migration[] = [
          ADD COLUMN IF NOT EXISTS auto_materialize JSONB;`
     ]
   },
+  {
+    id: '019_workflow_asset_partitions',
+    statements: [
+      `ALTER TABLE workflow_asset_declarations
+         ADD COLUMN IF NOT EXISTS partitioning JSONB;`,
+      `ALTER TABLE workflow_run_step_assets
+         ADD COLUMN IF NOT EXISTS partition_key TEXT;`,
+      `ALTER TABLE workflow_runs
+         ADD COLUMN IF NOT EXISTS partition_key TEXT;`,
+      `ALTER TABLE workflow_run_step_assets
+         DROP CONSTRAINT IF EXISTS workflow_run_step_assets_workflow_run_step_id_asset_id_key;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_step_assets_unique_partition
+         ON workflow_run_step_assets (workflow_run_step_id, asset_id, COALESCE(partition_key, ''));`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_asset_partition
+         ON workflow_run_step_assets (asset_id, COALESCE(partition_key, ''), produced_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_run_step_assets_definition_partition
+         ON workflow_run_step_assets (workflow_definition_id, asset_id, COALESCE(partition_key, ''), produced_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_runs_partition
+         ON workflow_runs (workflow_definition_id, COALESCE(partition_key, ''));`
+    ]
+  }
 ];
 
 export async function runMigrations(client: PoolClient): Promise<void> {

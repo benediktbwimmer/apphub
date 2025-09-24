@@ -312,6 +312,7 @@ export function serializeWorkflowRun(run: WorkflowRunRecord) {
     metrics: run.metrics,
     triggeredBy: run.triggeredBy,
     trigger: run.trigger,
+    partitionKey: run.partitionKey,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     durationMs: run.durationMs,

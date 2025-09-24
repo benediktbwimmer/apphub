@@ -15,7 +15,8 @@ import {
   getJobDefinitionsBySlugs,
   listWorkflowAssetDeclarationsBySlug,
   listLatestWorkflowAssetSnapshots,
-  listWorkflowAssetHistory
+  listWorkflowAssetHistory,
+  listWorkflowAssetPartitions
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -42,6 +43,11 @@ import {
   type WorkflowTriggerInput,
   type WorkflowAssetDeclarationInput
 } from '../workflows/zodSchemas';
+import {
+  collectPartitionedAssetsFromSteps,
+  enumeratePartitionKeys,
+  validatePartitionKey
+} from '../workflows/partitioning';
 import { parseBundleEntryPoint } from '../jobs/bundleBinding';
 import {
   enqueueWorkflowRun
@@ -60,6 +66,56 @@ import type { JsonValue } from './shared/serializers';
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
 type JobDefinitionLookup = Map<string, JobDefinitionRecord>;
+
+function normalizeAssetPartitioning(
+  partitioning: WorkflowAssetDeclarationInput['partitioning']
+): WorkflowAssetDeclaration['partitioning'] | undefined {
+  if (!partitioning) {
+    return undefined;
+  }
+
+  if (partitioning.type === 'static') {
+    const keys = Array.from(
+      new Set(partitioning.keys.map((key) => key.trim()).filter((key) => key.length > 0))
+    );
+    if (keys.length === 0) {
+      return undefined;
+    }
+    return {
+      type: 'static',
+      keys
+    } satisfies WorkflowAssetDeclaration['partitioning'];
+  }
+
+  if (partitioning.type === 'timeWindow') {
+    const timezone = partitioning.timezone?.trim();
+    const format = partitioning.format?.trim();
+    const normalized: WorkflowAssetDeclaration['partitioning'] = {
+      type: 'timeWindow',
+      granularity: partitioning.granularity,
+      timezone: timezone && timezone.length > 0 ? timezone : undefined,
+      format: format && format.length > 0 ? format : undefined,
+      lookbackWindows:
+        typeof partitioning.lookbackWindows === 'number'
+          ? Math.max(1, Math.floor(partitioning.lookbackWindows))
+          : undefined
+    };
+    return normalized;
+  }
+
+  if (partitioning.type === 'dynamic') {
+    const normalized: WorkflowAssetDeclaration['partitioning'] = { type: 'dynamic' };
+    if (typeof partitioning.maxKeys === 'number') {
+      normalized.maxKeys = Math.max(1, Math.floor(partitioning.maxKeys));
+    }
+    if (typeof partitioning.retentionDays === 'number') {
+      normalized.retentionDays = Math.max(1, Math.floor(partitioning.retentionDays));
+    }
+    return normalized;
+  }
+
+  return undefined;
+}
 
 function buildWorkflowStepMetadata(steps: WorkflowStepDefinition[]) {
   const metadata = new Map<
@@ -119,6 +175,15 @@ function normalizeAssetDeclarations(
 
     if (declaration.freshness) {
       entry.freshness = declaration.freshness;
+    }
+
+    if (declaration.autoMaterialize) {
+      entry.autoMaterialize = declaration.autoMaterialize;
+    }
+
+    const partitioning = normalizeAssetPartitioning(declaration.partitioning);
+    if (partitioning) {
+      entry.partitioning = partitioning;
     }
 
     normalized.push(entry);
@@ -595,7 +660,8 @@ const workflowRunRequestSchema = z
   .object({
     parameters: jsonValueSchema.optional(),
     triggeredBy: z.string().min(1).max(200).optional(),
-    trigger: workflowTriggerSchema.optional()
+    trigger: workflowTriggerSchema.optional(),
+    partitionKey: z.string().min(1).max(200).optional()
   })
   .strict();
 
@@ -633,7 +699,15 @@ const workflowAssetParamSchema = workflowSlugParamSchema.extend({
 const workflowAssetHistoryQuerySchema = z
   .object({
     limit: z
-      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional())
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional()),
+    partitionKey: z.string().min(1).max(200).optional()
+  })
+  .partial();
+
+const workflowAssetPartitionsQuerySchema = z
+  .object({
+    lookback: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(10_000).optional())
   })
   .partial();
 
@@ -1026,6 +1100,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       stepType: WorkflowStepDefinition['type'];
       schema: JsonValue | null;
       freshness: WorkflowAssetDeclaration['freshness'] | null;
+      autoMaterialize: WorkflowAssetDeclaration['autoMaterialize'] | null;
+      partitioning: WorkflowAssetDeclaration['partitioning'] | null;
     };
 
     const assets = new Map<
@@ -1046,14 +1122,22 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       return entry;
     };
 
-    const describeStep = (stepId: string, schema: JsonValue | null, freshness: WorkflowAssetDeclaration['freshness']) => {
+    const describeStep = (
+      stepId: string,
+      schema: JsonValue | null,
+      freshness: WorkflowAssetDeclaration['freshness'],
+      autoMaterialize: WorkflowAssetDeclaration['autoMaterialize'],
+      partitioning: WorkflowAssetDeclaration['partitioning']
+    ) => {
       const metadata = stepMetadata.get(stepId);
       return {
         stepId,
         stepName: metadata?.name ?? stepId,
         stepType: metadata?.type ?? 'job',
         schema: schema ?? null,
-        freshness: freshness ?? null
+        freshness: freshness ?? null,
+        autoMaterialize: autoMaterialize ?? null,
+        partitioning: partitioning ?? null
       } satisfies StepDescriptor;
     };
 
@@ -1065,7 +1149,9 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const descriptor = describeStep(
         declaration.stepId,
         declaration.schema ?? null,
-        declaration.freshness ?? null
+        declaration.freshness ?? null,
+        declaration.autoMaterialize ?? null,
+        declaration.partitioning ?? null
       );
       if (declaration.direction === 'produces') {
         entry.producers.push(descriptor);
@@ -1093,6 +1179,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
               stepType: stepMetadata.get(snapshot.workflowStepId)?.type ?? 'job',
               stepStatus: snapshot.stepStatus,
               producedAt: snapshot.asset.producedAt,
+              partitionKey: snapshot.asset.partitionKey,
               payload: snapshot.asset.payload,
               schema: snapshot.asset.schema,
               freshness: snapshot.asset.freshness,
@@ -1147,7 +1234,29 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const limit = parseQuery.data.limit ?? 10;
-    const history = await listWorkflowAssetHistory(workflow.id, parseParams.data.assetId, { limit });
+    const rawPartitionKey = typeof parseQuery.data.partitionKey === 'string' ? parseQuery.data.partitionKey.trim() : '';
+
+    const partitioningSpec = assetDeclarations.find(
+      (declaration) =>
+        declaration.workflowDefinitionId === workflow.id &&
+        declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase() &&
+        declaration.partitioning
+    )?.partitioning;
+
+    let partitionKeyFilter: string | null | undefined;
+    if (rawPartitionKey) {
+      const validation = validatePartitionKey(partitioningSpec ?? null, rawPartitionKey);
+      if (!validation.ok) {
+        reply.status(400);
+        return { error: validation.error };
+      }
+      partitionKeyFilter = validation.key;
+    }
+
+    const history = await listWorkflowAssetHistory(workflow.id, parseParams.data.assetId, {
+      limit,
+      partitionKey: partitionKeyFilter ?? null
+    });
     const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
 
     const describeRole = (declaration: WorkflowAssetDeclarationRecord) => ({
@@ -1155,7 +1264,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       stepName: stepMetadata.get(declaration.stepId)?.name ?? declaration.stepId,
       stepType: stepMetadata.get(declaration.stepId)?.type ?? 'job',
       schema: declaration.schema ?? null,
-      freshness: declaration.freshness ?? null
+      freshness: declaration.freshness ?? null,
+      partitioning: declaration.partitioning ?? null
     });
 
     const producers = assetDeclarations
@@ -1184,6 +1294,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       stepType: stepMetadata.get(entry.workflowStepId)?.type ?? 'job',
       stepStatus: entry.stepStatus,
       producedAt: entry.asset.producedAt,
+      partitionKey: entry.asset.partitionKey,
       payload: entry.asset.payload,
       schema: entry.asset.schema,
       freshness: entry.asset.freshness,
@@ -1198,7 +1309,124 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         producers,
         consumers,
         history: serialized,
-        limit
+        limit,
+        partitionKey: partitionKeyFilter ?? null
+      }
+    };
+  });
+
+  app.get('/workflows/:slug/assets/:assetId/partitions', async (request, reply) => {
+    const parseParams = workflowAssetParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowAssetPartitionsQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const assetDeclarations = await listWorkflowAssetDeclarationsBySlug(workflow.slug);
+    const assetMatches = assetDeclarations.filter(
+      (declaration) =>
+        declaration.workflowDefinitionId === workflow.id &&
+        declaration.assetId.toLowerCase() === parseParams.data.assetId.toLowerCase()
+    );
+
+    if (assetMatches.length === 0) {
+      reply.status(404);
+      return { error: 'asset not found for workflow' };
+    }
+
+    const partitioningSpec = assetMatches.find((declaration) => declaration.partitioning)?.partitioning ?? null;
+    const partitions = await listWorkflowAssetPartitions(workflow.id, parseParams.data.assetId);
+    const partitionMap = new Map<string, typeof partitions[number]>();
+
+    for (const entry of partitions) {
+      const key = entry.partitionKey ?? '';
+      partitionMap.set(key, entry);
+    }
+
+    if (partitioningSpec && (partitioningSpec.type === 'static' || partitioningSpec.type === 'timeWindow')) {
+      const enumerated = enumeratePartitionKeys(partitioningSpec, {
+        lookback: parseQuery.data.lookback,
+        now: new Date()
+      });
+      for (const key of enumerated) {
+        const mapKey = key ?? '';
+        if (!partitionMap.has(mapKey)) {
+          partitionMap.set(mapKey, {
+            assetId: parseParams.data.assetId,
+            partitionKey: key,
+            latest: null,
+            materializationCount: 0
+          });
+        }
+      }
+    } else if (!partitioningSpec && partitionMap.size === 0) {
+      partitionMap.set('', {
+        assetId: parseParams.data.assetId,
+        partitionKey: null,
+        latest: null,
+        materializationCount: 0
+      });
+    }
+
+    const stepMetadata = buildWorkflowStepMetadata(workflow.steps);
+
+    const partitionSummaries = Array.from(partitionMap.values()).map((entry) => {
+      const latest = entry.latest
+        ? {
+            runId: entry.latest.workflowRunId,
+            runStatus: entry.latest.runStatus,
+            stepId: entry.latest.workflowStepId,
+            stepName:
+              stepMetadata.get(entry.latest.workflowStepId)?.name ?? entry.latest.workflowStepId,
+            stepType:
+              stepMetadata.get(entry.latest.workflowStepId)?.type ?? 'job',
+            stepStatus: entry.latest.stepStatus,
+            producedAt: entry.latest.asset.producedAt,
+            payload: entry.latest.asset.payload,
+            schema: entry.latest.asset.schema,
+            freshness: entry.latest.asset.freshness,
+            partitionKey: entry.latest.asset.partitionKey,
+            runStartedAt: entry.latest.runStartedAt,
+            runCompletedAt: entry.latest.runCompletedAt
+          }
+        : null;
+
+      return {
+        partitionKey: entry.partitionKey,
+        materializations: entry.materializationCount,
+        latest
+      };
+    });
+
+    partitionSummaries.sort((a, b) => {
+      const aTime = a.latest?.producedAt ? new Date(a.latest.producedAt).getTime() : null;
+      const bTime = b.latest?.producedAt ? new Date(b.latest.producedAt).getTime() : null;
+      if (aTime !== null && bTime !== null && aTime !== bTime) {
+        return bTime - aTime;
+      }
+      const aKey = a.partitionKey ?? '';
+      const bKey = b.partitionKey ?? '';
+      return aKey.localeCompare(bKey);
+    });
+
+    reply.status(200);
+    return {
+      data: {
+        assetId: parseParams.data.assetId,
+        partitioning: partitioningSpec ?? null,
+        partitions: partitionSummaries
       }
     };
   });
@@ -1244,11 +1472,47 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     const parameters = parseBody.data.parameters ?? workflow.defaultParameters ?? {};
     const triggeredBy = parseBody.data.triggeredBy ?? null;
     const trigger = parseBody.data.trigger ?? undefined;
+    const partitionedAssets = collectPartitionedAssetsFromSteps(workflow.steps);
+
+    const rawPartitionKey = parseBody.data.partitionKey ?? null;
+    let partitionKey: string | null = null;
+
+    if (partitionedAssets.size > 0) {
+      const suppliedKey = typeof rawPartitionKey === 'string' ? rawPartitionKey.trim() : '';
+      if (!suppliedKey) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'partition_key_required',
+          workflowSlug: workflow.slug
+        });
+        return { error: 'partitionKey is required for partitioned workflows' };
+      }
+
+      for (const [assetKey, partitioning] of partitionedAssets.entries()) {
+        const validation = validatePartitionKey(partitioning ?? null, suppliedKey);
+        if (!validation.ok) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_partition_key',
+            workflowSlug: workflow.slug,
+            assetId: assetKey,
+            message: validation.error
+          });
+          return {
+            error: `Invalid partition key for asset ${assetKey}: ${validation.error}`
+          };
+        }
+        partitionKey = validation.key;
+      }
+    } else if (typeof rawPartitionKey === 'string' && rawPartitionKey.trim().length > 0) {
+      partitionKey = rawPartitionKey.trim();
+    }
 
     const run = await createWorkflowRun(workflow.id, {
       parameters,
       triggeredBy,
-      trigger
+      trigger,
+      partitionKey
     });
 
     try {
@@ -1277,7 +1541,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     await authResult.auth.log('succeeded', {
       workflowSlug: workflow.slug,
       runId: latestRun.id,
-      status: latestRun.status
+      status: latestRun.status,
+      partitionKey: latestRun.partitionKey ?? partitionKey ?? null
     });
     return { data: serializeWorkflowRun(latestRun) };
   });

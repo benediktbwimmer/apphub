@@ -340,6 +340,32 @@ async function registerWorkflowTestHandlers() {
     };
   });
 
+  registerJobHandler('workflow-partitioned-producer', async (context: JobRunContext): Promise<JobResult> => {
+    const params = (context.parameters as { value?: unknown }) ?? {};
+    const valueRaw = params.value;
+    const value =
+      typeof valueRaw === 'number'
+        ? valueRaw
+        : Number.parseFloat(typeof valueRaw === 'string' ? valueRaw : '') || 0;
+    return {
+      status: 'succeeded',
+      result: {
+        assets: [
+          {
+            assetId: 'reports.partitioned',
+            payload: { value },
+            schema: {
+              type: 'object',
+              properties: {
+                value: { type: 'number' }
+              }
+            }
+          }
+        ]
+      }
+    };
+  });
+
   registerJobHandler('workflow-asset-consumer', async (): Promise<JobResult> => {
     return {
       status: 'succeeded',
@@ -385,6 +411,7 @@ async function testWorkflowEndpoints(): Promise<void> {
     await createJobDefinition(app, { slug: 'fanout-child', name: 'Fanout Child' });
     await createJobDefinition(app, { slug: 'fanout-collector', name: 'Fanout Collector' });
     await createJobDefinition(app, { slug: 'workflow-asset-producer', name: 'Workflow Asset Producer' });
+    await createJobDefinition(app, { slug: 'workflow-partitioned-producer', name: 'Workflow Partitioned Producer' });
     await createJobDefinition(app, { slug: 'workflow-asset-consumer', name: 'Workflow Asset Consumer' });
 
     const testService = await startTestService();
@@ -934,6 +961,7 @@ async function testWorkflowEndpoints(): Promise<void> {
             available: boolean;
             latest: {
               runId: string;
+              partitionKey: string | null;
               payload: unknown;
               schema: unknown;
               freshness: { ttlMs?: number | null } | null;
@@ -949,6 +977,7 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert(assetEntry?.producers.some((producer) => producer.stepId === 'asset-producer'));
       assert(assetEntry?.consumers.some((consumer) => consumer.stepId === 'asset-consumer'));
       assert.equal(assetEntry?.latest?.runId, firstAssetRunId);
+      assert.equal(assetEntry?.latest?.partitionKey ?? null, null);
       const latestPayload = (assetEntry?.latest?.payload as { count?: number } | undefined) ?? {};
       assert.equal(latestPayload.count ?? 0, 7);
       assert.equal(assetEntry?.latest?.freshness?.ttlMs ?? 0, 3_600_000);
@@ -980,13 +1009,14 @@ async function testWorkflowEndpoints(): Promise<void> {
         data: {
           assets: Array<{
             assetId: string;
-            latest: { runId: string; payload: unknown } | null;
+            latest: { runId: string; partitionKey: string | null; payload: unknown } | null;
           }>;
         };
       };
       const assetEntryAfter = assetInventoryAfterBody.data.assets.find((entry) => entry.assetId === 'inventory.dataset');
       assert(assetEntryAfter);
       assert.equal(assetEntryAfter?.latest?.runId, secondAssetRunId);
+      assert.equal(assetEntryAfter?.latest?.partitionKey ?? null, null);
       const latestAfterPayload = (assetEntryAfter?.latest?.payload as { count?: number } | undefined) ?? {};
       assert.equal(latestAfterPayload.count ?? 0, 11);
 
@@ -999,7 +1029,7 @@ async function testWorkflowEndpoints(): Promise<void> {
       const assetHistoryLimitedBody = JSON.parse(assetHistoryLimitedResponse.payload) as {
         data: {
           assetId: string;
-          history: Array<{ runId: string; payload: unknown }>;
+          history: Array<{ runId: string; partitionKey?: string | null; payload: unknown }>;
           producers: Array<{ stepId: string }>;
           consumers: Array<{ stepId: string }>;
           limit: number;
@@ -1008,6 +1038,7 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.equal(assetHistoryLimitedBody.data.assetId, 'inventory.dataset');
       assert.equal(assetHistoryLimitedBody.data.history.length, 1);
       assert.equal(assetHistoryLimitedBody.data.history[0]?.runId, secondAssetRunId);
+      assert.equal(assetHistoryLimitedBody.data.history[0]?.partitionKey ?? null, null);
       const limitedPayload = (assetHistoryLimitedBody.data.history[0]?.payload as { count?: number } | undefined) ?? {};
       assert.equal(limitedPayload.count ?? 0, 11);
       assert(assetHistoryLimitedBody.data.producers.some((producer) => producer.stepId === 'asset-producer'));
@@ -1020,13 +1051,14 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.equal(assetHistoryFullResponse.statusCode, 200);
       const assetHistoryFullBody = JSON.parse(assetHistoryFullResponse.payload) as {
         data: {
-          history: Array<{ runId: string; payload: unknown }>;
+          history: Array<{ runId: string; partitionKey?: string | null; payload: unknown }>;
         };
       };
       const historyRunIds = assetHistoryFullBody.data.history.map((entry) => entry.runId);
       assert(historyRunIds.includes(firstAssetRunId));
       assert(historyRunIds.includes(secondAssetRunId));
       assert.equal(assetHistoryFullBody.data.history[0]?.runId, secondAssetRunId);
+      assert.equal(assetHistoryFullBody.data.history[0]?.partitionKey ?? null, null);
 
       const missingAssetHistoryResponse = await app.inject({
         method: 'GET',
@@ -1035,6 +1067,189 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.equal(missingAssetHistoryResponse.statusCode, 404);
       const missingAssetHistoryBody = JSON.parse(missingAssetHistoryResponse.payload) as { error?: string };
       assert.equal(missingAssetHistoryBody.error, 'asset not found for workflow');
+
+      const partitionWorkflowSlug = 'wf-partition-demo';
+      const partitionSchema = {
+        type: 'object',
+        properties: {
+          value: { type: 'number' }
+        }
+      };
+
+      const createPartitionWorkflowResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          slug: partitionWorkflowSlug,
+          name: 'Partition Workflow Demo',
+          steps: [
+            {
+              id: 'partition-producer',
+              name: 'Partition Producer',
+              jobSlug: 'workflow-partitioned-producer',
+              produces: [
+                {
+                  assetId: 'reports.partitioned',
+                  schema: partitionSchema,
+                  partitioning: {
+                    type: 'static',
+                    keys: ['2024-01', '2024-02', '2024-03']
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      });
+      assert.equal(createPartitionWorkflowResponse.statusCode, 201);
+
+      const partitionMissingKeyResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${partitionWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          parameters: { value: 5 }
+        }
+      });
+      assert.equal(partitionMissingKeyResponse.statusCode, 400);
+
+      const partitionInvalidKeyResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${partitionWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          partitionKey: '2024-09',
+          parameters: { value: 7 }
+        }
+      });
+      assert.equal(partitionInvalidKeyResponse.statusCode, 400);
+
+      const partitionRunOneResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${partitionWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          partitionKey: '2024-01',
+          parameters: { value: 10 }
+        }
+      });
+      assert.equal(partitionRunOneResponse.statusCode, 202);
+      const partitionRunOneBody = JSON.parse(partitionRunOneResponse.payload) as {
+        data: { id: string; status: string; partitionKey: string | null };
+      };
+      assert.equal(partitionRunOneBody.data.status, 'succeeded');
+      assert.equal(partitionRunOneBody.data.partitionKey, '2024-01');
+      const partitionRunOneId = partitionRunOneBody.data.id;
+
+      const partitionRunTwoResponse = await app.inject({
+        method: 'POST',
+        url: `/workflows/${partitionWorkflowSlug}/run`,
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          partitionKey: '2024-02',
+          parameters: { value: 12 }
+        }
+      });
+      assert.equal(partitionRunTwoResponse.statusCode, 202);
+      const partitionRunTwoBody = JSON.parse(partitionRunTwoResponse.payload) as {
+        data: { id: string; status: string; partitionKey: string | null };
+      };
+      assert.equal(partitionRunTwoBody.data.status, 'succeeded');
+      assert.equal(partitionRunTwoBody.data.partitionKey, '2024-02');
+      const partitionRunTwoId = partitionRunTwoBody.data.id;
+
+      const partitionAssetsResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${partitionWorkflowSlug}/assets`
+      });
+      assert.equal(partitionAssetsResponse.statusCode, 200);
+      const partitionAssetsBody = JSON.parse(partitionAssetsResponse.payload) as {
+        data: {
+          assets: Array<{
+            assetId: string;
+            latest: {
+              runId: string;
+              partitionKey: string | null;
+              payload: unknown;
+            } | null;
+          }>;
+        };
+      };
+      const partitionAssetEntry = partitionAssetsBody.data.assets.find(
+        (entry) => entry.assetId === 'reports.partitioned'
+      );
+      assert(partitionAssetEntry);
+      assert.equal(partitionAssetEntry?.latest?.runId, partitionRunTwoId);
+      assert.equal(partitionAssetEntry?.latest?.partitionKey, '2024-02');
+
+      const partitionAssetEncoded = encodeURIComponent('reports.partitioned');
+      const partitionHistoryAllResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${partitionWorkflowSlug}/assets/${partitionAssetEncoded}/history`
+      });
+      assert.equal(partitionHistoryAllResponse.statusCode, 200);
+      const partitionHistoryAllBody = JSON.parse(partitionHistoryAllResponse.payload) as {
+        data: {
+          history: Array<{ runId: string; partitionKey?: string | null }>;
+        };
+      };
+      const partitionHistoryKeys = partitionHistoryAllBody.data.history.map((entry) => entry.partitionKey);
+      assert(partitionHistoryKeys.includes('2024-01'));
+      assert(partitionHistoryKeys.includes('2024-02'));
+
+      const partitionHistoryFilteredResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${partitionWorkflowSlug}/assets/${partitionAssetEncoded}/history?partitionKey=2024-01`
+      });
+      assert.equal(partitionHistoryFilteredResponse.statusCode, 200);
+      const partitionHistoryFilteredBody = JSON.parse(partitionHistoryFilteredResponse.payload) as {
+        data: {
+          history: Array<{ runId: string; partitionKey?: string | null }>;
+        };
+      };
+      assert.equal(partitionHistoryFilteredBody.data.history.length, 1);
+      assert.equal(partitionHistoryFilteredBody.data.history[0]?.runId, partitionRunOneId);
+      assert.equal(partitionHistoryFilteredBody.data.history[0]?.partitionKey, '2024-01');
+
+      const partitionIndexResponse = await app.inject({
+        method: 'GET',
+        url: `/workflows/${partitionWorkflowSlug}/assets/${partitionAssetEncoded}/partitions?lookback=3`
+      });
+      assert.equal(partitionIndexResponse.statusCode, 200);
+      const partitionIndexBody = JSON.parse(partitionIndexResponse.payload) as {
+        data: {
+          partitioning: unknown;
+          partitions: Array<{
+            partitionKey: string | null;
+            materializations: number;
+            latest: { runId: string | null } | null;
+          }>;
+        };
+      };
+      assert(Array.isArray(partitionIndexBody.data.partitions));
+      assert.equal((partitionIndexBody.data.partitioning as { type?: string } | null)?.type ?? '', 'static');
+      const partitionOneSummary = partitionIndexBody.data.partitions.find((entry) => entry.partitionKey === '2024-01');
+      const partitionTwoSummary = partitionIndexBody.data.partitions.find((entry) => entry.partitionKey === '2024-02');
+      const partitionThreeSummary = partitionIndexBody.data.partitions.find((entry) => entry.partitionKey === '2024-03');
+      assert(partitionOneSummary);
+      assert(partitionTwoSummary);
+      assert(partitionThreeSummary);
+      assert.equal(partitionOneSummary?.materializations ?? 0, 1);
+      assert.equal(partitionOneSummary?.latest?.runId ?? null, partitionRunOneId);
+      assert.equal(partitionTwoSummary?.materializations ?? 0, 1);
+      assert.equal(partitionTwoSummary?.latest?.runId ?? null, partitionRunTwoId);
+      assert.equal(partitionThreeSummary?.materializations ?? 0, 0);
 
       const dagWorkflowResponse = await app.inject({
         method: 'POST',
