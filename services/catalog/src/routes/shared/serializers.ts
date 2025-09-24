@@ -5,11 +5,13 @@ import {
   type JobBundleVersionRecord,
   type JobDefinitionRecord,
   type JobRunRecord,
+  type JobRunWithDefinition,
   type LaunchRecord,
   type RepositoryRecordWithRelevance,
   type ServiceRecord,
   type WorkflowDefinitionRecord,
   type WorkflowRunRecord,
+  type WorkflowRunWithDefinition,
   type WorkflowRunMetrics,
   type WorkflowRunStats,
   type WorkflowRunStepRecord
@@ -208,6 +210,20 @@ export function serializeJobRun(run: JobRunRecord) {
   };
 }
 
+export function serializeJobRunWithDefinition(entry: JobRunWithDefinition) {
+  return {
+    run: serializeJobRun(entry.run),
+    job: {
+      id: entry.job.id,
+      slug: entry.job.slug,
+      name: entry.job.name,
+      version: entry.job.version,
+      type: entry.job.type,
+      runtime: entry.job.runtime
+    }
+  };
+}
+
 export function serializeJobBundle(
   bundle: JobBundleRecord,
   options?: { includeVersions?: boolean; includeManifest?: boolean }
@@ -318,6 +334,18 @@ export function serializeWorkflowRun(run: WorkflowRunRecord) {
     durationMs: run.durationMs,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt
+  };
+}
+
+export function serializeWorkflowRunWithDefinition(entry: WorkflowRunWithDefinition) {
+  return {
+    run: serializeWorkflowRun(entry.run),
+    workflow: {
+      id: entry.workflow.id,
+      slug: entry.workflow.slug,
+      name: entry.workflow.name,
+      version: entry.workflow.version
+    }
   };
 }
 

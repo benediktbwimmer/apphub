@@ -8,6 +8,7 @@ import {
   type WorkflowDefinitionUpdateInput,
   type WorkflowRunCreateInput,
   type WorkflowRunRecord,
+  type WorkflowRunWithDefinition,
   type WorkflowRunStatus,
   type WorkflowRunUpdateInput,
   type WorkflowRunStepCreateInput,
@@ -1210,6 +1211,45 @@ export async function listWorkflowRunsForDefinition(
       [workflowDefinitionId, limit, offset]
     );
     return rows.map(mapWorkflowRunRow);
+  });
+}
+
+type WorkflowRunWithDefinitionRow = WorkflowRunRow & {
+  workflow_slug: string;
+  workflow_name: string;
+  workflow_version: number;
+};
+
+export async function listWorkflowRuns(
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ items: WorkflowRunWithDefinition[]; hasMore: boolean }> {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
+  const offset = Math.max(options.offset ?? 0, 0);
+  const queryLimit = limit + 1;
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowRunWithDefinitionRow>(
+      `SELECT wr.*, wd.slug AS workflow_slug, wd.name AS workflow_name, wd.version AS workflow_version
+       FROM workflow_runs wr
+       INNER JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
+       ORDER BY wr.created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [queryLimit, offset]
+    );
+
+    const mapped = rows.map((row) => ({
+      run: mapWorkflowRunRow(row),
+      workflow: {
+        id: row.workflow_definition_id,
+        slug: row.workflow_slug,
+        name: row.workflow_name,
+        version: row.workflow_version
+      }
+    } satisfies WorkflowRunWithDefinition));
+
+    const hasMore = mapped.length > limit;
+    const items = hasMore ? mapped.slice(0, limit) : mapped;
+    return { items, hasMore };
   });
 }
 

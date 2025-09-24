@@ -379,6 +379,18 @@ export type JobRunRecord = {
   updatedAt: string;
 };
 
+export type JobRunWithDefinition = {
+  run: JobRunRecord;
+  job: {
+    id: string;
+    slug: string;
+    name: string;
+    version: number;
+    type: JobType;
+    runtime: JobRuntime;
+  };
+};
+
 export type JobRunCreateInput = {
   parameters?: JsonValue;
   timeoutMs?: number | null;
@@ -746,6 +758,16 @@ export type WorkflowRunRecord = {
   durationMs: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkflowRunWithDefinition = {
+  run: WorkflowRunRecord;
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+    version: number;
+  };
 };
 
 export type WorkflowRunCreateInput = {

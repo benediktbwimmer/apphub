@@ -9,6 +9,7 @@ import {
   getWorkflowRunStatsBySlug,
   listWorkflowDefinitions,
   listWorkflowRunSteps,
+  listWorkflowRuns,
   listWorkflowRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
@@ -56,6 +57,7 @@ import {
   serializeWorkflowDefinition,
   serializeWorkflowRunMetrics,
   serializeWorkflowRun,
+  serializeWorkflowRunWithDefinition,
   serializeWorkflowRunStats,
   serializeWorkflowRunStep
 } from './shared/serializers';
@@ -721,6 +723,50 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       reply.status(500);
       return { error: 'Failed to list workflows' };
     }
+  });
+
+  app.get('/workflow-runs', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-runs.list',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        action: 'workflow-runs.list',
+        reason: 'invalid_query',
+        details: parseQuery.error.flatten()
+      });
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 50);
+    const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const { items, hasMore } = await listWorkflowRuns({ limit, offset });
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      action: 'workflow-runs.list',
+      count: items.length,
+      limit,
+      offset,
+      hasMore
+    });
+    return {
+      data: items.map((entry) => serializeWorkflowRunWithDefinition(entry)),
+      meta: {
+        limit,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + limit : null
+      }
+    };
   });
 
   app.post('/workflows', async (request, reply) => {

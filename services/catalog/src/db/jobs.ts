@@ -8,6 +8,9 @@ import {
   type JobRunCreateInput,
   type JobRunRecord,
   type JobRunStatus,
+  type JobRunWithDefinition,
+  type JobRuntime,
+  type JobType,
   type JobRetryPolicy,
   type JsonValue
 } from './types';
@@ -366,6 +369,59 @@ export async function listJobRunsForDefinition(
       [jobDefinitionId, limit, offset]
     );
     return rows.map(mapJobRunRow);
+  });
+}
+
+type JobRunWithDefinitionRow = JobRunRow & {
+  job_slug: string;
+  job_name: string;
+  job_type: string;
+  job_runtime: string;
+  job_version: number;
+};
+
+export async function listJobRuns(
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ items: JobRunWithDefinition[]; hasMore: boolean }> {
+  const limit = Math.max(1, Math.min(options.limit ?? 25, 50));
+  const offset = Math.max(0, options.offset ?? 0);
+  const queryLimit = limit + 1;
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<JobRunWithDefinitionRow>(
+      `SELECT jr.*, jd.slug AS job_slug, jd.name AS job_name, jd.type AS job_type, jd.runtime AS job_runtime, jd.version AS job_version
+       FROM job_runs jr
+       INNER JOIN job_definitions jd ON jd.id = jr.job_definition_id
+       ORDER BY jr.created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [queryLimit, offset]
+    );
+
+    const mapped = rows.map((row) => {
+      const run = mapJobRunRow(row);
+      const runtime: JobRuntime = row.job_runtime === 'python' ? 'python' : 'node';
+      const type: JobType =
+        row.job_type === 'service-triggered'
+          ? 'service-triggered'
+          : row.job_type === 'manual'
+            ? 'manual'
+            : 'batch';
+      return {
+        run,
+        job: {
+          id: row.job_definition_id,
+          slug: row.job_slug,
+          name: row.job_name,
+          version: row.job_version,
+          type,
+          runtime
+        }
+      } satisfies JobRunWithDefinition;
+    });
+
+    const hasMore = mapped.length > limit;
+    const items = hasMore ? mapped.slice(0, limit) : mapped;
+    return { items, hasMore };
   });
 }
 

@@ -7,6 +7,7 @@ import {
   getJobDefinitionBySlug,
   getJobRunById,
   listJobDefinitions,
+  listJobRuns,
   listJobRunsForDefinition,
   completeJobRun,
   upsertJobDefinition,
@@ -27,6 +28,7 @@ import {
   serializeJobDefinition,
   serializeJobBundleVersion,
   serializeJobRun,
+  serializeJobRunWithDefinition,
   type JsonValue
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
@@ -436,6 +438,50 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     const readiness = await getRuntimeReadiness();
     reply.status(200);
     return { data: readiness };
+  });
+
+  app.get('/job-runs', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'job-runs.list',
+      resource: 'jobs',
+      requiredScopes: JOB_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseQuery = jobRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        action: 'job-runs.list',
+        reason: 'invalid_query',
+        details: parseQuery.error.flatten()
+      });
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const limit = Math.min(Math.max(parseQuery.data.limit ?? 25, 1), 50);
+    const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const { items, hasMore } = await listJobRuns({ limit, offset });
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      action: 'job-runs.list',
+      count: items.length,
+      limit,
+      offset,
+      hasMore
+    });
+    return {
+      data: items.map((entry) => serializeJobRunWithDefinition(entry)),
+      meta: {
+        limit,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + limit : null
+      }
+    };
   });
 
   app.post('/jobs', async (request, reply) => {

@@ -13,9 +13,14 @@ export type JobRunSummary = {
   result: unknown;
   errorMessage: string | null;
   logsUrl: string | null;
+  context: unknown;
+  metrics: unknown;
   attempt: number;
   maxAttempts: number | null;
   timeoutMs: number | null;
+  durationMs: number | null;
+  retryCount: number;
+  failureReason: string | null;
   startedAt: string | null;
   completedAt: string | null;
   scheduledAt: string | null;
