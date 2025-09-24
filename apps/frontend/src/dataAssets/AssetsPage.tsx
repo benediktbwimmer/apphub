@@ -11,10 +11,9 @@ import {
   deleteAssetPartitionParameters
 } from './api';
 import type { WorkflowAssetPartitionSummary, WorkflowAssetPartitions } from '../workflows/types';
-import { fetchWorkflowAssetPartitions } from '../workflows/api';
+import { ApiError, fetchWorkflowAssetPartitions, getWorkflowDetail } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useToasts } from '../components/toast';
-import { ApiError } from '../workflows/api';
 import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
 
 function buildPendingKey(action: string, slug: string, partitionKey: string | null): string {
@@ -34,6 +33,12 @@ export default function AssetsPage() {
   const [partitionsError, setPartitionsError] = useState<string | null>(null);
   const [pendingActionKeys, setPendingActionKeys] = useState<Set<string>>(new Set());
   const [pendingRunPartition, setPendingRunPartition] = useState<WorkflowAssetPartitionSummary | null>(null);
+  const [workflowInputsBySlug, setWorkflowInputsBySlug] = useState<Record<
+    string,
+    { defaultParameters: unknown; parametersSchema: unknown }
+  >({});
+  const [workflowInputsLoading, setWorkflowInputsLoading] = useState(false);
+  const [workflowInputsError, setWorkflowInputsError] = useState<string | null>(null);
 
   const refreshGraph = useCallback(async () => {
     const data = await fetchAssetGraph(authorizedFetch);
@@ -176,6 +181,60 @@ export default function AssetsPage() {
   const handleRequestRun = useCallback((partition: WorkflowAssetPartitionSummary) => {
     setPendingRunPartition(partition);
   }, []);
+
+  const cachedWorkflowInputs = selectedWorkflowSlug
+    ? workflowInputsBySlug[selectedWorkflowSlug]
+    : undefined;
+
+  useEffect(() => {
+    if (!pendingRunPartition || !selectedWorkflowSlug) {
+      setWorkflowInputsError(null);
+      return;
+    }
+    if (cachedWorkflowInputs) {
+      setWorkflowInputsError(null);
+      return;
+    }
+    let active = true;
+    setWorkflowInputsLoading(true);
+    setWorkflowInputsError(null);
+    getWorkflowDetail(authorizedFetch, selectedWorkflowSlug)
+      .then(({ workflow }) => {
+        if (!active) {
+          return;
+        }
+        setWorkflowInputsBySlug((current) => ({
+          ...current,
+          [selectedWorkflowSlug]: {
+            defaultParameters: workflow.defaultParameters ?? {},
+            parametersSchema: workflow.parametersSchema ?? null
+          }
+        }));
+      })
+      .catch((err) => {
+        if (!active) {
+          return;
+        }
+        const message = err instanceof ApiError ? err.message : 'Failed to load workflow defaults';
+        setWorkflowInputsError(message);
+      })
+      .finally(() => {
+        if (active) {
+          setWorkflowInputsLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    authorizedFetch,
+    cachedWorkflowInputs,
+    pendingRunPartition,
+    selectedWorkflowSlug,
+    setWorkflowInputsBySlug,
+    setWorkflowInputsError,
+    setWorkflowInputsLoading
+  ]);
 
   const handleMarkStale = useCallback(
     async (partitionKey: string | null) => {
@@ -412,6 +471,12 @@ export default function AssetsPage() {
         workflowSlug={selectedWorkflowSlug}
         assetId={selectedAsset?.assetId ?? null}
         partition={pendingRunPartition}
+        workflowDefaultParameters={cachedWorkflowInputs?.defaultParameters}
+        workflowParametersSchema={cachedWorkflowInputs?.parametersSchema}
+        workflowParametersLoading={Boolean(
+          pendingRunPartition && !cachedWorkflowInputs && workflowInputsLoading
+        )}
+        workflowParametersError={pendingRunPartition ? workflowInputsError : null}
         onClose={() => setPendingRunPartition(null)}
         onSubmit={handleRunDialogSubmit}
         onClearStored={pendingRunPartition ? handleClearStoredParameters : undefined}
