@@ -167,8 +167,9 @@ async function computeFileChecksum(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256');
     const stream = createReadStream(filePath);
-    stream.on('data', (chunk: Buffer) => {
-      hash.update(chunk);
+    stream.on('data', (chunk: Buffer | string) => {
+      const bufferChunk = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      hash.update(bufferChunk);
     });
     stream.on('error', (err) => reject(err));
     stream.on('end', () => resolve(hash.digest('hex')));
