@@ -8,6 +8,7 @@ import {
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
 import { type AppRecord, type IngestionEvent, useImportApp } from '../useImportApp';
+import type { AppScenario } from '../examples';
 
 const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
@@ -41,7 +42,7 @@ const STATUS_VARIANTS: Record<string, string> = {
   seed: 'border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-200'
 };
 
-const APP_DOC_URL = 'https://github.com/apphub-osiris/apphub/blob/main/docs/architecture.md#apps';
+const APP_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#apps';
 
 function getStatusBadge(status: string) {
   return `${STATUS_BADGE_BASE} ${STATUS_VARIANTS[status] ?? STATUS_VARIANTS.pending}`;
@@ -70,9 +71,12 @@ function formatRelativeTime(timestamp: number | null) {
 type ImportAppsTabProps = {
   onAppRegistered?: (id: string) => void;
   onViewCatalog?: () => void;
+  scenario?: AppScenario | null;
+  scenarioRequestToken?: number;
+  onScenarioCleared?: () => void;
 };
 
-export default function ImportAppsTab({ onAppRegistered, onViewCatalog }: ImportAppsTabProps) {
+export default function ImportAppsTab({ onAppRegistered, onViewCatalog, scenario, scenarioRequestToken, onScenarioCleared }: ImportAppsTabProps) {
   const {
     form,
     setForm,
@@ -99,6 +103,26 @@ export default function ImportAppsTab({ onAppRegistered, onViewCatalog }: Import
   const { pushToast } = useToasts();
   const lastSubmissionVersion = useRef(0);
   const lastErrorVersion = useRef(0);
+
+  useEffect(() => {
+    if (!scenario || typeof scenarioRequestToken === 'undefined') {
+      return;
+    }
+    resetForm();
+    const nextTags =
+      scenario.form.tags && scenario.form.tags.length > 0
+        ? scenario.form.tags
+        : [{ key: 'language', value: 'typescript' }];
+    setForm({
+      id: scenario.form.id ?? '',
+      name: scenario.form.name,
+      description: scenario.form.description,
+      repoUrl: scenario.form.repoUrl,
+      dockerfilePath: scenario.form.dockerfilePath,
+      tags: nextTags
+    });
+    setSourceType(scenario.form.sourceType ?? 'remote');
+  }, [resetForm, scenario, scenarioRequestToken, setForm, setSourceType]);
 
   useEffect(() => {
     if (submissionVersion === 0 || submissionVersion === lastSubmissionVersion.current) {
@@ -258,6 +282,29 @@ export default function ImportAppsTab({ onAppRegistered, onViewCatalog }: Import
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      {scenario ? (
+        <div className="rounded-2xl border border-violet-300/70 bg-violet-50/70 p-4 text-sm text-slate-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-slate-200">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
+                Example scenario active
+              </span>
+              <p>
+                Fields prefilled from <strong>{scenario.title}</strong>. Fine-tune anything before submitting.
+              </p>
+            </div>
+            {onScenarioCleared && (
+              <button
+                type="button"
+                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm transition hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
+                onClick={onScenarioCleared}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Register application">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Application details</h2>

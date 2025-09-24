@@ -8,9 +8,10 @@ import {
 } from '../../components/form';
 import { useToasts } from '../../components/toast';
 import { useImportServiceManifest } from '../useImportServiceManifest';
+import type { ServiceManifestScenario } from '../examples';
 
 const SERVICE_MANIFEST_DOC_URL =
-  'https://github.com/apphub-osiris/apphub/blob/main/docs/architecture.md#service-manifests';
+  'https://github.com/benediktbwimmer/apphub/blob/main/docs/architecture.md#service-manifests';
 
 const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
@@ -19,12 +20,16 @@ const GRID_SECTION_CLASSES = 'grid gap-4 md:grid-cols-2';
 
 type ServiceManifestsTabProps = {
   onImported?: () => void;
+  scenario?: ServiceManifestScenario | null;
+  scenarioRequestToken?: number;
+  onScenarioCleared?: () => void;
 };
 
-export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabProps) {
+export default function ServiceManifestsTab({ onImported, scenario, scenarioRequestToken, onScenarioCleared }: ServiceManifestsTabProps) {
   const {
     form,
     updateField,
+    setForm,
     submitting,
     error,
     errorVersion,
@@ -40,6 +45,20 @@ export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabP
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const lastSuccessVersion = useRef(0);
   const lastErrorVersion = useRef(0);
+
+  useEffect(() => {
+    if (!scenario || typeof scenarioRequestToken === 'undefined') {
+      return;
+    }
+    setForm({
+      repo: scenario.form.repo ?? '',
+      ref: scenario.form.ref ?? '',
+      commit: scenario.form.commit ?? '',
+      configPath: scenario.form.configPath ?? '',
+      module: scenario.form.module ?? ''
+    });
+    resetResult();
+  }, [scenario, scenarioRequestToken, resetResult, setForm]);
 
   useEffect(() => {
     if (!result) {
@@ -148,6 +167,29 @@ export default function ServiceManifestsTab({ onImported }: ServiceManifestsTabP
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      {scenario ? (
+        <div className="rounded-2xl border border-violet-300/70 bg-violet-50/70 p-4 text-sm text-slate-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-slate-200">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
+                Example scenario active
+              </span>
+              <p>
+                Fields prefilled from <strong>{scenario.title}</strong>. Adjust values or reset to start fresh.
+              </p>
+            </div>
+            {onScenarioCleared && (
+              <button
+                type="button"
+                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm transition hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
+                onClick={onScenarioCleared}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Import service manifest">
         <FormField label="Service manifest repository" htmlFor="manifest-repo">
           <input

@@ -64,6 +64,7 @@ export type JobImportConfirmResult = {
 
 export type UseJobImportWorkflowResult = {
   form: JobImportFormState;
+  setForm: (form: JobImportFormState) => void;
   setFormField: <K extends keyof JobImportFormState>(field: K, value: JobImportFormState[K]) => void;
   setArchive: (file: File | null) => void;
   archive: File | null;
@@ -127,6 +128,17 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
     (file: File | null) => {
       setArchiveState(file);
       resetPreviewState();
+    },
+    [resetPreviewState]
+  );
+
+  const setFormState = useCallback(
+    (nextForm: JobImportFormState) => {
+      setForm(nextForm);
+      resetPreviewState();
+      if (nextForm.source !== 'upload') {
+        setArchiveState(null);
+      }
     },
     [resetPreviewState]
   );
@@ -258,6 +270,7 @@ export function useJobImportWorkflow(): UseJobImportWorkflowResult {
 
   return {
     form,
+    setForm: setFormState,
     setFormField,
     setArchive,
     archive,

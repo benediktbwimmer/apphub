@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   FormActions,
   FormButton,
@@ -16,6 +16,7 @@ import {
   type JobImportValidationError,
   type JobImportConfirmResult
 } from '../useJobImportWorkflow';
+import type { JobScenario } from '../examples';
 
 const INPUT_CLASSES =
   'rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30';
@@ -29,7 +30,7 @@ const SOURCE_BUTTON_ACTIVE = `${SOURCE_BUTTON_BASE} bg-violet-600 text-white sha
 
 const SOURCE_BUTTON_INACTIVE = `${SOURCE_BUTTON_BASE} bg-white/70 text-slate-600 hover:bg-violet-500/10 hover:text-violet-700 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
 
-const JOB_DOC_URL = 'https://github.com/apphub-osiris/apphub/blob/main/docs/job-bundles.md';
+const JOB_DOC_URL = 'https://github.com/benediktbwimmer/apphub/blob/main/docs/job-bundles.md';
 
 function WarningList({ warnings }: { warnings: JobImportWarning[] }) {
   if (warnings.length === 0) {
@@ -175,9 +176,16 @@ function ConfirmSummary({ result }: { result: JobImportConfirmResult }) {
   );
 }
 
-export default function ImportJobBundleTab() {
+type ImportJobBundleTabProps = {
+  scenario?: JobScenario | null;
+  scenarioRequestToken?: number;
+  onScenarioCleared?: () => void;
+};
+
+export default function ImportJobBundleTab({ scenario, scenarioRequestToken, onScenarioCleared }: ImportJobBundleTabProps) {
   const {
     form,
+    setForm,
     setFormField,
     setArchive,
     archive,
@@ -198,6 +206,75 @@ export default function ImportJobBundleTab() {
   const lastPreviewError = useRef<string | null>(null);
   const lastConfirmError = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!scenario) {
+      setScenarioLoading(false);
+      setScenarioError(null);
+    }
+  }, [scenario]);
+
+  useEffect(() => {
+    if (!scenario || typeof scenarioRequestToken === 'undefined') {
+      return;
+    }
+    let cancelled = false;
+
+    const applyScenario = async () => {
+      setScenarioError(null);
+      reset();
+      setForm({
+        source: scenario.form.source,
+        reference: scenario.form.reference ?? '',
+        notes: scenario.form.notes ?? ''
+      });
+
+      if (scenario.form.source === 'upload') {
+        if (!scenario.bundle) {
+          setScenarioError('Bundle asset missing for this scenario.');
+          return;
+        }
+        setScenarioLoading(true);
+        try {
+          const response = await fetch(scenario.bundle.publicPath);
+          if (!response.ok) {
+            throw new Error(`Failed to load bundle (status ${response.status})`);
+          }
+          const blob = await response.blob();
+          if (cancelled) {
+            return;
+          }
+          const filename = scenario.bundle.filename || `${scenario.id}.tar.gz`;
+          const contentType = scenario.bundle.contentType ?? blob.type || 'application/gzip';
+          const file = new File([blob], filename, { type: contentType });
+          setArchive(file);
+          analytics.trackEvent('import_example_bundle_loaded', {
+            scenarioId: scenario.id,
+            source: 'upload'
+          });
+        } catch (err) {
+          if (!cancelled) {
+            setScenarioError((err as Error).message ?? 'Failed to load bundle asset');
+            setArchive(null);
+          }
+        } finally {
+          if (!cancelled) {
+            setScenarioLoading(false);
+          }
+        }
+      } else {
+        setArchive(null);
+      }
+    };
+
+    void applyScenario();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [analytics, reset, scenario, scenarioRequestToken, setArchive, setForm]);
 
   useEffect(() => {
     if (previewResult) {
@@ -252,6 +329,14 @@ export default function ImportJobBundleTab() {
 
   const handlePreviewSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (scenarioLoading) {
+      pushToast({
+        tone: 'info',
+        title: 'Bundle still loading',
+        description: 'Wait for the example bundle to finish downloading before running the preview.'
+      });
+      return;
+    }
     await runPreview();
   };
 
@@ -281,6 +366,38 @@ export default function ImportJobBundleTab() {
 
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      {scenario ? (
+        <div className="rounded-2xl border border-violet-300/70 bg-violet-50/70 p-4 text-sm text-slate-700 shadow-sm dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-slate-200">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.35em] text-violet-600 dark:text-violet-300">
+                Example scenario active
+              </span>
+              <p>
+                Prefills the form with <strong>{scenario.title}</strong>.{' '}
+                {scenario.form.source === 'upload'
+                  ? 'The bundle downloads from the repository so you can preview immediately.'
+                  : 'Using the bundled registry reference to preview or import without extra setup.'}
+              </p>
+              {scenarioLoading ? (
+                <span className="text-xs font-semibold text-violet-600 dark:text-violet-300">Fetching bundle…</span>
+              ) : null}
+              {scenarioError ? (
+                <FormFeedback tone="error">Bundle download failed: {scenarioError}</FormFeedback>
+              ) : null}
+            </div>
+            {onScenarioCleared && (
+              <button
+                type="button"
+                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm transition hover:bg-violet-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
+                onClick={onScenarioCleared}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
       <FormSection as="form" onSubmit={handlePreviewSubmit} aria-label="Import job bundle">
         <div className="flex flex-col gap-2">
           <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Source</span>
@@ -310,7 +427,8 @@ export default function ImportJobBundleTab() {
               accept=".tar.gz,.tgz"
               className={INPUT_CLASSES}
               onChange={handleFileChange}
-              required
+              required={!archive}
+              disabled={scenarioLoading}
             />
             {archive && (
               <p className="text-xs text-slate-500 dark:text-slate-400">Selected: {archive.name}</p>
@@ -349,7 +467,15 @@ export default function ImportJobBundleTab() {
           />
         </FormField>
         <FormActions>
-          <FormButton type="submit" disabled={previewLoading}>
+          <FormButton
+            type="submit"
+            disabled={
+              previewLoading ||
+              scenarioLoading ||
+              (form.source === 'upload' && !archive) ||
+              (form.source === 'registry' && !form.reference.trim())
+            }
+          >
             {previewLoading ? 'Validating…' : 'Validate bundle'}
           </FormButton>
           <FormButton type="button" variant="secondary" size="sm" onClick={handleReset}>
@@ -428,7 +554,11 @@ export default function ImportJobBundleTab() {
             )}
             <DryRunDetails dryRun={previewResult.dryRun} />
             <FormActions>
-              <FormButton type="button" onClick={handleConfirm} disabled={!canConfirm || confirmLoading}>
+              <FormButton
+                type="button"
+                onClick={handleConfirm}
+                disabled={!canConfirm || confirmLoading || scenarioLoading}
+              >
                 {confirmLoading ? 'Importing…' : 'Confirm import'}
               </FormButton>
               <FormButton type="button" variant="secondary" size="sm" onClick={handleReset}>
