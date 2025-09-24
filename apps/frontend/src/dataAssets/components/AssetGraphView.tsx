@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type JSX } from 'react';
 import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
 import dagre from 'dagre';
 import type { AssetGraphData } from '../types';
