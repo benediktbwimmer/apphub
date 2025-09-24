@@ -64,6 +64,7 @@ describe('WorkflowGraph', () => {
       durationMs: null,
       errorMessage: null,
       triggeredBy: 'tester@apphub.test',
+      partitionKey: null,
       metrics: { totalSteps: 3, completedSteps: 1 },
       parameters: {},
       context: {
@@ -216,6 +217,7 @@ describe('WorkflowGraph', () => {
       durationMs: 5000,
       errorMessage: null,
       triggeredBy: 'tester@apphub.test',
+      partitionKey: null,
       metrics: { totalSteps: 3, completedSteps: 3 },
       parameters: {},
       context: {
@@ -361,6 +363,7 @@ describe('WorkflowGraph', () => {
       durationMs: null,
       errorMessage: null,
       triggeredBy: null,
+      partitionKey: null,
       metrics: null,
       parameters: {},
       context: {},

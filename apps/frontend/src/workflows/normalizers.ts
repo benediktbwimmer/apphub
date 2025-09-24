@@ -422,6 +422,12 @@ export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
         : raw.triggeredBy === null
           ? null
           : null,
+    partitionKey:
+      typeof raw.partitionKey === 'string'
+        ? raw.partitionKey
+        : raw.partitionKey === null
+          ? null
+          : null,
     metrics:
       raw.metrics && typeof raw.metrics === 'object' && !Array.isArray(raw.metrics)
         ? (raw.metrics as { totalSteps?: number; completedSteps?: number })

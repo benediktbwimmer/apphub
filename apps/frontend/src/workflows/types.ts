@@ -89,6 +89,7 @@ export type WorkflowRun = {
   durationMs: number | null;
   errorMessage: string | null;
   triggeredBy: string | null;
+  partitionKey: string | null;
   metrics: { totalSteps?: number; completedSteps?: number } | null;
   parameters: unknown;
   context: unknown;

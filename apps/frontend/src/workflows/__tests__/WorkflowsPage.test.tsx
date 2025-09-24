@@ -78,6 +78,7 @@ const runResponse: WorkflowRun = {
   durationMs: null,
   errorMessage: null,
   triggeredBy: 'operator@apphub.test',
+  partitionKey: null,
   metrics: { totalSteps: 2, completedSteps: 0 },
   parameters: { tenant: 'umbrella', retries: 2 },
   context: {},
