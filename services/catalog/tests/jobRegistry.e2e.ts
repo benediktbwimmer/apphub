@@ -385,6 +385,68 @@ async function testJobBundleLifecycle(): Promise<void> {
   });
 }
 
+async function testJobImportHandlesExistingArtifact(): Promise<void> {
+  await withServer(async (app) => {
+    const slug = 'file-relocator';
+
+    const previewResponse = await app.inject({
+      method: 'POST',
+      url: '/job-imports/preview',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      payload: {
+        source: 'example',
+        slug
+      }
+    });
+    assert.equal(previewResponse.statusCode, 200, previewResponse.payload);
+    const previewBody = JSON.parse(previewResponse.payload) as {
+      data: { bundle: { slug: string; version: string } };
+    };
+    const reference = `${previewBody.data.bundle.slug}@${previewBody.data.bundle.version}`;
+
+    const initialImport = await app.inject({
+      method: 'POST',
+      url: '/job-imports',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      payload: {
+        source: 'example',
+        slug,
+        reference
+      }
+    });
+    assert.equal(initialImport.statusCode, 201, initialImport.payload);
+
+    const { useConnection } = await import('../src/db/utils');
+
+    await useConnection(async (client) => {
+      await client.query('DELETE FROM job_definitions WHERE slug = $1', [slug]);
+      await client.query('DELETE FROM job_bundle_versions WHERE slug = $1', [slug]);
+      await client.query('DELETE FROM job_bundles WHERE slug = $1', [slug]);
+    });
+
+    const reimportResponse = await app.inject({
+      method: 'POST',
+      url: '/job-imports',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      payload: {
+        source: 'example',
+        slug,
+        reference
+      }
+    });
+    assert.equal(reimportResponse.statusCode, 201, reimportResponse.payload);
+  });
+}
+
 async function testJobBundleAiEdit(): Promise<void> {
   const fixtureDir = path.join(__dirname, 'fixtures', 'codex');
   process.env.APPHUB_CODEX_MOCK_DIR = fixtureDir;
@@ -500,6 +562,7 @@ async function testJobBundleAiEdit(): Promise<void> {
 async function run() {
   try {
     await testJobBundleLifecycle();
+    await testJobImportHandlesExistingArtifact();
     await testJobBundleAiEdit();
   } finally {
     await shutdownEmbeddedPostgres();

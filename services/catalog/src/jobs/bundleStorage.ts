@@ -163,6 +163,18 @@ export type BundleArtifactSaveResult = {
   contentType: string | null;
 };
 
+async function computeFileChecksum(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk: Buffer) => {
+      hash.update(chunk);
+    });
+    stream.on('error', (err) => reject(err));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
 export async function saveJobBundleArtifact(input: BundleArtifactUpload): Promise<BundleArtifactSaveResult> {
   const backend = getBackend();
   const slugSegment = ensureSegment(input.slug, 'bundle');
@@ -211,7 +223,17 @@ export async function saveJobBundleArtifact(input: BundleArtifactUpload): Promis
   await fs.mkdir(absoluteDir, { recursive: true });
 
   try {
-    await fs.stat(absolutePath);
+    const existing = await fs.stat(absolutePath);
+    const existingChecksum = await computeFileChecksum(absolutePath);
+    if (existingChecksum === checksum) {
+      return {
+        storage: 'local',
+        artifactPath: relativePath,
+        checksum,
+        size: existing.size,
+        contentType
+      } satisfies BundleArtifactSaveResult;
+    }
     throw new Error('Artifact already exists for bundle version');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
