@@ -9,16 +9,23 @@ import {
   loadExampleJobDefinition,
   loadExampleWorkflowDefinition
 } from '../helpers/examples';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 
-const environmentalObservatoryJobs = [
+const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
   'observatory-inbox-normalizer',
   'observatory-duckdb-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher'
-].map(loadExampleJobDefinition);
+];
+const environmentalObservatoryJobs = environmentalObservatoryJobSlugs.map(loadExampleJobDefinition);
 
-const observatoryHourlyIngestWorkflow = loadExampleWorkflowDefinition('observatory-hourly-ingest');
-const observatoryDailyPublicationWorkflow = loadExampleWorkflowDefinition('observatory-daily-publication');
+const observatoryWorkflowSlugs: ExampleWorkflowSlug[] = [
+  'observatory-hourly-ingest',
+  'observatory-daily-publication'
+];
+const [observatoryHourlyIngestWorkflow, observatoryDailyPublicationWorkflow] = observatoryWorkflowSlugs.map(
+  loadExampleWorkflowDefinition
+);
 
 (async function run() {
   for (const job of environmentalObservatoryJobs) {

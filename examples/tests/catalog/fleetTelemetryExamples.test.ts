@@ -9,14 +9,21 @@ import {
   loadExampleJobDefinition,
   loadExampleWorkflowDefinition
 } from '../helpers/examples';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 
-const fleetTelemetryJobs = [
+const fleetTelemetryJobSlugs: ExampleJobSlug[] = [
   'fleet-telemetry-metrics',
   'greenhouse-alerts-runner'
-].map(loadExampleJobDefinition);
+];
+const fleetTelemetryJobs = fleetTelemetryJobSlugs.map(loadExampleJobDefinition);
 
-const fleetTelemetryDailyRollupWorkflow = loadExampleWorkflowDefinition('fleet-telemetry-daily-rollup');
-const fleetTelemetryAlertsWorkflow = loadExampleWorkflowDefinition('fleet-telemetry-alerts');
+const fleetTelemetryWorkflowSlugs: ExampleWorkflowSlug[] = [
+  'fleet-telemetry-daily-rollup',
+  'fleet-telemetry-alerts'
+];
+const [fleetTelemetryDailyRollupWorkflow, fleetTelemetryAlertsWorkflow] = fleetTelemetryWorkflowSlugs.map(
+  loadExampleWorkflowDefinition
+);
 
 (async function run() {
   for (const job of fleetTelemetryJobs) {

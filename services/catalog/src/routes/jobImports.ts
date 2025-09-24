@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { promises as fs, readFileSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
 import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
-import { EXAMPLE_JOB_BUNDLES, type ExampleJobBundleSlug } from '@apphub/shared';
+import { getExampleJobBundle, isExampleJobSlug } from '@apphub/examples-registry';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { JOB_BUNDLE_WRITE_SCOPES } from './shared/scopes';
 import { publishBundleVersion } from '../jobs/registryService';
@@ -87,25 +87,6 @@ type UploadPreviewResult = {
   errors: JobImportValidationError[];
 };
 
-type ExamplesCatalogIndex = {
-  jobs: Record<string, string>;
-};
-
-const examplesIndexPath = path.resolve(repoRoot, 'examples', 'catalog-index.json');
-
-let cachedExamplesIndex: ExamplesCatalogIndex | null = null;
-const exampleJobCache = new Map<string, JobDefinitionCreateInput | null>();
-
-function getExamplesIndex(): ExamplesCatalogIndex {
-  if (!cachedExamplesIndex) {
-    const contents = readFileSync(examplesIndexPath, 'utf8');
-    cachedExamplesIndex = JSON.parse(contents) as ExamplesCatalogIndex;
-  }
-  return cachedExamplesIndex;
-}
-
-type UploadPreviewRequest = Extract<z.infer<typeof previewRequestSchema>, { source: 'upload' }>;
-
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -162,6 +143,10 @@ type PackagedExampleBundle = {
   contentType: string;
 };
 
+const exampleJobCache = new Map<string, JobDefinitionCreateInput | null>();
+
+type UploadPreviewRequest = Extract<z.infer<typeof previewRequestSchema>, { source: 'upload' }>;
+
 function normalizeExampleEntryPoint(entryPoint: string, slug: string, version: string): string {
   if (!entryPoint.startsWith('bundle:')) {
     return entryPoint;
@@ -180,24 +165,18 @@ function resolveExampleJobDefinition(slug: string): JobDefinitionCreateInput | n
   if (exampleJobCache.has(normalizedSlug)) {
     return exampleJobCache.get(normalizedSlug) ?? null;
   }
-
-  const index = getExamplesIndex();
-  const relativePath = index.jobs[normalizedSlug];
-  if (!relativePath) {
+  if (!isExampleJobSlug(normalizedSlug)) {
     exampleJobCache.set(normalizedSlug, null);
     return null;
   }
-
-  try {
-    const absolutePath = path.join(repoRoot, relativePath);
-    const raw = readFileSync(absolutePath, 'utf8');
-    const parsed = JSON.parse(raw) as JobDefinitionCreateInput;
-    exampleJobCache.set(normalizedSlug, parsed);
-    return parsed;
-  } catch {
+  const bundle = getExampleJobBundle(normalizedSlug);
+  if (!bundle) {
     exampleJobCache.set(normalizedSlug, null);
     return null;
   }
+  const definition = JSON.parse(JSON.stringify(bundle.definition)) as JobDefinitionCreateInput;
+  exampleJobCache.set(normalizedSlug, definition);
+  return definition;
 }
 
 async function ensureExampleJobDefinition(slug: string, version: string): Promise<void> {
@@ -230,21 +209,25 @@ async function ensureExampleJobDefinition(slug: string, version: string): Promis
 }
 
 async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle> {
-  const definition = EXAMPLE_JOB_BUNDLES[slug as ExampleJobBundleSlug];
-  if (!definition) {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug || !isExampleJobSlug(normalizedSlug)) {
+    throw new Error(`Unknown example bundle slug: ${slug}`);
+  }
+  const bundle = getExampleJobBundle(normalizedSlug);
+  if (!bundle) {
     throw new Error(`Unknown example bundle slug: ${slug}`);
   }
 
-  const bundleDir = path.resolve(repoRoot, definition.directory);
+  const bundleDir = path.resolve(repoRoot, bundle.directory);
   if (!(await pathExists(bundleDir))) {
     throw new Error(`Example bundle directory not found: ${path.relative(repoRoot, bundleDir)}`);
   }
   await ensureCliDependencies();
   await ensureNpmDependencies(bundleDir);
 
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `apphub-example-${slug}-`));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `apphub-example-${bundle.slug}-`));
   try {
-    const filename = `${slug}.tgz`;
+    const filename = `${bundle.slug}.tgz`;
     await execFileAsync('npm', [
       'exec',
       '--prefix',
@@ -275,7 +258,7 @@ async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle
 
     const manifestRecord = manifestJson as Record<string, JsonValue>;
     const manifestSlugRaw = manifestRecord.slug;
-    const manifestSlug = typeof manifestSlugRaw === 'string' ? manifestSlugRaw.trim().toLowerCase() : slug;
+    const manifestSlug = typeof manifestSlugRaw === 'string' ? manifestSlugRaw.trim().toLowerCase() : bundle.slug;
     const manifestVersionRaw = manifestRecord.version;
     const manifestVersion =
       typeof manifestVersionRaw === 'string' && manifestVersionRaw.trim().length > 0

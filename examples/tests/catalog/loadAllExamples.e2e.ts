@@ -7,6 +7,7 @@ import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 
 type JobSummary = {
   slug: string;
@@ -37,7 +38,7 @@ process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
 
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
 
-const EXAMPLE_BUNDLE_SLUGS = [
+const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'file-relocator',
   'retail-sales-csv-loader',
   'retail-sales-parquet-builder',
@@ -50,12 +51,14 @@ const EXAMPLE_BUNDLE_SLUGS = [
   'observatory-report-publisher'
 ];
 
-const WORKFLOW_DEFINITIONS = [
+const WORKFLOW_DEFINITION_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-hourly-ingest',
   'observatory-daily-publication',
   'fleet-telemetry-daily-rollup',
   'fleet-telemetry-alerts'
-].map(loadExampleWorkflowDefinition);
+];
+
+const WORKFLOW_DEFINITIONS = WORKFLOW_DEFINITION_SLUGS.map(loadExampleWorkflowDefinition);
 
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {

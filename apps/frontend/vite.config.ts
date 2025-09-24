@@ -9,6 +9,7 @@ const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
 const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
+const examplesRegistrySrcPath = resolve(workspaceRoot, 'packages', 'examples-registry', 'src');
 
 // https://vite.dev/config/
 const config: UserConfig & { test: VitestUserConfig['test'] } = {
@@ -16,7 +17,8 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
   resolve: {
     alias: {
       '@apphub/catalog': catalogSrcPath,
-      '@apphub/shared': sharedSrcPath
+      '@apphub/shared': sharedSrcPath,
+      '@apphub/examples-registry': examplesRegistrySrcPath
     }
   },
   server: {

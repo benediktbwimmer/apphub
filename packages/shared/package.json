@@ -22,5 +22,8 @@
   },
   "scripts": {
     "build": "tsc -b"
+  },
+  "dependencies": {
+    "@apphub/examples-registry": "0.1.0"
   }
 }

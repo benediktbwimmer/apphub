@@ -11,10 +11,19 @@
     "sourceMap": true,
     "composite": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../packages/shared" }
+    {
+      "path": "../../packages/examples-registry"
+    },
+    {
+      "path": "../../packages/shared"
+    }
   ]
 }

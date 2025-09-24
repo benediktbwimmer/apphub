@@ -1,0 +1,28 @@
+{
+  "name": "@apphub/examples-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./catalogIndex": {
+      "types": "./dist/catalogIndex.d.ts",
+      "require": "./dist/catalogIndex.js",
+      "default": "./dist/catalogIndex.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b && node dist/scripts/generateCatalogIndex.js",
+    "generate:catalog-index": "node dist/scripts/generateCatalogIndex.js",
+    "clean": "rm -rf dist"
+  }
+}

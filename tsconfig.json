@@ -2,9 +2,20 @@
   "extends": "./tsconfig.base.json",
   "files": [],
   "references": [
-    { "path": "./packages/shared" },
-    { "path": "./services/catalog" },
-    { "path": "./apps/cli" },
-    { "path": "./apps/frontend" }
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/examples-registry"
+    },
+    {
+      "path": "./services/catalog"
+    },
+    {
+      "path": "./apps/cli"
+    },
+    {
+      "path": "./apps/frontend"
+    }
   ]
 }

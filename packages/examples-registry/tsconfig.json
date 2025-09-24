@@ -10,14 +10,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"]
   },
-  "include": [
-    "src"
-  ],
-  "references": [
-    {
-      "path": "../examples-registry"
-    }
-  ]
+  "include": ["src"]
 }

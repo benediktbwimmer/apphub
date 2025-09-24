@@ -9,15 +9,22 @@ import {
   loadExampleJobDefinition,
   loadExampleWorkflowDefinition
 } from '../helpers/examples';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 
-const retailSalesJobs = [
+const retailSalesJobSlugs: ExampleJobSlug[] = [
   'retail-sales-csv-loader',
   'retail-sales-parquet-builder',
   'retail-sales-visualizer'
-].map(loadExampleJobDefinition);
+];
+const retailSalesJobs = retailSalesJobSlugs.map(loadExampleJobDefinition);
 
-const retailSalesDailyIngestWorkflow = loadExampleWorkflowDefinition('retail-sales-daily-ingest');
-const retailSalesInsightsWorkflow = loadExampleWorkflowDefinition('retail-sales-insights');
+const retailSalesWorkflowSlugs: ExampleWorkflowSlug[] = [
+  'retail-sales-daily-ingest',
+  'retail-sales-insights'
+];
+const [retailSalesDailyIngestWorkflow, retailSalesInsightsWorkflow] = retailSalesWorkflowSlugs.map(
+  loadExampleWorkflowDefinition
+);
 
 (async function run() {
   for (const job of retailSalesJobs) {
