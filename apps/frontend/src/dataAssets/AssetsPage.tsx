@@ -36,7 +36,7 @@ export default function AssetsPage() {
   const [workflowInputsBySlug, setWorkflowInputsBySlug] = useState<Record<
     string,
     { defaultParameters: unknown; parametersSchema: unknown }
-  >({});
+  >>({});
   const [workflowInputsLoading, setWorkflowInputsLoading] = useState(false);
   const [workflowInputsError, setWorkflowInputsError] = useState<string | null>(null);
 
@@ -309,7 +309,7 @@ export default function AssetsPage() {
               partitionKey: partitionKey ?? null,
               parameters
             });
-            setPendingRunPartition((current) => {
+            setPendingRunPartition((current: WorkflowAssetPartitionSummary | null) => {
               if (!current) {
                 return current;
               }
@@ -390,7 +390,7 @@ export default function AssetsPage() {
             title: 'Stored parameters cleared',
             description: partitionKey ? `Partition ${partitionKey}` : 'Default partition'
           });
-          setPendingRunPartition((current) => {
+          setPendingRunPartition((current: WorkflowAssetPartitionSummary | null) => {
             if (!current) {
               return current;
             }

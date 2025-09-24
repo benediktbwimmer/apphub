@@ -480,7 +480,7 @@ export function AssetRecomputeDialog({
   };
 
   const handleFieldChange = (path: string[], value: unknown) => {
-    setDraftParameters((current) => {
+    setDraftParameters((current: unknown) => {
       const next = setValueAtPath(current, path, value);
       const text = formatParameters(next);
       setJsonValue(text);
