@@ -237,6 +237,22 @@ export const retailSalesJobs: JobDefinitionCreateInput[] = [
   }
 ];
 
+const retailSalesJobMap = new Map<string, JobDefinitionCreateInput>(
+  retailSalesJobs.map((job) => [job.slug.toLowerCase(), job])
+);
+
+function cloneJobDefinition(definition: JobDefinitionCreateInput): JobDefinitionCreateInput {
+  return JSON.parse(JSON.stringify(definition)) as JobDefinitionCreateInput;
+}
+
+export function getRetailSalesJobDefinition(slug: string): JobDefinitionCreateInput | null {
+  if (typeof slug !== 'string' || slug.trim().length === 0) {
+    return null;
+  }
+  const match = retailSalesJobMap.get(slug.trim().toLowerCase());
+  return match ? cloneJobDefinition(match) : null;
+}
+
 export const retailSalesDailyIngestWorkflow: WorkflowDefinitionCreateInput = {
   slug: 'retail-sales-daily-ingest',
   name: 'Retail Sales Daily Ingest',

@@ -1,0 +1,9 @@
+{
+  "name": "Retail Sales Parquet Builder",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "pythonEntry": "src/main.py",
+  "description": "Describe what this job bundle does.",
+  "capabilities": []
+}

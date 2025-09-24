@@ -215,6 +215,22 @@ export const environmentalObservatoryJobs: JobDefinitionCreateInput[] = [
   }
 ];
 
+const environmentalObservatoryJobMap = new Map<string, JobDefinitionCreateInput>(
+  environmentalObservatoryJobs.map((job) => [job.slug.toLowerCase(), job])
+);
+
+function cloneJobDefinition(definition: JobDefinitionCreateInput): JobDefinitionCreateInput {
+  return JSON.parse(JSON.stringify(definition)) as JobDefinitionCreateInput;
+}
+
+export function getEnvironmentalObservatoryJobDefinition(slug: string): JobDefinitionCreateInput | null {
+  if (typeof slug !== 'string' || slug.trim().length === 0) {
+    return null;
+  }
+  const match = environmentalObservatoryJobMap.get(slug.trim().toLowerCase());
+  return match ? cloneJobDefinition(match) : null;
+}
+
 export const observatoryHourlyIngestWorkflow: WorkflowDefinitionCreateInput = {
   slug: 'observatory-hourly-ingest',
   name: 'Observatory Hourly Ingest',

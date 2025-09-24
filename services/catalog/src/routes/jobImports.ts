@@ -7,7 +7,12 @@ import { promisify } from 'node:util';
 import tar from 'tar';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
-import type { JsonValue } from '../db/types';
+import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
+import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
+import { getRetailSalesJobDefinition } from '../workflows/examples/retailSalesExamples';
+import { getFleetTelemetryJobDefinition } from '../workflows/examples/fleetTelemetryExamples';
+import { getEnvironmentalObservatoryJobDefinition } from '../workflows/examples/environmentalObservatoryExamples';
+import { getFileDropJobDefinition } from '../workflows/examples/fileDropExamples';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { JOB_BUNDLE_WRITE_SCOPES } from './shared/scopes';
 import { publishBundleVersion } from '../jobs/registryService';
@@ -163,6 +168,54 @@ type PackagedExampleBundle = {
   contentType: string;
 };
 
+function normalizeExampleEntryPoint(entryPoint: string, slug: string, version: string): string {
+  if (!entryPoint.startsWith('bundle:')) {
+    return entryPoint;
+  }
+  const exportIndex = entryPoint.indexOf('#');
+  const exportSuffix = exportIndex >= 0 ? entryPoint.slice(exportIndex) : '';
+  const normalizedSlug = slug.trim();
+  return `bundle:${normalizedSlug}@${version}${exportSuffix}`;
+}
+
+function resolveExampleJobDefinition(slug: string): JobDefinitionCreateInput | null {
+  return (
+    getRetailSalesJobDefinition(slug) ??
+    getFleetTelemetryJobDefinition(slug) ??
+    getEnvironmentalObservatoryJobDefinition(slug) ??
+    getFileDropJobDefinition(slug)
+  );
+}
+
+async function ensureExampleJobDefinition(slug: string, version: string): Promise<void> {
+  const trimmedSlug = slug.trim();
+  if (!trimmedSlug) {
+    return;
+  }
+  const baseDefinition = resolveExampleJobDefinition(trimmedSlug);
+  if (!baseDefinition) {
+    return;
+  }
+  const existing = await getJobDefinitionBySlug(trimmedSlug);
+  if (existing) {
+    return;
+  }
+  const entryPoint = normalizeExampleEntryPoint(baseDefinition.entryPoint, trimmedSlug, version);
+  const payload: JobDefinitionCreateInput = {
+    ...baseDefinition,
+    slug: trimmedSlug,
+    entryPoint
+  };
+  try {
+    await createJobDefinition(payload);
+  } catch (err) {
+    if (err instanceof Error && /already exists/i.test(err.message)) {
+      return;
+    }
+    throw err;
+  }
+}
+
 async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle> {
   const definition = EXAMPLE_JOB_BUNDLES[slug as ExampleBundleSlug];
   if (!definition) {
@@ -188,13 +241,14 @@ async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle
       'jobs',
       'package',
       bundleDir,
+      '--',
       '--output-dir',
       tempDir,
       '--filename',
       filename,
       '--force'
     ], {
-      cwd: repoRoot,
+      cwd: cliDir,
       maxBuffer: 32 * 1024 * 1024
     });
 
@@ -657,6 +711,10 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
           tokenHash: authResult.auth.identity.tokenHash
         }
       );
+
+      if (body.source === 'example') {
+        await ensureExampleJobDefinition(publishResult.version.slug, publishResult.version.version);
+      }
 
       reply.status(201);
       return {

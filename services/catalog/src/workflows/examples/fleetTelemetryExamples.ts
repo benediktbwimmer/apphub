@@ -143,6 +143,22 @@ export const fleetTelemetryJobs: JobDefinitionCreateInput[] = [
   }
 ];
 
+const fleetTelemetryJobMap = new Map<string, JobDefinitionCreateInput>(
+  fleetTelemetryJobs.map((job) => [job.slug.toLowerCase(), job])
+);
+
+function cloneJobDefinition(definition: JobDefinitionCreateInput): JobDefinitionCreateInput {
+  return JSON.parse(JSON.stringify(definition)) as JobDefinitionCreateInput;
+}
+
+export function getFleetTelemetryJobDefinition(slug: string): JobDefinitionCreateInput | null {
+  if (typeof slug !== 'string' || slug.trim().length === 0) {
+    return null;
+  }
+  const match = fleetTelemetryJobMap.get(slug.trim().toLowerCase());
+  return match ? cloneJobDefinition(match) : null;
+}
+
 export const fleetTelemetryDailyRollupWorkflow: WorkflowDefinitionCreateInput = {
   slug: 'fleet-telemetry-daily-rollup',
   name: 'Fleet Telemetry Daily Rollup',

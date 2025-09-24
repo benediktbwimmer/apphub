@@ -8,8 +8,9 @@
     "manifest.json",
     "dist/**/*"
   ],
-  "externals": ["duckdb"],
   "tests": {
     "sampleInputPath": "tests/sample-input.json"
-  }
+  },
+  "pythonEntry": "src/main.py",
+  "pythonRequirementsPath": "requirements.txt"
 }
