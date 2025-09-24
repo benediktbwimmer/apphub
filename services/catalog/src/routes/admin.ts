@@ -1,5 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { nukeCatalogDatabase, nukeCatalogRunData } from '../db/index';
+import {
+  ensureDatabase,
+  markDatabaseUninitialized,
+  nukeCatalogDatabase,
+  nukeCatalogEverything,
+  nukeCatalogRunData
+} from '../db/index';
 import { clearServiceConfigImports } from '../serviceConfigLoader';
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -81,6 +87,53 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       request.log.error({ err }, 'Failed to nuke catalog database');
       reply.status(500);
       return { error: 'Failed to nuke catalog database' };
+    }
+  });
+
+  app.post('/admin/catalog/nuke/everything', async (request, reply) => {
+    try {
+      const counts = await nukeCatalogEverything();
+      const importClearResult = await clearServiceConfigImports();
+
+      markDatabaseUninitialized();
+      await ensureDatabase();
+
+      if (importClearResult.errors.length > 0) {
+        for (const entry of importClearResult.errors) {
+          request.log.error(
+            { path: entry.path, error: entry.error.message },
+            'Failed to clear imported service manifest'
+          );
+        }
+        reply.status(500);
+        return { error: 'Failed to clear imported service manifests' };
+      }
+
+      const totalRowsDeleted = Object.values(counts).reduce((acc, value) => acc + value, 0);
+
+      request.log.warn(
+        {
+          tablesTruncated: Object.keys(counts).length,
+          totalRowsDeleted,
+          serviceConfigImportsCleared: importClearResult.cleared.length,
+          serviceConfigImportsSkipped: importClearResult.skipped.length,
+          counts
+        },
+        'Entire catalog database nuked'
+      );
+      reply.status(200);
+      return {
+        data: {
+          counts,
+          totalRowsDeleted,
+          serviceConfigImportsCleared: importClearResult.cleared.length,
+          serviceConfigImportsSkipped: importClearResult.skipped.length
+        }
+      };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to nuke entire catalog database');
+      reply.status(500);
+      return { error: 'Failed to nuke entire catalog database' };
     }
   });
 }

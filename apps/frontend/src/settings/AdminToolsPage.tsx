@@ -6,8 +6,10 @@ export default function AdminToolsPage() {
   const authorizedFetch = useAuthorizedFetch();
   const [isNukingRunData, setIsNukingRunData] = useState(false);
   const [isNukingCatalog, setIsNukingCatalog] = useState(false);
+  const [isNukingEverything, setIsNukingEverything] = useState(false);
   const [runDataError, setRunDataError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [everythingError, setEverythingError] = useState<string | null>(null);
 
   const parseErrorMessage = useCallback((raw: string | null | undefined, fallback: string) => {
     if (!raw) {
@@ -32,7 +34,7 @@ export default function AdminToolsPage() {
   }, []);
 
   const handleNukeRunData = useCallback(async () => {
-    if (isNukingRunData || isNukingCatalog) {
+    if (isNukingRunData || isNukingCatalog || isNukingEverything) {
       return;
     }
 
@@ -60,10 +62,10 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingRunData(false);
     }
-  }, [authorizedFetch, isNukingCatalog, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
   const handleNukeCatalog = useCallback(async () => {
-    if (isNukingCatalog || isNukingRunData) {
+    if (isNukingCatalog || isNukingRunData || isNukingEverything) {
       return;
     }
 
@@ -91,9 +93,40 @@ export default function AdminToolsPage() {
     } finally {
       setIsNukingCatalog(false);
     }
-  }, [authorizedFetch, isNukingCatalog, isNukingRunData, parseErrorMessage]);
+  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
 
-  const isBusy = isNukingRunData || isNukingCatalog;
+  const handleNukeEverything = useCallback(async () => {
+    if (isNukingEverything || isNukingCatalog || isNukingRunData) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This will completely reset the catalog database, including all seeds, jobs, workflows, and historical data. Continue?'
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsNukingEverything(true);
+    setEverythingError(null);
+
+    try {
+      const response = await authorizedFetch(`${API_BASE_URL}/admin/catalog/nuke/everything`, { method: 'POST' });
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(parseErrorMessage(bodyText, 'Failed to nuke the entire database.'));
+      }
+
+      window.location.reload();
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Failed to nuke the entire database.';
+      setEverythingError(message);
+    } finally {
+      setIsNukingEverything(false);
+    }
+  }, [authorizedFetch, isNukingCatalog, isNukingEverything, isNukingRunData, parseErrorMessage]);
+
+  const isBusy = isNukingRunData || isNukingCatalog || isNukingEverything;
 
   return (
     <div className="flex flex-col gap-6">
@@ -148,6 +181,25 @@ export default function AdminToolsPage() {
           {catalogError && (
             <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
               {catalogError}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">
+              Reset everything (jobs, workflows, seeds, and catalog data)
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              onClick={handleNukeEverything}
+              disabled={isBusy}
+            >
+              {isNukingEverything ? 'Nuking everything…' : 'Nuke everything'}
+            </button>
+          </div>
+          {everythingError && (
+            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+              {everythingError}
             </p>
           )}
         </div>

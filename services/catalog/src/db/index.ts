@@ -1,5 +1,5 @@
 export * from './types';
-export { ensureDatabase } from './init';
+export { ensureDatabase, markDatabaseUninitialized } from './init';
 export { closePool } from './client';
 
 export * from './repositories';

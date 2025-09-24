@@ -940,6 +940,15 @@ const FULL_NUKE_TABLES = [
 
 export type NukeCatalogCounts = Record<string, number>;
 
+const TABLE_NAME_SAFE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function quoteIdentifier(name: string): string {
+  if (!TABLE_NAME_SAFE_PATTERN.test(name)) {
+    throw new Error(`Refusing to operate on unsafe table name: ${name}`);
+  }
+  return `"${name}"`;
+}
+
 async function truncateTables(tables: readonly string[]): Promise<NukeCatalogCounts> {
   return useTransaction(async (client) => {
     const counts: NukeCatalogCounts = {};
@@ -960,4 +969,29 @@ export async function nukeCatalogRunData(): Promise<NukeCatalogCounts> {
 
 export async function nukeCatalogDatabase(): Promise<NukeCatalogCounts> {
   return truncateTables(FULL_NUKE_TABLES);
+}
+
+export async function nukeCatalogEverything(): Promise<NukeCatalogCounts> {
+  return useTransaction(async (client) => {
+    const counts: NukeCatalogCounts = {};
+    const { rows } = await client.query<{ tablename: string }>(`
+      SELECT tablename
+      FROM pg_tables
+      WHERE schemaname = 'public'
+      AND tablename NOT LIKE 'pg_%'
+      AND tablename NOT LIKE 'sql_%'
+      ORDER BY tablename ASC
+    `);
+
+    for (const { tablename } of rows) {
+      const quoted = quoteIdentifier(tablename);
+      const { rows: countRows } = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM ${quoted}`
+      );
+      counts[tablename] = Number(countRows[0]?.count ?? 0);
+      await client.query(`TRUNCATE TABLE ${quoted} RESTART IDENTITY CASCADE`);
+    }
+
+    return counts;
+  });
 }
