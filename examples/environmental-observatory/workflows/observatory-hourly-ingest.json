@@ -81,7 +81,7 @@
       "parameters": {
         "warehousePath": "{{ parameters.warehousePath }}",
         "minute": "{{ parameters.minute }}",
-        "rawAsset": "{{ shared.normalizedOutput }}",
+        "rawAsset": "{{ shared.normalizedOutput.normalized }}",
         "vacuum": "{{ parameters.vacuum }}"
       },
       "storeResultAs": "duckdbSnapshot",

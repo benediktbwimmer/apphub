@@ -7,8 +7,7 @@
   "files": [
     "manifest.json",
     "dist/**/*",
-    "node_modules/duckdb/**/*",
-    "node_modules/@mapbox/node-pre-gyp/**/*"
+    "node_modules/**/*"
   ],
   "externals": [
     "duckdb",

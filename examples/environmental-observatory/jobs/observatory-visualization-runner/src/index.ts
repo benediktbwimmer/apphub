@@ -1,6 +1,8 @@
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import duckdb from 'duckdb';
+import { loadDuckDb, isCloseable } from '@apphub/shared/duckdb';
+
+const duckdb = loadDuckDb();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -378,8 +380,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       }
     } satisfies JobRunResult;
   } finally {
-    connection.close();
-    db.close();
+    if (isCloseable(connection)) {
+      connection.close();
+    }
+    if (isCloseable(db)) {
+      db.close();
+    }
   }
 }
 

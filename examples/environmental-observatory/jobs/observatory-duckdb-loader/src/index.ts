@@ -1,6 +1,8 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import duckdb from 'duckdb';
+import { loadDuckDb, isCloseable } from '@apphub/shared/duckdb';
+
+const duckdb = loadDuckDb();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -190,6 +192,44 @@ async function getScalar(connection: DuckDbConnection, sql: string): Promise<num
   return 0;
 }
 
+async function closeDatabase(instance: unknown): Promise<void> {
+  if (!isCloseable(instance)) {
+    return;
+  }
+
+  const maybePromiseOrVoid = instance.close;
+  try {
+    if (maybePromiseOrVoid.length >= 1) {
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const settle = () => {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        };
+        try {
+          const result = maybePromiseOrVoid.call(instance, () => settle());
+          if (result && typeof (result as Promise<unknown>).then === 'function') {
+            (result as Promise<unknown>)
+              .then(() => settle())
+              .catch(() => settle());
+          }
+        } catch {
+          settle();
+        }
+      });
+    } else {
+      const result = maybePromiseOrVoid.call(instance);
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        await (result as Promise<unknown>).catch(() => {});
+      }
+    }
+  } catch {
+    // Ignore close errors to avoid masking the primary job outcome.
+  }
+}
+
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const absoluteWarehousePath = path.resolve(parameters.warehousePath);
@@ -302,7 +342,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     } satisfies JobRunResult;
   } finally {
     connection.close();
-    db.close();
+    await closeDatabase(db);
   }
 }
 

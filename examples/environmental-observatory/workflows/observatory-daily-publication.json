@@ -88,7 +88,7 @@
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
         "reportTemplate": "{{ parameters.reportTemplate }}",
-        "visualizationAsset": "{{ shared.visualizations }}"
+        "visualizationAsset": "{{ shared.visualizations.visualization }}"
       },
       "consumes": [
         { "assetId": "observatory.visualizations.minute" }

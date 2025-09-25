@@ -379,8 +379,16 @@ export class ExampleBundler {
 
   private async computeCacheKey(bundle: ExampleJobBundle): Promise<CacheKey> {
     const bundleDir = path.resolve(this.repoRoot, bundle.directory);
-    const fingerprint =
-      (await computeGitFingerprint(this.repoRoot, bundleDir)) ?? (await hashDirectory(bundleDir));
+    let fingerprint = await computeGitFingerprint(this.repoRoot, bundleDir);
+    if (fingerprint) {
+      const dirty = await hasWorkingTreeChanges(this.repoRoot, bundleDir);
+      if (dirty) {
+        fingerprint = await hashDirectory(bundleDir);
+      }
+    }
+    if (!fingerprint) {
+      fingerprint = await hashDirectory(bundleDir);
+    }
     const lockHash = await computeLockfileHash(bundleDir);
     return {
       slug: bundle.slug,
@@ -489,6 +497,22 @@ async function computeGitFingerprint(repoRoot: string, bundleDir: string): Promi
     return hash.length > 0 ? hash : null;
   } catch {
     return null;
+  }
+}
+
+async function hasWorkingTreeChanges(repoRoot: string, bundleDir: string): Promise<boolean> {
+  const relative = path.relative(repoRoot, bundleDir).replace(/\\/g, '/');
+  if (!relative || relative.startsWith('..')) {
+    return true;
+  }
+  try {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain', '--', relative], {
+      cwd: repoRoot,
+      maxBuffer: 1 * 1024 * 1024
+    });
+    return stdout.trim().length > 0;
+  } catch {
+    return true;
   }
 }
 

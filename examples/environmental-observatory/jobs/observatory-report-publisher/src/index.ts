@@ -246,10 +246,17 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const htmlPath = path.resolve(reportsPartitionDir, 'status.html');
   const htmlSize = await writeTextFile(htmlPath, html);
 
+  const summary = {
+    instrumentCount: parameters.visualizationAsset.metrics.instrumentCount,
+    siteCount: parameters.visualizationAsset.metrics.siteCount,
+    alertCount: parameters.visualizationAsset.metrics.maxPm25 > 35 ? 1 : 0
+  };
+
   const jsonPayload = {
     generatedAt: new Date().toISOString(),
     metrics: parameters.visualizationAsset.metrics,
-    artifacts: parameters.visualizationAsset.artifacts
+    artifacts: parameters.visualizationAsset.artifacts,
+    summary
   };
   const jsonPath = path.resolve(reportsPartitionDir, 'status.json');
   const jsonSize = await writeTextFile(jsonPath, JSON.stringify(jsonPayload, null, 2));
@@ -267,22 +274,16 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       altText: artifact.description || artifact.relativePath
     }));
 
-  const alertCount = parameters.visualizationAsset.metrics.maxPm25 > 35 ? 1 : 0;
-
   const payload: ReportAssetPayload = {
     generatedAt: jsonPayload.generatedAt,
     reportsDir: reportsPartitionDir,
     reportFiles,
-    summary: {
-      instrumentCount: parameters.visualizationAsset.metrics.instrumentCount,
-      siteCount: parameters.visualizationAsset.metrics.siteCount,
-      alertCount
-    },
+    summary,
     plotsReferenced
   } satisfies ReportAssetPayload;
 
   await context.update({
-    alertCount,
+    alertCount: summary.alertCount,
     instruments: parameters.visualizationAsset.metrics.instrumentCount
   });
 

@@ -245,6 +245,21 @@ async function importExampleWorkflows(app: FastifyInstance): Promise<void> {
   }
 }
 
+async function fetchWorkflowRun(app: FastifyInstance, runId: string) {
+  const response = await app.inject({ method: 'GET', url: `/workflow-runs/${runId}` });
+  if (response.statusCode !== 200) {
+    return null;
+  }
+  return JSON.parse(response.payload) as {
+    data: {
+      id: string;
+      status: string;
+      errorMessage?: string | null;
+      context?: unknown;
+    };
+  };
+}
+
 async function runWorkflow(
   app: FastifyInstance,
   slug: string,
@@ -259,7 +274,11 @@ async function runWorkflow(
   });
   assert.equal(response.statusCode, 202, `Workflow ${slug} run failed: ${response.payload}`);
   const body = JSON.parse(response.payload) as WorkflowRunResponse;
-  assert.equal(body.data.status, 'succeeded', `Workflow ${slug} did not succeed`);
+  if (body.data.status !== 'succeeded') {
+    const runDetails = await fetchWorkflowRun(app, body.data.id);
+    const detailSnippet = runDetails ? JSON.stringify(runDetails.data, null, 2) : 'unavailable';
+    assert.fail(`Workflow ${slug} did not succeed (status=${body.data.status}). Details: ${detailSnippet}`);
+  }
   return body.data.id;
 }
 
@@ -400,9 +419,14 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
 }
 
 (async function run(): Promise<void> {
+  let exitCode = 0;
   try {
     await withServer(runObservatoryScenario);
+  } catch (error) {
+    exitCode = 1;
+    console.error(error);
   } finally {
     await shutdownEmbeddedPostgres();
+    process.exit(exitCode);
   }
 })();
