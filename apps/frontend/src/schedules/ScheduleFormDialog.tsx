@@ -8,6 +8,7 @@ type WorkflowOption = {
   id: string;
   slug: string;
   name: string;
+  defaultParameters?: unknown;
 };
 
 type ScheduleFormDialogProps = {
@@ -22,9 +23,9 @@ type ScheduleFormDialogProps = {
 };
 
 const PANEL_CLASSES =
-  'fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4 py-6 backdrop-blur-sm';
+  'fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-6 backdrop-blur-sm sm:items-center';
 const CARD_CLASSES =
-  'relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80';
+  'relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80 max-h-[calc(100vh-3rem)] overflow-y-auto';
 
 function buildParametersText(parameters: unknown): string {
   if (!parameters || typeof parameters !== 'object') {
@@ -64,6 +65,7 @@ export default function ScheduleFormDialog({
   const [catchUp, setCatchUp] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [parametersText, setParametersText] = useState('{\n}\n');
+  const [parametersDirty, setParametersDirty] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +74,8 @@ export default function ScheduleFormDialog({
     }
     setFormError(null);
     if (mode === 'create') {
-      setWorkflowSlug(workflows.length > 0 ? workflows[0]?.slug ?? '' : '');
+      const initialWorkflow = workflows.length > 0 ? workflows[0] : undefined;
+      setWorkflowSlug(initialWorkflow?.slug ?? '');
       setName('');
       setDescription('');
       setCron('');
@@ -81,7 +84,8 @@ export default function ScheduleFormDialog({
       setEndWindow('');
       setCatchUp(true);
       setIsActive(true);
-      setParametersText('{\n}\n');
+      setParametersText(buildParametersText(initialWorkflow?.defaultParameters ?? null));
+      setParametersDirty(false);
     } else if (schedule) {
       const current = schedule.schedule;
       setWorkflowSlug(schedule.workflow.slug);
@@ -94,12 +98,29 @@ export default function ScheduleFormDialog({
       setCatchUp(Boolean(current.catchUp));
       setIsActive(Boolean(current.isActive));
       setParametersText(buildParametersText(current.parameters));
+      setParametersDirty(false);
     }
   }, [mode, open, schedule, workflows]);
 
   const workflowOptions = useMemo(() => {
     return workflows.map((option) => ({ value: option.slug, label: option.name }));
   }, [workflows]);
+
+  const selectedWorkflow = useMemo(() => {
+    return workflows.find((option) => option.slug === workflowSlug) ?? null;
+  }, [workflowSlug, workflows]);
+
+  useEffect(() => {
+    if (!open || mode !== 'create' || !selectedWorkflow || parametersDirty) {
+      return;
+    }
+
+    const defaultText = buildParametersText(selectedWorkflow.defaultParameters ?? null);
+    if (parametersText !== defaultText) {
+      setParametersText(defaultText);
+      setParametersDirty(false);
+    }
+  }, [mode, open, parametersDirty, parametersText, selectedWorkflow]);
 
   if (!open) {
     return null;
@@ -193,7 +214,13 @@ export default function ScheduleFormDialog({
               <select
                 className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"
                 value={workflowSlug}
-                onChange={(event) => setWorkflowSlug(event.target.value)}
+                onChange={(event) => {
+                  const nextSlug = event.target.value;
+                  if (nextSlug !== workflowSlug) {
+                    setParametersDirty(false);
+                  }
+                  setWorkflowSlug(nextSlug);
+                }}
                 disabled={submitting || workflowOptions.length === 0}
               >
                 {workflowOptions.length === 0 ? (
@@ -297,7 +324,10 @@ export default function ScheduleFormDialog({
           <FormField label="Parameters (JSON object)">
             <textarea
               value={parametersText}
-              onChange={(event) => setParametersText(event.target.value)}
+              onChange={(event) => {
+                setParametersText(event.target.value);
+                setParametersDirty(true);
+              }}
               disabled={submitting}
               rows={6}
               className="w-full rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 font-mono text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-100"

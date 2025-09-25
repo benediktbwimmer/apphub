@@ -98,7 +98,12 @@ export default function SchedulesPage(): JSX.Element {
     return workflows
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((workflow) => ({ id: workflow.id, slug: workflow.slug, name: workflow.name }));
+      .map((workflow) => ({
+        id: workflow.id,
+        slug: workflow.slug,
+        name: workflow.name,
+        defaultParameters: workflow.defaultParameters
+      }));
   }, [workflows]);
 
   const handleRefresh = useCallback(() => {
