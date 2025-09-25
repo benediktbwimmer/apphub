@@ -824,6 +824,27 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
     }
   }
 
+  for (const [slug] of manifestEntries) {
+    const normalizedSlug = normalizeRepositoryId(slug);
+    if (!normalizedSlug) {
+      continue;
+    }
+    const repository = await getRepositoryById(normalizedSlug);
+    if (!repository) {
+      continue;
+    }
+    const repositoryId = normalizeRepositoryId(repository.id);
+    if (!repositoryId) {
+      continue;
+    }
+    const existing = serviceToApps.get(normalizedSlug);
+    if (existing) {
+      existing.add(repositoryId);
+    } else {
+      serviceToApps.set(normalizedSlug, new Set([repositoryId]));
+    }
+  }
+
   repositoryToServiceSlug.clear();
   for (const [slug, apps] of serviceToApps) {
     for (const appId of apps) {
@@ -913,6 +934,12 @@ async function getServiceSlugForRepository(repositoryId: string): Promise<string
         return service.slug;
       }
     }
+  }
+
+  const direct = await getServiceBySlug(normalized);
+  if (direct) {
+    repositoryToServiceSlug.set(normalized, direct.slug);
+    return direct.slug;
   }
 
   return null;
