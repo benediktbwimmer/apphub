@@ -16,7 +16,7 @@
             "$var": {
               "name": "FILE_WATCH_ROOT",
               "default": "examples/environmental-observatory/data/inbox",
-              "description": "Directory monitored for incoming hourly CSV drops."
+              "description": "Directory monitored for incoming minute-level CSV drops."
             }
           }
         },

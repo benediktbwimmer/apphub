@@ -2,7 +2,7 @@
   "slug": "observatory-daily-publication",
   "name": "Observatory Visualization & Reports",
   "version": 1,
-  "description": "Generates plots and publishes hourly status reports from DuckDB snapshots.",
+  "description": "Generates plots and publishes minute-level status reports from DuckDB snapshots.",
   "parametersSchema": {
     "type": "object",
     "properties": {
@@ -10,14 +10,14 @@
       "plotsDir": { "type": "string", "minLength": 1 },
       "reportsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
-      "lookbackHours": { "type": "number", "minimum": 1, "maximum": 336 },
+      "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" },
       "reportTemplate": { "type": "string" }
     },
     "required": ["warehousePath", "plotsDir", "reportsDir", "partitionKey"]
   },
   "defaultParameters": {
-    "lookbackHours": 72,
+    "lookbackMinutes": 180,
     "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
     "plotsDir": "examples/environmental-observatory/data/plots",
     "reportsDir": "examples/environmental-observatory/data/reports"
@@ -32,7 +32,7 @@
         "warehousePath": "{{ parameters.warehousePath }}",
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
-        "lookbackHours": "{{ parameters.lookbackHours }}",
+        "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
         "siteFilter": "{{ parameters.siteFilter }}"
       },
       "storeResultAs": "visualizations",
@@ -41,7 +41,7 @@
       ],
       "produces": [
         {
-          "assetId": "observatory.visualizations.hourly",
+          "assetId": "observatory.visualizations.minute",
           "freshness": { "ttlMs": 86400000 },
           "autoMaterialize": {
             "onUpstreamUpdate": true,
@@ -53,7 +53,7 @@
               "generatedAt": { "type": "string", "format": "date-time" },
               "partitionKey": { "type": "string" },
               "plotsDir": { "type": "string" },
-              "lookbackHours": { "type": "number" },
+              "lookbackMinutes": { "type": "number" },
               "artifacts": {
                 "type": "array",
                 "items": {
@@ -91,7 +91,7 @@
         "visualizationAsset": "{{ shared.visualizations }}"
       },
       "consumes": [
-        { "assetId": "observatory.visualizations.hourly" }
+        { "assetId": "observatory.visualizations.minute" }
       ],
       "produces": [
         {

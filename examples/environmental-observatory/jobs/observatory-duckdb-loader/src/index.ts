@@ -25,14 +25,14 @@ type RawAssetSourceFile = {
 
 type RawAsset = {
   partitionKey: string;
-  hour: string;
+  minute: string;
   stagingDir: string;
   sourceFiles: RawAssetSourceFile[];
 };
 
 type DuckDbLoaderParameters = {
   warehousePath: string;
-  hour: string;
+  minute: string;
   rawAsset: RawAsset;
   vacuum: boolean;
 };
@@ -81,7 +81,7 @@ function parseRawAsset(raw: unknown): RawAsset {
     throw new Error('rawAsset parameter must be an object');
   }
   const partitionKey = ensureString(raw.partitionKey ?? raw.hour ?? raw.partition_key);
-  const hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
+  const minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
   const stagingDir = ensureString(raw.stagingDir ?? raw.staging_dir);
   const sourceFilesRaw = Array.isArray(raw.sourceFiles ?? raw.source_files)
     ? ((raw.sourceFiles ?? raw.source_files) as unknown[])
@@ -106,13 +106,13 @@ function parseRawAsset(raw: unknown): RawAsset {
     });
   }
 
-  if (!partitionKey || !hour || !stagingDir || sourceFiles.length === 0) {
-    throw new Error('rawAsset must include partitionKey/hour, stagingDir, and at least one source file');
+  if (!partitionKey || !minute || !stagingDir || sourceFiles.length === 0) {
+    throw new Error('rawAsset must include partitionKey/minute, stagingDir, and at least one source file');
   }
 
   return {
     partitionKey,
-    hour,
+    minute,
     stagingDir,
     sourceFiles
   } satisfies RawAsset;
@@ -126,13 +126,13 @@ function parseParameters(raw: unknown): DuckDbLoaderParameters {
   if (!warehousePath) {
     throw new Error('warehousePath parameter is required');
   }
-  const hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
-  if (!hour) {
-    throw new Error('hour parameter is required');
+  const minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
+  if (!minute) {
+    throw new Error('minute parameter is required');
   }
   const rawAsset = parseRawAsset(raw.rawAsset ?? raw.raw_asset);
   const vacuum = ensureBoolean(raw.vacuum, false);
-  return { warehousePath, hour, rawAsset, vacuum } satisfies DuckDbLoaderParameters;
+  return { warehousePath, minute, rawAsset, vacuum } satisfies DuckDbLoaderParameters;
 }
 
 function escapeLiteral(value: string): string {
@@ -201,10 +201,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       )`
     );
 
-    const hourLiteral = escapeLiteral(parameters.hour);
+    const minuteLiteral = escapeLiteral(parameters.minute);
     await runQuery(
       connection,
-      `DELETE FROM readings WHERE strftime('%Y-%m-%dT%H', timestamp) = '${hourLiteral}'`
+      `DELETE FROM readings WHERE strftime('%Y-%m-%dT%H:%M', timestamp) = '${minuteLiteral}'`
     );
 
     for (const source of parameters.rawAsset.sourceFiles) {
@@ -232,7 +232,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     const appendedRows = await getScalar(
       connection,
-      `SELECT COUNT(*)::INTEGER AS value FROM readings WHERE strftime('%Y-%m-%dT%H', timestamp) = '${hourLiteral}'`
+      `SELECT COUNT(*)::INTEGER AS value FROM readings WHERE strftime('%Y-%m-%dT%H:%M', timestamp) = '${minuteLiteral}'`
     );
     const totalRows = await getScalar(connection, 'SELECT COUNT(*)::INTEGER AS value FROM readings');
 
@@ -260,7 +260,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     const checkpointCreatedAt = new Date().toISOString();
     const payload: DuckDbAssetPayload = {
-      partitionKey: parameters.hour,
+      partitionKey: parameters.minute,
       warehousePath: absoluteWarehousePath,
       appendedRows,
       totalRows,
@@ -276,12 +276,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     return {
       status: 'succeeded',
       result: {
-        partitionKey: parameters.hour,
+        partitionKey: parameters.minute,
         snapshot: payload,
         assets: [
           {
             assetId: 'observatory.timeseries.duckdb',
-            partitionKey: parameters.hour,
+            partitionKey: parameters.minute,
             producedAt: checkpointCreatedAt,
             payload
           }

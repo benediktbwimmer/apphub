@@ -1,21 +1,21 @@
 {
   "slug": "observatory-hourly-data-generator",
-  "name": "Observatory Hourly Data Generator",
+  "name": "Observatory Minute Data Generator",
   "version": 1,
-  "description": "Produces synthetic hourly CSV drops to simulate instrument readings arriving in the inbox.",
+  "description": "Produces synthetic minute-level CSV drops to simulate instrument readings arriving in the inbox.",
   "parametersSchema": {
     "type": "object",
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
-      "hour": {
+      "minute": {
         "type": "string",
-        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}$"
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
       },
       "rowsPerInstrument": { "type": "number", "minimum": 1, "maximum": 360 },
       "intervalMinutes": { "type": "number", "minimum": 1, "maximum": 120 },
       "seed": { "type": "number" }
     },
-    "required": ["inboxDir", "hour"]
+    "required": ["inboxDir", "minute"]
   },
   "defaultParameters": {
     "inboxDir": "examples/environmental-observatory/data/inbox",
@@ -30,7 +30,7 @@
       "jobSlug": "observatory-data-generator",
       "parameters": {
         "inboxDir": "{{ parameters.inboxDir }}",
-        "hour": "{{ parameters.hour }}",
+        "minute": "{{ parameters.minute }}",
         "rowsPerInstrument": "{{ parameters.rowsPerInstrument }}",
         "intervalMinutes": "{{ parameters.intervalMinutes }}",
         "seed": "{{ parameters.seed }}"
@@ -41,9 +41,9 @@
           "assetId": "observatory.inbox.synthetic",
           "partitioning": {
             "type": "timeWindow",
-            "granularity": "hour",
-            "format": "YYYY-MM-DDTHH",
-            "lookbackWindows": 168
+            "granularity": "minute",
+            "format": "YYYY-MM-DDTHH:mm",
+            "lookbackWindows": 1440
           },
           "schema": {
             "type": "object",

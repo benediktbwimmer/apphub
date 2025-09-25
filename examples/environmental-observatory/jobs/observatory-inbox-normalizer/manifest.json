@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "entry": "dist/index.js",
   "runtime": "node18",
-  "description": "Copies hourly instrument CSVs into staging and emits normalized observatory.timeseries.raw assets.",
+  "description": "Copies minute-level instrument CSVs into staging and emits normalized observatory.timeseries.raw assets.",
   "capabilities": ["fs"]
 }

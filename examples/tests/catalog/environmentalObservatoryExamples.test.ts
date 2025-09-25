@@ -51,7 +51,7 @@ const [
   assert.ok(generatorAsset?.partitioning);
   assert.equal(generatorAsset?.assetId, 'observatory.inbox.synthetic');
   assert.equal(generatorAsset?.partitioning?.type, 'timeWindow');
-  assert.equal(generatorAsset?.partitioning?.granularity, 'hour');
+  assert.equal(generatorAsset?.partitioning?.granularity, 'minute');
 
   const rawAsset = ingest.steps[0]?.produces?.[0];
   assert.ok(rawAsset?.partitioning);
@@ -62,7 +62,7 @@ const [
     now: new Date('2025-08-01T12:15:00Z'),
     lookback: 2
   });
-  assert.ok(rawPartitions.includes('2025-08-01T12'));
+  assert.ok(rawPartitions.includes('2025-08-01T12:15'));
 
   const duckdbAsset = ingest.steps[1]?.produces?.[0];
   assert.ok(duckdbAsset?.freshness?.ttlMs);
@@ -74,7 +74,7 @@ const [
   assert.equal(visualizationAsset?.autoMaterialize?.onUpstreamUpdate, true);
 
   const reportStep = publication.steps[1];
-  assert.ok(reportStep?.consumes?.some((entry) => entry.assetId === 'observatory.visualizations.hourly'));
+  assert.ok(reportStep?.consumes?.some((entry) => entry.assetId === 'observatory.visualizations.minute'));
   const reportAsset = reportStep?.produces?.[0];
   assert.equal(reportAsset?.autoMaterialize?.onUpstreamUpdate, true);
   assert.equal(reportStep?.parameters?.visualizationAsset, '{{ shared.visualizations }}');

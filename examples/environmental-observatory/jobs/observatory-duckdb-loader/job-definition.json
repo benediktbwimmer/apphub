@@ -14,11 +14,11 @@
     "type": "object",
     "properties": {
       "warehousePath": { "type": "string", "minLength": 1 },
-      "hour": { "type": "string", "minLength": 1 },
+      "minute": { "type": "string", "minLength": 1 },
       "rawAsset": { "type": "object" },
       "vacuum": { "type": "boolean" }
     },
-    "required": ["warehousePath", "hour", "rawAsset"]
+    "required": ["warehousePath", "minute", "rawAsset"]
   },
   "defaultParameters": {
     "vacuum": false

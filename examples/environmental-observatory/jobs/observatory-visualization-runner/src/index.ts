@@ -20,12 +20,12 @@ type VisualizationParameters = {
   warehousePath: string;
   plotsDir: string;
   partitionKey: string;
-  lookbackHours: number;
+  lookbackMinutes: number;
   siteFilter?: string;
 };
 
 type TrendRow = {
-  hour_key: string;
+  minute_key: string;
   avg_temp: number;
   avg_pm25: number;
   avg_humidity: number;
@@ -50,7 +50,7 @@ type VisualizationMetrics = {
   averagePm25: number;
   maxPm25: number;
   partitionKey: string;
-  lookbackHours: number;
+  lookbackMinutes: number;
   siteFilter?: string;
 };
 
@@ -58,7 +58,7 @@ type VisualizationAssetPayload = {
   generatedAt: string;
   partitionKey: string;
   plotsDir: string;
-  lookbackHours: number;
+  lookbackMinutes: number;
   artifacts: Array<{
     relativePath: string;
     mediaType: string;
@@ -105,13 +105,13 @@ function parseParameters(raw: unknown): VisualizationParameters {
   if (!warehousePath || !plotsDir || !partitionKey) {
     throw new Error('warehousePath, plotsDir, and partitionKey parameters are required');
   }
-  const lookbackHours = Math.max(1, ensureNumber(raw.lookbackHours ?? raw.lookback_hours, 72));
+  const lookbackMinutes = Math.max(1, ensureNumber(raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours, 180));
   const siteFilter = ensureString(raw.siteFilter ?? raw.site_filter ?? '');
   return {
     warehousePath,
     plotsDir,
     partitionKey,
-    lookbackHours,
+    lookbackMinutes,
     siteFilter: siteFilter || undefined
   } satisfies VisualizationParameters;
 }
@@ -138,20 +138,23 @@ function escapeLiteral(value: string): string {
   return value.split("'").join("''");
 }
 
-function toIsoHour(partitionKey: string): string {
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(partitionKey)) {
-    return `${partitionKey}:00:00Z`;
+function toIsoMinute(partitionKey: string): string {
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(partitionKey)) {
+    return `${partitionKey}:00Z`;
   }
   return partitionKey;
 }
 
-function computeTimeRange(partitionKey: string, lookbackHours: number): { startIso: string; endIso: string } {
-  const endIso = toIsoHour(partitionKey);
+function computeTimeRange(
+  partitionKey: string,
+  lookbackMinutes: number
+): { startIso: string; endIso: string } {
+  const endIso = toIsoMinute(partitionKey);
   const endDate = new Date(endIso);
   if (Number.isNaN(endDate.getTime())) {
-    throw new Error(`Invalid partitionKey '${partitionKey}', expected format YYYY-MM-DDTHH`);
+    throw new Error(`Invalid partitionKey '${partitionKey}', expected format YYYY-MM-DDTHH:mm`);
   }
-  const startDate = new Date(endDate.getTime() - (lookbackHours - 1) * 60 * 60 * 1000);
+  const startDate = new Date(endDate.getTime() - (lookbackMinutes - 1) * 60 * 1000);
   const startIso = startDate.toISOString().slice(0, 19) + 'Z';
   const normalizedEndIso = endDate.toISOString().slice(0, 19) + 'Z';
   return { startIso, endIso: normalizedEndIso };
@@ -221,9 +224,10 @@ function buildPm25Svg(rows: TrendRow[]): string {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackHours);
+  const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackMinutes);
   const absoluteWarehousePath = path.resolve(parameters.warehousePath);
-  const partitionPlotsDir = path.resolve(parameters.plotsDir, parameters.partitionKey);
+  const partitionPlotsKey = parameters.partitionKey.replace(':', '-');
+  const partitionPlotsDir = path.resolve(parameters.plotsDir, partitionPlotsKey);
   await mkdir(partitionPlotsDir, { recursive: true });
 
   const db = new duckdb.Database(absoluteWarehousePath);
@@ -258,7 +262,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     const trendSql = `
       SELECT
-        strftime(date_trunc('hour', timestamp), '%Y-%m-%dT%H') AS hour_key,
+        strftime(date_trunc('minute', timestamp), '%Y-%m-%dT%H:%M') AS minute_key,
         avg(temperature_c) AS avg_temp,
         avg(pm2_5_ug_m3) AS avg_pm25,
         avg(relative_humidity_pct) AS avg_humidity,
@@ -266,8 +270,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         COUNT(*) AS samples
       FROM readings
       WHERE ${rangePredicate}${sitePredicate}
-      GROUP BY hour_key
-      ORDER BY hour_key
+      GROUP BY minute_key
+      ORDER BY minute_key
     `;
     const trendRows = await allRows<TrendRow>(connection, trendSql);
 
@@ -301,7 +305,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       averagePm25: summary.avg_pm25 ?? 0,
       maxPm25: summary.max_pm25 ?? 0,
       partitionKey: parameters.partitionKey,
-      lookbackHours: parameters.lookbackHours,
+      lookbackMinutes: parameters.lookbackMinutes,
       siteFilter: parameters.siteFilter || undefined
     } satisfies VisualizationMetrics;
 
@@ -341,7 +345,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       generatedAt,
       partitionKey: parameters.partitionKey,
       plotsDir: partitionPlotsDir,
-      lookbackHours: parameters.lookbackHours,
+      lookbackMinutes: parameters.lookbackMinutes,
       artifacts,
       metrics
     } satisfies VisualizationAssetPayload;
@@ -358,7 +362,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         visualization: payload,
         assets: [
           {
-            assetId: 'observatory.visualizations.hourly',
+            assetId: 'observatory.visualizations.minute',
             partitionKey: parameters.partitionKey,
             producedAt: generatedAt,
             payload

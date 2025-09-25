@@ -16,13 +16,13 @@
       "warehousePath": { "type": "string", "minLength": 1 },
       "plotsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
-      "lookbackHours": { "type": "number", "minimum": 1, "maximum": 336 },
+      "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" }
     },
     "required": ["warehousePath", "plotsDir", "partitionKey"]
   },
   "defaultParameters": {
-    "lookbackHours": 72
+    "lookbackMinutes": 180
   },
   "outputSchema": {
     "type": "object",
@@ -30,7 +30,7 @@
       "generatedAt": { "type": "string", "format": "date-time" },
       "partitionKey": { "type": "string" },
       "plotsDir": { "type": "string" },
-      "lookbackHours": { "type": "number" },
+      "lookbackMinutes": { "type": "number" },
       "artifacts": {
         "type": "array",
         "items": {

@@ -6,7 +6,7 @@ This manifest registers the observatory file watcher service so operators can la
 
 | Slug | Description | Notes |
 | --- | --- | --- |
-| `observatory-file-watcher` | Watches `examples/environmental-observatory/data/inbox` for new hourly CSV files and triggers the `observatory-hourly-ingest` workflow. | Runs `npm run dev` inside `examples/environmental-observatory/services/observatory-file-watcher` and exposes `/healthz` + `/api/stats` on `http://127.0.0.1:4310`. |
+| `observatory-file-watcher` | Watches `examples/environmental-observatory/data/inbox` for new minute CSV files and triggers the `observatory-hourly-ingest` workflow. | Runs `npm run dev` inside `examples/environmental-observatory/services/observatory-file-watcher` and exposes `/healthz` + `/api/stats` on `http://127.0.0.1:4310`. |
 
 ## Environment
 

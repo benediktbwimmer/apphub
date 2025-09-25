@@ -30,7 +30,7 @@ type VisualizationMetrics = {
   averagePm25: number;
   maxPm25: number;
   partitionKey: string;
-  lookbackHours: number;
+  lookbackMinutes: number;
   siteFilter?: string;
 };
 
@@ -38,7 +38,7 @@ type VisualizationAsset = {
   generatedAt: string;
   partitionKey: string;
   plotsDir: string;
-  lookbackHours: number;
+  lookbackMinutes: number;
   artifacts: VisualizationArtifact[];
   metrics: VisualizationMetrics;
 };
@@ -90,8 +90,9 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
   const generatedAt = ensureString(raw.generatedAt ?? raw.generated_at);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
   const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.outputDir);
-  const lookbackHoursRaw = raw.lookbackHours ?? raw.lookback_hours;
-  const lookbackHours = typeof lookbackHoursRaw === 'number' ? lookbackHoursRaw : Number(lookbackHoursRaw ?? 0) || 0;
+  const lookbackMinutesRaw = raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours;
+  const lookbackMinutes =
+    typeof lookbackMinutesRaw === 'number' ? lookbackMinutesRaw : Number(lookbackMinutesRaw ?? 0) || 0;
 
   const artifactsRaw = Array.isArray(raw.artifacts) ? (raw.artifacts as unknown[]) : [];
   const artifacts: VisualizationArtifact[] = [];
@@ -120,7 +121,8 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
     averagePm25: Number(metricsRaw.averagePm25 ?? metricsRaw.average_pm25 ?? 0) || 0,
     maxPm25: Number(metricsRaw.maxPm25 ?? metricsRaw.max_pm25 ?? 0) || 0,
     partitionKey: ensureString(metricsRaw.partitionKey ?? metricsRaw.partition_key ?? partitionKey),
-    lookbackHours: Number(metricsRaw.lookbackHours ?? metricsRaw.lookback_hours ?? lookbackHours) || 0,
+    lookbackMinutes:
+      Number(metricsRaw.lookbackMinutes ?? metricsRaw.lookback_minutes ?? lookbackMinutes) || 0,
     siteFilter: ensureString(metricsRaw.siteFilter ?? metricsRaw.site_filter ?? '') || undefined
   } satisfies VisualizationMetrics;
 
@@ -132,7 +134,7 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
     generatedAt,
     partitionKey,
     plotsDir,
-    lookbackHours,
+    lookbackMinutes,
     artifacts,
     metrics
   } satisfies VisualizationAsset;
@@ -232,7 +234,8 @@ function buildHtml(template: string | undefined, markdownContent: string, metric
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const reportsPartitionDir = path.resolve(parameters.reportsDir, parameters.partitionKey);
+  const reportsPartitionKey = parameters.partitionKey.replace(':', '-');
+  const reportsPartitionDir = path.resolve(parameters.reportsDir, reportsPartitionKey);
   await mkdir(reportsPartitionDir, { recursive: true });
 
   const markdown = buildMarkdown(parameters.visualizationAsset.metrics, parameters.visualizationAsset.artifacts);

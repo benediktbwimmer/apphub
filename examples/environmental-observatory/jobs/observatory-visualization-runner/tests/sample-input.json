@@ -2,7 +2,7 @@
   "parameters": {
     "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
     "plotsDir": "examples/environmental-observatory/data/plots",
-    "partitionKey": "2025-08-01T09",
-    "lookbackHours": 6
+    "partitionKey": "2025-08-01T09:00",
+    "lookbackMinutes": 90
   }
 }

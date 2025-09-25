@@ -23,7 +23,7 @@ type DropRecord = {
     bytesMoved?: number | null;
     durationMs?: number | null;
   };
-  observatoryHour?: string;
+  observatoryMinute?: string;
 };
 
 type DropActivityEntry = {
@@ -95,8 +95,8 @@ function buildDropId(relativePath: string): string {
   return `${idComponent}-${Date.now().toString(36)}-${randomSuffix}`;
 }
 
-function extractObservatoryHour(relativePath: string): string | null {
-  const match = relativePath.match(/_(\d{10})\.csv$/i);
+function extractObservatoryMinute(relativePath: string): string | null {
+  const match = relativePath.match(/_(\d{12})\.csv$/i);
   if (!match) {
     return null;
   }
@@ -105,10 +105,11 @@ function extractObservatoryHour(relativePath: string): string | null {
   const month = timestamp.slice(4, 6);
   const day = timestamp.slice(6, 8);
   const hour = timestamp.slice(8, 10);
-  if (!year || !month || !day || !hour) {
+  const minute = timestamp.slice(10, 12);
+  if (!year || !month || !day || !hour || !minute) {
     return null;
   }
-  return `${year}-${month}-${day}T${hour}`;
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 const watchRoot = path.resolve(process.env.FILE_WATCH_ROOT ?? DEFAULT_WATCH_ROOT);
@@ -243,16 +244,18 @@ async function registerFile(filePath: string, source: 'startup' | 'watch') {
   }
   const normalizedRelative = toPosixRelative(relative);
   let dropId = buildDropId(normalizedRelative);
-  let observatoryHour: string | undefined;
+  let observatoryMinute: string | undefined;
+  let observatoryMinuteKey: string | undefined;
 
   if (strategy === 'observatory') {
-    const hour = extractObservatoryHour(normalizedRelative);
-    if (!hour) {
-      app.log.warn({ filePath: absolute }, 'Skipping file: unable to extract hour partition for observatory workflow');
+    const minute = extractObservatoryMinute(normalizedRelative);
+    if (!minute) {
+      app.log.warn({ filePath: absolute }, 'Skipping file: unable to extract minute partition for observatory workflow');
       return;
     }
-    observatoryHour = hour;
-    dropId = `observatory-${hour}`;
+    observatoryMinute = minute;
+    observatoryMinuteKey = minute.replace(/:/g, '-');
+    dropId = `observatory-${observatoryMinuteKey}`;
   }
 
   sourceToDropId.set(absolute, dropId);
@@ -271,14 +274,14 @@ async function registerFile(filePath: string, source: 'startup' | 'watch') {
     dropId,
     sourcePath: absolute,
     sourceFiles: [absolute],
-    relativePath: strategy === 'observatory' ? observatoryHour ?? normalizedRelative : normalizedRelative,
+    relativePath: strategy === 'observatory' ? observatoryMinuteKey ?? normalizedRelative : normalizedRelative,
     destinationDir: strategy === 'observatory' ? observatoryStagingDir : archiveRoot,
-    destinationFilename: strategy === 'observatory' ? `${observatoryHour ?? path.basename(absolute)}` : path.basename(absolute),
+    destinationFilename: path.basename(absolute),
     status: 'queued',
     observedAt: timestamp,
     updatedAt: timestamp,
     attempts: 0,
-    observatoryHour
+    observatoryMinute
   };
 
   drops.set(dropId, record);
@@ -314,9 +317,12 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
 
   let body: Record<string, unknown>;
   if (strategy === 'observatory') {
-    const hour = record.observatoryHour ?? extractObservatoryHour(record.relativePath) ?? new Date().toISOString().slice(0, 13).replace(':', '');
+    const minute =
+      record.observatoryMinute ??
+      extractObservatoryMinute(path.basename(record.sourceFiles[0] ?? '')) ??
+      new Date().toISOString().slice(0, 16);
     const parameters: Record<string, unknown> = {
-      hour,
+      minute,
       inboxDir: watchRoot,
       stagingDir: observatoryStagingDir,
       warehousePath: observatoryWarehousePath
@@ -331,13 +337,13 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
       toPosixRelative(path.relative(watchRoot, file))
     );
     body = {
-      partitionKey: hour,
+      partitionKey: minute,
       parameters,
       triggeredBy: 'observatory-file-watcher',
       trigger: {
         type: 'file-drop',
         options: {
-          hour,
+          minute,
           files: relativeFiles
         }
       }

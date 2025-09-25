@@ -2,7 +2,7 @@
   "jobSlug": "observatory-data-generator",
   "parameters": {
     "inboxDir": "examples/environmental-observatory/data/inbox",
-    "hour": "2025-08-01T12",
+    "minute": "2025-08-01T12:00",
     "rowsPerInstrument": 4,
     "intervalMinutes": 15,
     "seed": 99,

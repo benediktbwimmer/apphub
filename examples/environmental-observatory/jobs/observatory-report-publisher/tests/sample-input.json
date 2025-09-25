@@ -2,12 +2,12 @@
   "parameters": {
     "reportsDir": "examples/environmental-observatory/data/reports",
     "plotsDir": "examples/environmental-observatory/data/plots",
-    "partitionKey": "2025-08-01T09",
+    "partitionKey": "2025-08-01T09:00",
     "visualizationAsset": {
       "generatedAt": "2025-08-01T09:05:00Z",
-      "partitionKey": "2025-08-01T09",
-      "plotsDir": "examples/environmental-observatory/data/plots/2025-08-01T09",
-      "lookbackHours": 6,
+      "partitionKey": "2025-08-01T09:00",
+      "plotsDir": "examples/environmental-observatory/data/plots/2025-08-01T09-00",
+      "lookbackMinutes": 90,
       "artifacts": [
         {
           "relativePath": "temperature_trend.svg",
@@ -29,8 +29,8 @@
         "averageTemperatureC": 24.2,
         "averagePm25": 16.5,
         "maxPm25": 20.1,
-        "partitionKey": "2025-08-01T09",
-        "lookbackHours": 6
+        "partitionKey": "2025-08-01T09:00",
+        "lookbackMinutes": 90
       }
     }
   }

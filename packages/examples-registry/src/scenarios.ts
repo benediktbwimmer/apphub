@@ -288,7 +288,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-file-watcher-service',
     type: 'service-manifest',
     title: 'Observatory file watcher',
-    summary: 'Registers the observatory watcher service configured for hourly ingest.',
+    summary: 'Registers the observatory watcher service configured for minute-level ingest.',
     description:
       'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging directory, and DuckDB warehouse so new drops automatically trigger `observatory-hourly-ingest`.',
     difficulty: 'beginner',
@@ -365,7 +365,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       id: 'observatory-file-watcher',
       name: 'Observatory File Watcher',
-      description: 'Watches the observatory inbox for hourly CSV drops and triggers ingest workflows automatically.',
+      description: 'Watches the observatory inbox for minute-level CSV drops and triggers ingest workflows automatically.',
       repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
       dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
       tags: [
@@ -714,7 +714,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-data-generator-job',
     type: 'job',
     title: 'Observatory data generator',
-    summary: 'Produces synthetic inbox CSVs for hourly ingest.',
+    summary: 'Produces synthetic inbox CSVs for minute ingest.',
     description:
       'Uploads the `observatory-data-generator` bundle (0.1.0) so you can simulate instrument drops by writing synthetic CSVs into the observatory inbox.',
     difficulty: 'beginner',
@@ -744,9 +744,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-inbox-normalizer-job',
     type: 'job',
     title: 'Observatory inbox normalizer',
-    summary: 'Stages hourly CSV drops into standardized observatory assets.',
+    summary: 'Stages minute-level CSV drops into standardized observatory assets.',
     description:
-      'Uploads the `observatory-inbox-normalizer` bundle (0.1.0). Pair it with the hourly ingest workflow to emit `observatory.timeseries.raw` assets from inbox files.',
+      'Uploads the `observatory-inbox-normalizer` bundle (0.1.0). Pair it with the ingest workflow to emit `observatory.timeseries.raw` assets from inbox files.',
     difficulty: 'intermediate',
     tags: ['observatory', 'ingest'],
     docs: [
@@ -913,7 +913,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
     id: 'observatory-hourly-data-generator-workflow',
     type: 'workflow',
-    title: 'Observatory hourly data generator',
+    title: 'Observatory minute data generator',
     summary: 'Schedules synthetic instrument data drops.',
     description:
       'Imports the `observatory-hourly-data-generator` workflow definition to automate synthetic CSV drops into the observatory inbox for testing.',
@@ -938,10 +938,10 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
     id: 'observatory-hourly-ingest-workflow',
     type: 'workflow',
-    title: 'Observatory hourly ingest',
+    title: 'Observatory minute ingest',
     summary: 'Normalizes inbox CSV drops and appends them into DuckDB.',
     description:
-      'Imports the `observatory-hourly-ingest` workflow definition so you can replay the hourly ingestion loop and emit observatory telemetry assets.',
+      'Imports the `observatory-hourly-ingest` workflow definition so you can replay the minute-level ingestion loop and emit observatory telemetry assets.',
     difficulty: 'intermediate',
     tags: ['observatory', 'ingest'],
     docs: [
@@ -966,7 +966,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Observatory daily publication',
     summary: 'Generates observatory visualizations and publishes reports.',
     description:
-      'Imports the `observatory-daily-publication` workflow definition. It renders visualizations from DuckDB snapshots and publishes hourly status reports with linked artifacts.',
+      'Imports the `observatory-daily-publication` workflow definition. It renders visualizations from DuckDB snapshots and publishes minute-level status reports with linked artifacts.',
     difficulty: 'intermediate',
     tags: ['observatory', 'reporting'],
     docs: [

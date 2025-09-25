@@ -15,10 +15,10 @@
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
       "stagingDir": { "type": "string", "minLength": 1 },
-      "hour": { "type": "string", "minLength": 1 },
+      "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 }
     },
-    "required": ["inboxDir", "stagingDir", "hour"]
+    "required": ["inboxDir", "stagingDir", "minute"]
   },
   "defaultParameters": {
     "maxFiles": 64
@@ -27,7 +27,7 @@
     "type": "object",
     "properties": {
       "partitionKey": { "type": "string" },
-      "hour": { "type": "string" },
+      "minute": { "type": "string" },
       "instrumentCount": { "type": "number" },
       "recordCount": { "type": "number" },
       "sourceFiles": {
@@ -46,6 +46,6 @@
       "stagingDir": { "type": "string" },
       "normalizedAt": { "type": "string", "format": "date-time" }
     },
-    "required": ["partitionKey", "hour", "recordCount", "sourceFiles", "normalizedAt"]
+    "required": ["partitionKey", "minute", "recordCount", "sourceFiles", "normalizedAt"]
   }
 }

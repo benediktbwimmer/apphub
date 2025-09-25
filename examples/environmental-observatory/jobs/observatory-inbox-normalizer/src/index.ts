@@ -18,7 +18,7 @@ type JobRunContext = {
 type ObservatoryNormalizerParameters = {
   inboxDir: string;
   stagingDir: string;
-  hour: string;
+  minute: string;
   maxFiles: number;
 };
 
@@ -31,7 +31,7 @@ type SourceFileMetadata = {
 
 type RawAssetPayload = {
   partitionKey: string;
-  hour: string;
+  minute: string;
   instrumentCount: number;
   recordCount: number;
   sourceFiles: SourceFileMetadata[];
@@ -78,16 +78,16 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
   if (!stagingDir) {
     throw new Error('stagingDir parameter is required');
   }
-  const hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
-  if (!hour) {
-    throw new Error('hour parameter is required');
+  const minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
+  if (!minute) {
+    throw new Error('minute parameter is required');
   }
   const maxFiles = Math.max(1, ensureNumber(raw.maxFiles ?? raw.max_files, 64));
-  return { inboxDir, stagingDir, hour, maxFiles } satisfies ObservatoryNormalizerParameters;
+  return { inboxDir, stagingDir, minute, maxFiles } satisfies ObservatoryNormalizerParameters;
 }
 
 function parseInstrumentId(filename: string): string {
-  const match = filename.match(/instrument_(.+?)_\d{10}\.csv$/i);
+  const match = filename.match(/instrument_(.+?)_\d{12}\.csv$/i);
   if (match?.[1]) {
     return match[1];
   }
@@ -127,11 +127,11 @@ function parseCsv(content: string): ParsedCsvMetadata {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const hourSuffix = `${parameters.hour}.csv`;
+  const minuteSuffix = `${parameters.minute}.csv`;
 
   let entries: string[] = [];
   try {
-    entries = (await readdir(parameters.inboxDir)).filter((file) => file.endsWith(hourSuffix));
+    entries = (await readdir(parameters.inboxDir)).filter((file) => file.endsWith(minuteSuffix));
   } catch (error) {
     throw new Error(
       `Failed to read inbox directory at ${parameters.inboxDir}: ${error instanceof Error ? error.message : String(error)}`
@@ -139,12 +139,14 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   }
 
   if (entries.length === 0) {
-    throw new Error(`No CSV files matching *${hourSuffix} found in ${parameters.inboxDir}`);
+    throw new Error(`No CSV files matching *${minuteSuffix} found in ${parameters.inboxDir}`);
   }
 
   const selectedEntries = entries.slice(0, parameters.maxFiles);
-  const stagingHourDir = path.resolve(parameters.stagingDir, parameters.hour);
-  await mkdir(stagingHourDir, { recursive: true });
+  const minuteKey = parameters.minute;
+  const stagingSubdir = minuteKey.replace(':', '-');
+  const stagingMinuteDir = path.resolve(parameters.stagingDir, stagingSubdir);
+  await mkdir(stagingMinuteDir, { recursive: true });
 
   const sourceFiles: SourceFileMetadata[] = [];
   let recordCount = 0;
@@ -152,7 +154,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
   for (const filename of selectedEntries) {
     const inboxPath = path.resolve(parameters.inboxDir, filename);
-    const stagingPath = path.resolve(stagingHourDir, filename);
+    const stagingPath = path.resolve(stagingMinuteDir, filename);
     await copyFile(inboxPath, stagingPath);
 
     const content = await readFile(stagingPath, 'utf8');
@@ -165,7 +167,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     }
 
     sourceFiles.push({
-      relativePath: path.join(parameters.hour, filename),
+      relativePath: path.join(stagingSubdir, filename),
       site,
       instrumentId,
       rows
@@ -174,12 +176,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
   const normalizedAt = new Date().toISOString();
   const payload: RawAssetPayload = {
-    partitionKey: parameters.hour,
-    hour: parameters.hour,
+    partitionKey: minuteKey,
+    minute: minuteKey,
     instrumentCount: instrumentIds.size,
     recordCount,
     sourceFiles,
-    stagingDir: stagingHourDir,
+    stagingDir: stagingMinuteDir,
     normalizedAt
   } satisfies RawAssetPayload;
 
@@ -191,12 +193,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   return {
     status: 'succeeded',
     result: {
-      partitionKey: parameters.hour,
+      partitionKey: parameters.minute,
       normalized: payload,
       assets: [
         {
           assetId: 'observatory.timeseries.raw',
-          partitionKey: parameters.hour,
+          partitionKey: parameters.minute,
           producedAt: normalizedAt,
           payload
         }

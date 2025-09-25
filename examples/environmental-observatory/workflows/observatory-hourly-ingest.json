@@ -1,19 +1,19 @@
 {
   "slug": "observatory-hourly-ingest",
-  "name": "Observatory Hourly Ingest",
+  "name": "Observatory Minute Ingest",
   "version": 1,
-  "description": "Normalizes inbox CSVs and persists hourly readings into DuckDB.",
+  "description": "Normalizes inbox CSVs and persists minute-level readings into DuckDB.",
   "parametersSchema": {
     "type": "object",
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
       "stagingDir": { "type": "string", "minLength": 1 },
       "warehousePath": { "type": "string", "minLength": 1 },
-      "hour": { "type": "string", "minLength": 1 },
+      "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
       "vacuum": { "type": "boolean" }
     },
-    "required": ["inboxDir", "stagingDir", "warehousePath", "hour"]
+    "required": ["inboxDir", "stagingDir", "warehousePath", "minute"]
   },
   "defaultParameters": {
     "maxFiles": 64,
@@ -31,7 +31,7 @@
       "parameters": {
         "inboxDir": "{{ parameters.inboxDir }}",
         "stagingDir": "{{ parameters.stagingDir }}",
-        "hour": "{{ parameters.hour }}",
+        "minute": "{{ parameters.minute }}",
         "maxFiles": "{{ parameters.maxFiles }}"
       },
       "storeResultAs": "normalizedOutput",
@@ -40,15 +40,15 @@
           "assetId": "observatory.timeseries.raw",
           "partitioning": {
             "type": "timeWindow",
-            "granularity": "hour",
-            "format": "YYYY-MM-DDTHH",
-            "lookbackWindows": 168
+            "granularity": "minute",
+            "format": "YYYY-MM-DDTHH:mm",
+            "lookbackWindows": 1440
           },
           "schema": {
             "type": "object",
             "properties": {
               "partitionKey": { "type": "string" },
-              "hour": { "type": "string" },
+              "minute": { "type": "string" },
               "instrumentCount": { "type": "number" },
               "recordCount": { "type": "number" },
               "sourceFiles": {
@@ -67,7 +67,7 @@
               "stagingDir": { "type": "string" },
               "normalizedAt": { "type": "string", "format": "date-time" }
             },
-            "required": ["partitionKey", "hour", "recordCount", "sourceFiles", "normalizedAt"]
+            "required": ["partitionKey", "minute", "recordCount", "sourceFiles", "normalizedAt"]
           }
         }
       ]
@@ -80,7 +80,7 @@
       "dependsOn": ["normalize-inbox"],
       "parameters": {
         "warehousePath": "{{ parameters.warehousePath }}",
-        "hour": "{{ parameters.hour }}",
+        "minute": "{{ parameters.minute }}",
         "rawAsset": "{{ shared.normalizedOutput }}",
         "vacuum": "{{ parameters.vacuum }}"
       },
@@ -93,11 +93,11 @@
           "assetId": "observatory.timeseries.duckdb",
           "partitioning": {
             "type": "timeWindow",
-            "granularity": "hour",
-            "format": "YYYY-MM-DDTHH",
-            "lookbackWindows": 168
+            "granularity": "minute",
+            "format": "YYYY-MM-DDTHH:mm",
+            "lookbackWindows": 1440
           },
-          "freshness": { "ttlMs": 3600000 },
+          "freshness": { "ttlMs": 60000 },
           "autoMaterialize": {
             "onUpstreamUpdate": true,
             "priority": 5

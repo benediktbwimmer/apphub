@@ -157,12 +157,16 @@ docker run --rm -it \
   -p 6379:6379 \
   -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \
+  -v /Users/bene/work:/host-root/Users/bene/work \
+  -e APPHUB_HOST_ROOT=/host-root \
   -e NODE_ENV=development \
   -e APPHUB_AUTH_DISABLED=true \
   -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
   -e APPHUB_SESSION_COOKIE_SECURE=false \
   apphub:latest
 ```
+
+> Tip: Adjust `/Users/bene/work` to the portion of your host filesystem that workflows need to access. On macOS/Linux no `/host_mnt` prefix is required; the bind mount path you specify is exactly what the container sees. Windows users should map the drive into `/host_mnt/<drive-letter>` and set `APPHUB_HOST_ROOT` accordingly.
 
 You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
 

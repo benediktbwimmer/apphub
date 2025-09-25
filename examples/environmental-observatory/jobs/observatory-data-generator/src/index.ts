@@ -26,7 +26,7 @@ type InstrumentProfile = {
 
 type ObservatoryGeneratorParameters = {
   inboxDir: string;
-  hour: string;
+  minute: string;
   rowsPerInstrument: number;
   intervalMinutes: number;
   seed: number;
@@ -111,31 +111,37 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function sliceIsoHour(value: string): string | null {
-  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2})/);
+function sliceIsoMinute(value: string): string | null {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/);
   return match?.[1] ?? null;
 }
 
-function parseHour(hour: string): { isoHour: string; stamp: string; startDate: Date } {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hour)) {
-    throw new Error(`hour must be formatted as YYYY-MM-DDTHH, received '${hour}'`);
-  }
-  const isoHour = `${hour}:00:00Z`;
-  const startDate = new Date(isoHour);
-  if (Number.isNaN(startDate.getTime())) {
-    throw new Error(`hour '${hour}' could not be parsed as a valid UTC timestamp`);
-  }
-  const stamp = hour.replace(/[-:T]/g, '');
-  return { isoHour, stamp, startDate };
+function fallbackMinute(): string {
+  const now = new Date();
+  now.setUTCSeconds(0, 0);
+  return sliceIsoMinute(now.toISOString()) ?? now.toISOString().slice(0, 16);
 }
 
-function computeSeed(hour: string, providedSeed: number | null | undefined): number {
+function parseMinute(minute: string): { isoMinute: string; stamp: string; startDate: Date } {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(minute)) {
+    throw new Error(`minute must be formatted as YYYY-MM-DDTHH:mm, received '${minute}'`);
+  }
+  const isoMinute = `${minute}:00Z`;
+  const startDate = new Date(isoMinute);
+  if (Number.isNaN(startDate.getTime())) {
+    throw new Error(`minute '${minute}' could not be parsed as a valid UTC timestamp`);
+  }
+  const stamp = minute.replace(/[-:T]/g, '');
+  return { isoMinute, stamp, startDate };
+}
+
+function computeSeed(minute: string, providedSeed: number | null | undefined): number {
   if (typeof providedSeed === 'number' && Number.isFinite(providedSeed) && providedSeed !== 0) {
     return Math.trunc(providedSeed) >>> 0 || 1;
   }
   let hash = 2166136261;
-  for (let index = 0; index < hour.length; index += 1) {
-    hash ^= hour.charCodeAt(index);
+  for (let index = 0; index < minute.length; index += 1) {
+    hash ^= minute.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
     hash >>>= 0;
   }
@@ -215,23 +221,23 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
   const scheduledFor = ensureString(
     raw.scheduledFor ?? raw.scheduled_for ?? raw.scheduledAt ?? raw.scheduled_at
   );
-  let hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
-  if (!hour && scheduledFor) {
-    const sliced = sliceIsoHour(scheduledFor);
+  let minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
+  if (!minute && scheduledFor) {
+    const sliced = sliceIsoMinute(scheduledFor);
     if (sliced) {
-      hour = sliced;
+      minute = sliced;
     }
   }
-  if (!hour) {
-    throw new Error('hour parameter is required');
+  if (!minute) {
+    minute = fallbackMinute();
   }
   const rowsPerInstrument = clamp(Math.trunc(ensureNumber(raw.rowsPerInstrument ?? raw.rows_per_instrument, 6)), 1, 360);
   const intervalMinutes = clamp(Math.trunc(ensureNumber(raw.intervalMinutes ?? raw.interval_minutes, 10)), 1, 120);
   const instrumentProfiles = parseInstrumentProfiles(raw.instrumentProfiles ?? raw.instrument_profiles);
-  const seed = computeSeed(hour, raw.seed as number | null | undefined);
+  const seed = computeSeed(minute, raw.seed as number | null | undefined);
   return {
     inboxDir,
-    hour,
+    minute,
     rowsPerInstrument,
     intervalMinutes,
     seed,
@@ -295,7 +301,7 @@ function buildCsvContent(
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const { stamp, startDate } = parseHour(parameters.hour);
+  const { stamp, startDate } = parseMinute(parameters.minute);
   await mkdir(parameters.inboxDir, { recursive: true });
 
   const summaries: GeneratedFileSummary[] = [];
@@ -336,7 +342,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
   const payload: GeneratorAssetPayload = {
     generatedAt,
-    partitionKey: parameters.hour,
+    partitionKey: parameters.minute,
     inboxDir: parameters.inboxDir,
     seed: parameters.seed,
     files: summaries,
@@ -345,7 +351,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   } satisfies GeneratorAssetPayload;
 
   context.logger('Generated observatory inbox CSV files', {
-    hour: parameters.hour,
+    minute: parameters.minute,
     filesCreated: summaries.length,
     rowsGenerated: totalRows
   });
@@ -353,12 +359,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   return {
     status: 'succeeded',
     result: {
-      partitionKey: parameters.hour,
+      partitionKey: parameters.minute,
       generated: payload,
       assets: [
         {
           assetId: 'observatory.inbox.synthetic',
-          partitionKey: parameters.hour,
+          partitionKey: parameters.minute,
           producedAt: generatedAt,
           payload
         }
