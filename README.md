@@ -215,8 +215,8 @@ DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub
 PGPOOL_MAX=20
 PGPOOL_IDLE_TIMEOUT_MS=30000
 PGPOOL_CONNECTION_TIMEOUT_MS=10000
-SERVICE_CONFIG_PATH=services/service-config.json
-SERVICE_MANIFEST_PATH=services/service-manifest.json
+SERVICE_CONFIG_PATH=                   # Optional comma-separated list of service config files
+SERVICE_MANIFEST_PATH=                 # Optional comma-separated list of manifest files
 SERVICE_REGISTRY_TOKEN=
 SERVICE_CLIENT_TIMEOUT_MS=60000
 SERVICE_HEALTH_INTERVAL_MS=30000
@@ -405,14 +405,16 @@ Every secret resolution is captured in the audit log with the requesting actor, 
 
 ### Service Configuration
 
-The service registry consumes `services/service-config.json`, a declarative module file inspired by Go's dependency management system.
-It can point at the bundled `service-manifest.json`, inline service definitions, and declare `imports` that pull additional
-service manifests from Git repositories. Each import records the remote repository, an optional tag/branch `ref`, and an optional
-`commit` SHA. The registry clones every module, walks the dependency DAG, and merges the resulting service entries with any extra
-JSON manifests referenced via `SERVICE_MANIFEST_PATH` when you explicitly trigger a refresh.
+The service registry can ingest zero or more configuration modules referenced via `SERVICE_CONFIG_PATH` (comma-separated list).
+Each module follows the same declarative format, can inline service definitions, and may declare `imports` that pull additional
+manifests from Git repositories. When a module imports another repository, the registry clones every dependency, walks the DAG,
+and merges the discovered service entries with any standalone JSON manifests referenced in `SERVICE_MANIFEST_PATH`.
+
+If neither environment variable is set the registry simply starts empty—no default manifests are bundled. Provide at least one
+writable config path when you want to persist `POST /service-config/import` requests.
 
 To add a new module at runtime, call `POST /service-config/import` with your `SERVICE_REGISTRY_TOKEN`. The API validates the
-remote configuration, resolves the effective commit, appends the import to `services/service-config.json`, and refreshes the
+remote configuration, resolves the effective commit, appends the import to the configured service config file, and refreshes the
 registry in-place.
 
 ```bash
@@ -442,8 +444,8 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 - Redis (`redis-server --save "" --appendonly no`)
 - Catalog API on `http://127.0.0.1:4000`
 - Ingestion worker
-- Service orchestrator (`npm run dev:services`) that reads the bundled `services/service-manifest.json` (referenced by
-  `services/service-config.json`) and spawns any configured dev commands
+- Service orchestrator (`npm run dev:services`) that reads manifests referenced by `SERVICE_MANIFEST_PATH` and spawns any
+  configured dev commands
 - Frontend on `http://localhost:5173`
 
 Ensure a PostgreSQL instance is reachable at the connection string in `DATABASE_URL` before launching the dev stack; the script does not start Postgres automatically.

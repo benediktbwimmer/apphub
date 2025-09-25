@@ -18,8 +18,6 @@ import {
   type ResolvedManifestEnvVar
 } from './serviceManifestTypes';
 
-const DEFAULT_SERVICE_CONFIG_PATH = path.resolve(__dirname, '..', '..', 'service-config.json');
-
 const git = simpleGit();
 
 const gitShaSchema = z
@@ -418,7 +416,7 @@ function resolveConfiguredPaths(envValue: string | undefined, defaults: string[]
 }
 
 export function resolveServiceConfigPaths(): string[] {
-  return resolveConfiguredPaths(process.env.SERVICE_CONFIG_PATH, [DEFAULT_SERVICE_CONFIG_PATH]);
+  return resolveConfiguredPaths(process.env.SERVICE_CONFIG_PATH, []);
 }
 
 function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
@@ -1123,5 +1121,3 @@ export async function appendServiceConfigImport(
 
   await fs.writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
 }
-
-export { DEFAULT_SERVICE_CONFIG_PATH };

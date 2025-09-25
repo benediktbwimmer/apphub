@@ -47,8 +47,6 @@ import {
   type ServiceMetadata
 } from './serviceMetadata';
 
-const DEFAULT_MANIFEST_PATH = path.resolve(__dirname, '..', '..', 'service-manifest.json');
-
 const HEALTH_INTERVAL_MS = Number(process.env.SERVICE_HEALTH_INTERVAL_MS ?? 30_000);
 const HEALTH_TIMEOUT_MS = Number(process.env.SERVICE_HEALTH_TIMEOUT_MS ?? 5_000);
 const OPENAPI_REFRESH_INTERVAL_MS = Number(process.env.SERVICE_OPENAPI_REFRESH_INTERVAL_MS ?? 15 * 60_000);
@@ -258,16 +256,17 @@ const log = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
   }
 };
 
-function resolveManifestPaths(options?: { includeDefault?: boolean }): string[] {
-  const includeDefault = options?.includeDefault ?? true;
-  const configured = process.env.SERVICE_MANIFEST_PATH ?? '';
-  const extras = configured
+function resolveManifestPaths(): string[] {
+  let configured = process.env.SERVICE_MANIFEST_PATH ?? '';
+  if (configured.startsWith('!')) {
+    configured = configured.slice(1).trimStart();
+  }
+
+  const paths = configured
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => path.resolve(entry));
-  const defaults = includeDefault ? [DEFAULT_MANIFEST_PATH] : [];
-  const paths = [...defaults, ...extras];
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const manifestPath of paths) {
@@ -1185,8 +1184,7 @@ async function loadManifest(): Promise<ManifestLoadResult> {
     }
   }
 
-  const includeDefaultManifest = configResult.usedConfigs.length === 0;
-  const manifestPaths = resolveManifestPaths({ includeDefault: includeDefaultManifest });
+  const manifestPaths = resolveManifestPaths();
 
   for (const manifestPath of manifestPaths) {
     try {

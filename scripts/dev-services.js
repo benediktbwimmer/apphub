@@ -12,16 +12,18 @@ try {
 }
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const DEFAULT_MANIFEST_PATH = path.join(ROOT_DIR, 'services', 'service-manifest.json');
 
 function resolveManifestPaths() {
-  const configured = process.env.SERVICE_MANIFEST_PATH ?? '';
-  const extras = configured
+  let configured = process.env.SERVICE_MANIFEST_PATH ?? '';
+  if (configured.startsWith('!')) {
+    configured = configured.slice(1).trimStart();
+  }
+
+  const paths = configured
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(ROOT_DIR, entry)));
-  const paths = [DEFAULT_MANIFEST_PATH, ...extras];
   const seen = new Set();
   const deduped = [];
   for (const manifestPath of paths) {
