@@ -1003,7 +1003,11 @@ export async function resolveManifestPortForRepository(repositoryId: string): Pr
   if (!slug) {
     return null;
   }
-  const manifest = manifestEntries.get(slug);
+  let manifest = manifestEntries.get(slug);
+  if (!manifest && manifestEntries.size === 0) {
+    await ensureServicesFromManifest();
+    manifest = manifestEntries.get(slug);
+  }
   if (!manifest) {
     return null;
   }
