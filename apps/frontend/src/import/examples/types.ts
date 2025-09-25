@@ -9,4 +9,4 @@ export type {
   ExampleScenario
 } from '@apphub/examples-registry';
 
-export { groupScenariosByType, isScenarioType } from '@apphub/examples-registry';
+export { groupScenariosByType, isScenarioType } from '@apphub/examples-registry/types';

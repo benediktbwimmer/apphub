@@ -10,7 +10,7 @@ const authorizedFetchMock = vi.fn<
 >();
 const pushToastMock = vi.fn();
 const appHubEventMock = vi.fn();
-const fetchMock = vi.fn<typeof fetch>();
+const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>();
 
 vi.mock('../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: () => authorizedFetchMock

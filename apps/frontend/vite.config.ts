@@ -10,16 +10,21 @@ const workspaceRoot = resolve(frontendRoot, '..', '..');
 const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
 const examplesRegistrySrcPath = resolve(workspaceRoot, 'packages', 'examples-registry', 'src');
+const examplesRegistryEntryPath = resolve(examplesRegistrySrcPath, 'index.ts');
+const examplesRegistryTypesPath = resolve(examplesRegistrySrcPath, 'types.ts');
 
 // https://vite.dev/config/
 const config: UserConfig & { test: VitestUserConfig['test'] } = {
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      '@apphub/catalog': catalogSrcPath,
-      '@apphub/shared': sharedSrcPath,
-      '@apphub/examples-registry': examplesRegistrySrcPath
-    }
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+    alias: [
+      { find: '@apphub/catalog', replacement: catalogSrcPath },
+      { find: '@apphub/shared', replacement: sharedSrcPath },
+      { find: '@apphub/examples-registry/types', replacement: examplesRegistryTypesPath },
+      { find: '@apphub/examples-registry', replacement: examplesRegistryEntryPath },
+      { find: '@apphub/examples-registry/', replacement: `${examplesRegistrySrcPath}/` }
+    ]
   },
   server: {
     fs: {

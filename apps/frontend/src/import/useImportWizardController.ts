@@ -47,8 +47,6 @@ export type AutoImportWizardState = {
 
 type StoredScenarioIds = Partial<Record<ImportWizardStep, string>>;
 
-type ScenarioTokenMap = Record<ImportWizardStep, number>;
-
 export type ServicePlaceholderModalState = {
   scenario: ServiceManifestScenario;
   placeholders: ManifestPlaceholder[];

@@ -1,32 +1,34 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-slim AS catalog-build
-WORKDIR /app/services/catalog
-COPY services/catalog/package.json services/catalog/package-lock.json ./
-RUN npm ci
-COPY services/catalog/ ./
-RUN npm run build
-RUN npm prune --omit=dev
+FROM node:20 AS builder
+WORKDIR /app
 
-FROM node:20-slim AS cli-build
-WORKDIR /app/apps/cli
-COPY apps/cli/package.json apps/cli/package-lock.json ./
-RUN npm ci
-COPY apps/cli/ ./
+COPY package.json package-lock.json ./
+COPY tsconfig.json tsconfig.json
+COPY tsconfig.base.json tsconfig.base.json
 
-FROM node:20 AS frontend-build
-WORKDIR /app/apps/frontend
+COPY apps/frontend/package.json apps/frontend/package-lock.json apps/frontend/
+COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
+COPY services/catalog/package.json services/catalog/package-lock.json services/catalog/
+COPY packages/example-bundler/package.json packages/example-bundler/
+COPY packages/examples-registry/package.json packages/examples-registry/
+COPY packages/shared/package.json packages/shared/
+RUN npm ci
+
+COPY . .
+
 ARG VITE_API_BASE_URL=http://localhost:4000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-COPY apps/frontend/package.json apps/frontend/package-lock.json ./
-RUN npm ci
-RUN ln -s /app/apps/frontend/node_modules /app/node_modules
-COPY apps/frontend/ ./
-COPY services/catalog/src/workflows /app/services/catalog/src/workflows
-COPY services/catalog/src/ai /app/services/catalog/src/ai
-COPY shared /app/shared
-COPY examples /app/examples
-RUN npm run build
+
+RUN npm run build --workspace @apphub/catalog
+RUN npm run build --workspace @apphub/frontend
+RUN npm prune --omit=dev
+RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
+RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
+RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
+RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
+RUN rm -rf packages/examples-registry/node_modules && ln -s ../../node_modules packages/examples-registry/node_modules
+RUN rm -rf packages/shared/node_modules && ln -s ../../node_modules packages/shared/node_modules
 
 FROM node:20-slim AS runtime
 WORKDIR /app
@@ -60,8 +62,6 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     CATALOG_DB_PATH=/app/data/catalog.db \
     REDIS_URL=redis://127.0.0.1:6379 \
-    SERVICE_MANIFEST_PATH=services/service-manifest.json \
-    SERVICE_CONFIG_PATH=services/service-config.docker.json \
     FRONTEND_PORT=4173 \
     DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
     POSTGRES_USER=apphub \
@@ -70,15 +70,15 @@ ENV NODE_ENV=production \
     POSTGRES_PORT=5432 \
     PGDATA=/app/data/postgres
 
-COPY services/service-config.docker.json services/service-config.docker.json
-COPY services/service-manifest.json services/service-manifest.json
-COPY --from=catalog-build /app/services/catalog/package.json services/catalog/package.json
-COPY --from=catalog-build /app/services/catalog/package-lock.json services/catalog/package-lock.json
-COPY --from=catalog-build /app/services/catalog/node_modules services/catalog/node_modules
-COPY --from=catalog-build /app/services/catalog/dist services/catalog/dist
-COPY --from=cli-build /app/apps/cli apps/cli
-COPY examples examples
-COPY --from=frontend-build /app/apps/frontend/dist apps/frontend/dist
+COPY --from=builder /app/node_modules node_modules
+COPY --from=builder /app/packages packages
+COPY --from=builder /app/services/catalog/package.json services/catalog/package.json
+COPY --from=builder /app/services/catalog/package-lock.json services/catalog/package-lock.json
+COPY --from=builder /app/services/catalog/node_modules services/catalog/node_modules
+COPY --from=builder /app/services/catalog/dist services/catalog/dist
+COPY --from=builder /app/apps/cli apps/cli
+COPY --from=builder /app/examples examples
+COPY --from=builder /app/apps/frontend/dist apps/frontend/dist
 COPY scripts/postgres-start.sh scripts/postgres-start.sh
 RUN chmod +x scripts/postgres-start.sh
 
