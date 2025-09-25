@@ -45,6 +45,7 @@ const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'retail-sales-visualizer',
   'fleet-telemetry-metrics',
   'greenhouse-alerts-runner',
+  'observatory-data-generator',
   'observatory-inbox-normalizer',
   'observatory-duckdb-loader',
   'observatory-visualization-runner',
@@ -52,6 +53,7 @@ const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
 ];
 
 const WORKFLOW_DEFINITION_SLUGS: ExampleWorkflowSlug[] = [
+  'observatory-hourly-data-generator',
   'observatory-hourly-ingest',
   'observatory-daily-publication',
   'fleet-telemetry-daily-rollup',

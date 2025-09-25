@@ -17,6 +17,8 @@ import fleetTelemetryMetricsManifestJson from '../../../examples/fleet-telemetry
 import fleetTelemetryMetricsDefinitionJson from '../../../examples/fleet-telemetry/jobs/fleet-telemetry-metrics/job-definition.json';
 import greenhouseAlertsRunnerManifestJson from '../../../examples/fleet-telemetry/jobs/greenhouse-alerts-runner/manifest.json';
 import greenhouseAlertsRunnerDefinitionJson from '../../../examples/fleet-telemetry/jobs/greenhouse-alerts-runner/job-definition.json';
+import observatoryDataGeneratorManifestJson from '../../../examples/environmental-observatory/jobs/observatory-data-generator/manifest.json';
+import observatoryDataGeneratorDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-data-generator/job-definition.json';
 import observatoryInboxNormalizerManifestJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json';
 import observatoryInboxNormalizerDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/job-definition.json';
 import observatoryDuckdbLoaderManifestJson from '../../../examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json';
@@ -94,6 +96,12 @@ export const EXAMPLE_JOB_BUNDLES: ReadonlyArray<ExampleJobBundle> = [
     directory: 'examples/fleet-telemetry/jobs/greenhouse-alerts-runner',
     manifestJson: greenhouseAlertsRunnerManifestJson,
     definitionJson: greenhouseAlertsRunnerDefinitionJson
+  }),
+  createJobBundle({
+    slug: 'observatory-data-generator',
+    directory: 'examples/environmental-observatory/jobs/observatory-data-generator',
+    manifestJson: observatoryDataGeneratorManifestJson,
+    definitionJson: observatoryDataGeneratorDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-inbox-normalizer',
