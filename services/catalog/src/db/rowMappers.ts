@@ -8,6 +8,7 @@ import {
   type RepositoryPreview,
   type RepositoryPreviewKind,
   type RepositoryRecord,
+  type RepositoryMetadataStrategy,
   type TagKV,
   type BuildStatus,
   type LaunchStatus,
@@ -1036,6 +1037,14 @@ function normalizeWorkflowRunStatus(value: string | null | undefined): WorkflowR
 
 const WORKFLOW_RUN_STEP_STATUSES: WorkflowRunStepStatus[] = ['pending', 'running', 'succeeded', 'failed', 'skipped'];
 
+function normalizeMetadataStrategy(value: unknown): RepositoryMetadataStrategy {
+  if (typeof value !== 'string') {
+    return 'auto';
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'explicit' ? 'explicit' : 'auto';
+}
+
 function normalizeWorkflowRunStepStatus(value: string | null | undefined): WorkflowRunStepStatus {
   if (!value) {
     return 'pending';
@@ -1078,6 +1087,7 @@ export function mapRepositoryRow(
     latestBuild: options.latestBuild ? mapBuildRow(options.latestBuild) : null,
     latestLaunch: options.latestLaunch ? mapLaunchRow(options.latestLaunch) : null,
     previewTiles: previews,
+    metadataStrategy: normalizeMetadataStrategy(row.metadata_strategy),
     launchEnvTemplates
   } satisfies RepositoryRecord;
 }

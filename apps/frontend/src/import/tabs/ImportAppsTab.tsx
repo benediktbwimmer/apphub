@@ -133,7 +133,8 @@ export default function ImportAppsTab({
       description: scenario.form.description,
       repoUrl: scenario.form.repoUrl,
       dockerfilePath: scenario.form.dockerfilePath,
-      tags: nextTags
+      tags: nextTags,
+      metadataStrategy: scenario.form.metadataStrategy ?? 'auto'
     });
     setSourceType(scenario.form.sourceType ?? 'remote');
   }, [resetForm, scenario, scenarioRequestToken, setForm, setSourceType]);
@@ -275,6 +276,14 @@ export default function ImportAppsTab({
                 : 'None'}
             </dd>
           </div>
+          <div className="flex flex-col gap-1">
+            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+              Metadata strategy
+            </dt>
+            <dd className="text-xs text-slate-600 dark:text-slate-300">
+              {app.metadataStrategy === 'explicit' ? 'Use provided values' : 'Auto-discover' }
+            </dd>
+          </div>
         </dl>
         <div className="flex flex-wrap gap-2">
           <FormButton
@@ -406,6 +415,28 @@ export default function ImportAppsTab({
               onClick={() => setSourceType('local')}
             >
               Local path
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Metadata strategy</span>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Auto-discover pulls name, description, and tags from package manifests and README files. Use provided values to keep the details you enter here.
+          </p>
+          <div className="flex gap-2 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+            <button
+              type="button"
+              className={form.metadataStrategy === 'auto' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              onClick={() => setForm((prev) => ({ ...prev, metadataStrategy: 'auto' }))}
+            >
+              Auto-discover
+            </button>
+            <button
+              type="button"
+              className={form.metadataStrategy === 'explicit' ? TOGGLE_BUTTON_ACTIVE : TOGGLE_BUTTON_INACTIVE}
+              onClick={() => setForm((prev) => ({ ...prev, metadataStrategy: 'explicit' }))}
+            >
+              Use provided values
             </button>
           </div>
         </div>

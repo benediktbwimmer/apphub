@@ -393,7 +393,8 @@ export function useImportWizardController() {
         description: scenario.form.description,
         repoUrl: scenario.form.repoUrl,
         dockerfilePath: scenario.form.dockerfilePath,
-        tags: scenario.form.tags ?? []
+        tags: scenario.form.tags ?? [],
+        metadataStrategy: scenario.form.metadataStrategy ?? 'auto'
       };
       const response = await authorizedFetch(`${API_BASE_URL}/apps`, {
         method: 'POST',

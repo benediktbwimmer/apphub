@@ -7,6 +7,7 @@ import {
   type JsonValue,
   type LaunchEnvVar,
   type RepositoryInsert,
+  type RepositoryMetadataStrategy,
   type RepositoryPreview,
   type RepositoryPreviewInput,
   type RepositoryRecord,
@@ -503,6 +504,12 @@ function normalizeLaunchEnvEntries(entries?: LaunchEnvVar[] | null): JsonValue {
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
 
+function normalizeMetadataStrategyInput(
+  strategy?: RepositoryMetadataStrategy
+): RepositoryMetadataStrategy {
+  return strategy === 'explicit' ? 'explicit' : 'auto';
+}
+
 async function attachTags(
   client: PoolClient,
   repositoryId: string,
@@ -551,14 +558,15 @@ async function notifyRepositoryChanged(repositoryId: string): Promise<void> {
 export async function addRepository(repository: RepositoryInsert): Promise<RepositoryRecord> {
   const now = new Date().toISOString();
   const launchEnvTemplates = JSON.stringify(normalizeLaunchEnvEntries(repository.launchEnvTemplates));
+  const metadataStrategy = normalizeMetadataStrategyInput(repository.metadataStrategy);
 
   await useTransaction(async (client) => {
     await client.query(
       `INSERT INTO repositories (
          id, name, description, repo_url, dockerfile_path,
          ingest_status, updated_at, last_ingested_at, ingest_error,
-         ingest_attempts, launch_env_templates, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+         ingest_attempts, metadata_strategy, launch_env_templates, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
        ON CONFLICT (id) DO NOTHING`,
       [
         repository.id,
@@ -571,6 +579,7 @@ export async function addRepository(repository: RepositoryInsert): Promise<Repos
         repository.lastIngestedAt ?? null,
         repository.ingestError ?? null,
         repository.ingestAttempts ?? 0,
+        metadataStrategy,
         launchEnvTemplates,
         now
       ]
@@ -601,14 +610,15 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
   const launchEnvTemplates = JSON.stringify(normalizeLaunchEnvEntries(repository.launchEnvTemplates));
   const preserveAttempts = repository.ingestAttempts === undefined;
   const ingestAttempts = repository.ingestAttempts ?? 0;
+  const metadataStrategy = normalizeMetadataStrategyInput(repository.metadataStrategy);
 
   await useTransaction(async (client) => {
     await client.query(
       `INSERT INTO repositories (
          id, name, description, repo_url, dockerfile_path,
          ingest_status, updated_at, last_ingested_at, ingest_error,
-         ingest_attempts, launch_env_templates, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+         ingest_attempts, metadata_strategy, launch_env_templates, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
@@ -618,7 +628,8 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
          ingest_status = EXCLUDED.ingest_status,
          last_ingested_at = COALESCE(EXCLUDED.last_ingested_at, repositories.last_ingested_at),
          ingest_error = EXCLUDED.ingest_error,
-         ingest_attempts = CASE WHEN $13 THEN repositories.ingest_attempts ELSE EXCLUDED.ingest_attempts END,
+         ingest_attempts = CASE WHEN $14 THEN repositories.ingest_attempts ELSE EXCLUDED.ingest_attempts END,
+         metadata_strategy = EXCLUDED.metadata_strategy,
          launch_env_templates = EXCLUDED.launch_env_templates
        `,
       [
@@ -632,6 +643,7 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
         repository.lastIngestedAt ?? null,
         repository.ingestError ?? null,
         ingestAttempts,
+        metadataStrategy,
         launchEnvTemplates,
         now,
         preserveAttempts

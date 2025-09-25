@@ -239,6 +239,7 @@ export type AppScenario = ExampleScenarioBase<'app'> & {
     dockerfilePath: ExampleFileReference;
     tags?: { key: string; value: string }[];
     sourceType?: 'remote' | 'local';
+    metadataStrategy?: 'auto' | 'explicit';
   };
 };
 

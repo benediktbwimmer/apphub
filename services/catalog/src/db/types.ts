@@ -128,6 +128,8 @@ export type IngestStatus = 'seed' | 'pending' | 'processing' | 'ready' | 'failed
 
 export const ALL_INGEST_STATUSES: IngestStatus[] = ['seed', 'pending', 'processing', 'ready', 'failed'];
 
+export type RepositoryMetadataStrategy = 'auto' | 'explicit';
+
 export type RepositoryInsert = {
   id: string;
   name: string;
@@ -141,6 +143,7 @@ export type RepositoryInsert = {
   ingestAttempts?: number;
   tags?: (TagKV & { source?: string })[];
   launchEnvTemplates?: LaunchEnvVar[];
+  metadataStrategy?: RepositoryMetadataStrategy;
 };
 
 export type RepositoryRecord = {
@@ -159,6 +162,7 @@ export type RepositoryRecord = {
   latestBuild: BuildRecord | null;
   latestLaunch: LaunchRecord | null;
   previewTiles: RepositoryPreview[];
+  metadataStrategy: RepositoryMetadataStrategy;
   launchEnvTemplates: LaunchEnvVar[];
 };
 

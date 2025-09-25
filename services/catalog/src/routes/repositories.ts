@@ -137,7 +137,8 @@ const createRepositorySchema = z.object({
         value: z.string().min(1)
       })
     )
-    .default([])
+    .default([]),
+  metadataStrategy: z.enum(['auto', 'explicit']).optional()
 });
 
 const launchEnvEntrySchema = z
@@ -851,6 +852,7 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
     }
 
     const payload = parseResult.data;
+    const metadataStrategy = payload.metadataStrategy ?? 'auto';
 
     let repository = await addRepository({
       id: payload.id,
@@ -859,7 +861,8 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
       repoUrl: payload.repoUrl,
       dockerfilePath: payload.dockerfilePath,
       tags: payload.tags.map((tag) => ({ ...tag, source: 'author' })),
-      ingestStatus: 'pending'
+      ingestStatus: 'pending',
+      metadataStrategy
     });
 
     try {

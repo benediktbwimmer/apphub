@@ -177,69 +177,110 @@ type PackageMetadata = {
   name?: string;
   description?: string;
   tags: DiscoveredTag[];
+  packageJsonPath: string | null;
 };
 
-async function readPackageMetadata(projectDir: string): Promise<PackageMetadata> {
-  const pkgPath = path.join(projectDir, 'package.json');
-  if (!(await fileExists(pkgPath))) {
-    return { tags: [] };
-  }
+async function readPackageMetadata(
+  projectDir: string,
+  options: { dockerfilePath?: string | null } = {}
+): Promise<PackageMetadata> {
+  const repoRoot = path.resolve(projectDir);
+  const seen = new Set<string>();
+  const candidates: string[] = [];
 
-  try {
-    const raw = await fs.readFile(pkgPath, 'utf8');
-    const data = JSON.parse(raw) as {
-      name?: string;
-      description?: string;
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-      engines?: Record<string, string>;
-    };
+  const pushCandidate = (candidatePath: string) => {
+    const absolute = path.resolve(candidatePath);
+    if (!seen.has(absolute)) {
+      seen.add(absolute);
+      candidates.push(absolute);
+    }
+  };
 
-    const tags: DiscoveredTag[] = [];
-    const dependencies = {
-      ...(data.dependencies ?? {}),
-      ...(data.devDependencies ?? {})
-    };
-
-    if ('next' in dependencies) {
-      tags.push({ key: 'framework', value: 'nextjs', source: 'ingestion:package' });
-    }
-    if ('astro' in dependencies) {
-      tags.push({ key: 'framework', value: 'astro', source: 'ingestion:package' });
-    }
-    if ('@remix-run/react' in dependencies || 'remix' in dependencies) {
-      tags.push({ key: 'framework', value: 'remix', source: 'ingestion:package' });
-    }
-    if ('react' in dependencies) {
-      tags.push({ key: 'library', value: 'react', source: 'ingestion:package' });
-    }
-    if ('vue' in dependencies || 'nuxt' in dependencies || 'nuxt3' in dependencies) {
-      tags.push({ key: 'framework', value: 'vue', source: 'ingestion:package' });
-    }
-    if ('svelte' in dependencies || 'sveltekit' in dependencies) {
-      tags.push({ key: 'framework', value: 'svelte', source: 'ingestion:package' });
-    }
-    if ('typescript' in dependencies || (await fileExists(path.join(projectDir, 'tsconfig.json')))) {
-      tags.push({ key: 'language', value: 'typescript', source: 'ingestion:package' });
-    }
-
-    const nodeEngine = data.engines?.node;
-    if (nodeEngine) {
-      const match = nodeEngine.match(/(\d+)(?:\.(\d+))?/);
-      if (match) {
-        tags.push({ key: 'runtime', value: `node${match[1]}`, source: 'ingestion:package' });
+  const dockerfilePath = options.dockerfilePath ?? null;
+  if (dockerfilePath) {
+    let currentDir = path.dirname(path.resolve(projectDir, dockerfilePath));
+    while (true) {
+      const relative = path.relative(repoRoot, currentDir);
+      if (relative.startsWith('..')) {
+        break;
       }
+      pushCandidate(path.join(currentDir, 'package.json'));
+      if (relative === '') {
+        break;
+      }
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir) {
+        break;
+      }
+      currentDir = parent;
+    }
+  }
+
+  pushCandidate(path.join(repoRoot, 'package.json'));
+
+  for (const candidate of candidates) {
+    if (!(await fileExists(candidate))) {
+      continue;
     }
 
-    return {
-      name: data.name,
-      description: data.description,
-      tags
-    };
-  } catch (err) {
-    log('Failed to parse package.json', { error: (err as Error).message });
-    return { tags: [] };
+    try {
+      const raw = await fs.readFile(candidate, 'utf8');
+      const data = JSON.parse(raw) as {
+        name?: string;
+        description?: string;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+        engines?: Record<string, string>;
+      };
+
+      const tags: DiscoveredTag[] = [];
+      const dependencies = {
+        ...(data.dependencies ?? {}),
+        ...(data.devDependencies ?? {})
+      };
+
+      if ('next' in dependencies) {
+        tags.push({ key: 'framework', value: 'nextjs', source: 'ingestion:package' });
+      }
+      if ('astro' in dependencies) {
+        tags.push({ key: 'framework', value: 'astro', source: 'ingestion:package' });
+      }
+      if ('@remix-run/react' in dependencies || 'remix' in dependencies) {
+        tags.push({ key: 'framework', value: 'remix', source: 'ingestion:package' });
+      }
+      if ('react' in dependencies) {
+        tags.push({ key: 'library', value: 'react', source: 'ingestion:package' });
+      }
+      if ('vue' in dependencies || 'nuxt' in dependencies || 'nuxt3' in dependencies) {
+        tags.push({ key: 'framework', value: 'vue', source: 'ingestion:package' });
+      }
+      if ('svelte' in dependencies || 'sveltekit' in dependencies) {
+        tags.push({ key: 'framework', value: 'svelte', source: 'ingestion:package' });
+      }
+      if ('typescript' in dependencies || (await fileExists(path.join(path.dirname(candidate), 'tsconfig.json')))) {
+        tags.push({ key: 'language', value: 'typescript', source: 'ingestion:package' });
+      }
+
+      const nodeEngine = data.engines?.node;
+      if (nodeEngine) {
+        const match = nodeEngine.match(/(\d+)(?:\.(\d+))?/);
+        if (match) {
+          tags.push({ key: 'runtime', value: `node${match[1]}`, source: 'ingestion:package' });
+        }
+      }
+
+      return {
+        name: data.name,
+        description: data.description,
+        tags,
+        packageJsonPath: candidate
+      };
+    } catch (err) {
+      log('Failed to parse package.json', { file: candidate, error: (err as Error).message });
+    }
   }
+
+  return { tags: [], packageJsonPath: null };
 }
 
 function normalizeTagEntry(key: string, value: unknown): DiscoveredTag[] {
@@ -966,29 +1007,34 @@ async function processRepository(
       log('Failed to resolve commit SHA', { id: repository.id, error: (err as Error).message });
     }
 
-    const packageMeta = await readPackageMetadata(workingDir);
+    const metadataStrategy = repository.metadataStrategy ?? 'auto';
+    const shouldAutofillMetadata = metadataStrategy !== 'explicit';
     const declaredTags = await readTagFile(workingDir);
-
-    const tagMap = createTagMap(
-      repository.tags.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source ?? 'author' }))
-    );
-
-    for (const tag of packageMeta.tags) {
-      addTag(tagMap, tag.key, tag.value, tag.source);
-    }
-
-    for (const tag of declaredTags) {
-      addTag(tagMap, tag.key, tag.value, tag.source);
-    }
 
     const dockerfilePath = await detectDockerfilePath(workingDir, repository.dockerfilePath);
     if (!dockerfilePath) {
       throw new Error('Dockerfile not found, unable to launch app');
     }
 
-    const dockerTags = await detectTagsFromDockerfile(workingDir, dockerfilePath);
-    for (const tag of dockerTags) {
-      addTag(tagMap, tag.key, tag.value, tag.source);
+    const packageMeta = await readPackageMetadata(workingDir, { dockerfilePath });
+
+    const tagMap = createTagMap(
+      repository.tags.map((tag) => ({ key: tag.key, value: tag.value, source: tag.source ?? 'author' }))
+    );
+
+    if (shouldAutofillMetadata) {
+      for (const tag of packageMeta.tags) {
+        addTag(tagMap, tag.key, tag.value, tag.source);
+      }
+
+      for (const tag of declaredTags) {
+        addTag(tagMap, tag.key, tag.value, tag.source);
+      }
+
+      const dockerTags = await detectTagsFromDockerfile(workingDir, dockerfilePath);
+      for (const tag of dockerTags) {
+        addTag(tagMap, tag.key, tag.value, tag.source);
+      }
     }
 
     const networkMemberships = await listNetworksForMemberRepository(repository.id);
@@ -1005,10 +1051,33 @@ async function processRepository(
     const previewTiles = mergePreviewInputs(manifestPreviews, readmeMetadata.previews);
 
     const now = new Date().toISOString();
+    let repositoryName = repository.name;
+    if (shouldAutofillMetadata) {
+      const packageJsonRelative = packageMeta.packageJsonPath
+        ? path.relative(workingDir, packageMeta.packageJsonPath)
+        : null;
+      const dockerfileDir = path.dirname(dockerfilePath);
+      const dockerfileAtRepoRoot = dockerfileDir === '.' || dockerfileDir === '';
+      const isRootPackage = packageJsonRelative === 'package.json';
+      const packageNameCandidate = packageMeta.name?.trim();
+      const shouldUsePackageName = Boolean(
+        packageNameCandidate &&
+          !packageNameCandidate.startsWith('@') &&
+          (!isRootPackage || dockerfileAtRepoRoot)
+      );
+      if (shouldUsePackageName && packageNameCandidate) {
+        repositoryName = packageNameCandidate;
+      }
+    }
+
+    const repositoryDescription = shouldAutofillMetadata && readmeMetadata.summary
+      ? readmeMetadata.summary
+      : repository.description;
+
     await upsertRepository({
       id: repository.id,
-      name: packageMeta.name ?? repository.name,
-      description: readmeMetadata.summary ?? repository.description,
+      name: repositoryName,
+      description: repositoryDescription,
       repoUrl: repository.repoUrl,
       dockerfilePath,
       ingestStatus: 'ready',
@@ -1016,7 +1085,8 @@ async function processRepository(
       lastIngestedAt: now,
       ingestError: null,
       tags: Array.from(tagMap.values()),
-      ingestAttempts: repository.ingestAttempts
+      ingestAttempts: repository.ingestAttempts,
+      metadataStrategy: metadataStrategy
     });
     await replaceRepositoryPreviews(repository.id, previewTiles);
     await replaceRepositoryTags(repository.id, Array.from(tagMap.values()), { clearExisting: true });

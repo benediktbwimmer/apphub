@@ -122,6 +122,7 @@ export type AppRecord = {
   latestLaunch: LaunchSummary | null;
   relevance: RelevanceSummary | null;
   previewTiles: PreviewTile[];
+  metadataStrategy: 'auto' | 'explicit';
   availableEnv?: LaunchEnvVar[];
   availableLaunchEnv?: LaunchEnvVar[];
   launchEnvTemplates?: LaunchEnvVar[];

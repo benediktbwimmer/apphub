@@ -12,13 +12,19 @@ CREATE TABLE repositories (
     last_ingested_at TEXT,
     ingest_error TEXT,
     ingest_attempts INTEGER NOT NULL DEFAULT 0,
+    metadata_strategy TEXT NOT NULL DEFAULT 'auto',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-INSERT INTO repositories VALUES('astro-notebook','Astro Notebook','Interactive notebook for Astro projects with live preview and docs integration.','https://github.com/example/astro-notebook','Dockerfile','ready','2024-04-20T10:15:00.000Z','2024-04-20T10:15:00.000Z',NULL,0,'2025-09-19 04:49:56');
-INSERT INTO repositories VALUES('stream-sync','Stream Sync','Collaborative video room with synchronized playback and chat overlay.','https://github.com/example/stream-sync','deploy/docker/Dockerfile','ready','2024-04-19T14:42:00.000Z','2024-04-19T14:42:00.000Z',NULL,0,'2025-09-19 04:49:56');
-INSERT INTO repositories VALUES('ml-dashboard','ML Dashboard','Monitor ML experiments with charts, alerts, and artifact browser.','https://github.com/example/ml-dashboard','Dockerfile','ready','2024-04-17T09:00:00.000Z','2024-04-17T09:00:00.000Z',NULL,0,'2025-09-19 04:49:56');
-INSERT INTO repositories VALUES('kanban-live','Kanban Live','Real-time kanban board with multiplayer cursors and Slack integration.','https://github.com/example/kanban-live','ops/Dockerfile','ready','2024-04-16T11:30:00.000Z','2024-04-16T11:30:00.000Z',NULL,0,'2025-09-19 04:49:56');
-INSERT INTO repositories VALUES('qs','qs','qs','https://github.com/benediktbwimmer/apphub','Dockerfile','failed','2025-09-19T10:58:13.911Z','2025-09-19T10:58:13.911Z','Dockerfile not found, unable to launch app',3,'2025-09-19 10:57:41');
+INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, metadata_strategy, created_at)
+VALUES ('astro-notebook','Astro Notebook','Interactive notebook for Astro projects with live preview and docs integration.','https://github.com/example/astro-notebook','Dockerfile','ready','2024-04-20T10:15:00.000Z','2024-04-20T10:15:00.000Z',NULL,0,'auto','2025-09-19 04:49:56');
+INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, metadata_strategy, created_at)
+VALUES ('stream-sync','Stream Sync','Collaborative video room with synchronized playback and chat overlay.','https://github.com/example/stream-sync','deploy/docker/Dockerfile','ready','2024-04-19T14:42:00.000Z','2024-04-19T14:42:00.000Z',NULL,0,'auto','2025-09-19 04:49:56');
+INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, metadata_strategy, created_at)
+VALUES ('ml-dashboard','ML Dashboard','Monitor ML experiments with charts, alerts, and artifact browser.','https://github.com/example/ml-dashboard','Dockerfile','ready','2024-04-17T09:00:00.000Z','2024-04-17T09:00:00.000Z',NULL,0,'auto','2025-09-19 04:49:56');
+INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, metadata_strategy, created_at)
+VALUES ('kanban-live','Kanban Live','Real-time kanban board with multiplayer cursors and Slack integration.','https://github.com/example/kanban-live','ops/Dockerfile','ready','2024-04-16T11:30:00.000Z','2024-04-16T11:30:00.000Z',NULL,0,'auto','2025-09-19 04:49:56');
+INSERT INTO repositories (id, name, description, repo_url, dockerfile_path, ingest_status, updated_at, last_ingested_at, ingest_error, ingest_attempts, metadata_strategy, created_at)
+VALUES ('qs','qs','qs','https://github.com/benediktbwimmer/apphub','Dockerfile','failed','2025-09-19T10:58:13.911Z','2025-09-19T10:58:13.911Z','Dockerfile not found, unable to launch app',3,'auto','2025-09-19 10:57:41');
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT NOT NULL,

@@ -35,6 +35,7 @@ export type AppRecord = {
   ingestAttempts: number;
   updatedAt: string;
   tags: TagInput[];
+  metadataStrategy: 'auto' | 'explicit';
 };
 
 export type ImportAppFormState = {
@@ -44,6 +45,7 @@ export type ImportAppFormState = {
   repoUrl: string;
   dockerfilePath: string;
   tags: TagInput[];
+  metadataStrategy: 'auto' | 'explicit';
 };
 
 export type UseImportAppResult = {
@@ -82,7 +84,8 @@ const DEFAULT_FORM: ImportAppFormState = {
   description: '',
   repoUrl: '',
   dockerfilePath: 'Dockerfile',
-  tags: [DEFAULT_TAG]
+  tags: [DEFAULT_TAG],
+  metadataStrategy: 'auto'
 };
 
 type DraftPayload = {
@@ -135,7 +138,11 @@ function readDraft(): DraftPayload | null {
         typeof parsed.form.dockerfilePath === 'string'
           ? parsed.form.dockerfilePath
           : DEFAULT_FORM.dockerfilePath,
-      tags: ensureTags(parsed.form.tags)
+      tags: ensureTags(parsed.form.tags),
+      metadataStrategy:
+        parsed.form.metadataStrategy === 'explicit' || parsed.form.metadataStrategy === 'auto'
+          ? parsed.form.metadataStrategy
+          : DEFAULT_FORM.metadataStrategy
     };
     const sourceType = parsed.sourceType === 'local' ? 'local' : 'remote';
     const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now();
@@ -305,7 +312,8 @@ export function useImportApp(onAppRegistered?: (id: string) => void): UseImportA
               ? form.repoUrl
               : form.repoUrl,
           dockerfilePath: form.dockerfilePath,
-          tags: form.tags.filter((tag) => tag.key && tag.value)
+          tags: form.tags.filter((tag) => tag.key && tag.value),
+          metadataStrategy: form.metadataStrategy
         };
 
         const response = await authorizedFetch(`${API_BASE_URL}/apps`, {

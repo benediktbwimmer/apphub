@@ -126,7 +126,8 @@ export function serializeRepository(record: RepositoryRecordWithRelevance) {
     ingestAttempts,
     latestBuild,
     latestLaunch,
-    previewTiles
+    previewTiles,
+    metadataStrategy
   } = record;
   return {
     id,
@@ -155,6 +156,7 @@ export function serializeRepository(record: RepositoryRecordWithRelevance) {
       source: tile.source
     })),
     launchEnvTemplates: record.launchEnvTemplates,
+    metadataStrategy,
     relevance: record.relevance ?? null
   };
 }

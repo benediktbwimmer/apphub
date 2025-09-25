@@ -21,6 +21,7 @@ import {
   type JsonValue,
   type LaunchEnvVar,
   type RepositoryRecord,
+  type RepositoryMetadataStrategy,
   type ServiceRecord,
   type ServiceUpsertInput,
   type TagKV,
@@ -617,11 +618,13 @@ async function ensureRepositoryFromManifest(options: {
   tags: TagKV[];
   envTemplates: LaunchEnvVar[];
   sourceLabel?: string | null;
+  metadataStrategy?: RepositoryMetadataStrategy;
 }): Promise<RepositoryRecord> {
   const repositoryId = options.id;
   const envTemplates = options.envTemplates;
   const tagsWithSource = options.tags.map((tag) => ({ ...tag, source: 'manifest' as const }));
   const existing = await getRepositoryById(repositoryId);
+  const metadataStrategy = options.metadataStrategy ?? existing?.metadataStrategy ?? 'auto';
 
   if (!existing) {
     log('info', 'registering manifest repository', {
@@ -636,7 +639,8 @@ async function ensureRepositoryFromManifest(options: {
       repoUrl: options.repoUrl,
       dockerfilePath: options.dockerfilePath,
       tags: tagsWithSource,
-      launchEnvTemplates: envTemplates
+      launchEnvTemplates: envTemplates,
+      metadataStrategy
     });
     try {
       await enqueueRepositoryIngestion(record.id);
@@ -660,7 +664,8 @@ async function ensureRepositoryFromManifest(options: {
     description: options.description,
     repoUrl: options.repoUrl,
     dockerfilePath: options.dockerfilePath,
-    launchEnvTemplates: envTemplates
+    launchEnvTemplates: envTemplates,
+    metadataStrategy
   });
 
   if (options.tags.length > 0) {

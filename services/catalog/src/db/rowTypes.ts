@@ -9,6 +9,7 @@ export type RepositoryRow = {
   last_ingested_at: string | null;
   ingest_error: string | null;
   ingest_attempts: number;
+  metadata_strategy: string | null;
   launch_env_templates: unknown;
   created_at: string;
 };

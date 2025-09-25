@@ -685,25 +685,32 @@ const migrations: Migration[] = [
        ON CONFLICT (slug) DO UPDATE
          SET description = EXCLUDED.description;`,
       `INSERT INTO role_scopes (role_id, scope)
-         VALUES
-           ('role-viewer', 'jobs:run'),
-           ('role-viewer', 'workflows:run'),
-           ('role-viewer', 'job-bundles:read'),
-           ('role-viewer', 'auth:manage-api-keys'),
-           ('role-editor', 'jobs:run'),
-           ('role-editor', 'workflows:run'),
-           ('role-editor', 'job-bundles:read'),
-           ('role-editor', 'jobs:write'),
-           ('role-editor', 'workflows:write'),
-           ('role-editor', 'auth:manage-api-keys'),
-           ('role-admin', 'jobs:run'),
-           ('role-admin', 'workflows:run'),
-           ('role-admin', 'job-bundles:read'),
-           ('role-admin', 'jobs:write'),
-           ('role-admin', 'workflows:write'),
-           ('role-admin', 'job-bundles:write'),
-           ('role-admin', 'auth:manage-api-keys')
-       ON CONFLICT DO NOTHING;`
+        VALUES
+          ('role-viewer', 'jobs:run'),
+          ('role-viewer', 'workflows:run'),
+          ('role-viewer', 'job-bundles:read'),
+          ('role-viewer', 'auth:manage-api-keys'),
+          ('role-editor', 'jobs:run'),
+          ('role-editor', 'workflows:run'),
+          ('role-editor', 'job-bundles:read'),
+          ('role-editor', 'jobs:write'),
+          ('role-editor', 'workflows:write'),
+          ('role-editor', 'auth:manage-api-keys'),
+          ('role-admin', 'jobs:run'),
+          ('role-admin', 'workflows:run'),
+          ('role-admin', 'job-bundles:read'),
+          ('role-admin', 'jobs:write'),
+          ('role-admin', 'workflows:write'),
+          ('role-admin', 'job-bundles:write'),
+          ('role-admin', 'auth:manage-api-keys')
+      ON CONFLICT DO NOTHING;`
+    ]
+  },
+  {
+    id: '023_repository_metadata_strategy',
+    statements: [
+      `ALTER TABLE repositories
+         ADD COLUMN IF NOT EXISTS metadata_strategy TEXT NOT NULL DEFAULT 'auto';`
     ]
   }
 ];

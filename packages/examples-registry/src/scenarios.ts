@@ -370,7 +370,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         { key: 'language', value: 'typescript' },
         { key: 'framework', value: 'fastify' }
       ],
-      sourceType: 'remote'
+      sourceType: 'remote',
+      metadataStrategy: 'explicit'
     },
     analyticsTag: 'app__observatory_file_watcher',
     requiresServices: ['observatory-file-watcher']
