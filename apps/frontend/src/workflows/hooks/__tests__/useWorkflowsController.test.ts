@@ -108,8 +108,7 @@ const {
     updateWorkflowDefinitionMock: vi.fn(async () => definition),
     fetchWorkflowAssetsMock: vi.fn(async () => [] as WorkflowAssetInventoryEntry[]),
     fetchWorkflowAssetHistoryMock: vi.fn<
-      [AuthorizedFetch, string, string, { limit?: number }?],
-      Promise<WorkflowAssetDetail | null>
+      (fetch: AuthorizedFetch, workflowId: string, assetId: string, options?: { limit?: number }) => Promise<WorkflowAssetDetail | null>
     >(async () => ({
       assetId: 'inventory.dataset',
       producers: [],
@@ -118,8 +117,7 @@ const {
       limit: 10
     }) as WorkflowAssetDetail),
     fetchWorkflowAssetPartitionsMock: vi.fn<
-      [AuthorizedFetch, string, string, { lookback?: number }?],
-      Promise<WorkflowAssetPartitions | null>
+      (fetch: AuthorizedFetch, workflowId: string, assetId: string, options?: { lookback?: number }) => Promise<WorkflowAssetPartitions | null>
     >(async () => ({
       assetId: 'inventory.dataset',
       partitioning: null,
@@ -190,18 +188,18 @@ function createAuthMockValue(): AuthContextValue {
     identity,
     identityLoading: false,
     identityError: null,
-    refreshIdentity: vi.fn<[], Promise<void>>(async () => {}),
+    refreshIdentity: vi.fn<() => Promise<void>>(async () => {}),
     apiKeys: [],
     apiKeysLoading: false,
     apiKeysError: null,
-    refreshApiKeys: vi.fn<[], Promise<void>>(async () => {}),
-    createApiKey: vi.fn<[CreateApiKeyInput], Promise<CreateApiKeyResult>>(async () => ({
+    refreshApiKeys: vi.fn<() => Promise<void>>(async () => {}),
+    createApiKey: vi.fn<(input: CreateApiKeyInput) => Promise<CreateApiKeyResult>>(async () => ({
       key: apiKeySummary,
       token: 'token'
     })),
-    revokeApiKey: vi.fn<[string], Promise<void>>(async () => {}),
+    revokeApiKey: vi.fn<(id: string) => Promise<void>>(async () => {}),
     activeToken: null,
-    setActiveToken: vi.fn<[string | null], void>(() => {})
+    setActiveToken: vi.fn<(token: string | null) => void>(() => {})
   };
 }
 

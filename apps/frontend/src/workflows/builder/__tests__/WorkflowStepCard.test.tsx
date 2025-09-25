@@ -66,7 +66,7 @@ describe('WorkflowStepCard', () => {
     };
 
     const onLoadBundleVersions = vi.fn(async () => undefined);
-    const onUpdateSpy = vi.fn<[WorkflowDraftStep], void>();
+    const onUpdateSpy = vi.fn<(next: WorkflowDraftStep) => void>();
 
     function Harness() {
       const [step, setStep] = useState<WorkflowDraftStep>(initialStep);

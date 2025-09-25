@@ -196,6 +196,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const claims = tokenSet.claims();
+      if (!claims) {
+        reply.status(403);
+        return { error: 'email_verification_required' };
+      }
       const providerSubject = typeof claims.sub === 'string' ? claims.sub : null;
       const email = typeof claims.email === 'string' ? claims.email : null;
       const emailVerified = claims.email_verified !== false;

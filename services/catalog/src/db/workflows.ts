@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parseExpression, type ParserOptions } from 'cron-parser';
+import { CronExpressionParser, type CronExpressionOptions } from 'cron-parser';
 import type { PoolClient } from 'pg';
 import { emitApphubEvent } from '../events';
 import {
@@ -225,7 +225,7 @@ function computeNextScheduleOccurrence(
     return null;
   }
 
-  const options: ParserOptions = {};
+  const options: CronExpressionOptions = {};
   if (schedule.timezone) {
     options.tz = schedule.timezone;
   }
@@ -245,7 +245,7 @@ function computeNextScheduleOccurrence(
   const currentDate = inclusive ? new Date(reference.getTime() - 1) : reference;
 
   try {
-    const interval = parseExpression(cron, {
+    const interval = CronExpressionParser.parse(cron, {
       ...options,
       currentDate
     });

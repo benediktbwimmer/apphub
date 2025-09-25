@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 import type { FastifyInstance } from 'fastify';
-import type { SocketStream } from '@fastify/websocket';
 import WebSocket, { type RawData } from 'ws';
 import { computeRunMetrics } from '../observability/metrics';
 import { subscribeToApphubEvents, type ApphubEvent } from '../events';
@@ -138,8 +137,7 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
     sockets.clear();
   });
 
-  app.get('/ws', { websocket: true }, (connection: SocketStream) => {
-    const { socket } = connection;
+  app.get('/ws', { websocket: true }, (socket) => {
     sockets.add(socket);
 
     socket.send(

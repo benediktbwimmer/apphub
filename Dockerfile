@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20 AS builder
+FROM node:24 AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -30,7 +30,7 @@ RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules pac
 RUN rm -rf packages/examples-registry/node_modules && ln -s ../../node_modules packages/examples-registry/node_modules
 RUN rm -rf packages/shared/node_modules && ln -s ../../node_modules packages/shared/node_modules
 
-FROM node:20-slim AS runtime
+FROM node:24-slim AS runtime
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \

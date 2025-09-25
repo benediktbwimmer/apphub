@@ -4,13 +4,10 @@ import userEvent from '@testing-library/user-event';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleBundleStatus } from '../exampleBundles';
 
-const authorizedFetchMock = vi.fn<
-  [url: string, options?: RequestInit],
-  Promise<Response>
->();
+const authorizedFetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>();
 const pushToastMock = vi.fn();
 const appHubEventMock = vi.fn();
-const fetchMock = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>();
+const fetchMock = vi.fn<typeof fetch>();
 
 vi.mock('../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: () => authorizedFetchMock
