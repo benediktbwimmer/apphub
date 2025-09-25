@@ -111,6 +111,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function sliceIsoHour(value: string): string | null {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2}T\d{2})/);
+  return match?.[1] ?? null;
+}
+
+function fallbackHour(): string {
+  const now = new Date();
+  now.setUTCMinutes(0, 0, 0);
+  return sliceIsoHour(now.toISOString()) ?? now.toISOString().slice(0, 13);
+}
+
 function parseHour(hour: string): { isoHour: string; stamp: string; startDate: Date } {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hour)) {
     throw new Error(`hour must be formatted as YYYY-MM-DDTHH, received '${hour}'`);
@@ -207,9 +218,18 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
   if (!inboxDir) {
     throw new Error('inboxDir parameter is required');
   }
-  const hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
+  const scheduledFor = ensureString(
+    raw.scheduledFor ?? raw.scheduled_for ?? raw.scheduledAt ?? raw.scheduled_at
+  );
+  let hour = ensureString(raw.hour ?? raw.partitionKey ?? raw.partition_key);
+  if (!hour && scheduledFor) {
+    const sliced = sliceIsoHour(scheduledFor);
+    if (sliced) {
+      hour = sliced;
+    }
+  }
   if (!hour) {
-    throw new Error('hour parameter is required');
+    hour = fallbackHour();
   }
   const rowsPerInstrument = clamp(Math.trunc(ensureNumber(raw.rowsPerInstrument ?? raw.rows_per_instrument, 6)), 1, 360);
   const intervalMinutes = clamp(Math.trunc(ensureNumber(raw.intervalMinutes ?? raw.interval_minutes, 10)), 1, 120);
