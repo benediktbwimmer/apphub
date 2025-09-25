@@ -97,14 +97,22 @@ const suggestQuerySchema = z.object({
     .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(50).default(10))
 });
 
+const APP_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
+
 const createRepositorySchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().min(1),
+  id: z
+    .string()
+    .trim()
+    .regex(APP_ID_PATTERN, 'id must start with a letter and use lowercase letters, numbers, or dashes (min 3 characters).'),
+  name: z.string().trim().min(1, 'name is required'),
+  description: z.string().trim().min(1, 'description is required'),
   repoUrl: z
     .string()
-    .min(1)
+    .trim()
     .refine((value) => {
+      if (!value) {
+        return false;
+      }
       try {
         const url = new URL(value);
         if (url.protocol === 'file:') {
@@ -114,8 +122,14 @@ const createRepositorySchema = z.object({
       } catch (err) {
         return value.startsWith('/');
       }
-    }, 'repoUrl must be an absolute path or a valid URL'),
-  dockerfilePath: z.string().min(1),
+    }, 'repoUrl must be an absolute path or a valid git/HTTP(S) URL'),
+  dockerfilePath: z
+    .string()
+    .trim()
+    .min(1, 'dockerfilePath is required')
+    .refine((value) => !value.startsWith('/') && !value.startsWith('\\'), 'dockerfilePath must be relative to the repository root')
+    .refine((value) => !value.includes('..'), 'dockerfilePath cannot contain parent directory segments (..).')
+    .refine((value) => /Dockerfile(\.[^/]+)?$/i.test(value), 'dockerfilePath must reference a Dockerfile, e.g. services/api/Dockerfile'),
   tags: z
     .array(
       z.object({
@@ -828,6 +842,10 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
   app.post('/apps', async (request, reply) => {
     const parseResult = createRepositorySchema.safeParse(request.body);
     if (!parseResult.success) {
+      request.log.warn(
+        { resourceType: 'app', issues: parseResult.error.flatten() },
+        'app registration validation failed'
+      );
       reply.status(400);
       return { error: parseResult.error.flatten() };
     }

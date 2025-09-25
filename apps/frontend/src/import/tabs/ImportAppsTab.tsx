@@ -306,6 +306,20 @@ export default function ImportAppsTab({
               <p>
                 Fields prefilled from <strong>{scenario.title}</strong>. Fine-tune anything before submitting.
               </p>
+              {(scenario.requiresServices?.length || scenario.requiresApps?.length) && (
+                <ul className="mt-1 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                  {scenario.requiresServices?.length ? (
+                    <li>
+                      <strong>Requires services:</strong> {scenario.requiresServices.join(', ')}
+                    </li>
+                  ) : null}
+                  {scenario.requiresApps?.length ? (
+                    <li>
+                      <strong>Requires apps:</strong> {scenario.requiresApps.join(', ')}
+                    </li>
+                  ) : null}
+                </ul>
+              )}
             </div>
             {onScenarioCleared && (
               <button
@@ -329,6 +343,22 @@ export default function ImportAppsTab({
             </span>
           )}
         </div>
+        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
+          <p className="leading-relaxed">
+            <strong>Apps</strong> represent container workloads that AppHub builds from a Dockerfile. Provide the repository URL
+            and the Dockerfile path relative to the repo root. For registering network endpoints or shared manifests, use the
+            <span className="font-semibold"> Service manifests</span> tab.
+          </p>
+          <a
+            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+            href={APP_DOC_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View app onboarding guide
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
         <FormField label="Application name" htmlFor="app-name">
           <input
             id="app-name"
@@ -346,6 +376,8 @@ export default function ImportAppsTab({
             value={form.id}
             onChange={(event) => setForm((prev) => ({ ...prev, id: event.target.value }))}
             placeholder="leave blank to auto-generate"
+            pattern="[a-z][a-z0-9-]{2,63}"
+            title="Use lowercase letters, numbers, and dashes. Must start with a letter and be at least 3 characters."
           />
         </FormField>
         <FormField label="Description" htmlFor="app-description">
@@ -397,7 +429,11 @@ export default function ImportAppsTab({
             required
           />
         </FormField>
-        <FormField label="Dockerfile path" htmlFor="dockerfile-path">
+        <FormField
+          label="Dockerfile path"
+          htmlFor="dockerfile-path"
+          hint="Relative to the repository root, e.g. services/api/Dockerfile"
+        >
           <input
             id="dockerfile-path"
             className={INPUT_CLASSES}
@@ -405,6 +441,8 @@ export default function ImportAppsTab({
             onChange={(event) => setForm((prev) => ({ ...prev, dockerfilePath: event.target.value }))}
             placeholder="Dockerfile"
             required
+            pattern="(?:(?!\\.\\.).)*(Dockerfile(\\.[^/]+)?)$"
+            title="Provide a repository-relative path ending in Dockerfile. Parent directory segments (..) are not allowed."
           />
         </FormField>
         <div className="flex flex-col gap-3">

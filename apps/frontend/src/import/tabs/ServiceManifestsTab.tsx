@@ -221,6 +221,20 @@ export default function ServiceManifestsTab({
               <p>
                 Fields prefilled from <strong>{scenario.title}</strong>. Adjust values or reset to start fresh.
               </p>
+              {(scenario.requiresApps?.length || scenario.requiresServices?.length) && (
+                <ul className="mt-1 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                  {scenario.requiresApps?.length ? (
+                    <li>
+                      <strong>Requires apps:</strong> {scenario.requiresApps.join(', ')}
+                    </li>
+                  ) : null}
+                  {scenario.requiresServices?.length ? (
+                    <li>
+                      <strong>Requires services:</strong> {scenario.requiresServices.join(', ')}
+                    </li>
+                  ) : null}
+                </ul>
+              )}
             </div>
             {onScenarioCleared && (
               <button
@@ -240,6 +254,22 @@ export default function ServiceManifestsTab({
         onSelect={onScenarioSelected}
       />
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Import service manifest">
+        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
+          <p className="leading-relaxed">
+            <strong>Services</strong> define long-lived endpoints and configuration imported from manifests. Use this tab to
+            register health URLs, environment placeholders, and service networks. If you are packaging a Docker build,
+            switch to the <span className="font-semibold">Apps</span> tab instead.
+          </p>
+          <a
+            className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+            href={SERVICE_MANIFEST_DOC_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Learn more about service manifests
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
         <FormField label="Service manifest repository" htmlFor="manifest-repo">
           <input
             id="manifest-repo"

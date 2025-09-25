@@ -20,6 +20,7 @@ import {
 } from '../serviceConfigLoader';
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
+import { mergeServiceMetadata, serviceMetadataUpdateSchema } from '../serviceMetadata';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
 
@@ -67,24 +68,9 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
   return normalized;
 }
 
-function toMetadataObject(value: JsonValue | null): Record<string, JsonValue> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return { ...(value as Record<string, JsonValue>) };
-  }
-  return {};
-}
-
-function mergeRuntimeMetadata(existing: JsonValue | null, incoming: JsonValue | null | undefined): JsonValue | null {
-  const base = toMetadataObject(existing);
-  if (incoming !== undefined) {
-    base.runtime = incoming;
-  }
-  return Object.keys(base).length > 0 ? (base as JsonValue) : null;
-}
-
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
 
-const serviceRegistrationSchema = z
+export const serviceRegistrationSchema = z
   .object({
     slug: z.string().min(1),
     displayName: z.string().min(1),
@@ -93,17 +79,17 @@ const serviceRegistrationSchema = z
     status: serviceStatusSchema.optional(),
     statusMessage: z.string().nullable().optional(),
     capabilities: jsonValueSchema.optional(),
-    metadata: jsonValueSchema.optional()
+    metadata: serviceMetadataUpdateSchema
   })
   .strict();
 
-const servicePatchSchema = z
+export const servicePatchSchema = z
   .object({
     baseUrl: z.string().min(1).url().optional(),
     status: serviceStatusSchema.optional(),
     statusMessage: z.string().nullable().optional(),
     capabilities: jsonValueSchema.optional(),
-    metadata: jsonValueSchema.optional(),
+    metadata: serviceMetadataUpdateSchema,
     lastHealthyAt: z
       .string()
       .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid ISO timestamp')
@@ -206,20 +192,24 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
 
     const parseBody = serviceRegistrationSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
+      request.log.warn(
+        { resourceType: 'service', issues: parseBody.error.flatten() },
+        'service registration validation failed'
+      );
       reply.status(400);
       return { error: parseBody.error.flatten() };
     }
 
     const payload = parseBody.data;
     const existing = await getServiceBySlug(payload.slug);
-    const mergedMetadata = mergeRuntimeMetadata(existing?.metadata ?? null, payload.metadata);
+    const metadataUpdate = mergeServiceMetadata(existing?.metadata ?? null, payload.metadata);
 
     const upsertPayload: ServiceUpsertInput = {
       slug: payload.slug,
       displayName: payload.displayName,
       kind: payload.kind,
       baseUrl: payload.baseUrl,
-      metadata: mergedMetadata
+      metadata: metadataUpdate
     };
 
     if (payload.status !== undefined) {
@@ -465,15 +455,19 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
 
     const parseBody = servicePatchSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
+      request.log.warn(
+        { resourceType: 'service', slug, issues: parseBody.error.flatten() },
+        'service update validation failed'
+      );
       reply.status(400);
       return { error: parseBody.error.flatten() };
     }
 
     const payload = parseBody.data;
-    let metadataUpdate: JsonValue | null | undefined;
-    if (Object.prototype.hasOwnProperty.call(payload, 'metadata')) {
-      metadataUpdate = mergeRuntimeMetadata(existing.metadata, payload.metadata ?? null);
-    }
+    const hasMetadata = Object.prototype.hasOwnProperty.call(payload, 'metadata');
+    const metadataUpdate = hasMetadata
+      ? mergeServiceMetadata(existing.metadata, payload.metadata)
+      : undefined;
 
     const update: ServiceStatusUpdate = {};
     if (payload.baseUrl) {
@@ -488,8 +482,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     if (payload.capabilities !== undefined) {
       update.capabilities = payload.capabilities as JsonValue;
     }
-    if (metadataUpdate !== undefined) {
-      update.metadata = metadataUpdate;
+    if (hasMetadata) {
+      update.metadata = metadataUpdate ?? null;
     }
     if (payload.lastHealthyAt !== undefined) {
       update.lastHealthyAt = payload.lastHealthyAt;

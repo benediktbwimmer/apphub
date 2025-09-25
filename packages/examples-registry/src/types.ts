@@ -213,6 +213,10 @@ export type ExampleScenarioBase<T extends ExampleScenarioType> = {
   docs?: ExampleScenarioAsset[];
   assets?: ExampleScenarioAsset[];
   analyticsTag?: string;
+  requiresServices?: string[];
+  requiresApps?: string[];
+  requiresJobs?: string[];
+  requiresWorkflows?: string[];
 };
 
 export type ServiceManifestScenario = ExampleScenarioBase<'service-manifest'> & {

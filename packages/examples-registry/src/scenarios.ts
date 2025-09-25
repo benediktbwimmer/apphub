@@ -330,7 +330,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         CATALOG_API_TOKEN: 'dev-token'
       }
     },
-    analyticsTag: 'service__observatory_file_watcher'
+    analyticsTag: 'service__observatory_file_watcher',
+    requiresApps: ['observatory-file-watcher']
   },
   {
     id: 'observatory-file-watcher-app',
@@ -371,7 +372,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       ],
       sourceType: 'remote'
     },
-    analyticsTag: 'app__observatory_file_watcher'
+    analyticsTag: 'app__observatory_file_watcher',
+    requiresServices: ['observatory-file-watcher']
   },
   {
     id: 'file-relocator-job',
@@ -406,8 +408,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       notes: 'Bundle packaged from examples/file-drop/jobs/file-relocator. Works with the file drop watcher service.'
     },
     exampleSlug: 'file-relocator',
-    analyticsTag: 'job__file_relocator'
-},
+    analyticsTag: 'job__file_relocator',
+    requiresServices: ['observatory-file-watcher']
+  },
   {
     id: 'file-drop-relocation-workflow',
     type: 'workflow',
@@ -437,7 +440,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     ],
     form: fileDropRelocationWorkflowForm,
     includes: ['file-relocator-job'],
-    analyticsTag: 'workflow__file_drop_relocation'
+    analyticsTag: 'workflow__file_drop_relocation',
+    requiresServices: ['observatory-file-watcher'],
+    requiresJobs: ['file-relocator']
   },
   {
     id: 'file-drop-scenario-pack',
@@ -449,7 +454,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     tags: ['file drop', 'automation'],
     includes: ['file-relocator-job', 'file-drop-relocation-workflow'],
     focus: 'workflows',
-    analyticsTag: 'bundle__file_drop_watcher'
+    analyticsTag: 'bundle__file_drop_watcher',
+    requiresServices: ['observatory-file-watcher']
   },
   {
     id: 'retail-sales-csv-loader-job',

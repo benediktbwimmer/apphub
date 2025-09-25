@@ -370,14 +370,24 @@ const createRepositoryRequestSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['id', 'name', 'description', 'repoUrl', 'dockerfilePath'],
   properties: {
-    id: { type: 'string', description: 'Identifier assigned to the repository.' },
-    name: { type: 'string' },
-    description: { type: 'string' },
+    id: {
+      type: 'string',
+      description: 'Lowercase identifier for the app (letters, numbers, and dashes).',
+      pattern: '^[a-z][a-z0-9-]{2,63}$',
+      minLength: 3,
+      maxLength: 64
+    },
+    name: { type: 'string', description: 'Human readable name for the app.' },
+    description: { type: 'string', description: 'Short description that appears in the catalog.' },
     repoUrl: {
       type: 'string',
-      description: 'Location of the repository. Supports git, HTTP(S), and filesystem URLs.'
+      description: 'Location of the repository. Supports git, HTTP(S), and absolute filesystem paths.'
     },
-    dockerfilePath: { type: 'string', description: 'Relative path to the Dockerfile within the repo.' },
+    dockerfilePath: {
+      type: 'string',
+      description: 'Repository-relative path to the Dockerfile (e.g. services/api/Dockerfile).',
+      pattern: 'Dockerfile(\.[^/]+)?$'
+    },
     tags: {
       type: 'array',
       description: 'Optional tags to associate with the repository.',
@@ -385,6 +395,100 @@ const createRepositoryRequestSchema: OpenAPIV3.SchemaObject = {
       default: []
     }
   }
+};
+
+const serviceManifestMetadataSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  description: 'Metadata sourced from service manifests and configuration files.',
+  properties: {
+    source: { type: 'string', nullable: true, description: 'Location of the manifest entry that populated this service.' },
+    sources: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'All manifest files that contributed to this service definition.'
+    },
+    baseUrlSource: {
+      type: 'string',
+      enum: ['manifest', 'runtime', 'config'],
+      nullable: true,
+      description: 'Whether the manifest, runtime state, or config file selected the effective base URL.'
+    },
+    openapiPath: { type: 'string', nullable: true },
+    healthEndpoint: { type: 'string', nullable: true },
+    workingDir: { type: 'string', nullable: true },
+    devCommand: { type: 'string', nullable: true },
+    env: {
+      description: 'Environment variables declared for the service in manifests, including placeholder metadata.',
+      nullable: true,
+      allOf: [jsonValueSchema]
+    },
+    apps: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'IDs of apps that are linked to this service through service networks.',
+      nullable: true
+    },
+    appliedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Timestamp indicating when this manifest version was applied.'
+    }
+  },
+  additionalProperties: false
+};
+
+const serviceRuntimeMetadataSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  description: 'Runtime details gathered from the containerized app connected to the service.',
+  properties: {
+    repositoryId: { type: 'string', description: 'Repository ID providing the runtime implementation.' },
+    launchId: { type: 'string', nullable: true },
+    instanceUrl: { type: 'string', format: 'uri', nullable: true },
+    baseUrl: { type: 'string', format: 'uri', nullable: true },
+    previewUrl: { type: 'string', format: 'uri', nullable: true },
+    host: { type: 'string', nullable: true },
+    port: { type: 'integer', minimum: 0, maximum: 65535, nullable: true },
+    containerIp: { type: 'string', nullable: true },
+    containerPort: { type: 'integer', minimum: 0, maximum: 65535, nullable: true },
+    containerBaseUrl: { type: 'string', format: 'uri', nullable: true },
+    source: { type: 'string', nullable: true, description: 'Origin of the runtime snapshot (for example, service-network synchronizer).' },
+    status: { type: 'string', enum: ['running', 'stopped'], nullable: true },
+    updatedAt: { type: 'string', format: 'date-time', nullable: true }
+  },
+  additionalProperties: false
+};
+
+const serviceMetadataSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  description: 'Structured metadata describing how a service is sourced, linked, and executed.',
+  properties: {
+    resourceType: {
+      type: 'string',
+      enum: ['service'],
+      description: 'Discriminator indicating this metadata payload represents a service resource.'
+    },
+    manifest: {
+      nullable: true,
+      allOf: [{ $ref: '#/components/schemas/ServiceManifestMetadata' }]
+    },
+    config: {
+      nullable: true,
+      allOf: [jsonValueSchema],
+      description: 'Raw metadata block forwarded from manifests or config files.'
+    },
+    runtime: {
+      nullable: true,
+      allOf: [{ $ref: '#/components/schemas/ServiceRuntimeMetadata' }]
+    },
+    linkedApps: {
+      type: 'array',
+      items: { type: 'string' },
+      nullable: true,
+      description: 'Explicit list of app IDs linked to this service beyond manifest hints.'
+    },
+    notes: { type: 'string', maxLength: 2000, nullable: true }
+  },
+  additionalProperties: false
 };
 
 const serviceSchema: OpenAPIV3.SchemaObject = {
@@ -402,7 +506,7 @@ const serviceSchema: OpenAPIV3.SchemaObject = {
     },
     statusMessage: nullable(stringSchema()),
     capabilities: nullable(jsonValueSchema),
-    metadata: nullable(jsonValueSchema),
+    metadata: nullable(serviceMetadataSchema),
     openapi: nullable(jsonValueSchema),
     lastHealthyAt: nullable(stringSchema('date-time')),
     createdAt: { type: 'string', format: 'date-time' },
@@ -449,7 +553,11 @@ const serviceRegistrationRequestSchema: OpenAPIV3.SchemaObject = {
     },
     statusMessage: nullable(stringSchema()),
     capabilities: jsonValueSchema,
-    metadata: jsonValueSchema
+    metadata: {
+      nullable: true,
+      allOf: [{ $ref: '#/components/schemas/ServiceMetadata' }],
+      description: 'Optional metadata describing manifest provenance, linked apps, and runtime expectations.'
+    }
   }
 };
 
@@ -1154,6 +1262,9 @@ const components: OpenAPIV3.ComponentsObject = {
     RepositoryCreateRequest: createRepositoryRequestSchema,
     TagFacet: tagFacetSchema,
     StatusFacet: statusFacetSchema,
+    ServiceManifestMetadata: serviceManifestMetadataSchema,
+    ServiceRuntimeMetadata: serviceRuntimeMetadataSchema,
+    ServiceMetadata: serviceMetadataSchema,
     Service: serviceSchema,
     ServiceListResponse: serviceListResponseSchema,
     ServiceResponse: serviceResponseSchema,

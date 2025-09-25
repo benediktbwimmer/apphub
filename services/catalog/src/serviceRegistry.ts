@@ -39,6 +39,12 @@ import {
   type ResolvedManifestEnvVar,
   type ManifestLoadError
 } from './serviceManifestTypes';
+import {
+  coerceServiceMetadata,
+  mergeServiceMetadata,
+  serviceManifestMetadataSchema,
+  type ServiceMetadata
+} from './serviceMetadata';
 
 const DEFAULT_MANIFEST_PATH = path.resolve(__dirname, '..', '..', 'service-manifest.json');
 
@@ -479,13 +485,6 @@ function mergeManifestEntries(entries: ManifestEntry[]): ManifestMap {
   return merged;
 }
 
-function toMetadataObject(value: JsonValue | null): Record<string, JsonValue> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return { ...(value as Record<string, JsonValue>) };
-  }
-  return {};
-}
-
 function removeUndefined<T extends Record<string, unknown>>(input: T): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {};
   for (const [key, value] of Object.entries(input)) {
@@ -558,10 +557,10 @@ function stripAppliedAt(value: JsonValue | undefined): Record<string, JsonValue>
 async function applyManifestToDatabase(entries: ManifestMap) {
   for (const entry of entries.values()) {
     const existing = await getServiceBySlug(entry.slug);
-    const metadata = toMetadataObject(existing?.metadata ?? null);
-    const previousManifest = metadata.manifest;
+    const existingMetadata = coerceServiceMetadata(existing?.metadata ?? null);
+    const previousManifest = existingMetadata?.manifest;
     const manifestMeta = buildManifestMetadata(entry);
-    const comparablePrevious = stripAppliedAt(previousManifest);
+    const comparablePrevious = stripAppliedAt(previousManifest as JsonValue | undefined);
     const manifestChanged =
       JSON.stringify(comparablePrevious ?? null) !== JSON.stringify(manifestMeta);
     const appliedAt =
@@ -569,21 +568,28 @@ async function applyManifestToDatabase(entries: ManifestMap) {
         ? ((previousManifest as Record<string, JsonValue>).appliedAt as string | undefined) ?? new Date().toISOString()
         : new Date().toISOString();
 
-    metadata.manifest = {
+    const manifestUpdate = serviceManifestMetadataSchema.parse({
       ...manifestMeta,
       appliedAt
+    });
+
+    const metadataUpdate: ServiceMetadata = {
+      resourceType: 'service',
+      manifest: manifestUpdate
     };
 
     if (Object.prototype.hasOwnProperty.call(entry, 'metadata')) {
-      metadata.config = entry.metadata ?? null;
+      metadataUpdate.config = (entry.metadata ?? null) as JsonValue | null;
     }
+
+    const mergedMetadata = mergeServiceMetadata(existing?.metadata ?? null, metadataUpdate);
 
     const upsertPayload: ServiceUpsertInput = {
       slug: entry.slug,
       displayName: entry.displayName,
       kind: entry.kind,
       baseUrl: entry.baseUrl,
-      metadata,
+      metadata: mergedMetadata,
       status: existing?.status,
       statusMessage: existing?.statusMessage
     };
@@ -597,7 +603,7 @@ async function applyManifestToDatabase(entries: ManifestMap) {
     log('info', `service manifest ${action}`, {
       slug: record.slug,
       baseUrl: record.baseUrl,
-      source: metadata.manifest?.source ?? null
+      source: manifestUpdate.source ?? null
     });
   }
 }
@@ -827,17 +833,27 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
       continue;
     }
 
-    const metadata = toMetadataObject(service.metadata ?? null);
-    const manifestMeta = toPlainObject(metadata.manifest as JsonValue | null | undefined);
+    const existingMetadata = coerceServiceMetadata(service.metadata ?? null);
+    const manifestMeta = toPlainObject(existingMetadata?.manifest as JsonValue | null | undefined);
     const apps = serviceToApps.get(slug);
     if (apps && apps.size > 0) {
       manifestMeta.apps = Array.from(apps).sort();
     } else {
       delete manifestMeta.apps;
     }
-    metadata.manifest = manifestMeta;
 
-    const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+    const metadataUpdate: ServiceMetadata = {
+      resourceType: 'service',
+      manifest: serviceManifestMetadataSchema.parse(manifestMeta)
+    };
+
+    if (apps && apps.size > 0) {
+      metadataUpdate.linkedApps = Array.from(apps).sort();
+    } else {
+      metadataUpdate.linkedApps = null;
+    }
+
+    const nextMetadata = mergeServiceMetadata(service.metadata ?? null, metadataUpdate);
     const previous = service.metadata ?? null;
     if (JSON.stringify(nextMetadata) === JSON.stringify(previous)) {
       continue;
@@ -877,8 +893,8 @@ async function getServiceSlugForRepository(repositoryId: string): Promise<string
 
   const services = await listServices();
   for (const service of services) {
-    const metadata = toMetadataObject(service.metadata ?? null);
-    const manifestMeta = toPlainObject(metadata.manifest as JsonValue | null | undefined);
+    const metadata = coerceServiceMetadata(service.metadata ?? null);
+    const manifestMeta = toPlainObject(metadata?.manifest as JsonValue | null | undefined);
     const apps = manifestMeta.apps;
     if (!Array.isArray(apps)) {
       continue;
@@ -931,9 +947,11 @@ export async function updateServiceRuntimeForRepository(
     return;
   }
 
-  const metadata = toMetadataObject(service.metadata ?? null);
-  metadata.runtime = buildRuntimeMetadata(runtime);
-  const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+  const runtimeMetadata = buildRuntimeMetadata(runtime);
+  const nextMetadata = mergeServiceMetadata(service.metadata ?? null, {
+    resourceType: 'service',
+    runtime: runtimeMetadata
+  });
   await setServiceStatus(slug, { metadata: nextMetadata });
 
   try {
@@ -963,8 +981,8 @@ export async function clearServiceRuntimeForRepository(
     return;
   }
 
-  const metadata = toMetadataObject(service.metadata ?? null);
-  const runtimeMeta = toPlainObject(metadata.runtime as JsonValue | null | undefined);
+  const metadata = coerceServiceMetadata(service.metadata ?? null);
+  const runtimeMeta = toPlainObject(metadata?.runtime as JsonValue | null | undefined);
   if (Object.keys(runtimeMeta).length === 0) {
     return;
   }
@@ -975,8 +993,10 @@ export async function clearServiceRuntimeForRepository(
     return;
   }
 
-  delete metadata.runtime;
-  const nextMetadata = Object.keys(metadata).length > 0 ? (metadata as JsonValue) : null;
+  const nextMetadata = mergeServiceMetadata(service.metadata ?? null, {
+    resourceType: 'service',
+    runtime: null
+  });
   await setServiceStatus(slug, { metadata: nextMetadata });
 }
 
@@ -1122,8 +1142,8 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
 async function checkServiceHealth(service: ServiceRecord) {
   const manifest = manifestEntries.get(service.slug);
   const healthEndpoint = manifest?.healthEndpoint ?? '/healthz';
-  const metadata = toMetadataObject(service.metadata ?? null);
-  const runtimeMeta = toPlainObject(metadata.runtime as JsonValue | null | undefined);
+  const metadata = coerceServiceMetadata(service.metadata ?? null);
+  const runtimeMeta = toPlainObject(metadata?.runtime as JsonValue | null | undefined);
   const baseUrls = collectHealthBaseUrls(service, runtimeMeta, manifest);
 
   let healthyResult: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string } | null = null;

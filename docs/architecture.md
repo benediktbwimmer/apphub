@@ -13,6 +13,42 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, workflow, and asset lifecycle changes (`asset.produced` / `asset.expired`). Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
+## Service vs. App Boundaries
+
+Services and apps collaborate but play distinct roles:
+
+| Concern | Services | Apps |
+| --- | --- | --- |
+| **Primary focus** | Long-lived network endpoints, manifests, service networks, health reporting | Container builds produced from a repository + Dockerfile |
+| **Registration** | Manifest import or `POST /services`. Payloads hydrate `ServiceMetadata.manifest` and add placeholder requirements. | `POST /apps` enqueues ingestion + build. Payload highlights repository URL and Dockerfile path with stronger validation. |
+| **Runtime coupling** | `ServiceMetadata.linkedApps` captures the app IDs that back the service. Runtime probes emit snapshots into `metadata.runtime`. | Build + launch events stream runtime metadata back into the service registry. Launch previews depend on the service slug wiring. |
+| **Typical consumers** | Workflow service steps, operator dashboards, manifest sync tooling. | Launch previews, build retry UI, workflow jobs that consume container artifacts. |
+
+```mermaid
+graph LR
+  subgraph Registry
+    S[Service metadata]
+  end
+  subgraph Catalog
+    R[App repository]
+    B[Build]
+  end
+  subgraph Runtime
+    L[Launch]
+  end
+
+  S -- linkedApps --> R
+  R -- triggers --> B
+  B -- runtime snapshot --> S
+  L -- health ping --> S
+```
+
+Key takeaways:
+
+- **Services** concentrate on manifest intent. Imports record manifest sources, placeholder requirements, and any apps referenced by service networks. Runtime updates append to `metadata.runtime` but never overwrite manifest provenance.
+- **Apps** own Docker builds. ID formatting and Dockerfile validation happen up front so ingestion failures are caught before workers run.
+- The importer surfaces contextual help: choose *Service manifests* to wire endpoints and service networks; choose *Apps* to register container workloads. Example scenarios declare `requiresServices` / `requiresApps` hints so operators can queue supporting assets deliberately.
+
 ## System Overview
 
 ```mermaid

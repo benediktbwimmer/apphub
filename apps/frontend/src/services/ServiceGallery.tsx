@@ -20,21 +20,12 @@ function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSu
 }
 
 function extractRuntimeUrl(service: ServiceSummary): string | null {
-  const metadata = service.metadata;
-  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
-    const runtime = (metadata as Record<string, unknown>).runtime;
-    if (runtime && typeof runtime === 'object' && !Array.isArray(runtime)) {
-      const runtimeRecord = runtime as Record<string, unknown>;
-      const candidates = [runtimeRecord.instanceUrl, runtimeRecord.baseUrl, runtimeRecord.previewUrl];
-      for (const candidate of candidates) {
-        if (typeof candidate === 'string' && candidate.trim().length > 0) {
-          return candidate.trim();
-        }
-      }
+  const runtime = service.metadata?.runtime ?? null;
+  const candidates = [runtime?.previewUrl, runtime?.instanceUrl, runtime?.baseUrl, service.baseUrl];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
     }
-  }
-  if (typeof service.baseUrl === 'string' && service.baseUrl.trim()) {
-    return service.baseUrl.trim();
   }
   return null;
 }
@@ -49,6 +40,11 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { height } = usePreviewLayout();
   const displayName = service.displayName ?? service.slug;
+  const manifest = service.metadata?.manifest ?? null;
+  const runtime = service.metadata?.runtime ?? null;
+  const linkedApps = service.metadata?.linkedApps ?? manifest?.apps ?? null;
+  const manifestSourceLabel = manifest?.source ?? (manifest?.sources?.[0] ?? 'manifest import');
+  const runtimeLabel = runtime?.repositoryId ?? runtime?.baseUrl ?? 'not linked';
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -103,6 +99,38 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
           sandbox="allow-scripts"
           className="h-full w-full border-0"
         />
+      </div>
+      <div className="border-t border-slate-200/60 bg-slate-950/70 px-5 py-4 text-left text-sm text-slate-100 dark:border-slate-700/50 dark:bg-slate-900/80">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-300">Service</span>
+            <h3 className="text-base font-semibold text-white">{displayName}</h3>
+            <p className="text-xs text-slate-300">
+              {service.kind ? `${service.kind} • ` : ''}base URL: {service.baseUrl ?? 'n/a'}
+            </p>
+          </div>
+          <dl className="grid gap-3 text-[11px] uppercase tracking-[0.2em] text-slate-400 sm:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <dt>Manifest Source</dt>
+              <dd className="text-[12px] font-medium normal-case text-slate-100">
+                {manifestSourceLabel}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt>Runtime App</dt>
+              <dd className="text-[12px] font-medium normal-case text-slate-100">{runtimeLabel}</dd>
+            </div>
+            <div className="flex flex-col gap-1">
+              <dt>Linked Apps</dt>
+              <dd className="text-[12px] font-medium normal-case text-slate-100">
+                {linkedApps && linkedApps.length > 0 ? linkedApps.join(', ') : 'none'}
+              </dd>
+            </div>
+          </dl>
+          {service.metadata?.notes && (
+            <p className="text-xs text-slate-300">{service.metadata.notes}</p>
+          )}
+        </div>
       </div>
       <span className="sr-only">{displayName}</span>
     </article>
