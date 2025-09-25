@@ -145,6 +145,23 @@ function envSignature(env: LaunchEnvVar[] | null | undefined): string {
   return JSON.stringify(normalized);
 }
 
+async function applyManifestEnvDefaultsToLaunch(launch: LaunchRecord): Promise<LaunchRecord> {
+  const manifestEnvDefaults = await resolveManifestEnvForRepository(launch.repositoryId);
+  const mergedLaunchEnv = mergeLaunchEnvVars(manifestEnvDefaults, launch.env);
+  if (envSignature(mergedLaunchEnv) === envSignature(launch.env)) {
+    return launch;
+  }
+
+  const updated = await updateLaunchEnv(launch.id, mergedLaunchEnv);
+  if (updated) {
+    return updated;
+  }
+  return {
+    ...launch,
+    env: mergedLaunchEnv
+  } satisfies LaunchRecord;
+}
+
 async function inspectContainerIp(containerId: string): Promise<string | null> {
   const result = await runDockerCommand([
     'inspect',
@@ -633,6 +650,12 @@ async function runServiceNetworkStop(launch: LaunchRecord) {
 
 export async function runLaunchStart(launchId: string) {
   if (isStubRunnerEnabled) {
+    const pending = await getLaunchById(launchId);
+    if (!pending) {
+      log('Launch not pending', { launchId });
+      return;
+    }
+    await applyManifestEnvDefaultsToLaunch(pending);
     await runStubLaunchStart(launchId);
     return;
   }
@@ -643,23 +666,14 @@ export async function runLaunchStart(launchId: string) {
     return;
   }
 
+  launch = await applyManifestEnvDefaultsToLaunch(launch);
+
   const repository = await getRepositoryById(launch.repositoryId);
   if (!repository) {
     const message = 'Launch unavailable: app not found';
     await failLaunch(launch.id, message);
     log('Launch failed - repository missing', { launchId, repositoryId: launch.repositoryId });
     return;
-  }
-
-  const manifestEnvDefaults = await resolveManifestEnvForRepository(launch.repositoryId);
-  const mergedLaunchEnv = mergeLaunchEnvVars(manifestEnvDefaults, launch.env);
-  if (envSignature(mergedLaunchEnv) !== envSignature(launch.env)) {
-    const updated = await updateLaunchEnv(launch.id, mergedLaunchEnv);
-    if (updated) {
-      launch = updated;
-    } else {
-      launch = { ...launch, env: mergedLaunchEnv };
-    }
   }
 
   const serviceNetwork = await getServiceNetworkByRepositoryId(repository.id);
