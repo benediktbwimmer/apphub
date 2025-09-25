@@ -116,12 +116,6 @@ function sliceIsoHour(value: string): string | null {
   return match?.[1] ?? null;
 }
 
-function fallbackHour(): string {
-  const now = new Date();
-  now.setUTCMinutes(0, 0, 0);
-  return sliceIsoHour(now.toISOString()) ?? now.toISOString().slice(0, 13);
-}
-
 function parseHour(hour: string): { isoHour: string; stamp: string; startDate: Date } {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hour)) {
     throw new Error(`hour must be formatted as YYYY-MM-DDTHH, received '${hour}'`);
@@ -229,7 +223,7 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     }
   }
   if (!hour) {
-    hour = fallbackHour();
+    throw new Error('hour parameter is required');
   }
   const rowsPerInstrument = clamp(Math.trunc(ensureNumber(raw.rowsPerInstrument ?? raw.rows_per_instrument, 6)), 1, 360);
   const intervalMinutes = clamp(Math.trunc(ensureNumber(raw.intervalMinutes ?? raw.interval_minutes, 10)), 1, 120);
