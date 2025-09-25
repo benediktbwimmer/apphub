@@ -1,8 +1,10 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
+import os from 'node:os';
 import type {
   JobDefinitionRecord,
   JobRunRecord,
@@ -121,11 +123,30 @@ export class SandboxRunner {
 
   async execute(options: SandboxExecutionOptions): Promise<SandboxExecutionResult> {
     const taskId = randomUUID();
-    const hostRootPrefix = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? null;
+    let hostRootPrefix = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? null;
     const bundleCapabilities = Array.isArray(options.bundle.manifest.capabilities)
       ? options.bundle.manifest.capabilities
       : [];
-    const shouldPrefixHostPaths = Boolean(hostRootPrefix && bundleCapabilities.includes('fs'));
+    const hasFilesystemCapability = bundleCapabilities.includes('fs');
+    let sandboxHostRootMirror: string | null = null;
+
+    if (!hostRootPrefix && hasFilesystemCapability && process.platform !== 'win32') {
+      const mirrorBase = await mkdtemp(path.join(os.tmpdir(), 'apphub-host-root-'));
+      const mirrorTarget = path.join(mirrorBase, 'root');
+      try {
+        await symlink('/', mirrorTarget, 'junction');
+        hostRootPrefix = mirrorTarget;
+        sandboxHostRootMirror = mirrorBase;
+      } catch (error) {
+        options.logger('Failed to create sandbox host root mirror', {
+          taskId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await rm(mirrorBase, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+
+    const shouldPrefixHostPaths = Boolean(hostRootPrefix && hasFilesystemCapability);
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       APPHUB_SANDBOX_TASK_ID: taskId
@@ -207,7 +228,7 @@ export class SandboxRunner {
       }, effectiveTimeout);
     }
 
-    const outcome = await new Promise<SandboxExecutionResult>((resolve, reject) => {
+    const outcomePromise = new Promise<SandboxExecutionResult>((resolve, reject) => {
       let settled = false;
 
       const cleanup = (forceKill: boolean) => {
@@ -396,7 +417,13 @@ export class SandboxRunner {
       }
     });
 
-    return outcome;
+    try {
+      return await outcomePromise;
+    } finally {
+      if (sandboxHostRootMirror) {
+        await rm(sandboxHostRootMirror, { recursive: true, force: true }).catch(() => {});
+      }
+    }
   }
 }
 

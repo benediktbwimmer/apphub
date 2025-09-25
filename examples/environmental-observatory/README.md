@@ -10,4 +10,4 @@ This example models a network of field instruments that land hourly CSV readings
 
 To package a job or register a workflow manually, point the CLI or API at the JSON artefacts in `jobs/` or `workflows/`. The watcher service defaults to the paths under `data/`, so you can run it locally with `npm run dev` from `services/observatory-file-watcher` and drop CSVs into `data/inbox` to exercise the flow end-to-end.
 
-The `observatory-hourly-data-generator` workflow wraps the `observatory-data-generator` job to drop synthetic instrument CSVs into `data/inbox`. Schedule it alongside the watcher to simulate live instruments without manual file copies.
+The `observatory-hourly-data-generator` workflow wraps the `observatory-data-generator` job to drop synthetic instrument CSVs into `data/inbox`. Schedule it alongside the watcher to simulate live instruments without manual file copies. When jobs run with filesystem access in the sandbox, AppHub now mirrors the host root automatically so absolute drop locations (for example `/Users/bene/work/observatory/inbox`) still land on your machine.
