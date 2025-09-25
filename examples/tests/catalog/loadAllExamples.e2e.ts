@@ -156,6 +156,65 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   }
 }
 
+async function enqueueExampleBundles(app: FastifyInstance, slugs: readonly string[]): Promise<void> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/examples/load',
+    headers: {
+      Authorization: `Bearer ${OPERATOR_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    payload: {
+      slugs
+    }
+  });
+  assert.equal(response.statusCode, 202, `Failed to enqueue example bundles: ${response.payload}`);
+  const body = JSON.parse(response.payload) as {
+    data: {
+      jobs: Array<{ slug: string; jobId: string }>;
+    };
+  };
+  assert.equal(body.data.jobs.length, slugs.length, 'Expected one job per example slug');
+}
+
+async function waitForExampleBundles(app: FastifyInstance, slugs: readonly string[]): Promise<void> {
+  const remaining = new Set(slugs.map((slug) => slug.toLowerCase()));
+  const deadline = Date.now() + 60_000;
+
+  while (Date.now() < deadline) {
+    const statusResponse = await app.inject({
+      method: 'GET',
+      url: '/examples/bundles/status',
+      headers: {
+        Authorization: `Bearer ${OPERATOR_TOKEN}`
+      }
+    });
+    assert.equal(statusResponse.statusCode, 200, `Status check failed: ${statusResponse.payload}`);
+    const statusBody = JSON.parse(statusResponse.payload) as {
+      data: { statuses: Array<{ slug: string; state: string; error?: string | null }> };
+    };
+    for (const entry of statusBody.data.statuses ?? []) {
+      const normalized = entry.slug.toLowerCase();
+      if (!remaining.has(normalized)) {
+        continue;
+      }
+      if (entry.state === 'completed') {
+        remaining.delete(normalized);
+      } else if (entry.state === 'failed') {
+        throw new Error(`Example bundle ${entry.slug} failed to package: ${entry.error ?? 'unknown error'}`);
+      }
+    }
+
+    if (remaining.size === 0) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Timed out waiting for example bundles: ${Array.from(remaining).join(', ')}`);
+}
+
 async function importExampleBundle(app: FastifyInstance, slug: string): Promise<void> {
   const previewResponse = await app.inject({
     method: 'POST',
@@ -258,6 +317,9 @@ async function testLoadAllExamples(): Promise<void> {
     const initialJobSlugs = new Set(initialJobsBody.data.map((job) => job.slug));
 
     await importServiceManifest(app);
+
+    await enqueueExampleBundles(app, EXAMPLE_BUNDLE_SLUGS);
+    await waitForExampleBundles(app, EXAMPLE_BUNDLE_SLUGS);
 
     for (const slug of EXAMPLE_BUNDLE_SLUGS) {
       await importExampleBundle(app, slug);

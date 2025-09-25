@@ -15,6 +15,7 @@ import type {
   WorkflowRunRecord
 } from './db/index';
 import type { AssetExpiredEventData, AssetProducedEventData } from './assets/types';
+import type { ExampleBundleStatus } from './exampleBundles/statusStore';
 
 type WorkflowAnalyticsStatsEventPayload = {
   workflowId: string;
@@ -72,6 +73,7 @@ export type ApphubEvent =
   | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } }
   | { type: 'asset.produced'; data: AssetProducedEventData }
   | { type: 'asset.expired'; data: AssetExpiredEventData }
+  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | {
       type: 'workflow.analytics.snapshot';
       data: {

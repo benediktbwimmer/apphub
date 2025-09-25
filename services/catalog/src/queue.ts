@@ -4,6 +4,7 @@ import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { type JobRunRecord, type JsonValue } from './db/types';
 import { runWorkflowOrchestration } from './workflowOrchestrator';
+import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -26,6 +27,15 @@ async function ensureBuildJobHandler(): Promise<void> {
   buildHandlerLoaded = true;
 }
 
+let exampleBundleHandlerLoaded = false;
+async function ensureExampleBundleJobHandler(): Promise<void> {
+  if (exampleBundleHandlerLoaded) {
+    return;
+  }
+  await import('./exampleBundleWorker');
+  exampleBundleHandlerLoaded = true;
+}
+
 function createConnection() {
   if (inlineMode) {
     return null;
@@ -46,6 +56,7 @@ export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_qu
 export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch_queue';
 export const WORKFLOW_QUEUE_NAME = process.env.WORKFLOW_QUEUE_NAME ?? 'apphub_workflow_queue';
 export const ASSET_EVENT_QUEUE_NAME = process.env.ASSET_EVENT_QUEUE_NAME ?? 'apphub_asset_event_queue';
+export const EXAMPLE_BUNDLE_QUEUE_NAME = process.env.EXAMPLE_BUNDLE_QUEUE_NAME ?? 'apphub_example_bundle_queue';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -84,6 +95,16 @@ const workflowQueue = !inlineMode && connection
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 50
+      }
+    })
+  : null;
+
+const exampleBundleQueue = !inlineMode && connection
+  ? new Queue(EXAMPLE_BUNDLE_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: 25
       }
     })
   : null;
@@ -274,4 +295,55 @@ export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
   }
 
   await workflowQueue.add('workflow-run', { workflowRunId: trimmedId });
+}
+
+export type EnqueueExampleBundleResult = {
+  jobId: string;
+  slug: string;
+  mode: 'inline' | 'queued';
+  result?: ExampleBundleJobResult;
+};
+
+export async function enqueueExampleBundleJob(
+  slug: string,
+  options: { force?: boolean; skipBuild?: boolean; minify?: boolean } = {}
+): Promise<EnqueueExampleBundleResult> {
+  const trimmedSlug = slug.trim().toLowerCase();
+  if (!trimmedSlug) {
+    throw new Error('slug is required');
+  }
+
+  const payload: ExampleBundleJobData = {
+    slug: trimmedSlug,
+    force: options.force,
+    skipBuild: options.skipBuild,
+    minify: options.minify
+  };
+
+  if (inlineMode) {
+    await ensureExampleBundleJobHandler();
+    const jobId = `inline:${Date.now()}`;
+    const module = await import('./exampleBundleWorker');
+    const result = await module.processExampleBundleJob(payload, jobId);
+    return {
+      jobId,
+      slug: trimmedSlug,
+      mode: 'inline',
+      result
+    } satisfies EnqueueExampleBundleResult;
+  }
+
+  if (!exampleBundleQueue) {
+    throw new Error('Queue not initialised');
+  }
+
+  const job = await exampleBundleQueue.add(trimmedSlug, payload, {
+    jobId: trimmedSlug
+  });
+
+  return {
+    jobId: String(job.id),
+    slug: trimmedSlug,
+    mode: 'queued'
+  } satisfies EnqueueExampleBundleResult;
 }

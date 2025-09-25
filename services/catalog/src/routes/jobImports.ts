@@ -1,17 +1,24 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import tar from 'tar';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
+import tar from 'tar';
 import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
 import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
-import { getExampleJobBundle, isExampleJobSlug } from '@apphub/examples-registry';
+import { getExampleJobBundle, isExampleJobSlug, listExampleJobBundles } from '@apphub/examples-registry';
+import type { PackagedExampleBundle } from '@apphub/example-bundler';
+import {
+  packageExampleBundle as orchestrateExampleBundle,
+  listExampleBundleStatuses,
+  getExampleBundleStatus
+} from '../exampleBundles/manager';
+import { enqueueExampleBundleJob, type EnqueueExampleBundleResult } from '../queue';
+import type { ExampleBundleJobResult } from '../exampleBundleWorker';
+import type { ExampleBundleStatus } from '../exampleBundles/statusStore';
 import { requireOperatorScopes } from './shared/operatorAuth';
-import { JOB_BUNDLE_WRITE_SCOPES } from './shared/scopes';
+import { JOB_BUNDLE_WRITE_SCOPES, JOB_BUNDLE_READ_SCOPES } from './shared/scopes';
 import { publishBundleVersion } from '../jobs/registryService';
 import { extractSchemasFromBundleVersion } from '../jobs/schemaIntrospector';
 import { jsonValueSchema } from '../workflows/zodSchemas';
@@ -30,10 +37,6 @@ const uploadArchiveSchema = z.object({
   contentType: z.string().optional()
 });
 
-const execFileAsync = promisify(execFile);
-const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
-const cliDir = path.resolve(repoRoot, 'apps', 'cli');
-const installLocks = new Map<string, Promise<void>>();
 
 const previewRequestSchema = z.discriminatedUnion('source', [
   z
@@ -60,6 +63,43 @@ const previewRequestSchema = z.discriminatedUnion('source', [
     })
     .strict()
 ]);
+
+const loadExamplesSchema = z
+  .object({
+    slugs: z.array(z.string().min(1)).optional(),
+    force: z.boolean().optional(),
+    skipBuild: z.boolean().optional(),
+    minify: z.boolean().optional()
+  })
+  .optional();
+
+const enqueueExampleSchema = z
+  .object({
+    slug: z.string().min(1),
+    force: z.boolean().optional(),
+    skipBuild: z.boolean().optional(),
+    minify: z.boolean().optional()
+  })
+  .strict();
+
+type ExampleBundleSummary = {
+  slug: string;
+  version: string | null;
+  checksum: string | null;
+  filename: string | null;
+  fingerprint: string | null;
+  cached: boolean | null;
+  reference: string | null;
+};
+
+type ExampleBundleJobResponse = {
+  slug: string;
+  jobId: string;
+  mode: 'inline' | 'queued';
+  status: ExampleBundleStatus | null;
+  bundle: ExampleBundleSummary | null;
+  result?: ExampleBundleJobResult | null;
+};
 
 type JobImportWarning = {
   code?: string;
@@ -95,53 +135,6 @@ async function pathExists(targetPath: string): Promise<boolean> {
     return false;
   }
 }
-
-async function runNpmInstall(targetDir: string): Promise<void> {
-  try {
-    await execFileAsync('npm', ['install'], {
-      cwd: targetDir,
-      maxBuffer: 32 * 1024 * 1024
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`npm install failed in ${path.relative(repoRoot, targetDir)}: ${message}`);
-  }
-}
-
-async function ensureNpmDependencies(targetDir: string): Promise<void> {
-  const packageJsonPath = path.join(targetDir, 'package.json');
-  if (!(await pathExists(packageJsonPath))) {
-    return;
-  }
-  const nodeModulesPath = path.join(targetDir, 'node_modules');
-  if (await pathExists(nodeModulesPath)) {
-    return;
-  }
-
-  let installPromise = installLocks.get(targetDir);
-  if (!installPromise) {
-    installPromise = runNpmInstall(targetDir).finally(() => {
-      installLocks.delete(targetDir);
-    });
-    installLocks.set(targetDir, installPromise);
-  }
-  await installPromise;
-}
-
-async function ensureCliDependencies(): Promise<void> {
-  await ensureNpmDependencies(cliDir);
-}
-
-type PackagedExampleBundle = {
-  slug: string;
-  version: string;
-  manifest: JsonValue;
-  manifestObject: Record<string, JsonValue>;
-  buffer: Buffer;
-  checksum: string;
-  filename: string;
-  contentType: string;
-};
 
 const exampleJobCache = new Map<string, JobDefinitionCreateInput | null>();
 
@@ -205,78 +198,6 @@ async function ensureExampleJobDefinition(slug: string, version: string): Promis
       return;
     }
     throw err;
-  }
-}
-
-async function packageExampleBundle(slug: string): Promise<PackagedExampleBundle> {
-  const normalizedSlug = slug.trim().toLowerCase();
-  if (!normalizedSlug || !isExampleJobSlug(normalizedSlug)) {
-    throw new Error(`Unknown example bundle slug: ${slug}`);
-  }
-  const bundle = getExampleJobBundle(normalizedSlug);
-  if (!bundle) {
-    throw new Error(`Unknown example bundle slug: ${slug}`);
-  }
-
-  const bundleDir = path.resolve(repoRoot, bundle.directory);
-  if (!(await pathExists(bundleDir))) {
-    throw new Error(`Example bundle directory not found: ${path.relative(repoRoot, bundleDir)}`);
-  }
-  await ensureCliDependencies();
-  await ensureNpmDependencies(bundleDir);
-
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `apphub-example-${bundle.slug}-`));
-  try {
-    const filename = `${bundle.slug}.tgz`;
-    await execFileAsync('npm', [
-      'exec',
-      '--prefix',
-      cliDir,
-      'tsx',
-      'src/index.ts',
-      'jobs',
-      'package',
-      bundleDir,
-      '--',
-      '--output-dir',
-      tempDir,
-      '--filename',
-      filename,
-      '--force'
-    ], {
-      cwd: cliDir,
-      maxBuffer: 32 * 1024 * 1024
-    });
-
-    const tarballPath = path.join(tempDir, filename);
-    const tarballBuffer = await fs.readFile(tarballPath);
-    const { manifest, manifestObject } = await extractManifestFromArchive(tarballBuffer);
-    const manifestJson = manifest;
-    if (!manifestJson || typeof manifestJson !== 'object' || Array.isArray(manifestJson)) {
-      throw new Error('Example bundle manifest must be a JSON object');
-    }
-
-    const manifestRecord = manifestJson as Record<string, JsonValue>;
-    const manifestSlugRaw = manifestRecord.slug;
-    const manifestSlug = typeof manifestSlugRaw === 'string' ? manifestSlugRaw.trim().toLowerCase() : bundle.slug;
-    const manifestVersionRaw = manifestRecord.version;
-    const manifestVersion =
-      typeof manifestVersionRaw === 'string' && manifestVersionRaw.trim().length > 0
-        ? manifestVersionRaw.trim()
-        : 'unknown';
-
-    return {
-      slug: manifestSlug,
-      version: manifestVersion,
-      manifest: manifestJson,
-      manifestObject: manifestJson as Record<string, JsonValue>,
-      buffer: tarballBuffer,
-      checksum: computeChecksum(tarballBuffer),
-      filename,
-      contentType: 'application/gzip'
-    } satisfies PackagedExampleBundle;
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -354,6 +275,47 @@ function collectCapabilities(manifest: Record<string, JsonValue>): string[] {
 
 function computeChecksum(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex');
+}
+
+function buildExampleBundleSummary(
+  slug: string,
+  status: ExampleBundleStatus | null,
+  result?: ExampleBundleJobResult | null
+): ExampleBundleSummary | null {
+  const version = result?.version ?? status?.version ?? null;
+  const checksum = result?.checksum ?? status?.checksum ?? null;
+  const filename = result?.filename ?? status?.filename ?? null;
+  const fingerprint = result?.fingerprint ?? status?.fingerprint ?? null;
+  const cachedFlag = result?.cached ?? status?.cached ?? null;
+
+  if (!version && !checksum && !filename && !fingerprint && cachedFlag === null) {
+    return null;
+  }
+
+  const reference = version ? `${slug}@${version}` : null;
+  return {
+    slug,
+    version,
+    checksum,
+    filename,
+    fingerprint,
+    cached: cachedFlag,
+    reference
+  } satisfies ExampleBundleSummary;
+}
+
+function toExampleBundleJobResponse(
+  job: EnqueueExampleBundleResult,
+  status: ExampleBundleStatus | null
+): ExampleBundleJobResponse {
+  return {
+    slug: job.slug,
+    jobId: job.jobId,
+    mode: job.mode,
+    status,
+    bundle: buildExampleBundleSummary(job.slug, status, job.result ?? null),
+    result: job.result ?? null
+  } satisfies ExampleBundleJobResponse;
 }
 
 function buildPreviewResponse(
@@ -548,7 +510,7 @@ function prepareExamplePreview(
   return {
     slug: referenceSlug ?? packaged.slug,
     version: referenceVersion ?? packaged.version,
-    manifest: packaged.manifest,
+    manifest: packaged.manifest as JsonValue,
     manifestObject: packaged.manifestObject,
     capabilities,
     runtime,
@@ -576,6 +538,137 @@ function buildConfirmResponse(result: BundlePublishResult, runtime: string | nul
 }
 
 export async function registerJobImportRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/examples/load', async (request, reply) => {
+    const bodyResult = loadExamplesSchema.safeParse(request.body ?? {});
+    if (!bodyResult.success) {
+      reply.status(400);
+      return { error: bodyResult.error.flatten() };
+    }
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'examples.load',
+      resource: 'examples',
+      requiredScopes: JOB_BUNDLE_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const body = bodyResult.data ?? {};
+    const available = listExampleJobBundles().map((bundle) => bundle.slug);
+    const availableSet = new Set(available.map((slug) => slug.toLowerCase()));
+    const requested = Array.isArray(body.slugs) && body.slugs.length > 0
+      ? body.slugs.map((slug) => slug.trim().toLowerCase()).filter((slug) => availableSet.has(slug))
+      : available.map((slug) => slug.toLowerCase());
+
+    if (requested.length === 0) {
+      reply.status(400);
+      return { error: 'No matching example slugs provided' };
+    }
+
+    const jobs: ExampleBundleJobResponse[] = [];
+    for (const slug of requested) {
+      const job = await enqueueExampleBundleJob(slug, {
+        force: body.force,
+        skipBuild: body.skipBuild,
+        minify: body.minify
+      });
+      const status = await getExampleBundleStatus(slug);
+      jobs.push(toExampleBundleJobResponse(job, status));
+    }
+
+    reply.status(202);
+    return {
+      data: {
+        jobs
+      }
+    };
+  });
+
+  app.get('/examples/bundles/status', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'examples.status',
+      resource: 'examples',
+      requiredScopes: JOB_BUNDLE_READ_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const statuses = await listExampleBundleStatuses();
+    reply.status(200);
+    return {
+      data: {
+        statuses
+      }
+    };
+  });
+
+  app.post('/job-imports/example', async (request, reply) => {
+    const parseBody = enqueueExampleSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'job-bundles.enqueue-example',
+      resource: 'job-bundles',
+      requiredScopes: JOB_BUNDLE_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const body = parseBody.data;
+    const normalizedSlug = body.slug.trim().toLowerCase();
+    if (!isExampleJobSlug(normalizedSlug)) {
+      reply.status(400);
+      return { error: `Unknown example bundle slug: ${body.slug}` };
+    }
+
+    const job = await enqueueExampleBundleJob(normalizedSlug, {
+      force: body.force,
+      skipBuild: body.skipBuild,
+      minify: body.minify
+    });
+    const status = await getExampleBundleStatus(normalizedSlug);
+    const response = toExampleBundleJobResponse(job, status);
+
+    reply.status(job.mode === 'inline' ? 200 : 202);
+    return {
+      data: response
+    };
+  });
+
+  app.get('/job-imports/example/:slug', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'job-bundles.example-status',
+      resource: 'job-bundles',
+      requiredScopes: JOB_BUNDLE_READ_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const slugParam = String((request.params as { slug?: string }).slug ?? '').trim().toLowerCase();
+    if (!slugParam || !isExampleJobSlug(slugParam)) {
+      reply.status(404);
+      return { error: 'Example bundle not found' };
+    }
+
+    const status = await getExampleBundleStatus(slugParam);
+    const bundle = buildExampleBundleSummary(slugParam, status, null);
+    reply.status(200);
+    return {
+      data: {
+        slug: slugParam,
+        status,
+        bundle
+      }
+    };
+  });
+
   app.post('/job-imports/preview', { config: { bodyLimit: 8 * 1024 * 1024 } }, async (request, reply) => {
     const parseBody = previewRequestSchema.safeParse(request.body ?? {});
     if (!parseBody.success) {
@@ -610,7 +703,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
         }
         parsed = await prepareUploadPreview(body, buffer);
       } else {
-        const packaged = await packageExampleBundle(body.slug);
+        const packaged = await orchestrateExampleBundle(body.slug);
         parsed = prepareExamplePreview(packaged, {
           expectedSlug: body.slug,
           reference: body.reference
@@ -664,7 +757,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
         }
         parsed = await prepareUploadPreview(body, buffer);
       } else {
-        const packaged = await packageExampleBundle(body.slug);
+        const packaged = await orchestrateExampleBundle(body.slug);
         parsed = prepareExamplePreview(packaged, {
           expectedSlug: body.slug,
           reference: body.reference

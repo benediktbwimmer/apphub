@@ -44,6 +44,12 @@
       ],
       "@apphub/examples-registry/*": [
         "packages/examples-registry/src/*"
+      ],
+      "@apphub/example-bundler": [
+        "packages/example-bundler/src/index.ts"
+      ],
+      "@apphub/example-bundler/*": [
+        "packages/example-bundler/src/*"
       ]
     }
   }

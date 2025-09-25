@@ -1,0 +1,27 @@
+{
+  "name": "@apphub/example-bundler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example bundle packaging orchestrator with caching and shared helpers.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@apphub/examples-registry": "0.1.0",
+    "esbuild": "^0.21.5",
+    "fast-glob": "^3.3.2",
+    "tar": "^6.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/tar": "^6.1.13",
+    "typescript": "^5.3.3"
+  }
+}

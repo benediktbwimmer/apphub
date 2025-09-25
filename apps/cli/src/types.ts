@@ -1,54 +1,17 @@
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import type {
+  JsonValue,
+  JobBundleManifest,
+  BundleConfig,
+  NormalizedBundleConfig,
+  PackageResult
+} from '@apphub/example-bundler';
 
-export type JobBundleManifest = {
-  name: string;
-  version: string;
-  entry?: string;
-  runtime?: string;
-  pythonEntry?: string;
-  description?: string;
-  capabilities?: string[];
-  metadata?: JsonValue;
-  [key: string]: JsonValue | undefined;
-};
-
-export type BundleTestConfig = {
-  sampleInputPath?: string;
-};
-
-export type BundleConfig = {
-  slug: string;
-  entry?: string;
-  outDir?: string;
-  manifestPath?: string;
-  artifactDir?: string;
-  files?: string[];
-  tests?: BundleTestConfig;
-  pythonEntry?: string;
-  pythonRequirementsPath?: string;
-  externals?: string[];
-};
-
-export type NormalizedBundleConfig = Required<
-  Omit<BundleConfig, 'tests' | 'files' | 'pythonRequirementsPath'>
-> & {
-  files: string[];
-  tests: BundleTestConfig;
-  pythonRequirementsPath?: string;
-  externals: string[];
-};
-
-export type PackageResult = {
-  manifest: JobBundleManifest;
-  config: NormalizedBundleConfig;
-  tarballPath: string;
-  checksum: string;
+export type {
+  JsonValue,
+  JobBundleManifest,
+  BundleConfig,
+  NormalizedBundleConfig,
+  PackageResult
 };
 
 export type JobResult = {

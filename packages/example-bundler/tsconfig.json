@@ -11,22 +11,10 @@
     "sourceMap": true,
     "composite": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "src"
-  ],
+  "include": ["src", "src/**/*.json"],
   "references": [
-    {
-      "path": "../../packages/examples-registry"
-    },
-    {
-      "path": "../../packages/example-bundler"
-    },
-    {
-      "path": "../../packages/shared"
-    }
+    { "path": "../examples-registry" }
   ]
 }

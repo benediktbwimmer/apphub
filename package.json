@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:workflows\" \"npm run dev:materializer\" \"npm run dev:services\" \"npm run dev:frontend\"",
+    "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:workflows\" \"npm run dev:materializer\" \"npm run dev:examples\" \"npm run dev:services\" \"npm run dev:frontend\"",
     "lint": "npm run check:artifacts && npm run lint --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "check:artifacts": "node scripts/check-artifacts.mjs",
@@ -20,6 +20,8 @@
     "dev:workflows": "npm run workflows --workspace @apphub/catalog",
     "dev:services": "node scripts/dev-services.js",
     "dev:materializer": "npm run materializer --workspace @apphub/catalog"
+    ,
+    "dev:examples": "npm run examples --workspace @apphub/catalog"
   },
   "devDependencies": {
     "@types/node": "^20.14.2",

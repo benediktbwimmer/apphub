@@ -9,6 +9,9 @@
       "path": "./packages/examples-registry"
     },
     {
+      "path": "./packages/example-bundler"
+    },
+    {
       "path": "./services/catalog"
     },
     {

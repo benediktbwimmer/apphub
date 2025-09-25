@@ -11,6 +11,7 @@ yarn-error.log*
 services/catalog/data/*.db
 services/catalog/data/*.db-*
 services/catalog/tests/fixtures/*.db
+services/catalog/data/example-bundles/
 services/data/*
 services/data/*.db-*
 services/catalog/dist/
