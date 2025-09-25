@@ -219,6 +219,18 @@ export async function startLaunch(launchId: string): Promise<LaunchRecord | null
   return launch;
 }
 
+export async function updateLaunchEnv(
+  launchId: string,
+  env: LaunchEnvVar[]
+): Promise<LaunchRecord | null> {
+  const launch = await useTransaction(async (client) => {
+    return updateLaunchRecord(client, launchId, { env });
+  });
+
+  await emitLaunchChanged(launch);
+  return launch;
+}
+
 export async function markLaunchRunning(
   launchId: string,
   details: {

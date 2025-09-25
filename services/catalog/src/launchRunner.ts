@@ -12,6 +12,7 @@ import {
   startLaunch,
   deleteServiceNetworkLaunchMembers,
   getServiceNetworkLaunchMembers,
+  updateLaunchEnv,
   type LaunchEnvVar,
   type ServiceNetworkLaunchMemberInput,
   type ServiceNetworkLaunchMemberRecord,
@@ -32,7 +33,8 @@ import type { ResolvedManifestEnvVar } from './serviceManifestTypes';
 import {
   updateServiceRuntimeForRepository,
   clearServiceRuntimeForRepository,
-  resolveManifestPortForRepository
+  resolveManifestPortForRepository,
+  resolveManifestEnvForRepository
 } from './serviceRegistry';
 
 function log(message: string, meta?: Record<string, unknown>) {
@@ -84,6 +86,63 @@ function parseHostPort(output: string, internalPort: number): string | null {
     }
   }
   return null;
+}
+
+type NormalizedEnvEntry = { key: string; value: string };
+
+function normalizeLaunchEnvEntry(entry: LaunchEnvVar | null | undefined): NormalizedEnvEntry | null {
+  if (!entry || typeof entry.key !== 'string') {
+    return null;
+  }
+  const key = entry.key.trim();
+  if (!key) {
+    return null;
+  }
+  const value = typeof entry.value === 'string' ? entry.value : '';
+  return { key, value };
+}
+
+function mergeLaunchEnvVars(
+  defaults: LaunchEnvVar[] | null | undefined,
+  overrides: LaunchEnvVar[] | null | undefined
+): LaunchEnvVar[] {
+  const result: NormalizedEnvEntry[] = [];
+  const indexByKey = new Map<string, number>();
+
+  const push = (entry: LaunchEnvVar | null | undefined) => {
+    const normalized = normalizeLaunchEnvEntry(entry);
+    if (!normalized) {
+      return;
+    }
+    const existingIndex = indexByKey.get(normalized.key);
+    if (existingIndex !== undefined) {
+      result[existingIndex] = normalized;
+      return;
+    }
+    indexByKey.set(normalized.key, result.length);
+    result.push(normalized);
+  };
+
+  for (const entry of defaults ?? []) {
+    push(entry);
+  }
+
+  for (const entry of overrides ?? []) {
+    push(entry);
+  }
+
+  return result.map(({ key, value }) => ({ key, value }));
+}
+
+function envSignature(env: LaunchEnvVar[] | null | undefined): string {
+  if (!env || env.length === 0) {
+    return '[]';
+  }
+  const normalized = env
+    .map((entry) => normalizeLaunchEnvEntry(entry))
+    .filter((entry): entry is NormalizedEnvEntry => entry !== null)
+    .sort((a, b) => a.key.localeCompare(b.key));
+  return JSON.stringify(normalized);
 }
 
 async function inspectContainerIp(containerId: string): Promise<string | null> {
@@ -578,7 +637,7 @@ export async function runLaunchStart(launchId: string) {
     return;
   }
 
-  const launch = await startLaunch(launchId);
+  let launch = await startLaunch(launchId);
   if (!launch) {
     log('Launch not pending', { launchId });
     return;
@@ -590,6 +649,17 @@ export async function runLaunchStart(launchId: string) {
     await failLaunch(launch.id, message);
     log('Launch failed - repository missing', { launchId, repositoryId: launch.repositoryId });
     return;
+  }
+
+  const manifestEnvDefaults = await resolveManifestEnvForRepository(launch.repositoryId);
+  const mergedLaunchEnv = mergeLaunchEnvVars(manifestEnvDefaults, launch.env);
+  if (envSignature(mergedLaunchEnv) !== envSignature(launch.env)) {
+    const updated = await updateLaunchEnv(launch.id, mergedLaunchEnv);
+    if (updated) {
+      launch = updated;
+    } else {
+      launch = { ...launch, env: mergedLaunchEnv };
+    }
   }
 
   const serviceNetwork = await getServiceNetworkByRepositoryId(repository.id);

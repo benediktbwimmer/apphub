@@ -27,7 +27,11 @@ import {
 } from './db/index';
 import { enqueueRepositoryIngestion } from './queue';
 import { type LoadedManifestEntry, type LoadedServiceNetwork } from './serviceConfigLoader';
-import { type ManifestEnvVarInput, type ResolvedManifestEnvVar } from './serviceManifestTypes';
+import {
+  manifestEnvVarSchema,
+  type ManifestEnvVarInput,
+  type ResolvedManifestEnvVar
+} from './serviceManifestTypes';
 import {
   coerceServiceMetadata,
   mergeServiceMetadata,
@@ -258,6 +262,15 @@ function normalizeEnvReference(
   };
 }
 
+function extractPlaceholderDefault(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const placeholder = (value as { $var?: { default?: unknown } }).$var;
+  const defaultValue = placeholder?.default;
+  return typeof defaultValue === 'string' ? defaultValue : undefined;
+}
+
 function cloneEnvVars(env?: ManifestEnvVarInput[] | null): EnvVar[] | undefined {
   if (!env || !Array.isArray(env)) {
     return undefined;
@@ -269,17 +282,22 @@ function cloneEnvVars(env?: ManifestEnvVarInput[] | null): EnvVar[] | undefined 
       if (!key) {
         return { key: '' } as EnvVar;
       }
-      const clone: EnvVar = { key };
-      if (typeof entry.value === 'string') {
-        clone.value = entry.value;
+    const clone: EnvVar = { key };
+    if (typeof entry.value === 'string') {
+      clone.value = entry.value;
+    } else {
+      const placeholderDefault = extractPlaceholderDefault(entry.value);
+      if (placeholderDefault !== undefined) {
+        clone.value = placeholderDefault;
       }
-      const ref = normalizeEnvReference(entry.fromService);
-      if (ref) {
-        clone.fromService = ref;
-      }
-      return clone;
-    })
-    .filter((entry) => entry.key.length > 0 && (entry.value !== undefined || entry.fromService !== undefined));
+    }
+    const ref = normalizeEnvReference(entry.fromService);
+    if (ref) {
+      clone.fromService = ref;
+    }
+    return clone;
+  })
+  .filter((entry) => entry.key.length > 0 && (entry.value !== undefined || entry.fromService !== undefined));
 }
 
 function toLaunchEnvVars(env?: EnvVar[] | null): LaunchEnvVar[] {
@@ -675,6 +693,33 @@ function buildManifestMetadata(entry: ManifestEntry) {
     baseUrlSource: entry.baseUrlSource,
     env: env ?? null
   });
+}
+
+function parseManifestEnvList(value: unknown): ManifestEnvVarInput[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const entries: ManifestEnvVarInput[] = [];
+  for (const candidate of value) {
+    const parsed = manifestEnvVarSchema.safeParse(candidate);
+    if (parsed.success) {
+      entries.push(parsed.data);
+    }
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+function manifestInputsToLaunchEnv(
+  env?: ManifestEnvVarInput[] | null
+): LaunchEnvVar[] {
+  if (!env || env.length === 0) {
+    return [];
+  }
+  const cloned = cloneEnvVars(env);
+  if (!cloned || cloned.length === 0) {
+    return [];
+  }
+  return toLaunchEnvVars(cloned);
 }
 
 function stripAppliedAt(value: JsonValue | undefined): Record<string, JsonValue> | null {
@@ -1161,6 +1206,35 @@ export async function resolveManifestPortForRepository(repositoryId: string): Pr
   }
 
   return extractPortFromBaseUrl(service.baseUrl ?? null);
+}
+
+export async function resolveManifestEnvForRepository(repositoryId: string): Promise<LaunchEnvVar[]> {
+  const slug = await getServiceSlugForRepository(repositoryId);
+  if (!slug) {
+    return [];
+  }
+
+  const manifest = manifestEntries.get(slug);
+  if (manifest) {
+    const manifestEnv = manifestInputsToLaunchEnv(serializeManifestEnvVars(manifest.env));
+    if (manifestEnv.length > 0) {
+      return manifestEnv;
+    }
+  }
+
+  const service = await getServiceBySlug(slug);
+  if (!service) {
+    return [];
+  }
+
+  const metadata = coerceServiceMetadata(service.metadata ?? null);
+  const manifestMeta = toPlainObject(metadata?.manifest as JsonValue | null | undefined);
+  const metadataEnv = manifestInputsToLaunchEnv(parseManifestEnvList(manifestMeta.env ?? null));
+  if (metadataEnv.length > 0) {
+    return metadataEnv;
+  }
+
+  return [];
 }
 
 function buildPreviewUrl(slug: string, runtime: ServiceRuntimeSnapshot): string | null {
