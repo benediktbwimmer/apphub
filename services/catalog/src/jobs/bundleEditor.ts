@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import tar from 'tar';
+import * as tar from 'tar';
 import https from 'node:https';
 import http from 'node:http';
 

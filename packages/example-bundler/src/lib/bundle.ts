@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import tar from 'tar';
+import * as tar from 'tar';
 import fg from 'fast-glob';
 import esbuild from 'esbuild';
 import {

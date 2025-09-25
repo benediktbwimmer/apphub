@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_INSTALL_MAX_BUFFER = 32 * 1024 * 1024;
 const DEFAULT_CONTENT_TYPE = 'application/gzip';
 const DEFAULT_CACHE_DIRNAME = path.join('services', 'catalog', 'data', 'example-bundles');
+const LOCKFILE_CANDIDATES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'package.json'];
 
 export type ExampleBundlerProgressStage =
   | 'queued'
@@ -214,8 +215,17 @@ export class ExampleBundler {
       const cacheDir = path.join(this.cacheRoot, bundle.slug, key.fingerprint);
       await ensureDir(cacheDir);
 
-      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'installing-dependencies'));
-      await this.ensureDependencies(bundleDir, bundle.slug, key.lockHash);
+      const skipInstall = await this.shouldSkipInstall(bundleDir, key.lockHash);
+      const installMessage = skipInstall
+        ? 'No package manifest detected; skipping dependency install.'
+        : undefined;
+      emitProgress(
+        progress,
+        buildProgress(bundle.slug, key.fingerprint, 'installing-dependencies', installMessage)
+      );
+      if (!skipInstall) {
+        await this.ensureDependencies(bundleDir, bundle.slug, key.lockHash);
+      }
 
       emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'packaging'));
       const packaged = await this.buildBundle(bundleDir, cacheDir, options);
@@ -265,6 +275,9 @@ export class ExampleBundler {
     slug: string,
     lockHash: string | null
   ): Promise<void> {
+    if (lockHash === null && !(await this.hasInstallManifest(bundleDir))) {
+      return;
+    }
     const nodeModules = path.join(bundleDir, 'node_modules');
     const installStatePath = path.join(this.cacheRoot, slug, 'install.json');
     const installMatches = await this.installStateMatches(installStatePath, nodeModules, lockHash);
@@ -376,6 +389,23 @@ export class ExampleBundler {
       cacheKey: `${bundle.slug}:${fingerprint}`
     } satisfies CacheKey;
   }
+
+  private async shouldSkipInstall(bundleDir: string, lockHash: string | null): Promise<boolean> {
+    if (lockHash !== null) {
+      return false;
+    }
+    return !(await this.hasInstallManifest(bundleDir));
+  }
+
+  private async hasInstallManifest(bundleDir: string): Promise<boolean> {
+    for (const candidate of LOCKFILE_CANDIDATES) {
+      const candidatePath = path.join(bundleDir, candidate);
+      if (await pathExists(candidatePath)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 type CacheKey = {
@@ -481,8 +511,7 @@ async function hashDirectory(root: string): Promise<string> {
 }
 
 async function computeLockfileHash(root: string): Promise<string | null> {
-  const lockCandidates = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'package.json'];
-  for (const candidate of lockCandidates) {
+  for (const candidate of LOCKFILE_CANDIDATES) {
     const candidatePath = path.join(root, candidate);
     if (await pathExists(candidatePath)) {
       const contents = await fs.readFile(candidatePath);

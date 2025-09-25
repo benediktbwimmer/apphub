@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import tar from 'tar';
+import * as tar from 'tar';
 import { publishBundleVersion } from '../jobs/registryService';
 import { closePool } from '../db/index';
 

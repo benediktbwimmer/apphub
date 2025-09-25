@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import tar from 'tar';
+import * as tar from 'tar';
 import { test } from 'node:test';
 import { createTempDir } from './helpers';
 import { loadOrScaffoldBundle, packageBundle } from '../src/lib/bundle';

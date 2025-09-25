@@ -4,7 +4,7 @@ import net from 'node:net';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import tar from 'tar';
+import * as tar from 'tar';
 import { createHash } from 'node:crypto';
 import EmbeddedPostgres from 'embedded-postgres';
 

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
-import tar from 'tar';
+import * as tar from 'tar';
 import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
 import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
 import { getExampleJobBundle, isExampleJobSlug, listExampleJobBundles } from '@apphub/examples-registry';
