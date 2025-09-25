@@ -13,6 +13,25 @@ const isoTimestampSchema = z
     return !Number.isNaN(Date.parse(value));
   }, 'must be an ISO 8601 timestamp');
 
+const previewUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    if (!value) {
+      return false;
+    }
+    if (value.startsWith('/')) {
+      return true;
+    }
+    try {
+      // eslint-disable-next-line no-new
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'must be an absolute URL or absolute path');
+
 export const serviceManifestMetadataSchema = z
   .object({
     source: z.string().trim().min(1).nullable().optional(),
@@ -34,7 +53,7 @@ export const serviceRuntimeMetadataSchema = z
     launchId: z.string().trim().min(1).nullable().optional(),
     instanceUrl: z.string().trim().url().nullable().optional(),
     baseUrl: z.string().trim().url().nullable().optional(),
-    previewUrl: z.string().trim().url().nullable().optional(),
+    previewUrl: previewUrlSchema.nullable().optional(),
     host: z.string().trim().nullable().optional(),
     port: z.number().int().min(0).max(65_535).nullable().optional(),
     containerIp: z.string().trim().nullable().optional(),

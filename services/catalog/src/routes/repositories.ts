@@ -38,6 +38,7 @@ import {
 import { parseEnvPort, resolveLaunchInternalPort } from '../docker';
 import { buildDockerRunCommand } from '../launchCommand';
 import { runLaunchStart, runLaunchStop } from '../launchRunner';
+import { resolveManifestPortForRepository } from '../serviceRegistry';
 import { serializeBuild, serializeLaunch, serializeRepository } from './shared/serializers';
 import type { JsonValue } from './shared/serializers';
 import type { FastifyReply } from 'fastify';
@@ -363,6 +364,7 @@ async function scheduleLaunch(options: {
 
   const env = normalizeLaunchEnv(payload.env);
   const envDefinedPort = resolvePortFromEnvVars(env);
+  const manifestPort = await resolveManifestPortForRepository(repository.id);
   const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
   const launchId = requestedLaunchId.length > 0 ? requestedLaunchId : randomUUID();
 
@@ -374,7 +376,7 @@ async function scheduleLaunch(options: {
   }
 
   const commandInput = typeof payload.command === 'string' ? payload.command.trim() : '';
-  const internalPort = envDefinedPort ?? (await resolveLaunchInternalPort(build.imageTag));
+  const internalPort = envDefinedPort ?? manifestPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandFallback = buildDockerRunCommand({
     repositoryId: repository.id,
     launchId,

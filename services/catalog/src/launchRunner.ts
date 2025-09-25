@@ -31,7 +31,8 @@ import {
 import type { ResolvedManifestEnvVar } from './serviceManifestTypes';
 import {
   updateServiceRuntimeForRepository,
-  clearServiceRuntimeForRepository
+  clearServiceRuntimeForRepository,
+  resolveManifestPortForRepository
 } from './serviceRegistry';
 
 function log(message: string, meta?: Record<string, unknown>) {
@@ -606,7 +607,8 @@ export async function runLaunchStart(launchId: string) {
   }
 
   const envDefinedPort = resolvePortFromLaunchEnv(launch.env);
-  const containerPort = envDefinedPort ?? (await resolveLaunchInternalPort(build.imageTag));
+  const manifestPort = await resolveManifestPortForRepository(launch.repositoryId);
+  const containerPort = envDefinedPort ?? manifestPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandSource = launch.command?.trim() ?? '';
   let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
   let commandLabel = commandSource;

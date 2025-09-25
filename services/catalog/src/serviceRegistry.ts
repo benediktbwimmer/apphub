@@ -824,7 +824,7 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
     }
   }
 
-  for (const [slug] of manifestEntries) {
+  for (const [slug, entry] of manifestEntries) {
     const normalizedSlug = normalizeRepositoryId(slug);
     if (!normalizedSlug) {
       continue;
@@ -837,6 +837,20 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
     if (!repositoryId) {
       continue;
     }
+
+    const envTemplates = toLaunchEnvVars(entry.env ?? []);
+    if (envTemplates.length > 0 && (repository.launchEnvTemplates?.length ?? 0) === 0) {
+      try {
+        await updateRepositoryLaunchEnvTemplates(repository.id, envTemplates);
+      } catch (err) {
+        log('warn', 'failed to update repository launch env templates from service manifest', {
+          repositoryId: repository.id,
+          slug,
+          error: (err as Error).message
+        });
+      }
+    }
+
     const existing = serviceToApps.get(normalizedSlug);
     if (existing) {
       existing.add(repositoryId);
@@ -945,13 +959,116 @@ async function getServiceSlugForRepository(repositoryId: string): Promise<string
   return null;
 }
 
-function buildRuntimeMetadata(runtime: ServiceRuntimeSnapshot) {
+function isLoopbackHost(hostname: string | null | undefined): boolean {
+  if (!hostname) {
+    return false;
+  }
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return LOOPBACK_HOSTS.has(normalized) || normalized.startsWith('127.');
+}
+
+function normalizeUrl(value: string | null | undefined): string | null {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    if (!parsed.protocol || !parsed.hostname) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function parsePortValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+export async function resolveManifestPortForRepository(repositoryId: string): Promise<number | null> {
+  const slug = await getServiceSlugForRepository(repositoryId);
+  if (!slug) {
+    return null;
+  }
+  const manifest = manifestEntries.get(slug);
+  if (!manifest) {
+    return null;
+  }
+
+  if (manifest.env && manifest.env.length > 0) {
+    for (const entry of manifest.env) {
+      if (!entry || typeof entry.key !== 'string') {
+        continue;
+      }
+      if (entry.key.trim().toLowerCase() !== 'port') {
+        continue;
+      }
+      const port = parsePortValue(entry.value);
+      if (port) {
+        return port;
+      }
+    }
+  }
+
+  const baseUrl = manifest.baseUrl ?? null;
+  if (baseUrl) {
+    try {
+      const parsed = new URL(baseUrl);
+      const port = parsePortValue(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+      if (port) {
+        return port;
+      }
+    } catch {
+      // ignore invalid base URL
+    }
+  }
+
+  return null;
+}
+
+function buildPreviewUrl(slug: string, runtime: ServiceRuntimeSnapshot): string | null {
+  const proxyPath = `/services/${slug}/preview/`;
+  const candidates = [runtime.previewUrl, runtime.instanceUrl, runtime.baseUrl];
+  for (const candidate of candidates) {
+    const normalized = normalizeUrl(candidate);
+    if (!normalized) {
+      continue;
+    }
+    try {
+      const parsed = new URL(normalized);
+      if (!isLoopbackHost(parsed.hostname)) {
+        return normalized;
+      }
+    } catch {
+      continue;
+    }
+  }
+  if (runtime.containerBaseUrl) {
+    return proxyPath;
+  }
+  return normalizeUrl(runtime.previewUrl ?? runtime.instanceUrl ?? runtime.baseUrl) ?? proxyPath;
+}
+
+function buildRuntimeMetadata(slug: string, runtime: ServiceRuntimeSnapshot) {
   return removeUndefined({
     repositoryId: runtime.repositoryId,
     launchId: runtime.launchId ?? null,
     instanceUrl: runtime.instanceUrl ?? null,
     baseUrl: runtime.baseUrl ?? null,
-    previewUrl: runtime.previewUrl ?? runtime.instanceUrl ?? runtime.baseUrl ?? null,
+    previewUrl: buildPreviewUrl(slug, runtime),
     host: runtime.host ?? null,
     port: runtime.port ?? null,
     containerIp: runtime.containerIp ?? null,
@@ -979,7 +1096,7 @@ export async function updateServiceRuntimeForRepository(
     return;
   }
 
-  const runtimeMetadata = buildRuntimeMetadata(runtime);
+  const runtimeMetadata = buildRuntimeMetadata(slug, runtime);
   const nextMetadata = mergeServiceMetadata(service.metadata ?? null, {
     resourceType: 'service',
     runtime: runtimeMetadata

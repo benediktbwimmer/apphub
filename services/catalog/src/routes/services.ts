@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -12,6 +13,7 @@ import {
   type ServiceStatusUpdate,
   type ServiceUpsertInput
 } from '../db/index';
+import { fetchFromService } from '../clients/serviceClient';
 import {
   appendServiceConfigImport,
   previewServiceConfigImport,
@@ -185,6 +187,79 @@ async function resolveServiceConfigTargetPath(): Promise<string> {
 export async function registerServiceRoutes(app: FastifyInstance, options: ServiceRoutesOptions): Promise<void> {
   const { registry } = options;
 
+  function extractPreviewProxyTarget(request: FastifyRequest, slugParam: string): string {
+    const rawUrl = request.raw.url ?? '';
+    const prefix = `/services/${slugParam}/preview`;
+    let suffix = rawUrl.startsWith(prefix) ? rawUrl.slice(prefix.length) : '';
+    if (!suffix) {
+      return '/';
+    }
+    if (!suffix.startsWith('/')) {
+      suffix = `/${suffix}`;
+    }
+    return suffix === '' ? '/' : suffix;
+  }
+
+  function buildForwardHeaders(request: FastifyRequest): Headers {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(request.headers)) {
+      if (!value) {
+        continue;
+      }
+      const lower = key.toLowerCase();
+      if (['host', 'connection', 'content-length'].includes(lower)) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (entry !== undefined) {
+            headers.append(key, entry);
+          }
+        }
+        continue;
+      }
+      headers.set(key, String(value));
+    }
+    return headers;
+  }
+
+  async function handleServicePreviewProxy(request: FastifyRequest, reply: FastifyReply) {
+    const params = request.params as { slug?: string };
+    const slugParam = params.slug ?? '';
+    const slug = slugParam.trim().toLowerCase();
+    if (!slug) {
+      reply.status(400);
+      return { error: 'service slug required' };
+    }
+
+    const service = await getServiceBySlug(slug);
+    if (!service) {
+      reply.status(404);
+      return { error: 'service not found' };
+    }
+
+    const targetPath = extractPreviewProxyTarget(request, slugParam);
+
+    try {
+      const headers = buildForwardHeaders(request);
+      const { response } = await fetchFromService(service, targetPath, { headers });
+      reply.status(response.status);
+      for (const [headerKey, headerValue] of response.headers.entries()) {
+        if (headerKey.toLowerCase() === 'content-length') {
+          continue;
+        }
+        reply.header(headerKey, headerValue);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      reply.header('content-length', buffer.length);
+      return reply.send(buffer);
+    } catch (err) {
+      request.log.error({ err, slug, targetPath }, 'Service preview proxy request failed');
+      reply.status(502);
+      return { error: 'service preview unavailable' };
+    }
+  }
+
   app.get('/services', async () => {
     const services = await listServices();
     const healthyCount = services.filter((service) => service.status === 'healthy').length;
@@ -197,6 +272,22 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         unhealthyCount
       }
     };
+  });
+
+  app.get('/services/:slug/preview', handleServicePreviewProxy);
+  app.get('/services/:slug/preview/*', handleServicePreviewProxy);
+
+  app.post('/services/refresh', async (request, reply) => {
+    if (!ensureServiceRegistryAuthorized(request, reply)) {
+      return { error: 'service registry disabled' };
+    }
+    try {
+      await registry.refreshManifest();
+      return { ok: true };
+    } catch (err) {
+      reply.status(500);
+      return { error: (err as Error).message };
+    }
   });
 
   app.post('/services', async (request, reply) => {
