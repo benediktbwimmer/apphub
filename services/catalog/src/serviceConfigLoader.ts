@@ -581,6 +581,7 @@ function addManifestEntries(
       ...entry,
       slug,
       env,
+      tags: cloneTags(entry.tags),
       sources: [moduleSource, sourceLabel],
       baseUrlSource: 'manifest'
     });

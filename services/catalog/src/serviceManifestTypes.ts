@@ -73,6 +73,7 @@ export const manifestEntrySchema = z
     baseUrl: z.string().min(1),
     capabilities: jsonValueSchema.optional(),
     metadata: jsonValueSchema.optional(),
+    tags: z.array(manifestTagSchema).optional(),
     healthEndpoint: z.string().optional(),
     openapiPath: z.string().optional(),
     devCommand: z.string().optional(),

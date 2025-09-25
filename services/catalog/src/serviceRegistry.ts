@@ -567,7 +567,104 @@ export type ServiceRuntimeSnapshot = {
   source?: string;
 };
 
+function serializeManifestEnvVars(env?: ResolvedManifestEnvVar[] | null): ManifestEnvVarInput[] | null {
+  if (!env || env.length === 0) {
+    return null;
+  }
+
+  const normalized: ManifestEnvVarInput[] = [];
+
+  for (const entry of env) {
+    if (!entry || typeof entry.key !== 'string') {
+      continue;
+    }
+
+    const key = entry.key.trim();
+    if (!key) {
+      continue;
+    }
+
+    const result: ManifestEnvVarInput = { key };
+
+    if (entry.value !== undefined) {
+      result.value = entry.value;
+    }
+
+    if (entry.fromService && typeof entry.fromService.service === 'string') {
+      const service = entry.fromService.service.trim().toLowerCase();
+      if (service) {
+        result.fromService = {
+          service,
+          property: entry.fromService.property,
+          fallback: entry.fromService.fallback
+        };
+      }
+    }
+
+    if (result.value === undefined && !result.fromService) {
+      continue;
+    }
+
+    normalized.push(result);
+  }
+
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function resolvePortFromManifestEnv(env: unknown): number | null {
+  if (!Array.isArray(env)) {
+    return null;
+  }
+
+  for (const entry of env) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const keyRaw = record.key;
+    if (typeof keyRaw !== 'string') {
+      continue;
+    }
+    const key = keyRaw.trim().toLowerCase();
+    if (key !== 'port') {
+      continue;
+    }
+
+    const directPort = parsePortValue(record.value);
+    if (directPort) {
+      return directPort;
+    }
+
+    const value = record.value;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const placeholder = (value as { $var?: { default?: unknown } }).$var;
+      if (placeholder && typeof placeholder.default !== 'undefined') {
+        const placeholderPort = parsePortValue(placeholder.default);
+        if (placeholderPort) {
+          return placeholderPort;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractPortFromBaseUrl(baseUrl: string | null | undefined): number | null {
+  if (!baseUrl || typeof baseUrl !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = new URL(baseUrl);
+    const inferred = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    return parsePortValue(inferred);
+  } catch {
+    return null;
+  }
+}
+
 function buildManifestMetadata(entry: ManifestEntry) {
+  const env = serializeManifestEnvVars(entry.env);
   return removeUndefined({
     source: entry.sources[entry.sources.length - 1] ?? null,
     sources: entry.sources,
@@ -576,7 +673,7 @@ function buildManifestMetadata(entry: ManifestEntry) {
     healthEndpoint: entry.healthEndpoint ?? null,
     openapiPath: entry.openapiPath ?? null,
     baseUrlSource: entry.baseUrlSource,
-    env: entry.env ?? null
+    env: env ?? null
   });
 }
 
@@ -1037,40 +1134,33 @@ export async function resolveManifestPortForRepository(repositoryId: string): Pr
   if (!slug) {
     return null;
   }
-  let manifest = manifestEntries.get(slug);
-  if (!manifest) {
+  const manifest = manifestEntries.get(slug);
+  if (manifest) {
+    const manifestEnv = serializeManifestEnvVars(manifest.env);
+    const manifestPort = resolvePortFromManifestEnv(manifestEnv ?? undefined);
+    if (manifestPort) {
+      return manifestPort;
+    }
+
+    const baseUrlPort = extractPortFromBaseUrl(manifest.baseUrl ?? null);
+    if (baseUrlPort) {
+      return baseUrlPort;
+    }
+  }
+
+  const service = await getServiceBySlug(slug);
+  if (!service) {
     return null;
   }
 
-  if (manifest.env && manifest.env.length > 0) {
-    for (const entry of manifest.env) {
-      if (!entry || typeof entry.key !== 'string') {
-        continue;
-      }
-      if (entry.key.trim().toLowerCase() !== 'port') {
-        continue;
-      }
-      const port = parsePortValue(entry.value);
-      if (port) {
-        return port;
-      }
-    }
+  const metadata = coerceServiceMetadata(service.metadata ?? null);
+  const manifestMeta = toPlainObject(metadata?.manifest as JsonValue | null | undefined);
+  const metadataPort = resolvePortFromManifestEnv(manifestMeta.env ?? null);
+  if (metadataPort) {
+    return metadataPort;
   }
 
-  const baseUrl = manifest.baseUrl ?? null;
-  if (baseUrl) {
-    try {
-      const parsed = new URL(baseUrl);
-      const port = parsePortValue(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
-      if (port) {
-        return port;
-      }
-    } catch {
-      // ignore invalid base URL
-    }
-  }
-
-  return null;
+  return extractPortFromBaseUrl(service.baseUrl ?? null);
 }
 
 function buildPreviewUrl(slug: string, runtime: ServiceRuntimeSnapshot): string | null {
