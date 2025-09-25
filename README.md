@@ -137,17 +137,25 @@ docker build -t apphub:latest .
 
 #### Local development
 
-Run everything (API, workers, Redis, Postgres, static frontend) inside the container with transient data:
+Run everything (API, workers, Redis, Postgres, static frontend) inside the container with persistent data:
+
+Create the named volumes once:
 
 ```bash
+docker volume create apphub-data
 docker volume create apphub-docker-data
+```
 
+Start the container:
+
+```bash
 docker run --rm -it \
   --name apphub-dev \
   --privileged \
   -p 4000:4000 \
   -p 4173:4173 \
   -p 6379:6379 \
+  -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \
   -e NODE_ENV=development \
   -e APPHUB_AUTH_DISABLED=true \
@@ -156,13 +164,11 @@ docker run --rm -it \
   apphub:latest
 ```
 
-You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before.
-
-Persist Postgres/Redis state by adding `-v apphub-data:/app/data` to the command above (the default run uses in-container volumes that reset on exit).
+You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
 
 #### Production
 
-Launch the same image with hardened auth settings, external Postgres/Redis, and SSO enabled:
+Reuse the same volumes when running in production. Launch the image with hardened auth settings, external Postgres/Redis, and SSO enabled:
 
 ```bash
 docker run -d \
