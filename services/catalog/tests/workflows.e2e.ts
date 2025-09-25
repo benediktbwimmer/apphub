@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import type { JobRunContext, JobResult } from '../src/jobs/runtime';
 import { refreshSecretStore } from '../src/secretStore';
 import { emitApphubEvent } from '../src/events';
+import { runE2E } from '@apphub/test-helpers';
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
@@ -2016,16 +2017,9 @@ async function testAssetMaterializerAutoRuns(): Promise<void> {
   }
 }
 
-async function run() {
-  try {
-    await testWorkflowEndpoints();
-    await testAssetMaterializerAutoRuns();
-  } finally {
-    await shutdownEmbeddedPostgres();
-  }
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => shutdownEmbeddedPostgres());
+  await ensureEmbeddedPostgres();
+  await testWorkflowEndpoints();
+  await testAssetMaterializerAutoRuns();
+}, { name: 'catalog-workflows.e2e' });

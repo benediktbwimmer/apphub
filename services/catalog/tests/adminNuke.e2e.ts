@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
@@ -113,7 +114,17 @@ async function assertRunTablesAreEmpty(dbUtils: CatalogDbUtilsModule): Promise<v
 let dbModule: CatalogDbModule | null = null;
 let dbUtilsModule: CatalogDbUtilsModule | null = null;
 
-async function run(): Promise<void> {
+async function cleanup(): Promise<void> {
+  if (dbModule) {
+    await dbModule.closePool();
+  }
+  dbModule = null;
+  dbUtilsModule = null;
+  await shutdownEmbeddedPostgres();
+}
+
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => cleanup());
   await ensureEmbeddedPostgres();
   dbModule = await import('../src/db');
   dbUtilsModule = await import('../src/db/utils');
@@ -129,26 +140,5 @@ async function run(): Promise<void> {
   dbModule.markDatabaseUninitialized();
   await dbModule.ensureDatabase();
 
-  await assertRunTablesAreEmpty(dbUtilsModule);
-
-  await dbModule.closePool();
-  await shutdownEmbeddedPostgres();
-}
-
-run().catch(async (err) => {
-  console.error(err);
-  try {
-    if (dbModule) {
-      await dbModule.closePool();
-    }
-  } catch {
-    // ignore cleanup errors
-  } finally {
-    try {
-      await shutdownEmbeddedPostgres();
-    } catch {
-      // ignore cleanup errors
-    }
-    process.exit(1);
-  }
-});
+  await assertRunTablesAreEmpty(dbUtilsModule!);
+}, { name: 'catalog-adminNuke.e2e' });

@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import duckdb from 'duckdb';
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
+import { runE2E } from '@apphub/test-helpers';
 
 type WorkflowRunResponse = {
   data: {
@@ -118,6 +119,7 @@ async function findAvailablePort(): Promise<number> {
 
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
+  const previousRedisUrl = process.env.REDIS_URL;
   process.env.REDIS_URL = 'inline';
 
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-observatory-bundles-'));
@@ -138,6 +140,11 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
     await fn(app);
   } finally {
     await app.close();
+    if (previousRedisUrl === undefined) {
+      delete process.env.REDIS_URL;
+    } else {
+      process.env.REDIS_URL = previousRedisUrl;
+    }
     if (previousServiceConfig === undefined) {
       delete process.env.SERVICE_CONFIG_PATH;
     } else {
@@ -418,15 +425,7 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
   }
 }
 
-(async function run(): Promise<void> {
-  let exitCode = 0;
-  try {
-    await withServer(runObservatoryScenario);
-  } catch (error) {
-    exitCode = 1;
-    console.error(error);
-  } finally {
-    await shutdownEmbeddedPostgres();
-    process.exit(exitCode);
-  }
-})();
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => shutdownEmbeddedPostgres());
+  await withServer(runObservatoryScenario);
+}, { name: 'examples-environmentalObservatoryIngest.e2e' });

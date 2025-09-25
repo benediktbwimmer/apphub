@@ -141,6 +141,11 @@ graph TD
 - Autocomplete driven by stored tag vocabulary with key/pair suggestions.
 - WebSocket-connected frontend reacts to event stream updates for repository, build, and launch status without manual refresh.
 
+## End-to-End Test Conventions
+- Each Node-based E2E script should wrap its async entrypoint with `runE2E` from `tests/helpers/runE2E`. The helper normalizes exit codes, reports uncaught errors, and calls `process.exit` so `npm run test:e2e` terminates cleanly.
+- Use the `registerCleanup` hook provided by `runE2E` to enqueue async teardown logic (closing servers, removing temp dirs, resetting env vars). Cleanups run in LIFO order even when the test throws.
+- When diagnosing lingering resources, set `APPHUB_E2E_DEBUG_HANDLES=1` to log active handles and requests before the helper exits. This aids in tracking hanging timers, sockets, or child processes.
+
 ## Future Enhancements
 - User accounts, favorites, comments.
 - Usage analytics-based ranking.

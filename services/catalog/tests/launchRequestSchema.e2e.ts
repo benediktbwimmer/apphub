@@ -3,12 +3,30 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { runE2E } from '@apphub/test-helpers';
 
-async function run() {
+runE2E(async ({ registerCleanup }) => {
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'launch-schema-'));
-  const dbPath = path.join(tempRoot, 'catalog.db');
-  process.env.CATALOG_DB_PATH = dbPath;
+  registerCleanup(() => rm(tempRoot, { recursive: true, force: true }));
+
+  const previousCatalogDbPath = process.env.CATALOG_DB_PATH;
+  const previousRedisUrl = process.env.REDIS_URL;
+
+  process.env.CATALOG_DB_PATH = path.join(tempRoot, 'catalog.db');
   process.env.REDIS_URL = 'inline';
+
+  registerCleanup(() => {
+    if (previousCatalogDbPath === undefined) {
+      delete process.env.CATALOG_DB_PATH;
+    } else {
+      process.env.CATALOG_DB_PATH = previousCatalogDbPath;
+    }
+    if (previousRedisUrl === undefined) {
+      delete process.env.REDIS_URL;
+    } else {
+      process.env.REDIS_URL = previousRedisUrl;
+    }
+  });
 
   const { launchRequestSchema } = await import('../src/routes/repositories');
 
@@ -28,11 +46,4 @@ async function run() {
 
   const invalid = launchRequestSchema.safeParse({ ...validPayload, extra: 'nope' });
   assert(!invalid.success, 'Unexpected success when payload includes unknown properties');
-
-  await rm(tempRoot, { recursive: true, force: true });
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+}, { name: 'catalog-launchRequestSchema.e2e' });

@@ -8,6 +8,7 @@ import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
+import { runE2E } from '@apphub/test-helpers';
 
 type JobSummary = {
   slug: string;
@@ -353,10 +354,8 @@ async function testLoadAllExamples(): Promise<void> {
   });
 }
 
-(async function run() {
-  try {
-    await testLoadAllExamples();
-  } finally {
-    await shutdownEmbeddedPostgres();
-  }
-})();
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => shutdownEmbeddedPostgres());
+  await ensureEmbeddedPostgres();
+  await testLoadAllExamples();
+}, { name: 'examples-loadAllExamples.e2e' });

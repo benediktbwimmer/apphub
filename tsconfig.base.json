@@ -21,6 +21,12 @@
       "@apphub/catalog-tests/*": [
         "services/catalog/tests/*"
       ],
+      "@apphub/test-helpers": [
+        "tests/helpers/index.ts"
+      ],
+      "@apphub/test-helpers/*": [
+        "tests/helpers/*"
+      ],
       "@apphub/frontend": [
         "apps/frontend/src"
       ],

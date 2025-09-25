@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
+import { runE2E } from '@apphub/test-helpers';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
@@ -85,6 +86,10 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   await ensureEmbeddedPostgres();
   const storageRoot = await mkdtemp(path.join(tmpdir(), 'apphub-job-bundles-'));
   bundleStorageDir = storageRoot;
+  const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
+  const previousStorageBackend = process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND;
+  const previousStorageSecret = process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET;
+  const previousRedisUrl = process.env.REDIS_URL;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageRoot;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND = 'local';
   process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET = 'job-registry-e2e-secret';
@@ -97,6 +102,28 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
     await fn(app);
   } finally {
     await app.close();
+    await rm(storageRoot, { recursive: true, force: true });
+    if (previousStorageDir === undefined) {
+      delete process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
+    } else {
+      process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = previousStorageDir;
+    }
+    if (previousStorageBackend === undefined) {
+      delete process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND;
+    } else {
+      process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND = previousStorageBackend;
+    }
+    if (previousStorageSecret === undefined) {
+      delete process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET;
+    } else {
+      process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET = previousStorageSecret;
+    }
+    if (previousRedisUrl === undefined) {
+      delete process.env.REDIS_URL;
+    } else {
+      process.env.REDIS_URL = previousRedisUrl;
+    }
+    bundleStorageDir = null;
   }
 }
 
@@ -559,20 +586,18 @@ async function testJobBundleAiEdit(): Promise<void> {
   }
 }
 
-async function run() {
-  try {
-    await testJobBundleLifecycle();
-    await testJobImportHandlesExistingArtifact();
-    await testJobBundleAiEdit();
-  } finally {
-    await shutdownEmbeddedPostgres();
-    if (bundleStorageDir) {
-      await rm(bundleStorageDir, { recursive: true, force: true }).catch(() => undefined);
-    }
+async function cleanup(): Promise<void> {
+  if (bundleStorageDir) {
+    await rm(bundleStorageDir, { recursive: true, force: true });
+    bundleStorageDir = null;
   }
+  await shutdownEmbeddedPostgres();
 }
 
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => cleanup());
+  await ensureEmbeddedPostgres();
+  await testJobBundleLifecycle();
+  await testJobImportHandlesExistingArtifact();
+  await testJobBundleAiEdit();
+}, { name: 'catalog-jobRegistry.e2e' });

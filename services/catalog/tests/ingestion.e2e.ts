@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 import net from 'node:net';
 import WebSocket from 'ws';
 import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 
 const exec = promisify(execCallback);
 
@@ -985,18 +986,10 @@ async function testServiceNetworkManifestFlow() {
   }
 }
 
-async function run() {
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => shutdownEmbeddedPostgres());
   await ensureEmbeddedPostgres();
-  try {
-    await testSyntheticRepositoryFlow();
-    await testRealRepositoryLaunchFlow();
-    await testServiceNetworkManifestFlow();
-  } finally {
-    await shutdownEmbeddedPostgres();
-  }
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+  await testSyntheticRepositoryFlow();
+  await testRealRepositoryLaunchFlow();
+  await testServiceNetworkManifestFlow();
+}, { name: 'catalog-ingestion.e2e' });

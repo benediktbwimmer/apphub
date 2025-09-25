@@ -7,6 +7,7 @@ import path from 'node:path';
 import * as tar from 'tar';
 import { createHash } from 'node:crypto';
 import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
@@ -238,6 +239,10 @@ async function cleanup(): Promise<void> {
     await rm(bundleCacheDir, { recursive: true, force: true });
     bundleCacheDir = null;
   }
+  delete process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
+  delete process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND;
+  delete process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET;
+  delete process.env.APPHUB_JOB_BUNDLE_CACHE_DIR;
   if (dbModule) {
     await dbModule.closePool();
     dbModule = null;
@@ -252,17 +257,9 @@ async function cleanup(): Promise<void> {
   embeddedPostgres = null;
 }
 
-async function run(): Promise<void> {
-  try {
-    await setupSandboxEnvironment();
-    await runSandboxSuccessScenario();
-    await runSandboxCapabilityViolationScenario();
-  } finally {
-    await cleanup();
-  }
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => cleanup());
+  await setupSandboxEnvironment();
+  await runSandboxSuccessScenario();
+  await runSandboxCapabilityViolationScenario();
+}, { name: 'catalog-jobSandbox.e2e' });

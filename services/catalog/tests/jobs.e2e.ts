@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
+import { runE2E } from '@apphub/test-helpers';
 import type { FastifyInstance } from 'fastify';
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
@@ -355,15 +356,8 @@ async function testJobEndpoints(): Promise<void> {
   });
 }
 
-async function run() {
-  try {
-    await testJobEndpoints();
-  } finally {
-    await shutdownEmbeddedPostgres();
-  }
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => shutdownEmbeddedPostgres());
+  await ensureEmbeddedPostgres();
+  await testJobEndpoints();
+}, { name: 'catalog-jobs.e2e' });
