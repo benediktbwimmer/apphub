@@ -1,6 +1,17 @@
 # Consolidated Import Workspace Plan
 
 ## Overview
+## Wizard Enhancements (Ticket 014)
+- The import workspace now presents a four-stage wizard that always begins with service manifests before advancing to apps, jobs, and workflows. Operators can jump between stages, but the wizard highlights remaining prerequisites so the happy path stays visible.
+- Selecting an example automatically resolves dependencies. For example, choosing a workflow queues the required services, apps, and job bundles in the earlier stages so forms are pre-populated and validations run in order.
+- Job bundle imports stream real-time packaging progress from the example bundler orchestrator (`example.bundle.progress` events). The dependency summary shows queued/packaging/completed states, inline log messages, and exposes a retry action when packaging fails.
+- Scenario picks and placeholder prompts persist in local storage so operators can resume partially-completed sessions without reloading examples.
+
+### Troubleshooting
+- **Packaging stays in “queued”** – verify the example bundle worker is running and Redis is reachable. Use the retry action in the dependency panel to re-enqueue with `force=true`.
+- **Placeholder modal appears** – some service manifests require environment-specific values (tokens, directories). Provide the values and the wizard will resume auto-importing the remaining dependencies.
+- **Status badge shows “Failed”** – review the inline error message (usually the tail of bundler logs). Click “Retry packaging” to trigger a rebuild after fixing the underlying issue.
+
 The AppHub operator UI will consolidate all import functionality into a single "Import" workspace surfaced as a primary navigation tab. Inside the workspace, secondary tabs separate Service Manifests, Apps, and Jobs while maintaining consistent affordances for validation, feedback, and history. This plan captures the UX specification, component work, backend contracts, and rollout alignment required to ship the unified experience in support of the job bundle ecosystem.
 
 ## Current-State Audit

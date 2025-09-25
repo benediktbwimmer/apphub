@@ -1,4 +1,5 @@
 import type { KeyboardEventHandler } from 'react';
+import type { ExampleBundleStatus } from '../import/exampleBundles';
 
 export type TagKV = {
   key: string;
@@ -223,6 +224,7 @@ export type CatalogSocketEvent =
   | { type: 'job.run.failed'; data: { run: unknown } }
   | { type: 'job.run.canceled'; data: { run: unknown } }
   | { type: 'job.run.expired'; data: { run: unknown } }
+  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.analytics.snapshot'; data: unknown };
 
 export type SearchParseResult = {
