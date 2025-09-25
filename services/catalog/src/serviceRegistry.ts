@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { URL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import {
@@ -28,18 +26,8 @@ import {
   type ServiceNetworkMemberInput
 } from './db/index';
 import { enqueueRepositoryIngestion } from './queue';
-import {
-  loadServiceConfigurations,
-  resolveServiceConfigPaths,
-  type LoadedManifestEntry,
-  type LoadedServiceNetwork
-} from './serviceConfigLoader';
-import {
-  manifestFileSchema,
-  type ManifestEnvVarInput,
-  type ResolvedManifestEnvVar,
-  type ManifestLoadError
-} from './serviceManifestTypes';
+import { type LoadedManifestEntry, type LoadedServiceNetwork } from './serviceConfigLoader';
+import { type ManifestEnvVarInput, type ResolvedManifestEnvVar } from './serviceManifestTypes';
 import {
   coerceServiceMetadata,
   mergeServiceMetadata,
@@ -54,12 +42,6 @@ const OPENAPI_REFRESH_INTERVAL_MS = Number(process.env.SERVICE_OPENAPI_REFRESH_I
 type ManifestEntry = LoadedManifestEntry;
 
 type ManifestMap = Map<string, ManifestEntry>;
-
-type ManifestLoadResult = {
-  entries: ManifestMap;
-  networks: LoadedServiceNetwork[];
-  errors: ManifestLoadError[];
-};
 
 type HealthCheckOutcome = {
   status: 'healthy' | 'degraded' | 'unreachable';
@@ -84,6 +66,7 @@ type PollerController = {
 
 let manifestEntries: ManifestMap = new Map();
 let manifestNetworks: LoadedServiceNetwork[] = [];
+const manifestModules = new Map<string, { entries: LoadedManifestEntry[]; networks: LoadedServiceNetwork[] }>();
 let poller: PollerController | null = null;
 let isPolling = false;
 const repositoryToServiceSlug = new Map<string, string>();
@@ -256,29 +239,6 @@ const log = (level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
   }
 };
 
-function resolveManifestPaths(): string[] {
-  let configured = process.env.SERVICE_MANIFEST_PATH ?? '';
-  if (configured.startsWith('!')) {
-    configured = configured.slice(1).trimStart();
-  }
-
-  const paths = configured
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => path.resolve(entry));
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const manifestPath of paths) {
-    if (seen.has(manifestPath)) {
-      continue;
-    }
-    seen.add(manifestPath);
-    deduped.push(manifestPath);
-  }
-  return deduped;
-}
-
 type EnvVar = ResolvedManifestEnvVar;
 
 function normalizeEnvReference(
@@ -387,59 +347,6 @@ function cloneTags(tags?: { key: string; value: string }[] | null) {
     .map((tag) => ({ key: tag.key, value: tag.value }));
 }
 
-async function readManifestFile(
-  manifestPath: string
-): Promise<{ entries: ManifestEntry[]; networks: LoadedServiceNetwork[] }> {
-  try {
-    const contents = await fs.readFile(manifestPath, 'utf8');
-    const parsed = manifestFileSchema.parse(JSON.parse(contents));
-    if (Array.isArray(parsed)) {
-      return {
-        entries: parsed.map((entry) => ({
-          ...entry,
-          slug: entry.slug.trim().toLowerCase(),
-          env: cloneEnvVars(entry.env),
-          sources: [manifestPath],
-          baseUrlSource: 'manifest' as const
-        })),
-        networks: []
-      };
-    }
-
-    const services = (parsed.services ?? []).map((entry) => ({
-      ...entry,
-      slug: entry.slug.trim().toLowerCase(),
-      env: cloneEnvVars(entry.env),
-      sources: [manifestPath],
-      baseUrlSource: 'manifest' as const
-    }));
-
-    const networks = (parsed.networks ?? []).map((network) => ({
-      ...network,
-      id: network.id.trim().toLowerCase(),
-      services: network.services.map((service) => ({
-        ...service,
-        serviceSlug: service.serviceSlug.trim().toLowerCase(),
-        dependsOn: service.dependsOn?.map((dep) => dep.trim().toLowerCase()) ?? undefined,
-        env: cloneEnvVars(service.env),
-        app: {
-          ...service.app,
-          id: service.app.id.trim().toLowerCase(),
-          tags: cloneTags(service.app.tags),
-          launchEnv: cloneEnvVars(service.app.launchEnv)
-        }
-      })),
-      env: cloneEnvVars(network.env),
-      tags: cloneTags(network.tags),
-      sources: [manifestPath]
-    }));
-
-    return { entries: services, networks };
-  } catch (err) {
-    throw new Error(`Failed to load manifest at ${manifestPath}: ${(err as Error).message}`);
-  }
-}
-
 function applyEnvOverrides(entry: ManifestEntry): ManifestEntry {
   const envKey = entry.slug
     .trim()
@@ -483,6 +390,134 @@ function mergeManifestEntries(entries: ManifestEntry[]): ManifestMap {
     });
   }
   return merged;
+}
+
+function mergeServiceNetworks(
+  existing: LoadedServiceNetwork[],
+  incoming: LoadedServiceNetwork[]
+): LoadedServiceNetwork[] {
+  const merged = new Map<string, LoadedServiceNetwork>();
+  for (const entry of existing) {
+    if (entry && typeof entry.id === 'string') {
+      merged.set(entry.id, entry);
+    }
+  }
+  for (const entry of incoming) {
+    if (entry && typeof entry.id === 'string') {
+      merged.set(entry.id, entry);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+function rebuildManifestState(): {
+  entries: ManifestMap;
+  networks: LoadedServiceNetwork[];
+} {
+  const aggregatedEntries: ManifestEntry[] = [];
+  const aggregatedNetworks: LoadedServiceNetwork[] = [];
+
+  for (const module of manifestModules.values()) {
+    for (const entry of module.entries) {
+      aggregatedEntries.push(applyEnvOverrides(cloneLoadedManifestEntry(entry)));
+    }
+    aggregatedNetworks.push(...module.networks.map(cloneLoadedServiceNetwork));
+  }
+
+  const mergedEntries = mergeManifestEntries(aggregatedEntries);
+  const mergedNetworks = mergeServiceNetworks([], aggregatedNetworks);
+
+  manifestEntries = mergedEntries;
+  manifestNetworks = mergedNetworks;
+
+  return { entries: mergedEntries, networks: mergedNetworks };
+}
+
+function cloneResolvedEnvVars(env?: ResolvedManifestEnvVar[] | null): ResolvedManifestEnvVar[] | undefined {
+  if (!env || env.length === 0) {
+    return undefined;
+  }
+  return env
+    .filter((entry): entry is ResolvedManifestEnvVar => Boolean(entry && typeof entry.key === 'string'))
+    .map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+      fromService: entry.fromService
+        ? {
+            service: entry.fromService.service,
+            property: entry.fromService.property,
+            fallback: entry.fromService.fallback
+          }
+        : undefined
+    }));
+}
+
+function cloneLoadedManifestEntry(entry: LoadedManifestEntry): LoadedManifestEntry {
+  return {
+    ...entry,
+    env: cloneResolvedEnvVars(entry.env),
+    sources: Array.isArray(entry.sources) ? [...entry.sources] : [],
+    tags: cloneTags(entry.tags),
+    metadata: entry.metadata ? { ...(entry.metadata as Record<string, JsonValue>) } : entry.metadata
+  };
+}
+
+function cloneLoadedServiceNetwork(network: LoadedServiceNetwork): LoadedServiceNetwork {
+  return {
+    ...network,
+    env: cloneResolvedEnvVars(network.env),
+    tags: cloneTags(network.tags),
+    sources: Array.isArray(network.sources) ? [...network.sources] : [],
+    services: network.services.map((service) => ({
+      ...service,
+      dependsOn: service.dependsOn ? [...service.dependsOn] : undefined,
+      env: cloneResolvedEnvVars(service.env),
+      app: {
+        ...service.app,
+        tags: cloneTags(service.app.tags),
+        launchEnv: cloneResolvedEnvVars(service.app.launchEnv)
+      }
+    }))
+  };
+}
+
+export type ManifestImportResult = {
+  servicesApplied: number;
+  networksApplied: number;
+};
+
+export async function importServiceManifestModule(options: {
+  moduleId: string;
+  entries: LoadedManifestEntry[];
+  networks: LoadedServiceNetwork[];
+}): Promise<ManifestImportResult> {
+  const moduleId = options.moduleId.trim();
+  if (!moduleId) {
+    throw new Error('moduleId is required for service manifest import');
+  }
+
+  manifestModules.set(moduleId, {
+    entries: options.entries.map(cloneLoadedManifestEntry),
+    networks: options.networks.map(cloneLoadedServiceNetwork)
+  });
+
+  const { entries, networks } = rebuildManifestState();
+
+  await applyManifestToDatabase(entries);
+  await syncNetworksFromManifest(networks);
+  await updateServiceManifestAppReferences(networks);
+
+  return {
+    servicesApplied: entries.size,
+    networksApplied: networks.length
+  };
+}
+
+export function resetServiceManifestState(): void {
+  manifestModules.clear();
+  manifestEntries = new Map();
+  manifestNetworks = [];
+  repositoryToServiceSlug.clear();
 }
 
 function removeUndefined<T extends Record<string, unknown>>(input: T): Record<string, JsonValue> {
@@ -1003,10 +1038,6 @@ export async function resolveManifestPortForRepository(repositoryId: string): Pr
     return null;
   }
   let manifest = manifestEntries.get(slug);
-  if (!manifest && manifestEntries.size === 0) {
-    await ensureServicesFromManifest();
-    manifest = manifestEntries.get(slug);
-  }
   if (!manifest) {
     return null;
   }
@@ -1152,65 +1183,6 @@ export async function clearServiceRuntimeForRepository(
   await setServiceStatus(slug, { metadata: nextMetadata });
 }
 
-async function loadManifest(): Promise<ManifestLoadResult> {
-  const collected: ManifestEntry[] = [];
-  const collectedNetworks: LoadedServiceNetwork[] = [];
-  const errors: ManifestLoadError[] = [];
-
-  const configPaths = resolveServiceConfigPaths();
-  const configResult = await loadServiceConfigurations(configPaths);
-  collected.push(...configResult.entries.map((entry) => ({ ...entry })));
-  collectedNetworks.push(...configResult.networks.map((network) => ({ ...network })));
-  errors.push(...configResult.errors);
-  for (const error of configResult.errors) {
-    log('warn', 'failed to load service manifest', {
-      path: error.source,
-      error: error.error.message
-    });
-  }
-
-  for (const placeholder of configResult.placeholders) {
-    if (placeholder.missing) {
-      log('warn', 'service manifest placeholder unresolved', {
-        placeholder: placeholder.name,
-        occurrences: placeholder.occurrences.map((occurrence) => ({ ...occurrence }))
-      });
-    }
-    if (placeholder.conflicts.length > 0) {
-      log('warn', 'service manifest placeholder conflict', {
-        placeholder: placeholder.name,
-        conflicts: placeholder.conflicts
-      });
-    }
-  }
-
-  const manifestPaths = resolveManifestPaths();
-
-  for (const manifestPath of manifestPaths) {
-    try {
-      const manifestData = await readManifestFile(manifestPath);
-      for (const entry of manifestData.entries) {
-        collected.push({ ...entry });
-      }
-      for (const network of manifestData.networks) {
-        collectedNetworks.push({ ...network });
-      }
-    } catch (err) {
-      const loadError: ManifestLoadError = { source: manifestPath, error: err as Error };
-      errors.push(loadError);
-      log('warn', 'failed to load service manifest', { path: manifestPath, error: (err as Error).message });
-    }
-  }
-
-  const merged = mergeManifestEntries(collected.map((entry) => applyEnvOverrides(entry)));
-  manifestEntries = merged;
-  manifestNetworks = collectedNetworks;
-  await applyManifestToDatabase(merged);
-  await syncNetworksFromManifest(manifestNetworks);
-  await updateServiceManifestAppReferences(manifestNetworks);
-
-  return { entries: merged, networks: manifestNetworks, errors };
-}
 
 function ensureTrailingSlash(url: string) {
   return url.endsWith('/') ? url : `${url}/`;
@@ -1508,7 +1480,8 @@ export async function initializeServiceRegistry(options?: { enablePolling?: bool
     poller = startPolling();
   }
   return {
-    refreshManifest: loadManifest,
+    importManifestModule: importServiceManifestModule,
+    resetManifestState: resetServiceManifestState,
     stop() {
       poller?.stop();
       poller = null;
@@ -1521,8 +1494,4 @@ export async function initializeServiceRegistry(options?: { enablePolling?: bool
 
 export function getServiceManifest(slug: string) {
   return manifestEntries.get(slug) ?? null;
-}
-
-export async function ensureServicesFromManifest() {
-  await loadManifest();
 }

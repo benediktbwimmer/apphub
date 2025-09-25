@@ -1,6 +1,4 @@
 import { Buffer } from 'node:buffer';
-import { promises as fs, constants as fsConstants } from 'node:fs';
-import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -15,10 +13,9 @@ import {
 } from '../db/index';
 import { fetchFromService } from '../clients/serviceClient';
 import {
-  appendServiceConfigImport,
   previewServiceConfigImport,
-  resolveServiceConfigPaths,
-  DuplicateModuleImportError
+  type LoadedManifestEntry,
+  type LoadedServiceNetwork
 } from '../serviceConfigLoader';
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
@@ -146,43 +143,13 @@ const serviceConfigImportSchema = z
 
 export type ServiceRoutesOptions = {
   registry: {
-    refreshManifest: () => Promise<unknown>;
+    importManifestModule: (options: {
+      moduleId: string;
+      entries: LoadedManifestEntry[];
+      networks: LoadedServiceNetwork[];
+    }) => Promise<{ servicesApplied: number; networksApplied: number }>;
   };
 };
-
-function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
-  return Boolean(value && typeof value === 'object' && 'code' in value);
-}
-
-async function resolveServiceConfigTargetPath(): Promise<string> {
-  const configPaths = resolveServiceConfigPaths();
-  if (configPaths.length === 0) {
-    throw new Error('No service config path configured. Set SERVICE_CONFIG_PATH to a writable location.');
-  }
-
-  for (const candidate of configPaths) {
-    const directory = path.dirname(candidate);
-    try {
-      await fs.mkdir(directory, { recursive: true });
-      await fs.access(directory, fsConstants.W_OK);
-    } catch {
-      continue;
-    }
-
-    try {
-      await fs.access(candidate, fsConstants.W_OK);
-      return candidate;
-    } catch (err) {
-      if (isErrnoException(err) && err.code === 'ENOENT') {
-        return candidate;
-      }
-    }
-  }
-
-  throw new Error(
-    `No writable service config path found. Checked paths: ${configPaths.join(', ')}`
-  );
-}
 
 export async function registerServiceRoutes(app: FastifyInstance, options: ServiceRoutesOptions): Promise<void> {
   const { registry } = options;
@@ -221,6 +188,91 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       headers.set(key, String(value));
     }
     return headers;
+  }
+
+  async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
+    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+    const repo = payload.repo?.trim() || null;
+    const localPath = payload.path?.trim() || null;
+    const ref = payload.ref?.trim() || undefined;
+    const commit = payload.commit?.trim() || undefined;
+    const configPath = payload.configPath?.trim() || undefined;
+    const moduleHint = payload.module?.trim() || undefined;
+    const variables = normalizeVariables(payload.variables ?? undefined);
+    const requirePlaceholderValues = Boolean(payload.requirePlaceholderValues);
+
+    let preview;
+    try {
+      preview = await previewServiceConfigImport({
+        repo,
+        path: localPath,
+        ref,
+        commit,
+        configPath,
+        module: moduleHint,
+        variables,
+        requirePlaceholderValues
+      });
+    } catch (err) {
+      reply.status(400);
+      return { error: (err as Error).message };
+    }
+
+    if (preview.errors.length > 0) {
+      reply.status(400);
+      return {
+        error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
+      };
+    }
+
+    const conflicts = preview.placeholders.filter((placeholder) => placeholder.conflicts.length > 0);
+    if (conflicts.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest placeholders conflict. Resolve the manifest defaults or supply explicit values.',
+        placeholders: preview.placeholders
+      };
+    }
+
+    const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
+    if (missing.length > 0) {
+      reply.status(400);
+      return {
+        error: 'manifest requires placeholder values before import',
+        placeholders: preview.placeholders
+      };
+    }
+
+    try {
+      await registry.importManifestModule({
+        moduleId: preview.moduleId,
+        entries: preview.entries,
+        networks: preview.networks
+      });
+    } catch (err) {
+      request.log.error(
+        { err, module: preview.moduleId },
+        'service manifest import failed to apply'
+      );
+      reply.status(500);
+      return { error: 'failed to apply service manifest' };
+    }
+
+    reply.status(201);
+    return {
+      data: {
+        module: preview.moduleId,
+        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
+        servicesDiscovered: preview.entries.length,
+        networksDiscovered: preview.networks.length
+      }
+    };
   }
 
   async function handleServicePreviewProxy(request: FastifyRequest, reply: FastifyReply) {
@@ -277,19 +329,6 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
   app.get('/services/:slug/preview', handleServicePreviewProxy);
   app.get('/services/:slug/preview/*', handleServicePreviewProxy);
 
-  app.post('/services/refresh', async (request, reply) => {
-    if (!ensureServiceRegistryAuthorized(request, reply)) {
-      return { error: 'service registry disabled' };
-    }
-    try {
-      await registry.refreshManifest();
-      return { ok: true };
-    } catch (err) {
-      reply.status(500);
-      return { error: (err as Error).message };
-    }
-  });
-
   app.post('/services', async (request, reply) => {
     if (!ensureServiceRegistryAuthorized(request, reply)) {
       return { error: 'service registry disabled' };
@@ -338,209 +377,14 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     if (!ensureServiceRegistryAuthorized(request, reply)) {
       return { error: 'service registry disabled' };
     }
-
-    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
-    }
-
-    const payload = parseBody.data;
-    const repo = payload.repo?.trim() || null;
-    const localPath = payload.path?.trim() || null;
-    const ref = payload.ref?.trim() || undefined;
-    const commit = payload.commit?.trim() || undefined;
-    const configPath = payload.configPath?.trim() || undefined;
-    const moduleHint = payload.module?.trim() || undefined;
-    const variables = normalizeVariables(payload.variables ?? undefined);
-    const requirePlaceholderValues = Boolean(payload.requirePlaceholderValues);
-
-    let preview;
-    try {
-      preview = await previewServiceConfigImport({
-        repo,
-        path: localPath,
-        ref,
-        commit,
-        configPath,
-        module: moduleHint,
-        variables,
-        requirePlaceholderValues
-      });
-    } catch (err) {
-      reply.status(400);
-      return { error: (err as Error).message };
-    }
-
-    if (preview.errors.length > 0) {
-      reply.status(400);
-      return {
-        error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
-      };
-    }
-
-    const conflicts = preview.placeholders.filter((placeholder) => placeholder.conflicts.length > 0);
-    if (conflicts.length > 0) {
-      reply.status(400);
-      return {
-        error: 'manifest placeholders conflict. Resolve the manifest defaults or supply explicit values.',
-        placeholders: preview.placeholders
-      };
-    }
-
-    const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
-    if (missing.length > 0) {
-      reply.status(400);
-      return {
-        error: 'manifest requires placeholder values before import',
-        placeholders: preview.placeholders
-      };
-    }
-
-    let targetConfigPath: string;
-    try {
-      targetConfigPath = await resolveServiceConfigTargetPath();
-    } catch (err) {
-      reply.status(500);
-      return { error: (err as Error).message };
-    }
-
-    try {
-      await appendServiceConfigImport(targetConfigPath, {
-        module: preview.moduleId,
-        repo: repo ?? undefined,
-        path: localPath ?? undefined,
-        ref,
-        commit,
-        configPath,
-        resolvedCommit: preview.resolvedCommit,
-        variables
-      });
-    } catch (err) {
-      if (err instanceof DuplicateModuleImportError) {
-        reply.status(409);
-        return { error: err.message };
-      }
-      reply.status(500);
-      return { error: (err as Error).message };
-    }
-
-    await registry.refreshManifest();
-
-    reply.status(201);
-    return {
-      data: {
-        module: preview.moduleId,
-        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
-        servicesDiscovered: preview.entries.length,
-        configPath: targetConfigPath
-      }
-    };
+    return processServiceManifestImport(request, reply);
   });
 
   app.post('/service-networks/import', async (request, reply) => {
     if (!ensureServiceRegistryAuthorized(request, reply)) {
       return { error: 'service registry disabled' };
     }
-
-    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
-    }
-
-    const payload = parseBody.data;
-    const repo = payload.repo?.trim() || null;
-    const localPath = payload.path?.trim() || null;
-    const ref = payload.ref?.trim() || undefined;
-    const commit = payload.commit?.trim() || undefined;
-    const configPath = payload.configPath?.trim() || undefined;
-    const moduleHint = payload.module?.trim() || undefined;
-    const variables = normalizeVariables(payload.variables ?? undefined);
-    const requirePlaceholderValues = Boolean(payload.requirePlaceholderValues);
-
-    let preview;
-    try {
-      preview = await previewServiceConfigImport({
-        repo,
-        path: localPath,
-        ref,
-        commit,
-        configPath,
-        module: moduleHint,
-        variables,
-        requirePlaceholderValues
-      });
-    } catch (err) {
-      reply.status(400);
-      return { error: (err as Error).message };
-    }
-
-    if (preview.errors.length > 0) {
-      reply.status(400);
-      return {
-        error: preview.errors.map((entry) => ({ source: entry.source, message: entry.error.message }))
-      };
-    }
-
-    const conflicts = preview.placeholders.filter((placeholder) => placeholder.conflicts.length > 0);
-    if (conflicts.length > 0) {
-      reply.status(400);
-      return {
-        error: 'manifest placeholders conflict. Resolve the manifest defaults or supply explicit values.',
-        placeholders: preview.placeholders
-      };
-    }
-
-    const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
-    if (missing.length > 0) {
-      reply.status(400);
-      return {
-        error: 'manifest requires placeholder values before import',
-        placeholders: preview.placeholders
-      };
-    }
-
-    let targetConfigPath: string;
-    try {
-      targetConfigPath = await resolveServiceConfigTargetPath();
-    } catch (err) {
-      reply.status(500);
-      return { error: (err as Error).message };
-    }
-
-    try {
-      await appendServiceConfigImport(targetConfigPath, {
-        module: preview.moduleId,
-        repo: repo ?? undefined,
-        path: localPath ?? undefined,
-        ref,
-        commit,
-        configPath,
-        resolvedCommit: preview.resolvedCommit,
-        variables
-      });
-    } catch (err) {
-      if (err instanceof DuplicateModuleImportError) {
-        reply.status(409);
-        return { error: err.message };
-      }
-      reply.status(500);
-      return { error: (err as Error).message };
-    }
-
-    await registry.refreshManifest();
-
-    reply.status(201);
-    return {
-      data: {
-        module: preview.moduleId,
-        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
-        servicesDiscovered: preview.entries.length,
-        networksDiscovered: preview.networks.length,
-        configPath: targetConfigPath
-      }
-    };
+    return processServiceManifestImport(request, reply);
   });
 
   app.patch('/services/:slug', async (request, reply) => {

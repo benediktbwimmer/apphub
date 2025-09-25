@@ -1,7 +1,7 @@
 import '@apphub/catalog-tests/setupTestEnv';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
@@ -127,15 +127,6 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-load-examples-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;
-  const serviceConfigDir = await mkdtemp(path.join(tmpdir(), 'apphub-load-examples-services-'));
-  const serviceConfigPath = path.join(serviceConfigDir, 'service-config.json');
-  await writeFile(
-    serviceConfigPath,
-    `${JSON.stringify({ module: 'local/test', services: [], networks: [] }, null, 2)}\n`,
-    'utf8'
-  );
-  const previousServiceConfig = process.env.SERVICE_CONFIG_PATH;
-  process.env.SERVICE_CONFIG_PATH = `!${serviceConfigPath}`;
   const { buildServer } = await import('@apphub/catalog/server');
   const app = await buildServer();
   await app.ready();
@@ -143,12 +134,6 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
     await fn(app);
   } finally {
     await app.close();
-    if (previousServiceConfig === undefined) {
-      delete process.env.SERVICE_CONFIG_PATH;
-    } else {
-      process.env.SERVICE_CONFIG_PATH = previousServiceConfig;
-    }
-    await rm(serviceConfigDir, { recursive: true, force: true });
     if (previousStorageDir === undefined) {
       delete process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
     } else {

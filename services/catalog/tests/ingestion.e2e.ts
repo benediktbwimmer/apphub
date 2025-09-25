@@ -371,12 +371,6 @@ async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogT
   const dbPath = path.join(tempRoot, 'catalog.db');
   const port = 4200 + Math.floor(Math.random() * 200);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const serviceConfigPath = path.join(tempRoot, 'service-config.json');
-  await writeFile(
-    serviceConfigPath,
-    `${JSON.stringify({ module: 'github.com/apphub/e2e-root' }, null, 2)}\n`,
-    'utf8'
-  );
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -397,10 +391,6 @@ async function startCatalog(options: CatalogStartOptions = {}): Promise<CatalogT
     LAUNCH_PREVIEW_PORT: '443',
     ...options.env
   };
-
-  if (!env.SERVICE_CONFIG_PATH) {
-    env.SERVICE_CONFIG_PATH = `!${serviceConfigPath}`;
-  }
 
   const server = spawn('npx', ['tsx', 'src/server.ts'], {
     cwd: CATALOG_ROOT,
@@ -793,10 +783,6 @@ async function createNetworkModuleRepo(options: {
 }
 
 async function testServiceNetworkManifestFlow() {
-  const serviceConfigRoot = await mkdtemp(path.join(tmpdir(), 'apphub-service-config-'));
-  const serviceConfigPath = path.join(serviceConfigRoot, 'service-config.json');
-  await writeFile(serviceConfigPath, JSON.stringify({ module: 'github.com/apphub/test-root' }, null, 2), 'utf8');
-
   const networkRepoRoot = await mkdtemp(path.join(tmpdir(), 'apphub-network-repo-'));
   const { repoDir: networkRepoDir, dockerfilePath: networkDockerfile } = await createLocalRepo(networkRepoRoot);
 
@@ -984,14 +970,12 @@ async function testServiceNetworkManifestFlow() {
       },
       {
         env: {
-          SERVICE_CONFIG_PATH: `!${serviceConfigPath}`,
           LAUNCH_RUNNER_MODE: 'docker'
         }
       }
     );
   } finally {
     await Promise.allSettled([
-      rm(serviceConfigRoot, { recursive: true, force: true }),
       rm(networkRepoRoot, { recursive: true, force: true }),
       rm(betterRepo.root, { recursive: true, force: true }),
       rm(aiRepo.root, { recursive: true, force: true }),

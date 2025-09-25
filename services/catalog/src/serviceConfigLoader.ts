@@ -113,20 +113,6 @@ export type ManifestPlaceholderSummary = {
   conflicts: string[];
 };
 
-export type ServiceConfigLoadResult = {
-  entries: LoadedManifestEntry[];
-  networks: LoadedServiceNetwork[];
-  errors: ManifestLoadError[];
-  usedConfigs: string[];
-  placeholders: ManifestPlaceholderSummary[];
-};
-
-export type ClearServiceConfigImportsResult = {
-  cleared: string[];
-  skipped: string[];
-  errors: { path: string; error: Error }[];
-};
-
 type VisitedModules = Map<string, string>;
 
 type ConfigLoadResult = {
@@ -386,39 +372,6 @@ function summarizePlaceholders(
   return summaries;
 }
 
-function resolveConfiguredPaths(envValue: string | undefined, defaults: string[]): string[] {
-  let includeDefaults = true;
-  let configured = envValue ? envValue.trim() : '';
-
-  if (configured.startsWith('!')) {
-    includeDefaults = false;
-    configured = configured.slice(1).trimStart();
-  }
-
-  const extras = configured
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(entry)));
-
-  const basePaths = includeDefaults ? defaults : [];
-  const paths = [...basePaths, ...extras];
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const item of paths) {
-    if (seen.has(item)) {
-      continue;
-    }
-    seen.add(item);
-    deduped.push(item);
-  }
-  return deduped;
-}
-
-export function resolveServiceConfigPaths(): string[] {
-  return resolveConfiguredPaths(process.env.SERVICE_CONFIG_PATH, []);
-}
-
 function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
   return Boolean(value && typeof value === 'object' && 'code' in value);
 }
@@ -439,66 +392,6 @@ function deriveModuleIdFromConfigPath(configPath: string): string {
     .replace(/[-/]+$/, '');
   const identifier = sanitized.length > 0 ? sanitized : 'service-config';
   return `local:${identifier}`;
-}
-
-async function loadOrCreateServiceConfig(configPath: string): Promise<ServiceConfig> {
-  try {
-    return await readServiceConfig(configPath);
-  } catch (err) {
-    if (!isErrnoException(err) || err.code !== 'ENOENT') {
-      throw err;
-    }
-  }
-
-  const moduleId = deriveModuleIdFromConfigPath(configPath);
-  const initialConfig: ServiceConfig = { module: moduleId };
-
-  await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, `${JSON.stringify(initialConfig, null, 2)}\n`, 'utf8');
-  return initialConfig;
-}
-
-export async function clearServiceConfigImports(
-  configPaths: string[] = resolveServiceConfigPaths()
-): Promise<ClearServiceConfigImportsResult> {
-  const cleared: string[] = [];
-  const skipped: string[] = [];
-  const errors: { path: string; error: Error }[] = [];
-
-  for (const configPath of configPaths) {
-    let config: ServiceConfig;
-    try {
-      config = await readServiceConfig(configPath);
-    } catch (err) {
-      if (isErrnoException(err) && err.code === 'ENOENT') {
-        skipped.push(configPath);
-        continue;
-      }
-      errors.push({ path: configPath, error: err as Error });
-      continue;
-    }
-
-    if (!config.imports || config.imports.length === 0) {
-      skipped.push(configPath);
-      continue;
-    }
-
-    const updated: ServiceConfig = {
-      module: config.module,
-      manifestPath: config.manifestPath,
-      services: config.services,
-      networks: config.networks
-    };
-
-    try {
-      await fs.writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
-      cleared.push(configPath);
-    } catch (err) {
-      errors.push({ path: configPath, error: err as Error });
-    }
-  }
-
-  return { cleared, skipped, errors };
 }
 
 function resolveEnvVars(params: {
@@ -957,40 +850,6 @@ async function loadConfigImport(
   return { moduleId, entries, networks, errors, resolvedCommit };
 }
 
-export async function loadServiceConfigurations(configPaths: string[]): Promise<ServiceConfigLoadResult> {
-  const visitedModules: VisitedModules = new Map();
-  const placeholderCollector = createPlaceholderCollector();
-  const entries: LoadedManifestEntry[] = [];
-  const networks: LoadedServiceNetwork[] = [];
-  const errors: ManifestLoadError[] = [];
-  const usedConfigs: string[] = [];
-
-  for (const configPath of configPaths) {
-    try {
-      await fs.access(configPath);
-    } catch {
-      continue;
-    }
-
-    const result = await loadConfigRecursive({
-      filePath: configPath,
-      sourceLabel: configPath,
-      visitedModules,
-      repoRoot: path.dirname(configPath),
-      variables: null,
-      placeholderCollector,
-      placeholderMode: 'enforce'
-    });
-    usedConfigs.push(configPath);
-    entries.push(...result.entries);
-    networks.push(...result.networks);
-    errors.push(...result.errors);
-  }
-
-  const placeholders = summarizePlaceholders(placeholderCollector);
-  return { entries, networks, errors, usedConfigs, placeholders };
-}
-
 export type ServiceConfigImportRequest = {
   repo?: string | null;
   path?: string | null;
@@ -1067,57 +926,4 @@ export async function previewServiceConfigImport(
     errors: result.errors,
     placeholders
   };
-}
-
-export class DuplicateModuleImportError extends Error {
-  constructor(moduleId: string) {
-    super(`module ${moduleId} is already imported`);
-    this.name = 'DuplicateModuleImportError';
-  }
-}
-
-export async function appendServiceConfigImport(
-  configPath: string,
-  descriptor: ServiceConfigImport & { resolvedCommit?: string | null }
-) {
-  let config: ServiceConfig;
-  try {
-    config = await loadOrCreateServiceConfig(configPath);
-  } catch (err) {
-    throw new Error(`failed to load service config at ${configPath}: ${(err as Error).message}`);
-  }
-
-  const imports = [...(config.imports ?? [])];
-  if (imports.some((entry) => entry.module === descriptor.module)) {
-    throw new DuplicateModuleImportError(descriptor.module);
-  }
-
-  const normalizedVariables = descriptor.variables
-    ? Object.fromEntries(
-        Object.entries(descriptor.variables)
-          .map(([key, value]) => [key.trim(), value])
-          .filter(([key]) => key.length > 0)
-      )
-    : undefined;
-
-  const newImport: ServiceConfigImport = {
-    module: descriptor.module,
-    repo: descriptor.repo,
-    path: descriptor.path,
-    ref: descriptor.ref,
-    commit: descriptor.resolvedCommit ?? descriptor.commit,
-    configPath: descriptor.configPath,
-    variables:
-      normalizedVariables && Object.keys(normalizedVariables).length > 0 ? normalizedVariables : undefined
-  };
-
-  imports.push(newImport);
-  imports.sort((a, b) => a.module.localeCompare(b.module));
-
-  const updated: ServiceConfig = {
-    ...config,
-    imports
-  };
-
-  await fs.writeFile(configPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
 }

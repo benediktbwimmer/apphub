@@ -32,7 +32,6 @@ export type ImportManifestResult = {
   resolvedCommit: string | null;
   servicesDiscovered: number;
   networksDiscovered: number;
-  configPath: string;
 };
 
 type NormalizedRequestBody = {

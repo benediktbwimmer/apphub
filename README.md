@@ -219,8 +219,6 @@ DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub
 PGPOOL_MAX=20
 PGPOOL_IDLE_TIMEOUT_MS=30000
 PGPOOL_CONNECTION_TIMEOUT_MS=10000
-SERVICE_CONFIG_PATH=                   # Optional comma-separated list of service config files
-SERVICE_MANIFEST_PATH=                 # Optional comma-separated list of manifest files
 SERVICE_REGISTRY_TOKEN=
 SERVICE_CLIENT_TIMEOUT_MS=60000
 SERVICE_HEALTH_INTERVAL_MS=30000
@@ -229,7 +227,6 @@ SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000
 APPHUB_HOST_ROOT=                      # Optional host root used to resolve launch START_PATH mounts (legacy alias HOST_ROOT_PATH)
 ```
 
-`SERVICE_CONFIG_PATH` and `SERVICE_MANIFEST_PATH` accept comma-separated lists if you need to merge multiple manifests.
 
 **Redis, queues & events**
 
@@ -409,17 +406,16 @@ Every secret resolution is captured in the audit log with the requesting actor, 
 
 ### Service Configuration
 
-The service registry can ingest zero or more configuration modules referenced via `SERVICE_CONFIG_PATH` (comma-separated list).
-Each module follows the same declarative format, can inline service definitions, and may declare `imports` that pull additional
-manifests from Git repositories. When a module imports another repository, the registry clones every dependency, walks the DAG,
-and merges the discovered service entries with any standalone JSON manifests referenced in `SERVICE_MANIFEST_PATH`.
+The catalog no longer reads service manifests or configuration modules from disk at startup. Instead, operators import manifests on
+command—typically from checked-in example repos—using the runtime APIs. Each import clones the referenced repository (or opens the
+local path you supply), resolves the manifest graph, and applies the resulting services and service networks directly to the
+registry and SQLite store. Subsequent imports for the same module replace the previous definitions so you can iterate without
+restarts or environment tweaks.
 
-If neither environment variable is set the registry simply starts empty—no default manifests are bundled. Provide at least one
-writable config path when you want to persist `POST /service-config/import` requests.
-
-To add a new module at runtime, call `POST /service-config/import` with your `SERVICE_REGISTRY_TOKEN`. The API validates the
-remote configuration, resolves the effective commit, appends the import to the configured service config file, and refreshes the
-registry in-place.
+To register a manifest, call `POST /service-networks/import` (or `/service-config/import`, which is kept for backwards
+compatibility) with your `SERVICE_REGISTRY_TOKEN`. Provide either a `repo` URL or local `path`, the optional manifest `configPath`,
+and any placeholder variables the module requires. The endpoint validates the manifest, surfaces placeholder conflicts, and then
+applies the services in-place—no filesystem persistence or `SERVICE_CONFIG_PATH`/`SERVICE_MANIFEST_PATH` variables required.
 
 ```bash
 curl -X POST http://127.0.0.1:4000/service-config/import \
@@ -432,8 +428,8 @@ curl -X POST http://127.0.0.1:4000/service-config/import \
 ```
 
 The response includes the module identifier, resolved commit SHA, and number of discovered services. The catalog no longer
-ingests manifests automatically on boot—invoke one of the import endpoints (or call the `refreshManifest` helper in code)
-whenever you want to sync declarative definitions into the registry.
+ingests manifests automatically on boot—invoke the import endpoints (or trigger the example loader in the UI) whenever you want to
+sync declarative definitions into the registry.
 
 ### Run Everything Locally
 
@@ -448,8 +444,8 @@ This expects a `redis-server` binary on your `$PATH` (macOS: `brew install redis
 - Redis (`redis-server --save "" --appendonly no`)
 - Catalog API on `http://127.0.0.1:4000`
 - Ingestion worker
-- Service orchestrator (`npm run dev:services`) that reads manifests referenced by `SERVICE_MANIFEST_PATH` and spawns any
-  configured dev commands
+- Service orchestrator (`npm run dev:services`) that spawns the dev commands defined in the supplied manifest (defaults to the
+  environmental observatory example; pass manifest paths as CLI arguments to override)
 - Frontend on `http://localhost:5173`
 
 Ensure a PostgreSQL instance is reachable at the connection string in `DATABASE_URL` before launching the dev stack; the script does not start Postgres automatically.

@@ -6,7 +6,7 @@ import {
   nukeCatalogEverything,
   nukeCatalogRunData
 } from '../db/index';
-import { clearServiceConfigImports } from '../serviceConfigLoader';
+import { resetServiceManifestState } from '../serviceRegistry';
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post('/admin/catalog/nuke/run-data', async (request, reply) => {
@@ -40,18 +40,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post('/admin/catalog/nuke', async (request, reply) => {
     try {
       const counts = await nukeCatalogDatabase();
-      const importClearResult = await clearServiceConfigImports();
-
-      if (importClearResult.errors.length > 0) {
-        for (const entry of importClearResult.errors) {
-          request.log.error(
-            { path: entry.path, error: entry.error.message },
-            'Failed to clear imported service manifest'
-          );
-        }
-        reply.status(500);
-        return { error: 'Failed to clear imported service manifests' };
-      }
+      resetServiceManifestState();
 
       request.log.warn(
         {
@@ -66,8 +55,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           repositoryTagsDeleted: counts.repository_tags ?? 0,
           ingestionEventsDeleted: counts.ingestion_events ?? 0,
           repositorySearchEntriesDeleted: counts.repository_search ?? 0,
-          servicesDeleted: counts.services ?? 0,
-          serviceConfigImportsCleared: importClearResult.cleared.length
+          servicesDeleted: counts.services ?? 0
         },
         'Catalog database nuked'
       );
@@ -78,9 +66,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           builds: counts.builds ?? 0,
           launches: counts.launches ?? 0,
           tags: counts.tags ?? 0,
-          counts,
-          serviceConfigImportsCleared: importClearResult.cleared.length,
-          serviceConfigImportsSkipped: importClearResult.skipped.length
+          counts
         }
       };
     } catch (err) {
@@ -93,21 +79,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post('/admin/catalog/nuke/everything', async (request, reply) => {
     try {
       const counts = await nukeCatalogEverything();
-      const importClearResult = await clearServiceConfigImports();
+      resetServiceManifestState();
 
       markDatabaseUninitialized();
       await ensureDatabase();
-
-      if (importClearResult.errors.length > 0) {
-        for (const entry of importClearResult.errors) {
-          request.log.error(
-            { path: entry.path, error: entry.error.message },
-            'Failed to clear imported service manifest'
-          );
-        }
-        reply.status(500);
-        return { error: 'Failed to clear imported service manifests' };
-      }
 
       const totalRowsDeleted = Object.values(counts).reduce((acc, value) => acc + value, 0);
 
@@ -115,8 +90,6 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         {
           tablesTruncated: Object.keys(counts).length,
           totalRowsDeleted,
-          serviceConfigImportsCleared: importClearResult.cleared.length,
-          serviceConfigImportsSkipped: importClearResult.skipped.length,
           counts
         },
         'Entire catalog database nuked'
@@ -125,9 +98,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return {
         data: {
           counts,
-          totalRowsDeleted,
-          serviceConfigImportsCleared: importClearResult.cleared.length,
-          serviceConfigImportsSkipped: importClearResult.skipped.length
+          totalRowsDeleted
         }
       };
     } catch (err) {

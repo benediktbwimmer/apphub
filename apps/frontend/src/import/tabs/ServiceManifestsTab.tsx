@@ -161,12 +161,6 @@ export default function ServiceManifestsTab({
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Config path
-            </dt>
-            <dd className="text-sm text-slate-700 dark:text-slate-200">{result.configPath}</dd>
-          </div>
-          <div className="flex flex-col gap-1">
-            <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
               Services discovered
             </dt>
             <dd className="text-sm text-slate-700 dark:text-slate-200">{result.servicesDiscovered}</dd>

@@ -14,24 +14,18 @@ try {
 const ROOT_DIR = path.resolve(__dirname, '..');
 
 function resolveManifestPaths() {
-  let configured = process.env.SERVICE_MANIFEST_PATH ?? '';
-  if (configured.startsWith('!')) {
-    configured = configured.slice(1).trimStart();
-  }
-
-  const paths = configured
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => (path.isAbsolute(entry) ? entry : path.resolve(ROOT_DIR, entry)));
+  const cliArgs = process.argv.slice(2).filter(Boolean);
+  const defaults = ['examples/environmental-observatory/service-manifests/service-manifest.json'];
+  const entries = cliArgs.length > 0 ? cliArgs : defaults;
   const seen = new Set();
   const deduped = [];
-  for (const manifestPath of paths) {
-    if (seen.has(manifestPath)) {
+  for (const entry of entries) {
+    const resolved = path.isAbsolute(entry) ? entry : path.resolve(ROOT_DIR, entry);
+    if (seen.has(resolved)) {
       continue;
     }
-    seen.add(manifestPath);
-    deduped.push(manifestPath);
+    seen.add(resolved);
+    deduped.push(resolved);
   }
   return deduped;
 }
