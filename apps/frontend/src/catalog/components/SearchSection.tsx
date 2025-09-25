@@ -21,8 +21,6 @@ type SearchSectionProps = {
   onToggleHighlights: (enabled: boolean) => void;
   activeTokens: string[];
   searchMeta: SearchMeta | null;
-  viewMode: 'preview' | 'list';
-  onViewModeChange: (mode: 'preview' | 'list') => void;
 };
 
 function SearchSection({
@@ -37,9 +35,7 @@ function SearchSection({
   showHighlights,
   onToggleHighlights,
   activeTokens,
-  searchMeta,
-  viewMode,
-  onViewModeChange
+  searchMeta
 }: SearchSectionProps) {
   const highlightToggleDisabled = activeTokens.length === 0;
 
@@ -100,30 +96,6 @@ function SearchSection({
                 </button>
               ))}
             </div>
-          </div>
-          <div className="inline-flex rounded-full border border-slate-200/70 bg-white/70 p-1 text-xs font-semibold text-slate-500 shadow-sm dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-            <button
-              type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                viewMode === 'preview'
-                  ? 'bg-violet-600 text-white shadow hover:bg-violet-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-violet-600 dark:hover:text-slate-100'
-              }`}
-              onClick={() => onViewModeChange('preview')}
-            >
-              Preview view
-            </button>
-            <button
-              type="button"
-              className={`rounded-full px-3 py-1 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                viewMode === 'list'
-                  ? 'bg-violet-600 text-white shadow hover:bg-violet-500 dark:bg-slate-200/30 dark:text-slate-900'
-                  : 'hover:text-violet-600 dark:hover:text-slate-100'
-              }`}
-              onClick={() => onViewModeChange('list')}
-            >
-              List view
-            </button>
           </div>
         </div>
       </div>

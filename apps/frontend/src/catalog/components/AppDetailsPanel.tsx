@@ -125,6 +125,7 @@ type AppDetailsPanelProps = {
   launchingId: string | null;
   stoppingLaunchId: string | null;
   launchErrors: Record<string, string | null>;
+  showPreview?: boolean;
 };
 
 function TagList({ tags, activeTokens, highlightEnabled }: { tags: TagKV[]; activeTokens: string[]; highlightEnabled: boolean }) {
@@ -1432,7 +1433,8 @@ function AppDetailsPanel({
   onStopLaunch,
   launchingId,
   stoppingLaunchId,
-  launchErrors
+  launchErrors,
+  showPreview = true
 }: AppDetailsPanelProps) {
   const [infoOpen, setInfoOpen] = useState(false);
   const infoPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -1479,7 +1481,9 @@ function AppDetailsPanel({
 
   return (
     <article className="flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-      <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} launch={app.latestLaunch} />
+      {showPreview && (
+        <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} launch={app.latestLaunch} />
+      )}
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">

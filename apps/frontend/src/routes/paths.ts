@@ -49,7 +49,7 @@ export type PrimaryNavigationItem = {
 
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
-  { key: 'catalog', label: 'Catalog', path: ROUTE_PATHS.catalog },
+  { key: 'catalog', label: 'Apps', path: ROUTE_PATHS.catalog },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
   { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },

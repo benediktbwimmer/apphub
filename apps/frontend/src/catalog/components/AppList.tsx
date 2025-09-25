@@ -1,21 +1,15 @@
-import { useState } from 'react';
+import { Fragment, type KeyboardEvent, type MouseEvent } from 'react';
 import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
-import { normalizePreviewUrl } from '../../utils/url';
-import {
-  formatDuration,
-  highlightSegments
-} from '../utils';
+import { formatDuration, highlightSegments } from '../utils';
 import type {
   AppRecord,
   BuildTimelineState,
+  HistoryState,
   LaunchRequestDraft,
-  LaunchEnvVar
+  LaunchEnvVar,
+  LaunchListState
 } from '../types';
-import {
-  FullscreenIcon,
-  FullscreenOverlay,
-  type FullscreenPreviewState
-} from './FullscreenPreview';
+import AppDetailsPanel from './AppDetailsPanel';
 import { collectAvailableEnvVars, mergeEnvSources } from './envUtils';
 
 type AppListProps = {
@@ -31,6 +25,16 @@ type AppListProps = {
   launchingId: string | null;
   stoppingLaunchId: string | null;
   launchErrors: Record<string, string | null>;
+  selectedAppId: string | null;
+  onSelectApp: (id: string) => void;
+  historyState: HistoryState;
+  onToggleHistory: (id: string) => void;
+  onToggleBuilds: (id: string) => void;
+  onLoadMoreBuilds: (id: string) => void;
+  onToggleLogs: (appId: string, buildId: string) => void;
+  onRetryBuild: (appId: string, buildId: string) => void;
+  launchLists: LaunchListState;
+  onToggleLaunches: (id: string) => void;
 };
 
 const STATUS_BADGE_BASE =
@@ -90,104 +94,117 @@ function AppList({
   onStopLaunch,
   launchingId,
   stoppingLaunchId,
-  launchErrors
+  launchErrors,
+  selectedAppId,
+  onSelectApp,
+  historyState,
+  onToggleHistory,
+  onToggleBuilds,
+  onLoadMoreBuilds,
+  onToggleLogs,
+  onRetryBuild,
+  launchLists,
+  onToggleLaunches
 }: AppListProps) {
-  const [fullscreenPreview, setFullscreenPreview] = useState<FullscreenPreviewState | null>(null);
+  const handleRowClick = (event: MouseEvent<HTMLTableRowElement>, id: string) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, label')) {
+      return;
+    }
+    onSelectApp(id);
+  };
+
+  const handleRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, id: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onSelectApp(id);
+    }
+  };
 
   return (
-    <>
-      <div className="overflow-x-auto rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-        <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/60">
-          <thead className="bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-            <tr>
-              <th scope="col" className="px-6 py-4">App</th>
-              <th scope="col" className="px-6 py-4">Ingestion</th>
-              <th scope="col" className="px-6 py-4">Latest build</th>
-              <th scope="col" className="px-6 py-4">Latest launch</th>
-              <th scope="col" className="px-6 py-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200/70 text-sm dark:divide-slate-700/60">
-            {apps.map((app) => {
-              const ingestStatusBadge = (
-                <span className={getStatusBadgeClasses(app.ingestStatus)}>
-                  ingest {app.ingestStatus}
-                </span>
-              );
-              const ingestError = app.ingestError;
-              const build = app.latestBuild;
-              const buildStatusBadge = build ? (
-                <span className={getStatusBadgeClasses(build.status)}>
-                  build {build.status}
-                </span>
-              ) : (
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No builds yet</span>
-              );
-              const buildDuration = build ? formatDuration(build.durationMs) : null;
-              const buildStateEntry = buildState[app.id];
-              const buildCreating = buildStateEntry?.creating ?? false;
-              const launch = app.latestLaunch;
-              const launchStatusBadge = launch ? (
-                <span className={getStatusBadgeClasses(launch.status)}>
-                  launch {launch.status}
-                </span>
-              ) : (
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No launches yet</span>
-              );
-              const launchError = launchErrors[app.id] ?? launch?.errorMessage ?? null;
-              const isLaunching = launchingId === app.id;
-              const canLaunch = app.latestBuild?.status === 'succeeded';
-              const currentLaunchId = launch?.id ?? null;
-              const canStop = Boolean(launch && ACTIVE_LAUNCH_STATUSES.has(launch.status));
-              const isStopping = stoppingLaunchId === currentLaunchId;
-              const livePreviewUrl =
-                launch?.status === 'running' ? normalizePreviewUrl(launch.instanceUrl) : null;
-              const previewTile =
-                app.previewTiles.find((preview) => Boolean(preview.embedUrl || preview.src)) ?? null;
-              const hasPreviewTarget = Boolean(livePreviewUrl || previewTile);
+    <div className="overflow-x-auto rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+      <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/60">
+        <thead className="bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+          <tr>
+            <th scope="col" className="px-6 py-4">App</th>
+            <th scope="col" className="px-6 py-4">Ingestion</th>
+            <th scope="col" className="px-6 py-4">Latest build</th>
+            <th scope="col" className="px-6 py-4">Latest launch</th>
+            <th scope="col" className="px-6 py-4">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200/70 text-sm dark:divide-slate-700/60">
+          {apps.map((app) => {
+            const ingestStatusBadge = (
+              <span className={getStatusBadgeClasses(app.ingestStatus)}>
+                ingest {app.ingestStatus}
+              </span>
+            );
+            const ingestError = app.ingestError;
+            const build = app.latestBuild;
+            const buildStatusBadge = build ? (
+              <span className={getStatusBadgeClasses(build.status)}>
+                build {build.status}
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No builds yet</span>
+            );
+            const buildDuration = build ? formatDuration(build.durationMs) : null;
+            const buildStateEntry = buildState[app.id];
+            const buildCreating = buildStateEntry?.creating ?? false;
+            const launch = app.latestLaunch;
+            const launchStatusBadge = launch ? (
+              <span className={getStatusBadgeClasses(launch.status)}>
+                launch {launch.status}
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No launches yet</span>
+            );
+            const launchError = launchErrors[app.id] ?? launch?.errorMessage ?? null;
+            const isLaunching = launchingId === app.id;
+            const canLaunch = app.latestBuild?.status === 'succeeded';
+            const currentLaunchId = launch?.id ?? null;
+            const canStop = Boolean(launch && ACTIVE_LAUNCH_STATUSES.has(launch.status));
+            const isStopping = stoppingLaunchId === currentLaunchId;
+            const isSelected = selectedAppId === app.id;
 
-              const handleLaunch = () => {
-                const env = collectLaunchEnv(app);
-                const launchId = createLaunchId();
-                const command = buildDockerRunCommandString({
-                  repositoryId: app.id,
-                  launchId,
-                  imageTag: app.latestBuild?.imageTag ?? null,
-                  env
-                });
-                onLaunch(app.id, { env, command, launchId });
-              };
+            const handleLaunch = () => {
+              const env = collectLaunchEnv(app);
+              const launchId = createLaunchId();
+              const command = buildDockerRunCommandString({
+                repositoryId: app.id,
+                launchId,
+                imageTag: app.latestBuild?.imageTag ?? null,
+                env
+              });
+              onLaunch(app.id, { env, command, launchId });
+            };
 
-              const handleStop = () => {
-                if (currentLaunchId) {
-                  onStopLaunch(app.id, currentLaunchId);
-                }
-              };
+            const handleStop = () => {
+              if (currentLaunchId) {
+                onStopLaunch(app.id, currentLaunchId);
+              }
+            };
 
-              const handleBuild = () => {
-                void onTriggerBuild(app.id, {});
-              };
+            const handleBuild = () => {
+              void onTriggerBuild(app.id, {});
+            };
 
-              const handleOpenPreview = () => {
-                if (livePreviewUrl) {
-                  setFullscreenPreview({
-                    type: 'live',
-                    url: livePreviewUrl,
-                    title: `${app.name} live preview`
-                  });
-                  return;
-                }
-                if (previewTile) {
-                  setFullscreenPreview({
-                    type: 'tile',
-                    tile: previewTile,
-                    title: previewTile.title ?? `${app.name} preview`
-                  });
-                }
-              };
-
-              return (
-                <tr key={app.id} className="bg-white/50 transition-colors dark:bg-slate-900/40">
+            return (
+              <Fragment key={app.id}>
+                <tr
+                  className={`cursor-pointer bg-white/50 transition-colors dark:bg-slate-900/40 ${
+                    isSelected
+                      ? 'ring-1 ring-violet-300/70 dark:ring-slate-600/70'
+                      : 'hover:bg-violet-500/5 dark:hover:bg-slate-800/60'
+                  }`}
+                  onClick={(event) => handleRowClick(event, app.id)}
+                  onKeyDown={(event) => handleRowKeyDown(event, app.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isSelected}
+                  aria-label={`View details for ${app.name}`}
+                >
                   <td className="max-w-xs px-6 py-4 align-top">
                     <div className="space-y-2">
                       <div className="text-base font-semibold text-slate-700 dark:text-slate-100">
@@ -237,16 +254,6 @@ function AppList({
                   <td className="px-6 py-4 align-top">
                     <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
                       {launchStatusBadge}
-                      {launch?.instanceUrl && (
-                        <a
-                          className="text-violet-600 underline-offset-4 hover:underline dark:text-slate-200"
-                          href={normalizePreviewUrl(launch.instanceUrl) ?? '#'}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open preview
-                        </a>
-                      )}
                       {launch?.updatedAt && (
                         <time dateTime={launch.updatedAt}>
                           Updated {new Date(launch.updatedAt).toLocaleString()}
@@ -280,30 +287,44 @@ function AppList({
                       >
                         {buildCreating ? 'Triggering…' : 'Trigger build'}
                       </button>
-                      <button
-                        type="button"
-                        className={TERTIARY_ACTION_BUTTON}
-                        onClick={handleOpenPreview}
-                        disabled={!hasPreviewTarget}
-                        aria-label={`Open ${app.name} preview in fullscreen`}
-                      >
-                        <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200/70 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
-                          <FullscreenIcon />
-                        </span>
-                        Fullscreen
-                      </button>
                     </div>
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {fullscreenPreview && (
-        <FullscreenOverlay preview={fullscreenPreview} onClose={() => setFullscreenPreview(null)} />
-      )}
-    </>
+                {isSelected && (
+                  <tr className="bg-transparent">
+                    <td colSpan={5} className="px-6 pb-6 pt-0">
+                      <AppDetailsPanel
+                        app={app}
+                        activeTokens={activeTokens}
+                        highlightEnabled={highlightEnabled}
+                        retryingId={retryingId}
+                        onRetry={onRetry}
+                        historyEntry={historyState[app.id]}
+                        onToggleHistory={onToggleHistory}
+                        buildEntry={buildState[app.id]}
+                        onToggleBuilds={onToggleBuilds}
+                        onLoadMoreBuilds={onLoadMoreBuilds}
+                        onToggleLogs={onToggleLogs}
+                        onRetryBuild={onRetryBuild}
+                        onTriggerBuild={onTriggerBuild}
+                        launchEntry={launchLists[app.id]}
+                        onToggleLaunches={onToggleLaunches}
+                        onLaunch={onLaunch}
+                        onStopLaunch={onStopLaunch}
+                        launchingId={launchingId}
+                        stoppingLaunchId={stoppingLaunchId}
+                        launchErrors={launchErrors}
+                        showPreview={false}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
