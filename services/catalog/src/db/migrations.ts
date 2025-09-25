@@ -685,24 +685,24 @@ const migrations: Migration[] = [
        ON CONFLICT (slug) DO UPDATE
          SET description = EXCLUDED.description;`,
       `INSERT INTO role_scopes (role_id, scope)
-        VALUES
-          ('role-viewer', 'jobs:run'),
-          ('role-viewer', 'workflows:run'),
-          ('role-viewer', 'job-bundles:read'),
-          ('role-viewer', 'auth:manage-api-keys'),
-          ('role-editor', 'jobs:run'),
-          ('role-editor', 'workflows:run'),
-          ('role-editor', 'job-bundles:read'),
-          ('role-editor', 'jobs:write'),
-          ('role-editor', 'workflows:write'),
-          ('role-editor', 'auth:manage-api-keys'),
-          ('role-admin', 'jobs:run'),
-          ('role-admin', 'workflows:run'),
-          ('role-admin', 'job-bundles:read'),
-          ('role-admin', 'jobs:write'),
-          ('role-admin', 'workflows:write'),
-          ('role-admin', 'job-bundles:write'),
-          ('role-admin', 'auth:manage-api-keys')
+         VALUES
+           ('role-viewer', 'jobs:run'),
+           ('role-viewer', 'workflows:run'),
+           ('role-viewer', 'job-bundles:read'),
+           ('role-viewer', 'auth:manage-api-keys'),
+           ('role-editor', 'jobs:run'),
+           ('role-editor', 'workflows:run'),
+           ('role-editor', 'job-bundles:read'),
+           ('role-editor', 'jobs:write'),
+           ('role-editor', 'workflows:write'),
+           ('role-editor', 'auth:manage-api-keys'),
+           ('role-admin', 'jobs:run'),
+           ('role-admin', 'workflows:run'),
+           ('role-admin', 'job-bundles:read'),
+           ('role-admin', 'jobs:write'),
+           ('role-admin', 'workflows:write'),
+           ('role-admin', 'job-bundles:write'),
+           ('role-admin', 'auth:manage-api-keys')
       ON CONFLICT DO NOTHING;`
     ]
   },
@@ -711,6 +711,40 @@ const migrations: Migration[] = [
     statements: [
       `ALTER TABLE repositories
          ADD COLUMN IF NOT EXISTS metadata_strategy TEXT NOT NULL DEFAULT 'auto';`
+    ]
+  },
+  {
+    id: '024_workflow_schedules',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_schedules (
+         id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         name TEXT,
+         description TEXT,
+         cron TEXT NOT NULL,
+         timezone TEXT,
+         parameters JSONB,
+         start_window TIMESTAMPTZ,
+         end_window TIMESTAMPTZ,
+         catch_up BOOLEAN NOT NULL DEFAULT TRUE,
+         next_run_at TIMESTAMPTZ,
+         last_materialized_window JSONB,
+         catchup_cursor TIMESTAMPTZ,
+         is_active BOOLEAN NOT NULL DEFAULT TRUE,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_schedules_definition
+         ON workflow_schedules(workflow_definition_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_schedules_next_run
+         ON workflow_schedules(next_run_at)
+         WHERE is_active = TRUE AND next_run_at IS NOT NULL;`,
+      `ALTER TABLE workflow_definitions
+         DROP COLUMN IF EXISTS schedule_next_run_at;`,
+      `ALTER TABLE workflow_definitions
+         DROP COLUMN IF EXISTS schedule_last_materialized_window;`,
+      `ALTER TABLE workflow_definitions
+         DROP COLUMN IF EXISTS schedule_catchup_cursor;`
     ]
   }
 ];

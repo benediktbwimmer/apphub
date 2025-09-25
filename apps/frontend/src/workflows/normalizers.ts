@@ -7,6 +7,7 @@ import type {
   WorkflowAssetRoleDescriptor,
   WorkflowAssetSnapshot,
   WorkflowDefinition,
+  WorkflowSchedule,
   WorkflowFanOutTemplateStep,
   WorkflowFiltersState,
   WorkflowRun,
@@ -40,6 +41,60 @@ function normalizeStringArray(value: unknown): string[] | undefined {
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter((entry): entry is string => entry.length > 0);
   return normalized.length > 0 ? normalized : undefined;
+}
+
+export function normalizeWorkflowSchedule(raw: unknown): WorkflowSchedule | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id : null;
+  const workflowDefinitionId = typeof record.workflowDefinitionId === 'string' ? record.workflowDefinitionId : null;
+  const cron = typeof record.cron === 'string' ? record.cron : null;
+  if (!id || !workflowDefinitionId || !cron) {
+    return null;
+  }
+
+  const timezone = typeof record.timezone === 'string' ? record.timezone : null;
+  const name = typeof record.name === 'string' ? record.name : null;
+  const description = typeof record.description === 'string' ? record.description : null;
+  const startWindow = typeof record.startWindow === 'string' ? record.startWindow : null;
+  const endWindow = typeof record.endWindow === 'string' ? record.endWindow : null;
+  const catchUp = Boolean(record.catchUp);
+  const nextRunAt = typeof record.nextRunAt === 'string' ? record.nextRunAt : null;
+  const catchupCursor = typeof record.catchupCursor === 'string' ? record.catchupCursor : null;
+  const isActive = Boolean(record.isActive);
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : '';
+  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : '';
+
+  const lastWindowRaw = toRecord(record.lastWindow);
+  const lastWindow = lastWindowRaw
+    ? {
+        start: typeof lastWindowRaw.start === 'string' ? lastWindowRaw.start : null,
+        end: typeof lastWindowRaw.end === 'string' ? lastWindowRaw.end : null
+      }
+    : null;
+
+  const parameters = record.parameters ?? null;
+
+  return {
+    id,
+    workflowDefinitionId,
+    name,
+    description,
+    cron,
+    timezone,
+    parameters,
+    startWindow,
+    endWindow,
+    catchUp,
+    nextRunAt,
+    lastWindow,
+    catchupCursor,
+    isActive,
+    createdAt,
+    updatedAt
+  } satisfies WorkflowSchedule;
 }
 
 function normalizeFanOutTemplate(raw: unknown): WorkflowFanOutTemplateStep | null {
@@ -213,6 +268,16 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
     }
   }
 
+  const schedules: WorkflowSchedule[] = [];
+  if (Array.isArray((raw as Record<string, unknown>).schedules)) {
+    for (const entry of (raw as Record<string, unknown>).schedules as unknown[]) {
+      const schedule = normalizeWorkflowSchedule(entry);
+      if (schedule) {
+        schedules.push(schedule);
+      }
+    }
+  }
+
   return {
     id,
     slug,
@@ -221,6 +286,7 @@ export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinitio
     version: typeof raw.version === 'number' ? raw.version : 1,
     steps,
     triggers,
+    schedules,
     parametersSchema: raw.parametersSchema ?? null,
     defaultParameters: raw.defaultParameters ?? null,
     outputSchema: raw.outputSchema ?? null,

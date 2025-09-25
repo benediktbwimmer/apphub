@@ -467,7 +467,13 @@ async function computeChecksum(filePath: string): Promise<string> {
   try {
     const stream = file.createReadStream();
     await new Promise<void>((resolve, reject) => {
-      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('data', (chunk: Buffer | string) => {
+        if (typeof chunk === 'string') {
+          hash.update(chunk);
+        } else {
+          hash.update(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+        }
+      });
       stream.on('error', reject);
       stream.on('end', () => resolve());
     });

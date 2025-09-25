@@ -56,6 +56,28 @@ export type WorkflowTrigger = {
   options?: unknown;
 };
 
+export type WorkflowSchedule = {
+  id: string;
+  workflowDefinitionId: string;
+  name: string | null;
+  description: string | null;
+  cron: string;
+  timezone: string | null;
+  parameters: unknown;
+  startWindow: string | null;
+  endWindow: string | null;
+  catchUp: boolean;
+  nextRunAt: string | null;
+  lastWindow: {
+    start: string | null;
+    end: string | null;
+  } | null;
+  catchupCursor: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WorkflowDefinition = {
   id: string;
   slug: string;
@@ -64,6 +86,7 @@ export type WorkflowDefinition = {
   version: number;
   steps: WorkflowDefinitionStep[];
   triggers: WorkflowTrigger[];
+  schedules: WorkflowSchedule[];
   parametersSchema: unknown;
   defaultParameters: unknown;
   outputSchema: unknown;

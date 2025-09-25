@@ -243,6 +243,91 @@ export const workflowTriggerSchema = z
     { message: 'Schedule triggers require schedule configuration' }
   );
 
+const workflowScheduleParametersSchema = jsonValueSchema.refine(
+  (value) => value === null || (typeof value === 'object' && !Array.isArray(value)),
+  { message: 'Parameters must be a JSON object' }
+);
+
+const workflowScheduleTimingBase = z
+  .object({
+    cron: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((value) => isValidCronExpression(value.trim()), 'Invalid cron expression'),
+    timezone: z
+      .string()
+      .min(1)
+      .max(100)
+      .optional()
+      .nullable()
+      .refine(
+        (value) => {
+          if (!value) {
+            return true;
+          }
+          return isValidCronExpression('* * * * *', { tz: value.trim() });
+        },
+        { message: 'Invalid timezone identifier' }
+      ),
+    startWindow: isoDateTimeSchema.optional().nullable(),
+    endWindow: isoDateTimeSchema.optional().nullable(),
+    catchUp: z.boolean().optional()
+  })
+  .strict();
+
+export const workflowScheduleCreateSchema = workflowScheduleTimingBase
+  .extend({
+    name: z.string().min(1).max(100).optional(),
+    description: z.string().min(1).max(500).optional(),
+    parameters: workflowScheduleParametersSchema.optional(),
+    isActive: z.boolean().optional()
+  })
+  .superRefine((value, ctx) => {
+    const { startWindow, endWindow } = value;
+    if (!startWindow || !endWindow) {
+      return;
+    }
+    const startDate = new Date(startWindow);
+    const endDate = new Date(endWindow);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return;
+    }
+    if (startDate.getTime() > endDate.getTime()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'startWindow must be before endWindow' });
+    }
+  });
+
+export const workflowScheduleUpdateSchema = workflowScheduleTimingBase
+  .partial()
+  .extend({
+    name: z.union([z.string().min(1).max(100), z.literal(null)]).optional(),
+    description: z.union([z.string().min(1).max(500), z.literal(null)]).optional(),
+    parameters: workflowScheduleParametersSchema.optional(),
+    isActive: z.boolean().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (Object.keys(value as Record<string, unknown>).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one field must be provided'
+      });
+      return;
+    }
+    const { startWindow, endWindow } = value;
+    if (!startWindow || !endWindow) {
+      return;
+    }
+    const startDate = new Date(startWindow);
+    const endDate = new Date(endWindow);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return;
+    }
+    if (startDate.getTime() > endDate.getTime()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'startWindow must be before endWindow' });
+    }
+  });
+
 export const workflowServiceRequestSchema = z
   .object({
     path: z.string().min(1),

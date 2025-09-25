@@ -52,6 +52,7 @@ const baseWorkflow: WorkflowDefinition = {
     tags: ['deployment', 'critical'],
     versionNote: 'Initial creation'
   },
+  schedules: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
 };

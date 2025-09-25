@@ -115,6 +115,7 @@ const workflowDefinition: WorkflowDefinition = {
     topologicalOrder: ['step-one', 'step-two'],
     edges: 1
   },
+  schedules: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
 };

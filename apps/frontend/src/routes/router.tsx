@@ -8,6 +8,7 @@ import { RequireOperatorToken } from './RequireOperatorToken';
 import ServiceGallery from '../services/ServiceGallery';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
+import SchedulesPage from '../schedules/SchedulesPage';
 import RunsPage from '../runs/RunsPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
 import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
@@ -63,6 +64,14 @@ export const appRouteConfig: RouteObject[] = [
         element: (
           <RequireOperatorToken>
             <WorkflowsPage />
+          </RequireOperatorToken>
+        )
+      },
+      {
+        path: ROUTE_SEGMENTS.schedules,
+        element: (
+          <RequireOperatorToken>
+            <SchedulesPage />
           </RequireOperatorToken>
         )
       },

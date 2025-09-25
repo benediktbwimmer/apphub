@@ -20,7 +20,12 @@ import {
   listWorkflowAssetPartitions,
   getWorkflowAssetPartitionParameters,
   setWorkflowAssetPartitionParameters,
-  removeWorkflowAssetPartitionParameters
+  removeWorkflowAssetPartitionParameters,
+  listWorkflowSchedulesWithWorkflow,
+  createWorkflowSchedule,
+  updateWorkflowSchedule,
+  deleteWorkflowSchedule,
+  getWorkflowScheduleWithWorkflow
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -46,7 +51,9 @@ import {
   type WorkflowFanOutTemplateInput,
   type WorkflowStepInput,
   type WorkflowTriggerInput,
-  type WorkflowAssetDeclarationInput
+  type WorkflowAssetDeclarationInput,
+  workflowScheduleCreateSchema,
+  workflowScheduleUpdateSchema
 } from '../workflows/zodSchemas';
 import {
   collectPartitionedAssetsFromSteps,
@@ -59,6 +66,7 @@ import {
 } from '../queue';
 import {
   serializeWorkflowDefinition,
+  serializeWorkflowSchedule,
   serializeWorkflowRunMetrics,
   serializeWorkflowRun,
   serializeWorkflowRunWithDefinition,
@@ -785,6 +793,12 @@ const workflowAssetPartitionParamsQuerySchema = z
   })
   .partial();
 
+const workflowScheduleIdParamSchema = z
+  .object({
+    scheduleId: z.string().min(1)
+  })
+  .strict();
+
 export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void> {
   app.get('/workflows', async (_request, reply) => {
     try {
@@ -794,6 +808,27 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     } catch (err) {
       reply.status(500);
       return { error: 'Failed to list workflows' };
+    }
+  });
+
+  app.get('/workflow-schedules', async (request, reply) => {
+    try {
+      const schedules = await listWorkflowSchedulesWithWorkflow();
+      reply.status(200);
+      return {
+        data: schedules.map((entry) => ({
+          schedule: serializeWorkflowSchedule(entry.schedule),
+          workflow: {
+            id: entry.workflow.id,
+            slug: entry.workflow.slug,
+            name: entry.workflow.name
+          }
+        }))
+      };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to list workflow schedules');
+      reply.status(500);
+      return { error: 'Failed to list workflow schedules' };
     }
   });
 
@@ -913,6 +948,90 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       const message = err instanceof Error ? err.message : 'Failed to create workflow definition';
       await authResult.auth.log('failed', { reason: 'exception', message });
       return { error: 'Failed to create workflow definition' };
+    }
+  });
+
+  app.post('/workflows/:slug/schedules', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-schedules.create',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowScheduleCreateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const definition = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!definition) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'workflow_not_found',
+        workflowSlug: parseParams.data.slug
+      });
+      return { error: 'workflow not found' };
+    }
+
+    const payload = parseBody.data;
+
+    try {
+      const schedule = await createWorkflowSchedule({
+        workflowDefinitionId: definition.id,
+        name: payload.name,
+        description: payload.description,
+        cron: payload.cron,
+        timezone: payload.timezone ?? undefined,
+        parameters: payload.parameters ?? null,
+        startWindow: payload.startWindow ?? null,
+        endWindow: payload.endWindow ?? null,
+        catchUp: payload.catchUp,
+        isActive: payload.isActive
+      });
+
+      reply.status(201);
+      await authResult.auth.log('succeeded', {
+        workflowSlug: definition.slug,
+        workflowId: definition.id,
+        scheduleId: schedule.id
+      });
+      return {
+        data: {
+          schedule: serializeWorkflowSchedule(schedule),
+          workflow: {
+            id: definition.id,
+            slug: definition.slug,
+            name: definition.name
+          }
+        }
+      };
+    } catch (err) {
+      request.log.error({ err, slug: parseParams.data.slug }, 'Failed to create workflow schedule');
+      reply.status(500);
+      await authResult.auth.log('failed', {
+        reason: 'exception',
+        workflowSlug: definition.slug,
+        message: (err as Error).message ?? 'unknown error'
+      });
+      return { error: 'Failed to create workflow schedule' };
     }
   });
 
@@ -1096,6 +1215,123 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         offset
       }
     };
+  });
+
+  app.patch('/workflow-schedules/:scheduleId', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-schedules.update',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowScheduleIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseBody = workflowScheduleUpdateSchema.safeParse(request.body ?? {});
+    if (!parseBody.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        details: parseBody.error.flatten()
+      });
+      return { error: parseBody.error.flatten() };
+    }
+
+    const payload = parseBody.data;
+
+    const schedule = await updateWorkflowSchedule(parseParams.data.scheduleId, {
+      name: payload.name === undefined ? undefined : payload.name,
+      description: payload.description === undefined ? undefined : payload.description,
+      cron: payload.cron,
+      timezone: payload.timezone ?? undefined,
+      parameters: payload.parameters ?? undefined,
+      startWindow: payload.startWindow ?? undefined,
+      endWindow: payload.endWindow ?? undefined,
+      catchUp: payload.catchUp,
+      isActive: payload.isActive
+    });
+
+    if (!schedule) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'schedule_not_found',
+        scheduleId: parseParams.data.scheduleId
+      });
+      return { error: 'schedule not found' };
+    }
+
+    const summary = await getWorkflowScheduleWithWorkflow(schedule.id);
+    if (!summary) {
+      reply.status(200);
+      await authResult.auth.log('succeeded', {
+        scheduleId: schedule.id
+      });
+      return { data: { schedule: serializeWorkflowSchedule(schedule) } };
+    }
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      workflowSlug: summary.workflow.slug,
+      workflowId: summary.workflow.id,
+      scheduleId: summary.schedule.id
+    });
+    return {
+      data: {
+        schedule: serializeWorkflowSchedule(summary.schedule),
+        workflow: {
+          id: summary.workflow.id,
+          slug: summary.workflow.slug,
+          name: summary.workflow.name
+        }
+      }
+    };
+  });
+
+  app.delete('/workflow-schedules/:scheduleId', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-schedules.delete',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_WRITE_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseParams = workflowScheduleIdParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        reason: 'invalid_params',
+        details: parseParams.error.flatten()
+      });
+      return { error: parseParams.error.flatten() };
+    }
+
+    const removed = await deleteWorkflowSchedule(parseParams.data.scheduleId);
+    if (!removed) {
+      reply.status(404);
+      await authResult.auth.log('failed', {
+        reason: 'schedule_not_found',
+        scheduleId: parseParams.data.scheduleId
+      });
+      return { error: 'schedule not found' };
+    }
+
+    reply.status(204);
+    await authResult.auth.log('succeeded', {
+      scheduleId: parseParams.data.scheduleId
+    });
+    return reply.send();
   });
 
   app.get('/workflows/:slug/stats', async (request, reply) => {

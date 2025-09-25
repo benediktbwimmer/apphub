@@ -41,6 +41,7 @@ import {
   type WorkflowRunStatus,
   type WorkflowRunStepRecord,
   type WorkflowRunStepStatus,
+  type WorkflowScheduleRecord,
   type WorkflowScheduleWindow,
   type WorkflowAssetDeclaration,
   type WorkflowAssetDeclarationRecord,
@@ -69,6 +70,7 @@ import type {
   JobBundleRow,
   JobBundleVersionRow,
   WorkflowDefinitionRow,
+  WorkflowScheduleRow,
   WorkflowAssetDeclarationRow,
   WorkflowRunRow,
   WorkflowRunStepRow,
@@ -1385,12 +1387,31 @@ export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDe
     outputSchema: ensureJsonObject(row.output_schema),
     metadata: toJsonObjectOrNull(row.metadata),
     dag: parseWorkflowDag(row.dag),
-    scheduleNextRunAt: row.schedule_next_run_at ?? null,
-    scheduleLastMaterializedWindow: parseWorkflowScheduleWindow(row.schedule_last_materialized_window),
-    scheduleCatchupCursor: row.schedule_catchup_cursor ?? null,
+    schedules: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowDefinitionRecord;
+}
+
+export function mapWorkflowScheduleRow(row: WorkflowScheduleRow): WorkflowScheduleRecord {
+  return {
+    id: row.id,
+    workflowDefinitionId: row.workflow_definition_id,
+    name: row.name,
+    description: row.description,
+    cron: row.cron,
+    timezone: row.timezone,
+    parameters: ensureJsonValue(row.parameters, null),
+    startWindow: row.start_window,
+    endWindow: row.end_window,
+    catchUp: Boolean(row.catch_up),
+    nextRunAt: row.next_run_at,
+    lastMaterializedWindow: parseWorkflowScheduleWindow(row.last_materialized_window),
+    catchupCursor: row.catchup_cursor,
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowScheduleRecord;
 }
 
 export function mapWorkflowAssetDeclarationRow(

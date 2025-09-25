@@ -6,6 +6,7 @@ export const ROUTE_SEGMENTS = {
   runs: 'runs',
   jobs: 'jobs',
   workflows: 'workflows',
+  schedules: 'schedules',
   import: 'import',
   settings: 'settings',
   settingsPreview: 'preview',
@@ -22,6 +23,7 @@ export const ROUTE_PATHS = {
   runs: `/${ROUTE_SEGMENTS.runs}`,
   jobs: `/${ROUTE_SEGMENTS.jobs}`,
   workflows: `/${ROUTE_SEGMENTS.workflows}`,
+  schedules: `/${ROUTE_SEGMENTS.schedules}`,
   import: `/${ROUTE_SEGMENTS.import}`,
   settings: `/${ROUTE_SEGMENTS.settings}`,
   settingsPreview: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsPreview}`,
@@ -38,6 +40,7 @@ export type PrimaryNavKey =
   | 'runs'
   | 'jobs'
   | 'workflows'
+  | 'schedules'
   | 'import'
   | 'settings';
 
@@ -55,6 +58,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
   { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
   { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },
+  { key: 'schedules', label: 'Schedules', path: ROUTE_PATHS.schedules },
   { key: 'import', label: 'Import', path: ROUTE_PATHS.import },
   { key: 'settings', label: 'Settings', path: ROUTE_PATHS.settings }
 ] as const;

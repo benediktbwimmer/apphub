@@ -2,12 +2,13 @@ import { parseExpression, type ParserOptions } from 'cron-parser';
 import {
   createWorkflowRun,
   listDueWorkflowSchedules,
-  updateWorkflowScheduleMetadata
+  updateWorkflowScheduleRuntimeMetadata
 } from './db/workflows';
 import type {
   WorkflowDefinitionRecord,
   WorkflowScheduleWindow,
-  WorkflowTriggerDefinition,
+  WorkflowScheduleRecord,
+  WorkflowScheduleWithDefinition,
   WorkflowAssetPartitioning
 } from './db/types';
 import { enqueueWorkflowRun } from './queue';
@@ -41,24 +42,11 @@ function parseScheduleDate(value?: string | null): Date | null {
   return parsed;
 }
 
-function findScheduleTrigger(triggers: WorkflowTriggerDefinition[]): WorkflowTriggerDefinition | null {
-  for (const trigger of triggers) {
-    if (trigger.type && trigger.type.toLowerCase() === 'schedule' && trigger.schedule) {
-      return trigger;
-    }
-  }
-  return null;
-}
-
 function computeNextOccurrence(
-  schedule: WorkflowTriggerDefinition['schedule'],
+  schedule: WorkflowScheduleRecord,
   from: Date,
   { inclusive = false }: { inclusive?: boolean } = {}
 ): Date | null {
-  if (!schedule) {
-    return null;
-  }
-
   const options: ParserOptions = {};
   if (schedule.timezone) {
     options.tz = schedule.timezone;
@@ -94,13 +82,9 @@ function computeNextOccurrence(
 }
 
 function computePreviousOccurrence(
-  schedule: WorkflowTriggerDefinition['schedule'],
+  schedule: WorkflowScheduleRecord,
   occurrence: Date
 ): Date | null {
-  if (!schedule) {
-    return null;
-  }
-
   const options: ParserOptions = {};
   if (schedule.timezone) {
     options.tz = schedule.timezone;
@@ -124,7 +108,7 @@ function computePreviousOccurrence(
 }
 
 function determineWindowStart(
-  schedule: WorkflowTriggerDefinition['schedule'],
+  schedule: WorkflowScheduleRecord,
   lastWindow: WorkflowScheduleWindow | null,
   occurrence: Date
 ): string | null {
@@ -147,21 +131,16 @@ function determineWindowStart(
 }
 
 async function materializeSchedule(
-  definition: WorkflowDefinitionRecord,
+  entry: WorkflowScheduleWithDefinition,
   now: Date,
   maxWindows: number
 ): Promise<void> {
-  const scheduleTrigger = findScheduleTrigger(definition.triggers);
-  if (!scheduleTrigger || !scheduleTrigger.schedule) {
-    await updateWorkflowScheduleMetadata(definition.id, {
-      scheduleNextRunAt: null,
-      scheduleCatchupCursor: null,
-      scheduleLastMaterializedWindow: null
-    });
+  const { schedule, workflow: definition } = entry;
+
+  if (!schedule.isActive) {
     return;
   }
 
-  const schedule = scheduleTrigger.schedule;
   const catchupEnabled = Boolean(schedule.catchUp);
   const occurrenceLimit = catchupEnabled ? Math.max(maxWindows, 1) : 1;
 
@@ -179,32 +158,34 @@ async function materializeSchedule(
     );
   }
 
-  let cursor = parseScheduleDate(definition.scheduleCatchupCursor) ??
-    parseScheduleDate(definition.scheduleNextRunAt);
+  let cursor = parseScheduleDate(schedule.catchupCursor) ?? parseScheduleDate(schedule.nextRunAt);
 
   if (!cursor) {
     cursor = computeNextOccurrence(schedule, now, { inclusive: true });
   }
 
   if (!cursor) {
-    await updateWorkflowScheduleMetadata(definition.id, {
-      scheduleNextRunAt: null,
-      scheduleCatchupCursor: null
+    await updateWorkflowScheduleRuntimeMetadata(schedule.id, {
+      nextRunAt: null,
+      catchupCursor: null
     });
     return;
   }
 
   let remaining = occurrenceLimit;
   let nextCursor: Date | null = cursor;
-  let lastWindow = definition.scheduleLastMaterializedWindow ?? null;
+  let lastWindow = schedule.lastMaterializedWindow ?? null;
 
   while (nextCursor && nextCursor.getTime() <= now.getTime() && remaining > 0) {
     const windowEndIso = nextCursor.toISOString();
     const windowStartIso = determineWindowStart(schedule, lastWindow, nextCursor);
 
+    const runParameters = schedule.parameters ?? definition.defaultParameters ?? {};
     const triggerPayload = {
       type: 'schedule',
       schedule: {
+        id: schedule.id,
+        name: schedule.name ?? null,
         cron: schedule.cron,
         timezone: schedule.timezone ?? null,
         occurrence: windowEndIso,
@@ -240,7 +221,7 @@ async function materializeSchedule(
 
     try {
       const run = await createWorkflowRun(definition.id, {
-        parameters: definition.defaultParameters ?? {},
+        parameters: runParameters,
         trigger: triggerPayload,
         triggeredBy: 'scheduler',
         partitionKey
@@ -249,6 +230,7 @@ async function materializeSchedule(
       log('Enqueued scheduled workflow run', {
         workflowId: definition.id,
         workflowSlug: definition.slug,
+        scheduleId: schedule.id,
         workflowRunId: run.id,
         occurrence: windowEndIso
       });
@@ -256,6 +238,7 @@ async function materializeSchedule(
       logError('Failed to enqueue scheduled workflow run', {
         workflowId: definition.id,
         workflowSlug: definition.slug,
+        scheduleId: schedule.id,
         error: (err as Error).message ?? 'unknown error'
       });
       break;
@@ -271,22 +254,23 @@ async function materializeSchedule(
   }
 
   const updates: {
-    scheduleNextRunAt?: string | null;
-    scheduleCatchupCursor?: string | null;
-    scheduleLastMaterializedWindow?: WorkflowScheduleWindow | null;
+    nextRunAt?: string | null;
+    catchupCursor?: string | null;
+    lastWindow?: WorkflowScheduleWindow | null;
   } = {};
 
-  updates.scheduleLastMaterializedWindow = lastWindow;
+  updates.lastWindow = lastWindow;
 
   if (nextCursor) {
-    updates.scheduleNextRunAt = nextCursor.toISOString();
-    updates.scheduleCatchupCursor = nextCursor.toISOString();
+    const nextIso = nextCursor.toISOString();
+    updates.nextRunAt = nextIso;
+    updates.catchupCursor = nextIso;
   } else {
-    updates.scheduleNextRunAt = null;
-    updates.scheduleCatchupCursor = null;
+    updates.nextRunAt = null;
+    updates.catchupCursor = null;
   }
 
-  await updateWorkflowScheduleMetadata(definition.id, updates);
+  await updateWorkflowScheduleRuntimeMetadata(schedule.id, updates);
 }
 
 async function processSchedules(batchSize: number, maxWindows: number): Promise<void> {
@@ -296,13 +280,14 @@ async function processSchedules(batchSize: number, maxWindows: number): Promise<
     return;
   }
 
-  for (const definition of due) {
+  for (const entry of due) {
     try {
-      await materializeSchedule(definition, now, maxWindows);
+      await materializeSchedule(entry, now, maxWindows);
     } catch (err) {
       logError('Failed to materialize workflow schedule', {
-        workflowId: definition.id,
-        workflowSlug: definition.slug,
+        workflowId: entry.workflow.id,
+        workflowSlug: entry.workflow.slug,
+        scheduleId: entry.schedule.id,
         error: (err as Error).message ?? 'unknown error'
       });
     }

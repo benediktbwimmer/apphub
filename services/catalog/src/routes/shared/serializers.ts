@@ -10,6 +10,7 @@ import {
   type RepositoryRecordWithRelevance,
   type ServiceRecord,
   type WorkflowDefinitionRecord,
+  type WorkflowScheduleRecord,
   type WorkflowRunRecord,
   type WorkflowRunWithDefinition,
   type WorkflowRunMetrics,
@@ -292,6 +293,27 @@ export function serializeJobBundleVersion(
   };
 }
 
+export function serializeWorkflowSchedule(schedule: WorkflowScheduleRecord) {
+  return {
+    id: schedule.id,
+    workflowDefinitionId: schedule.workflowDefinitionId,
+    name: schedule.name,
+    description: schedule.description,
+    cron: schedule.cron,
+    timezone: schedule.timezone,
+    parameters: schedule.parameters,
+    startWindow: schedule.startWindow,
+    endWindow: schedule.endWindow,
+    catchUp: schedule.catchUp,
+    nextRunAt: schedule.nextRunAt,
+    lastWindow: schedule.lastMaterializedWindow,
+    catchupCursor: schedule.catchupCursor,
+    isActive: schedule.isActive,
+    createdAt: schedule.createdAt,
+    updatedAt: schedule.updatedAt
+  };
+}
+
 export function serializeWorkflowDefinition(workflow: WorkflowDefinitionRecord) {
   return {
     id: workflow.id,
@@ -306,11 +328,7 @@ export function serializeWorkflowDefinition(workflow: WorkflowDefinitionRecord) 
     outputSchema: workflow.outputSchema,
     metadata: workflow.metadata,
     dag: workflow.dag,
-    schedule: {
-      nextRunAt: workflow.scheduleNextRunAt,
-      lastWindow: workflow.scheduleLastMaterializedWindow,
-      catchupCursor: workflow.scheduleCatchupCursor
-    },
+    schedules: workflow.schedules.map(serializeWorkflowSchedule),
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt
   };

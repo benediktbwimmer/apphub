@@ -377,6 +377,21 @@ export async function listWorkflowRunSteps(
   return { run, steps };
 }
 
+export async function fetchWorkflowDefinitions(
+  fetcher: AuthorizedFetch
+): Promise<WorkflowDefinition[]> {
+  const response = await fetcher(`${API_BASE_URL}/workflows`);
+  await ensureOk(response, 'Failed to load workflows');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  if (!payload.data || !Array.isArray(payload.data)) {
+    return [];
+  }
+  const definitions = payload.data
+    .map((entry) => normalizeWorkflowDefinition(entry))
+    .filter((definition): definition is WorkflowDefinition => Boolean(definition));
+  return definitions;
+}
+
 export async function fetchWorkflowAssets(
   fetcher: AuthorizedFetch,
   slug: string

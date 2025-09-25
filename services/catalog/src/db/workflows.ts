@@ -19,7 +19,10 @@ import {
   type JsonValue,
   type WorkflowTriggerDefinition,
   type WorkflowScheduleWindow,
-  type WorkflowScheduleMetadataUpdateInput,
+  type WorkflowScheduleRecord,
+  type WorkflowScheduleCreateInput,
+  type WorkflowScheduleUpdateInput,
+  type WorkflowScheduleWithDefinition,
   type WorkflowStepDefinition,
   type WorkflowAssetDeclaration,
   type WorkflowAssetDeclarationRecord,
@@ -35,6 +38,7 @@ import {
 } from './types';
 import {
   mapWorkflowDefinitionRow,
+  mapWorkflowScheduleRow,
   mapWorkflowRunRow,
   mapWorkflowRunStepRow,
   mapWorkflowAssetDeclarationRow,
@@ -46,6 +50,7 @@ import {
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
+  WorkflowScheduleRow,
   WorkflowRunRow,
   WorkflowRunStepRow,
   WorkflowAssetDeclarationRow,
@@ -182,11 +187,18 @@ function resolveStepFailureReason(
 }
 
 const MANUAL_TRIGGER: WorkflowTriggerDefinition = { type: 'manual' };
+type ScheduleRuntimeState = {
+  nextRunAt: string | null;
+  catchupCursor: string | null;
+  lastWindow: WorkflowScheduleWindow | null;
+};
 
-type ScheduleMetadataState = {
-  scheduleNextRunAt: string | null;
-  scheduleCatchupCursor: string | null;
-  scheduleLastWindow: WorkflowScheduleWindow | null;
+type ScheduleConfigInput = {
+  cron: string;
+  timezone?: string | null;
+  startWindow?: string | null;
+  endWindow?: string | null;
+  catchUp?: boolean;
 };
 
 function parseScheduleDate(value?: string | null): Date | null {
@@ -200,21 +212,16 @@ function parseScheduleDate(value?: string | null): Date | null {
   return parsed;
 }
 
-function findScheduleTrigger(triggers: WorkflowTriggerDefinition[]): WorkflowTriggerDefinition | null {
-  for (const trigger of triggers) {
-    if (trigger.type && trigger.type.toLowerCase() === 'schedule' && trigger.schedule) {
-      return trigger;
-    }
-  }
-  return null;
-}
-
 function computeNextScheduleOccurrence(
-  schedule: WorkflowTriggerDefinition['schedule'],
+  schedule: ScheduleConfigInput | null | undefined,
   from: Date,
   { inclusive = false }: { inclusive?: boolean } = {}
 ): Date | null {
   if (!schedule) {
+    return null;
+  }
+  const cron = schedule.cron?.trim();
+  if (!cron) {
     return null;
   }
 
@@ -238,7 +245,7 @@ function computeNextScheduleOccurrence(
   const currentDate = inclusive ? new Date(reference.getTime() - 1) : reference;
 
   try {
-    const interval = parseExpression(schedule.cron, {
+    const interval = parseExpression(cron, {
       ...options,
       currentDate
     });
@@ -252,34 +259,33 @@ function computeNextScheduleOccurrence(
   }
 }
 
-function computeInitialScheduleMetadata(
-  triggers: WorkflowTriggerDefinition[],
+function computeInitialScheduleState(
+  schedule: ScheduleConfigInput | null | undefined,
   { now = new Date() }: { now?: Date } = {}
-): ScheduleMetadataState {
-  const scheduleTrigger = findScheduleTrigger(triggers);
-  if (!scheduleTrigger || !scheduleTrigger.schedule) {
+): ScheduleRuntimeState {
+  if (!schedule) {
     return {
-      scheduleNextRunAt: null,
-      scheduleCatchupCursor: null,
-      scheduleLastWindow: null
-    } satisfies ScheduleMetadataState;
+      nextRunAt: null,
+      catchupCursor: null,
+      lastWindow: null
+    } satisfies ScheduleRuntimeState;
   }
 
-  const nextOccurrence = computeNextScheduleOccurrence(scheduleTrigger.schedule, now, { inclusive: true });
+  const nextOccurrence = computeNextScheduleOccurrence(schedule, now, { inclusive: true });
   if (!nextOccurrence) {
     return {
-      scheduleNextRunAt: null,
-      scheduleCatchupCursor: null,
-      scheduleLastWindow: null
-    } satisfies ScheduleMetadataState;
+      nextRunAt: null,
+      catchupCursor: null,
+      lastWindow: null
+    } satisfies ScheduleRuntimeState;
   }
 
   const nextIso = nextOccurrence.toISOString();
   return {
-    scheduleNextRunAt: nextIso,
-    scheduleCatchupCursor: nextIso,
-    scheduleLastWindow: null
-  } satisfies ScheduleMetadataState;
+    nextRunAt: nextIso,
+    catchupCursor: nextIso,
+    lastWindow: null
+  } satisfies ScheduleRuntimeState;
 }
 
 function serializeScheduleWindow(window: WorkflowScheduleWindow | null | undefined): string | null {
@@ -911,7 +917,9 @@ async function fetchWorkflowDefinitionById(
   if (rows.length === 0) {
     return null;
   }
-  return mapWorkflowDefinitionRow(rows[0]);
+  const definition = mapWorkflowDefinitionRow(rows[0]);
+  await attachSchedulesToDefinitions(client, [definition]);
+  return definition;
 }
 
 async function fetchWorkflowDefinitionBySlug(
@@ -925,7 +933,93 @@ async function fetchWorkflowDefinitionBySlug(
   if (rows.length === 0) {
     return null;
   }
-  return mapWorkflowDefinitionRow(rows[0]);
+  const definition = mapWorkflowDefinitionRow(rows[0]);
+  await attachSchedulesToDefinitions(client, [definition]);
+  return definition;
+}
+
+async function fetchWorkflowSchedulesByDefinitionIds(
+  client: PoolClient,
+  definitionIds: readonly string[]
+): Promise<Map<string, WorkflowScheduleRecord[]>> {
+  if (definitionIds.length === 0) {
+    return new Map();
+  }
+
+  const { rows } = await client.query<WorkflowScheduleRow>(
+    `SELECT *
+       FROM workflow_schedules
+      WHERE workflow_definition_id = ANY($1::text[])
+      ORDER BY workflow_definition_id ASC, created_at ASC, id ASC`,
+    [definitionIds]
+  );
+
+  const schedulesByDefinition = new Map<string, WorkflowScheduleRecord[]>();
+  for (const row of rows) {
+    const schedule = mapWorkflowScheduleRow(row);
+    const list = schedulesByDefinition.get(schedule.workflowDefinitionId);
+    if (list) {
+      list.push(schedule);
+    } else {
+      schedulesByDefinition.set(schedule.workflowDefinitionId, [schedule]);
+    }
+  }
+
+  return schedulesByDefinition;
+}
+
+async function attachSchedulesToDefinitions(
+  client: PoolClient,
+  definitions: WorkflowDefinitionRecord[]
+): Promise<void> {
+  if (definitions.length === 0) {
+    return;
+  }
+
+  const ids = definitions.map((definition) => definition.id);
+  const schedules = await fetchWorkflowSchedulesByDefinitionIds(client, ids);
+  for (const definition of definitions) {
+    definition.schedules = schedules.get(definition.id) ?? [];
+  }
+}
+
+async function fetchWorkflowDefinitionsByIds(
+  client: PoolClient,
+  ids: readonly string[]
+): Promise<Map<string, WorkflowDefinitionRecord>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { rows } = await client.query<WorkflowDefinitionRow>(
+    `SELECT *
+       FROM workflow_definitions
+      WHERE id = ANY($1::text[])`,
+    [ids]
+  );
+
+  const definitions = rows.map(mapWorkflowDefinitionRow);
+  await attachSchedulesToDefinitions(client, definitions);
+
+  const map = new Map<string, WorkflowDefinitionRecord>();
+  for (const definition of definitions) {
+    map.set(definition.id, definition);
+  }
+  return map;
+}
+
+async function fetchWorkflowScheduleById(
+  client: PoolClient,
+  id: string
+): Promise<WorkflowScheduleRecord | null> {
+  const { rows } = await client.query<WorkflowScheduleRow>(
+    'SELECT * FROM workflow_schedules WHERE id = $1',
+    [id]
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowScheduleRow(rows[0]);
 }
 
 async function fetchWorkflowRunById(
@@ -944,7 +1038,9 @@ export async function listWorkflowDefinitions(): Promise<WorkflowDefinitionRecor
     const { rows } = await client.query<WorkflowDefinitionRow>(
       'SELECT * FROM workflow_definitions ORDER BY slug ASC'
     );
-    return rows.map(mapWorkflowDefinitionRow);
+    const definitions = rows.map(mapWorkflowDefinitionRow);
+    await attachSchedulesToDefinitions(client, definitions);
+    return definitions;
   });
 }
 
@@ -1123,11 +1219,6 @@ export async function createWorkflowDefinition(
   const metadataJson = JSON.stringify(metadata);
   const dagJson = JSON.stringify(dag);
 
-  const scheduleMetadata = computeInitialScheduleMetadata(triggers);
-  const scheduleNextRunAt = scheduleMetadata.scheduleNextRunAt;
-  const scheduleLastWindowJson = serializeScheduleWindow(scheduleMetadata.scheduleLastWindow);
-  const scheduleCatchupCursor = scheduleMetadata.scheduleCatchupCursor;
-
   let definition: WorkflowDefinitionRecord | null = null;
 
   await useTransaction(async (client) => {
@@ -1146,9 +1237,6 @@ export async function createWorkflowDefinition(
            output_schema,
            metadata,
            dag,
-           schedule_next_run_at,
-           schedule_last_materialized_window,
-           schedule_catchup_cursor,
            created_at,
            updated_at
          ) VALUES (
@@ -1164,9 +1252,6 @@ export async function createWorkflowDefinition(
            $10::jsonb,
            $11::jsonb,
            $12::jsonb,
-           $13,
-           $14::jsonb,
-           $15,
            NOW(),
            NOW()
          )
@@ -1183,10 +1268,7 @@ export async function createWorkflowDefinition(
           defaultParametersJson,
           outputSchemaJson,
           metadataJson,
-          dagJson,
-          scheduleNextRunAt,
-          scheduleLastWindowJson,
-          scheduleCatchupCursor
+          dagJson
         ]
       );
       if (rows.length === 0) {
@@ -1259,18 +1341,6 @@ export async function updateWorkflowDefinition(
       edges: 0
     });
 
-    const nextScheduleState = hasTriggers
-      ? computeInitialScheduleMetadata(nextTriggers)
-      : {
-          scheduleNextRunAt: existing.scheduleNextRunAt,
-          scheduleCatchupCursor: existing.scheduleCatchupCursor,
-          scheduleLastWindow: existing.scheduleLastMaterializedWindow
-        } satisfies ScheduleMetadataState;
-
-    const scheduleNextRunAt = nextScheduleState.scheduleNextRunAt;
-    const scheduleCatchupCursor = nextScheduleState.scheduleCatchupCursor;
-    const scheduleLastWindowJson = serializeScheduleWindow(nextScheduleState.scheduleLastWindow);
-
     const { rows } = await client.query<WorkflowDefinitionRow>(
       `UPDATE workflow_definitions
        SET name = $2,
@@ -1283,9 +1353,6 @@ export async function updateWorkflowDefinition(
            output_schema = $9::jsonb,
            metadata = $10::jsonb,
            dag = $11::jsonb,
-           schedule_next_run_at = $12,
-           schedule_last_materialized_window = $13::jsonb,
-           schedule_catchup_cursor = $14,
            updated_at = NOW()
        WHERE slug = $1
        RETURNING *`,
@@ -1300,10 +1367,7 @@ export async function updateWorkflowDefinition(
         defaultParametersJson,
         outputSchemaJson,
         metadataJson,
-        dagJson,
-        scheduleNextRunAt,
-       scheduleLastWindowJson,
-       scheduleCatchupCursor
+        dagJson
       ]
     );
     if (rows.length === 0) {
@@ -1328,90 +1392,460 @@ export async function listDueWorkflowSchedules({
 }: {
   limit?: number;
   now?: Date;
-} = {}): Promise<WorkflowDefinitionRecord[]> {
+} = {}): Promise<WorkflowScheduleWithDefinition[]> {
   const boundedLimit = Math.min(Math.max(limit, 1), 100);
   const cutoff = now.toISOString();
 
   return useConnection(async (client) => {
-    const { rows } = await client.query<WorkflowDefinitionRow>(
+    const { rows } = await client.query<WorkflowScheduleRow>(
       `SELECT *
-       FROM workflow_definitions
-       WHERE schedule_next_run_at IS NOT NULL
-         AND schedule_next_run_at <= $1
-       ORDER BY schedule_next_run_at ASC
-       LIMIT $2`,
+         FROM workflow_schedules
+        WHERE is_active = TRUE
+          AND next_run_at IS NOT NULL
+          AND next_run_at <= $1
+        ORDER BY next_run_at ASC
+        LIMIT $2`,
       [cutoff, boundedLimit]
     );
-    return rows.map(mapWorkflowDefinitionRow);
+
+    const schedules = rows.map(mapWorkflowScheduleRow);
+    const definitionIds = Array.from(new Set(schedules.map((schedule) => schedule.workflowDefinitionId)));
+    const definitions = await fetchWorkflowDefinitionsByIds(client, definitionIds);
+
+    const results: WorkflowScheduleWithDefinition[] = [];
+    for (const schedule of schedules) {
+      const workflow = definitions.get(schedule.workflowDefinitionId);
+      if (!workflow) {
+        continue;
+      }
+      results.push({ schedule, workflow });
+    }
+    return results;
   });
 }
 
-export async function updateWorkflowScheduleMetadata(
-  workflowDefinitionId: string,
-  updates: WorkflowScheduleMetadataUpdateInput
-): Promise<WorkflowDefinitionRecord | null> {
+export async function listWorkflowSchedulesWithWorkflow(): Promise<WorkflowScheduleWithDefinition[]> {
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowScheduleRow>(
+      `SELECT *
+         FROM workflow_schedules
+        ORDER BY is_active DESC,
+                 CASE WHEN next_run_at IS NULL THEN 1 ELSE 0 END,
+                 next_run_at ASC NULLS LAST,
+                 created_at ASC`
+    );
+
+    const schedules = rows.map(mapWorkflowScheduleRow);
+    const definitionIds = Array.from(new Set(schedules.map((schedule) => schedule.workflowDefinitionId)));
+    const definitions = await fetchWorkflowDefinitionsByIds(client, definitionIds);
+
+    const results: WorkflowScheduleWithDefinition[] = [];
+    for (const schedule of schedules) {
+      const workflow = definitions.get(schedule.workflowDefinitionId);
+      if (!workflow) {
+        continue;
+      }
+      results.push({ schedule, workflow });
+    }
+    return results;
+  });
+}
+
+export async function listWorkflowSchedulesForDefinition(
+  workflowDefinitionId: string
+): Promise<WorkflowScheduleRecord[]> {
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowScheduleRow>(
+      `SELECT *
+         FROM workflow_schedules
+        WHERE workflow_definition_id = $1
+        ORDER BY created_at ASC`,
+      [workflowDefinitionId]
+    );
+    return rows.map(mapWorkflowScheduleRow);
+  });
+}
+
+export async function getWorkflowScheduleWithWorkflow(
+  scheduleId: string
+): Promise<WorkflowScheduleWithDefinition | null> {
+  return useConnection(async (client) => {
+    const schedule = await fetchWorkflowScheduleById(client, scheduleId);
+    if (!schedule) {
+      return null;
+    }
+    const definitions = await fetchWorkflowDefinitionsByIds(client, [schedule.workflowDefinitionId]);
+    const workflow = definitions.get(schedule.workflowDefinitionId);
+    if (!workflow) {
+      return null;
+    }
+    return { schedule, workflow } satisfies WorkflowScheduleWithDefinition;
+  });
+}
+
+export async function createWorkflowSchedule(
+  input: WorkflowScheduleCreateInput
+): Promise<WorkflowScheduleRecord> {
+  const id = randomUUID();
+  const cron = input.cron.trim();
+  if (cron.length === 0) {
+    throw new Error('Cron expression is required');
+  }
+
+  const name = typeof input.name === 'string' ? input.name.trim() || null : null;
+  const description = typeof input.description === 'string' ? input.description.trim() || null : null;
+  const timezone = typeof input.timezone === 'string' ? input.timezone.trim() || null : null;
+  const startWindow = input.startWindow ?? null;
+  const endWindow = input.endWindow ?? null;
+  const catchUp = input.catchUp ?? true;
+  const parameters = input.parameters ?? null;
+  const isActive = input.isActive ?? true;
+
+  const runtime = computeInitialScheduleState({ cron, timezone, startWindow, endWindow, catchUp });
+  const parametersJson = serializeJson(parameters);
+  const lastWindowJson = serializeScheduleWindow(runtime.lastWindow);
+
+  let schedule: WorkflowScheduleRecord | null = null;
   let definition: WorkflowDefinitionRecord | null = null;
 
   await useTransaction(async (client) => {
-    const existing = await fetchWorkflowDefinitionById(client, workflowDefinitionId);
-    if (!existing) {
+    const existingDefinition = await fetchWorkflowDefinitionById(client, input.workflowDefinitionId);
+    if (!existingDefinition) {
+      throw new Error(`Workflow definition ${input.workflowDefinitionId} not found`);
+    }
+
+    const { rows } = await client.query<WorkflowScheduleRow>(
+      `INSERT INTO workflow_schedules (
+         id,
+         workflow_definition_id,
+         name,
+         description,
+         cron,
+         timezone,
+         parameters,
+         start_window,
+         end_window,
+         catch_up,
+         next_run_at,
+         last_materialized_window,
+         catchup_cursor,
+         is_active,
+         created_at,
+         updated_at
+       ) VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         $5,
+         $6,
+         $7::jsonb,
+         $8,
+         $9,
+         $10,
+         $11,
+         $12::jsonb,
+         $13,
+         $14,
+         NOW(),
+         NOW()
+       )
+       RETURNING *`,
+      [
+        id,
+        input.workflowDefinitionId,
+        name,
+        description,
+        cron,
+        timezone,
+        parametersJson,
+        startWindow,
+        endWindow,
+        catchUp,
+        isActive ? runtime.nextRunAt : null,
+        lastWindowJson,
+        isActive ? runtime.catchupCursor : null,
+        isActive
+      ]
+    );
+
+    if (rows.length === 0) {
+      throw new Error('Failed to create workflow schedule');
+    }
+
+    schedule = mapWorkflowScheduleRow(rows[0]);
+    definition = await fetchWorkflowDefinitionById(client, input.workflowDefinitionId);
+  });
+
+  if (!schedule) {
+    throw new Error('Failed to create workflow schedule');
+  }
+
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
+  return schedule;
+}
+
+export async function updateWorkflowSchedule(
+  scheduleId: string,
+  updates: WorkflowScheduleUpdateInput
+): Promise<WorkflowScheduleRecord | null> {
+  let schedule: WorkflowScheduleRecord | null = null;
+  let definition: WorkflowDefinitionRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const { rows } = await client.query<WorkflowScheduleRow>(
+      'SELECT * FROM workflow_schedules WHERE id = $1 FOR UPDATE',
+      [scheduleId]
+    );
+    if (rows.length === 0) {
+      schedule = null;
       return;
     }
 
-    const hasNextRun = Object.prototype.hasOwnProperty.call(updates, 'scheduleNextRunAt');
-    const hasLastWindow = Object.prototype.hasOwnProperty.call(updates, 'scheduleLastMaterializedWindow');
-    const hasCatchupCursor = Object.prototype.hasOwnProperty.call(updates, 'scheduleCatchupCursor');
+    const existing = mapWorkflowScheduleRow(rows[0]);
+
+    const nextName =
+      updates.name === undefined ? existing.name : typeof updates.name === 'string' ? updates.name.trim() || null : null;
+    const nextDescription =
+      updates.description === undefined
+        ? existing.description
+        : typeof updates.description === 'string'
+          ? updates.description.trim() || null
+          : null;
+    const nextCron = updates.cron === undefined ? existing.cron : updates.cron.trim();
+    if (!nextCron) {
+      throw new Error('Cron expression is required');
+    }
+    const nextTimezone =
+      updates.timezone === undefined
+        ? existing.timezone
+        : typeof updates.timezone === 'string'
+          ? updates.timezone.trim() || null
+          : null;
+    const nextStartWindow = updates.startWindow === undefined ? existing.startWindow : updates.startWindow ?? null;
+    const nextEndWindow = updates.endWindow === undefined ? existing.endWindow : updates.endWindow ?? null;
+    const nextCatchUp = updates.catchUp === undefined ? existing.catchUp : Boolean(updates.catchUp);
+    const nextIsActive = updates.isActive === undefined ? existing.isActive : Boolean(updates.isActive);
+    const nextParametersValue =
+      updates.parameters === undefined ? existing.parameters : (updates.parameters ?? null);
+    const nextParametersJson = serializeJson(nextParametersValue);
+
+    const configurationChanged =
+      nextCron !== existing.cron ||
+      nextTimezone !== existing.timezone ||
+      nextStartWindow !== existing.startWindow ||
+      nextEndWindow !== existing.endWindow ||
+      nextCatchUp !== existing.catchUp;
+
+    const reactivated = nextIsActive && !existing.isActive;
+
+    let nextRunAt = existing.nextRunAt;
+    let catchupCursor = existing.catchupCursor;
+    let lastWindowJson = serializeScheduleWindow(existing.lastMaterializedWindow);
+
+    if (configurationChanged || reactivated) {
+      const runtime = computeInitialScheduleState({
+        cron: nextCron,
+        timezone: nextTimezone ?? undefined,
+        startWindow: nextStartWindow ?? undefined,
+        endWindow: nextEndWindow ?? undefined,
+        catchUp: nextCatchUp
+      });
+      nextRunAt = runtime.nextRunAt;
+      catchupCursor = runtime.catchupCursor;
+      lastWindowJson = serializeScheduleWindow(runtime.lastWindow);
+    }
+
+    if (!nextIsActive) {
+      nextRunAt = null;
+      catchupCursor = null;
+    }
 
     const sets: string[] = [];
     const values: unknown[] = [];
     let index = 1;
 
-    if (hasNextRun) {
-      sets.push(`schedule_next_run_at = $${index}`);
-      values.push(updates.scheduleNextRunAt ?? null);
+    if (updates.name !== undefined) {
+      sets.push(`name = $${index}`);
+      values.push(nextName);
+      index += 1;
+    }
+    if (updates.description !== undefined) {
+      sets.push(`description = $${index}`);
+      values.push(nextDescription);
+      index += 1;
+    }
+    if (updates.cron !== undefined) {
+      sets.push(`cron = $${index}`);
+      values.push(nextCron);
+      index += 1;
+    }
+    if (updates.timezone !== undefined) {
+      sets.push(`timezone = $${index}`);
+      values.push(nextTimezone);
+      index += 1;
+    }
+    if (updates.parameters !== undefined) {
+      sets.push(`parameters = $${index}::jsonb`);
+      values.push(nextParametersJson);
+      index += 1;
+    }
+    if (updates.startWindow !== undefined) {
+      sets.push(`start_window = $${index}`);
+      values.push(nextStartWindow);
+      index += 1;
+    }
+    if (updates.endWindow !== undefined) {
+      sets.push(`end_window = $${index}`);
+      values.push(nextEndWindow);
+      index += 1;
+    }
+    if (updates.catchUp !== undefined) {
+      sets.push(`catch_up = $${index}`);
+      values.push(nextCatchUp);
+      index += 1;
+    }
+    if (updates.isActive !== undefined) {
+      sets.push(`is_active = $${index}`);
+      values.push(nextIsActive);
       index += 1;
     }
 
-    if (hasLastWindow) {
-      sets.push(`schedule_last_materialized_window = $${index}::jsonb`);
-      values.push(serializeScheduleWindow(updates.scheduleLastMaterializedWindow ?? null));
+    if (configurationChanged || reactivated || !nextIsActive) {
+      sets.push(`next_run_at = $${index}`);
+      values.push(nextRunAt);
       index += 1;
-    }
 
-    if (hasCatchupCursor) {
-      sets.push(`schedule_catchup_cursor = $${index}`);
-      values.push(updates.scheduleCatchupCursor ?? null);
+      sets.push(`catchup_cursor = $${index}`);
+      values.push(catchupCursor);
+      index += 1;
+
+      sets.push(`last_materialized_window = $${index}::jsonb`);
+      values.push(lastWindowJson);
       index += 1;
     }
 
     if (sets.length === 0) {
-      definition = existing;
+      schedule = existing;
+      definition = await fetchWorkflowDefinitionById(client, existing.workflowDefinitionId);
       return;
     }
 
     sets.push(`updated_at = NOW()`);
-    values.push(workflowDefinitionId);
+    values.push(scheduleId);
 
-    const { rows } = await client.query<WorkflowDefinitionRow>(
-      `UPDATE workflow_definitions
-       SET ${sets.join(', ')}
-       WHERE id = $${index}
-       RETURNING *`,
+    const updated = await client.query<WorkflowScheduleRow>(
+      `UPDATE workflow_schedules
+          SET ${sets.join(', ')}
+        WHERE id = $${index}
+        RETURNING *`,
       values
     );
 
-    if (rows.length === 0) {
+    if (updated.rows.length === 0) {
+      schedule = null;
       return;
     }
 
-    definition = mapWorkflowDefinitionRow(rows[0]);
+    schedule = mapWorkflowScheduleRow(updated.rows[0]);
+    definition = await fetchWorkflowDefinitionById(client, schedule.workflowDefinitionId);
   });
 
   if (definition) {
     emitWorkflowDefinitionEvent(definition);
   }
 
-  return definition;
+  return schedule;
+}
+
+export async function deleteWorkflowSchedule(scheduleId: string): Promise<boolean> {
+  let deleted = false;
+  let definition: WorkflowDefinitionRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const schedule = await fetchWorkflowScheduleById(client, scheduleId);
+    if (!schedule) {
+      return;
+    }
+
+    await client.query('DELETE FROM workflow_schedules WHERE id = $1', [scheduleId]);
+    deleted = true;
+
+    definition = await fetchWorkflowDefinitionById(client, schedule.workflowDefinitionId);
+  });
+
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
+  return deleted;
+}
+
+export async function updateWorkflowScheduleRuntimeMetadata(
+  scheduleId: string,
+  updates: {
+    nextRunAt?: string | null;
+    catchupCursor?: string | null;
+    lastWindow?: WorkflowScheduleWindow | null;
+  }
+): Promise<WorkflowScheduleRecord | null> {
+  let schedule: WorkflowScheduleRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const hasNextRun = Object.prototype.hasOwnProperty.call(updates, 'nextRunAt');
+    const hasCatchupCursor = Object.prototype.hasOwnProperty.call(updates, 'catchupCursor');
+    const hasLastWindow = Object.prototype.hasOwnProperty.call(updates, 'lastWindow');
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (hasNextRun) {
+      sets.push(`next_run_at = $${index}`);
+      values.push(updates.nextRunAt ?? null);
+      index += 1;
+    }
+
+    if (hasCatchupCursor) {
+      sets.push(`catchup_cursor = $${index}`);
+      values.push(updates.catchupCursor ?? null);
+      index += 1;
+    }
+
+    if (hasLastWindow) {
+      sets.push(`last_materialized_window = $${index}::jsonb`);
+      values.push(serializeScheduleWindow(updates.lastWindow ?? null));
+      index += 1;
+    }
+
+    if (sets.length === 0) {
+      schedule = await fetchWorkflowScheduleById(client, scheduleId);
+      return;
+    }
+
+    sets.push(`updated_at = NOW()`);
+    values.push(scheduleId);
+
+    const { rows } = await client.query<WorkflowScheduleRow>(
+      `UPDATE workflow_schedules
+          SET ${sets.join(', ')}
+        WHERE id = $${index}
+        RETURNING *`,
+      values
+    );
+
+    if (rows.length === 0) {
+      schedule = null;
+      return;
+    }
+
+    schedule = mapWorkflowScheduleRow(rows[0]);
+  });
+
+  return schedule;
 }
 
 export async function createWorkflowRun(

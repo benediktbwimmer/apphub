@@ -218,9 +218,25 @@ export type WorkflowDefinitionRow = {
   output_schema: unknown;
   metadata: unknown;
   dag: unknown;
-  schedule_next_run_at: string | null;
-  schedule_last_materialized_window: unknown;
-  schedule_catchup_cursor: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowScheduleRow = {
+  id: string;
+  workflow_definition_id: string;
+  name: string | null;
+  description: string | null;
+  cron: string;
+  timezone: string | null;
+  parameters: unknown;
+  start_window: string | null;
+  end_window: string | null;
+  catch_up: boolean;
+  next_run_at: string | null;
+  last_materialized_window: unknown;
+  catchup_cursor: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };

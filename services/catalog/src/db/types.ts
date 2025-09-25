@@ -497,6 +497,60 @@ export type WorkflowTriggerDefinition = {
   schedule?: WorkflowTriggerScheduleDefinition;
 };
 
+export type WorkflowScheduleWindow = {
+  start: string | null;
+  end: string | null;
+};
+
+export type WorkflowScheduleRecord = {
+  id: string;
+  workflowDefinitionId: string;
+  name: string | null;
+  description: string | null;
+  cron: string;
+  timezone: string | null;
+  parameters: JsonValue | null;
+  startWindow: string | null;
+  endWindow: string | null;
+  catchUp: boolean;
+  nextRunAt: string | null;
+  lastMaterializedWindow: WorkflowScheduleWindow | null;
+  catchupCursor: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowScheduleCreateInput = {
+  workflowDefinitionId: string;
+  name?: string | null;
+  description?: string | null;
+  cron: string;
+  timezone?: string | null;
+  parameters?: JsonValue | null;
+  startWindow?: string | null;
+  endWindow?: string | null;
+  catchUp?: boolean;
+  isActive?: boolean;
+};
+
+export type WorkflowScheduleUpdateInput = {
+  name?: string | null;
+  description?: string | null;
+  cron?: string;
+  timezone?: string | null;
+  parameters?: JsonValue | null;
+  startWindow?: string | null;
+  endWindow?: string | null;
+  catchUp?: boolean;
+  isActive?: boolean;
+};
+
+export type WorkflowScheduleWithDefinition = {
+  schedule: WorkflowScheduleRecord;
+  workflow: WorkflowDefinitionRecord;
+};
+
 export type WorkflowAssetFreshness = {
   maxAgeMs?: number | null;
   ttlMs?: number | null;
@@ -639,16 +693,9 @@ export type WorkflowDefinitionRecord = {
   outputSchema: JsonValue;
   metadata: JsonValue | null;
   dag: WorkflowDagMetadata;
-  scheduleNextRunAt: string | null;
-  scheduleLastMaterializedWindow: WorkflowScheduleWindow | null;
-  scheduleCatchupCursor: string | null;
+  schedules: WorkflowScheduleRecord[];
   createdAt: string;
   updatedAt: string;
-};
-
-export type WorkflowScheduleWindow = {
-  start: string | null;
-  end: string | null;
 };
 
 export type WorkflowDefinitionCreateInput = {
@@ -676,12 +723,6 @@ export type WorkflowDefinitionUpdateInput = {
   outputSchema?: JsonValue;
   metadata?: JsonValue | null;
   dag?: WorkflowDagMetadata;
-};
-
-export type WorkflowScheduleMetadataUpdateInput = {
-  scheduleNextRunAt?: string | null;
-  scheduleLastMaterializedWindow?: WorkflowScheduleWindow | null;
-  scheduleCatchupCursor?: string | null;
 };
 
 export type WorkflowAssetDirection = 'produces' | 'consumes';

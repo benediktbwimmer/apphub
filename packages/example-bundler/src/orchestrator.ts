@@ -505,7 +505,7 @@ async function hashDirectory(root: string): Promise<string> {
     const filePath = path.join(root, entry);
     hash.update(entry);
     const buffer = await fs.readFile(filePath);
-    hash.update(buffer);
+    hash.update(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
   }
   return hash.digest('hex');
 }
@@ -515,7 +515,9 @@ async function computeLockfileHash(root: string): Promise<string | null> {
     const candidatePath = path.join(root, candidate);
     if (await pathExists(candidatePath)) {
       const contents = await fs.readFile(candidatePath);
-      const hash = createHash('sha256').update(contents).digest('hex');
+      const hash = createHash('sha256')
+        .update(new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength))
+        .digest('hex');
       return `${candidate}:${hash}`;
     }
   }

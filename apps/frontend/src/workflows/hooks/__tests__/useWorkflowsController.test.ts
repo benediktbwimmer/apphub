@@ -50,6 +50,7 @@ const {
     defaultParameters: {},
     outputSchema: null,
     metadata: { repo: 'git@example.com/demo.git', tags: ['env:test'], status: 'succeeded' },
+    schedules: [],
     dag: {
       roots: ['step-one'],
       adjacency: { 'step-one': ['step-two'], 'step-two': [] },

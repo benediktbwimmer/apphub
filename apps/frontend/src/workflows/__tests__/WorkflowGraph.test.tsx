@@ -39,6 +39,7 @@ describe('WorkflowGraph', () => {
       defaultParameters: {},
       outputSchema: {},
       metadata: {},
+      schedules: [],
       dag: {
         roots: ['extract'],
         adjacency: {
@@ -198,6 +199,7 @@ describe('WorkflowGraph', () => {
       defaultParameters: {},
       outputSchema: {},
       metadata: {},
+      schedules: [],
       dag: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -347,6 +349,7 @@ describe('WorkflowGraph', () => {
       defaultParameters: {},
       outputSchema: {},
       metadata: {},
+      schedules: [],
       dag: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
