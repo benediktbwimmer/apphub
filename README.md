@@ -133,16 +133,22 @@ Build the combined API + worker + frontend image:
 docker build -t apphub:latest .
 ```
 
+> **Docker-in-Docker note:** the container bundles its own Docker daemon so background workers can build application images. Run it with `--privileged` (or an equivalent capability set) and mount a writable data volume at `/app/data/docker` so overlay storage and iptables NAT can initialize cleanly. The bundled daemon now logs at `warn` level to keep container logs concise.
+
 #### Local development
 
 Run everything (API, workers, Redis, Postgres, static frontend) inside the container with transient data:
 
 ```bash
+docker volume create apphub-docker-data
+
 docker run --rm -it \
   --name apphub-dev \
+  --privileged \
   -p 4000:4000 \
   -p 4173:4173 \
   -p 6379:6379 \
+  -v apphub-docker-data:/app/data/docker \
   -e NODE_ENV=development \
   -e APPHUB_AUTH_DISABLED=true \
   -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
@@ -161,10 +167,12 @@ Launch the same image with hardened auth settings, external Postgres/Redis, and 
 ```bash
 docker run -d \
   --name apphub \
+  --privileged \
   --restart unless-stopped \
   -p 0.0.0.0:4000:4000 \
   -p 0.0.0.0:4173:4173 \
   -v apphub-data:/app/data \
+  -v apphub-docker-data:/app/data/docker \
   -e APPHUB_SESSION_SECRET=$(openssl rand -hex 32) \
   -e APPHUB_SESSION_COOKIE_SECURE=true \
   -e APPHUB_AUTH_SSO_ENABLED=true \

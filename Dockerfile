@@ -113,7 +113,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:docker]
-command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/app/data/docker
+command=/usr/bin/dockerd --log-level=warn --host=unix:///var/run/docker.sock --data-root=/app/data/docker
 priority=15
 autostart=true
 autorestart=true
