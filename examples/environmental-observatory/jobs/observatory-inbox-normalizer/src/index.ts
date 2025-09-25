@@ -36,6 +36,7 @@ type RawAssetPayload = {
   recordCount: number;
   sourceFiles: SourceFileMetadata[];
   stagingDir: string;
+  stagingMinuteDir: string;
   normalizedAt: string;
 };
 
@@ -86,6 +87,19 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
   return { inboxDir, stagingDir, minute, maxFiles } satisfies ObservatoryNormalizerParameters;
 }
 
+function deriveMinuteSuffixes(minute: string): string[] {
+  const trimmed = minute.trim();
+  const suffixes = new Set<string>();
+  if (trimmed) {
+    suffixes.add(`${trimmed}.csv`);
+  }
+  const digitsOnly = trimmed.replace(/[^0-9]/g, '');
+  if (digitsOnly.length >= 10) {
+    suffixes.add(`${digitsOnly}.csv`);
+  }
+  return Array.from(suffixes);
+}
+
 function parseInstrumentId(filename: string): string {
   const match = filename.match(/instrument_(.+?)_\d{12}\.csv$/i);
   if (match?.[1]) {
@@ -127,11 +141,12 @@ function parseCsv(content: string): ParsedCsvMetadata {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const minuteSuffix = `${parameters.minute}.csv`;
+  const minuteSuffixes = deriveMinuteSuffixes(parameters.minute);
 
   let entries: string[] = [];
   try {
-    entries = (await readdir(parameters.inboxDir)).filter((file) => file.endsWith(minuteSuffix));
+    const candidates = await readdir(parameters.inboxDir);
+    entries = candidates.filter((file) => minuteSuffixes.some((suffix) => file.endsWith(suffix)));
   } catch (error) {
     throw new Error(
       `Failed to read inbox directory at ${parameters.inboxDir}: ${error instanceof Error ? error.message : String(error)}`
@@ -139,7 +154,9 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   }
 
   if (entries.length === 0) {
-    throw new Error(`No CSV files matching *${minuteSuffix} found in ${parameters.inboxDir}`);
+    throw new Error(
+      `No CSV files matching minute ${parameters.minute} (suffixes: ${minuteSuffixes.join(', ')}) found in ${parameters.inboxDir}`
+    );
   }
 
   const selectedEntries = entries.slice(0, parameters.maxFiles);
@@ -181,7 +198,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     instrumentCount: instrumentIds.size,
     recordCount,
     sourceFiles,
-    stagingDir: stagingMinuteDir,
+    stagingDir: parameters.stagingDir,
+    stagingMinuteDir,
     normalizedAt
   } satisfies RawAssetPayload;
 

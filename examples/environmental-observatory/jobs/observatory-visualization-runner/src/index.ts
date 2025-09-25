@@ -86,6 +86,13 @@ function ensureNumber(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
   }
+  if (typeof value === 'bigint') {
+    const converted = Number(value);
+    if (Number.isFinite(converted)) {
+      return converted;
+    }
+    return fallback;
+  }
   if (typeof value === 'string') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
@@ -255,14 +262,14 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       );
     });
 
-    const rangePredicate = `timestamp BETWEEN '${escapeLiteral(startIso)}'::TIMESTAMP AND '${escapeLiteral(endIso)}'::TIMESTAMP`;
+    const rangePredicate = `timestamp BETWEEN '${escapeLiteral(startIso)}'::TIMESTAMPTZ AND '${escapeLiteral(endIso)}'::TIMESTAMPTZ`;
     const sitePredicate = parameters.siteFilter
       ? ` AND site = '${escapeLiteral(parameters.siteFilter)}'`
       : '';
 
     const trendSql = `
       SELECT
-        strftime(date_trunc('minute', timestamp), '%Y-%m-%dT%H:%M') AS minute_key,
+        strftime(date_trunc('minute', timestamp AT TIME ZONE 'UTC'), '%Y-%m-%dT%H:%M') AS minute_key,
         avg(temperature_c) AS avg_temp,
         avg(pm2_5_ug_m3) AS avg_pm25,
         avg(relative_humidity_pct) AS avg_humidity,
@@ -298,12 +305,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     const generatedAt = new Date().toISOString();
     const metrics: VisualizationMetrics = {
-      samples: summary.samples ?? 0,
-      instrumentCount: summary.instrument_count ?? 0,
-      siteCount: summary.site_count ?? 0,
-      averageTemperatureC: summary.avg_temp ?? 0,
-      averagePm25: summary.avg_pm25 ?? 0,
-      maxPm25: summary.max_pm25 ?? 0,
+      samples: ensureNumber(summary.samples, 0),
+      instrumentCount: ensureNumber(summary.instrument_count, 0),
+      siteCount: ensureNumber(summary.site_count, 0),
+      averageTemperatureC: ensureNumber(summary.avg_temp, 0),
+      averagePm25: ensureNumber(summary.avg_pm25, 0),
+      maxPm25: ensureNumber(summary.max_pm25, 0),
       partitionKey: parameters.partitionKey,
       lookbackMinutes: parameters.lookbackMinutes,
       siteFilter: parameters.siteFilter || undefined

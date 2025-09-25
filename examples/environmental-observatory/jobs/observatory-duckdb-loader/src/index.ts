@@ -174,9 +174,20 @@ function allRows<T>(connection: DuckDbConnection, sql: string): Promise<T[]> {
 }
 
 async function getScalar(connection: DuckDbConnection, sql: string): Promise<number> {
-  const rows = await allRows<{ value: number }>(connection, sql);
+  const rows = await allRows<{ value: number | bigint | string | null | undefined }>(connection, sql);
   const value = rows[0]?.value;
-  return typeof value === 'number' ? value : 0;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    const converted = Number(value);
+    return Number.isFinite(converted) ? converted : 0;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
@@ -191,7 +202,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     await runQuery(
       connection,
       `CREATE TABLE IF NOT EXISTS readings (
-        timestamp TIMESTAMP,
+        timestamp TIMESTAMP WITH TIME ZONE,
         instrument_id VARCHAR,
         site VARCHAR,
         temperature_c DOUBLE,
@@ -202,9 +213,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     );
 
     const minuteLiteral = escapeLiteral(parameters.minute);
+    const minuteExpression = `strftime(timestamp AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%M')`;
     await runQuery(
       connection,
-      `DELETE FROM readings WHERE strftime('%Y-%m-%dT%H:%M', timestamp) = '${minuteLiteral}'`
+      `DELETE FROM readings WHERE ${minuteExpression} = '${minuteLiteral}'`
     );
 
     for (const source of parameters.rawAsset.sourceFiles) {
@@ -214,7 +226,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         connection,
         `INSERT INTO readings
          SELECT
-           CAST(timestamp AS TIMESTAMP) AS timestamp,
+           CAST(timestamp AS TIMESTAMP WITH TIME ZONE) AS timestamp,
            CAST(instrument_id AS VARCHAR) AS instrument_id,
            CAST(site AS VARCHAR) AS site,
            CAST(temperature_c AS DOUBLE) AS temperature_c,
@@ -232,7 +244,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
     const appendedRows = await getScalar(
       connection,
-      `SELECT COUNT(*)::INTEGER AS value FROM readings WHERE strftime('%Y-%m-%dT%H:%M', timestamp) = '${minuteLiteral}'`
+      `SELECT COUNT(*)::INTEGER AS value FROM readings WHERE ${minuteExpression} = '${minuteLiteral}'`
     );
     const totalRows = await getScalar(connection, 'SELECT COUNT(*)::INTEGER AS value FROM readings');
 
