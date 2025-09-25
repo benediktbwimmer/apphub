@@ -52,15 +52,11 @@ const originalHostRoot = process.env.APPHUB_HOST_ROOT;
       internalPort: 4173
     });
 
-    const mountIndex = result.args.findIndex((token, index) => {
-      if (token !== '-v') {
-        return false;
-      }
-      const mount = result.args[index + 1];
-      return mount === `${startPath}:${startPath}:ro`;
-    });
-
+    const mountIndex = result.args.findIndex((token) => token === '-v');
     assert.notStrictEqual(mountIndex, -1);
+    const mount = result.args[mountIndex + 1];
+    const expectedSource = path.join(hostRoot, uniqueSegment);
+    assert.strictEqual(mount, `${expectedSource}:${startPath}:rw`);
   } finally {
     if (typeof originalHostRoot === 'string') {
       process.env.APPHUB_HOST_ROOT = originalHostRoot;
@@ -92,15 +88,11 @@ const originalHostRoot = process.env.APPHUB_HOST_ROOT;
       internalPort: 4173
     });
 
-    const mountIndex = result.args.findIndex((token, index) => {
-      if (token !== '-v') {
-        return false;
-      }
-      const mount = result.args[index + 1];
-      return mount === `${startPath}:${startPath}:ro`;
-    });
-
+    const mountIndex = result.args.findIndex((token) => token === '-v');
     assert.notStrictEqual(mountIndex, -1);
+    const mount = result.args[mountIndex + 1];
+    const expectedSource = path.join(hostRoot, 'host_mnt', 'Users', 'tester', uniqueSegment);
+    assert.strictEqual(mount, `${expectedSource}:${startPath}:rw`);
   } finally {
     if (typeof originalHostRoot === 'string') {
       process.env.APPHUB_HOST_ROOT = originalHostRoot;

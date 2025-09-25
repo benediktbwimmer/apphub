@@ -56,12 +56,18 @@ function statDirectory(targetPath: string): { exists: boolean; isDirectory: bool
   }
 }
 
-function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
+type ResolvedVolumeMount = {
+  source: string;
+  target: string;
+  mode: 'rw';
+};
+
+function resolveVolumeMounts(envVars?: LaunchEnvVar[]): ResolvedVolumeMount[] {
   if (!envVars || envVars.length === 0) {
     return [];
   }
-  const mounts: string[] = [];
-  const seen = new Set<string>();
+  const mounts: ResolvedVolumeMount[] = [];
+  const seenTargets = new Set<string>();
   const hostRootFallback = getHostRootFallback();
   for (const entry of envVars) {
     if (!entry || typeof entry.key !== 'string' || typeof entry.value !== 'string') {
@@ -74,30 +80,36 @@ function resolveVolumeMounts(envVars?: LaunchEnvVar[]): string[] {
     if (!hostPath || !hostPath.startsWith('/') || !path.isAbsolute(hostPath)) {
       continue;
     }
-    let isValidDirectory = false;
+    let sourcePath: string | null = null;
     const directStat = statDirectory(hostPath);
     if (directStat.exists) {
-      isValidDirectory = directStat.isDirectory;
+      if (directStat.isDirectory) {
+        sourcePath = hostPath;
+      }
     } else if (hostRootFallback) {
       for (const fallbackPath of buildFallbackCandidates(hostRootFallback, hostPath)) {
         const fallbackStat = statDirectory(fallbackPath);
         if (!fallbackStat.exists) {
           continue;
         }
-        isValidDirectory = fallbackStat.isDirectory;
-        if (isValidDirectory) {
+        if (fallbackStat.isDirectory) {
+          sourcePath = fallbackPath;
           break;
         }
       }
     }
-    if (!isValidDirectory) {
+    if (!sourcePath) {
       continue;
     }
-    if (seen.has(hostPath)) {
+    if (seenTargets.has(hostPath)) {
       continue;
     }
-    seen.add(hostPath);
-    mounts.push(`${hostPath}:${hostPath}:ro`);
+    seenTargets.add(hostPath);
+    mounts.push({
+      source: sourcePath,
+      target: hostPath,
+      mode: 'rw'
+    });
   }
   return mounts;
 }
@@ -133,7 +145,7 @@ export function buildDockerRunCommand(options: {
   const containerName = `apphub-${sanitizeLaunchName(options.repositoryId)}-${options.launchId.slice(0, 8)}`;
   const args: string[] = ['run', '-d', '--name', containerName, '-p', `0:${options.internalPort}`];
   for (const mount of resolveVolumeMounts(envVars)) {
-    args.push('-v', mount);
+    args.push('-v', `${mount.source}:${mount.target}:${mount.mode}`);
   }
   for (const entry of envVars) {
     if (!entry || typeof entry.key !== 'string') {
