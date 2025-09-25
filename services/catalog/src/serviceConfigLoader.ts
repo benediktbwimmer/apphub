@@ -365,9 +365,14 @@ function resolvePlaceholderValue(
   return { value: undefined, missing: true };
 }
 
-function summarizePlaceholders(collector: PlaceholderCollector): ManifestPlaceholderSummary[] {
+function summarizePlaceholders(
+  collector: PlaceholderCollector,
+  options: { requireExplicitValues?: boolean } = {}
+): ManifestPlaceholderSummary[] {
+  const requireExplicit = Boolean(options.requireExplicitValues);
   const summaries = Array.from(collector.values()).map<ManifestPlaceholderSummary>((entry) => {
-    const missing = entry.missing || (entry.required && entry.value === undefined);
+    const explicitMissing = requireExplicit ? entry.valueSource !== 'variable' : false;
+    const missing = entry.missing || (entry.required && entry.value === undefined) || explicitMissing;
     return {
       name: entry.name,
       description: entry.description,
@@ -996,6 +1001,7 @@ export type ServiceConfigImportRequest = {
   configPath?: string | null;
   module?: string | null;
   variables?: Record<string, string> | null;
+  requirePlaceholderValues?: boolean | null;
 };
 
 export type ServiceConfigImportPreview = {
@@ -1051,7 +1057,9 @@ export async function previewServiceConfigImport(
     });
   }
 
-  const placeholders = summarizePlaceholders(placeholderCollector);
+  const placeholders = summarizePlaceholders(placeholderCollector, {
+    requireExplicitValues: Boolean(payload.requirePlaceholderValues)
+  });
 
   return {
     moduleId: result.moduleId,

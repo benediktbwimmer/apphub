@@ -331,11 +331,13 @@ export function useImportWizardController() {
       | { kind: 'success' }
       | { kind: 'placeholders'; placeholders: ManifestPlaceholder[]; variables: Record<string, string> }
     > => {
-      const overrideVariables = mergeServiceVariables({}, overrides ?? {});
-      const normalizedVariables = overrides ? normalizeVariablesForRequest(overrideVariables) : undefined;
+      const overrideVariables =
+        overrides !== undefined ? mergeServiceVariables(scenario.form.variables ?? {}, overrides) : undefined;
+      const normalizedVariables = overrideVariables ? normalizeVariablesForRequest(overrideVariables) : undefined;
 
       const body: Record<string, unknown> = {
-        repo: scenario.form.repo.trim()
+        repo: scenario.form.repo.trim(),
+        requirePlaceholderValues: true
       };
       const ref = scenario.form.ref?.trim();
       if (ref) {

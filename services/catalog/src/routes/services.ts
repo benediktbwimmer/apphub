@@ -111,7 +111,8 @@ const serviceConfigImportSchema = z
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
     module: z.string().min(1).optional(),
-    variables: z.record(z.string().min(1), z.string()).optional()
+    variables: z.record(z.string().min(1), z.string()).optional(),
+    requirePlaceholderValues: z.boolean().optional()
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -261,6 +262,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     const configPath = payload.configPath?.trim() || undefined;
     const moduleHint = payload.module?.trim() || undefined;
     const variables = normalizeVariables(payload.variables ?? undefined);
+    const requirePlaceholderValues = Boolean(payload.requirePlaceholderValues);
 
     let preview;
     try {
@@ -271,7 +273,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         commit,
         configPath,
         module: moduleHint,
-        variables
+        variables,
+        requirePlaceholderValues
       });
     } catch (err) {
       reply.status(400);
@@ -363,6 +366,7 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     const configPath = payload.configPath?.trim() || undefined;
     const moduleHint = payload.module?.trim() || undefined;
     const variables = normalizeVariables(payload.variables ?? undefined);
+    const requirePlaceholderValues = Boolean(payload.requirePlaceholderValues);
 
     let preview;
     try {
@@ -373,7 +377,8 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         commit,
         configPath,
         module: moduleHint,
-        variables
+        variables,
+        requirePlaceholderValues
       });
     } catch (err) {
       reply.status(400);

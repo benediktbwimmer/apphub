@@ -5,7 +5,8 @@ import path from 'node:path';
 import {
   appendServiceConfigImport,
   clearServiceConfigImports,
-  loadServiceConfigurations
+  loadServiceConfigurations,
+  previewServiceConfigImport
 } from '../src/serviceConfigLoader';
 
 async function createTempConfig(manifestOverride?: Record<string, unknown>) {
@@ -125,6 +126,55 @@ async function createTempConfig(manifestOverride?: Record<string, unknown>) {
     assert.equal(placeholder.missing, false);
     assert.equal(placeholder.value, '/tmp/data');
     assert.equal(placeholder.required, false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+})();
+
+(async () => {
+  const manifest = {
+    services: [
+      {
+        slug: 'placeholder-service',
+        displayName: 'Placeholder Service',
+        kind: 'example',
+        baseUrl: 'http://localhost:6000',
+        env: [
+          {
+            key: 'ROOT_PATH',
+            value: { $var: { name: 'ROOT_PATH', default: '/tmp/data', description: 'Base directory' } }
+          }
+        ]
+      }
+    ]
+  };
+
+  const { dir, configPath } = await createTempConfig(manifest);
+  const relativeConfigPath = path.basename(configPath);
+  try {
+    const baseline = await previewServiceConfigImport({
+      path: dir,
+      configPath: relativeConfigPath
+    });
+    assert.equal(baseline.placeholders.length, 1);
+    assert.equal(baseline.placeholders[0]?.missing, false);
+
+    const requireExplicit = await previewServiceConfigImport({
+      path: dir,
+      configPath: relativeConfigPath,
+      requirePlaceholderValues: true
+    });
+    assert.equal(requireExplicit.placeholders.length, 1);
+    assert.equal(requireExplicit.placeholders[0]?.missing, true);
+
+    const satisfied = await previewServiceConfigImport({
+      path: dir,
+      configPath: relativeConfigPath,
+      requirePlaceholderValues: true,
+      variables: { ROOT_PATH: '/tmp/data' }
+    });
+    assert.equal(satisfied.placeholders.length, 1);
+    assert.equal(satisfied.placeholders[0]?.missing, false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

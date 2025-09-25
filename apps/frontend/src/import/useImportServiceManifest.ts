@@ -42,6 +42,7 @@ type NormalizedRequestBody = {
   configPath?: string;
   module?: string;
   variables?: Record<string, string>;
+  requirePlaceholderValues?: boolean;
 };
 
 function buildRequestBody(
@@ -77,7 +78,7 @@ function buildRequestBody(
     .map(([key, value]) => [key.trim(), value] as const)
     .filter(([key]) => key.length > 0);
 
-  if (variableEntries.length > 0) {
+  if (placeholders.length > 0 && variableEntries.length > 0) {
     const placeholderMap = new Map(placeholders.map((placeholder) => [placeholder.name, placeholder]));
     const filtered = variableEntries
       .map(([key, value]) => {
@@ -97,6 +98,8 @@ function buildRequestBody(
       body.variables = Object.fromEntries(filtered);
     }
   }
+
+  body.requirePlaceholderValues = true;
 
   return body;
 }
