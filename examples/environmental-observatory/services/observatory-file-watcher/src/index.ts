@@ -96,7 +96,7 @@ function buildDropId(relativePath: string): string {
 }
 
 function extractObservatoryMinute(relativePath: string): string | null {
-  const match = relativePath.match(/_(\d{12})\.csv$/i);
+  const match = relativePath.match(/_(\d{12}|\d{10})\.csv$/i);
   if (!match) {
     return null;
   }
@@ -105,11 +105,17 @@ function extractObservatoryMinute(relativePath: string): string | null {
   const month = timestamp.slice(4, 6);
   const day = timestamp.slice(6, 8);
   const hour = timestamp.slice(8, 10);
-  const minute = timestamp.slice(10, 12);
-  if (!year || !month || !day || !hour || !minute) {
+  if (!year || !month || !day || !hour) {
     return null;
   }
-  return `${year}-${month}-${day}T${hour}:${minute}`;
+  if (timestamp.length >= 12) {
+    const minute = timestamp.slice(10, 12);
+    if (!minute) {
+      return null;
+    }
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+  return `${year}-${month}-${day}T${hour}`;
 }
 
 const watchRoot = path.resolve(process.env.FILE_WATCH_ROOT ?? DEFAULT_WATCH_ROOT);
@@ -180,7 +186,12 @@ function recordActivity(record: DropRecord, note: string | null = null) {
 }
 
 function releaseRecord(record: DropRecord) {
-  releaseRecord(record);
+  drops.delete(record.dropId);
+  const pendingTimer = pendingLaunchTimers.get(record.dropId);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    pendingLaunchTimers.delete(record.dropId);
+  }
   for (const filePath of record.sourceFiles) {
     sourceToDropId.delete(filePath);
   }
