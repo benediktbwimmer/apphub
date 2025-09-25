@@ -86,9 +86,12 @@ function mergeParameterLayer(
   return cloneJsonValue(overlay);
 }
 
-function startOfIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+function startOfIntervalUTC(date: Date, granularity: 'minute' | 'hour' | 'day' | 'week' | 'month'): Date {
   const clone = new Date(date.getTime());
   switch (granularity) {
+    case 'minute':
+      clone.setUTCSeconds(0, 0);
+      return clone;
     case 'hour':
       clone.setUTCMinutes(0, 0, 0);
       return clone;
@@ -110,9 +113,12 @@ function startOfIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | '
   }
 }
 
-function addIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+function addIntervalUTC(date: Date, granularity: 'minute' | 'hour' | 'day' | 'week' | 'month'): Date {
   const clone = new Date(date.getTime());
   switch (granularity) {
+    case 'minute':
+      clone.setUTCMinutes(clone.getUTCMinutes() + 1);
+      break;
     case 'hour':
       clone.setUTCHours(clone.getUTCHours() + 1);
       break;

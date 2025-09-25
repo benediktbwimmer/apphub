@@ -56,7 +56,7 @@ const assetStaticPartitionSchema = z
 const assetTimePartitionSchema = z
   .object({
     type: z.literal('timeWindow'),
-    granularity: z.enum(['hour', 'day', 'week', 'month']),
+    granularity: z.enum(['minute', 'hour', 'day', 'week', 'month']),
     timezone: z.string().min(1).max(100).optional(),
     format: z.string().min(1).max(100).optional(),
     lookbackWindows: z.number().int().min(1).max(10_000).optional()
@@ -342,7 +342,7 @@ export const workflowJobStepSchema = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1),
-    type: z.literal('job').optional(),
+    type: z.literal('job').default('job'),
     jobSlug: z.string().min(1),
     description: z.string().min(1).optional(),
     dependsOn: z.array(z.string().min(1)).max(25).optional(),

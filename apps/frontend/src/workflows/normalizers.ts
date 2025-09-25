@@ -720,7 +720,13 @@ function normalizeAssetPartitioning(value: unknown): WorkflowAssetPartitioning |
   const type = typeof record.type === 'string' ? record.type : null;
   if (type === 'timeWindow') {
     const granularity = typeof record.granularity === 'string' ? record.granularity : null;
-    if (granularity !== 'hour' && granularity !== 'day' && granularity !== 'week' && granularity !== 'month') {
+    if (
+      granularity !== 'minute' &&
+      granularity !== 'hour' &&
+      granularity !== 'day' &&
+      granularity !== 'week' &&
+      granularity !== 'month'
+    ) {
       return null;
     }
     return {

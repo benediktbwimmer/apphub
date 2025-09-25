@@ -13,9 +13,12 @@ function cloneDate(source: Date): Date {
   return new Date(source.getTime());
 }
 
-function startOfIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+function startOfIntervalUTC(date: Date, granularity: 'minute' | 'hour' | 'day' | 'week' | 'month'): Date {
   const clone = cloneDate(date);
   switch (granularity) {
+    case 'minute':
+      clone.setUTCSeconds(0, 0);
+      return clone;
     case 'hour':
       clone.setUTCMinutes(0, 0, 0);
       return clone;
@@ -37,9 +40,12 @@ function startOfIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | '
   }
 }
 
-function subtractIntervalUTC(date: Date, granularity: 'hour' | 'day' | 'week' | 'month'): Date {
+function subtractIntervalUTC(date: Date, granularity: 'minute' | 'hour' | 'day' | 'week' | 'month'): Date {
   const clone = cloneDate(date);
   switch (granularity) {
+    case 'minute':
+      clone.setUTCMinutes(clone.getUTCMinutes() - 1);
+      break;
     case 'hour':
       clone.setUTCHours(clone.getUTCHours() - 1);
       break;
@@ -86,6 +92,8 @@ function enumerateTimeWindowPartitions(
   const base = startOfIntervalUTC(now, partitioning.granularity);
   const defaultLookback = (() => {
     switch (partitioning.granularity) {
+      case 'minute':
+        return 60;
       case 'hour':
         return 24;
       case 'week':

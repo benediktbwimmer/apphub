@@ -159,7 +159,7 @@ export type WorkflowAssetAutoMaterialize = {
 export type WorkflowAssetPartitioning =
   | {
       type: 'timeWindow';
-      granularity: 'hour' | 'day' | 'week' | 'month';
+      granularity: 'minute' | 'hour' | 'day' | 'week' | 'month';
       timezone?: string | null;
       format?: string | null;
       lookbackWindows?: number | null;

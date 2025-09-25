@@ -93,7 +93,7 @@ export type WorkflowAssetPartitioningTemplate =
     }
   | {
       type: 'timeWindow';
-      granularity: 'hour' | 'day' | 'week' | 'month';
+      granularity: 'minute' | 'hour' | 'day' | 'week' | 'month';
       timezone?: string;
       format?: string;
       lookbackWindows?: number;

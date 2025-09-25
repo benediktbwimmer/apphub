@@ -249,12 +249,12 @@ function parseAssetPartitioning(value: unknown): WorkflowAssetPartitioning | nul
 
   if (rawType === 'timeWindow') {
     const granularity = typeof candidate.granularity === 'string' ? candidate.granularity.trim() : '';
-    if (!['hour', 'day', 'week', 'month'].includes(granularity)) {
+    if (!['minute', 'hour', 'day', 'week', 'month'].includes(granularity)) {
       return null;
     }
     const partition: WorkflowAssetPartitioning = {
       type: 'timeWindow',
-      granularity: granularity as 'hour' | 'day' | 'week' | 'month'
+      granularity: granularity as 'minute' | 'hour' | 'day' | 'week' | 'month'
     };
     const timezone = typeof candidate.timezone === 'string' ? candidate.timezone.trim() : '';
     if (timezone) {
