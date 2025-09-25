@@ -50,7 +50,7 @@ const linkedAppsSchema = z.array(z.string().trim().min(1)).min(1);
 
 const serviceMetadataShape = z
   .object({
-    resourceType: z.literal('service').optional(),
+    resourceType: z.literal('service').default('service'),
     manifest: z.union([serviceManifestMetadataSchema, z.null()]).optional(),
     config: z.union([jsonValueSchema, z.null()]).optional(),
     runtime: z.union([serviceRuntimeMetadataSchema, z.null()]).optional(),
@@ -66,7 +66,10 @@ export type ServiceMetadata = z.infer<typeof serviceMetadataShape>;
 export const serviceMetadataUpdateSchema = z
   .union([
     serviceMetadataShape,
-    serviceRuntimeMetadataSchema.transform((runtime) => ({ runtime } satisfies ServiceMetadata)),
+    serviceRuntimeMetadataSchema.transform((runtime) => ({
+      resourceType: 'service',
+      runtime
+    } satisfies ServiceMetadata)),
     z.null()
   ])
   .optional()

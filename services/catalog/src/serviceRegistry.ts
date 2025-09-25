@@ -1144,6 +1144,8 @@ async function checkServiceHealth(service: ServiceRecord) {
   const healthEndpoint = manifest?.healthEndpoint ?? '/healthz';
   const metadata = coerceServiceMetadata(service.metadata ?? null);
   const runtimeMeta = toPlainObject(metadata?.runtime as JsonValue | null | undefined);
+  const metadataRecord = toPlainObject(service.metadata ?? null);
+  metadataRecord.resourceType = 'service';
   const baseUrls = collectHealthBaseUrls(service, runtimeMeta, manifest);
 
   let healthyResult: { outcome: HealthCheckOutcome; baseUrl: string; healthUrl: string } | null = null;
@@ -1230,7 +1232,7 @@ async function checkServiceHealth(service: ServiceRecord) {
       }
     };
 
-  await finalizeHealthUpdate(service, manifest, metadata, selected);
+  await finalizeHealthUpdate(service, manifest, metadataRecord, selected);
 }
 
 async function finalizeHealthUpdate(
