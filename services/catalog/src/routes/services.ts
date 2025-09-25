@@ -1,4 +1,5 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, constants as fsConstants } from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -15,7 +16,6 @@ import {
   appendServiceConfigImport,
   previewServiceConfigImport,
   resolveServiceConfigPaths,
-  DEFAULT_SERVICE_CONFIG_PATH,
   DuplicateModuleImportError
 } from '../serviceConfigLoader';
 import { serializeService } from './shared/serializers';
@@ -147,25 +147,38 @@ export type ServiceRoutesOptions = {
   };
 };
 
+function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
+  return Boolean(value && typeof value === 'object' && 'code' in value);
+}
+
 async function resolveServiceConfigTargetPath(): Promise<string> {
   const configPaths = resolveServiceConfigPaths();
+  if (configPaths.length === 0) {
+    throw new Error('No service config path configured. Set SERVICE_CONFIG_PATH to a writable location.');
+  }
+
   for (const candidate of configPaths) {
+    const directory = path.dirname(candidate);
     try {
-      await fs.access(candidate);
-      return candidate;
+      await fs.mkdir(directory, { recursive: true });
+      await fs.access(directory, fsConstants.W_OK);
     } catch {
       continue;
     }
+
+    try {
+      await fs.access(candidate, fsConstants.W_OK);
+      return candidate;
+    } catch (err) {
+      if (isErrnoException(err) && err.code === 'ENOENT') {
+        return candidate;
+      }
+    }
   }
-  const fallback = configPaths[0] ?? DEFAULT_SERVICE_CONFIG_PATH;
-  try {
-    await fs.access(fallback);
-  } catch (err) {
-    const message = (err as Error).message;
-    const error = new Error(`service config not found at ${fallback}: ${message}`);
-    throw error;
-  }
-  return fallback;
+
+  throw new Error(
+    `No writable service config path found. Checked paths: ${configPaths.join(', ')}`
+  );
 }
 
 export async function registerServiceRoutes(app: FastifyInstance, options: ServiceRoutesOptions): Promise<void> {

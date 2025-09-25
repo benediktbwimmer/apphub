@@ -420,6 +420,41 @@ function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
   return Boolean(value && typeof value === 'object' && 'code' in value);
 }
 
+function deriveModuleIdFromConfigPath(configPath: string): string {
+  const absolutePath = path.resolve(configPath);
+  const relativePath = path
+    .relative(process.cwd(), absolutePath)
+    .replace(/\\/g, '/');
+  const base = relativePath.startsWith('..')
+    ? path.basename(absolutePath, path.extname(absolutePath))
+    : relativePath.replace(/\.json$/i, '');
+  const sanitized = base
+    .toLowerCase()
+    .replace(/[^a-z0-9/_:-]+/g, '-')
+    .replace(/--+/g, '-')
+    .replace(/^[-/]+/, '')
+    .replace(/[-/]+$/, '');
+  const identifier = sanitized.length > 0 ? sanitized : 'service-config';
+  return `local:${identifier}`;
+}
+
+async function loadOrCreateServiceConfig(configPath: string): Promise<ServiceConfig> {
+  try {
+    return await readServiceConfig(configPath);
+  } catch (err) {
+    if (!isErrnoException(err) || err.code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  const moduleId = deriveModuleIdFromConfigPath(configPath);
+  const initialConfig: ServiceConfig = { module: moduleId };
+
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, `${JSON.stringify(initialConfig, null, 2)}\n`, 'utf8');
+  return initialConfig;
+}
+
 export async function clearServiceConfigImports(
   configPaths: string[] = resolveServiceConfigPaths()
 ): Promise<ClearServiceConfigImportsResult> {
@@ -1041,7 +1076,7 @@ export async function appendServiceConfigImport(
 ) {
   let config: ServiceConfig;
   try {
-    config = await readServiceConfig(configPath);
+    config = await loadOrCreateServiceConfig(configPath);
   } catch (err) {
     throw new Error(`failed to load service config at ${configPath}: ${(err as Error).message}`);
   }

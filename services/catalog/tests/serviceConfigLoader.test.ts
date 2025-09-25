@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { clearServiceConfigImports, loadServiceConfigurations } from '../src/serviceConfigLoader';
+import {
+  appendServiceConfigImport,
+  clearServiceConfigImports,
+  loadServiceConfigurations
+} from '../src/serviceConfigLoader';
 
 async function createTempConfig(manifestOverride?: Record<string, unknown>) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-test-'));
@@ -187,6 +191,31 @@ async function createTempConfig(manifestOverride?: Record<string, unknown>) {
     assert.ok(!('imports' in updated), 'imports should be removed');
     assert.equal(updated.module, 'github.com/apphub/test-module');
     assert.equal(updated.manifestPath, './service-manifest.json');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+})();
+
+(async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-service-config-create-'));
+  const configPath = path.join(dir, 'service-config.json');
+
+  try {
+    await appendServiceConfigImport(configPath, {
+      module: 'github.com/apphub/demo-module',
+      repo: 'https://example.com/demo.git',
+      configPath: './manifests/demo.json'
+    });
+
+    const stored = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+    assert.equal(typeof stored.module, 'string');
+    assert(stored.module);
+    assert.ok(Array.isArray(stored.imports), 'imports should be created when missing');
+    assert.equal((stored.imports as unknown[]).length, 1);
+    const firstImport = (stored.imports as unknown[])[0] as Record<string, unknown>;
+    assert.equal(firstImport.module, 'github.com/apphub/demo-module');
+    assert.equal(firstImport.repo, 'https://example.com/demo.git');
+    assert.equal(firstImport.configPath, './manifests/demo.json');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
