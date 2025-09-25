@@ -129,14 +129,6 @@
     }
   ],
   "triggers": [
-    { "type": "manual" },
-    {
-      "type": "schedule",
-      "schedule": {
-        "cron": "5 * * * *",
-        "timezone": "UTC",
-        "catchUp": true
-      }
-    }
+    { "type": "manual" }
   ]
 }
