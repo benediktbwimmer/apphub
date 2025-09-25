@@ -639,7 +639,15 @@ export function useImportWizardController() {
 
       completeAutoImport(errors);
     },
-    [attemptServiceImportScenario, completeAutoImport, importAppScenario, importJobScenario, importWorkflowScenario, pushToast]
+    [
+      attemptServiceImportScenario,
+      completeAutoImport,
+      importAppScenario,
+      importJobScenario,
+      importWorkflowScenario,
+      pushToast,
+      setAutoImportRunning
+    ]
   );
 
   const autoImportIncludes = useCallback(

@@ -25,7 +25,7 @@ vi.mock('../../components/toast', () => ({
 }));
 
 vi.mock('../../events/context', () => ({
-  useAppHubEvent: (_types: unknown, _handler: unknown) => {
+  useAppHubEvent: () => {
     appHubEventMock();
   }
 }));
