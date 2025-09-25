@@ -43,7 +43,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     git \
     redis-server \
+    docker-ce \
     docker-ce-cli \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-compose-plugin \
     supervisor \
     postgresql \
     postgresql-contrib \
@@ -55,7 +59,7 @@ RUN apt-get update \
   && python3 --version \
   && pip3 --version \
   && npm install -g serve \
-  && mkdir -p /app/data /app/services
+  && mkdir -p /app/data /app/data/docker /app/services
 
 ENV NODE_ENV=production \
     PORT=4000 \
@@ -101,6 +105,16 @@ stderr_logfile_maxbytes=0
 [program:redis]
 command=redis-server --protected-mode no --save "" --appendonly no --bind 0.0.0.0
 priority=10
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:docker]
+command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/app/data/docker
+priority=15
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
