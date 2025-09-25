@@ -192,7 +192,7 @@ export default function OverviewPage() {
           )}
         </Card>
 
-        <Card title="Service health" actionLabel="View gallery" actionHref={ROUTE_PATHS.apps} loading={loading && recentServices.length === 0}>
+        <Card title="Service health" actionLabel="View gallery" actionHref={ROUTE_PATHS.services} loading={loading && recentServices.length === 0}>
           {recentServices.length === 0 ? (
             <EmptyState message="No services registered." />
           ) : (

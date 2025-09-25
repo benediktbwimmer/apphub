@@ -2,7 +2,7 @@ export const ROUTE_SEGMENTS = {
   overview: 'overview',
   catalog: 'catalog',
   assets: 'assets',
-  apps: 'services',
+  services: 'services',
   runs: 'runs',
   jobs: 'jobs',
   workflows: 'workflows',
@@ -18,7 +18,7 @@ export const ROUTE_PATHS = {
   overview: `/${ROUTE_SEGMENTS.overview}`,
   catalog: `/${ROUTE_SEGMENTS.catalog}`,
   assets: `/${ROUTE_SEGMENTS.assets}`,
-  apps: `/${ROUTE_SEGMENTS.apps}`,
+  services: `/${ROUTE_SEGMENTS.services}`,
   runs: `/${ROUTE_SEGMENTS.runs}`,
   jobs: `/${ROUTE_SEGMENTS.jobs}`,
   workflows: `/${ROUTE_SEGMENTS.workflows}`,
@@ -34,7 +34,7 @@ export type PrimaryNavKey =
   | 'overview'
   | 'catalog'
   | 'assets'
-  | 'apps'
+  | 'services'
   | 'runs'
   | 'jobs'
   | 'workflows'
@@ -51,7 +51,7 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
   { key: 'catalog', label: 'Catalog', path: ROUTE_PATHS.catalog },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
-  { key: 'apps', label: 'Apps', path: ROUTE_PATHS.apps },
+  { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
   { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
   { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },

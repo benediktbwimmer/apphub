@@ -39,7 +39,7 @@ export const appRouteConfig: RouteObject[] = [
         element: <AssetsPage />
       },
       {
-        path: ROUTE_SEGMENTS.apps,
+        path: ROUTE_SEGMENTS.services,
         element: <ServiceGallery />
       },
       {

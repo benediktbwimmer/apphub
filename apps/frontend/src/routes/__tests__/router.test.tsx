@@ -13,7 +13,7 @@ describe('appRouteConfig', () => {
 
     expect(childPaths.has('index')).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.catalog)).toBe(true);
-    expect(childPaths.has(ROUTE_SEGMENTS.apps)).toBe(true);
+    expect(childPaths.has(ROUTE_SEGMENTS.services)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.workflows)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.import)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.settings)).toBe(true);
