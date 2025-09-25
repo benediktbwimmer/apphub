@@ -90,6 +90,10 @@ function serializeApiKey(record: ApiKeyRecord) {
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/login', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.status(503);
+      return { error: 'auth_disabled' };
+    }
     if (!config.oidc.enabled) {
       reply.status(503);
       return { error: 'sso_disabled' };
@@ -143,6 +147,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/auth/callback', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.status(503);
+      return { error: 'auth_disabled' };
+    }
     if (!config.oidc.enabled || !config.sessionSecret) {
       reply.status(503);
       return { error: 'sso_disabled' };
@@ -259,6 +267,15 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/auth/logout', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.setCookie(
+        config.sessionCookieName,
+        '',
+        createExpiredSessionCookieOptions()
+      );
+      reply.status(204);
+      return reply;
+    }
     const sessionCookie = getRequestCookies(request)[config.sessionCookieName];
     if (sessionCookie && config.sessionSecret) {
       const payload = decodeSessionCookie(sessionCookie, config.sessionSecret);
@@ -312,6 +329,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         subject: identity.subject,
         kind: identity.kind,
         scopes,
+        authDisabled: identity.authDisabled,
         userId: identity.userId ?? null,
         sessionId: identity.sessionId ?? null,
         apiKeyId: identity.apiKeyId ?? null,
@@ -324,6 +342,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/auth/api-keys', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.status(200);
+      return {
+        data: {
+          keys: []
+        }
+      };
+    }
     const result = await requireOperatorScopes(request, reply, {
       action: 'auth.api-keys.list',
       resource: 'auth/api-keys',
@@ -350,6 +376,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/auth/api-keys', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.status(503);
+      return { error: 'auth_disabled' };
+    }
     const result = await requireOperatorScopes(request, reply, {
       action: 'auth.api-keys.create',
       resource: 'auth/api-keys',
@@ -418,6 +448,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/auth/api-keys/:id', async (request, reply) => {
     const config = getAuthConfig();
+    if (!config.enabled) {
+      reply.status(503);
+      return { error: 'auth_disabled' };
+    }
     const result = await requireOperatorScopes(request, reply, {
       action: 'auth.api-keys.revoke',
       resource: 'auth/api-keys',

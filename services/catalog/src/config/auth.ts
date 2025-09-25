@@ -47,6 +47,7 @@ export type OidcConfig = {
 };
 
 export type AuthConfig = {
+  enabled: boolean;
   sessionSecret: string;
   sessionCookieName: string;
   loginStateCookieName: string;
@@ -65,6 +66,7 @@ export function getAuthConfig(): AuthConfig {
     return cachedConfig;
   }
 
+  const authDisabled = parseBoolean(process.env.APPHUB_AUTH_DISABLED, false);
   const sessionSecret = process.env.APPHUB_SESSION_SECRET ?? '';
   const sessionCookieName = process.env.APPHUB_SESSION_COOKIE ?? 'apphub_session';
   const loginStateCookieName = process.env.APPHUB_LOGIN_STATE_COOKIE ?? 'apphub_login_state';
@@ -85,6 +87,7 @@ export function getAuthConfig(): AuthConfig {
   const oidcAllowedDomains = parseStringSet(process.env.APPHUB_OIDC_ALLOWED_DOMAINS);
 
   cachedConfig = {
+    enabled: !authDisabled,
     sessionSecret,
     sessionCookieName,
     loginStateCookieName,

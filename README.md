@@ -144,15 +144,13 @@ docker run --rm -it \
   -p 4173:4173 \
   -p 6379:6379 \
   -e NODE_ENV=development \
+  -e APPHUB_AUTH_DISABLED=true \
   -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
   -e APPHUB_SESSION_COOKIE_SECURE=false \
-  -e APPHUB_AUTH_SSO_ENABLED=false \
-  -e APPHUB_LEGACY_OPERATOR_TOKENS=true \
-  -e APPHUB_OPERATOR_TOKENS='[{"token":"dev-token","subject":"local-operator","scopes":"*"}]' \
   apphub:latest
 ```
 
-You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend). Use the bearer token `dev-token` for manual API calls while testing. When you prefer to manage tokens via a file, mount it in the container and set `APPHUB_OPERATOR_TOKENS_PATH` instead of `APPHUB_OPERATOR_TOKENS`.
+You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before.
 
 Persist Postgres/Redis state by adding `-v apphub-data:/app/data` to the command above (the default run uses in-container volumes that reset on exit).
 
@@ -268,6 +266,7 @@ APPHUB_LOGIN_STATE_COOKIE=apphub_login_state
 APPHUB_SESSION_TTL_SECONDS=43200         # Session lifetime (default 12h)
 APPHUB_SESSION_RENEW_SECONDS=1800        # Renew window when active (default 30m)
 APPHUB_SESSION_COOKIE_SECURE=true        # Secure cookies only over HTTPS
+APPHUB_AUTH_DISABLED=false              # Disable all authentication for local development
 APPHUB_AUTH_SSO_ENABLED=false            # Enable OAuth2/OIDC login when true
 APPHUB_OIDC_ISSUER=                      # OIDC issuer URL (required when SSO enabled)
 APPHUB_OIDC_CLIENT_ID=

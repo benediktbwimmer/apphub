@@ -32,6 +32,7 @@
   - `api_keys`: `id`, `user_id`, `name`, `prefix`, `token_hash`, `scopes`, `last_used_at`, `expires_at`, `created_at`, `revoked_at`, `metadata` (JSON for notes), `created_by_session_id`.
   - `api_key_events`: audit trail for creation, rotation, revocation.
   - Tokens are generated as `<prefix>.<random>` (e.g., `apphub_live_abc123...`) where only the hash is stored.
+- **Local development bypass**: when `APPHUB_AUTH_DISABLED=true`, the service returns a synthetic operator identity with full scopes so developers can work offline without provisioning tokens. This mode should never be enabled in shared or production environments.
 - **Authorization middleware**: unify session and API key handling in a single guard:
   - Attempt cookie session validation first; if present, attach `request.operatorIdentity` with scopes resolved from the user’s role membership.
   - Fallback to API key lookup (bearer token) for machine clients.

@@ -111,6 +111,12 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
   }, [fetchWithAuth]);
 
   const refreshApiKeys = useCallback(async () => {
+    if (identity?.authDisabled) {
+      setApiKeys([]);
+      setApiKeysError(null);
+      setApiKeysLoading(false);
+      return;
+    }
     if (apiKeysFetchRef.current) {
       await apiKeysFetchRef.current;
       return;
@@ -135,10 +141,13 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
     })();
     apiKeysFetchRef.current = task;
     await task;
-  }, [fetchWithAuth]);
+  }, [fetchWithAuth, identity?.authDisabled]);
 
   const createApiKey = useCallback(
     async (input: CreateApiKeyInput): Promise<CreateApiKeyResult> => {
+      if (identity?.authDisabled) {
+        throw new Error('Auth is disabled; API keys are unavailable in this environment.');
+      }
       const response = await fetchWithAuth('/auth/api-keys', {
         method: 'POST',
         body: JSON.stringify({
@@ -158,11 +167,14 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
       await refreshApiKeys();
       return { key: payload.data.key, token: payload.data.token } satisfies CreateApiKeyResult;
     },
-    [fetchWithAuth, refreshApiKeys]
+    [fetchWithAuth, refreshApiKeys, identity?.authDisabled]
   );
 
   const revokeApiKey = useCallback(
     async (id: string) => {
+      if (identity?.authDisabled) {
+        throw new Error('Auth is disabled; API keys are unavailable in this environment.');
+      }
       const response = await fetchWithAuth(`/auth/api-keys/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
@@ -172,7 +184,7 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
       }
       await refreshApiKeys();
     },
-    [fetchWithAuth, refreshApiKeys]
+    [fetchWithAuth, refreshApiKeys, identity?.authDisabled]
   );
 
   useEffect(() => {

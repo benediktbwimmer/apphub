@@ -61,6 +61,7 @@ export type OperatorIdentity = {
   scopes: Set<OperatorScope>;
   kind: OperatorKind;
   tokenHash: string;
+  authDisabled: boolean;
   userId?: string;
   sessionId?: string;
   apiKeyId?: string;
@@ -68,6 +69,31 @@ export type OperatorIdentity = {
   email?: string | null;
   roles?: string[];
 };
+
+const DISABLED_IDENTITY_TEMPLATE: Omit<OperatorIdentity, 'scopes'> = {
+  subject: 'local-dev',
+  kind: 'service',
+  tokenHash: 'auth-disabled',
+  authDisabled: true,
+  displayName: 'Local Development',
+  email: null,
+  roles: ['local-admin']
+};
+
+function createFullScopeSet(): Set<OperatorScope> {
+  const scopes = new Set<OperatorScope>();
+  for (const scope of ALL_SCOPES) {
+    addScope(scopes, scope);
+  }
+  return scopes;
+}
+
+function createDisabledIdentity(): OperatorIdentity {
+  return {
+    ...DISABLED_IDENTITY_TEMPLATE,
+    scopes: createFullScopeSet()
+  } satisfies OperatorIdentity;
+}
 
 type SessionCookieInstruction = {
   name: string;
@@ -227,7 +253,8 @@ function registerToken(cache: Map<string, TokenCacheEntry>, config: OperatorToke
       subject,
       scopes,
       kind: config.kind ?? 'user',
-      tokenHash
+      tokenHash,
+      authDisabled: false
     }
   });
 }
@@ -300,6 +327,7 @@ function buildIdentityFromSession(session: SessionWithAccess): OperatorIdentity 
     scopes,
     kind: session.user.kind,
     tokenHash: session.session.sessionTokenHash,
+    authDisabled: false,
     userId: session.user.id,
     sessionId: session.session.id,
     displayName: session.user.displayName,
@@ -357,6 +385,7 @@ async function resolveApiKeyIdentity(token: string): Promise<OperatorIdentity | 
     scopes,
     kind: access.user.kind,
     tokenHash: record.tokenHash,
+    authDisabled: false,
     userId: access.user.id,
     apiKeyId: record.id,
     displayName: access.user.displayName,
@@ -428,6 +457,19 @@ export async function authorizeOperatorAction(
   options: AuthorizationOptions
 ): Promise<AuthorizationResult> {
   const config = getAuthConfig();
+
+  if (!config.enabled) {
+    const identity = createDisabledIdentity();
+    request.operatorIdentity = identity;
+    return {
+      ok: true,
+      identity,
+      async log() {
+        // Auth is disabled; skip audit logging for local development mode.
+      }
+    } satisfies AuthorizationSuccess;
+  }
+
   const cookies = getCookies(request);
   const cookieName = config.sessionCookieName;
   const sessionCookieValue = cookies[cookieName];

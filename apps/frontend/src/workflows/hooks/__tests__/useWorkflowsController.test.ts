@@ -164,6 +164,7 @@ function createAuthMockValue(): AuthContextValue {
     subject: 'user@example.com',
     kind: 'user' as const,
     scopes: ['workflows:run', 'workflows:write', 'jobs:write', 'job-bundles:write'],
+    authDisabled: false,
     userId: 'usr_1',
     sessionId: 'sess_1',
     apiKeyId: null,

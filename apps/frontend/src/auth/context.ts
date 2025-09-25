@@ -4,6 +4,7 @@ export type AuthIdentity = {
   subject: string;
   kind: 'user' | 'service';
   scopes: string[];
+  authDisabled: boolean;
   userId: string | null;
   sessionId: string | null;
   apiKeyId: string | null;

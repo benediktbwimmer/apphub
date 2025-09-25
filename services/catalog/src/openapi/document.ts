@@ -293,6 +293,10 @@ const operatorIdentitySchema: OpenAPIV3.SchemaObject = {
     userId: nullable(stringSchema()),
     sessionId: nullable(stringSchema()),
     apiKeyId: nullable(stringSchema()),
+    authDisabled: {
+      type: 'boolean',
+      description: 'Indicates that the server is running with authentication disabled for local development.'
+    },
     displayName: nullable(stringSchema()),
     email: nullable(stringSchema()),
     roles: {
