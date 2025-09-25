@@ -1,0 +1,103 @@
+{
+  "slug": "observatory-data-generator",
+  "name": "Observatory Inbox Data Generator",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:observatory-data-generator@0.1.0#handler",
+  "timeoutMs": 120000,
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "strategy": "exponential",
+    "initialDelayMs": 3000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "inboxDir": { "type": "string", "minLength": 1 },
+      "hour": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}$"
+      },
+      "rowsPerInstrument": { "type": "number", "minimum": 1, "maximum": 360 },
+      "intervalMinutes": { "type": "number", "minimum": 1, "maximum": 120 },
+      "seed": { "type": "number" },
+      "instrumentProfiles": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "instrumentId": { "type": "string", "minLength": 1 },
+            "site": { "type": "string", "minLength": 1 },
+            "baselineTemperatureC": { "type": "number" },
+            "baselineHumidityPct": { "type": "number" },
+            "baselinePm25UgM3": { "type": "number" },
+            "baselineBatteryVoltage": { "type": "number" }
+          },
+          "required": ["instrumentId", "site"]
+        },
+        "minItems": 1
+      }
+    },
+    "required": ["inboxDir", "hour"]
+  },
+  "defaultParameters": {
+    "inboxDir": "examples/environmental-observatory/data/inbox",
+    "rowsPerInstrument": 6,
+    "intervalMinutes": 10
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "partitionKey": { "type": "string" },
+      "generated": {
+        "type": "object",
+        "properties": {
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "partitionKey": { "type": "string" },
+          "inboxDir": { "type": "string" },
+          "seed": { "type": "number" },
+          "rowsGenerated": { "type": "number" },
+          "instrumentCount": { "type": "number" },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "instrumentId": { "type": "string" },
+                "site": { "type": "string" },
+                "relativePath": { "type": "string" },
+                "absolutePath": { "type": "string" },
+                "rows": { "type": "number" },
+                "firstTimestamp": { "type": "string", "format": "date-time" },
+                "lastTimestamp": { "type": "string", "format": "date-time" }
+              },
+              "required": ["instrumentId", "relativePath", "rows"]
+            }
+          }
+        },
+        "required": [
+          "generatedAt",
+          "partitionKey",
+          "inboxDir",
+          "seed",
+          "rowsGenerated",
+          "instrumentCount",
+          "files"
+        ]
+      },
+      "assets": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "assetId": { "type": "string" },
+            "partitionKey": { "type": "string" },
+            "producedAt": { "type": "string", "format": "date-time" }
+          },
+          "required": ["assetId", "partitionKey", "producedAt"]
+        }
+      }
+    },
+    "required": ["partitionKey", "generated"]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "jobSlug": "observatory-data-generator",
+  "parameters": {
+    "inboxDir": "examples/environmental-observatory/data/inbox",
+    "hour": "2025-08-01T12",
+    "rowsPerInstrument": 4,
+    "intervalMinutes": 15,
+    "seed": 99,
+    "instrumentProfiles": [
+      {
+        "instrumentId": "instrument_alpha",
+        "site": "west-basin"
+      },
+      {
+        "instrumentId": "instrument_bravo",
+        "site": "east-ridge"
+      }
+    ]
+  }
+}

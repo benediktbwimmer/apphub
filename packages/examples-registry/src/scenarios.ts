@@ -82,6 +82,8 @@ const retailSalesDailyIngestWorkflowForm = requireWorkflow('retail-sales-daily-i
 
 const retailSalesInsightsWorkflowForm = requireWorkflow('retail-sales-insights');
 
+const observatoryHourlyDataGeneratorWorkflowForm = requireWorkflow('observatory-hourly-data-generator');
+
 const observatoryHourlyIngestWorkflowForm = requireWorkflow('observatory-hourly-ingest');
 
 const observatoryDailyPublicationWorkflowForm = requireWorkflow('observatory-daily-publication');
@@ -709,6 +711,36 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'job__archive_report'
   },
   {
+    id: 'observatory-data-generator-job',
+    type: 'job',
+    title: 'Observatory data generator',
+    summary: 'Produces synthetic inbox CSVs for hourly ingest.',
+    description:
+      'Uploads the `observatory-data-generator` bundle (0.1.0) so you can simulate instrument drops by writing synthetic CSVs into the observatory inbox.',
+    difficulty: 'beginner',
+    tags: ['observatory', 'simulation'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Bundle manifest',
+        path: 'examples/environmental-observatory/jobs/observatory-data-generator/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-data-generator/manifest.json'
+      }
+    ],
+    form: {
+      source: 'upload',
+      reference: jobReference('observatory-data-generator'),
+      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-data-generator. Point inboxDir at the directory you want synthetic drops to land.'
+    },
+    exampleSlug: 'observatory-data-generator',
+    analyticsTag: 'job__observatory_data_generator'
+  },
+  {
     id: 'observatory-inbox-normalizer-job',
     type: 'job',
     title: 'Observatory inbox normalizer',
@@ -879,6 +911,31 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'workflow__retail_sales_insights'
   },
   {
+    id: 'observatory-hourly-data-generator-workflow',
+    type: 'workflow',
+    title: 'Observatory hourly data generator',
+    summary: 'Schedules synthetic instrument data drops.',
+    description:
+      'Imports the `observatory-hourly-data-generator` workflow definition to automate synthetic CSV drops into the observatory inbox for testing.',
+    difficulty: 'beginner',
+    tags: ['observatory', 'simulation'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Workflow definition reference',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-hourly-data-generator.json'
+      }
+    ],
+    form: observatoryHourlyDataGeneratorWorkflowForm,
+    includes: ['observatory-data-generator-job'],
+    analyticsTag: 'workflow__observatory_data_generator'
+  },
+  {
     id: 'observatory-hourly-ingest-workflow',
     type: 'workflow',
     title: 'Observatory hourly ingest',
@@ -943,10 +1000,12 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     includes: [
       'observatory-file-watcher-service',
       'observatory-file-watcher-app',
+      'observatory-data-generator-job',
       'observatory-inbox-normalizer-job',
       'observatory-duckdb-loader-job',
       'observatory-visualization-runner-job',
       'observatory-report-publisher-job',
+      'observatory-hourly-data-generator-workflow',
       'observatory-hourly-ingest-workflow',
       'observatory-daily-publication-workflow'
     ],

@@ -50,6 +50,7 @@ export type ExampleJobSlug =
   | 'retail-sales-visualizer'
   | 'fleet-telemetry-metrics'
   | 'greenhouse-alerts-runner'
+  | 'observatory-data-generator'
   | 'observatory-inbox-normalizer'
   | 'observatory-duckdb-loader'
   | 'observatory-visualization-runner'
@@ -178,6 +179,7 @@ export type WorkflowDefinitionTemplate = {
 };
 
 export type ExampleWorkflowSlug =
+  | 'observatory-hourly-data-generator'
   | 'observatory-hourly-ingest'
   | 'observatory-daily-publication'
   | 'retail-sales-daily-ingest'

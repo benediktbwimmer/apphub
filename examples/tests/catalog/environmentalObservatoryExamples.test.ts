@@ -12,6 +12,7 @@ import {
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 
 const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
+  'observatory-data-generator',
   'observatory-inbox-normalizer',
   'observatory-duckdb-loader',
   'observatory-visualization-runner',
@@ -20,12 +21,15 @@ const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
 const environmentalObservatoryJobs = environmentalObservatoryJobSlugs.map(loadExampleJobDefinition);
 
 const observatoryWorkflowSlugs: ExampleWorkflowSlug[] = [
+  'observatory-hourly-data-generator',
   'observatory-hourly-ingest',
   'observatory-daily-publication'
 ];
-const [observatoryHourlyIngestWorkflow, observatoryDailyPublicationWorkflow] = observatoryWorkflowSlugs.map(
-  loadExampleWorkflowDefinition
-);
+const [
+  observatoryHourlyDataGeneratorWorkflow,
+  observatoryHourlyIngestWorkflow,
+  observatoryDailyPublicationWorkflow
+] = observatoryWorkflowSlugs.map(loadExampleWorkflowDefinition);
 
 (async function run() {
   for (const job of environmentalObservatoryJobs) {
@@ -33,11 +37,21 @@ const [observatoryHourlyIngestWorkflow, observatoryDailyPublicationWorkflow] = o
     assert.ok(parsed.slug.startsWith('observatory-'));
   }
 
+  const generator = workflowDefinitionCreateSchema.parse(observatoryHourlyDataGeneratorWorkflow);
   const ingest = workflowDefinitionCreateSchema.parse(observatoryHourlyIngestWorkflow);
   const publication = workflowDefinitionCreateSchema.parse(observatoryDailyPublicationWorkflow);
 
+  assert.equal(generator.steps.length, 1);
   assert.equal(ingest.steps.length, 2);
   assert.equal(publication.steps.length, 2);
+
+  const generatorStep = generator.steps[0];
+  assert.equal(generatorStep?.jobSlug, 'observatory-data-generator');
+  const generatorAsset = generatorStep?.produces?.[0];
+  assert.ok(generatorAsset?.partitioning);
+  assert.equal(generatorAsset?.assetId, 'observatory.inbox.synthetic');
+  assert.equal(generatorAsset?.partitioning?.type, 'timeWindow');
+  assert.equal(generatorAsset?.partitioning?.granularity, 'hour');
 
   const rawAsset = ingest.steps[0]?.produces?.[0];
   assert.ok(rawAsset?.partitioning);
