@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import { runE2E } from '@apphub/test-helpers';
+import { DockerMock } from '@apphub/docker-mock';
 import type { LaunchEnvVar } from '../src/db/types';
 
 runE2E(async ({ registerCleanup }) => {
@@ -30,6 +31,7 @@ runE2E(async ({ registerCleanup }) => {
   const previousPgPoolMax = process.env.PGPOOL_MAX;
   const previousRunnerMode = process.env.LAUNCH_RUNNER_MODE;
   const previousRedisUrl = process.env.REDIS_URL;
+  const previousPath = process.env.PATH;
 
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'launch-env-pg-'));
   registerCleanup(() => rm(dataRoot, { recursive: true, force: true }));
@@ -51,10 +53,15 @@ runE2E(async ({ registerCleanup }) => {
     await postgres.stop();
   });
 
+  const dockerMock = new DockerMock({ mappedPort: 32768, containerIp: '172.18.0.2' });
+  const dockerPaths = await dockerMock.start();
+  registerCleanup(() => dockerMock.stop());
+
   process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
   process.env.PGPOOL_MAX = '4';
-  process.env.LAUNCH_RUNNER_MODE = 'stub';
+  process.env.LAUNCH_RUNNER_MODE = 'docker';
   process.env.REDIS_URL = 'inline';
+  process.env.PATH = `${dockerPaths.pathPrefix}:${previousPath ?? ''}`;
 
   registerCleanup(() => {
     if (previousDatabaseUrl === undefined) {
@@ -76,6 +83,11 @@ runE2E(async ({ registerCleanup }) => {
       delete process.env.REDIS_URL;
     } else {
       process.env.REDIS_URL = previousRedisUrl;
+    }
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
     }
   });
 
@@ -129,6 +141,23 @@ runE2E(async ({ registerCleanup }) => {
 
   await launchRunner.runLaunchStart(launch.id);
 
+  const finalLaunch = await db.getLaunchById(launch.id);
+  assert(finalLaunch, 'launch record missing after start');
+
+  const envEntries = finalLaunch!.env;
+  assert(envEntries.length > 0, 'expected launch env array to be populated');
+
+  const envMap = new Map<string, string>((envEntries as LaunchEnvVar[]).map((entry) => [entry.key, entry.value]));
+
+  assert.equal(envMap.get('PORT'), '4310', 'expected PORT env to match manifest');
+  assert.equal(
+    envMap.get('FILE_WATCH_ROOT'),
+    'examples/environmental-observatory/data/inbox',
+    'expected FILE_WATCH_ROOT default to propagate'
+  );
+  assert.equal(envMap.get('CATALOG_API_TOKEN'), 'dev-token', 'expected placeholder default token');
+  assert(envMap.size >= 5, 'expected multiple env vars to be applied');
+}, { name: 'catalog-launch-manifest-env' });
   const finalLaunch = await db.getLaunchById(launch.id);
   assert(finalLaunch, 'launch record missing after start');
 

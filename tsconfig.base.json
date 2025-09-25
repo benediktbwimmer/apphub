@@ -56,6 +56,12 @@
       ],
       "@apphub/example-bundler/*": [
         "packages/example-bundler/src/*"
+      ],
+      "@apphub/docker-mock": [
+        "packages/docker-mock/src/index.ts"
+      ],
+      "@apphub/docker-mock/*": [
+        "packages/docker-mock/src/*"
       ]
     }
   }
