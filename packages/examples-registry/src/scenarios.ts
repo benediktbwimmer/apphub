@@ -932,6 +932,27 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'workflow__observatory_daily_publication'
   },
   {
+    id: 'observatory-scenario-pack',
+    type: 'scenario',
+    title: 'Environmental observatory demo',
+    summary: 'Loads services, jobs, and workflows for the observatory walkthrough.',
+    description:
+      'Prefills the importer with the watcher service, container app, supporting jobs, and both observatory workflows so you can replay the end-to-end environmental observatory demo.',
+    tags: ['observatory', 'end-to-end'],
+    includes: [
+      'observatory-file-watcher-service',
+      'observatory-file-watcher-app',
+      'observatory-inbox-normalizer-job',
+      'observatory-duckdb-loader-job',
+      'observatory-visualization-runner-job',
+      'observatory-report-publisher-job',
+      'observatory-hourly-ingest-workflow',
+      'observatory-daily-publication-workflow'
+    ],
+    focus: 'workflows',
+    analyticsTag: 'bundle__observatory'
+  },
+  {
     id: 'directory-insights-report-workflow',
     type: 'workflow',
     title: 'Directory insights report',
