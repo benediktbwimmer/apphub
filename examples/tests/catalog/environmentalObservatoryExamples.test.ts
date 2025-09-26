@@ -57,6 +57,7 @@ const [
   assert.ok(rawAsset?.partitioning);
   assert.equal(rawAsset?.assetId, 'observatory.timeseries.raw');
   assert.equal(rawAsset?.partitioning?.type, 'timeWindow');
+  assert.equal(ingest.steps[0]?.parameters?.archiveDir, '{{ parameters.archiveDir }}');
 
   const rawPartitions = enumeratePartitionKeys(rawAsset!.partitioning!, {
     now: new Date('2025-08-01T12:15:00Z'),
@@ -77,5 +78,5 @@ const [
   assert.ok(reportStep?.consumes?.some((entry) => entry.assetId === 'observatory.visualizations.minute'));
   const reportAsset = reportStep?.produces?.[0];
   assert.equal(reportAsset?.autoMaterialize?.onUpstreamUpdate, true);
-  assert.equal(reportStep?.parameters?.visualizationAsset, '{{ shared.visualizations }}');
+  assert.equal(reportStep?.parameters?.visualizationAsset, '{{ shared.visualizations.visualization }}');
 })();

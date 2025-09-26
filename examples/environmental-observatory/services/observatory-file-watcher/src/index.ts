@@ -336,6 +336,7 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
       minute,
       inboxDir: watchRoot,
       stagingDir: observatoryStagingDir,
+      archiveDir: archiveRoot,
       warehousePath: observatoryWarehousePath
     };
     if (observatoryMaxFiles) {

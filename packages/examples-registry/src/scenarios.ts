@@ -765,7 +765,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       source: 'upload',
       reference: jobReference('observatory-inbox-normalizer'),
-      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-inbox-normalizer. Configure inbox/staging directories to match your environment.'
+      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-inbox-normalizer. Configure inbox/staging/archive directories to match your environment.'
     },
     exampleSlug: 'observatory-inbox-normalizer',
     analyticsTag: 'job__observatory_inbox_normalizer'

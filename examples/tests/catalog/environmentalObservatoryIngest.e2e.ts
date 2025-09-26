@@ -342,14 +342,18 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'observatory-e2e-'));
   const inboxDir = path.join(tempRoot, 'inbox');
   const stagingDir = path.join(tempRoot, 'staging');
+  const archiveDir = path.join(tempRoot, 'archive');
   const plotsDir = path.join(tempRoot, 'plots');
   const reportsDir = path.join(tempRoot, 'reports');
   const minute = '2030-01-01T03:30';
   const minuteKey = minute.replace(':', '-');
+  const minuteIsoMatch = minute.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/);
+  const hourSegment = minuteIsoMatch ? `${minuteIsoMatch[1]}T${minuteIsoMatch[2]}` : minuteKey;
+  const archiveMinuteFilename = minuteIsoMatch ? `${minuteIsoMatch[3]}.csv` : `${minuteKey}.csv`;
   const warehousePath = path.join(tempRoot, 'warehouse', 'observatory.duckdb');
 
   await Promise.all(
-    [inboxDir, stagingDir, plotsDir, reportsDir, path.dirname(warehousePath)].map((dir) =>
+    [inboxDir, stagingDir, archiveDir, plotsDir, reportsDir, path.dirname(warehousePath)].map((dir) =>
       mkdir(dir, { recursive: true })
     )
   );
@@ -369,6 +373,7 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
     await runWorkflow(app, 'observatory-minute-ingest', minute, {
       inboxDir,
       stagingDir,
+      archiveDir,
       warehousePath,
       minute,
       maxFiles: 64,
@@ -378,6 +383,38 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
     const stagingMinuteDir = path.join(stagingDir, minuteKey);
     const stagingEntries = await readdir(stagingMinuteDir);
     assert.equal(stagingEntries.length, 3, 'Normalizer should copy all CSVs into staging');
+
+    const inboxEntriesAfterIngest = await readdir(inboxDir);
+    assert.equal(inboxEntriesAfterIngest.length, 0, 'Inbox should be empty once files are archived');
+
+    const archiveInstrumentDirs = (await readdir(archiveDir)).sort();
+    assert.deepEqual(
+      archiveInstrumentDirs,
+      ['alpha', 'bravo', 'charlie'],
+      'Archived files should be organized by instrument'
+    );
+
+    for (const instrumentId of archiveInstrumentDirs) {
+      const instrumentArchiveDir = path.join(archiveDir, instrumentId, hourSegment);
+      const archivedEntries = (await readdir(instrumentArchiveDir)).sort();
+      assert.deepEqual(archivedEntries, [archiveMinuteFilename]);
+
+      const stagingFilename = stagingEntries.find((entry) =>
+        entry.startsWith(`instrument_${instrumentId}_`)
+      );
+      assert.ok(stagingFilename, `Expected staging file for ${instrumentId}`);
+
+      const archivedContents = await readFile(
+        path.join(instrumentArchiveDir, archiveMinuteFilename),
+        'utf8'
+      );
+      const stagingContents = await readFile(path.join(stagingMinuteDir, stagingFilename), 'utf8');
+      assert.equal(
+        archivedContents,
+        stagingContents,
+        `Archived CSV for ${instrumentId} should match staging copy`
+      );
+    }
 
     const rowCount = await queryDuckDbRowCount(warehousePath);
     assert.equal(rowCount, 18, 'DuckDB loader should append 18 rows (3 instruments × 6 rows)');

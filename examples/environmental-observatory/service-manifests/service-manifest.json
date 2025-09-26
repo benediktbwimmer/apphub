@@ -40,6 +40,16 @@
             }
           }
         },
+        {
+          "key": "FILE_ARCHIVE_DIR",
+          "value": {
+            "$var": {
+              "name": "FILE_ARCHIVE_DIR",
+              "default": "examples/environmental-observatory/data/archive",
+              "description": "Archive directory where processed inbox files are moved after normalization."
+            }
+          }
+        },
         { "key": "FILE_WATCH_STRATEGY", "value": "observatory" },
         { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-minute-ingest" },
         { "key": "FILE_WATCH_MAX_FILES", "value": "64" },

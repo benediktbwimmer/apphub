@@ -15,13 +15,15 @@
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
       "stagingDir": { "type": "string", "minLength": 1 },
+      "archiveDir": { "type": "string", "minLength": 1 },
       "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 }
     },
-    "required": ["inboxDir", "stagingDir", "minute"]
+    "required": ["inboxDir", "stagingDir", "archiveDir", "minute"]
   },
   "defaultParameters": {
-    "maxFiles": 64
+    "maxFiles": 64,
+    "archiveDir": "examples/environmental-observatory/data/archive"
   },
   "outputSchema": {
     "type": "object",

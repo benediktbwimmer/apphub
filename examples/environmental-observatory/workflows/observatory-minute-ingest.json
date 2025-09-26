@@ -8,18 +8,20 @@
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
       "stagingDir": { "type": "string", "minLength": 1 },
+      "archiveDir": { "type": "string", "minLength": 1 },
       "warehousePath": { "type": "string", "minLength": 1 },
       "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
       "vacuum": { "type": "boolean" }
     },
-    "required": ["inboxDir", "stagingDir", "warehousePath", "minute"]
+    "required": ["inboxDir", "stagingDir", "archiveDir", "warehousePath", "minute"]
   },
   "defaultParameters": {
     "maxFiles": 64,
     "vacuum": false,
     "inboxDir": "examples/environmental-observatory/data/inbox",
     "stagingDir": "examples/environmental-observatory/data/staging",
+    "archiveDir": "examples/environmental-observatory/data/archive",
     "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb"
   },
   "steps": [
@@ -31,6 +33,7 @@
       "parameters": {
         "inboxDir": "{{ parameters.inboxDir }}",
         "stagingDir": "{{ parameters.stagingDir }}",
+        "archiveDir": "{{ parameters.archiveDir }}",
         "minute": "{{ parameters.minute }}",
         "maxFiles": "{{ parameters.maxFiles }}"
       },

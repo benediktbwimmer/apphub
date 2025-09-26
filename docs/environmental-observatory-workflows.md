@@ -2,6 +2,27 @@
 
 The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, snapshot them into DuckDB, render updated plots, and publish refreshed status pages whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
 
+## Architecture overview
+
+```mermaid
+graph TD
+  Instruments[[Field instruments]] -->|Minute CSV drops| Inbox[[Inbox directory]]
+  Inbox --> Watcher{{Observatory file watcher}}
+  Watcher -->|Triggers workflow| Normalizer[observatory-inbox-normalizer]
+  Normalizer --> Staging[(staging/<minute>/)]
+  Normalizer --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
+  Normalizer --> RawAsset[(Asset: observatory.timeseries.raw)]
+  RawAsset --> Loader[observatory-duckdb-loader]
+  Loader --> DuckDB[(warehouse/observatory.duckdb)]
+  Loader --> DuckAsset[(Asset: observatory.timeseries.duckdb)]
+  DuckAsset --> Visualization[observatory-visualization-runner]
+  Visualization --> Plots[(plots/<minute>/)]
+  Visualization --> VizAsset[(Asset: observatory.visualizations.minute)]
+  VizAsset --> Reporter[observatory-report-publisher]
+  Reporter --> Reports[(reports/<minute>/)]
+  Reporter --> ReportAsset[(Asset: observatory.reports.status)]
+```
+
 ## Data drop and directory layout
 
 Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to DuckDB:
@@ -36,7 +57,7 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, extracts metadata, and emits the partitioned raw asset. |
+| `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
 | `examples/environmental-observatory/jobs/observatory-duckdb-loader` | `observatory-duckdb-loader` | Appends normalized readings into a DuckDB file, producing a curated snapshot asset with per-minute partitions. |
 | `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries DuckDB for fresh aggregates, saves plot PNGs/SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
 | `examples/environmental-observatory/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
@@ -62,7 +83,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 - **Steps:**
   1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off DuckDB ingestion.
   2. `observatory-duckdb-loader` consumes the raw asset, appends data into `warehouse/observatory.duckdb`, and produces `observatory.timeseries.duckdb` with `freshness.ttlMs` tuned for minute cadence.
-- **Parameters:** `inboxDir`, `stagingDir`, `warehousePath`, `minute`, and optional quality thresholds.
+- **Parameters:** `inboxDir`, `stagingDir`, `archiveDir`, `warehousePath`, `minute`, and optional quality thresholds.
 - **Default directories:** Match the example layout under `examples/environmental-observatory/data/`.
 
 ### 2. `observatory-daily-publication`
@@ -75,7 +96,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 ## Auto-materialization flow
 
-1. Inbox workflow runs after new CSV drops. Step 1 copies files into `staging/<minute>/`, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
+1. Inbox workflow runs after new CSV drops. Step 1 copies files into `staging/<minute>/`, moves the originals into `archive/<instrument>/<hour>/<minute>.csv`, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
 2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the DuckDB loader immediately for the same partition. The loader produces `observatory.timeseries.duckdb` and schedules an expiry after 60 minutes.
 3. The visualization workflow listens to `observatory.timeseries.duckdb`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
 4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports.
@@ -100,6 +121,7 @@ The catalog packages each observatory bundle automatically when you import the e
 
    FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
    FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
+   FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
    FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
    FILE_DROP_WORKFLOW_SLUG=observatory-minute-ingest \
    FILE_WATCH_STRATEGY=observatory \
