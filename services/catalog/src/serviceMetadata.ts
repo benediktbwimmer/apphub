@@ -47,6 +47,28 @@ export const serviceManifestMetadataSchema = z
   })
   .strict();
 
+const serviceHealthMetadataSchema = z
+  .object({
+    url: z.string().trim().min(1).optional(),
+    status: z.enum(['healthy', 'degraded', 'unreachable']).optional(),
+    checkedAt: isoTimestampSchema.optional(),
+    latencyMs: z.number().finite().nonnegative().nullable().optional(),
+    statusCode: z.number().int().nullable().optional(),
+    error: z.string().trim().nullable().optional()
+  })
+  .strict();
+
+const serviceOpenApiMetadataSchema = z
+  .object({
+    hash: z.string().trim().min(1).optional(),
+    version: z.string().trim().min(1).nullable().optional(),
+    fetchedAt: isoTimestampSchema.optional(),
+    bytes: z.number().int().min(0).optional(),
+    url: z.string().trim().min(1).optional(),
+    schema: jsonValueSchema.optional()
+  })
+  .strict();
+
 export const serviceRuntimeMetadataSchema = z
   .object({
     repositoryId: z.string().trim().min(1).optional(),
@@ -73,6 +95,8 @@ const serviceMetadataShape = z
     manifest: z.union([serviceManifestMetadataSchema, z.null()]).optional(),
     config: z.union([jsonValueSchema, z.null()]).optional(),
     runtime: z.union([serviceRuntimeMetadataSchema, z.null()]).optional(),
+    health: z.union([serviceHealthMetadataSchema, z.null()]).optional(),
+    openapi: z.union([serviceOpenApiMetadataSchema, z.null()]).optional(),
     linkedApps: z.union([linkedAppsSchema, z.null()]).optional(),
     notes: z.union([z.string().trim().max(2000), z.null()]).optional()
   })

@@ -249,6 +249,35 @@ function normalizeLaunchEnv(entries?: LaunchEnvVar[]): LaunchEnvVar[] {
   return Array.from(seen.entries()).map(([key, value]) => ({ key, value }));
 }
 
+function mergeEnvWithDefaults(
+  defaults?: LaunchEnvVar[] | null,
+  overrides?: LaunchEnvVar[] | null
+): LaunchEnvVar[] {
+  const merged = new Map<string, string>();
+
+  const push = (entries: LaunchEnvVar[]) => {
+    for (const entry of entries) {
+      if (!entry || typeof entry.key !== 'string') {
+        continue;
+      }
+      const key = entry.key.trim();
+      if (!key) {
+        continue;
+      }
+      const value = typeof entry.value === 'string' ? entry.value : '';
+      merged.set(key, value);
+      if (merged.size >= 64) {
+        break;
+      }
+    }
+  };
+
+  push(normalizeLaunchEnv(defaults ?? undefined));
+  push(normalizeLaunchEnv(overrides ?? undefined));
+
+  return Array.from(merged.entries()).map(([key, value]) => ({ key, value }));
+}
+
 function resolvePortFromEnvVars(entries?: LaunchEnvVar[]): number | null {
   if (!entries || entries.length === 0) {
     return null;
@@ -364,6 +393,8 @@ async function scheduleLaunch(options: {
   }
 
   const env = normalizeLaunchEnv(payload.env);
+  const manifestEnvDefaults = await resolveManifestEnvForRepository(repository.id);
+  const fallbackEnv = mergeEnvWithDefaults(manifestEnvDefaults, env);
   const envDefinedPort = resolvePortFromEnvVars(env);
   const manifestPort = await resolveManifestPortForRepository(repository.id);
   const requestedLaunchId = typeof payload.launchId === 'string' ? payload.launchId.trim() : '';
@@ -382,7 +413,7 @@ async function scheduleLaunch(options: {
     repositoryId: repository.id,
     launchId,
     imageTag: build.imageTag,
-    env,
+    env: fallbackEnv,
     internalPort
   }).command;
   const launchCommand = commandInput.length > 0 ? commandInput : commandFallback;
