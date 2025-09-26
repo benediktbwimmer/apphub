@@ -66,6 +66,7 @@ const DEFAULT_SCHEMA_FIELDS = [
 const DEFAULT_PARTITION_NAMESPACE = 'observatory';
 const DEFAULT_TABLE_NAME = 'observations';
 const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
+const DEFAULT_DATASET_SLUG = 'observatory-timeseries';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -141,7 +142,10 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
     throw new Error('Parameters must be an object');
   }
 
-  const datasetSlug = ensureString(raw.datasetSlug ?? raw.dataset_slug ?? raw.slug);
+  const datasetSlug =
+    ensureString(raw.datasetSlug ?? raw.dataset_slug ?? raw.slug) ||
+    ensureString(process.env.TIMESTORE_DATASET_SLUG, DEFAULT_DATASET_SLUG) ||
+    DEFAULT_DATASET_SLUG;
   if (!datasetSlug) {
     throw new Error('datasetSlug parameter is required');
   }
