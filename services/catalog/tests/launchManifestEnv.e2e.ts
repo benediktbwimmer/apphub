@@ -1,42 +1,50 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
-import net from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import { runE2E } from '@apphub/test-helpers';
 import { DockerMock } from '@apphub/docker-mock';
-import type { LaunchEnvVar } from '../src/db/types';
+import type { FastifyInstance } from 'fastify';
 
-runE2E(async ({ registerCleanup }) => {
-  async function findAvailablePort(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      const server = net.createServer();
-      server.unref();
-      server.on('error', reject);
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        if (typeof address === 'object' && address) {
-          const { port } = address;
-          server.close(() => resolve(port));
-        } else {
-          server.close(() => reject(new Error('failed to determine available port')));
-        }
-      });
+const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
+const REPOSITORY_ID = 'observatory-file-watcher';
+
+async function loadModule<T>(modulePath: string): Promise<any> {
+  const mod = await import(modulePath);
+  return (mod as { default?: T } & T).default ?? mod;
+}
+
+async function findAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (typeof address === 'object' && address) {
+        const { port } = address;
+        server.close(() => resolve(port));
+      } else {
+        server.close(() => reject(new Error('failed to determine available port')));
+      }
     });
+  });
+}
+
+let embeddedPostgres: EmbeddedPostgres | null = null;
+let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
+
+async function ensureEmbeddedPostgres(): Promise<void> {
+  if (embeddedPostgres) {
+    return;
   }
 
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  const previousPgPoolMax = process.env.PGPOOL_MAX;
-  const previousRunnerMode = process.env.LAUNCH_RUNNER_MODE;
-  const previousRedisUrl = process.env.REDIS_URL;
-  const previousPath = process.env.PATH;
-
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'launch-env-pg-'));
-  registerCleanup(() => rm(dataRoot, { recursive: true, force: true }));
-
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'launch-manifest-env-pg-'));
   const port = await findAvailablePort();
+
   const postgres = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
@@ -49,41 +57,49 @@ runE2E(async ({ registerCleanup }) => {
   await postgres.start();
   await postgres.createDatabase('apphub');
 
-  registerCleanup(async () => {
-    await postgres.stop();
-  });
+  process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
+  process.env.PGPOOL_MAX = '8';
 
+  embeddedPostgresCleanup = async () => {
+    try {
+      await postgres.stop();
+    } finally {
+      await rm(dataRoot, { recursive: true, force: true });
+    }
+  };
+  embeddedPostgres = postgres;
+}
+
+async function shutdownEmbeddedPostgres(): Promise<void> {
+  const cleanup = embeddedPostgresCleanup;
+  embeddedPostgres = null;
+  embeddedPostgresCleanup = null;
+  if (cleanup) {
+    await cleanup();
+  }
+}
+
+async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
+  await ensureEmbeddedPostgres();
+  process.env.REDIS_URL = 'inline';
+  const { buildServer } = await import('../src/server');
+  const app = await buildServer();
+  await app.ready();
+  try {
+    await fn(app);
+  } finally {
+    await app.close();
+  }
+}
+
+runE2E(async ({ registerCleanup }) => {
   const dockerMock = new DockerMock({ mappedPort: 32768, containerIp: '172.18.0.2' });
   const dockerPaths = await dockerMock.start();
   registerCleanup(() => dockerMock.stop());
 
-  process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
-  process.env.PGPOOL_MAX = '4';
-  process.env.LAUNCH_RUNNER_MODE = 'docker';
-  process.env.REDIS_URL = 'inline';
+  const previousPath = process.env.PATH;
   process.env.PATH = `${dockerPaths.pathPrefix}:${previousPath ?? ''}`;
-
   registerCleanup(() => {
-    if (previousDatabaseUrl === undefined) {
-      delete process.env.DATABASE_URL;
-    } else {
-      process.env.DATABASE_URL = previousDatabaseUrl;
-    }
-    if (previousPgPoolMax === undefined) {
-      delete process.env.PGPOOL_MAX;
-    } else {
-      process.env.PGPOOL_MAX = previousPgPoolMax;
-    }
-    if (previousRunnerMode === undefined) {
-      delete process.env.LAUNCH_RUNNER_MODE;
-    } else {
-      process.env.LAUNCH_RUNNER_MODE = previousRunnerMode;
-    }
-    if (previousRedisUrl === undefined) {
-      delete process.env.REDIS_URL;
-    } else {
-      process.env.REDIS_URL = previousRedisUrl;
-    }
     if (previousPath === undefined) {
       delete process.env.PATH;
     } else {
@@ -91,70 +107,97 @@ runE2E(async ({ registerCleanup }) => {
     }
   });
 
-  const [{ ensureDatabase }, serviceConfigLoader, serviceRegistry, db, launchRunner] = await Promise.all([
-    import('../src/db/init'),
-    import('../src/serviceConfigLoader'),
-    import('../src/serviceRegistry'),
-    import('../src/db'),
-    import('../src/launchRunner')
-  ]);
+  await withServer(async (app) => {
+    const [dbInit, db, buildRunner, launchRunner, serviceRegistry] = await Promise.all([
+      loadModule('../src/db/init'),
+      loadModule('../src/db'),
+      loadModule('../src/buildRunner'),
+      loadModule('../src/launchRunner'),
+      loadModule('../src/serviceRegistry')
+    ]);
 
-  await ensureDatabase();
+    await dbInit.ensureDatabase();
+    serviceRegistry.resetServiceManifestState();
 
-  const manifestDir = path.resolve(__dirname, '../../../examples/environmental-observatory/service-manifests');
-  const preview = await serviceConfigLoader.previewServiceConfigImport({
-    path: manifestDir,
-    configPath: 'service-config.json',
-    module: 'github.com/apphub/examples/environmental-observatory'
+    const repoRoot = path.resolve(__dirname, '../../..');
+    const importResponse = await app.inject({
+      method: 'POST',
+      url: '/service-networks/import',
+      headers: { 'Content-Type': 'application/json' },
+      payload: {
+        path: repoRoot,
+        configPath: 'examples/environmental-observatory/service-manifests/service-config.json',
+        module: SERVICE_MODULE,
+        variables: {
+          FILE_WATCH_ROOT: path.join(repoRoot, 'examples/environmental-observatory/data/inbox'),
+          FILE_WATCH_STAGING_DIR: path.join(repoRoot, 'examples/environmental-observatory/data/staging'),
+          FILE_WATCH_WAREHOUSE_PATH: path.join(
+            repoRoot,
+            'examples/environmental-observatory/data/warehouse/observatory.duckdb'
+          ),
+          CATALOG_API_TOKEN: 'dev-token'
+        }
+      }
+    });
+    assert.equal(importResponse.statusCode, 201, `service manifest import failed: ${importResponse.payload}`);
+
+    const appCreateResponse = await app.inject({
+      method: 'POST',
+      url: '/apps',
+      headers: { 'Content-Type': 'application/json' },
+      payload: {
+        id: REPOSITORY_ID,
+        name: 'Observatory File Watcher',
+        description:
+          'Watches the observatory inbox for minute-level CSV drops and triggers ingest workflows automatically.',
+        repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
+        dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+        tags: [
+          { key: 'language', value: 'typescript' },
+          { key: 'framework', value: 'fastify' }
+        ],
+        metadataStrategy: 'explicit'
+      }
+    });
+    assert.equal(appCreateResponse.statusCode, 201, `app registration failed: ${appCreateResponse.payload}`);
+
+    const repositoryAfterCreate = await db.getRepositoryById(REPOSITORY_ID);
+    assert(repositoryAfterCreate, 'repository should exist after registration');
+    assert(repositoryAfterCreate!.launchEnvTemplates.length > 0, 'manifest defaults should populate launch env templates');
+
+    await db.upsertRepository({
+      id: REPOSITORY_ID,
+      name: repositoryAfterCreate!.name,
+      description: repositoryAfterCreate!.description,
+      repoUrl: repoRoot,
+      dockerfilePath: repositoryAfterCreate!.dockerfilePath,
+      ingestStatus: 'ready',
+      tags: repositoryAfterCreate!.tags,
+      launchEnvTemplates: repositoryAfterCreate!.launchEnvTemplates,
+      metadataStrategy: repositoryAfterCreate!.metadataStrategy
+    });
+
+    const build = await db.createBuild(REPOSITORY_ID, { commitSha: 'abc1234' });
+    await buildRunner.runBuildJob(build.id);
+
+    const updatedBuild = await db.getBuildById(build.id);
+    assert(updatedBuild, 'build record missing after run');
+    assert.equal(updatedBuild!.status, 'succeeded', 'expected build to succeed via docker mock');
+
+    const launch = await db.createLaunch(REPOSITORY_ID, build.id);
+    await launchRunner.runLaunchStart(launch.id);
+
+    const finalLaunch = await db.getLaunchById(launch.id);
+    assert(finalLaunch, 'launch record missing after start');
+    assert(finalLaunch!.env.length > 0, 'expected launch env array to be populated');
+
+    const envMap = new Map(finalLaunch!.env.map((entry) => [entry.key, entry.value]));
+    assert.equal(envMap.get('PORT'), '4310');
+    const fileWatchRoot = envMap.get('FILE_WATCH_ROOT') ?? '';
+    assert(fileWatchRoot.endsWith('examples/environmental-observatory/data/inbox'));
+    assert.equal(envMap.get('CATALOG_API_TOKEN'), 'dev-token');
+    assert(envMap.size >= 5, 'expected multiple env vars to be applied');
   });
 
-  assert(preview.entries.length > 0, 'expected manifest entries to be discovered');
-
-  await serviceRegistry.importServiceManifestModule({
-    moduleId: preview.moduleId,
-    entries: preview.entries,
-    networks: preview.networks
-  });
-
-  const repositoryId = 'observatory-file-watcher';
-
-  const manifestDefaults = await serviceRegistry.resolveManifestEnvForRepository(repositoryId);
-  assert(manifestDefaults.length > 0, 'expected manifest env defaults to be discoverable');
-
-  await db.addRepository({
-    id: repositoryId,
-    name: 'Observatory File Watcher',
-    description: 'Test repository for manifest env propagation',
-    repoUrl: 'https://example.com/observatory.git',
-    dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
-    ingestStatus: 'ready',
-    tags: []
-  });
-
-  const build = await db.createBuild(repositoryId, { commitSha: 'abc1234' });
-  await db.completeBuild(build.id, 'succeeded', {
-    imageTag: 'apphub/observatory-file-watcher:test',
-    completedAt: new Date().toISOString()
-  });
-
-  const launch = await db.createLaunch(repositoryId, build.id);
-
-  await launchRunner.runLaunchStart(launch.id);
-
-  const finalLaunch = await db.getLaunchById(launch.id);
-  assert(finalLaunch, 'launch record missing after start');
-
-  const envEntries = finalLaunch!.env;
-  assert(envEntries.length > 0, 'expected launch env array to be populated');
-
-  const envMap = new Map<string, string>((envEntries as LaunchEnvVar[]).map((entry) => [entry.key, entry.value]));
-
-  assert.equal(envMap.get('PORT'), '4310', 'expected PORT env to match manifest');
-  assert.equal(
-    envMap.get('FILE_WATCH_ROOT'),
-    'examples/environmental-observatory/data/inbox',
-    'expected FILE_WATCH_ROOT default to propagate'
-  );
-  assert.equal(envMap.get('CATALOG_API_TOKEN'), 'dev-token', 'expected placeholder default token');
-  assert(envMap.size >= 5, 'expected multiple env vars to be applied');
-}, { name: 'catalog-launch-manifest-env' });
+  await shutdownEmbeddedPostgres();
+}, { name: 'catalog-launch-manifest-env', timeoutMs: 120_000 });

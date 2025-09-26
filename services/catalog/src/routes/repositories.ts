@@ -19,6 +19,7 @@ import {
   listTagSuggestions,
   requestLaunchStop,
   setRepositoryStatus,
+  updateRepositoryLaunchEnvTemplates,
   type IngestStatus,
   type LaunchEnvVar,
   type RepositoryRecord,
@@ -38,7 +39,7 @@ import {
 import { parseEnvPort, resolveLaunchInternalPort } from '../docker';
 import { buildDockerRunCommand } from '../launchCommand';
 import { runLaunchStart, runLaunchStop } from '../launchRunner';
-import { resolveManifestPortForRepository } from '../serviceRegistry';
+import { resolveManifestEnvForRepository, resolveManifestPortForRepository } from '../serviceRegistry';
 import { serializeBuild, serializeLaunch, serializeRepository } from './shared/serializers';
 import type { JsonValue } from './shared/serializers';
 import type { FastifyReply } from 'fastify';
@@ -866,6 +867,25 @@ export async function registerRepositoryRoutes(app: FastifyInstance): Promise<vo
       ingestStatus: 'pending',
       metadataStrategy
     });
+
+    try {
+      if (!repository.launchEnvTemplates || repository.launchEnvTemplates.length === 0) {
+        const manifestEnv = await resolveManifestEnvForRepository(repository.id);
+        if (manifestEnv.length > 0) {
+          await updateRepositoryLaunchEnvTemplates(repository.id, manifestEnv);
+          repository = (await getRepositoryById(repository.id)) ?? repository;
+        }
+      }
+    } catch (err) {
+      request.log.warn(
+        {
+          resourceType: 'app',
+          repositoryId: repository.id,
+          error: (err as Error).message
+        },
+        'failed to initialize launch env templates from manifest'
+      );
+    }
 
     try {
       await enqueueRepositoryIngestion(repository.id);
