@@ -109,9 +109,18 @@ function send(message: SandboxChildMessage): void {
   }
 }
 
+function canonicalizePath(target: string): string {
+  const resolved = path.resolve(target);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 function ensureWithinBundle(root: string, candidate: string): void {
-  const normalizedRoot = path.resolve(root);
-  const normalizedCandidate = path.resolve(candidate);
+  const normalizedRoot = canonicalizePath(root);
+  const normalizedCandidate = canonicalizePath(candidate);
   const relative = path.relative(normalizedRoot, normalizedCandidate);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error('Attempted to access path outside of bundle directory');

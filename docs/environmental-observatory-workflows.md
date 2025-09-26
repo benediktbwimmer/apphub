@@ -1,6 +1,6 @@
 # Environmental Observatory Instrument Network
 
-The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, snapshot them into DuckDB, render updated plots, and publish refreshed status pages whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
+The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
 
 ## Architecture overview
 
@@ -12,10 +12,10 @@ graph TD
   Normalizer --> Staging[(staging/<minute>/)]
   Normalizer --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
   Normalizer --> RawAsset[(Asset: observatory.timeseries.raw)]
-  RawAsset --> Loader[observatory-duckdb-loader]
-  Loader --> DuckDB[(warehouse/observatory.duckdb)]
-  Loader --> DuckAsset[(Asset: observatory.timeseries.duckdb)]
-  DuckAsset --> Visualization[observatory-visualization-runner]
+  RawAsset --> Loader[observatory-timestore-loader]
+  Loader --> Timestore[(Timestore dataset)]
+  Loader --> TimestoreAsset[(Asset: observatory.timeseries.timestore)]
+  TimestoreAsset --> Visualization[observatory-visualization-runner]
   Visualization --> Plots[(plots/<minute>/)]
   Visualization --> VizAsset[(Asset: observatory.visualizations.minute)]
   VizAsset --> Reporter[observatory-report-publisher]
@@ -27,7 +27,7 @@ graph TD
 
 ## Data drop and directory layout
 
-Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to DuckDB:
+Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
 
 ```
 examples/environmental-observatory/data/
@@ -36,7 +36,6 @@ examples/environmental-observatory/data/
     instrument_alpha_202508011000.csv
     instrument_bravo_202508010900.csv
   staging/
-  warehouse/
   plots/
   reports/
 ```
@@ -60,8 +59,8 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
 | `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
-| `examples/environmental-observatory/jobs/observatory-duckdb-loader` | `observatory-duckdb-loader` | Appends normalized readings into a DuckDB file, producing a curated snapshot asset with per-minute partitions. |
-| `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries DuckDB for fresh aggregates, saves plot PNGs/SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
+| `examples/environmental-observatory/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing a dataset-backed asset with per-minute partitions. |
+| `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
 | `examples/environmental-observatory/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the catalog API once built.
@@ -70,12 +69,12 @@ Each bundle ships with an `apphub.bundle.json` and Node entry point so you can r
 
 | Asset id | Producer | Consumers | Notes |
 | -------- | -------- | --------- | ----- |
-| `observatory.timeseries.raw` | Inbox normalizer workflow step | DuckDB loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes `sourceFiles`, row counts, and staging directory metadata. |
-| `observatory.timeseries.duckdb` | DuckDB loader workflow step | Visualization runner | Captures the DuckDB file path plus table statistics. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
-| `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new DuckDB snapshots retrigger plotting automatically. |
+| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes `sourceFiles`, row counts, and staging directory metadata. |
+| `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, and row counts. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
+| `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new Timestore partitions retrigger plotting automatically. |
 | `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications.
 
-The lineage graph forms a linear chain: inbox → DuckDB → plots → reports. Auto-materialization guarantees the visualization workflow runs after each upstream DuckDB refresh, which in turn triggers the reporting step. The asset history for `observatory.reports.status` makes it easy to diff report revisions over time.
+The lineage graph forms a linear chain: inbox → Timestore → plots → reports. Auto-materialization guarantees the visualization workflow runs after each upstream Timestore ingest, which in turn triggers the reporting step. The asset history for `observatory.reports.status` makes it easy to diff report revisions over time.
 
 ## Workflows
 
@@ -83,38 +82,39 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 - **Trigger:** Manual or filesystem watcher (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
-  1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off DuckDB ingestion.
-  2. `observatory-duckdb-loader` consumes the raw asset, appends data into `warehouse/observatory.duckdb`, and produces `observatory.timeseries.duckdb` with `freshness.ttlMs` tuned for minute cadence.
-- **Parameters:** `inboxDir`, `stagingDir`, `archiveDir`, `warehousePath`, `minute`, and optional quality thresholds.
+  1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
+  2. `observatory-timestore-loader` consumes the raw asset, streams data into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence.
+- **Parameters:** `inboxDir`, `stagingDir`, `archiveDir`, `minute`, `timestoreBaseUrl`, `timestoreDatasetSlug`, and optional limits like `maxFiles`.
 - **Default directories:** Match the example layout under `examples/environmental-observatory/data/`.
 
 ### 2. `observatory-daily-publication`
 
 - **Trigger:** Auto-materialization on `observatory.visualizations.minute` plus an optional 24-hour cadence for end-of-day summaries.
 - **Steps:**
-  1. `observatory-visualization-runner` reads `observatory.timeseries.duckdb`, writes plots into `plots/`, and produces `observatory.visualizations.minute` with artifact metadata.
+  1. `observatory-visualization-runner` reads `observatory.timeseries.timestore`, writes plots into `plots/`, and produces `observatory.visualizations.minute` with artifact metadata.
   2. `observatory-report-publisher` consumes the visualization asset and produces `observatory.reports.status` along with Markdown (`status.md`), HTML (`status.html`), and JSON (`status.json`) outputs in `reports/`.
-- **Parameters:** `warehousePath`, `plotsDir`, `reportsDir`, optional `siteFilter`, and `reportTemplate`.
+- **Parameters:** `timestoreBaseUrl`, `timestoreDatasetSlug`, `plotsDir`, `reportsDir`, optional `siteFilter`, `reportTemplate`, and optional Metastore settings (`metastoreBaseUrl`, `metastoreNamespace`).
 
 ## Auto-materialization flow
 
 1. Inbox workflow runs after new CSV drops. Step 1 copies files into `staging/<minute>/`, moves the originals into `archive/<instrument>/<hour>/<minute>.csv`, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
-2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the DuckDB loader immediately for the same partition. The loader produces `observatory.timeseries.duckdb` and schedules an expiry after 60 minutes.
-3. The visualization workflow listens to `observatory.timeseries.duckdb`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
+2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the Timestore loader immediately for the same partition. The loader produces `observatory.timeseries.timestore` and schedules an expiry after 60 minutes.
+3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
 4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports.
-5. Reports are now available for the frontend or external publishing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run IDs and payload diffs for auditing.
+5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run IDs and payload diffs for auditing.
 
 ## Running the demo locally
 
-1. Install native dependencies for the DuckDB-powered bundles:
+1. Install dependencies for the watcher, visualization, and publisher bundles:
 ```bash
-npm install --prefix examples/environmental-observatory/jobs/observatory-duckdb-loader
+npm install --prefix examples/environmental-observatory/jobs/observatory-timestore-loader
 npm install --prefix examples/environmental-observatory/jobs/observatory-visualization-runner
+npm install --prefix examples/environmental-observatory/jobs/observatory-report-publisher
 ```
 
    The catalog rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the catalog overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, warehouse, and reports paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
 4. Launch the observatory watcher so new inbox files trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash
@@ -124,7 +124,10 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-visuali
    FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
    FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
    FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
-   FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
+   TIMESTORE_BASE_URL=http://127.0.0.1:4200 \
+   TIMESTORE_DATASET_SLUG=observatory-timeseries \
+   TIMESTORE_DATASET_NAME="Observatory Time Series" \
+   TIMESTORE_TABLE_NAME=observations \
    OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
    CATALOG_API_TOKEN=dev-ops-token \
    npm run dev
@@ -155,7 +158,11 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-visuali
          "minute": "2025-08-01T09:00",
          "inboxDir": "examples/environmental-observatory/data/inbox",
          "stagingDir": "examples/environmental-observatory/data/staging",
-         "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb"
+         "archiveDir": "examples/environmental-observatory/data/archive",
+        "timestoreBaseUrl": "http://127.0.0.1:4200",
+        "timestoreDatasetSlug": "observatory-timeseries",
+        "timestoreDatasetName": "Observatory Time Series",
+        "timestoreTableName": "observations"
        }
      }'
    ```
@@ -167,4 +174,4 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-visuali
 
 9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
 
-This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, DuckDB snapshots, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.
+This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, Timestore manifests, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

@@ -1,8 +1,5 @@
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { loadDuckDb, isCloseable } from '@apphub/shared/duckdb';
-
-const duckdb = loadDuckDb();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -19,11 +16,29 @@ type JobRunContext = {
 };
 
 type VisualizationParameters = {
-  warehousePath: string;
+  timestoreBaseUrl: string;
+  timestoreDatasetSlug: string;
+  timestoreAuthToken?: string;
   plotsDir: string;
   partitionKey: string;
   lookbackMinutes: number;
   siteFilter?: string;
+};
+
+type TimestoreQueryResponse = {
+  rows: Array<Record<string, unknown>>;
+  columns: string[];
+  mode: 'raw' | 'downsampled';
+};
+
+type ObservatoryRow = {
+  timestamp: string;
+  instrument_id: string;
+  site: string;
+  temperature_c: number;
+  relative_humidity_pct: number;
+  pm2_5_ug_m3: number;
+  battery_voltage: number;
 };
 
 type TrendRow = {
@@ -70,6 +85,9 @@ type VisualizationAssetPayload = {
   metrics: VisualizationMetrics;
 };
 
+const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
+const MAX_ROWS = 10000;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -108,43 +126,35 @@ function parseParameters(raw: unknown): VisualizationParameters {
   if (!isRecord(raw)) {
     throw new Error('Parameters must be an object');
   }
-  const warehousePath = ensureString(raw.warehousePath ?? raw.warehouse_path);
+  const timestoreBaseUrl = ensureString(
+    raw.timestoreBaseUrl ?? raw.timestore_base_url ?? DEFAULT_TIMESTORE_BASE_URL
+  ).replace(/\/$/, '') || DEFAULT_TIMESTORE_BASE_URL;
+  const timestoreDatasetSlug = ensureString(
+    raw.timestoreDatasetSlug ?? raw.timestore_dataset_slug ?? raw.datasetSlug
+  );
+  if (!timestoreDatasetSlug) {
+    throw new Error('timestoreDatasetSlug parameter is required');
+  }
+  const timestoreAuthToken = ensureString(raw.timestoreAuthToken ?? raw.timestore_auth_token ?? '');
   const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.outputDir);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
-  if (!warehousePath || !plotsDir || !partitionKey) {
-    throw new Error('warehousePath, plotsDir, and partitionKey parameters are required');
+  if (!plotsDir || !partitionKey) {
+    throw new Error('plotsDir and partitionKey parameters are required');
   }
-  const lookbackMinutes = Math.max(1, ensureNumber(raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours, 180));
+  const lookbackMinutes = Math.max(
+    1,
+    ensureNumber(raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours, 180)
+  );
   const siteFilter = ensureString(raw.siteFilter ?? raw.site_filter ?? '');
   return {
-    warehousePath,
+    timestoreBaseUrl,
+    timestoreDatasetSlug,
+    timestoreAuthToken: timestoreAuthToken || undefined,
     plotsDir,
     partitionKey,
     lookbackMinutes,
     siteFilter: siteFilter || undefined
   } satisfies VisualizationParameters;
-}
-
-type DuckDbConnection = {
-  run: (sql: string, callback: (err: Error | null) => void) => void;
-  all: (sql: string, callback: (err: Error | null, rows?: unknown[]) => void) => void;
-  close: () => void;
-};
-
-function allRows<T>(connection: DuckDbConnection, sql: string): Promise<T[]> {
-  return new Promise((resolve, reject) => {
-    connection.all(sql, (err, rows) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve((rows ?? []) as T[]);
-    });
-  });
-}
-
-function escapeLiteral(value: string): string {
-  return value.split("'").join("''");
 }
 
 function toIsoMinute(partitionKey: string): string {
@@ -165,8 +175,179 @@ function computeTimeRange(
   }
   const startDate = new Date(endDate.getTime() - (lookbackMinutes - 1) * 60 * 1000);
   const startIso = startDate.toISOString().slice(0, 19) + 'Z';
-  const normalizedEndIso = endDate.toISOString().slice(0, 19) + 'Z';
+  const endWithWindow = new Date(endDate.getTime() + 59 * 1000 + 999);
+  const normalizedEndIso = endWithWindow.toISOString().slice(0, 23) + 'Z';
   return { startIso, endIso: normalizedEndIso };
+}
+
+async function queryTimestore(
+  params: VisualizationParameters,
+  startIso: string,
+  endIso: string
+): Promise<ObservatoryRow[]> {
+  const url = `${params.timestoreBaseUrl}/datasets/${encodeURIComponent(params.timestoreDatasetSlug)}/query`;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json'
+  };
+  if (params.timestoreAuthToken) {
+    headers.authorization = `Bearer ${params.timestoreAuthToken}`;
+  }
+
+  const body = {
+    timeRange: { start: startIso, end: endIso },
+    timestampColumn: 'timestamp',
+    columns: [
+      'timestamp',
+      'instrument_id',
+      'site',
+      'temperature_c',
+      'relative_humidity_pct',
+      'pm2_5_ug_m3',
+      'battery_voltage'
+    ],
+    limit: MAX_ROWS
+  } satisfies Record<string, unknown>;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Timestore query failed with status ${response.status}: ${errorText}`);
+  }
+
+  const payload = (await response.json()) as TimestoreQueryResponse;
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const normalized: ObservatoryRow[] = [];
+
+  for (const row of rows) {
+    if (!isRecord(row)) {
+      continue;
+    }
+    const timestamp = ensureString(row.timestamp ?? row['window_start'] ?? '');
+    if (!timestamp) {
+      continue;
+    }
+    const parsedDate = new Date(timestamp);
+    if (Number.isNaN(parsedDate.getTime())) {
+      continue;
+    }
+    const formattedTimestamp = parsedDate.toISOString();
+    const instrumentId = ensureString(row.instrument_id ?? '');
+    const site = ensureString(row.site ?? '');
+    const temperature = ensureNumber(row.temperature_c, 0);
+    const humidity = ensureNumber(row.relative_humidity_pct, 0);
+    const pm25 = ensureNumber(row.pm2_5_ug_m3, 0);
+    const battery = ensureNumber(row.battery_voltage, 0);
+
+    normalized.push({
+      timestamp: formattedTimestamp,
+      instrument_id: instrumentId,
+      site,
+      temperature_c: temperature,
+      relative_humidity_pct: humidity,
+      pm2_5_ug_m3: pm25,
+      battery_voltage: battery
+    });
+  }
+
+  if (params.siteFilter) {
+    const filterValue = params.siteFilter.toLowerCase();
+    return normalized.filter((row) => row.site.toLowerCase() === filterValue);
+  }
+  return normalized;
+}
+
+function bucketByMinute(rows: ObservatoryRow[]): TrendRow[] {
+  const buckets = new Map<string, {
+    sumTemp: number;
+    sumPm25: number;
+    sumHumidity: number;
+    sumBattery: number;
+    count: number;
+  }>();
+
+  for (const row of rows) {
+    const minuteKey = row.timestamp.slice(0, 16);
+    const bucket = buckets.get(minuteKey) ?? {
+      sumTemp: 0,
+      sumPm25: 0,
+      sumHumidity: 0,
+      sumBattery: 0,
+      count: 0
+    };
+    bucket.sumTemp += row.temperature_c;
+    bucket.sumPm25 += row.pm2_5_ug_m3;
+    bucket.sumHumidity += row.relative_humidity_pct;
+    bucket.sumBattery += row.battery_voltage;
+    bucket.count += 1;
+    buckets.set(minuteKey, bucket);
+  }
+
+  const trendRows: TrendRow[] = [];
+  for (const [minute, bucket] of buckets.entries()) {
+    trendRows.push({
+      minute_key: minute,
+      avg_temp: bucket.count > 0 ? bucket.sumTemp / bucket.count : 0,
+      avg_pm25: bucket.count > 0 ? bucket.sumPm25 / bucket.count : 0,
+      avg_humidity: bucket.count > 0 ? bucket.sumHumidity / bucket.count : 0,
+      avg_battery: bucket.count > 0 ? bucket.sumBattery / bucket.count : 0,
+      samples: bucket.count
+    });
+  }
+
+  return trendRows.sort((a, b) => a.minute_key.localeCompare(b.minute_key));
+}
+
+function summarizeRows(rows: ObservatoryRow[]): SummaryRow {
+  if (rows.length === 0) {
+    return {
+      samples: 0,
+      instrument_count: 0,
+      site_count: 0,
+      avg_temp: 0,
+      avg_pm25: 0,
+      max_pm25: 0
+    } satisfies SummaryRow;
+  }
+
+  const instruments = new Set<string>();
+  const sites = new Set<string>();
+  let totalTemp = 0;
+  let totalPm25 = 0;
+  let maxPm25 = Number.NEGATIVE_INFINITY;
+
+  for (const row of rows) {
+    totalTemp += row.temperature_c;
+    totalPm25 += row.pm2_5_ug_m3;
+    if (row.pm2_5_ug_m3 > maxPm25) {
+      maxPm25 = row.pm2_5_ug_m3;
+    }
+    if (row.instrument_id) {
+      instruments.add(row.instrument_id);
+    }
+    if (row.site) {
+      sites.add(row.site);
+    }
+  }
+
+  return {
+    samples: rows.length,
+    instrument_count: instruments.size,
+    site_count: sites.size,
+    avg_temp: rows.length > 0 ? totalTemp / rows.length : 0,
+    avg_pm25: rows.length > 0 ? totalPm25 / rows.length : 0,
+    max_pm25: rows.length > 0 ? maxPm25 : 0
+  } satisfies SummaryRow;
+}
+
+async function writeArtifact(filePath: string, content: string): Promise<number> {
+  await writeFile(filePath, content, 'utf8');
+  const stats = await stat(filePath);
+  return stats.size;
 }
 
 function buildSvgPath(rows: TrendRow[], accessor: (row: TrendRow) => number): string {
@@ -199,12 +380,6 @@ function buildSvgPath(rows: TrendRow[], accessor: (row: TrendRow) => number): st
   return segments.join(' ');
 }
 
-async function writeArtifact(filePath: string, content: string): Promise<number> {
-  await writeFile(filePath, content, 'utf8');
-  const stats = await stat(filePath);
-  return stats.size;
-}
-
 function buildTemperatureSvg(rows: TrendRow[]): string {
   const pathData = buildSvgPath(rows, (row) => row.avg_temp);
   if (!pathData) {
@@ -234,159 +409,93 @@ function buildPm25Svg(rows: TrendRow[]): string {
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackMinutes);
-  const absoluteWarehousePath = path.resolve(parameters.warehousePath);
   const partitionPlotsKey = parameters.partitionKey.replace(':', '-');
   const partitionPlotsDir = path.resolve(parameters.plotsDir, partitionPlotsKey);
   await mkdir(partitionPlotsDir, { recursive: true });
 
-  const db = new duckdb.Database(absoluteWarehousePath);
-  const connection = db.connect();
+  const rows = await queryTimestore(parameters, startIso, endIso);
+  context.logger('Fetched observations from Timestore', {
+    rows: rows.length,
+    startIso,
+    endIso
+  });
+  const trendRows = bucketByMinute(rows);
+  const summary = summarizeRows(rows);
 
-  try {
-    await new Promise<void>((resolve, reject) => {
-      connection.run(
-        `CREATE TABLE IF NOT EXISTS readings (
-          timestamp TIMESTAMP,
-          instrument_id VARCHAR,
-          site VARCHAR,
-          temperature_c DOUBLE,
-          relative_humidity_pct DOUBLE,
-          pm2_5_ug_m3 DOUBLE,
-          battery_voltage DOUBLE
-        )`,
-        (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
+  const generatedAt = new Date().toISOString();
+  const metrics: VisualizationMetrics = {
+    samples: summary.samples,
+    instrumentCount: summary.instrument_count,
+    siteCount: summary.site_count,
+    averageTemperatureC: summary.avg_temp,
+    averagePm25: summary.avg_pm25,
+    maxPm25: summary.max_pm25,
+    partitionKey: parameters.partitionKey,
+    lookbackMinutes: parameters.lookbackMinutes,
+    siteFilter: parameters.siteFilter || undefined
+  } satisfies VisualizationMetrics;
+
+  const temperatureSvg = buildTemperatureSvg(trendRows);
+  const temperaturePath = path.resolve(partitionPlotsDir, 'temperature_trend.svg');
+  const temperatureSize = await writeArtifact(temperaturePath, temperatureSvg);
+
+  const pm25Svg = buildPm25Svg(trendRows);
+  const pm25Path = path.resolve(partitionPlotsDir, 'pm25_trend.svg');
+  const pm25Size = await writeArtifact(pm25Path, pm25Svg);
+
+  const metricsPath = path.resolve(partitionPlotsDir, 'metrics.json');
+  const metricsSize = await writeArtifact(metricsPath, JSON.stringify(metrics, null, 2));
+
+  const artifacts: VisualizationAssetPayload['artifacts'] = [
+    {
+      relativePath: path.relative(partitionPlotsDir, temperaturePath),
+      mediaType: 'image/svg+xml',
+      description: 'Average temperature trend',
+      sizeBytes: temperatureSize
+    },
+    {
+      relativePath: path.relative(partitionPlotsDir, pm25Path),
+      mediaType: 'image/svg+xml',
+      description: 'Average PM2.5 trend',
+      sizeBytes: pm25Size
+    },
+    {
+      relativePath: path.relative(partitionPlotsDir, metricsPath),
+      mediaType: 'application/json',
+      description: 'Visualization metrics JSON',
+      sizeBytes: metricsSize
+    }
+  ];
+
+  const payload: VisualizationAssetPayload = {
+    generatedAt,
+    partitionKey: parameters.partitionKey,
+    plotsDir: partitionPlotsDir,
+    lookbackMinutes: parameters.lookbackMinutes,
+    artifacts,
+    metrics
+  } satisfies VisualizationAssetPayload;
+
+  await context.update({
+    samples: metrics.samples,
+    instruments: metrics.instrumentCount
+  });
+
+  return {
+    status: 'succeeded',
+    result: {
+      partitionKey: parameters.partitionKey,
+      visualization: payload,
+      assets: [
+        {
+          assetId: 'observatory.visualizations.minute',
+          partitionKey: parameters.partitionKey,
+          producedAt: generatedAt,
+          payload
         }
-      );
-    });
-
-    const rangePredicate = `timestamp BETWEEN '${escapeLiteral(startIso)}'::TIMESTAMPTZ AND '${escapeLiteral(endIso)}'::TIMESTAMPTZ`;
-    const sitePredicate = parameters.siteFilter
-      ? ` AND site = '${escapeLiteral(parameters.siteFilter)}'`
-      : '';
-
-    const trendSql = `
-      SELECT
-        strftime(date_trunc('minute', timestamp AT TIME ZONE 'UTC'), '%Y-%m-%dT%H:%M') AS minute_key,
-        avg(temperature_c) AS avg_temp,
-        avg(pm2_5_ug_m3) AS avg_pm25,
-        avg(relative_humidity_pct) AS avg_humidity,
-        avg(battery_voltage) AS avg_battery,
-        COUNT(*) AS samples
-      FROM readings
-      WHERE ${rangePredicate}${sitePredicate}
-      GROUP BY minute_key
-      ORDER BY minute_key
-    `;
-    const trendRows = await allRows<TrendRow>(connection, trendSql);
-
-    const summarySql = `
-      SELECT
-        COUNT(*) AS samples,
-        COUNT(DISTINCT instrument_id) AS instrument_count,
-        COUNT(DISTINCT site) AS site_count,
-        avg(temperature_c) AS avg_temp,
-        avg(pm2_5_ug_m3) AS avg_pm25,
-        max(pm2_5_ug_m3) AS max_pm25
-      FROM readings
-      WHERE ${rangePredicate}${sitePredicate}
-    `;
-    const summaryRows = await allRows<SummaryRow>(connection, summarySql);
-    const summary = summaryRows[0] ?? {
-      samples: 0,
-      instrument_count: 0,
-      site_count: 0,
-      avg_temp: 0,
-      avg_pm25: 0,
-      max_pm25: 0
-    };
-
-    const generatedAt = new Date().toISOString();
-    const metrics: VisualizationMetrics = {
-      samples: ensureNumber(summary.samples, 0),
-      instrumentCount: ensureNumber(summary.instrument_count, 0),
-      siteCount: ensureNumber(summary.site_count, 0),
-      averageTemperatureC: ensureNumber(summary.avg_temp, 0),
-      averagePm25: ensureNumber(summary.avg_pm25, 0),
-      maxPm25: ensureNumber(summary.max_pm25, 0),
-      partitionKey: parameters.partitionKey,
-      lookbackMinutes: parameters.lookbackMinutes,
-      siteFilter: parameters.siteFilter || undefined
-    } satisfies VisualizationMetrics;
-
-    const temperatureSvg = buildTemperatureSvg(trendRows);
-    const temperaturePath = path.resolve(partitionPlotsDir, 'temperature_trend.svg');
-    const temperatureSize = await writeArtifact(temperaturePath, temperatureSvg);
-
-    const pm25Svg = buildPm25Svg(trendRows);
-    const pm25Path = path.resolve(partitionPlotsDir, 'pm25_trend.svg');
-    const pm25Size = await writeArtifact(pm25Path, pm25Svg);
-
-    const metricsPath = path.resolve(partitionPlotsDir, 'metrics.json');
-    const metricsSize = await writeArtifact(metricsPath, JSON.stringify(metrics, null, 2));
-
-    const artifacts: VisualizationAssetPayload['artifacts'] = [
-      {
-        relativePath: path.relative(partitionPlotsDir, temperaturePath),
-        mediaType: 'image/svg+xml',
-        description: 'Average temperature trend',
-        sizeBytes: temperatureSize
-      },
-      {
-        relativePath: path.relative(partitionPlotsDir, pm25Path),
-        mediaType: 'image/svg+xml',
-        description: 'Average PM2.5 trend',
-        sizeBytes: pm25Size
-      },
-      {
-        relativePath: path.relative(partitionPlotsDir, metricsPath),
-        mediaType: 'application/json',
-        description: 'Visualization metrics JSON',
-        sizeBytes: metricsSize
-      }
-    ];
-
-    const payload: VisualizationAssetPayload = {
-      generatedAt,
-      partitionKey: parameters.partitionKey,
-      plotsDir: partitionPlotsDir,
-      lookbackMinutes: parameters.lookbackMinutes,
-      artifacts,
-      metrics
-    } satisfies VisualizationAssetPayload;
-
-    await context.update({
-      samples: metrics.samples,
-      instruments: metrics.instrumentCount
-    });
-
-    return {
-      status: 'succeeded',
-      result: {
-        partitionKey: parameters.partitionKey,
-        visualization: payload,
-        assets: [
-          {
-            assetId: 'observatory.visualizations.minute',
-            partitionKey: parameters.partitionKey,
-            producedAt: generatedAt,
-            payload
-          }
-        ]
-      }
-    } satisfies JobRunResult;
-  } finally {
-    if (isCloseable(connection)) {
-      connection.close();
+      ]
     }
-    if (isCloseable(db)) {
-      db.close();
-    }
-  }
+  } satisfies JobRunResult;
 }
 
 export default handler;

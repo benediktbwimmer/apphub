@@ -2,25 +2,33 @@
   "slug": "observatory-daily-publication",
   "name": "Observatory Visualization & Reports",
   "version": 1,
-  "description": "Generates plots and publishes minute-level status reports from DuckDB snapshots.",
+  "description": "Generates plots from Timestore partitions and publishes minute-level status reports with optional Metastore upserts.",
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "warehousePath": { "type": "string", "minLength": 1 },
+      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+      "timestoreAuthToken": { "type": "string" },
       "plotsDir": { "type": "string", "minLength": 1 },
       "reportsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
       "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" },
-      "reportTemplate": { "type": "string" }
+      "reportTemplate": { "type": "string" },
+      "metastoreBaseUrl": { "type": "string" },
+      "metastoreAuthToken": { "type": "string" },
+      "metastoreNamespace": { "type": "string" }
     },
-    "required": ["warehousePath", "plotsDir", "reportsDir", "partitionKey"]
+    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "reportsDir", "partitionKey"]
   },
   "defaultParameters": {
     "lookbackMinutes": 180,
-    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
+    "timestoreDatasetSlug": "observatory-timeseries",
     "plotsDir": "examples/environmental-observatory/data/plots",
-    "reportsDir": "examples/environmental-observatory/data/reports"
+    "reportsDir": "examples/environmental-observatory/data/reports",
+    "metastoreBaseUrl": "http://127.0.0.1:4100",
+    "metastoreNamespace": "observatory.reports"
   },
   "steps": [
     {
@@ -29,7 +37,9 @@
       "type": "job",
       "jobSlug": "observatory-visualization-runner",
       "parameters": {
-        "warehousePath": "{{ parameters.warehousePath }}",
+        "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
+        "timestoreDatasetSlug": "{{ parameters.timestoreDatasetSlug }}",
+        "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
         "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
@@ -37,7 +47,7 @@
       },
       "storeResultAs": "visualizations",
       "consumes": [
-        { "assetId": "observatory.timeseries.duckdb" }
+        { "assetId": "observatory.timeseries.timestore" }
       ],
       "produces": [
         {
@@ -88,7 +98,10 @@
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
         "reportTemplate": "{{ parameters.reportTemplate }}",
-        "visualizationAsset": "{{ shared.visualizations.visualization }}"
+        "visualizationAsset": "{{ shared.visualizations.visualization }}",
+        "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
+        "metastoreNamespace": "{{ parameters.metastoreNamespace }}"
       },
       "consumes": [
         { "assetId": "observatory.visualizations.minute" }

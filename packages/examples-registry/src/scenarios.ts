@@ -334,7 +334,10 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         FILE_WATCH_ROOT: 'examples/environmental-observatory/data/inbox',
         FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory/data/staging',
         FILE_ARCHIVE_DIR: 'examples/environmental-observatory/data/archive',
-        FILE_WATCH_WAREHOUSE_PATH: 'examples/environmental-observatory/data/warehouse/observatory.duckdb',
+        TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
+        TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
+        TIMESTORE_DATASET_NAME: 'Observatory Time Series',
+        TIMESTORE_TABLE_NAME: 'observations',
         OBSERVATORY_WORKFLOW_SLUG: 'observatory-minute-ingest',
         CATALOG_API_TOKEN: 'dev-token'
       }
@@ -820,14 +823,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'job__observatory_inbox_normalizer'
   },
   {
-    id: 'observatory-duckdb-loader-job',
+    id: 'observatory-timestore-loader-job',
     type: 'job',
-    title: 'Observatory DuckDB loader',
-    summary: 'Appends normalized readings into DuckDB snapshots.',
+    title: 'Observatory Timestore loader',
+    summary: 'Streams normalized readings into Timestore.',
     description:
-      'Uploads the `observatory-duckdb-loader` bundle (0.1.0) to materialize `observatory.timeseries.duckdb` assets after normalization completes.',
+      'Uploads the `observatory-timestore-loader` bundle (0.1.0) to materialize `observatory.timeseries.timestore` assets after normalization completes.',
     difficulty: 'intermediate',
-    tags: ['observatory', 'duckdb'],
+    tags: ['observatory', 'timestore'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -837,23 +840,23 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json'
+        path: 'examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json'
       }
     ],
     form: {
       source: 'upload',
-      reference: jobReference('observatory-duckdb-loader'),
-      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-duckdb-loader. Point warehousePath at the DuckDB database you want to populate.'
+      reference: jobReference('observatory-timestore-loader'),
+      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-timestore-loader. Provide the Timestore base URL and dataset slug used by your ingest workflow.'
     },
-    exampleSlug: 'observatory-duckdb-loader',
-    analyticsTag: 'job__observatory_duckdb_loader'
+    exampleSlug: 'observatory-timestore-loader',
+    analyticsTag: 'job__observatory_timestore_loader'
   },
   {
     id: 'observatory-visualization-runner-job',
     type: 'job',
     title: 'Observatory visualization runner',
-    summary: 'Builds SVG plots and metrics from DuckDB timeseries.',
+    summary: 'Builds SVG plots and metrics from Timestore timeseries.',
     description:
       'Uploads the `observatory-visualization-runner` bundle (0.1.0). Use it to generate observatory dashboards and feed the publication workflow.',
     difficulty: 'intermediate',
@@ -874,7 +877,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       source: 'upload',
       reference: jobReference('observatory-visualization-runner'),
-      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-visualization-runner. Provide warehousePath and plotsDir when previewing.'
+      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-visualization-runner. Provide timestoreBaseUrl and plotsDir when previewing.'
     },
     exampleSlug: 'observatory-visualization-runner',
     analyticsTag: 'job__observatory_visualization_runner'
@@ -1006,7 +1009,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       }
     ],
     form: observatoryMinuteIngestWorkflowForm,
-    includes: ['observatory-inbox-normalizer-job', 'observatory-duckdb-loader-job'],
+    includes: ['observatory-inbox-normalizer-job', 'observatory-timestore-loader-job'],
     analyticsTag: 'workflow__observatory_minute_ingest'
   },
   {
@@ -1052,7 +1055,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'observatory-dashboard-app',
       'observatory-data-generator-job',
       'observatory-inbox-normalizer-job',
-      'observatory-duckdb-loader-job',
+      'observatory-timestore-loader-job',
       'observatory-visualization-runner-job',
       'observatory-report-publisher-job',
       'observatory-minute-data-generator-workflow',
@@ -1195,7 +1198,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'generate-visualizations-job',
       'archive-report-job',
       'observatory-inbox-normalizer-job',
-      'observatory-duckdb-loader-job',
+      'observatory-timestore-loader-job',
       'observatory-visualization-runner-job',
       'observatory-report-publisher-job',
       'file-relocator-job',

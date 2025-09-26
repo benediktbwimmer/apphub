@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
-import duckdb from 'duckdb';
+import { startTimestoreTestServer, type TimestoreTestServer } from '../helpers/timestore';
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 import { runE2E } from '@apphub/test-helpers';
@@ -39,10 +39,13 @@ process.env.APPHUB_DISABLE_ANALYTICS = '1';
 const OBSERVATORY_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'observatory-data-generator',
   'observatory-inbox-normalizer',
-  'observatory-duckdb-loader',
+  'observatory-timestore-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher'
 ];
+
+const OBSERVATORY_ROWS_PER_INSTRUMENT = 6;
+const OBSERVATORY_INTERVAL_MINUTES = 1;
 
 const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-data-generator',
@@ -53,6 +56,10 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
 const OBSERVATORY_WORKFLOW_DEFINITIONS = OBSERVATORY_WORKFLOW_SLUGS.map(
   loadExampleWorkflowDefinition
 );
+
+type ServerContext = {
+  timestore: TimestoreTestServer;
+};
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
@@ -117,10 +124,16 @@ async function findAvailablePort(): Promise<number> {
   });
 }
 
-async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
+async function withServer(fn: (app: FastifyInstance, context: ServerContext) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
   const previousRedisUrl = process.env.REDIS_URL;
   process.env.REDIS_URL = 'inline';
+
+  const timestore = await startTimestoreTestServer({
+    databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
+    redisUrl: process.env.REDIS_URL,
+    keepStorageRoot: process.env.OBSERVATORY_KEEP_STORAGE === '1'
+  });
 
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-observatory-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
@@ -128,7 +141,8 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
 
   const serviceConfigDir = await mkdtemp(path.join(tmpdir(), 'apphub-observatory-services-'));
   const serviceConfigPath = path.join(serviceConfigDir, 'service-config.json');
-  await writeFile(serviceConfigPath, `${JSON.stringify({ module: 'local/test', services: [], networks: [] }, null, 2)}\n`, 'utf8');
+  await writeFile(serviceConfigPath, `${JSON.stringify({ module: 'local/test', services: [], networks: [] }, null, 2)}
+`, 'utf8');
   const previousServiceConfig = process.env.SERVICE_CONFIG_PATH;
   process.env.SERVICE_CONFIG_PATH = `!${serviceConfigPath}`;
 
@@ -137,9 +151,10 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   await app.ready();
 
   try {
-    await fn(app);
+    await fn(app, { timestore });
   } finally {
     await app.close();
+    await timestore.close();
     if (previousRedisUrl === undefined) {
       delete process.env.REDIS_URL;
     } else {
@@ -160,6 +175,7 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
     await rm(storageDir, { recursive: true, force: true });
   }
 }
+
 
 async function enqueueExampleBundles(app: FastifyInstance, slugs: readonly string[]): Promise<void> {
   const response = await app.inject({
@@ -293,26 +309,26 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
   const contents = await readFile(filePath, 'utf8');
   return JSON.parse(contents) as T;
 }
+async function queryTimestoreRowCount(url: string, datasetSlug: string, startIso: string, endIso: string): Promise<number> {
+  const response = await fetch(`${url}/datasets/${encodeURIComponent(datasetSlug)}/query`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      timeRange: { start: startIso, end: endIso },
+      timestampColumn: 'timestamp',
+      limit: 10000
+    })
+  });
 
-async function queryDuckDbRowCount(dbPath: string): Promise<number> {
-  const database = new duckdb.Database(dbPath);
-  const connection = database.connect();
-  try {
-    const rows = await new Promise<Array<{ value: number }>>((resolve, reject) => {
-      connection.all("SELECT COUNT(*) AS value FROM readings", (err, result) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve((result ?? []) as Array<{ value: number }>);
-        }
-      });
-    });
-    const value = rows[0]?.value ?? 0;
-    return Number(value);
-  } finally {
-    connection.close();
-    database.close();
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Timestore query failed with status ${response.status}: ${errorText}`);
   }
+
+  const payload = (await response.json()) as { rows?: unknown[] };
+  return Array.isArray(payload.rows) ? payload.rows.length : 0;
 }
 
 async function assertWorkflowAsset(
@@ -331,7 +347,7 @@ async function assertWorkflowAsset(
   assert.equal(entry?.latest?.partitionKey, partitionKey);
 }
 
-async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
+async function runObservatoryScenario(app: FastifyInstance, context: ServerContext): Promise<void> {
   await enqueueExampleBundles(app, OBSERVATORY_BUNDLE_SLUGS);
   await waitForExampleBundles(app, OBSERVATORY_BUNDLE_SLUGS);
   for (const slug of OBSERVATORY_BUNDLE_SLUGS) {
@@ -350,10 +366,10 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
   const minuteIsoMatch = minute.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/);
   const hourSegment = minuteIsoMatch ? `${minuteIsoMatch[1]}T${minuteIsoMatch[2]}` : minuteKey;
   const archiveMinuteFilename = minuteIsoMatch ? `${minuteIsoMatch[3]}.csv` : `${minuteKey}.csv`;
-  const warehousePath = path.join(tempRoot, 'warehouse', 'observatory.duckdb');
+  const timestoreUrl = context.timestore.url;
 
   await Promise.all(
-    [inboxDir, stagingDir, archiveDir, plotsDir, reportsDir, path.dirname(warehousePath)].map((dir) =>
+    [inboxDir, stagingDir, archiveDir, plotsDir, reportsDir].map((dir) =>
       mkdir(dir, { recursive: true })
     )
   );
@@ -362,8 +378,8 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
     await runWorkflow(app, 'observatory-minute-data-generator', minute, {
       inboxDir,
       minute,
-      rowsPerInstrument: 6,
-      intervalMinutes: 1,
+      rowsPerInstrument: OBSERVATORY_ROWS_PER_INSTRUMENT,
+      intervalMinutes: OBSERVATORY_INTERVAL_MINUTES,
       seed: 42
     });
 
@@ -374,10 +390,12 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
       inboxDir,
       stagingDir,
       archiveDir,
-      warehousePath,
       minute,
       maxFiles: 64,
-      vacuum: false
+      timestoreBaseUrl: timestoreUrl,
+      timestoreDatasetSlug: 'observatory-timeseries',
+      timestoreDatasetName: 'Observatory Time Series',
+      timestoreTableName: 'observations'
     });
 
     const stagingMinuteDir = path.join(stagingDir, minuteKey);
@@ -416,22 +434,43 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
       );
     }
 
-    const rowCount = await queryDuckDbRowCount(warehousePath);
-    assert.equal(rowCount, 18, 'DuckDB loader should append 18 rows (3 instruments × 6 rows)');
+    const partitionStart = `${minute}:00Z`;
+    const startDate = new Date(partitionStart);
+    const lookaheadSeconds =
+      (OBSERVATORY_ROWS_PER_INSTRUMENT - 1) * OBSERVATORY_INTERVAL_MINUTES * 60 + 59;
+    const partitionEndDate = new Date(startDate.getTime() + lookaheadSeconds * 1000 + 999);
+    const partitionEnd = partitionEndDate.toISOString();
+    const windowStartDate = new Date(startDate.getTime() - (OBSERVATORY_ROWS_PER_INSTRUMENT - 1) * OBSERVATORY_INTERVAL_MINUTES * 60 * 1000);
+    const partitionRangeStart = windowStartDate.toISOString();
+    const rowCount = await queryTimestoreRowCount(
+      timestoreUrl,
+      'observatory-timeseries',
+      partitionRangeStart,
+      partitionEnd
+    );
+    assert.equal(
+      rowCount,
+      18,
+      `Timestore loader should append 18 rows (3 instruments × 6 rows) but received ${rowCount}`
+    );
 
     await assertWorkflowAsset(
       app,
       'observatory-minute-ingest',
-      'observatory.timeseries.duckdb',
+      'observatory.timeseries.timestore',
       minute
     );
 
     await runWorkflow(app, 'observatory-daily-publication', minute, {
-      warehousePath,
+      timestoreBaseUrl: timestoreUrl,
+      timestoreDatasetSlug: 'observatory-timeseries',
       plotsDir,
       reportsDir,
       partitionKey: minute,
-      lookbackMinutes: 180
+      lookbackMinutes: 180,
+      metastoreBaseUrl: '',
+      metastoreAuthToken: '',
+      metastoreNamespace: 'observatory.reports'
     });
 
     const plotsMinuteDir = path.join(plotsDir, minuteKey);
@@ -453,12 +492,19 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
       minute
     );
 
-    const reportJson = await readJsonFile<{ summary?: { instrumentCount?: number } }>(
-      path.join(reportsMinuteDir, 'status.json')
-    );
-    assert.equal(reportJson.summary?.instrumentCount, 3);
+    const reportJson = await readJsonFile<{
+      summary?: { instrumentCount?: number };
+      visualization?: { metrics?: { instrumentCount?: number } };
+    }>(path.join(reportsMinuteDir, 'status.json'));
+    const reportedInstrumentCount = reportJson.summary?.instrumentCount
+      ?? reportJson.visualization?.metrics?.instrumentCount;
+    assert.equal(reportedInstrumentCount, 3);
   } finally {
-    await rm(tempRoot, { recursive: true, force: true });
+    if (process.env.OBSERVATORY_KEEP_TEMP === '1') {
+      // preserve temp directory for debugging
+    } else {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as tar from 'tar';
@@ -41,8 +41,19 @@ async function removeDirSafe(target: string): Promise<void> {
   }
 }
 
+function canonicalize(value: string): string {
+  const resolved = path.resolve(value);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 function ensureWithinRoot(root: string, candidate: string): void {
-  const relative = path.relative(root, candidate);
+  const canonicalRoot = canonicalize(root);
+  const canonicalCandidate = canonicalize(candidate);
+  const relative = path.relative(canonicalRoot, canonicalCandidate);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error('Bundle artifact attempted to write outside workspace root');
   }

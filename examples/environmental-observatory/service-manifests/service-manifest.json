@@ -9,7 +9,10 @@
       "devCommand": "npm run dev",
       "workingDir": "examples/environmental-observatory/services/observatory-file-watcher",
       "env": [
-        { "key": "PORT", "value": "4310" },
+        {
+          "key": "PORT",
+          "value": "4310"
+        },
         {
           "key": "FILE_WATCH_ROOT",
           "value": {
@@ -31,16 +34,6 @@
           }
         },
         {
-          "key": "FILE_WATCH_WAREHOUSE_PATH",
-          "value": {
-            "$var": {
-              "name": "FILE_WATCH_WAREHOUSE_PATH",
-              "default": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
-              "description": "Destination DuckDB database storing observatory snapshots."
-            }
-          }
-        },
-        {
           "key": "FILE_ARCHIVE_DIR",
           "value": {
             "$var": {
@@ -50,11 +43,82 @@
             }
           }
         },
-        { "key": "OBSERVATORY_WORKFLOW_SLUG", "value": "observatory-minute-ingest" },
-        { "key": "FILE_WATCH_MAX_FILES", "value": "64" },
-        { "key": "FILE_WATCH_VACUUM", "value": "false" },
-        { "key": "OBSERVATORY_AUTO_COMPLETE", "value": "true" },
-        { "key": "CATALOG_API_BASE_URL", "value": "http://host.docker.internal:4000" },
+        {
+          "key": "TIMESTORE_BASE_URL",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_BASE_URL",
+              "default": "http://host.docker.internal:4200",
+              "description": "Timestore API base URL used by the ingestion job."
+            }
+          }
+        },
+        {
+          "key": "TIMESTORE_DATASET_SLUG",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_DATASET_SLUG",
+              "default": "observatory-timeseries",
+              "description": "Dataset slug written by the Timestore loader."
+            }
+          }
+        },
+        {
+          "key": "TIMESTORE_DATASET_NAME",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_DATASET_NAME",
+              "default": "Observatory Time Series",
+              "description": "Human-readable dataset name created on first ingest."
+            }
+          }
+        },
+        {
+          "key": "TIMESTORE_TABLE_NAME",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_TABLE_NAME",
+              "default": "observations",
+              "description": "Logical table name used inside Timestore."
+            }
+          }
+        },
+        {
+          "key": "TIMESTORE_STORAGE_TARGET_ID",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_STORAGE_TARGET_ID",
+              "default": "",
+              "description": "Optional storage target override for the ingestion job."
+            }
+          }
+        },
+        {
+          "key": "TIMESTORE_API_TOKEN",
+          "value": {
+            "$var": {
+              "name": "TIMESTORE_API_TOKEN",
+              "default": "",
+              "description": "Bearer token forwarded to the Timestore API if required."
+            }
+          }
+        },
+        {
+          "key": "OBSERVATORY_WORKFLOW_SLUG",
+          "value": "observatory-minute-ingest"
+        },
+        {
+          "key": "FILE_WATCH_MAX_FILES",
+          "value": "64"
+        },
+        {
+          "key": "OBSERVATORY_AUTO_COMPLETE",
+          "value": "true"
+        },
+        {
+          "key": "CATALOG_API_BASE_URL",
+          "value": "http://host.docker.internal:4000"
+        },
         {
           "key": "CATALOG_API_TOKEN",
           "value": {
@@ -86,9 +150,18 @@
             }
           }
         },
-        { "key": "HOST", "value": "0.0.0.0" },
-        { "key": "PORT", "value": "4311" },
-        { "key": "DASHBOARD_REFRESH_MS", "value": "10000" }
+        {
+          "key": "HOST",
+          "value": "0.0.0.0"
+        },
+        {
+          "key": "PORT",
+          "value": "4311"
+        },
+        {
+          "key": "DASHBOARD_REFRESH_MS",
+          "value": "10000"
+        }
       ]
     }
   ]

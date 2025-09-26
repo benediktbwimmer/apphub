@@ -6,17 +6,9 @@
   "artifactDir": "artifacts",
   "files": [
     "manifest.json",
-    "dist/**/*",
-    "node_modules/duckdb/**/*",
-    "node_modules/@mapbox/node-pre-gyp/**/*"
+    "dist/**/*"
   ],
-  "externals": [
-    "duckdb",
-    "@mapbox/node-pre-gyp",
-    "aws-sdk",
-    "mock-aws-s3",
-    "nock"
-  ],
+  "externals": [],
   "tests": {
     "sampleInputPath": "tests/sample-input.json"
   }

@@ -48,7 +48,7 @@ const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'greenhouse-alerts-runner',
   'observatory-data-generator',
   'observatory-inbox-normalizer',
-  'observatory-duckdb-loader',
+  'observatory-timestore-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher'
 ];
@@ -265,10 +265,11 @@ async function importServiceManifest(app: FastifyInstance): Promise<void> {
   const serviceVariables = {
     FILE_WATCH_ROOT: path.join(repoRoot, 'examples/environmental-observatory/data/inbox'),
     FILE_WATCH_STAGING_DIR: path.join(repoRoot, 'examples/environmental-observatory/data/staging'),
-    FILE_WATCH_WAREHOUSE_PATH: path.join(
-      repoRoot,
-      'examples/environmental-observatory/data/warehouse/observatory.duckdb'
-    ),
+    FILE_ARCHIVE_DIR: path.join(repoRoot, 'examples/environmental-observatory/data/archive'),
+    TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
+    TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
+    TIMESTORE_DATASET_NAME: 'Observatory Time Series',
+    TIMESTORE_TABLE_NAME: 'observations',
     CATALOG_API_TOKEN: OPERATOR_TOKEN
   };
 

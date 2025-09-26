@@ -77,7 +77,10 @@ runE2E(async ({ registerCleanup }) => {
     { key: 'PORT', value: '4310' },
     { key: 'FILE_WATCH_ROOT', value: 'examples/environmental-observatory/data/inbox' },
     { key: 'FILE_WATCH_STAGING_DIR', value: 'examples/environmental-observatory/data/staging' },
-    { key: 'FILE_WATCH_WAREHOUSE_PATH', value: 'examples/environmental-observatory/data/warehouse/observatory.duckdb' },
+    { key: 'TIMESTORE_BASE_URL', value: 'http://127.0.0.1:4200' },
+    { key: 'TIMESTORE_DATASET_SLUG', value: 'observatory-timeseries' },
+    { key: 'TIMESTORE_DATASET_NAME', value: 'Observatory Time Series' },
+    { key: 'TIMESTORE_TABLE_NAME', value: 'observations' },
     { key: 'CATALOG_API_TOKEN', value: 'dev-token' }
   ];
 

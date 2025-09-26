@@ -1,5 +1,5 @@
 {
-  "slug": "observatory-duckdb-loader",
+  "slug": "observatory-timestore-loader",
   "entry": "src/index.ts",
   "outDir": "dist",
   "manifestPath": "manifest.json",
@@ -9,13 +9,7 @@
     "dist/**/*",
     "node_modules/**/*"
   ],
-  "externals": [
-    "duckdb",
-    "@mapbox/node-pre-gyp",
-    "aws-sdk",
-    "mock-aws-s3",
-    "nock"
-  ],
+  "externals": [],
   "tests": {
     "sampleInputPath": "tests/sample-input.json"
   }

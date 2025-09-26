@@ -21,8 +21,8 @@ import observatoryDataGeneratorManifestJson from '../../../examples/environmenta
 import observatoryDataGeneratorDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-data-generator/job-definition.json';
 import observatoryInboxNormalizerManifestJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json';
 import observatoryInboxNormalizerDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/job-definition.json';
-import observatoryDuckdbLoaderManifestJson from '../../../examples/environmental-observatory/jobs/observatory-duckdb-loader/manifest.json';
-import observatoryDuckdbLoaderDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-duckdb-loader/job-definition.json';
+import observatoryTimestoreLoaderManifestJson from '../../../examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json';
+import observatoryTimestoreLoaderDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-timestore-loader/job-definition.json';
 import observatoryVisualizationRunnerManifestJson from '../../../examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json';
 import observatoryVisualizationRunnerDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-visualization-runner/job-definition.json';
 import observatoryReportPublisherManifestJson from '../../../examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json';
@@ -110,10 +110,10 @@ export const EXAMPLE_JOB_BUNDLES: ReadonlyArray<ExampleJobBundle> = [
     definitionJson: observatoryInboxNormalizerDefinitionJson
   }),
   createJobBundle({
-    slug: 'observatory-duckdb-loader',
-    directory: 'examples/environmental-observatory/jobs/observatory-duckdb-loader',
-    manifestJson: observatoryDuckdbLoaderManifestJson,
-    definitionJson: observatoryDuckdbLoaderDefinitionJson
+    slug: 'observatory-timestore-loader',
+    directory: 'examples/environmental-observatory/jobs/observatory-timestore-loader',
+    manifestJson: observatoryTimestoreLoaderManifestJson,
+    definitionJson: observatoryTimestoreLoaderDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-visualization-runner',

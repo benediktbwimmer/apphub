@@ -13,13 +13,15 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "warehousePath": { "type": "string", "minLength": 1 },
+      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+      "timestoreAuthToken": { "type": "string" },
       "plotsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
       "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" }
     },
-    "required": ["warehousePath", "plotsDir", "partitionKey"]
+    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "partitionKey"]
   },
   "defaultParameters": {
     "lookbackMinutes": 180

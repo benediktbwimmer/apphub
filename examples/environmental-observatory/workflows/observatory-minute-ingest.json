@@ -2,27 +2,40 @@
   "slug": "observatory-minute-ingest",
   "name": "Observatory Minute Ingest",
   "version": 1,
-  "description": "Normalizes inbox CSVs and persists minute-level readings into DuckDB.",
+  "description": "Normalizes inbox CSVs and persists minute-level readings into Timestore.",
   "parametersSchema": {
     "type": "object",
     "properties": {
       "inboxDir": { "type": "string", "minLength": 1 },
       "stagingDir": { "type": "string", "minLength": 1 },
       "archiveDir": { "type": "string", "minLength": 1 },
-      "warehousePath": { "type": "string", "minLength": 1 },
       "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
-      "vacuum": { "type": "boolean" }
+      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+      "timestoreDatasetName": { "type": "string" },
+      "timestoreTableName": { "type": "string" },
+      "timestoreStorageTargetId": { "type": "string" },
+      "timestoreAuthToken": { "type": "string" }
     },
-    "required": ["inboxDir", "stagingDir", "archiveDir", "warehousePath", "minute"]
+    "required": [
+      "inboxDir",
+      "stagingDir",
+      "archiveDir",
+      "minute",
+      "timestoreBaseUrl",
+      "timestoreDatasetSlug"
+    ]
   },
   "defaultParameters": {
     "maxFiles": 64,
-    "vacuum": false,
     "inboxDir": "examples/environmental-observatory/data/inbox",
     "stagingDir": "examples/environmental-observatory/data/staging",
     "archiveDir": "examples/environmental-observatory/data/archive",
-    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb"
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
+    "timestoreDatasetSlug": "observatory-timeseries",
+    "timestoreDatasetName": "Observatory Time Series",
+    "timestoreTableName": "observations"
   },
   "steps": [
     {
@@ -76,24 +89,30 @@
       ]
     },
     {
-      "id": "load-duckdb",
-      "name": "Append to DuckDB",
+      "id": "load-timestore",
+      "name": "Ingest into Timestore",
       "type": "job",
-      "jobSlug": "observatory-duckdb-loader",
+      "jobSlug": "observatory-timestore-loader",
       "dependsOn": ["normalize-inbox"],
       "parameters": {
-        "warehousePath": "{{ parameters.warehousePath }}",
+        "datasetSlug": "{{ parameters.timestoreDatasetSlug }}",
+        "datasetName": "{{ parameters.timestoreDatasetName }}",
+        "tableName": "{{ parameters.timestoreTableName }}",
+        "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
+        "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
+        "storageTargetId": "{{ parameters.timestoreStorageTargetId }}",
+        "partitionNamespace": "observatory",
         "minute": "{{ parameters.minute }}",
-        "rawAsset": "{{ shared.normalizedOutput.normalized }}",
-        "vacuum": "{{ parameters.vacuum }}"
+        "idempotencyKey": "{{ parameters.minute }}",
+        "rawAsset": "{{ shared.normalizedOutput.normalized }}"
       },
-      "storeResultAs": "duckdbSnapshot",
+      "storeResultAs": "timestoreIngestion",
       "consumes": [
         { "assetId": "observatory.timeseries.raw" }
       ],
       "produces": [
         {
-          "assetId": "observatory.timeseries.duckdb",
+          "assetId": "observatory.timeseries.timestore",
           "partitioning": {
             "type": "timeWindow",
             "granularity": "minute",
@@ -109,23 +128,14 @@
             "type": "object",
             "properties": {
               "partitionKey": { "type": "string" },
-              "warehousePath": { "type": "string" },
-              "appendedRows": { "type": "number" },
-              "totalRows": { "type": "number" },
-              "tables": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "name": { "type": "string" },
-                    "rowCount": { "type": "number" }
-                  },
-                  "required": ["name", "rowCount"]
-                }
-              },
-              "checkpointCreatedAt": { "type": "string", "format": "date-time" }
+              "datasetSlug": { "type": "string" },
+              "ingestionMode": { "type": "string" },
+              "manifestId": { "type": "string" },
+              "datasetId": { "type": "string" },
+              "rowCount": { "type": "number" },
+              "storageTargetId": { "type": "string" }
             },
-            "required": ["partitionKey", "warehousePath", "appendedRows", "checkpointCreatedAt"]
+            "required": ["partitionKey", "datasetSlug", "rowCount"]
           }
         }
       ]

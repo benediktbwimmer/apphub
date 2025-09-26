@@ -49,6 +49,9 @@ type ReportPublisherParameters = {
   partitionKey: string;
   reportTemplate?: string;
   visualizationAsset: VisualizationAsset;
+  metastoreBaseUrl?: string;
+  metastoreAuthToken?: string;
+  metastoreNamespace?: string;
 };
 
 type ReportFile = {
@@ -68,6 +71,9 @@ type ReportAssetPayload = {
   };
   plotsReferenced: Array<{ relativePath: string; altText: string }>;
 };
+
+const DEFAULT_METASTORE_NAMESPACE = 'observatory.reports';
+const DEFAULT_METASTORE_BASE_URL = '';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -152,12 +158,20 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
   }
   const reportTemplate = ensureString(raw.reportTemplate ?? raw.report_template ?? '');
   const visualizationAsset = parseVisualizationAsset(raw.visualizationAsset ?? raw.visualization_asset);
+  const metastoreBaseUrlRaw = ensureString(raw.metastoreBaseUrl ?? raw.metastore_base_url ?? DEFAULT_METASTORE_BASE_URL);
+  const metastoreBaseUrl = metastoreBaseUrlRaw ? metastoreBaseUrlRaw.replace(/\/$/, '') : '';
+  const metastoreAuthToken = ensureString(raw.metastoreAuthToken ?? raw.metastore_auth_token ?? '');
+  const metastoreNamespace = ensureString(raw.metastoreNamespace ?? raw.metastore_namespace ?? DEFAULT_METASTORE_NAMESPACE);
+
   return {
     reportsDir,
     plotsDir,
     partitionKey,
     reportTemplate: reportTemplate || undefined,
-    visualizationAsset
+    visualizationAsset,
+    metastoreBaseUrl: metastoreBaseUrl || undefined,
+    metastoreAuthToken: metastoreAuthToken || undefined,
+    metastoreNamespace: metastoreNamespace || DEFAULT_METASTORE_NAMESPACE
   } satisfies ReportPublisherParameters;
 }
 
@@ -198,94 +212,201 @@ function buildHtml(template: string | undefined, markdownContent: string, metric
       img { max-width: 100%; margin: 1rem 0; border-radius: 4px; }
       a { color: #ff9f1c; }
       .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
-      .summary div { background: #111a2c; padding: 1rem; border-radius: 6px; }
+      .summary div { background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; }
+      .summary strong { display: block; font-size: 1.8rem; color: #ffffff; }
+      pre { background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 6px; overflow: auto; }
     </style>
   </head>
   <body>
-    <h1>Observatory Status Report &mdash; ${metrics.partitionKey}</h1>
-    <section class="summary">
-      <div><strong>Samples</strong><br />${metrics.samples}</div>
-      <div><strong>Instruments</strong><br />${metrics.instrumentCount}</div>
-      <div><strong>Sites</strong><br />${metrics.siteCount}</div>
-      <div><strong>Average Temp</strong><br />${metrics.averageTemperatureC.toFixed(2)} °C</div>
-      <div><strong>Average PM2.5</strong><br />${metrics.averagePm25.toFixed(2)} µg/m³</div>
-      <div><strong>Peak PM2.5</strong><br />${metrics.maxPm25.toFixed(2)} µg/m³</div>
-    </section>
-    <section>
-      <pre>${markdownContent.replace(/</g, '&lt;')}</pre>
-    </section>
+    <header>
+      <h1>Observatory Status Report</h1>
+      <p>Window ${metrics.partitionKey} · Lookback ${metrics.lookbackMinutes} minutes${metrics.siteFilter ? ` · Site ${metrics.siteFilter}` : ''}</p>
+    </header>
+    <main>
+      <section class="summary">
+        <div>
+          <span>Samples analysed</span>
+          <strong>${metrics.samples}</strong>
+        </div>
+        <div>
+          <span>Instruments reporting</span>
+          <strong>${metrics.instrumentCount}</strong>
+        </div>
+        <div>
+          <span>Sites covered</span>
+          <strong>${metrics.siteCount}</strong>
+        </div>
+        <div>
+          <span>Average temperature</span>
+          <strong>${metrics.averageTemperatureC.toFixed(2)} °C</strong>
+        </div>
+        <div>
+          <span>Average PM2.5</span>
+          <strong>${metrics.averagePm25.toFixed(2)} µg/m³</strong>
+        </div>
+        <div>
+          <span>Peak PM2.5</span>
+          <strong>${metrics.maxPm25.toFixed(2)} µg/m³</strong>
+        </div>
+      </section>
+      <section>
+        ${markdownContent
+          .split('\n')
+          .map((line) => (line.startsWith('- ') ? `<p>${line.slice(2)}</p>` : `<p>${line}</p>`))
+          .join('\n')}
+      </section>
+    </main>
   </body>
 </html>`;
 
-  const trimmedTemplate = template?.trim();
-  if (!trimmedTemplate) {
+  if (!template) {
     return defaultTemplate;
   }
-  return trimmedTemplate
-    .replace(/{{\s*content\s*}}/gi, markdownContent)
-    .replace(/{{\s*partitionKey\s*}}/gi, metrics.partitionKey)
-    .replace(/{{\s*samples\s*}}/gi, String(metrics.samples))
-    .replace(/{{\s*instrumentCount\s*}}/gi, String(metrics.instrumentCount))
-    .replace(/{{\s*siteCount\s*}}/gi, String(metrics.siteCount))
-    .replace(/{{\s*averageTemperatureC\s*}}/gi, metrics.averageTemperatureC.toFixed(2))
-    .replace(/{{\s*averagePm25\s*}}/gi, metrics.averagePm25.toFixed(2))
-    .replace(/{{\s*maxPm25\s*}}/gi, metrics.maxPm25.toFixed(2));
+
+  return template
+    .replace('{{partitionKey}}', metrics.partitionKey)
+    .replace('{{lookbackMinutes}}', String(metrics.lookbackMinutes))
+    .replace('{{siteFilter}}', metrics.siteFilter ?? '')
+    .replace('{{markdown}}', markdownContent);
+}
+
+async function writeReports(
+  params: ReportPublisherParameters,
+  markdown: string,
+  html: string,
+  summary: ReportAssetPayload['summary']
+): Promise<ReportFile[]> {
+  const partitionDir = path.resolve(params.reportsDir, params.partitionKey.replace(':', '-'));
+  await mkdir(partitionDir, { recursive: true });
+
+  const markdownPath = path.resolve(partitionDir, 'status.md');
+  const htmlPath = path.resolve(partitionDir, 'status.html');
+  const jsonPath = path.resolve(partitionDir, 'status.json');
+
+  const markdownSize = await writeTextFile(markdownPath, markdown);
+  const htmlSize = await writeTextFile(htmlPath, html);
+
+  const reportFiles: ReportFile[] = [
+    {
+      relativePath: path.relative(params.reportsDir, markdownPath),
+      mediaType: 'text/markdown',
+      sizeBytes: markdownSize
+    },
+    {
+      relativePath: path.relative(params.reportsDir, htmlPath),
+      mediaType: 'text/html',
+      sizeBytes: htmlSize
+    }
+  ];
+
+  const summaryJson = {
+    generatedAt: new Date().toISOString(),
+    partitionKey: params.partitionKey,
+    lookbackMinutes: params.visualizationAsset.lookbackMinutes,
+    siteFilter: params.visualizationAsset.metrics.siteFilter ?? null,
+    summary,
+    visualization: {
+      metrics: params.visualizationAsset.metrics,
+      artifacts: params.visualizationAsset.artifacts
+    },
+    reports: reportFiles
+  } satisfies Record<string, unknown>;
+
+  const jsonBytes = await writeTextFile(jsonPath, JSON.stringify(summaryJson, null, 2));
+  reportFiles.push({
+    relativePath: path.relative(params.reportsDir, jsonPath),
+    mediaType: 'application/json',
+    sizeBytes: jsonBytes
+  });
+
+  return reportFiles;
+}
+
+function buildSummary(metrics: VisualizationMetrics): ReportAssetPayload['summary'] {
+  return {
+    instrumentCount: metrics.instrumentCount,
+    siteCount: metrics.siteCount,
+    alertCount: metrics.maxPm25 > 35 ? 1 : 0
+  } satisfies ReportAssetPayload['summary'];
+}
+
+function buildPlotsReferenced(artifacts: VisualizationArtifact[]): Array<{ relativePath: string; altText: string }> {
+  return artifacts
+    .filter((artifact) => artifact.mediaType?.startsWith('image/'))
+    .map((artifact) => ({
+      relativePath: artifact.relativePath,
+      altText: artifact.description ?? artifact.relativePath
+    }));
+}
+
+async function upsertMetastoreRecord(
+  params: ReportPublisherParameters,
+  payload: ReportAssetPayload
+): Promise<void> {
+  if (!params.metastoreBaseUrl) {
+    return;
+  }
+
+  const namespace = params.metastoreNamespace ?? DEFAULT_METASTORE_NAMESPACE;
+  const baseUrl = params.metastoreBaseUrl.replace(/\/$/, '');
+  const key = params.partitionKey;
+  const url = `${baseUrl}/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json'
+  };
+  if (params.metastoreAuthToken) {
+    headers.authorization = `Bearer ${params.metastoreAuthToken}`;
+  }
+
+  const metadata = {
+    partitionKey: params.partitionKey,
+    generatedAt: payload.generatedAt,
+    summary: payload.summary,
+    reportFiles: payload.reportFiles,
+    plotsReferenced: payload.plotsReferenced,
+    reportsDir: payload.reportsDir,
+    visualizationPartition: params.visualizationAsset.partitionKey,
+    visualizationMetrics: params.visualizationAsset.metrics,
+    lookbackMinutes: params.visualizationAsset.lookbackMinutes,
+    siteFilter: params.visualizationAsset.metrics.siteFilter ?? null
+  } satisfies Record<string, unknown>;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ metadata })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to upsert metastore record (${namespace}/${key}): ${errorText}`);
+  }
 }
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const reportsPartitionKey = parameters.partitionKey.replace(':', '-');
-  const reportsPartitionDir = path.resolve(parameters.reportsDir, reportsPartitionKey);
-  await mkdir(reportsPartitionDir, { recursive: true });
-
   const markdown = buildMarkdown(parameters.visualizationAsset.metrics, parameters.visualizationAsset.artifacts);
-  const markdownPath = path.resolve(reportsPartitionDir, 'status.md');
-  const markdownSize = await writeTextFile(markdownPath, markdown);
-
   const html = buildHtml(parameters.reportTemplate, markdown, parameters.visualizationAsset.metrics);
-  const htmlPath = path.resolve(reportsPartitionDir, 'status.html');
-  const htmlSize = await writeTextFile(htmlPath, html);
 
-  const summary = {
-    instrumentCount: parameters.visualizationAsset.metrics.instrumentCount,
-    siteCount: parameters.visualizationAsset.metrics.siteCount,
-    alertCount: parameters.visualizationAsset.metrics.maxPm25 > 35 ? 1 : 0
-  };
+  const summary = buildSummary(parameters.visualizationAsset.metrics);
+  const reportFiles = await writeReports(parameters, markdown, html, summary);
+  const plotsReferenced = buildPlotsReferenced(parameters.visualizationAsset.artifacts);
 
-  const jsonPayload = {
-    generatedAt: new Date().toISOString(),
-    metrics: parameters.visualizationAsset.metrics,
-    artifacts: parameters.visualizationAsset.artifacts,
-    summary
-  };
-  const jsonPath = path.resolve(reportsPartitionDir, 'status.json');
-  const jsonSize = await writeTextFile(jsonPath, JSON.stringify(jsonPayload, null, 2));
-
-  const reportFiles: ReportFile[] = [
-    { relativePath: path.relative(reportsPartitionDir, markdownPath), mediaType: 'text/markdown', sizeBytes: markdownSize },
-    { relativePath: path.relative(reportsPartitionDir, htmlPath), mediaType: 'text/html', sizeBytes: htmlSize },
-    { relativePath: path.relative(reportsPartitionDir, jsonPath), mediaType: 'application/json', sizeBytes: jsonSize }
-  ];
-
-  const plotsReferenced = parameters.visualizationAsset.artifacts
-    .filter((artifact) => artifact.mediaType?.startsWith('image/'))
-    .map((artifact) => ({
-      relativePath: artifact.relativePath,
-      altText: artifact.description || artifact.relativePath
-    }));
-
+  const generatedAt = new Date().toISOString();
   const payload: ReportAssetPayload = {
-    generatedAt: jsonPayload.generatedAt,
-    reportsDir: reportsPartitionDir,
+    generatedAt,
+    reportsDir: parameters.reportsDir,
     reportFiles,
     summary,
     plotsReferenced
   } satisfies ReportAssetPayload;
 
   await context.update({
-    alertCount: summary.alertCount,
-    instruments: parameters.visualizationAsset.metrics.instrumentCount
+    reportFiles: reportFiles.length,
+    instruments: summary.instrumentCount
   });
+
+  await upsertMetastoreRecord(parameters, payload);
 
   return {
     status: 'succeeded',
@@ -296,7 +417,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         {
           assetId: 'observatory.reports.status',
           partitionKey: parameters.partitionKey,
-          producedAt: jsonPayload.generatedAt,
+          producedAt: generatedAt,
           payload
         }
       ]

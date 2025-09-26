@@ -60,7 +60,9 @@ export async function buildQueryPlan(
   const rangeStart = new Date(request.timeRange.start);
   const rangeEnd = new Date(request.timeRange.end);
   if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
-    throw new Error('Invalid time range supplied');
+    throw new Error(
+      `Invalid time range supplied: start='${request.timeRange.start}', end='${request.timeRange.end}'`
+    );
   }
   if (rangeEnd.getTime() < rangeStart.getTime()) {
     throw new Error('timeRange.end must be greater than or equal to timeRange.start');

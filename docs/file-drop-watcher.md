@@ -52,9 +52,9 @@ flowchart TD
 | `FILE_DROP_WORKFLOW_SLUG` | `file-drop-relocation` | Workflow triggered when a new file arrives. |
 | `FILE_WATCH_STRATEGY` | `relocation` | Launch behaviour used by the generic watcher. (The environmental observatory ships a dedicated watcher that no longer requires this toggle.) |
 | `FILE_WATCH_STAGING_DIR` | Derived from `FILE_WATCH_ROOT` | Observatory mode: destination staging directory passed to the ingest workflow. |
-| `FILE_WATCH_WAREHOUSE_PATH` | Derived from `FILE_WATCH_ROOT` | Observatory mode: DuckDB path passed to the ingest workflow. |
+| `TIMESTORE_BASE_URL` | `http://127.0.0.1:4200` | Observatory mode: Timestore API endpoint forwarded to the ingest workflow. |
 | `FILE_WATCH_MAX_FILES` | `64` | Observatory mode: upper bound for files processed per hour. |
-| `FILE_WATCH_VACUUM` | `false` | Observatory mode: whether the DuckDB loader should run `VACUUM` after appends. |
+| `TIMESTORE_DATASET_SLUG` | `observatory-timeseries` | Dataset slug provided to the Timestore ingestion step. |
 | `FILE_WATCH_AUTO_COMPLETE` | `true` when strategy = `observatory` | Auto-mark runs as completed after launch (observatory mode uses this to avoid callback wiring). |
 | `CATALOG_API_BASE_URL` | `http://127.0.0.1:4000` | Catalog API origin used to trigger runs. |
 | `CATALOG_API_TOKEN` | _required_ | Operator token with `workflows:run` scope. |
@@ -80,12 +80,13 @@ npm install
 FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
 FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
 FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
-FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
+TIMESTORE_BASE_URL=http://127.0.0.1:4200 \
+TIMESTORE_DATASET_SLUG=observatory-timeseries \
 OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
 CATALOG_API_TOKEN=dev-ops-token \
 npm run dev
 ```
 
-The watcher batches files by minute, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Processed inbox files land in `archive/<instrument>/<hour>/<minute>.csv`, keeping replays idempotent. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
+The watcher batches files by minute, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Processed inbox files land in `archive/<instrument>/<hour>/<minute>.csv`, keeping replays idempotent. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → Timestore → visualization → report pipeline operate end-to-end.
 
-> Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/archive/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand. The same manifest also registers the observatory dashboard so you can watch `status.html` refresh automatically.
+> Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/archive/Timestore settings (base URL + dataset) and reports directory (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand. The same manifest also registers the observatory dashboard so you can watch `status.html` refresh automatically.

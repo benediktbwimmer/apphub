@@ -1,11 +1,17 @@
 {
   "parameters": {
-    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+    "datasetSlug": "observatory-timeseries",
+    "datasetName": "Observatory Time Series",
+    "tableName": "observations",
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
     "minute": "2025-08-01T09:00",
+    "partitionNamespace": "observatory",
+    "idempotencyKey": "observatory-2025-08-01T09:00",
     "rawAsset": {
       "partitionKey": "2025-08-01T09:00",
       "minute": "2025-08-01T09:00",
-      "stagingDir": "examples/environmental-observatory/data/staging/2025-08-01T09-00",
+      "stagingDir": "examples/environmental-observatory/data/staging",
+      "stagingMinuteDir": "examples/environmental-observatory/data/staging/2025-08-01T09-00",
       "sourceFiles": [
         {
           "relativePath": "2025-08-01T09-00/instrument_alpha_202508010900.csv",

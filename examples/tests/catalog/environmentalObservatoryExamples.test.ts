@@ -14,7 +14,7 @@ import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-regis
 const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
   'observatory-data-generator',
   'observatory-inbox-normalizer',
-  'observatory-duckdb-loader',
+  'observatory-timestore-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher'
 ];
@@ -65,12 +65,16 @@ const [
   });
   assert.ok(rawPartitions.includes('2025-08-01T12:15'));
 
-  const duckdbAsset = ingest.steps[1]?.produces?.[0];
-  assert.ok(duckdbAsset?.freshness?.ttlMs);
-  assert.equal(duckdbAsset?.autoMaterialize?.onUpstreamUpdate, true);
+  const timestoreAsset = ingest.steps[1]?.produces?.[0];
+  assert.ok(timestoreAsset?.freshness?.ttlMs);
+  assert.equal(timestoreAsset?.autoMaterialize?.onUpstreamUpdate, true);
+  assert.equal(ingest.steps[1]?.parameters?.timestoreBaseUrl, '{{ parameters.timestoreBaseUrl }}');
+  assert.equal(ingest.steps[1]?.parameters?.timestoreDatasetSlug, '{{ parameters.timestoreDatasetSlug }}');
+  assert.equal(ingest.steps[1]?.parameters?.timestoreDatasetName, '{{ parameters.timestoreDatasetName }}');
+  assert.equal(ingest.steps[1]?.parameters?.timestoreTableName, '{{ parameters.timestoreTableName }}');
 
   const visualizationStep = publication.steps[0];
-  assert.ok(visualizationStep?.consumes?.some((entry) => entry.assetId === 'observatory.timeseries.duckdb'));
+  assert.ok(visualizationStep?.consumes?.some((entry) => entry.assetId === 'observatory.timeseries.timestore'));
   const visualizationAsset = visualizationStep?.produces?.[0];
   assert.equal(visualizationAsset?.autoMaterialize?.onUpstreamUpdate, true);
 

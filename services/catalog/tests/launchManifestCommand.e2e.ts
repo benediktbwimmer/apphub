@@ -133,7 +133,6 @@ runE2E(async ({ registerCleanup }) => {
     const dataDir = path.join(repoRoot, 'examples/environmental-observatory/data');
     const inboxDir = path.join(dataDir, 'inbox');
     const stagingDir = path.join(dataDir, 'staging');
-    const warehousePath = path.join(dataDir, 'warehouse/observatory.duckdb');
     const archiveDir = path.join(dataDir, 'archive');
 
     const importResponse = await app.inject({
@@ -147,8 +146,11 @@ runE2E(async ({ registerCleanup }) => {
         variables: {
           FILE_WATCH_ROOT: inboxDir,
           FILE_WATCH_STAGING_DIR: stagingDir,
-          FILE_WATCH_WAREHOUSE_PATH: warehousePath,
           FILE_ARCHIVE_DIR: archiveDir,
+          TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
+          TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
+          TIMESTORE_DATASET_NAME: 'Observatory Time Series',
+          TIMESTORE_TABLE_NAME: 'observations',
           CATALOG_API_TOKEN: 'dev-token'
         }
       }
@@ -205,7 +207,7 @@ runE2E(async ({ registerCleanup }) => {
     assert(finalLaunch!.command, 'expected docker command to be recorded');
 
     const command = finalLaunch!.command ?? '';
-    const expectedMounts = [inboxDir, stagingDir, path.dirname(warehousePath), archiveDir];
+    const expectedMounts = [inboxDir, stagingDir, archiveDir];
     for (const sourcePath of expectedMounts) {
       const normalized = path.resolve(sourcePath);
       const mountToken = `-v ${normalized}:${normalized}:rw`;

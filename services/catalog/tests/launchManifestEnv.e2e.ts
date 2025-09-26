@@ -131,10 +131,10 @@ runE2E(async ({ registerCleanup }) => {
         variables: {
           FILE_WATCH_ROOT: path.join(repoRoot, 'examples/environmental-observatory/data/inbox'),
           FILE_WATCH_STAGING_DIR: path.join(repoRoot, 'examples/environmental-observatory/data/staging'),
-          FILE_WATCH_WAREHOUSE_PATH: path.join(
-            repoRoot,
-            'examples/environmental-observatory/data/warehouse/observatory.duckdb'
-          ),
+          TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
+          TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
+          TIMESTORE_DATASET_NAME: 'Observatory Time Series',
+          TIMESTORE_TABLE_NAME: 'observations',
           CATALOG_API_TOKEN: 'dev-token'
         }
       }

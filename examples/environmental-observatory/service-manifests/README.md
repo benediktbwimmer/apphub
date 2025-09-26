@@ -13,10 +13,13 @@ This manifest registers the observatory file watcher service so operators can la
 
 Update `CATALOG_API_TOKEN` with an operator token that has `workflows:run` scope. Other variables point at the example dataset and determine how files are batched:
 
-- `FILE_WATCH_STAGING_DIR`, `FILE_ARCHIVE_DIR`, and `FILE_WATCH_WAREHOUSE_PATH` resolve relative to the watcher working directory (`examples/environmental-observatory/services/observatory-file-watcher`).
+- `FILE_WATCH_STAGING_DIR` and `FILE_ARCHIVE_DIR` resolve relative to the watcher working directory (`examples/environmental-observatory/services/observatory-file-watcher`).
+- `TIMESTORE_BASE_URL`, `TIMESTORE_DATASET_SLUG`, `TIMESTORE_DATASET_NAME`, and related settings configure how the watcher populates ingest requests for the Timestore loader.
 - `OBSERVATORY_WORKFLOW_SLUG` defaults to `observatory-minute-ingest` but can be overridden if you register a forked ingest workflow.
-- `FILE_WATCH_MAX_FILES` and `FILE_WATCH_VACUUM` flow directly into the ingest workflow parameters.
+- `FILE_WATCH_MAX_FILES` flows directly into the ingest workflow parameters.
 - `REPORTS_DIR` resolves relative to the dashboard working directory (`examples/environmental-observatory/services/observatory-dashboard`) and should match the report publisher output path.
 - `OBSERVATORY_AUTO_COMPLETE` controls whether the watcher keeps tracking drops after launch (defaults to `true`).
+
+
 
 Import this manifest through the service manifest importer or place it under one of the configured manifest lookup directories so the catalog loads it automatically.

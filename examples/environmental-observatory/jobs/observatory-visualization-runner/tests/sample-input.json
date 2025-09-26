@@ -1,6 +1,7 @@
 {
   "parameters": {
-    "warehousePath": "examples/environmental-observatory/data/warehouse/observatory.duckdb",
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
+    "timestoreDatasetSlug": "observatory-timeseries",
     "plotsDir": "examples/environmental-observatory/data/plots",
     "partitionKey": "2025-08-01T09:00",
     "lookbackMinutes": 90

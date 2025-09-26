@@ -46,7 +46,11 @@ type StatsSnapshot = {
     watchRoot: string;
     stagingDir: string;
     archiveDir: string;
-    warehousePath: string;
+    timestoreBaseUrl: string;
+    timestoreDatasetSlug: string;
+    timestoreDatasetName: string;
+    timestoreTableName: string;
+    timestoreStorageTargetId: string;
     workflowSlug: string;
     apiBaseUrl: string;
     maxAttempts: number;
@@ -64,14 +68,10 @@ const ROOT_DIR = path.resolve(process.cwd());
 const DEFAULT_WATCH_ROOT = path.resolve(ROOT_DIR, '..', '..', 'data', 'inbox');
 const DEFAULT_STAGING_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'staging');
 const DEFAULT_ARCHIVE_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'archive');
-const DEFAULT_WAREHOUSE_PATH = path.resolve(
-  ROOT_DIR,
-  '..',
-  '..',
-  'data',
-  'warehouse',
-  'observatory.duckdb'
-);
+const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
+const DEFAULT_TIMESTORE_DATASET_SLUG = 'observatory-timeseries';
+const DEFAULT_TIMESTORE_DATASET_NAME = 'Observatory Time Series';
+const DEFAULT_TIMESTORE_TABLE_NAME = 'observations';
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) {
@@ -105,9 +105,14 @@ function extractMinuteFromFilename(relativePath: string): string | null {
 const watchRoot = path.resolve(process.env.FILE_WATCH_ROOT ?? DEFAULT_WATCH_ROOT);
 const stagingDir = path.resolve(process.env.FILE_WATCH_STAGING_DIR ?? DEFAULT_STAGING_DIR);
 const archiveDir = path.resolve(process.env.FILE_ARCHIVE_DIR ?? DEFAULT_ARCHIVE_DIR);
-const warehousePath = path.resolve(
-  process.env.FILE_WATCH_WAREHOUSE_PATH ?? DEFAULT_WAREHOUSE_PATH
-);
+const timestoreBaseUrl = (process.env.TIMESTORE_BASE_URL ?? DEFAULT_TIMESTORE_BASE_URL)
+  .trim()
+  .replace(/\/$/, '');
+const timestoreDatasetSlug = (process.env.TIMESTORE_DATASET_SLUG ?? DEFAULT_TIMESTORE_DATASET_SLUG).trim();
+const timestoreDatasetName = (process.env.TIMESTORE_DATASET_NAME ?? DEFAULT_TIMESTORE_DATASET_NAME).trim();
+const timestoreTableName = (process.env.TIMESTORE_TABLE_NAME ?? DEFAULT_TIMESTORE_TABLE_NAME).trim();
+const timestoreStorageTargetId = (process.env.TIMESTORE_STORAGE_TARGET_ID ?? '').trim();
+const timestoreAuthToken = (process.env.TIMESTORE_API_TOKEN ?? '').trim() || null;
 const workflowSlug = (
   process.env.OBSERVATORY_WORKFLOW_SLUG ??
   process.env.FILE_DROP_WORKFLOW_SLUG ??
@@ -127,7 +132,6 @@ const maxLaunchAttempts = Math.max(
   Math.min(10, Number.parseInt(process.env.FILE_WATCH_MAX_ATTEMPTS ?? '3', 10) || 3)
 );
 const maxFiles = Math.max(1, Number.parseInt(process.env.FILE_WATCH_MAX_FILES ?? '64', 10) || 64);
-const vacuum = parseBoolean(process.env.FILE_WATCH_VACUUM, false);
 const autoComplete = parseBoolean(
   process.env.OBSERVATORY_AUTO_COMPLETE ?? process.env.FILE_WATCH_AUTO_COMPLETE,
   true
@@ -311,9 +315,13 @@ async function launchWorkflow(record: DropRecord, attempt: number): Promise<void
     inboxDir: watchRoot,
     stagingDir,
     archiveDir,
-    warehousePath,
-    maxFiles,
-    vacuum
+    timestoreBaseUrl,
+    timestoreDatasetSlug,
+    timestoreDatasetName,
+    timestoreTableName,
+    timestoreStorageTargetId: timestoreStorageTargetId || undefined,
+    timestoreAuthToken: timestoreAuthToken ?? undefined,
+    maxFiles
   };
 
   const body = {
@@ -396,7 +404,11 @@ function buildStatsSnapshot(): StatsSnapshot {
       watchRoot,
       stagingDir,
       archiveDir,
-      warehousePath,
+      timestoreBaseUrl,
+      timestoreDatasetSlug,
+      timestoreDatasetName,
+      timestoreTableName,
+      timestoreStorageTargetId,
       workflowSlug,
       apiBaseUrl,
       maxAttempts: maxLaunchAttempts

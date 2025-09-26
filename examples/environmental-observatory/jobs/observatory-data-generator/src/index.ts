@@ -313,9 +313,12 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const rng = createRng(seedOffset);
     const fileName = `${profile.instrumentId}_${stamp}.csv`;
     const absolutePath = path.resolve(parameters.inboxDir, fileName);
+    const firstSampleDate = new Date(
+      startDate.getTime() - (parameters.rowsPerInstrument - 1) * parameters.intervalMinutes * 60_000
+    );
     const { content, metrics } = buildCsvContent(
       profile,
-      startDate,
+      firstSampleDate,
       parameters.rowsPerInstrument,
       parameters.intervalMinutes,
       rng

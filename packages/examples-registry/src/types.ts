@@ -52,7 +52,7 @@ export type ExampleJobSlug =
   | 'greenhouse-alerts-runner'
   | 'observatory-data-generator'
   | 'observatory-inbox-normalizer'
-  | 'observatory-duckdb-loader'
+  | 'observatory-timestore-loader'
   | 'observatory-visualization-runner'
   | 'observatory-report-publisher'
   | 'scan-directory'
