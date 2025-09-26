@@ -1,5 +1,5 @@
 {
-  "slug": "observatory-hourly-data-generator",
+  "slug": "observatory-minute-data-generator",
   "name": "Observatory Minute Data Generator",
   "version": 1,
   "description": "Produces synthetic minute-level CSV drops to simulate instrument readings arriving in the inbox.",

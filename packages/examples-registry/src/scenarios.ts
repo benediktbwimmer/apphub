@@ -82,9 +82,9 @@ const retailSalesDailyIngestWorkflowForm = requireWorkflow('retail-sales-daily-i
 
 const retailSalesInsightsWorkflowForm = requireWorkflow('retail-sales-insights');
 
-const observatoryHourlyDataGeneratorWorkflowForm = requireWorkflow('observatory-hourly-data-generator');
+const observatoryMinuteDataGeneratorWorkflowForm = requireWorkflow('observatory-minute-data-generator');
 
-const observatoryHourlyIngestWorkflowForm = requireWorkflow('observatory-hourly-ingest');
+const observatoryMinuteIngestWorkflowForm = requireWorkflow('observatory-minute-ingest');
 
 const observatoryDailyPublicationWorkflowForm = requireWorkflow('observatory-daily-publication');
 
@@ -290,7 +290,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Observatory file watcher',
     summary: 'Registers the observatory watcher service configured for minute-level ingest.',
     description:
-      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging directory, and DuckDB warehouse so new drops automatically trigger `observatory-hourly-ingest`.',
+      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging directory, and DuckDB warehouse so new drops automatically trigger `observatory-minute-ingest`.',
     difficulty: 'beginner',
     tags: ['observatory', 'automation'],
     docs: [
@@ -911,12 +911,12 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     analyticsTag: 'workflow__retail_sales_insights'
   },
   {
-    id: 'observatory-hourly-data-generator-workflow',
+    id: 'observatory-minute-data-generator-workflow',
     type: 'workflow',
     title: 'Observatory minute data generator',
     summary: 'Schedules synthetic instrument data drops.',
     description:
-      'Imports the `observatory-hourly-data-generator` workflow definition to automate synthetic CSV drops into the observatory inbox for testing.',
+      'Imports the `observatory-minute-data-generator` workflow definition to automate synthetic CSV drops into the observatory inbox for testing.',
     difficulty: 'beginner',
     tags: ['observatory', 'simulation'],
     docs: [
@@ -928,20 +928,20 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-hourly-data-generator.json'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-minute-data-generator.json'
       }
     ],
-    form: observatoryHourlyDataGeneratorWorkflowForm,
+    form: observatoryMinuteDataGeneratorWorkflowForm,
     includes: ['observatory-data-generator-job'],
     analyticsTag: 'workflow__observatory_data_generator'
   },
   {
-    id: 'observatory-hourly-ingest-workflow',
+    id: 'observatory-minute-ingest-workflow',
     type: 'workflow',
     title: 'Observatory minute ingest',
     summary: 'Normalizes inbox CSV drops and appends them into DuckDB.',
     description:
-      'Imports the `observatory-hourly-ingest` workflow definition so you can replay the minute-level ingestion loop and emit observatory telemetry assets.',
+      'Imports the `observatory-minute-ingest` workflow definition so you can replay the minute-level ingestion loop and emit observatory telemetry assets.',
     difficulty: 'intermediate',
     tags: ['observatory', 'ingest'],
     docs: [
@@ -953,12 +953,12 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-hourly-ingest.json'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-minute-ingest.json'
       }
     ],
-    form: observatoryHourlyIngestWorkflowForm,
+    form: observatoryMinuteIngestWorkflowForm,
     includes: ['observatory-inbox-normalizer-job', 'observatory-duckdb-loader-job'],
-    analyticsTag: 'workflow__observatory_hourly_ingest'
+    analyticsTag: 'workflow__observatory_minute_ingest'
   },
   {
     id: 'observatory-daily-publication-workflow',
@@ -985,7 +985,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     includes: [
       'observatory-visualization-runner-job',
       'observatory-report-publisher-job',
-      'observatory-hourly-ingest-workflow'
+      'observatory-minute-ingest-workflow'
     ],
     analyticsTag: 'workflow__observatory_daily_publication'
   },
@@ -1005,8 +1005,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'observatory-duckdb-loader-job',
       'observatory-visualization-runner-job',
       'observatory-report-publisher-job',
-      'observatory-hourly-data-generator-workflow',
-      'observatory-hourly-ingest-workflow',
+      'observatory-minute-data-generator-workflow',
+      'observatory-minute-ingest-workflow',
       'observatory-daily-publication-workflow'
     ],
     focus: 'workflows',
@@ -1158,7 +1158,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       'retail-sales-insights-workflow',
       'fleet-telemetry-daily-rollup-workflow',
       'fleet-telemetry-alerts-workflow',
-      'observatory-hourly-ingest-workflow',
+      'observatory-minute-ingest-workflow',
       'observatory-daily-publication-workflow',
       'directory-insights-report-workflow',
       'directory-insights-archive-workflow'

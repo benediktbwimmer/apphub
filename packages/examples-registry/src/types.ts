@@ -179,8 +179,8 @@ export type WorkflowDefinitionTemplate = {
 };
 
 export type ExampleWorkflowSlug =
-  | 'observatory-hourly-data-generator'
-  | 'observatory-hourly-ingest'
+  | 'observatory-minute-data-generator'
+  | 'observatory-minute-ingest'
   | 'observatory-daily-publication'
   | 'retail-sales-daily-ingest'
   | 'retail-sales-insights'

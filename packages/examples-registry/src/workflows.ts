@@ -4,8 +4,8 @@ import type {
   WorkflowDefinitionTemplate
 } from './types';
 
-import observatoryHourlyDataGeneratorWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-hourly-data-generator.json';
-import observatoryHourlyIngestWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-hourly-ingest.json';
+import observatoryMinuteDataGeneratorWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-minute-data-generator.json';
+import observatoryMinuteIngestWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-minute-ingest.json';
 import observatoryDailyPublicationWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-daily-publication.json';
 import retailSalesDailyIngestWorkflowJson from '../../../examples/retail-sales/workflows/retail-sales-daily-ingest.json';
 import retailSalesInsightsWorkflowJson from '../../../examples/retail-sales/workflows/retail-sales-insights.json';
@@ -28,14 +28,14 @@ function createWorkflow(params: { slug: ExampleWorkflowSlug; path: string; json:
 
 export const EXAMPLE_WORKFLOWS: ReadonlyArray<ExampleWorkflow> = [
   createWorkflow({
-    slug: 'observatory-hourly-data-generator',
-    path: 'examples/environmental-observatory/workflows/observatory-hourly-data-generator.json',
-    json: observatoryHourlyDataGeneratorWorkflowJson
+    slug: 'observatory-minute-data-generator',
+    path: 'examples/environmental-observatory/workflows/observatory-minute-data-generator.json',
+    json: observatoryMinuteDataGeneratorWorkflowJson
   }),
   createWorkflow({
-    slug: 'observatory-hourly-ingest',
-    path: 'examples/environmental-observatory/workflows/observatory-hourly-ingest.json',
-    json: observatoryHourlyIngestWorkflowJson
+    slug: 'observatory-minute-ingest',
+    path: 'examples/environmental-observatory/workflows/observatory-minute-ingest.json',
+    json: observatoryMinuteIngestWorkflowJson
   }),
   createWorkflow({
     slug: 'observatory-daily-publication',

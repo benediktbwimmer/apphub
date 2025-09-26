@@ -54,8 +54,8 @@ const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
 ];
 
 const WORKFLOW_DEFINITION_SLUGS: ExampleWorkflowSlug[] = [
-  'observatory-hourly-data-generator',
-  'observatory-hourly-ingest',
+  'observatory-minute-data-generator',
+  'observatory-minute-ingest',
   'observatory-daily-publication',
   'fleet-telemetry-daily-rollup',
   'fleet-telemetry-alerts'

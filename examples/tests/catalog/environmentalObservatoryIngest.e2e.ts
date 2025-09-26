@@ -45,8 +45,8 @@ const OBSERVATORY_BUNDLE_SLUGS: ExampleJobSlug[] = [
 ];
 
 const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
-  'observatory-hourly-data-generator',
-  'observatory-hourly-ingest',
+  'observatory-minute-data-generator',
+  'observatory-minute-ingest',
   'observatory-daily-publication'
 ];
 
@@ -355,7 +355,7 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
   );
 
   try {
-    await runWorkflow(app, 'observatory-hourly-data-generator', minute, {
+    await runWorkflow(app, 'observatory-minute-data-generator', minute, {
       inboxDir,
       minute,
       rowsPerInstrument: 6,
@@ -366,7 +366,7 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
     const inboxEntries = await readdir(inboxDir);
     assert.equal(inboxEntries.length, 3, 'Synthetic generator should create one CSV per instrument');
 
-    await runWorkflow(app, 'observatory-hourly-ingest', minute, {
+    await runWorkflow(app, 'observatory-minute-ingest', minute, {
       inboxDir,
       stagingDir,
       warehousePath,
@@ -384,7 +384,7 @@ async function runObservatoryScenario(app: FastifyInstance): Promise<void> {
 
     await assertWorkflowAsset(
       app,
-      'observatory-hourly-ingest',
+      'observatory-minute-ingest',
       'observatory.timeseries.duckdb',
       minute
     );

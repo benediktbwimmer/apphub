@@ -93,7 +93,7 @@ The catalog packages each observatory bundle automatically when you import the e
 2. Publish bundles and register the job definitions exported from the example module.
 3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. When importing through the UI the catalog now prompts for the inbox, staging, and warehouse paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
-4. Launch the file-drop watcher in observatory mode so new inbox files trigger `observatory-hourly-ingest` automatically (see `docs/file-drop-watcher.md` for details):
+4. Launch the file-drop watcher in observatory mode so new inbox files trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash
    cd examples/environmental-observatory/services/observatory-file-watcher
    npm install
@@ -101,7 +101,7 @@ The catalog packages each observatory bundle automatically when you import the e
    FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
    FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
    FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
-   FILE_DROP_WORKFLOW_SLUG=observatory-hourly-ingest \
+   FILE_DROP_WORKFLOW_SLUG=observatory-minute-ingest \
    FILE_WATCH_STRATEGY=observatory \
    CATALOG_API_TOKEN=dev-ops-token \
    npm run dev
@@ -109,12 +109,12 @@ The catalog packages each observatory bundle automatically when you import the e
    Override `CATALOG_API_BASE_URL` if the catalog API is not running on `127.0.0.1:4000`.
 5. Register both workflows by copying the curated JSON definitions:
    ```bash
-   cp examples/environmental-observatory/workflows/observatory-hourly-ingest.json tmp/observatory-hourly-ingest.json
+   cp examples/environmental-observatory/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
    cp examples/environmental-observatory/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
 6. Simulate an instrument drop by writing new minute CSV files into `inbox` (the watcher will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash
-   curl -X POST http://127.0.0.1:4000/workflows/observatory-hourly-ingest/run \
+   curl -X POST http://127.0.0.1:4000/workflows/observatory-minute-ingest/run \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      --data '{
@@ -129,7 +129,7 @@ The catalog packages each observatory bundle automatically when you import the e
    ```
 7. Inspect assets via the API:
    ```bash
-   curl -sS http://127.0.0.1:4000/workflows/observatory-hourly-ingest/assets | jq
+   curl -sS http://127.0.0.1:4000/workflows/observatory-minute-ingest/assets | jq
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 

@@ -1,5 +1,5 @@
 {
-  "slug": "observatory-hourly-ingest",
+  "slug": "observatory-minute-ingest",
   "name": "Observatory Minute Ingest",
   "version": 1,
   "description": "Normalizes inbox CSVs and persists minute-level readings into DuckDB.",

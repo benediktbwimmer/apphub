@@ -21,13 +21,13 @@ const environmentalObservatoryJobSlugs: ExampleJobSlug[] = [
 const environmentalObservatoryJobs = environmentalObservatoryJobSlugs.map(loadExampleJobDefinition);
 
 const observatoryWorkflowSlugs: ExampleWorkflowSlug[] = [
-  'observatory-hourly-data-generator',
-  'observatory-hourly-ingest',
+  'observatory-minute-data-generator',
+  'observatory-minute-ingest',
   'observatory-daily-publication'
 ];
 const [
-  observatoryHourlyDataGeneratorWorkflow,
-  observatoryHourlyIngestWorkflow,
+  observatoryMinuteDataGeneratorWorkflow,
+  observatoryMinuteIngestWorkflow,
   observatoryDailyPublicationWorkflow
 ] = observatoryWorkflowSlugs.map(loadExampleWorkflowDefinition);
 
@@ -37,8 +37,8 @@ const [
     assert.ok(parsed.slug.startsWith('observatory-'));
   }
 
-  const generator = workflowDefinitionCreateSchema.parse(observatoryHourlyDataGeneratorWorkflow);
-  const ingest = workflowDefinitionCreateSchema.parse(observatoryHourlyIngestWorkflow);
+  const generator = workflowDefinitionCreateSchema.parse(observatoryMinuteDataGeneratorWorkflow);
+  const ingest = workflowDefinitionCreateSchema.parse(observatoryMinuteIngestWorkflow);
   const publication = workflowDefinitionCreateSchema.parse(observatoryDailyPublicationWorkflow);
 
   assert.equal(generator.steps.length, 1);

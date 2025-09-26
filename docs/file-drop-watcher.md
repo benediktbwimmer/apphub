@@ -71,7 +71,7 @@ flowchart TD
 
 ## Using the Watcher for the Environmental Observatory Example
 
-Reuse the watcher to trigger the `observatory-hourly-ingest` workflow automatically whenever instruments drop new hourly CSVs into the inbox. From the repository root:
+Reuse the watcher to trigger the `observatory-minute-ingest` workflow automatically whenever instruments drop new minute CSVs into the inbox. From the repository root:
 
 ```bash
 cd examples/file-drop/services/file-drop-watcher
@@ -80,12 +80,12 @@ npm install
 FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/environmental-observatory/inbox \
 FILE_WATCH_STAGING_DIR=$(pwd)/../../catalog/data/examples/environmental-observatory/staging \
 FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb \
-FILE_DROP_WORKFLOW_SLUG=observatory-hourly-ingest \
+FILE_DROP_WORKFLOW_SLUG=observatory-minute-ingest \
 FILE_WATCH_STRATEGY=observatory \
 CATALOG_API_TOKEN=dev-ops-token \
 npm run dev
 ```
 
-The watcher batches files by hour, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
+The watcher batches files by minute, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
 
 > Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand.

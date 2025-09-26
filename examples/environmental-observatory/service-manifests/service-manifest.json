@@ -41,7 +41,7 @@
           }
         },
         { "key": "FILE_WATCH_STRATEGY", "value": "observatory" },
-        { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-hourly-ingest" },
+        { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-minute-ingest" },
         { "key": "FILE_WATCH_MAX_FILES", "value": "64" },
         { "key": "FILE_WATCH_VACUUM", "value": "false" },
         { "key": "FILE_WATCH_AUTO_COMPLETE", "value": "true" },

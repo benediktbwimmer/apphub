@@ -9,6 +9,6 @@
 
 ## Proposed Direction
 - Extend `workflowDefinitionCreateSchema` so time-window partitioning supports minute granularity (and any other lower-interval values required by the observatory examples).
-- Audit the example workflow JSON (e.g. `examples/environmental-observatory/workflows/observatory-hourly-ingest.json`) against the updated schema and trim any manifest-only keys that the API legitimately rejects.
+- Audit the example workflow JSON (e.g. `examples/environmental-observatory/workflows/observatory-minute-ingest.json`) against the updated schema and trim any manifest-only keys that the API legitimately rejects.
 - Ensure `workflowStepSchema` tolerates workflow job steps without the persisted manifest fields (such as `storeResultAs`) when imported programmatically.
 - Re-run `examples/tests/catalog/loadAllExamples.e2e.ts` to confirm the test passes without reintroducing config persistence.
