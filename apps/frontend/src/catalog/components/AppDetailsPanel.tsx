@@ -744,13 +744,16 @@ function LaunchSummarySection({
   const initialEnvRowsRef = useRef<LaunchEnvRow[]>(rowsFromEnv(mergedEnvForLaunch));
 
   const initialDefaultCommandRef = useRef<string>('');
+  const initialLaunchCommand = launch?.command?.trim();
   if (!initialDefaultCommandRef.current) {
-    initialDefaultCommandRef.current = buildDockerRunCommandString({
-      repositoryId: app.id,
-      launchId: initialLaunchIdRef.current,
-      imageTag: app.latestBuild?.imageTag ?? null,
-      env: initialEnvRowsRef.current.map(({ key, value }) => ({ key, value }))
-    });
+    initialDefaultCommandRef.current = initialLaunchCommand?.length
+      ? initialLaunchCommand
+      : buildDockerRunCommandString({
+          repositoryId: app.id,
+          launchId: initialLaunchIdRef.current,
+          imageTag: app.latestBuild?.imageTag ?? null,
+          env: initialEnvRowsRef.current.map(({ key, value }) => ({ key, value }))
+        });
   }
 
   const [envRows, setEnvRows] = useState<LaunchEnvRow[]>(initialEnvRowsRef.current);
@@ -769,13 +772,18 @@ function LaunchSummarySection({
       setLastLaunchId(currentId);
       const nextPendingId = createLaunchId();
       setPendingLaunchId(nextPendingId);
-      const nextDefault = buildDockerRunCommandString({
-        repositoryId: app.id,
-        launchId: nextPendingId,
-        imageTag: app.latestBuild?.imageTag ?? null,
-        env: nextEnvRows.map(({ key, value }) => ({ key, value }))
-      });
-      setGeneratedDefaultCommand(nextDefault);
+      const launchCommand = launch?.command?.trim();
+      if (launchCommand && launchCommand.length > 0) {
+        setGeneratedDefaultCommand(launchCommand);
+      } else {
+        const nextDefault = buildDockerRunCommandString({
+          repositoryId: app.id,
+          launchId: nextPendingId,
+          imageTag: app.latestBuild?.imageTag ?? null,
+          env: nextEnvRows.map(({ key, value }) => ({ key, value }))
+        });
+        setGeneratedDefaultCommand(nextDefault);
+      }
       return;
     }
 
@@ -818,6 +826,16 @@ function LaunchSummarySection({
   const envForLaunch = useMemo<LaunchEnvVar[]>(() => envRows.map(({ key, value }) => ({ key, value })), [envRows]);
 
   useEffect(() => {
+    const launchCommand = launch?.command?.trim();
+    if (launchCommand && launchCommand.length > 0) {
+      setGeneratedDefaultCommand((prev) => (prev === launchCommand ? prev : launchCommand));
+      return;
+    }
+
+    if (editingDisabled) {
+      return;
+    }
+
     const nextDefault = buildDockerRunCommandString({
       repositoryId: app.id,
       launchId: pendingLaunchId,
@@ -825,7 +843,14 @@ function LaunchSummarySection({
       env: envForLaunch
     });
     setGeneratedDefaultCommand((prevDefault) => (prevDefault === nextDefault ? prevDefault : nextDefault));
-  }, [app.id, app.latestBuild?.imageTag, envForLaunch, pendingLaunchId]);
+  }, [
+    app.id,
+    app.latestBuild?.imageTag,
+    editingDisabled,
+    envForLaunch,
+    launch?.command,
+    pendingLaunchId
+  ]);
 
   const editingDisabled =
     isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
