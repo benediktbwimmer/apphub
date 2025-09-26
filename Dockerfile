@@ -11,6 +11,7 @@ COPY apps/frontend/package.json apps/frontend/package-lock.json apps/frontend/
 COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
 COPY services/catalog/package.json services/catalog/package-lock.json services/catalog/
 COPY services/metastore/package.json services/metastore/
+COPY services/timestore/package.json services/timestore/
 COPY packages/example-bundler/package.json packages/example-bundler/
 COPY packages/examples-registry/package.json packages/examples-registry/
 COPY packages/shared/package.json packages/shared/
@@ -24,9 +25,11 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build --workspace @apphub/catalog
 RUN npm run build --workspace @apphub/metastore
 RUN npm run build --workspace @apphub/frontend
+RUN npm run build --workspace @apphub/timestore
 RUN npm prune --omit=dev
 RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
 RUN rm -rf services/metastore/node_modules && ln -s ../../node_modules services/metastore/node_modules
+RUN rm -rf services/timestore/node_modules && ln -s ../../node_modules services/timestore/node_modules
 RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
 RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
 RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
@@ -62,7 +65,7 @@ RUN apt-get update \
   && python3 --version \
   && pip3 --version \
   && npm install -g serve \
-  && mkdir -p /app/data /app/data/docker /app/services
+  && mkdir -p /app/data /app/data/docker /app/data/timestore /app/services
 
 ENV NODE_ENV=production \
     PORT=4000 \
@@ -75,7 +78,12 @@ ENV NODE_ENV=production \
     POSTGRES_PASSWORD=apphub \
     POSTGRES_DB=apphub \
     POSTGRES_PORT=5432 \
-    PGDATA=/app/data/postgres
+    PGDATA=/app/data/postgres \
+    TIMESTORE_DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
+    TIMESTORE_PG_SCHEMA=timestore \
+    TIMESTORE_STORAGE_ROOT=/app/data/timestore \
+    TIMESTORE_HOST=0.0.0.0 \
+    TIMESTORE_PORT=4200
 
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/packages packages
@@ -86,6 +94,9 @@ COPY --from=builder /app/services/catalog/dist services/catalog/dist
 COPY --from=builder /app/services/metastore/package.json services/metastore/package.json
 COPY --from=builder /app/services/metastore/node_modules services/metastore/node_modules
 COPY --from=builder /app/services/metastore/dist services/metastore/dist
+COPY --from=builder /app/services/timestore/package.json services/timestore/package.json
+COPY --from=builder /app/services/timestore/node_modules services/timestore/node_modules
+COPY --from=builder /app/services/timestore/dist services/timestore/dist
 COPY --from=builder /app/apps/cli apps/cli
 COPY --from=builder /app/examples examples
 COPY --from=builder /app/apps/frontend/dist apps/frontend/dist
@@ -144,6 +155,40 @@ command=node services/metastore/dist/server.js
 directory=/app
 environment=PORT=4100,HOST=0.0.0.0
 priority=25
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:timestore-api]
+command=node services/timestore/dist/server.js
+directory=/app
+environment=TIMESTORE_HOST=0.0.0.0,TIMESTORE_PORT=4200,TIMESTORE_STORAGE_ROOT=/app/data/timestore
+priority=27
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:timestore-ingest]
+command=node services/timestore/dist/workers/ingestionWorker.js
+directory=/app
+priority=28
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:timestore-lifecycle]
+command=node services/timestore/dist/workers/lifecycleWorker.js
+directory=/app
+priority=29
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -218,6 +263,6 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 SUPERVISOR
 
-EXPOSE 4000 4173 6379
+EXPOSE 4000 4173 4200 6379
 
 CMD ["supervisord", "-n"]
