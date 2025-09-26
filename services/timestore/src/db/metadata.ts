@@ -403,6 +403,78 @@ export async function listActiveDatasets(): Promise<DatasetRecord[]> {
   });
 }
 
+export interface DatasetListOptions {
+  limit?: number;
+  cursor?: { updatedAt: string; id: string } | null;
+  status?: DatasetStatus | 'all';
+  search?: string;
+}
+
+export interface DatasetListResult {
+  datasets: DatasetRecord[];
+  nextCursor: { updatedAt: string; id: string } | null;
+}
+
+export async function listDatasets(options: DatasetListOptions = {}): Promise<DatasetListResult> {
+  const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+  const statusFilter = options.status && options.status !== 'all' ? options.status : null;
+  const cursor = options.cursor;
+  const search = options.search?.trim();
+
+  return withConnection(async (client) => {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+
+    if (statusFilter) {
+      values.push(statusFilter);
+      conditions.push(`status = $${values.length}`);
+    }
+
+    if (search && search.length > 0) {
+      values.push(`%${search.toLowerCase()}%`);
+      conditions.push(`(LOWER(slug) LIKE $${values.length} OR LOWER(name) LIKE $${values.length})`);
+    }
+
+    if (cursor) {
+      values.push(cursor.updatedAt);
+      values.push(cursor.id);
+      const updatedAtParam = values.length - 1;
+      const idParam = values.length;
+      conditions.push(`(updated_at, id) < ($${updatedAtParam}::timestamptz, $${idParam}::text)`);
+    }
+
+    values.push(limit + 1);
+    const limitParam = values.length;
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await client.query<DatasetRow>(
+      `SELECT *
+         FROM datasets
+        ${whereClause}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $${limitParam}`,
+      values
+    );
+
+    let nextCursor: { updatedAt: string; id: string } | null = null;
+    let resultRows = rows;
+
+    if (rows.length > limit) {
+      const cursorRow = rows[limit];
+      nextCursor = {
+        updatedAt: cursorRow.updated_at,
+        id: cursorRow.id
+      };
+      resultRows = rows.slice(0, limit);
+    }
+
+    return {
+      datasets: resultRows.map(mapDataset),
+      nextCursor
+    } satisfies DatasetListResult;
+  });
+}
+
 export async function updateDatasetDefaultStorageTarget(
   datasetId: string,
   storageTargetId: string
@@ -701,6 +773,28 @@ export async function getStorageTargetByName(name: string): Promise<StorageTarge
       return null;
     }
     return mapStorageTarget(rows[0]);
+  });
+}
+
+export async function listStorageTargets(kind?: StorageTargetKind): Promise<StorageTargetRecord[]> {
+  return withConnection(async (client) => {
+    if (kind) {
+      const { rows } = await client.query<StorageTargetRow>(
+        `SELECT *
+           FROM storage_targets
+          WHERE kind = $1
+          ORDER BY created_at DESC`,
+        [kind]
+      );
+      return rows.map(mapStorageTarget);
+    }
+
+    const { rows } = await client.query<StorageTargetRow>(
+      `SELECT *
+         FROM storage_targets
+        ORDER BY created_at DESC`
+    );
+    return rows.map(mapStorageTarget);
   });
 }
 

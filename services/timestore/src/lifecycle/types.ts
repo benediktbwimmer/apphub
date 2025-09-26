@@ -63,7 +63,7 @@ const retentionRuleSchema = z.object({
   maxTotalBytes: z.number().int().positive().optional()
 });
 
-const retentionPolicySchema = z
+export const retentionPolicySchema = z
   .object({
   mode: z.enum(['time', 'size', 'hybrid']).optional(),
   rules: retentionRuleSchema.default({}),

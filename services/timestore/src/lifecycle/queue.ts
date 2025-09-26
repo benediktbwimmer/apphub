@@ -1,4 +1,4 @@
-import { Queue, QueueScheduler, Worker } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import type { JobsOptions, WorkerOptions, Processor } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
 import type { ServiceConfig } from '../config/serviceConfig';
@@ -8,7 +8,14 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
 
 let queueInstance: Queue<LifecycleJobPayload> | null = null;
-let schedulerInstance: QueueScheduler | null = null;
+type QueueSchedulerLike = {
+  waitUntilReady(): Promise<void>;
+  close(): Promise<void>;
+};
+
+type QueueSchedulerConstructor = new (queueName: string, options: { connection: Redis }) => QueueSchedulerLike;
+
+let schedulerInstance: QueueSchedulerLike | null = null;
 let connectionInstance: Redis | null = null;
 
 export const LIFECYCLE_QUEUE_NAME_DEFAULT = 'timestore_lifecycle_queue';
@@ -31,7 +38,7 @@ export function ensureLifecycleQueue(config: ServiceConfig): Queue<LifecycleJobP
   return queueInstance;
 }
 
-export function ensureLifecycleScheduler(config: ServiceConfig): QueueScheduler {
+export function ensureLifecycleScheduler(config: ServiceConfig): QueueSchedulerLike {
   if (inlineMode) {
     throw new Error('Lifecycle scheduler unavailable in inline mode');
   }
@@ -39,7 +46,11 @@ export function ensureLifecycleScheduler(config: ServiceConfig): QueueScheduler 
     return schedulerInstance;
   }
   const connection = ensureConnection();
-  schedulerInstance = new QueueScheduler(config.lifecycle.queueName, {
+  const ctor = loadQueueSchedulerConstructor();
+  if (!ctor) {
+    throw new Error('QueueScheduler not available in this BullMQ version');
+  }
+  schedulerInstance = new ctor(config.lifecycle.queueName, {
     connection
   });
   return schedulerInstance;
@@ -98,4 +109,30 @@ function ensureConnection(): Redis {
     console.error('[timestore:lifecycle] Redis connection error', err);
   });
   return connectionInstance;
+}
+
+let cachedQueueSchedulerCtor: QueueSchedulerConstructor | null | undefined;
+
+function loadQueueSchedulerConstructor(): QueueSchedulerConstructor | null {
+  if (cachedQueueSchedulerCtor !== undefined) {
+    return cachedQueueSchedulerCtor;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const bullmq = require('bullmq') as Record<string, unknown>;
+    if (typeof bullmq.QueueScheduler === 'function') {
+      cachedQueueSchedulerCtor = bullmq.QueueScheduler as QueueSchedulerConstructor;
+      return cachedQueueSchedulerCtor;
+    }
+    if (typeof bullmq.JobScheduler === 'function') {
+      cachedQueueSchedulerCtor = bullmq.JobScheduler as QueueSchedulerConstructor;
+      return cachedQueueSchedulerCtor;
+    }
+  } catch (error) {
+    // ignore and fall through
+  }
+
+  cachedQueueSchedulerCtor = null;
+  return null;
 }
