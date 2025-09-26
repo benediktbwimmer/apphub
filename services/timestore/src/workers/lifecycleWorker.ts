@@ -2,6 +2,7 @@ import { loadServiceConfig } from '../config/serviceConfig';
 import { closePool, POSTGRES_SCHEMA } from '../db/client';
 import { ensureSchemaExists } from '../db/schema';
 import { runMigrations } from '../db/migrations';
+import { ensureDefaultStorageTarget } from '../service/bootstrap';
 
 async function main(): Promise<void> {
   const config = loadServiceConfig();
@@ -9,6 +10,7 @@ async function main(): Promise<void> {
   console.log(`[timestore:lifecycle] storage driver: ${config.storage.driver}`);
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
+  await ensureDefaultStorageTarget();
   console.log('[timestore:lifecycle] postgres schema ready');
   process.stdin.resume();
 }

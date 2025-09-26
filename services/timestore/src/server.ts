@@ -4,6 +4,8 @@ import { ensureSchemaExists } from './db/schema';
 import { runMigrations } from './db/migrations';
 import { loadServiceConfig } from './config/serviceConfig';
 import { registerHealthRoutes } from './routes/health';
+import { registerIngestionRoutes } from './routes/ingest';
+import { ensureDefaultStorageTarget } from './service/bootstrap';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -14,6 +16,7 @@ async function start(): Promise<void> {
   });
 
   await registerHealthRoutes(app);
+  await registerIngestionRoutes(app);
 
   app.addHook('onClose', async () => {
     await closePool();
@@ -21,6 +24,7 @@ async function start(): Promise<void> {
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
+  await ensureDefaultStorageTarget();
 
   try {
     await app.listen({ port: config.port, host: config.host });

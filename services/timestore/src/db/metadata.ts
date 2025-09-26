@@ -144,6 +144,21 @@ export interface RetentionPolicyRecord {
   updatedAt: string;
 }
 
+export interface IngestionBatchRecord {
+  id: string;
+  datasetId: string;
+  idempotencyKey: string;
+  manifestId: string;
+  createdAt: string;
+}
+
+export interface CreateIngestionBatchInput {
+  id: string;
+  datasetId: string;
+  idempotencyKey: string;
+  manifestId: string;
+}
+
 export async function upsertStorageTarget(input: CreateStorageTargetInput): Promise<StorageTargetRecord> {
   return withConnection(async (client) => {
     const { rows } = await client.query<StorageTargetRow>(
@@ -302,6 +317,21 @@ export async function getDatasetById(id: string): Promise<DatasetRecord | null> 
   });
 }
 
+export async function updateDatasetDefaultStorageTarget(
+  datasetId: string,
+  storageTargetId: string
+): Promise<void> {
+  await withConnection(async (client) => {
+    await client.query(
+      `UPDATE datasets
+          SET default_storage_target_id = $2,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [datasetId, storageTargetId]
+    );
+  });
+}
+
 export async function getLatestPublishedManifest(
   datasetId: string
 ): Promise<DatasetManifestWithPartitions | null> {
@@ -356,6 +386,138 @@ export async function getRetentionPolicy(datasetId: string): Promise<RetentionPo
       return null;
     }
     return mapRetentionPolicy(rows[0]);
+  });
+}
+
+export async function getStorageTargetById(id: string): Promise<StorageTargetRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<StorageTargetRow>(
+      'SELECT * FROM storage_targets WHERE id = $1 LIMIT 1',
+      [id]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapStorageTarget(rows[0]);
+  });
+}
+
+export async function getStorageTargetByName(name: string): Promise<StorageTargetRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<StorageTargetRow>(
+      'SELECT * FROM storage_targets WHERE name = $1 LIMIT 1',
+      [name]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapStorageTarget(rows[0]);
+  });
+}
+
+export async function getNextSchemaVersion(datasetId: string): Promise<number> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<{ max_version: number | null }>(
+      'SELECT MAX(version) AS max_version FROM dataset_schema_versions WHERE dataset_id = $1',
+      [datasetId]
+    );
+    const maxVersion = rows[0]?.max_version ?? 0;
+    return maxVersion + 1;
+  });
+}
+
+export async function findSchemaVersionByChecksum(
+  datasetId: string,
+  checksum: string
+): Promise<DatasetSchemaVersionRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetSchemaVersionRow>(
+      `SELECT *
+         FROM dataset_schema_versions
+        WHERE dataset_id = $1 AND checksum = $2
+        ORDER BY version DESC
+        LIMIT 1`,
+      [datasetId, checksum]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapSchemaVersion(rows[0]);
+  });
+}
+
+export async function getNextManifestVersion(datasetId: string): Promise<number> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<{ max_version: number | null }>(
+      'SELECT MAX(version) AS max_version FROM dataset_manifests WHERE dataset_id = $1',
+      [datasetId]
+    );
+    const maxVersion = rows[0]?.max_version ?? 0;
+    return maxVersion + 1;
+  });
+}
+
+export async function getManifestById(manifestId: string): Promise<DatasetManifestWithPartitions | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1 LIMIT 1',
+      [manifestId]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    const manifest = mapManifest(rows[0]);
+    const partitions = await fetchPartitions(client, manifest.id);
+    return {
+      ...manifest,
+      partitions
+    };
+  });
+}
+
+export async function getIngestionBatch(
+  datasetId: string,
+  idempotencyKey: string
+): Promise<IngestionBatchRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<IngestionBatchRow>(
+      `SELECT *
+         FROM ingestion_batches
+        WHERE dataset_id = $1 AND idempotency_key = $2
+        LIMIT 1`,
+      [datasetId, idempotencyKey]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapIngestionBatch(rows[0]);
+  });
+}
+
+export async function recordIngestionBatch(
+  input: CreateIngestionBatchInput
+): Promise<IngestionBatchRecord> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<IngestionBatchRow>(
+      `INSERT INTO ingestion_batches (id, dataset_id, idempotency_key, manifest_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (dataset_id, idempotency_key) DO NOTHING
+       RETURNING *` as const,
+      [input.id, input.datasetId, input.idempotencyKey, input.manifestId]
+    );
+
+    if (rows.length > 0) {
+      return mapIngestionBatch(rows[0]);
+    }
+
+    const { rows: existingRows } = await client.query<IngestionBatchRow>(
+      `SELECT * FROM ingestion_batches WHERE dataset_id = $1 AND idempotency_key = $2 LIMIT 1`,
+      [input.datasetId, input.idempotencyKey]
+    );
+    if (existingRows.length === 0) {
+      throw new Error('Failed to record ingestion batch idempotency entry');
+    }
+    return mapIngestionBatch(existingRows[0]);
   });
 }
 
@@ -544,6 +706,14 @@ type RetentionPolicyRow = {
   updated_at: string;
 };
 
+type IngestionBatchRow = {
+  id: string;
+  dataset_id: string;
+  idempotency_key: string;
+  manifest_id: string;
+  created_at: string;
+};
+
 function mapStorageTarget(row: StorageTargetRow): StorageTargetRecord {
   return {
     id: row.id,
@@ -628,5 +798,15 @@ function mapRetentionPolicy(row: RetentionPolicyRow): RetentionPolicyRecord {
     datasetId: row.dataset_id,
     policy: row.policy,
     updatedAt: row.updated_at
+  };
+}
+
+function mapIngestionBatch(row: IngestionBatchRow): IngestionBatchRecord {
+  return {
+    id: row.id,
+    datasetId: row.dataset_id,
+    idempotencyKey: row.idempotency_key,
+    manifestId: row.manifest_id,
+    createdAt: row.created_at
   };
 }

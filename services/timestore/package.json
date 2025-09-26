@@ -11,11 +11,15 @@
     "build:ts": "tsc -b",
     "lint": "tsc -b --pretty false",
     "lifecycle": "tsx src/workers/lifecycleWorker.ts",
-    "test": "tsx --test tests/**/*.test.ts"
+    "ingest": "tsx src/workers/ingestionWorker.ts",
+    "test": "node --test --require ts-node/register tests/**/*.test.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.0",
+    "@aws-sdk/client-s3": "^3.896.0",
+    "bullmq": "^5.58.8",
     "fastify": "^5.6.1",
+    "ioredis": "^5.8.0",
     "pg": "^8.16.3",
     "zod": "^3.25.76"
   },
@@ -24,6 +28,7 @@
     "@types/pg": "^8.15.5",
     "embedded-postgres": "^17.6.0-beta.15",
     "tsx": "^4.20.5",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   }
 }

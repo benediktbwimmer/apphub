@@ -6,6 +6,7 @@ The timestore service exposes a Fastify API that fronts a DuckDB-backed time ser
 - Ensure a PostgreSQL instance is running. The service defaults to the catalog database at `postgres://apphub:apphub@127.0.0.1:5432/apphub`.
 - From the monorepo root, run `npm install` once to link dependencies, then start the server with `npm run dev:timestore`.
 - Optional: launch the lifecycle worker placeholder with `npm run dev:timestore:lifecycle` in a separate terminal.
+- Launch the ingestion worker with `npm run dev:timestore:ingest` to process queued ingestion batches (BullMQ + Redis).
 
 The service listens on `http://127.0.0.1:4100` by default and exposes `/health` and `/ready` endpoints for smoke tests.
 
@@ -22,8 +23,15 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
 | `TIMESTORE_S3_BUCKET` | Bucket for remote partition storage when `storageDriver` is `s3`. | `timestore-data` |
 | `TIMESTORE_LOG_LEVEL` | Pino log level for Fastify. | `info` |
+| `TIMESTORE_INGEST_QUEUE_NAME` | BullMQ queue name for ingestion jobs. | `timestore_ingest_queue` |
+| `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
 
 When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the catalog connection pool helpers so migrations and manifests share the managed database.
+
+## HTTP Ingestion API
+- `POST /datasets/:datasetSlug/ingest` accepts a JSON payload containing schema metadata, a partition key, records (JSON objects), and optional `idempotency-key` header. Jobs enqueue over Redis/BullMQ unless `REDIS_URL=inline` (tests/dev) in which case ingestion runs inline.
+- Successful ingestions create a new dataset (if needed), versioned schema definition, manifest, and DuckDB partition file on the configured storage target.
+- The API responds synchronously when running inline, otherwise returns a `202 Accepted` with the enqueued job id.
 
 ## Testing
 - Run `npm run lint --workspace @apphub/timestore` to type-check the service.

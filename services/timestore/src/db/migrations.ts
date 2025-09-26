@@ -111,6 +111,19 @@ const migrations: Migration[] = [
          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        );`
     ]
+  },
+  {
+    id: '002_timestore_ingestion_batches',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ingestion_batches (
+         id TEXT PRIMARY KEY,
+         dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+         idempotency_key TEXT NOT NULL,
+         manifest_id TEXT NOT NULL REFERENCES dataset_manifests(id) ON DELETE CASCADE,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (dataset_id, idempotency_key)
+       );`
+    ]
   }
 ];
 
