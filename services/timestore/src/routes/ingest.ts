@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { ingestionRequestSchema, ingestionJobPayloadSchema } from '../ingestion/types';
 import { enqueueIngestionJob, isInlineQueueMode } from '../queue';
-import { loadDatasetForWrite, resolveRequestActor } from '../service/iam';
+import { loadDatasetForWrite, resolveRequestActor, getRequestScopes } from '../service/iam';
+import { recordDatasetAccessEvent } from '../db/metadata';
 
 const paramsSchema = z.object({
   datasetSlug: z.string().min(1)
@@ -13,11 +15,53 @@ const bodySchema = ingestionRequestSchema.omit({ datasetSlug: true });
 export async function registerIngestionRoutes(app: FastifyInstance): Promise<void> {
   app.post('/datasets/:datasetSlug/ingest', async (request, reply) => {
     const params = paramsSchema.parse(request.params);
-    const actor = resolveRequestActor(request as FastifyRequest);
+    const fastifyRequest = request as FastifyRequest;
+    const actor = resolveRequestActor(fastifyRequest);
+    const scopes = getRequestScopes(fastifyRequest);
+    let datasetResult = await loadDatasetForWrite(fastifyRequest, params.datasetSlug).catch(async (error) => {
+      await recordDatasetAccessEvent({
+        id: `daa-${randomUUID()}`,
+        datasetId: null,
+        datasetSlug: params.datasetSlug,
+        actorId: actor?.id ?? null,
+        actorScopes: scopes,
+        action: 'ingest',
+        success: false,
+        metadata: {
+          stage: 'authorize',
+          error: error instanceof Error ? error.message : String(error)
+        }
+      });
+      throw error;
+    });
+    let datasetId: string | null = datasetResult?.id ?? null;
+
+    const recordFailure = async (stage: string, error: unknown) => {
+      await recordDatasetAccessEvent({
+        id: `daa-${randomUUID()}`,
+        datasetId,
+        datasetSlug: params.datasetSlug,
+        actorId: actor?.id ?? null,
+        actorScopes: scopes,
+        action: 'ingest',
+        success: false,
+        metadata: {
+          stage,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }).catch((auditError) => {
+        (request.log ?? reply.log).error(
+          {
+            event: 'dataset.ingest.audit_failed',
+            datasetSlug: params.datasetSlug,
+            error: auditError instanceof Error ? auditError.message : String(auditError)
+          },
+          'failed to write dataset access audit log'
+        );
+      });
+    };
 
     try {
-      const dataset = await loadDatasetForWrite(request as FastifyRequest, params.datasetSlug);
-
       const idempotencyHeader = request.headers['idempotency-key'];
       const rawBody =
         typeof request.body === 'object' && request.body !== null
@@ -43,6 +87,7 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
       const result = await enqueueIngestionJob(payload);
 
       if (result.mode === 'inline' && result.result) {
+        datasetId = result.result.dataset.id;
         (request.log ?? reply.log).info(
           {
             event: 'dataset.ingest',
@@ -53,6 +98,21 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           },
           'dataset ingestion completed inline'
         );
+
+        await recordDatasetAccessEvent({
+          id: `daa-${randomUUID()}`,
+          datasetId: result.result.dataset.id,
+          datasetSlug: params.datasetSlug,
+          actorId: actor?.id ?? null,
+          actorScopes: scopes,
+          action: 'ingest',
+          success: true,
+          metadata: {
+            mode: 'inline',
+            manifestId: result.result.manifest.id
+          }
+        });
+
         return reply.status(201).send({
           mode: 'inline',
           manifest: result.result.manifest,
@@ -64,7 +124,7 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
       (request.log ?? reply.log).info(
         {
           event: 'dataset.ingest.enqueued',
-          datasetId: dataset?.id ?? null,
+          datasetId,
           datasetSlug: params.datasetSlug,
           actorId: actor?.id ?? null,
           mode: 'queued',
@@ -73,11 +133,26 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
         'dataset ingestion enqueued'
       );
 
+      await recordDatasetAccessEvent({
+        id: `daa-${randomUUID()}`,
+        datasetId,
+        datasetSlug: params.datasetSlug,
+        actorId: actor?.id ?? null,
+        actorScopes: scopes,
+        action: 'ingest',
+        success: true,
+        metadata: {
+          mode: 'queued',
+          jobId: result.jobId
+        }
+      });
+
       return reply.status(isInlineQueueMode() ? 200 : 202).send({
         mode: result.mode,
         jobId: result.jobId
       });
     } catch (error) {
+      await recordFailure('enqueue', error);
       (request.log ?? reply.log).error(
         {
           event: 'dataset.ingest.failed',

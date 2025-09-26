@@ -144,6 +144,18 @@ export interface RetentionPolicyRecord {
   updatedAt: string;
 }
 
+export interface DatasetAccessAuditRecord {
+  id: string;
+  datasetId: string | null;
+  datasetSlug: string;
+  actorId: string | null;
+  actorScopes: string[];
+  action: string;
+  success: boolean;
+  metadata: JsonObject;
+  createdAt: string;
+}
+
 export type LifecycleJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'skipped';
 
 export interface LifecycleJobRunRecord {
@@ -202,6 +214,17 @@ export interface LifecycleAuditLogInput {
   manifestId?: string | null;
   eventType: string;
   payload?: JsonObject;
+}
+
+export interface DatasetAccessAuditInput {
+  id: string;
+  datasetId?: string | null;
+  datasetSlug: string;
+  actorId?: string | null;
+  actorScopes?: string[];
+  action: string;
+  success: boolean;
+  metadata?: JsonObject;
 }
 
 export interface IngestionBatchRecord {
@@ -672,6 +695,57 @@ export async function recordLifecycleAuditEvent(
       [input.id, input.datasetId, input.manifestId ?? null, input.eventType, payload]
     );
     return mapLifecycleAuditLog(rows[0]);
+  });
+}
+
+export async function recordDatasetAccessEvent(
+  input: DatasetAccessAuditInput
+): Promise<DatasetAccessAuditRecord> {
+  const metadataJson = JSON.stringify(input.metadata ?? {});
+  const actorScopes = input.actorScopes ?? [];
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetAccessAuditRow>(
+      `INSERT INTO dataset_access_audit (
+         id,
+         dataset_id,
+         dataset_slug,
+         actor_id,
+         actor_scopes,
+         action,
+         success,
+         metadata
+       ) VALUES ($1, $2, $3, $4, $5::text[], $6, $7, $8::jsonb)
+       RETURNING *` as const,
+      [
+        input.id,
+        input.datasetId ?? null,
+        input.datasetSlug,
+        input.actorId ?? null,
+        actorScopes,
+        input.action,
+        input.success,
+        metadataJson
+      ]
+    );
+    return mapDatasetAccessAudit(rows[0]);
+  });
+}
+
+export async function listDatasetAccessEvents(
+  datasetId: string,
+  limit = 50
+): Promise<DatasetAccessAuditRecord[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 200));
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetAccessAuditRow>(
+      `SELECT *
+         FROM dataset_access_audit
+        WHERE dataset_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [datasetId, boundedLimit]
+    );
+    return rows.map(mapDatasetAccessAudit);
   });
 }
 
@@ -1211,6 +1285,18 @@ type LifecycleAuditLogRow = {
   created_at: string;
 };
 
+type DatasetAccessAuditRow = {
+  id: string;
+  dataset_id: string | null;
+  dataset_slug: string;
+  actor_id: string | null;
+  actor_scopes: string[] | null;
+  action: string;
+  success: boolean;
+  metadata: JsonObject;
+  created_at: string;
+};
+
 function mapStorageTarget(row: StorageTargetRow): StorageTargetRecord {
   return {
     id: row.id,
@@ -1350,6 +1436,20 @@ function mapLifecycleAuditLog(row: LifecycleAuditLogRow): LifecycleAuditLogRecor
     manifestId: row.manifest_id,
     eventType: row.event_type,
     payload: row.payload,
+    createdAt: row.created_at
+  };
+}
+
+function mapDatasetAccessAudit(row: DatasetAccessAuditRow): DatasetAccessAuditRecord {
+  return {
+    id: row.id,
+    datasetId: row.dataset_id,
+    datasetSlug: row.dataset_slug,
+    actorId: row.actor_id,
+    actorScopes: row.actor_scopes ?? [],
+    action: row.action,
+    success: row.success,
+    metadata: row.metadata,
     createdAt: row.created_at
   };
 }

@@ -161,6 +161,26 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_lifecycle_audit_dataset
          ON lifecycle_audit_log(dataset_id, created_at DESC);`
     ]
+  },
+  {
+    id: '004_timestore_dataset_access_audit',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS dataset_access_audit (
+         id TEXT PRIMARY KEY,
+         dataset_id TEXT REFERENCES datasets(id) ON DELETE SET NULL,
+         dataset_slug TEXT NOT NULL,
+         actor_id TEXT,
+         actor_scopes TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+         action TEXT NOT NULL,
+         success BOOLEAN NOT NULL,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_dataset
+         ON dataset_access_audit(dataset_id, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_slug
+         ON dataset_access_audit(dataset_slug, created_at DESC);`
+    ]
   }
 ];
 

@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { buildQueryPlan } from '../query/planner';
 import { executeQueryPlan } from '../query/executor';
-import { loadDatasetForRead, resolveRequestActor } from '../service/iam';
+import { loadDatasetForRead, resolveRequestActor, getRequestScopes } from '../service/iam';
+import { recordDatasetAccessEvent } from '../db/metadata';
+import { randomUUID } from 'node:crypto';
 
 interface QueryRequestRouteParams {
   datasetSlug: string;
@@ -10,12 +12,49 @@ interface QueryRequestRouteParams {
 export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
   app.post('/datasets/:datasetSlug/query', async (request, reply) => {
     const { datasetSlug } = request.params as QueryRequestRouteParams;
+    const fastifyRequest = request as FastifyRequest;
+    const actor = resolveRequestActor(fastifyRequest);
+    const scopes = getRequestScopes(fastifyRequest);
+    let datasetId: string | null = null;
+
+    const recordFailure = async (stage: string, error: unknown) => {
+      await recordDatasetAccessEvent({
+        id: `daa-${randomUUID()}`,
+        datasetId,
+        datasetSlug,
+        actorId: actor?.id ?? null,
+        actorScopes: scopes,
+        action: 'query',
+        success: false,
+        metadata: {
+          stage,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }).catch((auditError) => {
+        (request.log ?? reply.log).error(
+          {
+            event: 'dataset.query.audit_failed',
+            datasetSlug,
+            error: auditError instanceof Error ? auditError.message : String(auditError)
+          },
+          'failed to write dataset access audit log'
+        );
+      });
+    };
+
+    let dataset;
     try {
-      const dataset = await loadDatasetForRead(request as FastifyRequest, datasetSlug);
+      dataset = await loadDatasetForRead(fastifyRequest, datasetSlug);
+      datasetId = dataset.id;
+    } catch (error) {
+      await recordFailure('authorize', error);
+      throw error;
+    }
+
+    try {
       const plan = await buildQueryPlan(datasetSlug, request.body ?? {}, dataset);
       const result = await executeQueryPlan(plan);
 
-      const actor = resolveRequestActor(request as FastifyRequest);
       (request.log ?? reply.log).info(
         {
           event: 'dataset.query',
@@ -30,9 +69,25 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         'dataset query succeeded'
       );
 
+      await recordDatasetAccessEvent({
+        id: `daa-${randomUUID()}`,
+        datasetId: dataset.id,
+        datasetSlug,
+        actorId: actor?.id ?? null,
+        actorScopes: scopes,
+        action: 'query',
+        success: true,
+        metadata: {
+          mode: result.mode,
+          rowCount: result.rows.length,
+          rangeStart: plan.rangeStart.toISOString(),
+          rangeEnd: plan.rangeEnd.toISOString()
+        }
+      });
+
       return reply.status(200).send(result);
     } catch (error) {
-      const actor = resolveRequestActor(request as FastifyRequest);
+      await recordFailure('execute', error);
       (request.log ?? reply.log).error(
         {
           event: 'dataset.query.failed',
