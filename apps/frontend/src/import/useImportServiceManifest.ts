@@ -98,7 +98,7 @@ function buildRequestBody(
     }
   }
 
-  body.requirePlaceholderValues = true;
+  body.requirePlaceholderValues = placeholders.length === 0;
 
   return body;
 }

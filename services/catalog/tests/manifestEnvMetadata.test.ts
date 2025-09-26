@@ -1,6 +1,8 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
+import Fastify from 'fastify';
 import { previewServiceConfigImport } from '../src/serviceConfigLoader';
+import { registerServiceRoutes } from '../src/routes/services';
 import { resolvePortFromManifestEnv } from '../src/serviceRegistry';
 
 async function run() {
@@ -63,6 +65,52 @@ async function run() {
     false,
     'optional placeholders with defaults should not require explicit values'
   );
+
+  const app = Fastify();
+  const stubRegistry = {
+    importManifestModule: async () => ({ servicesApplied: 2, networksApplied: 1 })
+  } as const;
+  await registerServiceRoutes(app, { registry: stubRegistry });
+  try {
+    const confirmResponse = await app.inject({
+      method: 'POST',
+      url: '/service-networks/import',
+      payload: {
+        path: 'examples/environmental-observatory/service-manifests',
+        configPath: 'service-config.json',
+        module: 'github.com/apphub/examples/environmental-observatory',
+        requirePlaceholderValues: true
+      }
+    });
+    assert.equal(confirmResponse.statusCode, 400, 'import should request placeholder confirmation');
+    const confirmBody = confirmResponse.json() as {
+      placeholders?: Array<{ name?: string; missing?: boolean }>;
+    };
+    assert(Array.isArray(confirmBody.placeholders), 'placeholder confirmation should include placeholders');
+    const storagePlaceholder = confirmBody.placeholders?.find(
+      (entry) => entry?.name === 'TIMESTORE_STORAGE_TARGET_ID'
+    );
+    assert(storagePlaceholder, 'placeholder confirmation should surface storage target placeholder');
+    assert.equal(
+      storagePlaceholder?.missing,
+      false,
+      'optional placeholder should not be treated as missing during confirmation'
+    );
+
+    const importResponse = await app.inject({
+      method: 'POST',
+      url: '/service-networks/import',
+      payload: {
+        path: 'examples/environmental-observatory/service-manifests',
+        configPath: 'service-config.json',
+        module: 'github.com/apphub/examples/environmental-observatory',
+        requirePlaceholderValues: false
+      }
+    });
+    assert.equal(importResponse.statusCode, 201, 'import should succeed after confirmation step');
+  } finally {
+    await app.close();
+  }
 }
 
 run().catch((err) => {

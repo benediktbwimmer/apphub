@@ -240,6 +240,14 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
       };
     }
 
+    if (requirePlaceholderValues && preview.placeholders.length > 0 && !variables) {
+      reply.status(400);
+      return {
+        error: 'manifest placeholders require confirmation before import',
+        placeholders: preview.placeholders
+      };
+    }
+
     const missing = preview.placeholders.filter((placeholder) => placeholder.missing);
     if (missing.length > 0) {
       reply.status(400);
