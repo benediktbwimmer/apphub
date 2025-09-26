@@ -159,6 +159,8 @@ npm run reconcile --workspace @apphub/filestore
 3. **Metadata convergence**: hook Metastore/Timestore consumers to the event feed so tags and timelines align with journal output.
 4. **Operationalisation**: finalise SLOs (availability, command success, reconciliation lag), configure alerts, and document runbooks.
 
+Refer to the detailed [Filestore Cutover Runbook](runbooks/filestore-cutover.md) for environment-specific checklists, SLO guidance, and rollback procedures.
+
 ## Open Questions & Risks
 - **Path policy enforcement**: Do we need hierarchical ACLs per namespace, or is backend-level scoping sufficient? (Owner: Platform Auth)
 - **Large directory operations**: For trees with millions of nodes, do we batch commands or invent streaming protocols? Evaluate BullMQ job splitting strategy.

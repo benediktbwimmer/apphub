@@ -109,6 +109,8 @@ Filestore introduces a dedicated Fastify API (`services/filestore`) that owns ca
 - **Downstream integrations**: Metastore subscribes to filestore events to sync tags/annotations, while Timestore ingests journal deltas into a `filestore_activity` dataset so operators can chart storage growth and reconciliation lag.
 - **Developer experience**: local dev defaults Redis to inline mode, letting engineers run the API, watchers, and workers alongside catalog/metastore/timestore via `npm run dev`. Configuration comes from backend mount manifests that describe local directories or mock S3 buckets.
 
+Operational cutovers are documented in the [Filestore Cutover Runbook](runbooks/filestore-cutover.md), including SLO targets, dashboards, and rollback steps.
+
 See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 
 ## Data Model (Initial Draft)
