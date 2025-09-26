@@ -43,7 +43,9 @@ type LatestReport = {
 
 const ROOT_DIR = path.resolve(process.cwd());
 const DEFAULT_REPORTS_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'reports');
-const reportsDir = path.resolve(process.env.REPORTS_DIR ?? DEFAULT_REPORTS_DIR);
+const reportsDir = path.resolve(
+  process.env.OBSERVATORY_REPORTS_DIR ?? process.env.REPORTS_DIR ?? DEFAULT_REPORTS_DIR
+);
 const refreshIntervalMs = Math.max(1000, Number(process.env.DASHBOARD_REFRESH_MS ?? '10000') || 10000);
 
 const fastify = Fastify({

@@ -164,7 +164,7 @@
           "key": "REPORTS_DIR",
           "value": {
             "$var": {
-              "name": "REPORTS_DIR",
+              "name": "OBSERVATORY_REPORTS_DIR",
               "default": "examples/environmental-observatory/data/reports",
               "description": "Directory containing observatory status reports (status.html/json/md)."
             }
