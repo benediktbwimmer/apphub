@@ -8,6 +8,8 @@ import { RequireOperatorToken } from './RequireOperatorToken';
 import ServiceGallery from '../services/ServiceGallery';
 import ServicesLayout from '../services/ServicesLayout';
 import TimestoreDatasetsPage from '../timestore/TimestoreDatasetsPage';
+import TimestoreLayout from '../timestore/TimestoreLayout';
+import TimestoreSqlEditorPage from '../timestore/sql/TimestoreSqlEditorPage';
 import MetastoreExplorerPage from '../metastore/MetastoreExplorerPage';
 import ServicesRouteError from '../services/ServicesRouteError';
 import JobsPage from '../jobs/JobsPage';
@@ -58,7 +60,21 @@ export const appRouteConfig: RouteObject[] = [
           },
           {
             path: ROUTE_SEGMENTS.servicesTimestore,
-            element: <TimestoreDatasetsPage />
+            element: <TimestoreLayout />,
+            children: [
+              {
+                index: true,
+                element: <Navigate to={ROUTE_PATHS.servicesTimestoreDatasets} replace />
+              },
+              {
+                path: ROUTE_SEGMENTS.servicesTimestoreDatasets,
+                element: <TimestoreDatasetsPage />
+              },
+              {
+                path: ROUTE_SEGMENTS.servicesTimestoreSql,
+                element: <TimestoreSqlEditorPage />
+              }
+            ]
           },
           {
             path: ROUTE_SEGMENTS.servicesMetastore,

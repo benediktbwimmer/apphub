@@ -15,6 +15,7 @@ type BaseEditorProps = {
   ariaLabel?: string;
   options?: MonacoEditorProps['options'];
   className?: string;
+  onMount?: OnMount;
 };
 
 export type EditorProps = BaseEditorProps;
@@ -40,7 +41,8 @@ export function Editor({
   readOnly = false,
   ariaLabel,
   options,
-  className
+  className,
+  onMount: userOnMount
 }: BaseEditorProps) {
   const theme = useMonacoTheme();
 
@@ -60,6 +62,7 @@ export function Editor({
     }
     registerThemes(monaco);
     monaco.editor.setTheme(getAppliedTheme(theme));
+    userOnMount?.(editor, monaco);
   };
 
   const appliedTheme = getAppliedTheme(theme);

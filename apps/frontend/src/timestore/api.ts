@@ -8,7 +8,9 @@ import type {
   RetentionPolicy,
   RetentionResponse,
   LifecycleRunResponse,
-  QueryResponse
+  QueryResponse,
+  SqlSchemaResponse,
+  SqlQueryResult
 } from './types';
 import {
   datasetListResponseSchema,
@@ -18,7 +20,9 @@ import {
   retentionResponseSchema,
   lifecycleRunCompletedSchema,
   lifecycleRunQueuedSchema,
-  queryResponseSchema
+  queryResponseSchema,
+  sqlSchemaResponseSchema,
+  sqlQueryResultSchema
 } from './types';
 
 export type DatasetListParams = {
@@ -26,6 +30,12 @@ export type DatasetListParams = {
   limit?: number;
   search?: string | null;
   status?: 'active' | 'inactive' | 'all';
+};
+
+export type SqlQueryRequest = {
+  statement: string;
+  maxRows?: number;
+  defaultSchema?: string;
 };
 
 async function parseJson<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -219,4 +229,53 @@ export async function fetchMetrics(
     throw new Error(`Fetch metrics failed with status ${response.status}`);
   }
   return response.text();
+}
+
+function extractSqlErrorMessage(raw: string, status: number): string {
+  if (!raw) {
+    return `SQL query failed with status ${status}`;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { message?: unknown; error?: unknown; details?: unknown };
+    const candidate = parsed.message ?? parsed.error ?? parsed.details;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate;
+    }
+  } catch {
+    // Ignore JSON parsing issues and fall back to raw text.
+  }
+  return raw;
+}
+
+export async function fetchSqlSchema(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  options: { signal?: AbortSignal } = {}
+): Promise<SqlSchemaResponse> {
+  const url = new URL('/admin/sql/schema', TIMESTORE_BASE_URL);
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  if (!response.ok) {
+    throw new Error(`Fetch SQL schema failed with status ${response.status}`);
+  }
+  return parseJson(response, sqlSchemaResponseSchema);
+}
+
+export async function executeSqlQuery(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  request: SqlQueryRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<SqlQueryResult> {
+  const url = new URL('/admin/sql/query', TIMESTORE_BASE_URL);
+  const response = await authorizedFetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: options.signal
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(extractSqlErrorMessage(text, response.status));
+  }
+  const normalized = text.trim();
+  const payload = normalized ? (JSON.parse(normalized) as unknown) : {};
+  return sqlQueryResultSchema.parse(payload);
 }

@@ -170,3 +170,52 @@ export const queryResponseSchema = z.object({
 });
 
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
+
+export const sqlSchemaColumnSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  nullable: z.boolean().optional(),
+  description: z.string().nullable().optional()
+});
+
+export type SqlSchemaColumn = z.infer<typeof sqlSchemaColumnSchema>;
+
+export const sqlSchemaTableSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  partitionKeys: z.array(z.string()).optional(),
+  columns: z.array(sqlSchemaColumnSchema)
+});
+
+export type SqlSchemaTable = z.infer<typeof sqlSchemaTableSchema>;
+
+export const sqlSchemaResponseSchema = z.object({
+  fetchedAt: z.string().optional(),
+  version: z.string().optional(),
+  tables: z.array(sqlSchemaTableSchema)
+});
+
+export type SqlSchemaResponse = z.infer<typeof sqlSchemaResponseSchema>;
+
+export const sqlQueryColumnSchema = z.object({
+  name: z.string(),
+  type: z.string().nullable().optional()
+});
+
+export type SqlQueryColumn = z.infer<typeof sqlQueryColumnSchema>;
+
+export const sqlQueryResultSchema = z.object({
+  executionId: z.string().optional(),
+  columns: z.array(sqlQueryColumnSchema),
+  rows: z.array(z.record(z.string(), z.unknown())),
+  truncated: z.boolean().optional(),
+  warnings: z.array(z.string()).optional(),
+  statistics: z
+    .object({
+      rowCount: z.number().nonnegative().optional(),
+      elapsedMs: z.number().nonnegative().optional()
+    })
+    .optional()
+});
+
+export type SqlQueryResult = z.infer<typeof sqlQueryResultSchema>;

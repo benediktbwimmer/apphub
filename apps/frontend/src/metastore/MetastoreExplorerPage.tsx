@@ -645,7 +645,7 @@ export default function MetastoreExplorerPage() {
                   <div className="flex flex-wrap gap-2">
                     {crossLinks.datasetSlug ? (
                       <Link
-                        to={`${ROUTE_PATHS.servicesTimestore}?dataset=${encodeURIComponent(crossLinks.datasetSlug)}`}
+                        to={`${ROUTE_PATHS.servicesTimestoreDatasets}?dataset=${encodeURIComponent(crossLinks.datasetSlug)}`}
                         className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
                       >
                         View dataset {crossLinks.datasetSlug}

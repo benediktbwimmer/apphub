@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
@@ -27,6 +28,7 @@ import { QueryConsole } from './components/QueryConsole';
 import { LifecycleControls } from './components/LifecycleControls';
 import { MetricsSummary } from './components/MetricsSummary';
 import { formatInstant } from './utils';
+import { ROUTE_PATHS } from '../routes/paths';
 
 const DATASET_POLL_INTERVAL = 30000;
 const LIFECYCLE_POLL_INTERVAL = 60000;
@@ -343,6 +345,12 @@ export default function TimestoreDatasetsPage() {
             <p className="text-sm text-slate-600 dark:text-slate-300">
               Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
             </p>
+            <Link
+              to={ROUTE_PATHS.servicesTimestoreSql}
+              className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
+            >
+              Open SQL editor
+            </Link>
           </div>
           <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
             <div className="flex items-center gap-2">
