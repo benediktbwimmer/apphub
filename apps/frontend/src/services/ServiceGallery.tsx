@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { API_BASE_URL } from '../config';
-import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';
 import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
 import type { ServiceSummary, ServicesResponse } from './types';
+import { usePollingResource } from '../hooks/usePollingResource';
 
 const REFRESH_INTERVAL_MS = 15000;
 const STATUS_ORDER = ['healthy', 'degraded', 'unknown', 'unreachable'] as const;
@@ -138,70 +138,27 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 }
 
 export default function ServiceGallery() {
-  const authorizedFetch = useAuthorizedFetch();
-  const [services, setServices] = useState<ServiceSummary[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const { width } = usePreviewLayout();
-
-  useEffect(() => {
-    let mounted = true;
-    let timeoutId: number | null = null;
-    let controller: AbortController | null = null;
-    let initialLoad = true;
-
-    const fetchServices = async () => {
-      if (!authorizedFetch) {
-        return;
+  const {
+    data: servicesData,
+    loading,
+    error,
+    refetch
+  } = usePollingResource<ServiceSummary[]>({
+    intervalMs: REFRESH_INTERVAL_MS,
+    fetcher: async ({ authorizedFetch, signal }) => {
+      const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
       }
-      controller?.abort();
-      controller = new AbortController();
-      const signal = controller.signal;
-
-      if (initialLoad) {
-        setLoading(true);
-      }
-
-      try {
-        const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-        const payload = (await response.json()) as ServicesResponse;
-        if (!mounted) {
-          return;
-        }
-        setServices(hasServiceData(payload) ? payload.data : []);
-        setError(null);
-      } catch (err) {
-        if ((err as Error)?.name === 'AbortError') {
-          return;
-        }
-        if (!mounted) {
-          return;
-        }
-        setError(formatFetchError(err, 'Failed to load services', API_BASE_URL));
-      } finally {
-        if (mounted) {
-          if (initialLoad) {
-            setLoading(false);
-            initialLoad = false;
-          }
-          timeoutId = window.setTimeout(fetchServices, REFRESH_INTERVAL_MS);
-        }
-      }
-    };
-
-    fetchServices();
-
-    return () => {
-      mounted = false;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      controller?.abort();
-    };
-  }, [authorizedFetch]);
+      const payload = (await response.json()) as ServicesResponse;
+      return hasServiceData(payload) ? payload.data : [];
+    }
+  });
+  const services = servicesData ?? [];
+  const errorMessage = error
+    ? formatFetchError(error, 'Failed to load services', API_BASE_URL)
+    : null;
 
   const previewableServices = useMemo(() => {
     const entries = services
@@ -239,9 +196,18 @@ export default function ServiceGallery() {
   return (
     <section className="flex flex-col gap-6">
       <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-4 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 sm:p-6">
-        {error ? (
+        {errorMessage ? (
           <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-5 py-4 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
-            {error}
+            <div className="flex items-center justify-between gap-4">
+              <span>{errorMessage}</span>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="rounded-full border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:border-rose-400/40 dark:text-rose-200"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         ) : loading ? (
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">

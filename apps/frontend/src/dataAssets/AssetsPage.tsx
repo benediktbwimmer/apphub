@@ -13,7 +13,7 @@ import {
 import type { WorkflowAssetPartitionSummary, WorkflowAssetPartitions } from '../workflows/types';
 import { ApiError, fetchWorkflowAssetPartitions, getWorkflowDetail } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { useToasts } from '../components/toast';
+import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { AssetRecomputeDialog } from './components/AssetRecomputeDialog';
 
@@ -23,7 +23,7 @@ function buildPendingKey(action: string, slug: string, partitionKey: string | nu
 
 export default function AssetsPage() {
   const authorizedFetch = useAuthorizedFetch();
-  const { pushToast } = useToasts();
+  const { showSuccess, showError, showDestructiveSuccess, showDestructiveError } = useToastHelpers();
   const [graph, setGraph] = useState<AssetGraphData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -248,20 +248,24 @@ export default function AssetsPage() {
           await markAssetPartitionStale(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, {
             partitionKey
           });
-          pushToast({
-            tone: 'success',
-            title: 'Marked stale',
-            description: partitionKey ? `Partition ${partitionKey} marked stale.` : 'Asset marked stale.'
-          });
+          showDestructiveSuccess('Mark stale', partitionKey ? `partition ${partitionKey}` : 'asset');
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
         } catch (err) {
-          const message = err instanceof ApiError ? err.message : 'Failed to mark partition stale';
-          pushToast({ tone: 'error', title: 'Mark stale failed', description: message });
+          showDestructiveError('Mark stale', err instanceof ApiError ? err : 'Failed to mark partition stale');
         }
       });
     },
-    [authorizedFetch, loadPartitions, pushToast, refreshGraph, selectedAsset, selectedWorkflowSlug, withPendingAction]
+    [
+      authorizedFetch,
+      loadPartitions,
+      refreshGraph,
+      selectedAsset,
+      selectedWorkflowSlug,
+      showDestructiveError,
+      showDestructiveSuccess,
+      withPendingAction
+    ]
   );
 
   const handleClearStale = useCallback(
@@ -273,20 +277,24 @@ export default function AssetsPage() {
       await withPendingAction(actionKey, async () => {
         try {
           await clearAssetPartitionStale(authorizedFetch, selectedWorkflowSlug, selectedAsset.assetId, partitionKey ?? undefined);
-          pushToast({
-            tone: 'success',
-            title: 'Cleared stale flag',
-            description: partitionKey ? `Partition ${partitionKey} marked fresh.` : 'Asset marked fresh.'
-          });
+          showDestructiveSuccess('Clear stale flag', partitionKey ? `partition ${partitionKey}` : 'asset');
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
         } catch (err) {
-          const message = err instanceof ApiError ? err.message : 'Failed to clear stale flag';
-          pushToast({ tone: 'error', title: 'Clear stale failed', description: message });
+          showDestructiveError('Clear stale flag', err instanceof ApiError ? err : 'Failed to clear stale flag');
         }
       });
     },
-    [authorizedFetch, loadPartitions, pushToast, refreshGraph, selectedAsset, selectedWorkflowSlug, withPendingAction]
+    [
+      authorizedFetch,
+      loadPartitions,
+      refreshGraph,
+      selectedAsset,
+      selectedWorkflowSlug,
+      showDestructiveError,
+      showDestructiveSuccess,
+      withPendingAction
+    ]
   );
 
   const handleTriggerRun = useCallback(
@@ -332,16 +340,11 @@ export default function AssetsPage() {
             partitionKey,
             parameters
           });
-          pushToast({
-            tone: 'success',
-            title: 'Recompute triggered',
-            description: `Run ${run.id} enqueued.`
-          });
+          showSuccess('Recompute triggered', `Run ${run.id} enqueued.`);
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
         } catch (err) {
-          const message = err instanceof ApiError ? err.message : 'Failed to trigger recompute';
-          pushToast({ tone: 'error', title: 'Recompute failed', description: message });
+          showError('Recompute failed', err, 'Failed to trigger recompute');
           throw err;
         }
       });
@@ -349,10 +352,11 @@ export default function AssetsPage() {
     [
       authorizedFetch,
       loadPartitions,
-      pushToast,
       refreshGraph,
       selectedAsset,
       selectedWorkflowSlug,
+      showError,
+      showSuccess,
       withPendingAction
     ]
   );
@@ -386,11 +390,7 @@ export default function AssetsPage() {
             selectedAsset.assetId,
             partitionKey ?? undefined
           );
-          pushToast({
-            tone: 'success',
-            title: 'Stored parameters cleared',
-            description: partitionKey ? `Partition ${partitionKey}` : 'Default partition'
-          });
+          showDestructiveSuccess('Clear stored parameters', partitionKey ? `partition ${partitionKey}` : 'default partition');
           setPendingRunPartition((current: WorkflowAssetPartitionSummary | null) => {
             if (!current) {
               return current;
@@ -410,8 +410,7 @@ export default function AssetsPage() {
           await loadPartitions(selectedAsset, selectedWorkflowSlug);
           await refreshGraph();
         } catch (err) {
-          const message = err instanceof ApiError ? err.message : 'Failed to clear stored parameters';
-          pushToast({ tone: 'error', title: 'Clear parameters failed', description: message });
+          showDestructiveError('Clear stored parameters', err instanceof ApiError ? err : 'Failed to clear stored parameters');
           throw err;
         }
       });
@@ -419,10 +418,11 @@ export default function AssetsPage() {
     [
       authorizedFetch,
       loadPartitions,
-      pushToast,
       refreshGraph,
       selectedAsset,
       selectedWorkflowSlug,
+      showDestructiveError,
+      showDestructiveSuccess,
       withPendingAction
     ]
   );

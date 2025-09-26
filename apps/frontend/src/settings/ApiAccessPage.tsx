@@ -3,6 +3,22 @@ import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 
 const SCOPE_METADATA: Record<string, { title: string; description: string }> = {
+  'metastore:read': {
+    title: 'Read metastore records',
+    description: 'Query metadata namespaces and audit history.'
+  },
+  'metastore:write': {
+    title: 'Write metastore records',
+    description: 'Create or update metadata documents and tags.'
+  },
+  'metastore:delete': {
+    title: 'Delete metastore records',
+    description: 'Soft-delete metadata entries or restore them when required.'
+  },
+  'metastore:admin': {
+    title: 'Administer metastore',
+    description: 'Permanently purge records and manage token reloads.'
+  },
   'jobs:run': {
     title: 'Run jobs',
     description: 'Enqueue existing job definitions for execution.'
@@ -30,6 +46,18 @@ const SCOPE_METADATA: Record<string, { title: string; description: string }> = {
   'auth:manage-api-keys': {
     title: 'Manage API keys',
     description: 'Create and revoke API keys for this account.'
+  },
+  'timestore:read': {
+    title: 'Read timestore datasets',
+    description: 'List datasets and execute read-only queries.'
+  },
+  'timestore:write': {
+    title: 'Write timestore datasets',
+    description: 'Ingest new partitions or modify dataset metadata.'
+  },
+  'timestore:admin': {
+    title: 'Administer timestore',
+    description: 'Run lifecycle jobs, change retention policies, and view metrics.'
   }
 };
 

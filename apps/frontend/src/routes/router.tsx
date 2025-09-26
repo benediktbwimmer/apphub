@@ -6,6 +6,10 @@ import ImportRoute from './ImportRoute';
 import LegacyImportRedirect from './LegacyImportRedirect';
 import { RequireOperatorToken } from './RequireOperatorToken';
 import ServiceGallery from '../services/ServiceGallery';
+import ServicesLayout from '../services/ServicesLayout';
+import TimestoreDatasetsPage from '../timestore/TimestoreDatasetsPage';
+import MetastorePlaceholder from '../services/MetastorePlaceholder';
+import ServicesRouteError from '../services/ServicesRouteError';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import SchedulesPage from '../schedules/SchedulesPage';
@@ -41,7 +45,26 @@ export const appRouteConfig: RouteObject[] = [
       },
       {
         path: ROUTE_SEGMENTS.services,
-        element: <ServiceGallery />
+        element: <ServicesLayout />,
+        errorElement: <ServicesRouteError />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to={ROUTE_PATHS.servicesOverview} replace />
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesOverview,
+            element: <ServiceGallery />
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesTimestore,
+            element: <TimestoreDatasetsPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesMetastore,
+            element: <MetastorePlaceholder />
+          }
+        ]
       },
       {
         path: ROUTE_SEGMENTS.runs,

@@ -20,4 +20,21 @@ describe('appRouteConfig', () => {
     expect(childPaths.has('submit')).toBe(true);
     expect(childPaths.has('import-manifest')).toBe(true);
   });
+
+  it('nests services routes under the services layout', () => {
+    const root = appRouteConfig.find((route) => route.path === '/');
+    const servicesRoute = root?.children?.find((child) => child.path === ROUTE_SEGMENTS.services);
+    expect(servicesRoute).toBeTruthy();
+    expect(servicesRoute?.element).toBeTruthy();
+    expect(servicesRoute?.errorElement).toBeTruthy();
+
+    const serviceChildren = servicesRoute?.children ?? [];
+    const childSegments = new Set(
+      serviceChildren.map((child) => (child.index ? 'index' : child.path))
+    );
+    expect(childSegments.has('index')).toBe(true);
+    expect(childSegments.has(ROUTE_SEGMENTS.servicesOverview)).toBe(true);
+    expect(childSegments.has(ROUTE_SEGMENTS.servicesTimestore)).toBe(true);
+    expect(childSegments.has(ROUTE_SEGMENTS.servicesMetastore)).toBe(true);
+  });
 });

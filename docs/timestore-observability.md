@@ -62,4 +62,6 @@ Create dedicated dashboards for:
 2. **Query SLI**: request rate, p95/p99 latency, row counts, remote partition counts (overlay with cache configuration).
 3. **Lifecycle Health**: job outcomes, execution latency, queue backlog, per-operation counters.
 
+For day-to-day triage, operators can browse `/services/timestore` in the frontend to inspect dataset metadata, manifests, and the recent lifecycle job history without leaving the UI.
+
 Surface these alongside existing admin APIs. For manual triage, `services/timestore/src/routes/admin.ts` still exposes JSON summaries via `/admin/lifecycle/status`; the Prometheus metrics ensure parity for automated monitoring.

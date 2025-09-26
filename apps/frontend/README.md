@@ -2,6 +2,14 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Environment variables
+
+Set the following variables in `.env.local` to target locally running services:
+
+- `VITE_API_BASE_URL` – Catalog API base URL (defaults to `http://localhost:4000`).
+- `VITE_TIMESTORE_BASE_URL` – Timestore API base URL (defaults to `${VITE_API_BASE_URL}/timestore`).
+- `VITE_METASTORE_BASE_URL` – Metastore API base URL (defaults to `${VITE_API_BASE_URL}/metastore`).
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
