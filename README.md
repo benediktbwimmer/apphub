@@ -224,7 +224,7 @@ SERVICE_CLIENT_TIMEOUT_MS=60000
 SERVICE_HEALTH_INTERVAL_MS=30000
 SERVICE_HEALTH_TIMEOUT_MS=5000
 SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000
-APPHUB_HOST_ROOT=                      # Optional host root used to resolve launch START_PATH mounts (legacy alias HOST_ROOT_PATH)
+APPHUB_HOST_ROOT=                      # Optional host root used for automatic host bind mounts (legacy alias HOST_ROOT_PATH)
 ```
 
 
@@ -480,7 +480,7 @@ docker run \
 Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
 - Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`. If you prefer not to expose Docker, set `LAUNCH_RUNNER_MODE=stub` and omit the socket/host mounts.
-- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch worker can validate `START_PATH` values. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
+- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch runner can automatically mirror absolute paths from service environment variables. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
 - Start `services/codex-proxy` on the host before launching the container so the AI builder can reach Codex via `APPHUB_CODEX_PROXY_URL`.
 - `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.
