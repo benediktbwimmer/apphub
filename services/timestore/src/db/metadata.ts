@@ -159,6 +159,10 @@ export interface CreateIngestionBatchInput {
   manifestId: string;
 }
 
+export interface PartitionWithTarget extends DatasetPartitionRecord {
+  storageTarget: StorageTargetRecord;
+}
+
 export async function upsertStorageTarget(input: CreateStorageTargetInput): Promise<StorageTargetRecord> {
   return withConnection(async (client) => {
     const { rows } = await client.query<StorageTargetRow>(
@@ -521,6 +525,46 @@ export async function recordIngestionBatch(
   });
 }
 
+export interface PartitionFilters {
+  partitionKey?: Record<string, string[]>;
+}
+
+export async function listPartitionsForQuery(
+  datasetId: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+  filters: PartitionFilters = {}
+): Promise<PartitionWithTarget[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<PartitionWithTargetRow>(
+      `SELECT
+         p.*,
+         t.id AS storage_target_id,
+         t.name AS storage_target_name,
+         t.kind AS storage_target_kind,
+         t.description AS storage_target_description,
+         t.config AS storage_target_config,
+         t.created_at AS storage_target_created_at,
+         t.updated_at AS storage_target_updated_at
+       FROM dataset_partitions p
+       JOIN dataset_manifests m ON m.id = p.manifest_id
+       JOIN storage_targets t ON t.id = p.storage_target_id
+       WHERE p.dataset_id = $1
+         AND m.status = 'published'
+         AND p.end_time >= $2
+         AND p.start_time <= $3
+       ORDER BY p.start_time ASC`,
+      [datasetId, rangeStart.toISOString(), rangeEnd.toISOString()]
+    );
+
+    const partitionFilters = filters.partitionKey ?? {};
+
+    return rows
+      .filter((row) => partitionMatchesFilters(row.partition_key, partitionFilters))
+      .map(mapPartitionWithTarget);
+  });
+}
+
 async function insertPartitions(
   client: PoolClient,
   input: CreateDatasetManifestInput
@@ -714,6 +758,16 @@ type IngestionBatchRow = {
   created_at: string;
 };
 
+type PartitionWithTargetRow = DatasetPartitionRow & {
+  storage_target_id: string;
+  storage_target_name: string;
+  storage_target_kind: StorageTargetKind;
+  storage_target_description: string | null;
+  storage_target_config: JsonObject;
+  storage_target_created_at: string;
+  storage_target_updated_at: string;
+};
+
 function mapStorageTarget(row: StorageTargetRow): StorageTargetRecord {
   return {
     id: row.id,
@@ -809,4 +863,42 @@ function mapIngestionBatch(row: IngestionBatchRow): IngestionBatchRecord {
     manifestId: row.manifest_id,
     createdAt: row.created_at
   };
+}
+
+function mapPartitionWithTarget(row: PartitionWithTargetRow): PartitionWithTarget {
+  return {
+    ...mapPartition(row),
+    storageTarget: {
+      id: row.storage_target_id,
+      name: row.storage_target_name,
+      kind: row.storage_target_kind,
+      description: row.storage_target_description,
+      config: row.storage_target_config,
+      createdAt: row.storage_target_created_at,
+      updatedAt: row.storage_target_updated_at
+    }
+  };
+}
+
+function partitionMatchesFilters(
+  partitionKey: JsonObject,
+  filters: Record<string, string[]>
+): boolean {
+  const entries = Object.entries(filters);
+  if (entries.length === 0) {
+    return true;
+  }
+  for (const [key, values] of entries) {
+    if (!Array.isArray(values) || values.length === 0) {
+      continue;
+    }
+    const actual = partitionKey[key];
+    if (typeof actual !== 'string') {
+      return false;
+    }
+    if (!values.includes(actual)) {
+      return false;
+    }
+  }
+  return true;
 }

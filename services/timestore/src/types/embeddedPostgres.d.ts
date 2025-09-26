@@ -5,6 +5,8 @@ declare module 'embedded-postgres' {
     user?: string;
     password?: string;
     persistent?: boolean;
+    initdbFlags?: string[];
+    postgresFlags?: string[];
     onLog?: (message: string) => void;
     onError?: (error: Error) => void;
   }

@@ -12,7 +12,7 @@
     "lint": "tsc -b --pretty false",
     "lifecycle": "tsx src/workers/lifecycleWorker.ts",
     "ingest": "tsx src/workers/ingestionWorker.ts",
-    "test": "node --test --require ts-node/register tests/**/*.test.ts"
+    "test": "node --test --test-concurrency=1 --require ts-node/register tests/**/*.test.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.0",

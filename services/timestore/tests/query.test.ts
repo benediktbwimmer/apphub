@@ -2,27 +2,30 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
 import EmbeddedPostgres from 'embedded-postgres';
+import { resetCachedServiceConfig } from '../src/config/serviceConfig';
+
 let schemaModule: typeof import('../src/db/schema');
 let clientModule: typeof import('../src/db/client');
 let migrationsModule: typeof import('../src/db/migrations');
 let bootstrapModule: typeof import('../src/service/bootstrap');
 let ingestionModule: typeof import('../src/ingestion/processor');
 let ingestionTypesModule: typeof import('../src/ingestion/types');
-import { resetCachedServiceConfig } from '../src/config/serviceConfig';
+let queryPlannerModule: typeof import('../src/query/planner');
+let queryExecutorModule: typeof import('../src/query/executor');
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
 let storageRoot: string | null = null;
 
 before(async () => {
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-ingest-pg-'));
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-query-pg-'));
   dataDirectory = dataRoot;
-  const port = 55000 + Math.floor(Math.random() * 1000);
+  const port = 56000 + Math.floor(Math.random() * 1000);
   const embedded = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
@@ -31,7 +34,7 @@ before(async () => {
     persistent: false,
     postgresFlags: ['-c', 'dynamic_shared_memory_type=posix'],
     onError(message) {
-      console.error('[embedded-postgres:ingestion]', message);
+      console.error('[embedded-postgres:query]', message);
     }
   });
 
@@ -40,7 +43,7 @@ before(async () => {
   await embedded.createDatabase('apphub');
   postgres = embedded;
 
-  storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-storage-'));
+  storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-query-storage-'));
 
   process.env.TIMESTORE_DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
   process.env.TIMESTORE_PG_SCHEMA = `timestore_test_${randomUUID().slice(0, 8)}`;
@@ -56,10 +59,13 @@ before(async () => {
   bootstrapModule = await import('../src/service/bootstrap');
   ingestionModule = await import('../src/ingestion/processor');
   ingestionTypesModule = await import('../src/ingestion/types');
+  queryPlannerModule = await import('../src/query/planner');
+  queryExecutorModule = await import('../src/query/executor');
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
   await bootstrapModule.ensureDefaultStorageTarget();
+  await seedDataset();
 });
 
 after(async () => {
@@ -77,7 +83,7 @@ after(async () => {
   }
 });
 
-test('processIngestionJob writes partitions and respects idempotency', async () => {
+async function seedDataset(): Promise<void> {
   const payload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
     datasetSlug: 'observatory-timeseries',
     datasetName: 'Observatory Time Series',
@@ -96,36 +102,57 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
         end: '2024-01-01T01:00:00.000Z'
       }
     },
-    rows: [
-      {
-        timestamp: '2024-01-01T00:00:00.000Z',
-        temperature_c: 20.1,
-        humidity_percent: 60.2
-      },
-      {
-        timestamp: '2024-01-01T00:10:00.000Z',
-        temperature_c: 20.6,
-        humidity_percent: 59.3
-      }
-    ],
-    idempotencyKey: 'batch-001',
+    rows: Array.from({ length: 6 }).map((_, index) => ({
+      timestamp: new Date(Date.UTC(2024, 0, 1, 0, index * 10)).toISOString(),
+      temperature_c: 20 + index,
+      humidity_percent: 60 - index
+    })),
+    idempotencyKey: `seed-${randomUUID()}`,
     receivedAt: new Date().toISOString()
   });
 
-  const result = await ingestionModule.processIngestionJob(payload);
+  await ingestionModule.processIngestionJob(payload);
+}
 
-  assert.equal(result.manifest.partitionCount, 1);
-  assert.equal(result.manifest.totalRows, 2);
-  assert.equal(result.manifest.partitions[0]?.rowCount, 2);
-  assert.ok(storageRoot);
-  const partitionPath = path.join(
-    storageRoot!,
-    result.manifest.partitions[0]?.filePath ?? ''
-  );
-  const stats = await stat(partitionPath);
-  assert.ok(stats.size > 0);
+test('execute raw query over dataset partitions', async () => {
+  const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T02:00:00.000Z'
+    },
+    columns: ['timestamp', 'temperature_c', 'humidity_percent'],
+    timestampColumn: 'timestamp'
+  });
 
-  const repeat = await ingestionModule.processIngestionJob(payload);
-  assert.equal(repeat.manifest.id, result.manifest.id);
-  assert.equal(repeat.dataset.id, result.dataset.id);
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'raw');
+  assert.deepEqual(result.columns, ['timestamp', 'temperature_c', 'humidity_percent']);
+  assert.equal(result.rows.length, 6);
+  assert.equal(result.rows[0]?.timestamp, '2024-01-01T00:00:00.000Z');
+});
+
+test('execute downsampled query with aggregations', async () => {
+  const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T02:00:00.000Z'
+    },
+    timestampColumn: 'timestamp',
+    downsample: {
+      intervalUnit: 'hour',
+      intervalSize: 1,
+      aggregations: [
+        { column: 'temperature_c', fn: 'avg', alias: 'avg_temp' },
+        { column: 'humidity_percent', fn: 'min', alias: 'min_humidity' }
+      ]
+    }
+  });
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'downsampled');
+  assert.deepEqual(result.columns, ['timestamp', 'avg_temp', 'min_humidity']);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0]?.avg_temp, 22.5);
 });

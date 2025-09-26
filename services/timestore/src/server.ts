@@ -5,6 +5,7 @@ import { runMigrations } from './db/migrations';
 import { loadServiceConfig } from './config/serviceConfig';
 import { registerHealthRoutes } from './routes/health';
 import { registerIngestionRoutes } from './routes/ingest';
+import { registerQueryRoutes } from './routes/query';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
 
 async function start(): Promise<void> {
@@ -17,6 +18,7 @@ async function start(): Promise<void> {
 
   await registerHealthRoutes(app);
   await registerIngestionRoutes(app);
+  await registerQueryRoutes(app);
 
   app.addHook('onClose', async () => {
     await closePool();

@@ -25,6 +25,7 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_LOG_LEVEL` | Pino log level for Fastify. | `info` |
 | `TIMESTORE_INGEST_QUEUE_NAME` | BullMQ queue name for ingestion jobs. | `timestore_ingest_queue` |
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
+| `TIMESTORE_REQUIRE_SCOPE` | Optional scope required via `x-iam-scopes` header for query access. | _(unset)_ |
 
 When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the catalog connection pool helpers so migrations and manifests share the managed database.
 
@@ -32,6 +33,11 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 - `POST /datasets/:datasetSlug/ingest` accepts a JSON payload containing schema metadata, a partition key, records (JSON objects), and optional `idempotency-key` header. Jobs enqueue over Redis/BullMQ unless `REDIS_URL=inline` (tests/dev) in which case ingestion runs inline.
 - Successful ingestions create a new dataset (if needed), versioned schema definition, manifest, and DuckDB partition file on the configured storage target.
 - The API responds synchronously when running inline, otherwise returns a `202 Accepted` with the enqueued job id.
+
+## Query API
+- `POST /datasets/:datasetSlug/query` returns time-series data by scanning published partitions via DuckDB. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
+- Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`).
+- In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
 
 ## Testing
 - Run `npm run lint --workspace @apphub/timestore` to type-check the service.

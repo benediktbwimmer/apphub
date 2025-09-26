@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { ServiceConfig } from '../config/serviceConfig';
-import type { StorageTargetRecord } from '../db/metadata';
+import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata';
 
 export type FieldType = 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
 
@@ -150,6 +150,27 @@ function sanitizeSegment(input: string): string {
     .replace(/[^a-z0-9._-]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '') || 'segment';
+}
+
+export function resolvePartitionLocation(
+  partition: DatasetPartitionRecord,
+  target: StorageTargetRecord,
+  config: ServiceConfig
+): string {
+  if (target.kind === 'local') {
+    const root = typeof target.config.root === 'string' ? target.config.root : config.storage.root;
+    return path.join(root, convertPosixToPlatform(partition.filePath));
+  }
+
+  if (target.kind === 's3') {
+    const bucket = typeof target.config.bucket === 'string' ? target.config.bucket : config.storage.s3?.bucket;
+    if (!bucket) {
+      throw new Error('S3 storage target missing bucket configuration');
+    }
+    return `s3://${bucket}/${partition.filePath}`;
+  }
+
+  throw new Error(`Unsupported storage target kind: ${target.kind}`);
 }
 
 async function writeDuckDbFile(

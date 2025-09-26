@@ -3,7 +3,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
-import net from 'node:net';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, before, test } from 'node:test';
@@ -20,13 +19,17 @@ let migrationsModule: typeof import('../src/db/migrations');
 before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-pg-'));
   dataDirectory = dataRoot;
-  const port = await findAvailablePort();
+  const port = 54000 + Math.floor(Math.random() * 1000);
   const embedded = new EmbeddedPostgres({
     databaseDir: dataRoot,
     port,
     user: 'postgres',
     password: 'postgres',
-    persistent: false
+    persistent: false,
+    postgresFlags: ['-c', 'dynamic_shared_memory_type=posix'],
+    onError(message) {
+      console.error('[embedded-postgres:metadata]', message);
+    }
   });
 
   await embedded.initialise();
@@ -181,20 +184,3 @@ test('timestore metadata lifecycle', async () => {
   assert.ok(fetchedDataset);
   assert.equal(fetchedDataset?.id, datasetId);
 });
-
-async function findAvailablePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      if (typeof address === 'object' && address) {
-        const { port } = address;
-        server.close(() => resolve(port));
-      } else {
-        server.close(() => reject(new Error('Failed to determine available port')));
-      }
-    });
-  });
-}
