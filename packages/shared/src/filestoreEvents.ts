@@ -70,6 +70,9 @@ export type FilestoreEvent =
   | { type: 'filestore.node.created'; data: FilestoreNodeEventPayload }
   | { type: 'filestore.node.updated'; data: FilestoreNodeEventPayload }
   | { type: 'filestore.node.deleted'; data: FilestoreNodeEventPayload }
+  | { type: 'filestore.node.uploaded'; data: FilestoreNodeEventPayload }
+  | { type: 'filestore.node.moved'; data: FilestoreNodeEventPayload }
+  | { type: 'filestore.node.copied'; data: FilestoreNodeEventPayload }
   | { type: 'filestore.command.completed'; data: FilestoreCommandCompletedPayload }
   | { type: 'filestore.drift.detected'; data: FilestoreDriftDetectedPayload }
   | { type: 'filestore.node.reconciled'; data: FilestoreNodeReconciledPayload }
@@ -112,4 +115,3 @@ export function isFilestoreEventEnvelope(value: unknown): value is FilestoreEven
   }
   return 'event' in value;
 }
-

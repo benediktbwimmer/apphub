@@ -6,6 +6,9 @@ import {
   insertNode,
   ensureNoActiveChildren,
   updateNodeState,
+  updateNodeMetadata,
+  listNodeSubtreeByPath,
+  updateNodeLocation,
   NodeRecord,
   getNodeById
 } from '../db/nodes';
@@ -192,6 +195,261 @@ async function applyCreateDirectory(
   };
 }
 
+async function applyUploadFile(
+  client: PoolClient,
+  backend: BackendMountRecord,
+  command: FilestoreCommand & { type: 'uploadFile' },
+  executor: CommandExecutor
+): Promise<InternalCommandOutcome> {
+  const normalizedPath = normalizePath(command.path);
+
+  const existing = await getNodeByPath(client, backend.id, normalizedPath, { forUpdate: true });
+  if (existing && existing.state !== 'deleted') {
+    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+      backendMountId: backend.id,
+      path: normalizedPath
+    });
+  }
+
+  const parentPath = getParentPath(normalizedPath);
+  let parent: NodeRecord | null = null;
+  if (parentPath) {
+    parent = await getNodeByPath(client, backend.id, parentPath, { forUpdate: true });
+    if (!parent || parent.state === 'deleted') {
+      throw new FilestoreError('Parent directory not found', 'PARENT_NOT_FOUND', {
+        backendMountId: backend.id,
+        path: parentPath
+      });
+    }
+    if (parent.kind !== 'directory') {
+      throw new FilestoreError('Parent is not a directory', 'NOT_A_DIRECTORY', {
+        backendMountId: backend.id,
+        path: parentPath
+      });
+    }
+  }
+
+  const executorResult = await executor.execute(command, { backend });
+  const mergedMetadata = {
+    ...(existing?.metadata ?? {}),
+    ...(executorResult.metadata ?? {}),
+    ...(command.metadata ?? {})
+  };
+
+  const checksum = command.checksum ?? executorResult.checksum ?? null;
+  const contentHash = command.contentHash ?? executorResult.contentHash ?? null;
+  const sizeBytes = executorResult.sizeBytes ?? command.sizeBytes ?? 0;
+  const lastModifiedAt = executorResult.lastModifiedAt ?? new Date();
+
+  let node: NodeRecord;
+  if (existing && existing.state === 'deleted') {
+    node = await updateNodeState(client, existing.id, 'active', {
+      checksum,
+      contentHash,
+      sizeBytes,
+      metadata: mergedMetadata,
+      lastModifiedAt
+    });
+  } else {
+    node = await insertNode(client, {
+      backendMountId: backend.id,
+      parentId: parent ? parent.id : null,
+      path: normalizedPath,
+      kind: 'file',
+      sizeBytes,
+      checksum,
+      contentHash,
+      metadata: mergedMetadata,
+      lastModifiedAt,
+      state: 'active'
+    });
+  }
+
+  await recordSnapshot(client, node);
+
+  const rollupPlan: RollupPlan = {
+    ensure: [],
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: [node.id],
+    scheduleCandidates: []
+  };
+
+  if (parent) {
+    const beforeContribution = computeContribution(existing && existing.state === 'active' ? existing : null);
+    const afterContribution = computeContribution(node);
+    const contributionDiff = diffContribution(beforeContribution, afterContribution);
+
+    const ancestors = await collectAncestorChain(client, parent);
+    ancestors.forEach((ancestor, index) => {
+      const childCountDelta = index === 0 ? contributionDiff.childCountDelta : 0;
+      if (
+        contributionDiff.sizeBytesDelta !== 0 ||
+        contributionDiff.fileCountDelta !== 0 ||
+        contributionDiff.directoryCountDelta !== 0 ||
+        childCountDelta !== 0
+      ) {
+        rollupPlan.increments.push({
+          nodeId: ancestor.id,
+          sizeBytesDelta: contributionDiff.sizeBytesDelta,
+          fileCountDelta: contributionDiff.fileCountDelta,
+          directoryCountDelta: contributionDiff.directoryCountDelta,
+          childCountDelta,
+          markPending: false
+        });
+        rollupPlan.touchedNodeIds.push(ancestor.id);
+        if (index === 0) {
+          rollupPlan.scheduleCandidates.push({
+            nodeId: ancestor.id,
+            backendMountId: backend.id,
+            reason: 'mutation',
+            depth: ancestor.depth,
+            childCountDelta
+          });
+        }
+      }
+    });
+  }
+
+  return {
+    primaryNode: node,
+    affectedNodeIds: [node.id],
+    backendMountId: backend.id,
+    result: {
+      ...buildResultPayload(node, command.type),
+      sizeBytes: node.sizeBytes,
+      checksum: node.checksum,
+      contentHash: node.contentHash,
+      mimeType: command.mimeType ?? null,
+      originalName: command.originalName ?? null
+    },
+    rollupPlan
+  };
+}
+
+async function applyWriteFile(
+  client: PoolClient,
+  backend: BackendMountRecord,
+  command: FilestoreCommand & { type: 'writeFile' },
+  executor: CommandExecutor
+): Promise<InternalCommandOutcome> {
+  const normalizedPath = normalizePath(command.path);
+  const existing = await getNodeById(client, command.nodeId, { forUpdate: true });
+  if (!existing || existing.backendMountId !== backend.id) {
+    throw new FilestoreError('Node not found on backend', 'NODE_NOT_FOUND', {
+      nodeId: command.nodeId,
+      backendMountId: backend.id
+    });
+  }
+
+  if (existing.kind !== 'file') {
+    throw new FilestoreError('Only file nodes can be written', 'NOT_A_DIRECTORY', {
+      backendMountId: backend.id,
+      nodeId: existing.id,
+      kind: existing.kind
+    });
+  }
+
+  if (existing.path !== normalizedPath) {
+    throw new FilestoreError('Write path does not match tracked node path', 'INVALID_PATH', {
+      expectedPath: existing.path,
+      providedPath: normalizedPath
+    });
+  }
+
+  const parent = existing.parentId ? await getNodeById(client, existing.parentId, { forUpdate: true }) : null;
+
+  const executorResult = await executor.execute(command, { backend });
+
+  const mergedMetadata = {
+    ...(existing.metadata ?? {}),
+    ...(executorResult.metadata ?? {}),
+    ...(command.metadata ?? {})
+  };
+
+  const checksum = command.checksum ?? executorResult.checksum ?? existing.checksum;
+  const contentHash = command.contentHash ?? executorResult.contentHash ?? existing.contentHash;
+  const sizeBytes = executorResult.sizeBytes ?? command.sizeBytes ?? existing.sizeBytes;
+  const lastModifiedAt = executorResult.lastModifiedAt ?? new Date();
+
+  const updated = await updateNodeState(client, existing.id, 'active', {
+    checksum,
+    contentHash,
+    sizeBytes,
+    metadata: mergedMetadata,
+    lastModifiedAt
+  });
+
+  await recordSnapshot(client, updated);
+
+  const rollupPlan: RollupPlan = {
+    ensure: [],
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: [updated.id],
+    scheduleCandidates: []
+  };
+
+  if (parent) {
+    const beforeContribution = computeContribution(existing);
+    const afterContribution = computeContribution(updated);
+    const contributionDiff = diffContribution(beforeContribution, afterContribution);
+
+    if (
+      contributionDiff.sizeBytesDelta !== 0 ||
+      contributionDiff.fileCountDelta !== 0 ||
+      contributionDiff.directoryCountDelta !== 0
+    ) {
+      const ancestors = await collectAncestorChain(client, parent);
+      ancestors.forEach((ancestor, index) => {
+        const childCountDelta = index === 0 ? contributionDiff.childCountDelta : 0;
+        if (
+          contributionDiff.sizeBytesDelta !== 0 ||
+          contributionDiff.fileCountDelta !== 0 ||
+          contributionDiff.directoryCountDelta !== 0 ||
+          childCountDelta !== 0
+        ) {
+          rollupPlan.increments.push({
+            nodeId: ancestor.id,
+            sizeBytesDelta: contributionDiff.sizeBytesDelta,
+            fileCountDelta: contributionDiff.fileCountDelta,
+            directoryCountDelta: contributionDiff.directoryCountDelta,
+            childCountDelta,
+            markPending: false
+          });
+          rollupPlan.touchedNodeIds.push(ancestor.id);
+          if (index === 0) {
+            rollupPlan.scheduleCandidates.push({
+              nodeId: ancestor.id,
+              backendMountId: backend.id,
+              reason: 'mutation',
+              depth: ancestor.depth,
+              childCountDelta
+            });
+          }
+        }
+      });
+    }
+  }
+
+  return {
+    primaryNode: updated,
+    affectedNodeIds: [updated.id],
+    backendMountId: backend.id,
+    result: {
+      ...buildResultPayload(updated, command.type),
+      sizeBytes: updated.sizeBytes,
+      checksum: updated.checksum,
+      contentHash: updated.contentHash,
+      mimeType: command.mimeType ?? null,
+      originalName: command.originalName ?? null,
+      previousVersion: existing.version,
+      previousSizeBytes: existing.sizeBytes
+    },
+    rollupPlan
+  };
+}
+
 async function applyDeleteNode(
   client: PoolClient,
   backend: BackendMountRecord,
@@ -307,6 +565,417 @@ function buildResultPayload(node: NodeRecord, commandType: string): CommandResul
   };
 }
 
+async function applyMoveNode(
+  client: PoolClient,
+  backend: BackendMountRecord,
+  command: FilestoreCommand & { type: 'moveNode' },
+  executor: CommandExecutor
+): Promise<InternalCommandOutcome> {
+  const normalizedSource = normalizePath(command.path);
+  const targetBackendId = command.targetBackendMountId ?? backend.id;
+
+  if (targetBackendId !== backend.id) {
+    throw new FilestoreError('Cross-backend moves are not supported yet', 'NOT_SUPPORTED', {
+      backendMountId: backend.id,
+      targetBackendMountId: targetBackendId
+    });
+  }
+
+  const normalizedTarget = normalizePath(command.targetPath);
+  if (normalizedSource === normalizedTarget) {
+    const node = await getNodeByPath(client, backend.id, normalizedSource);
+    if (!node) {
+      throw new FilestoreError('Node not found at path', 'NODE_NOT_FOUND', {
+        backendMountId: backend.id,
+        path: normalizedSource
+      });
+    }
+    return {
+      primaryNode: node,
+      affectedNodeIds: [node.id],
+      backendMountId: backend.id,
+      result: buildResultPayload(node, command.type),
+      rollupPlan: {
+        ensure: [],
+        increments: [],
+        invalidate: [],
+        touchedNodeIds: [node.id],
+        scheduleCandidates: []
+      }
+    };
+  }
+
+  const existing = await getNodeByPath(client, backend.id, normalizedSource, { forUpdate: true });
+  if (!existing || existing.state === 'deleted') {
+    throw new FilestoreError('Node not found at path', 'NODE_NOT_FOUND', {
+      backendMountId: backend.id,
+      path: normalizedSource
+    });
+  }
+
+  const existingTarget = await getNodeByPath(client, backend.id, normalizedTarget, { forUpdate: true });
+  if (existingTarget && existingTarget.state !== 'deleted') {
+    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+      backendMountId: backend.id,
+      path: normalizedTarget
+    });
+  }
+
+  const targetParentPath = getParentPath(normalizedTarget);
+  let targetParent: NodeRecord | null = null;
+  if (targetParentPath) {
+    targetParent = await getNodeByPath(client, backend.id, targetParentPath, { forUpdate: true });
+    if (!targetParent || targetParent.state === 'deleted') {
+      throw new FilestoreError('Target parent directory not found', 'PARENT_NOT_FOUND', {
+        backendMountId: backend.id,
+        path: targetParentPath
+      });
+    }
+    if (targetParent.kind !== 'directory') {
+      throw new FilestoreError('Target parent is not a directory', 'NOT_A_DIRECTORY', {
+        backendMountId: backend.id,
+        path: targetParentPath
+      });
+    }
+  }
+
+  const sourceParent = existing.parentId ? await getNodeById(client, existing.parentId, { forUpdate: true }) : null;
+
+  const executorCommand = {
+    ...command,
+    path: normalizedSource,
+    targetPath: normalizedTarget,
+    nodeKind: command.nodeKind ?? existing.kind
+  } as FilestoreCommand;
+  await executor.execute(executorCommand, { backend });
+
+  const subtree = await listNodeSubtreeByPath(client, backend.id, normalizedSource);
+  const deltaDepth = (targetParent ? targetParent.depth + 1 : 1) - existing.depth;
+
+  const updatedNodes = new Map<number, NodeRecord>();
+
+  for (const node of subtree) {
+    const relativePath = node.path === normalizedSource ? '' : node.path.slice(normalizedSource.length + 1);
+    const newPath = relativePath ? `${normalizedTarget}/${relativePath}` : normalizedTarget;
+    const newDepth = node.depth + deltaDepth;
+    const newParentId = node.id === existing.id ? (targetParent ? targetParent.id : null) : node.parentId;
+
+    const updated = await updateNodeLocation(client, node.id, {
+      path: newPath,
+      depth: newDepth,
+      parentId: newParentId,
+      backendMountId: backend.id
+    });
+    updatedNodes.set(node.id, updated);
+  }
+
+  const updatedRoot = updatedNodes.get(existing.id)!;
+  await recordSnapshot(client, updatedRoot);
+
+  const rollupPlan: RollupPlan = {
+    ensure: [],
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: [updatedRoot.id],
+    scheduleCandidates: []
+  };
+
+  const contribution = computeContribution(updatedRoot);
+
+  if (sourceParent) {
+    const ancestors = await collectAncestorChain(client, sourceParent);
+    const removalDiff = diffContribution(contribution, computeContribution(null));
+    ancestors.forEach((ancestor, index) => {
+      const childCountDelta = index === 0 ? removalDiff.childCountDelta : 0;
+      if (
+        removalDiff.sizeBytesDelta !== 0 ||
+        removalDiff.fileCountDelta !== 0 ||
+        removalDiff.directoryCountDelta !== 0 ||
+        childCountDelta !== 0
+      ) {
+        rollupPlan.increments.push({
+          nodeId: ancestor.id,
+          sizeBytesDelta: removalDiff.sizeBytesDelta,
+          fileCountDelta: removalDiff.fileCountDelta,
+          directoryCountDelta: removalDiff.directoryCountDelta,
+          childCountDelta,
+          markPending: false
+        });
+        rollupPlan.touchedNodeIds.push(ancestor.id);
+        if (index === 0) {
+          rollupPlan.scheduleCandidates.push({
+            nodeId: ancestor.id,
+            backendMountId: backend.id,
+            reason: 'mutation',
+            depth: ancestor.depth,
+            childCountDelta
+          });
+        }
+      }
+    });
+  }
+
+  if (targetParent) {
+    const ancestors = await collectAncestorChain(client, targetParent);
+    const additionDiff = diffContribution(computeContribution(null), contribution);
+    ancestors.forEach((ancestor, index) => {
+      const childCountDelta = index === 0 ? additionDiff.childCountDelta : 0;
+      if (
+        additionDiff.sizeBytesDelta !== 0 ||
+        additionDiff.fileCountDelta !== 0 ||
+        additionDiff.directoryCountDelta !== 0 ||
+        childCountDelta !== 0
+      ) {
+        rollupPlan.increments.push({
+          nodeId: ancestor.id,
+          sizeBytesDelta: additionDiff.sizeBytesDelta,
+          fileCountDelta: additionDiff.fileCountDelta,
+          directoryCountDelta: additionDiff.directoryCountDelta,
+          childCountDelta,
+          markPending: false
+        });
+        rollupPlan.touchedNodeIds.push(ancestor.id);
+        if (index === 0) {
+          rollupPlan.scheduleCandidates.push({
+            nodeId: ancestor.id,
+            backendMountId: backend.id,
+            reason: 'mutation',
+            depth: ancestor.depth,
+            childCountDelta
+          });
+        }
+      }
+    });
+  }
+
+  const affectedIds = Array.from(updatedNodes.keys());
+
+  return {
+    primaryNode: updatedRoot,
+    affectedNodeIds: affectedIds,
+    backendMountId: backend.id,
+    result: {
+      ...buildResultPayload(updatedRoot, command.type),
+      movedFrom: normalizedSource
+    },
+    rollupPlan
+  };
+}
+
+async function applyUpdateNodeMetadata(
+  client: PoolClient,
+  backend: BackendMountRecord,
+  command: FilestoreCommand & { type: 'updateNodeMetadata' }
+): Promise<InternalCommandOutcome> {
+  const existing = await getNodeById(client, command.nodeId, { forUpdate: true });
+  if (!existing || existing.backendMountId !== backend.id) {
+    throw new FilestoreError('Node not found on backend', 'NODE_NOT_FOUND', {
+      nodeId: command.nodeId,
+      backendMountId: backend.id
+    });
+  }
+
+  const nextMetadata: Record<string, unknown> = { ...(existing.metadata ?? {}) };
+  if (command.set) {
+    for (const [key, value] of Object.entries(command.set)) {
+      nextMetadata[key] = value;
+    }
+  }
+  if (command.unset) {
+    for (const key of command.unset) {
+      delete nextMetadata[key];
+    }
+  }
+
+  const updated = await updateNodeMetadata(client, existing.id, nextMetadata);
+  await recordSnapshot(client, updated);
+
+  const rollupPlan: RollupPlan = {
+    ensure: [],
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: [updated.id],
+    scheduleCandidates: []
+  };
+
+  return {
+    primaryNode: updated,
+    affectedNodeIds: [updated.id],
+    backendMountId: backend.id,
+    result: buildResultPayload(updated, command.type),
+    rollupPlan
+  };
+}
+
+async function applyCopyNode(
+  client: PoolClient,
+  backend: BackendMountRecord,
+  command: FilestoreCommand & { type: 'copyNode' },
+  executor: CommandExecutor
+): Promise<InternalCommandOutcome> {
+  const normalizedSource = normalizePath(command.path);
+  const targetBackendId = command.targetBackendMountId ?? backend.id;
+
+  if (targetBackendId !== backend.id) {
+    throw new FilestoreError('Cross-backend copies are not supported yet', 'NOT_SUPPORTED', {
+      backendMountId: backend.id,
+      targetBackendMountId: targetBackendId
+    });
+  }
+
+  const normalizedTarget = normalizePath(command.targetPath);
+  if (normalizedSource === normalizedTarget) {
+    throw new FilestoreError('Source and target paths must differ for copy', 'INVALID_PATH', {
+      path: normalizedSource
+    });
+  }
+
+  const existing = await getNodeByPath(client, backend.id, normalizedSource, { forUpdate: true });
+  if (!existing || existing.state === 'deleted') {
+    throw new FilestoreError('Node not found at path', 'NODE_NOT_FOUND', {
+      backendMountId: backend.id,
+      path: normalizedSource
+    });
+  }
+
+  const existingTarget = await getNodeByPath(client, backend.id, normalizedTarget, { forUpdate: true });
+  if (existingTarget && existingTarget.state !== 'deleted') {
+    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+      backendMountId: backend.id,
+      path: normalizedTarget
+    });
+  }
+
+  const targetParentPath = getParentPath(normalizedTarget);
+  let targetParent: NodeRecord | null = null;
+  if (targetParentPath) {
+    targetParent = await getNodeByPath(client, backend.id, targetParentPath, { forUpdate: true });
+    if (!targetParent || targetParent.state === 'deleted') {
+      throw new FilestoreError('Target parent directory not found', 'PARENT_NOT_FOUND', {
+        backendMountId: backend.id,
+        path: targetParentPath
+      });
+    }
+    if (targetParent.kind !== 'directory') {
+      throw new FilestoreError('Target parent is not a directory', 'NOT_A_DIRECTORY', {
+        backendMountId: backend.id,
+        path: targetParentPath
+      });
+    }
+  }
+
+  const executorCommand = {
+    ...command,
+    path: normalizedSource,
+    targetPath: normalizedTarget,
+    nodeKind: command.nodeKind ?? existing.kind
+  } as FilestoreCommand;
+  await executor.execute(executorCommand, { backend });
+
+  const subtree = await listNodeSubtreeByPath(client, backend.id, normalizedSource);
+  const newNodeMap = new Map<number, NodeRecord>();
+  const newNodeIds: number[] = [];
+
+  for (const node of subtree) {
+    const relativePath = node.path === normalizedSource ? '' : node.path.slice(normalizedSource.length + 1);
+    const newPath = relativePath ? `${normalizedTarget}/${relativePath}` : normalizedTarget;
+
+    const parentId =
+      node.id === existing.id
+        ? targetParent?.id ?? null
+        : newNodeMap.get(node.parentId ?? -1)?.id ?? null;
+
+    if (node.id !== existing.id && parentId === null) {
+      throw new FilestoreError('Failed to resolve copied parent', 'NODE_NOT_FOUND', {
+        parentId: node.parentId
+      });
+    }
+
+    const metadataClone = node.metadata ? JSON.parse(JSON.stringify(node.metadata)) : {};
+
+    const inserted = await insertNode(client, {
+      backendMountId: backend.id,
+      parentId,
+      path: newPath,
+      kind: node.kind,
+      sizeBytes: node.sizeBytes,
+      checksum: node.checksum,
+      contentHash: node.contentHash,
+      metadata: metadataClone,
+      lastModifiedAt: node.lastModifiedAt ?? new Date(),
+      state: node.state,
+      isSymlink: node.isSymlink
+    });
+
+    await recordSnapshot(client, inserted);
+    newNodeMap.set(node.id, inserted);
+    newNodeIds.push(inserted.id);
+  }
+
+  const copiedRoot = newNodeMap.get(existing.id)!;
+
+  const rollupPlan: RollupPlan = {
+    ensure: Array.from(new Set(newNodeIds)),
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: Array.from(new Set(newNodeIds)),
+    scheduleCandidates: []
+  };
+
+  const totals = { sizeBytes: 0, fileCount: 0, directoryCount: 0 };
+  newNodeMap.forEach((node) => {
+    const contribution = computeContribution(node);
+    totals.sizeBytes += contribution.sizeBytes;
+    totals.fileCount += contribution.fileCount;
+    totals.directoryCount += contribution.directoryCount;
+  });
+
+  if (targetParent) {
+    const ancestors = await collectAncestorChain(client, targetParent);
+    ancestors.forEach((ancestor, index) => {
+      rollupPlan.increments.push({
+        nodeId: ancestor.id,
+        sizeBytesDelta: totals.sizeBytes,
+        fileCountDelta: totals.fileCount,
+        directoryCountDelta: totals.directoryCount,
+        childCountDelta: index === 0 && copiedRoot.state === 'active' ? 1 : 0,
+        markPending: false
+      });
+      rollupPlan.touchedNodeIds.push(ancestor.id);
+      if (index === 0) {
+        rollupPlan.scheduleCandidates.push({
+          nodeId: ancestor.id,
+          backendMountId: backend.id,
+          reason: 'mutation',
+          depth: ancestor.depth,
+          childCountDelta: index === 0 && copiedRoot.state === 'active' ? 1 : 0
+        });
+      }
+    });
+  }
+
+  rollupPlan.scheduleCandidates.push({
+    nodeId: copiedRoot.id,
+    backendMountId: backend.id,
+    reason: 'mutation',
+    depth: copiedRoot.depth,
+    childCountDelta: 0
+  });
+
+  const affectedIds = Array.from(newNodeMap.values()).map((node) => node.id);
+
+  return {
+    primaryNode: copiedRoot,
+    affectedNodeIds: affectedIds,
+    backendMountId: backend.id,
+    result: {
+      ...buildResultPayload(copiedRoot, command.type),
+      copiedFrom: normalizedSource
+    },
+    rollupPlan
+  };
+}
+
 async function executeCommand(
   client: PoolClient,
   backend: BackendMountRecord,
@@ -318,6 +987,16 @@ async function executeCommand(
       return applyCreateDirectory(client, backend, command, executor);
     case 'deleteNode':
       return applyDeleteNode(client, backend, command, executor);
+    case 'moveNode':
+      return applyMoveNode(client, backend, command, executor);
+    case 'updateNodeMetadata':
+      return applyUpdateNodeMetadata(client, backend, command);
+    case 'copyNode':
+      return applyCopyNode(client, backend, command, executor);
+    case 'uploadFile':
+      return applyUploadFile(client, backend, command, executor);
+    case 'writeFile':
+      return applyWriteFile(client, backend, command, executor);
     default:
       return assertUnreachable(command);
   }
@@ -440,6 +1119,12 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     const durationNs = Number(process.hrtime.bigint() - startTime);
     const durationMs = Math.round(durationNs / 1_000_000);
 
+    const resultWithDuration: CommandResultPayload = {
+      ...emitted.result,
+      durationMs
+    };
+    emitted.result = resultWithDuration;
+
     await client.query(
       `UPDATE journal_entries
           SET status = 'succeeded',
@@ -449,7 +1134,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
               duration_ms = $3
         WHERE id = $4`,
       [
-        JSON.stringify(emitted.result),
+        JSON.stringify(resultWithDuration),
         emitted.affectedNodeIds,
         durationMs,
         journalEntryId
@@ -459,7 +1144,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     const runResult: RunCommandResult = {
       journalEntryId,
       node: emitted.primaryNode,
-      result: emitted.result,
+      result: resultWithDuration,
       idempotent: false,
       command: parsed
     };

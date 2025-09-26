@@ -7,7 +7,11 @@ export type FilestoreErrorCode =
   | 'NOT_A_DIRECTORY'
   | 'CHILDREN_EXIST'
   | 'IDEMPOTENCY_CONFLICT'
-  | 'INVALID_PATH';
+  | 'INVALID_PATH'
+  | 'NOT_SUPPORTED'
+  | 'INVALID_REQUEST'
+  | 'INVALID_CHECKSUM'
+  | 'CHECKSUM_MISMATCH';
 
 export class FilestoreError extends Error {
   public readonly code: FilestoreErrorCode;

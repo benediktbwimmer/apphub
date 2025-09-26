@@ -1,4 +1,5 @@
 import fastify from 'fastify';
+import multipart from '@fastify/multipart';
 import { loadServiceConfig, type ServiceConfig } from './config/serviceConfig';
 import { metricsPlugin } from './plugins/metrics';
 import { registerSystemRoutes } from './routes/system';
@@ -27,6 +28,13 @@ export async function buildApp(options?: BuildAppOptions) {
   });
 
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
+  await app.register(multipart, {
+    attachFieldsToBody: false,
+    limits: {
+      files: 1,
+      fileSize: 1024 * 1024 * 1024 // 1 GiB per upload
+    }
+  });
   registerExecutor(createLocalExecutor());
   registerExecutor(createS3Executor());
   await initializeRollupManager({

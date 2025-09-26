@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { parseFilestoreEventFrame } from '../api';
+import { describe, expect, it, vi } from 'vitest';
+import { copyNode, moveNode, parseFilestoreEventFrame, updateNodeMetadata, uploadFile } from '../api';
 import { describeFilestoreEvent } from '../eventSummaries';
 import type { FilestoreEvent } from '../api';
 
@@ -75,5 +75,152 @@ describe('filestore api helpers', () => {
     expect(entry.label).toBe('Drift detected');
     expect(entry.detail).toContain('hash_mismatch');
     expect(entry.timestamp).toBe(iso);
+  });
+
+  it('sends metadata updates via PATCH request', async () => {
+    const responsePayload = {
+      data: {
+        idempotent: false,
+        journalEntryId: 77,
+        node: null,
+        result: { nodeId: 42 }
+      }
+    };
+
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      expect(input).toContain('/v1/nodes/42/metadata');
+      expect(init?.method).toBe('PATCH');
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      expect(body.backendMountId).toBe(5);
+      expect(body.set.owner).toBe('ops');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const result = await updateNodeMetadata(fetchMock, {
+      nodeId: 42,
+      backendMountId: 5,
+      set: { owner: 'ops' }
+    });
+
+    expect(result.journalEntryId).toBe(77);
+    expect(result.result.nodeId).toBe(42);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves nodes via POST request', async () => {
+    const responsePayload = {
+      data: {
+        idempotent: false,
+        journalEntryId: 88,
+        node: null,
+        result: { path: 'datasets/archive' }
+      }
+    };
+
+    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+      expect(init?.method).toBe('POST');
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      expect(body.path).toBe('datasets/raw');
+      expect(body.targetPath).toBe('datasets/archive');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const result = await moveNode(fetchMock, {
+      backendMountId: 9,
+      path: 'datasets/raw',
+      targetPath: 'datasets/archive'
+    });
+
+    expect(result.journalEntryId).toBe(88);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies nodes via POST request', async () => {
+    const responsePayload = {
+      data: {
+        idempotent: false,
+        journalEntryId: 99,
+        node: null,
+        result: { path: 'datasets/archive-copy' }
+      }
+    };
+
+    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+      expect(init?.method).toBe('POST');
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      expect(body.path).toBe('datasets/archive');
+      expect(body.targetPath).toBe('datasets/archive-copy');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const result = await copyNode(fetchMock, {
+      backendMountId: 9,
+      path: 'datasets/archive',
+      targetPath: 'datasets/archive-copy'
+    });
+
+    expect(result.journalEntryId).toBe(99);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploads files via multipart request', async () => {
+    const responsePayload = {
+      data: {
+        idempotent: false,
+        journalEntryId: 123,
+        node: null,
+        result: { path: 'datasets/sample.txt' }
+      }
+    };
+
+    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({
+        'Idempotency-Key': 'upload-1',
+        'x-filestore-principal': 'tester',
+        'x-filestore-checksum': 'sha256:abc',
+        'x-filestore-content-hash': 'sha256:def'
+      });
+
+      const form = init?.body as FormData;
+      expect(form).toBeInstanceOf(FormData);
+      expect(form.get('backendMountId')).toBe('3');
+      expect(form.get('path')).toBe('datasets/sample.txt');
+      expect(form.get('overwrite')).toBe('true');
+      expect(form.get('metadata')).toBe(JSON.stringify({ owner: 'ops' }));
+      expect(form.get('idempotencyKey')).toBe('upload-1');
+
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const blob = new Blob(['hello'], { type: 'text/plain' });
+    Object.assign(blob, { name: 'sample.txt' });
+
+    const result = await uploadFile(fetchMock, {
+      backendMountId: 3,
+      path: 'datasets/sample.txt',
+      file: blob,
+      overwrite: true,
+      metadata: { owner: 'ops' },
+      idempotencyKey: 'upload-1',
+      checksum: 'sha256:abc',
+      contentHash: 'sha256:def',
+      principal: 'tester'
+    });
+
+    expect(result.journalEntryId).toBe(123);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,6 +8,7 @@ import {
   fetchNodeById,
   fetchNodeChildren,
   listNodes,
+  updateNodeMetadata,
   subscribeToFilestoreEvents,
   type FetchNodeChildrenParams,
   type FilestoreEventType,
@@ -52,6 +53,9 @@ const SSE_EVENT_TYPES: FilestoreEventType[] = [
   'filestore.node.created',
   'filestore.node.updated',
   'filestore.node.deleted',
+  'filestore.node.uploaded',
+  'filestore.node.moved',
+  'filestore.node.copied',
   'filestore.command.completed',
   'filestore.drift.detected',
   'filestore.node.reconciled',
@@ -228,6 +232,17 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   }, [backendMountId, registerMountId]);
 
   useEffect(() => {
+    if (selectedNode) {
+      setMetadataDraft(JSON.stringify(selectedNode.metadata ?? {}, null, 2));
+    } else {
+      setMetadataDraft('');
+    }
+    setMetadataEditing(false);
+    setMetadataPending(false);
+    setMetadataErrorMessage(null);
+  }, [selectedNode]);
+
+  useEffect(() => {
     const timers = refreshTimers.current;
     return () => {
       for (const key of Object.keys(timers) as Array<keyof RefreshTimers>) {
@@ -346,6 +361,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [reconcileDetectChildren, setReconcileDetectChildren] = useState(false);
   const [reconcileRequestHash, setReconcileRequestHash] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [metadataEditing, setMetadataEditing] = useState(false);
+  const [metadataDraft, setMetadataDraft] = useState('');
+  const [metadataPending, setMetadataPending] = useState(false);
+  const [metadataErrorMessage, setMetadataErrorMessage] = useState<string | null>(null);
 
   const handleReconcile = useCallback(
     async (node: FilestoreNode | null) => {
@@ -381,6 +400,92 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       showSuccess
     ]
   );
+
+  const handleMetadataSave = useCallback(async () => {
+    if (!selectedNode) {
+      return;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      const trimmed = metadataDraft.trim();
+      if (!trimmed) {
+        parsed = {};
+      } else {
+        const candidate = JSON.parse(trimmed) as unknown;
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+          throw new Error('Metadata must be a JSON object');
+        }
+        parsed = candidate as Record<string, unknown>;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Metadata must be valid JSON';
+      setMetadataErrorMessage(message);
+      showError(message);
+      return;
+    }
+
+    const original = (selectedNode.metadata ?? {}) as Record<string, unknown>;
+    const toSet: Record<string, unknown> = {};
+    const toUnset: string[] = [];
+    let changed = false;
+
+    for (const [key, value] of Object.entries(parsed)) {
+      const originalValue = original[key];
+      if (JSON.stringify(originalValue) !== JSON.stringify(value)) {
+        toSet[key] = value;
+        changed = true;
+      }
+    }
+
+    for (const key of Object.keys(original)) {
+      if (!(key in parsed)) {
+        toUnset.push(key);
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      setMetadataEditing(false);
+      setMetadataErrorMessage(null);
+      showInfo('No metadata changes detected');
+      return;
+    }
+
+    setMetadataPending(true);
+    setMetadataErrorMessage(null);
+
+    try {
+      await updateNodeMetadata(authorizedFetch, {
+        nodeId: selectedNode.id,
+        backendMountId: selectedNode.backendMountId,
+        set: Object.keys(toSet).length > 0 ? toSet : undefined,
+        unset: toUnset.length > 0 ? toUnset : undefined,
+        idempotencyKey: `metadata-${selectedNode.id}-${Date.now()}`
+      });
+      setMetadataDraft(JSON.stringify(parsed, null, 2));
+      setMetadataEditing(false);
+      showSuccess('Metadata updated');
+      scheduleRefresh('node', refetchNode);
+      scheduleRefresh('list', refetchList);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update metadata';
+      setMetadataErrorMessage(message);
+      showError(message);
+    } finally {
+      setMetadataPending(false);
+    }
+  }, [
+    authorizedFetch,
+    metadataDraft,
+    refetchList,
+    refetchNode,
+    scheduleRefresh,
+    selectedNode,
+    showError,
+    showInfo,
+    showSuccess
+  ]);
 
   const handlePaginationChange = useCallback(
     (nextOffset: number | null) => {
@@ -762,9 +867,63 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     </div>
                   </div>
                   <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Metadata</dt>
-                    <dd className="mt-1 max-h-32 overflow-y-auto rounded border border-slate-100 bg-slate-50/80 p-3 font-mono text-[11px] text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200">
-                      <pre className="whitespace-pre-wrap break-words">{JSON.stringify(selectedNode.metadata ?? {}, null, 2)}</pre>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Metadata</dt>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (metadataEditing) {
+                            setMetadataEditing(false);
+                            setMetadataDraft(JSON.stringify(selectedNode.metadata ?? {}, null, 2));
+                            setMetadataErrorMessage(null);
+                          } else {
+                            setMetadataEditing(true);
+                          }
+                        }}
+                        className="rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                      >
+                        {metadataEditing ? 'Discard changes' : 'Edit'}
+                      </button>
+                    </div>
+                    <dd className="mt-1 max-h-60 overflow-y-auto rounded border border-slate-100 bg-slate-50/80 p-3 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200">
+                      {metadataEditing ? (
+                        <div className="flex flex-col gap-3">
+                          <textarea
+                            value={metadataDraft}
+                            onChange={(event) => setMetadataDraft(event.target.value)}
+                            rows={8}
+                            className="w-full rounded border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950/80 dark:text-slate-200 dark:focus:border-slate-500"
+                          />
+                          {metadataErrorMessage ? (
+                            <p className="text-xs text-rose-600 dark:text-rose-300">{metadataErrorMessage}</p>
+                          ) : null}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={metadataPending}
+                              onClick={() => void handleMetadataSave()}
+                              className="rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                            >
+                              {metadataPending ? 'Saving…' : 'Save metadata'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMetadataEditing(false);
+                                setMetadataDraft(JSON.stringify(selectedNode.metadata ?? {}, null, 2));
+                                setMetadataErrorMessage(null);
+                              }}
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">
+                          {JSON.stringify(selectedNode.metadata ?? {}, null, 2)}
+                        </pre>
+                      )}
                     </dd>
                   </div>
                 </dl>

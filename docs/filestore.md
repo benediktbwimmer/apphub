@@ -52,6 +52,7 @@ graph TD
 ### API Gateway
 - Fastify service under `services/filestore` following catalog/metastore conventions.
 - Implements REST endpoints for node inspection, directory listing, snapshots, and mutation commands.
+- Supports streaming file uploads (`POST /v1/files`) for creating and overwriting tracked files with idempotent semantics and checksum validation.
 - Provides browse-friendly read APIs (`GET /v1/nodes`, `GET /v1/nodes/:id`, `GET /v1/nodes/:id/children`, `GET /v1/nodes/by-path`) with filters for backend mount, path prefix, depth, node state, and drift-only queries.
 - Streams change notifications via Server-Sent Events at `/v1/events/stream` for local development or environments without Redis.
 - Handles auth, validation (zod schemas), idempotency headers, and streaming uploads/downloads.
@@ -59,6 +60,7 @@ graph TD
 ### Command Orchestrator
 - Core module that validates commands, loads node context, and wraps executor calls in a Postgres transaction.
 - Persists mutations into `nodes`, `snapshots`, and `journal_entries`, increments optimistic version numbers, and records idempotency keys.
+- Handles directory creation/deletion, metadata edits, node moves/copies, and file uploads/writes (`uploadFile`, `writeFile`) while verifying path invariants and rolling up size/count deltas inline.
 - Schedules follow-up work (rollup recomputation, checksum verification) on BullMQ queues and publishes Redis events after commit.
 
 ### Executors
@@ -80,7 +82,7 @@ graph TD
 - **Watchers**: per-mount adapters (chokidar for local, S3 notification/listing) detect out-of-band changes, tag nodes as `INCONSISTENT`, and enqueue reconciliation work.
 
 ### Event Pipeline
-- Redis pub/sub channel (default `apphub:filestore`) still powers in-process listeners, while the orchestrator now forwards every successful command as `filestore.command.completed` on the shared event bus.
+- Redis pub/sub channel (default `apphub:filestore`) still powers in-process listeners and broadcasts events like `filestore.node.created`, `filestore.node.uploaded`, `filestore.node.moved`, `filestore.node.copied`, `filestore.node.updated`, `filestore.node.deleted`, `filestore.command.completed`, and `filestore.drift.detected`, while the orchestrator forwards every successful command as `filestore.command.completed` on the shared event bus.
 - Catalog’s existing WebSocket relay can be extended to proxy these events to the frontend without introducing Kafka.
 - Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline`.
 - Commands receive payloads containing the journal ID, backend mount, node metadata, and idempotency key when present—ideal for syncing mirrors or triggering downstream workflows.
@@ -89,7 +91,7 @@ graph TD
 
 - The web console at `/services/filestore` (apps/frontend) now renders a Filestore explorer backed by the new browse endpoints and SSE stream. It requires a token with `filestore:read` scope (and `filestore:write` for reconciliation controls).
 - Configure `VITE_FILESTORE_BASE_URL` when running the Vite dev server so the explorer points at the correct Filestore instance.
-- The UI debounces event-driven refreshes and uses typed helpers in `apps/frontend/src/filestore/api.ts` for pagination, children queries, and reconciliation commands.
+- The UI debounces event-driven refreshes and uses typed helpers in `apps/frontend/src/filestore/api.ts` for pagination, children queries, metadata edits, move operations, and reconciliation commands.
 
 ## Command Flow
 

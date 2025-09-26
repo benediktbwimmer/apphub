@@ -33,6 +33,33 @@ async function statOptional(target: string) {
   }
 }
 
+async function moveFileReplacing(source: string, destination: string): Promise<void> {
+  try {
+    await fs.rename(source, destination);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+      await fs.copyFile(source, destination);
+      await fs.unlink(source);
+      return;
+    }
+    throw err;
+  }
+}
+
+async function copyDirectoryRecursive(source: string, destination: string): Promise<void> {
+  await fs.mkdir(destination, { recursive: true });
+  const entries = await fs.readdir(source, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = path.join(source, entry.name);
+    const destinationPath = path.join(destination, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryRecursive(sourcePath, destinationPath);
+    } else {
+      await fs.copyFile(sourcePath, destinationPath);
+    }
+  }
+}
+
 export function createLocalExecutor(): CommandExecutor {
   return {
     kind: 'local',
@@ -78,6 +105,115 @@ export function createLocalExecutor(): CommandExecutor {
             sizeBytes: 0,
             lastModifiedAt: new Date()
           };
+        }
+        case 'moveNode': {
+          if (typeof command.targetPath !== 'string') {
+            throw new FilestoreError('Target path is required for move', 'INVALID_PATH');
+          }
+          const targetResolved = path.resolve(root, command.targetPath);
+          if (!targetResolved.startsWith(path.resolve(root))) {
+            throw new FilestoreError('Resolved target path escapes backend root', 'INVALID_PATH', {
+              root,
+              requestedPath: command.targetPath
+            });
+          }
+          await fs.mkdir(path.dirname(targetResolved), { recursive: true });
+          await fs.rename(resolved, targetResolved);
+          const stats = await statOptional(targetResolved);
+          return {
+            sizeBytes: stats?.isDirectory() ? 0 : stats?.size ?? null,
+            lastModifiedAt: stats?.mtime ?? new Date()
+          } satisfies ExecutorResult;
+        }
+        case 'copyNode': {
+          if (typeof command.targetPath !== 'string') {
+            throw new FilestoreError('Target path is required for copy', 'INVALID_PATH');
+          }
+          const targetResolved = path.resolve(root, command.targetPath);
+          if (!targetResolved.startsWith(path.resolve(root))) {
+            throw new FilestoreError('Resolved target path escapes backend root', 'INVALID_PATH', {
+              root,
+              requestedPath: command.targetPath
+            });
+          }
+
+          const existingTarget = await statOptional(targetResolved);
+          if (existingTarget) {
+            throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+              targetPath: command.targetPath
+            });
+          }
+
+          const sourceStats = await statOptional(resolved);
+          if (!sourceStats) {
+            throw new FilestoreError('Source path not found for copy', 'NODE_NOT_FOUND', {
+              path: command.path
+            });
+          }
+
+          await fs.mkdir(path.dirname(targetResolved), { recursive: true });
+
+          if (sourceStats.isDirectory()) {
+            await copyDirectoryRecursive(resolved, targetResolved);
+            return {
+              sizeBytes: 0,
+              lastModifiedAt: new Date()
+            } satisfies ExecutorResult;
+          }
+
+          await fs.copyFile(resolved, targetResolved);
+          const copiedStats = await statOptional(targetResolved);
+          return {
+            sizeBytes: copiedStats?.size ?? sourceStats.size,
+            lastModifiedAt: copiedStats?.mtime ?? new Date()
+          } satisfies ExecutorResult;
+        }
+        case 'uploadFile':
+        case 'writeFile': {
+          const resolved = path.resolve(root, command.path);
+          if (!resolved.startsWith(path.resolve(root))) {
+            throw new FilestoreError('Resolved path escapes backend root', 'INVALID_PATH', {
+              root,
+              requestedPath: command.path
+            });
+          }
+
+          if (!command.stagingPath || command.stagingPath.trim().length === 0) {
+            throw new FilestoreError('Staging path missing for upload', 'INVALID_REQUEST');
+          }
+
+          const stagingStats = await statOptional(command.stagingPath);
+          if (!stagingStats || !stagingStats.isFile()) {
+            throw new FilestoreError('Staging file missing for upload', 'NODE_NOT_FOUND', {
+              stagingPath: command.stagingPath
+            });
+          }
+
+          const targetStats = await statOptional(resolved);
+          if (command.type === 'uploadFile' && targetStats) {
+            throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+              path: command.path
+            });
+          }
+          if (targetStats && targetStats.isDirectory()) {
+            throw new FilestoreError('Cannot overwrite directory with file', 'NOT_A_DIRECTORY', {
+              path: command.path
+            });
+          }
+
+          await fs.mkdir(path.dirname(resolved), { recursive: true });
+          await moveFileReplacing(command.stagingPath, resolved);
+
+          const finalStats = await statOptional(resolved);
+          return {
+            sizeBytes: finalStats?.size ?? stagingStats.size,
+            checksum: command.checksum ?? null,
+            contentHash: command.contentHash ?? null,
+            lastModifiedAt: finalStats?.mtime ?? new Date()
+          } satisfies ExecutorResult;
+        }
+        case 'updateNodeMetadata': {
+          return {};
         }
         default:
           return assertUnreachable(command);

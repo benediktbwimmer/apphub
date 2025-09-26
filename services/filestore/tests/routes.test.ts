@@ -1,8 +1,8 @@
 /// <reference path="../src/types/embeddedPostgres.d.ts" />
 
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import http from 'node:http';
@@ -31,6 +31,29 @@ async function getJournalCount(dbClientModule: typeof import('../src/db/client')
     client.query('SELECT COUNT(*)::int AS count FROM journal_entries')
   );
   return result.rows[0].count as number;
+}
+
+function encodeMultipart(
+  boundary: string,
+  parts: Array<{ name: string; value: string | Buffer; filename?: string; contentType?: string }>
+): Buffer {
+  const buffers: Buffer[] = [];
+  for (const part of parts) {
+    buffers.push(Buffer.from(`--${boundary}\r\n`));
+    let disposition = `Content-Disposition: form-data; name="${part.name}"`;
+    if (part.filename) {
+      disposition += `; filename="${part.filename}"`;
+    }
+    buffers.push(Buffer.from(`${disposition}\r\n`));
+    if (part.contentType) {
+      buffers.push(Buffer.from(`Content-Type: ${part.contentType}\r\n`));
+    }
+    buffers.push(Buffer.from('\r\n'));
+    buffers.push(typeof part.value === 'string' ? Buffer.from(part.value) : part.value);
+    buffers.push(Buffer.from('\r\n'));
+  }
+  buffers.push(Buffer.from(`--${boundary}--\r\n`));
+  return Buffer.concat(buffers);
 }
 
 runE2E(async ({ registerCleanup }) => {
@@ -100,6 +123,7 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   const backendMountId = await createBackendMount(dbClientModule, mountRoots);
+  const backendRoot = mountRoots[mountRoots.length - 1];
 
   const countBeforeParent = await getJournalCount(dbClientModule);
   const parentResponse = await app.inject({
@@ -158,6 +182,8 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(createBody.data.node!.rollup?.childCount, 0);
   const countAfterCreate = await getJournalCount(dbClientModule);
   assert.equal(countAfterCreate - countAfterParent, 1);
+
+  let currentPath = 'datasets/observatory';
 
   const idempotentResponse = await app.inject({
     method: 'POST',
@@ -335,7 +361,7 @@ runE2E(async ({ registerCleanup }) => {
 
   const byPathResponse = await app.inject({
     method: 'GET',
-    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=datasets/observatory`
+    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=${currentPath}`
   });
   assert.equal(byPathResponse.statusCode, 200, byPathResponse.body);
   const byPathBody = byPathResponse.json() as {
@@ -344,12 +370,176 @@ runE2E(async ({ registerCleanup }) => {
   assert.ok(byPathBody.data.rollup);
   assert.equal(byPathBody.data.rollup?.directoryCount, 2);
 
+  const moveResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/nodes/move',
+    payload: {
+      backendMountId,
+      path: currentPath,
+      targetPath: 'datasets/observatory-archive'
+    },
+    headers: {
+      'x-filestore-principal': 'routes-test'
+    }
+  });
+  assert.equal(moveResponse.statusCode, 200, moveResponse.body);
+  const moveBody = moveResponse.json() as {
+    data: {
+      node: { path: string } | null;
+      result: { movedFrom?: string };
+    };
+  };
+  assert.equal(moveBody.data.node?.path, 'datasets/observatory-archive');
+  assert.equal(moveBody.data.result.movedFrom, 'datasets/observatory');
+  currentPath = 'datasets/observatory-archive';
+
+  const movedByPathResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=${currentPath}`
+  });
+  assert.equal(movedByPathResponse.statusCode, 200, movedByPathResponse.body);
+  const movedByPathBody = movedByPathResponse.json() as {
+    data: { path: string; rollup: { state: string } | null };
+  };
+  assert.equal(movedByPathBody.data.path, currentPath);
+  assert.ok(movedByPathBody.data.rollup);
+
+  const movedChildrenResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes/${nodeId}/children?limit=10`
+  });
+  assert.equal(movedChildrenResponse.statusCode, 200, movedChildrenResponse.body);
+  const movedChildrenBody = movedChildrenResponse.json() as {
+    data: { children: Array<{ path: string }> };
+  };
+  const movedChildPaths = movedChildrenBody.data.children.map((node) => node.path);
+  assert.ok(movedChildPaths.includes(`${currentPath}/raw`));
+  assert.ok(movedChildPaths.includes(`${currentPath}/processed`));
+
+  const metadataResponse = await app.inject({
+    method: 'PATCH',
+    url: `/v1/nodes/${nodeId}/metadata`,
+    payload: {
+      backendMountId,
+      set: {
+        owner: 'astro-ops',
+        classification: 'restricted'
+      },
+      unset: ['deprecatedField']
+    },
+    headers: {
+      'x-filestore-principal': 'routes-test'
+    }
+  });
+  assert.equal(metadataResponse.statusCode, 200, metadataResponse.body);
+  const metadataBody = metadataResponse.json() as {
+    data: {
+      node: {
+        metadata: Record<string, unknown>;
+        rollup: { state: string } | null;
+      } | null;
+      idempotent: boolean;
+      result: { nodeId: number };
+    };
+  };
+  assert.equal(metadataBody.data.idempotent, false);
+  assert.equal((metadataBody.data.node?.metadata as { owner?: string }).owner, 'astro-ops');
+  assert.equal((metadataBody.data.node?.metadata as { classification?: string }).classification, 'restricted');
+
+  const uploadPath = `${currentPath}/raw/data.csv`;
+  const uploadBoundary = '----filestore-routes-upload';
+  const fileContent = Buffer.from('epoch,telescope\n1,Hubble\n', 'utf8');
+  const checksum = createHash('sha256').update(fileContent).digest('hex');
+  const uploadPayload = encodeMultipart(uploadBoundary, [
+    { name: 'backendMountId', value: String(backendMountId) },
+    { name: 'path', value: uploadPath },
+    { name: 'metadata', value: JSON.stringify({ source: 'routes-test' }) },
+    { name: 'file', value: fileContent, filename: 'data.csv', contentType: 'text/csv' }
+  ]);
+
+  const uploadResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/files',
+    payload: uploadPayload,
+    headers: {
+      'content-type': `multipart/form-data; boundary=${uploadBoundary}`,
+      'x-filestore-checksum': `sha256:${checksum}`,
+      'x-filestore-content-hash': `sha256:${checksum}`,
+      'x-filestore-principal': 'routes-test',
+      'Idempotency-Key': 'upload-test-1'
+    }
+  });
+  assert.equal(uploadResponse.statusCode, 201, uploadResponse.body);
+  const uploadBody = uploadResponse.json() as {
+    data: {
+      node: { path: string; kind: string; sizeBytes: number; metadata: Record<string, unknown> } | null;
+      result: { sizeBytes?: number };
+    };
+  };
+  assert.equal(uploadBody.data.node?.path, uploadPath);
+  assert.equal(uploadBody.data.node?.kind, 'file');
+  assert.equal(uploadBody.data.node?.sizeBytes, fileContent.length);
+  assert.equal((uploadBody.data.node?.metadata as { source?: string }).source, 'routes-test');
+  assert.equal(uploadBody.data.result.sizeBytes, fileContent.length);
+
+  const storedFile = await readFile(path.join(backendRoot, uploadPath), 'utf8');
+  assert.equal(storedFile, fileContent.toString('utf8'));
+
+  const uploadedNodeResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=${uploadPath}`
+  });
+  assert.equal(uploadedNodeResponse.statusCode, 200, uploadedNodeResponse.body);
+  const uploadedNodeBody = uploadedNodeResponse.json() as {
+    data: { state: string; sizeBytes: number; version: number };
+  };
+  assert.equal(uploadedNodeBody.data.state, 'active');
+  assert.equal(uploadedNodeBody.data.sizeBytes, fileContent.length);
+  assert.ok(uploadedNodeBody.data.version >= 1);
+
+  const overwriteBoundary = '----filestore-routes-overwrite';
+  const overwriteContent = Buffer.from('epoch,telescope\n2,James Webb\n', 'utf8');
+  const overwriteChecksum = createHash('sha256').update(overwriteContent).digest('hex');
+  const overwritePayload = encodeMultipart(overwriteBoundary, [
+    { name: 'backendMountId', value: String(backendMountId) },
+    { name: 'path', value: uploadPath },
+    { name: 'overwrite', value: 'true' },
+    { name: 'file', value: overwriteContent, filename: 'data.csv', contentType: 'text/csv' }
+  ]);
+
+  const overwriteResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/files',
+    payload: overwritePayload,
+    headers: {
+      'content-type': `multipart/form-data; boundary=${overwriteBoundary}`,
+      'x-filestore-checksum': `sha256:${overwriteChecksum}`,
+      'x-filestore-content-hash': `sha256:${overwriteChecksum}`,
+      'x-filestore-principal': 'routes-test',
+      'Idempotency-Key': 'upload-test-2'
+    }
+  });
+  assert.equal(overwriteResponse.statusCode, 200, overwriteResponse.body);
+  const overwriteBody = overwriteResponse.json() as {
+    data: {
+      node: { sizeBytes: number; version: number } | null;
+      result: { previousSizeBytes?: number };
+    };
+  };
+  assert.ok(overwriteBody.data.node);
+  assert.ok((overwriteBody.data.node?.version ?? 0) > 1);
+  assert.equal(overwriteBody.data.node?.sizeBytes, overwriteContent.length);
+  assert.equal(overwriteBody.data.result.previousSizeBytes, fileContent.length);
+
+  const storedOverwrite = await readFile(path.join(backendRoot, uploadPath), 'utf8');
+  assert.equal(storedOverwrite, overwriteContent.toString('utf8'));
+
   const deleteResponse = await app.inject({
     method: 'DELETE',
     url: '/v1/nodes',
     payload: {
       backendMountId,
-      path: 'datasets/observatory',
+      path: currentPath,
       recursive: true
     }
   });
@@ -372,7 +562,7 @@ runE2E(async ({ registerCleanup }) => {
       filters: { states: string[] };
     };
   };
-  assert.ok(deletedListBody.data.nodes.some((node) => node.path === 'datasets/observatory'));
+  assert.ok(deletedListBody.data.nodes.some((node) => node.path === currentPath));
   assert.deepEqual(deletedListBody.data.filters.states, ['deleted']);
 
   const afterDeleteById = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });
@@ -386,7 +576,7 @@ runE2E(async ({ registerCleanup }) => {
 
   const afterDeleteByPath = await app.inject({
     method: 'GET',
-    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=datasets/observatory`
+    url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=${currentPath}`
   });
   assert.equal(afterDeleteByPath.statusCode, 200, afterDeleteByPath.body);
   const afterDeleteByPathBody = afterDeleteByPath.json() as {
@@ -401,7 +591,7 @@ runE2E(async ({ registerCleanup }) => {
     url: '/v1/reconciliation',
     payload: {
       backendMountId,
-      path: 'datasets/observatory'
+      path: currentPath
     }
   });
   assert.equal(reconcileResponse.statusCode, 202, reconcileResponse.body);
@@ -422,7 +612,7 @@ runE2E(async ({ registerCleanup }) => {
             data: {
               backendMountId,
               nodeId,
-              path: 'datasets/observatory',
+              path: currentPath,
               kind: 'directory',
               state: 'active',
               parentId: null,

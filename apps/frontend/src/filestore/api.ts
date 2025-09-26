@@ -77,6 +77,47 @@ export type DeleteNodeInput = {
   principal?: string;
 };
 
+export type UploadFileInput = {
+  backendMountId: number;
+  path: string;
+  file: Blob;
+  overwrite?: boolean;
+  metadata?: Record<string, unknown>;
+  idempotencyKey?: string;
+  checksum?: string;
+  contentHash?: string;
+  principal?: string;
+};
+
+export type UpdateNodeMetadataInput = {
+  nodeId: number;
+  backendMountId: number;
+  set?: Record<string, unknown>;
+  unset?: string[];
+  idempotencyKey?: string;
+  principal?: string;
+};
+
+export type MoveNodeInput = {
+  backendMountId: number;
+  path: string;
+  targetPath: string;
+  targetBackendMountId?: number;
+  overwrite?: boolean;
+  idempotencyKey?: string;
+  principal?: string;
+};
+
+export type CopyNodeInput = {
+  backendMountId: number;
+  path: string;
+  targetPath: string;
+  targetBackendMountId?: number;
+  overwrite?: boolean;
+  idempotencyKey?: string;
+  principal?: string;
+};
+
 export type GetNodeByPathInput = {
   backendMountId: number;
   path: string;
@@ -189,6 +230,123 @@ export async function deleteNode(
     }),
     signal: options.signal
   });
+  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
+  return envelope.data;
+}
+
+export async function updateNodeMetadata(
+  authorizedFetch: AuthorizedFetch,
+  input: UpdateNodeMetadataInput,
+  options: RequestOptions = {}
+): Promise<FilestoreCommandResponse> {
+  const response = await authorizedFetch(buildFilestoreUrl(`/v1/nodes/${input.nodeId}/metadata`), {
+    method: 'PATCH',
+    headers: buildJsonHeaders({
+      idempotencyKey: input.idempotencyKey,
+      principal: input.principal
+    }),
+    body: JSON.stringify({
+      backendMountId: input.backendMountId,
+      set: input.set,
+      unset: input.unset
+    }),
+    signal: options.signal
+  });
+  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
+  return envelope.data;
+}
+
+export async function moveNode(
+  authorizedFetch: AuthorizedFetch,
+  input: MoveNodeInput,
+  options: RequestOptions = {}
+): Promise<FilestoreCommandResponse> {
+  const response = await authorizedFetch(buildFilestoreUrl('/v1/nodes/move'), {
+    method: 'POST',
+    headers: buildJsonHeaders({
+      idempotencyKey: input.idempotencyKey,
+      principal: input.principal
+    }),
+    body: JSON.stringify({
+      backendMountId: input.backendMountId,
+      path: input.path,
+      targetPath: input.targetPath,
+      targetBackendMountId: input.targetBackendMountId,
+      overwrite: input.overwrite
+    }),
+    signal: options.signal
+  });
+  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
+  return envelope.data;
+}
+
+export async function copyNode(
+  authorizedFetch: AuthorizedFetch,
+  input: CopyNodeInput,
+  options: RequestOptions = {}
+): Promise<FilestoreCommandResponse> {
+  const response = await authorizedFetch(buildFilestoreUrl('/v1/nodes/copy'), {
+    method: 'POST',
+    headers: buildJsonHeaders({
+      idempotencyKey: input.idempotencyKey,
+      principal: input.principal
+    }),
+    body: JSON.stringify({
+      backendMountId: input.backendMountId,
+      path: input.path,
+      targetPath: input.targetPath,
+      targetBackendMountId: input.targetBackendMountId,
+      overwrite: input.overwrite
+    }),
+    signal: options.signal
+  });
+  const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
+  return envelope.data;
+}
+
+export async function uploadFile(
+  authorizedFetch: AuthorizedFetch,
+  input: UploadFileInput,
+  options: RequestOptions = {}
+): Promise<FilestoreCommandResponse> {
+  const formData = new FormData();
+  formData.set('backendMountId', String(input.backendMountId));
+  formData.set('path', input.path);
+  if (input.overwrite) {
+    formData.set('overwrite', 'true');
+  }
+  if (input.metadata) {
+    formData.set('metadata', JSON.stringify(input.metadata));
+  }
+  if (input.idempotencyKey) {
+    formData.set('idempotencyKey', input.idempotencyKey);
+  }
+
+  const candidateName = (input.file as { name?: string }).name;
+  const inferredName = typeof candidateName === 'string' && candidateName.trim().length > 0 ? candidateName : 'upload.bin';
+  formData.append('file', input.file, inferredName);
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (input.idempotencyKey) {
+    headers['Idempotency-Key'] = input.idempotencyKey;
+  }
+  if (input.principal) {
+    headers['x-filestore-principal'] = input.principal;
+  }
+  if (input.checksum) {
+    headers['x-filestore-checksum'] = input.checksum;
+  }
+  if (input.contentHash) {
+    headers['x-filestore-content-hash'] = input.contentHash;
+  }
+
+  const response = await authorizedFetch(buildFilestoreUrl('/v1/files'), {
+    method: 'POST',
+    headers,
+    body: formData,
+    signal: options.signal
+  });
+
   const envelope = await parseJsonOrThrow(response, filestoreCommandResponseEnvelopeSchema);
   return envelope.data;
 }

@@ -117,16 +117,45 @@ async function handleCommandCompleted(payload: CommandCompletedEvent): Promise<v
   await emitFilestoreEvent(commandEvent);
 
   const nodePayload = deriveNodePayload(payload);
-  if (payload.command === 'deleteNode') {
-    const event: FilestoreEvent = { type: 'filestore.node.deleted', data: nodePayload };
-    await emitFilestoreEvent(event);
-    return;
-  }
-
-  if (payload.command === 'createDirectory') {
-    const version = nodePayload.version ?? 0;
-    const eventType: FilestoreEvent['type'] = version > 1 ? 'filestore.node.updated' : 'filestore.node.created';
-    await emitFilestoreEvent({ type: eventType, data: nodePayload });
+  switch (payload.command) {
+    case 'deleteNode': {
+      await emitFilestoreEvent({ type: 'filestore.node.deleted', data: nodePayload });
+      return;
+    }
+    case 'createDirectory': {
+      const version = nodePayload.version ?? 0;
+      const eventType: FilestoreEvent['type'] = version > 1 ? 'filestore.node.updated' : 'filestore.node.created';
+      await emitFilestoreEvent({ type: eventType, data: nodePayload });
+      return;
+    }
+    case 'uploadFile': {
+      const version = nodePayload.version ?? 0;
+      const createdEvent: FilestoreEvent['type'] = version > 1 ? 'filestore.node.updated' : 'filestore.node.created';
+      await emitFilestoreEvent({ type: createdEvent, data: nodePayload });
+      await emitFilestoreEvent({ type: 'filestore.node.uploaded', data: nodePayload });
+      return;
+    }
+    case 'writeFile': {
+      await emitFilestoreEvent({ type: 'filestore.node.updated', data: nodePayload });
+      await emitFilestoreEvent({ type: 'filestore.node.uploaded', data: nodePayload });
+      return;
+    }
+    case 'copyNode': {
+      await emitFilestoreEvent({ type: 'filestore.node.created', data: nodePayload });
+      await emitFilestoreEvent({ type: 'filestore.node.copied', data: nodePayload });
+      return;
+    }
+    case 'moveNode': {
+      await emitFilestoreEvent({ type: 'filestore.node.updated', data: nodePayload });
+      await emitFilestoreEvent({ type: 'filestore.node.moved', data: nodePayload });
+      return;
+    }
+    case 'updateNodeMetadata': {
+      await emitFilestoreEvent({ type: 'filestore.node.updated', data: nodePayload });
+      return;
+    }
+    default:
+      return;
   }
 }
 

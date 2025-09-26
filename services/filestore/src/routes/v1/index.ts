@@ -1,5 +1,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { randomUUID, createHash } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { MultipartFile, MultipartValue } from '@fastify/multipart';
 import { runCommand } from '../../commands/orchestrator';
 import {
   getNodeById,
@@ -18,6 +26,63 @@ import { subscribeToFilestoreEvents } from '../../events/publisher';
 import { ensureReconciliationManager } from '../../reconciliation/manager';
 import type { ReconciliationReason } from '../../reconciliation/types';
 import { getNodeDepth, normalizePath } from '../../utils/path';
+
+type ParsedChecksumHeader = {
+  algorithm: 'sha256' | 'sha1' | 'md5';
+  value: string;
+};
+
+const checksumAlgorithms = new Set<ParsedChecksumHeader['algorithm']>(['sha256', 'sha1', 'md5']);
+
+function parseChecksumHeader(value: unknown): ParsedChecksumHeader | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const [maybeAlgorithm, maybeValue] = trimmed.includes(':') ? trimmed.split(':', 2) : [null, trimmed];
+  if (maybeAlgorithm) {
+    const algorithm = maybeAlgorithm.toLowerCase() as ParsedChecksumHeader['algorithm'];
+    if (!checksumAlgorithms.has(algorithm)) {
+      throw new FilestoreError('Unsupported checksum algorithm', 'INVALID_CHECKSUM', {
+        algorithm: maybeAlgorithm
+      });
+    }
+    return { algorithm, value: maybeValue.trim().toLowerCase() };
+  }
+  return { algorithm: 'sha256', value: maybeValue.trim().toLowerCase() };
+}
+
+function parseBooleanFormField(value: string | undefined): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const result = preprocessBooleanQuery(value);
+  return typeof result === 'boolean' ? result : undefined;
+}
+
+function parseMetadataField(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Metadata must be a JSON object');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    throw new FilestoreError('Invalid metadata payload', 'INVALID_REQUEST', {
+      message: (err as Error).message
+    });
+  }
+}
 
 const createDirectorySchema = z.object({
   backendMountId: z.number().int().positive(),
@@ -45,6 +110,28 @@ const reconciliationRequestSchema = z.object({
   reason: z.enum(['drift', 'audit', 'manual']).optional(),
   detectChildren: z.boolean().optional(),
   requestedHash: z.boolean().optional()
+});
+
+const updateMetadataBodySchema = z.object({
+  backendMountId: z.number().int().positive(),
+  set: z.record(z.string(), z.unknown()).optional(),
+  unset: z.array(z.string()).optional()
+});
+
+const moveNodeBodySchema = z.object({
+  backendMountId: z.number().int().positive(),
+  path: z.string().min(1),
+  targetPath: z.string().min(1),
+  targetBackendMountId: z.number().int().positive().optional(),
+  overwrite: z.boolean().optional()
+});
+
+const copyNodeBodySchema = z.object({
+  backendMountId: z.number().int().positive(),
+  path: z.string().min(1),
+  targetPath: z.string().min(1),
+  targetBackendMountId: z.number().int().positive().optional(),
+  overwrite: z.boolean().optional()
 });
 
 const nodeStateFilterSchema = z.enum(['active', 'inconsistent', 'missing', 'deleted']);
@@ -183,6 +270,12 @@ function mapFilestoreErrorToHttpStatus(err: FilestoreError): number {
     case 'IDEMPOTENCY_CONFLICT':
     case 'EXECUTOR_NOT_FOUND':
       return 409;
+    case 'INVALID_REQUEST':
+    case 'INVALID_CHECKSUM':
+    case 'NOT_SUPPORTED':
+      return 400;
+    case 'CHECKSUM_MISMATCH':
+      return 422;
     default:
       return 500;
   }
@@ -232,6 +325,246 @@ function resolveIdempotencyKey(
 }
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
+  app.post('/v1/files', async (request, reply) => {
+    if (typeof (request as any).isMultipart !== 'function' || !(request as any).isMultipart()) {
+      return reply.status(415).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'File uploads require multipart/form-data'
+        }
+      });
+    }
+
+    const parts = (request as any).parts();
+    let filePart: MultipartFile | null = null;
+    const fields = new Map<string, string>();
+
+    try {
+      for await (const part of parts as AsyncIterable<MultipartFile | MultipartValue>) {
+        if (part.type === 'file') {
+          const candidate = part as MultipartFile;
+          if (filePart) {
+            candidate.file.resume();
+            return reply.status(400).send({
+              error: {
+                code: 'INVALID_REQUEST',
+                message: 'Exactly one file must be provided'
+              }
+            });
+          }
+          filePart = candidate;
+          break;
+        }
+        if (part.type === 'field' && typeof part.value === 'string') {
+          fields.set(part.fieldname, part.value);
+        }
+      }
+    } catch (err) {
+      return sendError(reply, err);
+    }
+
+    if (!filePart) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'File payload missing'
+        }
+      });
+    }
+
+    const backendMountValue = fields.get('backendMountId') ?? fields.get('backend_mount_id');
+    const backendMountId = backendMountValue ? Number(backendMountValue) : Number.NaN;
+    if (!Number.isFinite(backendMountId) || backendMountId <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'backendMountId must be a positive integer'
+        }
+      });
+    }
+
+    const pathValue = fields.get('path');
+    if (!pathValue || pathValue.trim().length === 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'path field is required'
+        }
+      });
+    }
+
+    let normalizedPath: string;
+    try {
+      normalizedPath = normalizePath(pathValue);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+
+    let metadata: Record<string, unknown> | undefined;
+    try {
+      metadata = parseMetadataField(fields.get('metadata'));
+    } catch (err) {
+      return sendError(reply, err);
+    }
+
+    const overwrite = parseBooleanFormField(fields.get('overwrite')) ?? false;
+    const idempotencyKey = resolveIdempotencyKey(fields.get('idempotencyKey'), request.headers);
+    const principal = resolvePrincipal(request.headers);
+
+    let checksumHeader: ParsedChecksumHeader | null = null;
+    let contentHashHeader: ParsedChecksumHeader | null = null;
+    try {
+      checksumHeader = parseChecksumHeader(request.headers['x-filestore-checksum']);
+      contentHashHeader = parseChecksumHeader(request.headers['x-filestore-content-hash']);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+
+    const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'filestore-upload-'));
+    const stagingPath = path.join(stagingDir, randomUUID());
+    const writeStream = createWriteStream(stagingPath);
+    let totalBytes = 0;
+
+    const hashers = new Map<ParsedChecksumHeader['algorithm'], ReturnType<typeof createHash>>();
+    hashers.set('sha256', createHash('sha256'));
+    if (checksumHeader) {
+      if (!hashers.has(checksumHeader.algorithm)) {
+        hashers.set(checksumHeader.algorithm, createHash(checksumHeader.algorithm));
+      }
+    }
+    if (contentHashHeader) {
+      if (!hashers.has(contentHashHeader.algorithm)) {
+        hashers.set(contentHashHeader.algorithm, createHash(contentHashHeader.algorithm));
+      }
+    }
+
+    const tracker = new Transform({
+      transform(chunk, _encoding, callback) {
+        totalBytes += chunk.length;
+        hashers.forEach((hasher) => hasher.update(chunk));
+        callback(null, chunk);
+      }
+    });
+
+    try {
+      await pipeline(filePart.file, tracker, writeStream);
+    } catch (err) {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return sendError(reply, err);
+    }
+
+    const digests = new Map<ParsedChecksumHeader['algorithm'], string>();
+    for (const [algorithm, hasher] of hashers.entries()) {
+      digests.set(algorithm, hasher.digest('hex'));
+    }
+
+    const checksumDigest = checksumHeader ? digests.get(checksumHeader.algorithm) ?? null : null;
+    const contentHashDigest = contentHashHeader
+      ? digests.get(contentHashHeader.algorithm) ?? null
+      : digests.get('sha256') ?? null;
+    const sha256Digest = digests.get('sha256') ?? null;
+
+    if (checksumHeader && checksumDigest && checksumDigest !== checksumHeader.value) {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return reply.status(422).send({
+        error: {
+          code: 'CHECKSUM_MISMATCH',
+          message: 'Uploaded file checksum does not match expected value'
+        }
+      });
+    }
+
+    if (contentHashHeader && contentHashDigest && contentHashDigest !== contentHashHeader.value) {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return reply.status(422).send({
+        error: {
+          code: 'CHECKSUM_MISMATCH',
+          message: 'Uploaded file content hash does not match expected value'
+        }
+      });
+    }
+
+    const existing = await withConnection((client) => getNodeByPath(client, backendMountId, normalizedPath));
+    if (existing && existing.kind === 'directory') {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return reply.status(409).send({
+        error: {
+          code: 'NODE_EXISTS',
+          message: 'Cannot upload file over a directory'
+        }
+      });
+    }
+
+    if (existing && existing.state !== 'deleted' && existing.kind === 'file' && !overwrite) {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      return reply.status(409).send({
+        error: {
+          code: 'NODE_EXISTS',
+          message: 'File already exists at path; set overwrite to true to replace it'
+        }
+      });
+    }
+
+    const commandBase: Record<string, unknown> = {
+      backendMountId,
+      path: normalizedPath,
+      stagingPath,
+      sizeBytes: totalBytes,
+      checksum: checksumDigest ?? checksumHeader?.value ?? null,
+      contentHash: contentHashDigest ?? sha256Digest
+    };
+
+    const mimeType = filePart.mimetype && filePart.mimetype.trim().length > 0 ? filePart.mimetype : null;
+    if (mimeType) {
+      commandBase.mimeType = mimeType;
+    }
+
+    const originalName = filePart.filename && filePart.filename.trim().length > 0 ? filePart.filename : null;
+    if (originalName) {
+      commandBase.originalName = originalName;
+    }
+
+    if (metadata !== undefined) {
+      commandBase.metadata = metadata;
+    }
+
+    const command = existing && existing.state !== 'deleted'
+      ? {
+          type: 'writeFile' as const,
+          nodeId: existing.id,
+          ...commandBase
+        }
+      : {
+          type: 'uploadFile' as const,
+          ...commandBase
+        };
+
+    try {
+      const result = await runCommand({
+        command,
+        principal,
+        idempotencyKey
+      });
+
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
+      const created = command.type === 'uploadFile' && (!existing || existing.state === 'deleted');
+      const status = result.idempotent ? 200 : created ? 201 : 200;
+
+      return reply.status(status).send({
+        data: {
+          idempotent: result.idempotent,
+          journalEntryId: result.journalEntryId,
+          node: nodePayload,
+          result: result.result
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    } finally {
+      await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+
   app.post('/v1/directories', async (request, reply) => {
     const parseResult = createDirectorySchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -308,6 +641,147 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         data: {
           idempotent: result.idempotent,
           journalEntryId: result.journalEntryId,
+          node: nodePayload,
+          result: result.result
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/v1/nodes/move', async (request, reply) => {
+    const parseResult = moveNodeBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid move payload',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const payload = parseResult.data;
+    const principal = resolvePrincipal(request.headers);
+    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+
+    try {
+      const result = await runCommand({
+        command: {
+          type: 'moveNode',
+          backendMountId: payload.backendMountId,
+          path: payload.path,
+          targetPath: payload.targetPath,
+          targetBackendMountId: payload.targetBackendMountId,
+          overwrite: payload.overwrite
+        },
+        principal,
+        idempotencyKey
+      });
+
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
+      return reply.status(200).send({
+        data: {
+          journalEntryId: result.journalEntryId,
+          idempotent: result.idempotent,
+          node: nodePayload,
+          result: result.result
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/v1/nodes/copy', async (request, reply) => {
+    const parseResult = copyNodeBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid copy payload',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const payload = parseResult.data;
+    const principal = resolvePrincipal(request.headers);
+    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+
+    try {
+      const result = await runCommand({
+        command: {
+          type: 'copyNode',
+          backendMountId: payload.backendMountId,
+          path: payload.path,
+          targetPath: payload.targetPath,
+          targetBackendMountId: payload.targetBackendMountId,
+          overwrite: payload.overwrite
+        },
+        principal,
+        idempotencyKey
+      });
+
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
+      return reply.status(201).send({
+        data: {
+          journalEntryId: result.journalEntryId,
+          idempotent: result.idempotent,
+          node: nodePayload,
+          result: result.result
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.patch('/v1/nodes/:id/metadata', async (request, reply) => {
+    const nodeId = Number((request.params as { id: string }).id);
+    if (!Number.isFinite(nodeId) || nodeId <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Node id must be a positive integer'
+        }
+      });
+    }
+
+    const parseResult = updateMetadataBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid metadata payload',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const payload = parseResult.data;
+    const principal = resolvePrincipal(request.headers);
+    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+
+    try {
+      const result = await runCommand({
+        command: {
+          type: 'updateNodeMetadata',
+          backendMountId: payload.backendMountId,
+          nodeId,
+          set: payload.set,
+          unset: payload.unset
+        },
+        principal,
+        idempotencyKey
+      });
+
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
+      return reply.status(200).send({
+        data: {
+          journalEntryId: result.journalEntryId,
+          idempotent: result.idempotent,
           node: nodePayload,
           result: result.result
         }

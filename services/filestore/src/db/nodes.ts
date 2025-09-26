@@ -279,6 +279,76 @@ export async function ensureNoActiveChildren(client: PoolClient, nodeId: number)
   }
 }
 
+export async function updateNodeMetadata(
+  client: PoolClient,
+  nodeId: number,
+  metadata: Record<string, unknown>
+): Promise<NodeRecord> {
+  const metadataJson = JSON.stringify(metadata ?? {});
+  const result = await client.query(
+    `UPDATE nodes
+        SET metadata = $2::jsonb,
+            updated_at = NOW(),
+            last_seen_at = NOW()
+      WHERE id = $1
+      RETURNING *`,
+    [nodeId, metadataJson]
+  );
+
+  if (result.rowCount === 0) {
+    throw new FilestoreError('Node not found', 'NODE_NOT_FOUND', { nodeId });
+  }
+
+  return mapRow(result.rows[0]);
+}
+
+export async function listNodeSubtreeByPath(
+  client: PoolClient,
+  backendMountId: number,
+  path: string
+): Promise<NodeRecord[]> {
+  const likePattern = `${path}%`;
+  const result = await client.query(
+    `SELECT *
+       FROM nodes
+      WHERE backend_mount_id = $1
+        AND (path = $2 OR path LIKE $3)
+      ORDER BY depth ASC`,
+    [backendMountId, path, `${path}/%`]
+  );
+
+  return result.rows.map(mapRow);
+}
+
+export async function updateNodeLocation(
+  client: PoolClient,
+  nodeId: number,
+  updates: {
+    path: string;
+    depth: number;
+    parentId: number | null;
+    backendMountId?: number | null;
+  }
+): Promise<NodeRecord> {
+  const result = await client.query(
+    `UPDATE nodes
+        SET path = $2,
+            depth = $3,
+            parent_id = $4,
+            backend_mount_id = COALESCE($5, backend_mount_id),
+            updated_at = NOW()
+      WHERE id = $1
+      RETURNING *`,
+    [nodeId, updates.path, updates.depth, updates.parentId, updates.backendMountId ?? null]
+  );
+
+  if (result.rowCount === 0) {
+    throw new FilestoreError('Node not found', 'NODE_NOT_FOUND', { nodeId });
+  }
+
+  return mapRow(result.rows[0]);
+}
+
 function escapeLikePattern(input: string): string {
   return input.replace(/([%_\\])/g, '\\$1');
 }

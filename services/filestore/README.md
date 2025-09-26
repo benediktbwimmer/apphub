@@ -56,6 +56,8 @@ Events follow the `filestore.*` naming scheme—for example:
 }
 ```
 
+Write operations also emit specialised events—`filestore.node.uploaded`, `filestore.node.moved`, and `filestore.node.copied`—alongside the existing `filestore.node.*` life-cycle notifications so consumers can distinguish between file uploads, moves, and copies in the activity stream.
+
 Downstream services can subscribe by listening to the configured Redis channel (default `apphub:filestore`).
 
 For local development without Redis, use the SSE endpoint exposed at `/v1/events/stream` or the `filestore events:tail` CLI command—both reuse the in-process event bus so you can observe activity when running inline mode.
@@ -70,7 +72,11 @@ For local development without Redis, use the SSE endpoint exposed at `/v1/events
 - `GET /v1/nodes/:id/children` – Return immediate children for a node with optional state/search filters.
 - `GET /v1/nodes/by-path` – Resolve a node by backend mount and relative path.
 - `POST /v1/directories` – Create directories (idempotent when `Idempotency-Key` provided).
+- `POST /v1/files` – Upload or overwrite files via multipart form data, with checksum validation and idempotency headers.
 - `DELETE /v1/nodes` – Soft-delete nodes by path, optionally recursively.
+- `PATCH /v1/nodes/:id/metadata` – Merge and remove metadata fields for a node using `set`/`unset` semantics.
+- `POST /v1/nodes/move` – Move nodes (and their descendants) to a new path within the same backend mount.
+- `POST /v1/nodes/copy` – Copy nodes (and their descendants) to a new path within the same backend mount.
 - `POST /v1/reconciliation` – Enqueue reconciliation jobs for drift or manual inspections.
 - `GET /v1/events/stream` – Server-Sent Events stream for local observers when Redis is disabled.
 
