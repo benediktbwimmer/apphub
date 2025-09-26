@@ -54,7 +54,7 @@
         { "key": "FILE_WATCH_MAX_FILES", "value": "64" },
         { "key": "FILE_WATCH_VACUUM", "value": "false" },
         { "key": "OBSERVATORY_AUTO_COMPLETE", "value": "true" },
-        { "key": "CATALOG_API_BASE_URL", "value": "http://127.0.0.1:4000" },
+        { "key": "CATALOG_API_BASE_URL", "value": "http://host.docker.internal:4000" },
         {
           "key": "CATALOG_API_TOKEN",
           "value": {

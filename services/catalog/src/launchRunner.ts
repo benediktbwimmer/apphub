@@ -26,6 +26,7 @@ import {
   buildDockerRunCommand,
   parseDockerCommand,
   resolveLaunchVolumeMounts,
+  resolveHostGatewayAlias,
   stringifyDockerCommand
 } from './launchCommand';
 import type { ResolvedVolumeMount } from './launchCommand';
@@ -367,6 +368,48 @@ function ensureVolumeArgs(
     volumeArgs.push('-v', `${mount.source}:${mount.target}:${mount.mode}`);
   }
   updated.splice(insertIndex, 0, ...volumeArgs);
+  return { args: updated, changed: true };
+}
+
+function collectExistingHostAliases(args: string[]): Set<string> {
+  const aliases = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '--add-host') {
+      const alias = args[index + 1];
+      if (alias) {
+        aliases.add(alias.trim());
+      }
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--add-host=')) {
+      const alias = token.slice('--add-host='.length).trim();
+      if (alias) {
+        aliases.add(alias);
+      }
+    }
+  }
+  return aliases;
+}
+
+function ensureHostGatewayArgs(
+  args: string[],
+  hostAlias: string | null
+): { args: string[]; changed: boolean } {
+  if (!hostAlias) {
+    return { args, changed: false };
+  }
+
+  const existingAliases = collectExistingHostAliases(args);
+  if (existingAliases.has(hostAlias)) {
+    return { args, changed: false };
+  }
+
+  const updated = [...args];
+  const insertIndex = updated.length > 0 && updated[0] === 'run' ? 1 : 0;
+  updated.splice(insertIndex, 0, '--add-host', hostAlias);
   return { args: updated, changed: true };
 }
 
@@ -853,6 +896,13 @@ export async function runLaunchStart(launchId: string) {
   const volumeAdjustment = ensureVolumeArgs(runArgs, requiredVolumeMounts);
   runArgs = volumeAdjustment.args;
   if (volumeAdjustment.changed) {
+    commandLabel = stringifyDockerCommand(runArgs);
+  }
+
+  const hostGatewayAlias = resolveHostGatewayAlias();
+  const hostAliasAdjustment = ensureHostGatewayArgs(runArgs, hostGatewayAlias);
+  runArgs = hostAliasAdjustment.args;
+  if (hostAliasAdjustment.changed) {
     commandLabel = stringifyDockerCommand(runArgs);
   }
 

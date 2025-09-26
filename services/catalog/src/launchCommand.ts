@@ -76,6 +76,24 @@ export type ResolvedVolumeMount = {
   mode: 'rw';
 };
 
+const DEFAULT_HOST_GATEWAY_ALIAS = 'host.docker.internal:host-gateway';
+
+function isDisabled(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off';
+}
+
+export function resolveHostGatewayAlias(): string | null {
+  if (isDisabled(process.env.APPHUB_DISABLE_HOST_GATEWAY)) {
+    return null;
+  }
+  const alias = process.env.APPHUB_HOST_GATEWAY_ALIAS?.trim();
+  return alias && alias.length > 0 ? alias : DEFAULT_HOST_GATEWAY_ALIAS;
+}
+
 function resolveMountForAbsolutePath(
   absolutePath: string,
   hostRootFallback: string | null
@@ -199,6 +217,10 @@ export function buildDockerRunCommand(options: {
   const args: string[] = ['run', '-d', '--name', containerName, '-p', `0:${options.internalPort}`];
   for (const mount of resolveVolumeMounts(envVars)) {
     args.push('-v', `${mount.source}:${mount.target}:${mount.mode}`);
+  }
+  const hostGatewayAlias = resolveHostGatewayAlias();
+  if (hostGatewayAlias) {
+    args.push('--add-host', hostGatewayAlias);
   }
   for (const entry of envVars) {
     if (!entry || typeof entry.key !== 'string') {
