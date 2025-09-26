@@ -1,5 +1,5 @@
 {
-  "name": "@apphub/observatory-file-watcher",
+  "name": "@apphub/observatory-dashboard",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "chokidar": "^3.5.3",
+    "@fastify/static": "^7.0.1",
     "fastify": "^4.26.2"
   },
   "devDependencies": {

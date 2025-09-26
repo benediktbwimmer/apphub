@@ -1,44 +1,49 @@
-# File Drop Watcher Service
+# Observatory File Watcher Service
 
-The file drop watcher observes a configurable directory for new files, launches the `file-drop-relocation` workflow for each drop, and exposes a lightweight dashboard with processing statistics.
+This watcher is tailored for the environmental observatory example. It monitors the inbox for instrument CSV drops, groups files by minute timestamp, and triggers the `observatory-minute-ingest` workflow with the correct staging, archive, and warehouse parameters. A minimal dashboard at <http://127.0.0.1:4310/> shows recent launches and retry status so you can confirm new sensor data is being ingested.
 
 ## Development
 
 ```bash
 npm install
 FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
+FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
 FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
+FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
 CATALOG_API_TOKEN=dev-ops-token \
-CATALOG_API_BASE_URL=http://127.0.0.1:4000 \
 npm run dev
 ```
 
-The watcher serves its UI at <http://127.0.0.1:4310/> by default. Adjust `PORT` to bind to a different port.
+Adjust `CATALOG_API_BASE_URL`, `PORT`, or any optional overrides if your catalog API or filesystem paths differ.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `FILE_WATCH_ROOT` | `examples/environmental-observatory/data/inbox` | Directory to watch for new files. Created automatically if missing. |
-| `FILE_ARCHIVE_DIR` | `examples/environmental-observatory/data/archive` | Root directory used by the relocation job when computing destination paths. |
-| `FILE_DROP_WORKFLOW_SLUG` | `file-drop-relocation` | Workflow slug to trigger. |
-| `CATALOG_API_BASE_URL` | `http://127.0.0.1:4000` | Fastify catalog API base URL. |
-| `CATALOG_API_TOKEN` | — | Operator token with `workflows:run`. Required to launch relocation runs. |
-| `FILE_WATCH_RESUME_EXISTING` | `true` | When truthy, enqueue existing files under the watch root at start-up. |
-| `FILE_WATCH_DEBOUNCE_MS` | `750` | Debounce window applied when watching filesystem events. |
-| `PORT` | `4310` | HTTP port for the watcher service UI and API. |
+| `FILE_WATCH_ROOT` | `examples/environmental-observatory/data/inbox` | Directory watched for instrument CSV files. |
+| `FILE_WATCH_STAGING_DIR` | `examples/environmental-observatory/data/staging` | Minute subdirectories are created here before ingestion. |
+| `FILE_ARCHIVE_DIR` | `examples/environmental-observatory/data/archive` | Passed to the normalizer so processed files are moved into `archive/<instrument>/<hour>/<minute>.csv`. |
+| `FILE_WATCH_WAREHOUSE_PATH` | `examples/environmental-observatory/data/warehouse/observatory.duckdb` | DuckDB database path forwarded to the ingest workflow. |
+| `OBSERVATORY_WORKFLOW_SLUG` | `observatory-minute-ingest` | Workflow slug to trigger. Falls back to `FILE_DROP_WORKFLOW_SLUG` if set. |
+| `FILE_WATCH_MAX_FILES` | `64` | Maximum CSV files forwarded to a single ingest run. |
+| `FILE_WATCH_VACUUM` | `false` | Optional boolean forwarded to the DuckDB loader step. |
+| `FILE_WATCH_RESUME_EXISTING` | `true` | Queue files already present in the inbox on startup. |
+| `FILE_WATCH_DEBOUNCE_MS` | `750` | Debounce window (ms) applied before treating a file as stable. |
+| `FILE_WATCH_MAX_ATTEMPTS` | `3` | Launch retries before a drop is marked as failed. |
+| `OBSERVATORY_AUTO_COMPLETE` | `true` | If truthy the watcher marks a drop as completed immediately after launch. |
+| `CATALOG_API_BASE_URL` | `http://127.0.0.1:4000` | Catalog API endpoint used for workflow launches. |
+| `CATALOG_API_TOKEN` | — | Operator token with `workflows:run` scope. |
+| `PORT` | `4310` | HTTP port for the watcher UI. |
 | `HOST` | `0.0.0.0` | Host interface to bind. |
 
 ## API Surface
 
-- `GET /healthz` — liveness + readiness signal.
-- `GET /api/stats` — JSON statistics covering observed drops, run attempts, and recent activity.
-- `POST /api/drops/:dropId/complete` — invoked by the workflow service step to mark a run as completed.
-- `GET /` — lightweight HTML dashboard summarising the watcher state.
+- `GET /healthz` &mdash; liveness and watcher readiness.
+- `GET /api/stats` &mdash; JSON snapshot covering configuration, metrics, and recent drops.
+- `GET /` &mdash; Dashboard summarising minute partitions, run attempts, and recent errors.
 
-## Workflow Notification Flow
+## How It Works
 
-1. `chokidar` observes a new file under `FILE_WATCH_ROOT`.
-2. The watcher records a drop entry and triggers `POST /workflows/<slug>/run` with relocation parameters.
-3. The workflow runs `file-relocator@0.1.0`, moving the file into the archive tree.
-4. A service step in the workflow calls `POST /api/drops/:dropId/complete` with the relocation summary so the watcher can update its dashboard metrics.
+1. `chokidar` watches the inbox and batches files that share the same `instrument_<id>_<YYYYMMDDHHmm>.csv` minute suffix.
+2. When a minute receives new files the watcher launches `POST /workflows/{slug}/run` with parameters for `inboxDir`, `stagingDir`, `archiveDir`, `warehousePath`, and workflow tuning knobs.
+3. The ingest workflow normalises the files, appends them to DuckDB, and publishes fresh reports. The dashboard reflects launches instantly so you can confirm the ingest loop remains healthy.

@@ -3,37 +3,27 @@ import chokidar from 'chokidar';
 import { mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-type DropStatus = 'queued' | 'launching' | 'launched' | 'completed' | 'failed';
+type DropStatus = 'queued' | 'launching' | 'completed' | 'failed';
 
 type DropRecord = {
   dropId: string;
-  sourcePath: string;
+  minute: string;
+  minuteKey: string;
   sourceFiles: string[];
-  relativePath: string;
-  destinationDir: string;
-  destinationFilename: string;
   status: DropStatus;
   observedAt: string;
   updatedAt: string;
   attempts: number;
   runId?: string;
   errorMessage?: string | null;
-  success?: {
-    destinationPath?: string | null;
-    bytesMoved?: number | null;
-    durationMs?: number | null;
-  };
-  observatoryMinute?: string;
 };
 
 type DropActivityEntry = {
   dropId: string;
+  minute: string;
   status: DropStatus;
   runId: string | null;
-  source: string;
-  destination: string | null;
-  bytesMoved: number | null;
-  attempts: number;
+  fileCount: number;
   updatedAt: string;
   note: string | null;
   error: string | null;
@@ -54,7 +44,9 @@ type Metrics = {
 type StatsSnapshot = {
   config: {
     watchRoot: string;
-    archiveRoot: string;
+    stagingDir: string;
+    archiveDir: string;
+    warehousePath: string;
     workflowSlug: string;
     apiBaseUrl: string;
     maxAttempts: number;
@@ -70,7 +62,16 @@ type StatsSnapshot = {
 
 const ROOT_DIR = path.resolve(process.cwd());
 const DEFAULT_WATCH_ROOT = path.resolve(ROOT_DIR, '..', '..', 'data', 'inbox');
-const DEFAULT_ARCHIVE_ROOT = path.resolve(ROOT_DIR, '..', '..', 'data', 'archive');
+const DEFAULT_STAGING_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'staging');
+const DEFAULT_ARCHIVE_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'archive');
+const DEFAULT_WAREHOUSE_PATH = path.resolve(
+  ROOT_DIR,
+  '..',
+  '..',
+  'data',
+  'warehouse',
+  'observatory.duckdb'
+);
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) {
@@ -80,23 +81,12 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
-function toPosixRelative(relativePath: string): string {
+function toPosix(relativePath: string): string {
   return relativePath.split(path.sep).join('/');
 }
 
-function buildDropId(relativePath: string): string {
-  const slug = relativePath
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  const idComponent = slug.length > 0 ? slug : 'file';
-  const randomSuffix = Math.random().toString(36).slice(2, 8);
-  return `${idComponent}-${Date.now().toString(36)}-${randomSuffix}`;
-}
-
-function extractObservatoryMinute(relativePath: string): string | null {
-  const match = relativePath.match(/_(\d{12}|\d{10})\.csv$/i);
+function extractMinuteFromFilename(relativePath: string): string | null {
+  const match = relativePath.match(/_(\d{12})\.csv$/i);
   if (!match) {
     return null;
   }
@@ -105,45 +95,45 @@ function extractObservatoryMinute(relativePath: string): string | null {
   const month = timestamp.slice(4, 6);
   const day = timestamp.slice(6, 8);
   const hour = timestamp.slice(8, 10);
-  if (!year || !month || !day || !hour) {
+  const minute = timestamp.slice(10, 12);
+  if (!year || !month || !day || !hour || !minute) {
     return null;
   }
-  if (timestamp.length >= 12) {
-    const minute = timestamp.slice(10, 12);
-    if (!minute) {
-      return null;
-    }
-    return `${year}-${month}-${day}T${hour}:${minute}`;
-  }
-  return `${year}-${month}-${day}T${hour}`;
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 const watchRoot = path.resolve(process.env.FILE_WATCH_ROOT ?? DEFAULT_WATCH_ROOT);
-const archiveRoot = path.resolve(process.env.FILE_ARCHIVE_DIR ?? DEFAULT_ARCHIVE_ROOT);
-const workflowSlug = (process.env.FILE_DROP_WORKFLOW_SLUG ?? 'file-drop-relocation').trim();
-const apiBaseUrlRaw = (process.env.CATALOG_API_BASE_URL ?? 'http://127.0.0.1:4000').trim().replace(/\/$/, '');
-const apiToken = (process.env.CATALOG_API_TOKEN ?? process.env.FILE_DROP_API_TOKEN ?? '').trim() || null;
+const stagingDir = path.resolve(process.env.FILE_WATCH_STAGING_DIR ?? DEFAULT_STAGING_DIR);
+const archiveDir = path.resolve(process.env.FILE_ARCHIVE_DIR ?? DEFAULT_ARCHIVE_DIR);
+const warehousePath = path.resolve(
+  process.env.FILE_WATCH_WAREHOUSE_PATH ?? DEFAULT_WAREHOUSE_PATH
+);
+const workflowSlug = (
+  process.env.OBSERVATORY_WORKFLOW_SLUG ??
+  process.env.FILE_DROP_WORKFLOW_SLUG ??
+  'observatory-minute-ingest'
+).trim();
+const apiBaseUrl = (process.env.CATALOG_API_BASE_URL ?? 'http://127.0.0.1:4000')
+  .trim()
+  .replace(/\/$/, '');
+const apiToken = (process.env.CATALOG_API_TOKEN ?? '').trim() || null;
 const resumeExisting = parseBoolean(process.env.FILE_WATCH_RESUME_EXISTING, true);
-const debounceMs = Math.max(200, Math.min(5000, Number.parseInt(process.env.FILE_WATCH_DEBOUNCE_MS ?? '750', 10) || 750));
-const maxLaunchAttempts = Math.max(1, Math.min(10, Number.parseInt(process.env.FILE_WATCH_MAX_ATTEMPTS ?? '3', 10) || 3));
+const debounceMs = Math.max(
+  200,
+  Math.min(5000, Number.parseInt(process.env.FILE_WATCH_DEBOUNCE_MS ?? '750', 10) || 750)
+);
+const maxLaunchAttempts = Math.max(
+  1,
+  Math.min(10, Number.parseInt(process.env.FILE_WATCH_MAX_ATTEMPTS ?? '3', 10) || 3)
+);
+const maxFiles = Math.max(1, Number.parseInt(process.env.FILE_WATCH_MAX_FILES ?? '64', 10) || 64);
+const vacuum = parseBoolean(process.env.FILE_WATCH_VACUUM, false);
+const autoComplete = parseBoolean(
+  process.env.OBSERVATORY_AUTO_COMPLETE ?? process.env.FILE_WATCH_AUTO_COMPLETE,
+  true
+);
 const port = Number.parseInt(process.env.PORT ?? '4310', 10) || 4310;
 const host = process.env.HOST ?? '0.0.0.0';
-const strategy = (process.env.FILE_WATCH_STRATEGY ?? 'relocation').trim().toLowerCase();
-const observatoryStagingDir = path.resolve(
-  process.env.FILE_WATCH_STAGING_DIR ?? path.join(watchRoot, '..', 'staging')
-);
-const observatoryWarehousePath = path.resolve(
-  process.env.FILE_WATCH_WAREHOUSE_PATH ?? path.join(watchRoot, '..', 'warehouse', 'observatory.duckdb')
-);
-const observatoryMaxFiles = Math.max(
-  1,
-  Number.parseInt(process.env.FILE_WATCH_MAX_FILES ?? '64', 10) || 64
-);
-const observatoryVacuum = parseBoolean(process.env.FILE_WATCH_VACUUM, false);
-const autoCompleteOnLaunch = parseBoolean(
-  process.env.FILE_WATCH_AUTO_COMPLETE,
-  strategy === 'observatory'
-);
 
 const app = Fastify({ logger: true });
 
@@ -169,12 +159,10 @@ let watcherReady = false;
 function recordActivity(record: DropRecord, note: string | null = null) {
   const entry: DropActivityEntry = {
     dropId: record.dropId,
+    minute: record.minute,
     status: record.status,
     runId: record.runId ?? null,
-    source: record.relativePath,
-    destination: record.success?.destinationPath ?? null,
-    bytesMoved: record.success?.bytesMoved ?? null,
-    attempts: record.attempts,
+    fileCount: record.sourceFiles.length,
     updatedAt: record.updatedAt,
     note,
     error: record.errorMessage ?? null
@@ -197,37 +185,39 @@ function releaseRecord(record: DropRecord) {
   }
 }
 
-async function ensureDirectoryExists(target: string) {
+async function ensureDirectoryExists(target: string): Promise<void> {
   await mkdir(target, { recursive: true });
 }
 
-async function enqueueExistingFiles(targetDir: string) {
+async function enqueueExistingFiles(targetDir: string): Promise<void> {
+  let entries;
   try {
-    const entries = await readdir(targetDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) {
-        continue;
-      }
-      const absolutePath = path.join(targetDir, entry.name);
-      if (entry.isDirectory()) {
-        await enqueueExistingFiles(absolutePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      await registerFile(absolutePath, 'startup');
-    }
+    entries = await readdir(targetDir, { withFileTypes: true });
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
-      return;
+    if (err.code !== 'ENOENT') {
+      app.log.warn({ err, targetDir }, 'Failed to read directory during startup scan');
     }
-    app.log.warn({ err, targetDir }, 'Failed to scan directory for existing files');
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
+    const absolutePath = path.join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      await enqueueExistingFiles(absolutePath);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    await registerFile(absolutePath, 'startup');
   }
 }
 
-async function registerFile(filePath: string, source: 'startup' | 'watch') {
+async function registerFile(filePath: string, source: 'startup' | 'watch'): Promise<void> {
   const absolute = path.resolve(filePath);
   if (!absolute.startsWith(watchRoot)) {
     return;
@@ -244,69 +234,58 @@ async function registerFile(filePath: string, source: 'startup' | 'watch') {
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code !== 'ENOENT') {
-      app.log.warn({ err, filePath: absolute }, 'Failed to stat candidate file');
+      app.log.warn({ err, filePath: absolute }, 'Failed to stat file');
     }
     return;
   }
 
-  const relative = path.relative(watchRoot, absolute);
-  if (relative.startsWith('..')) {
+  const relativePath = path.relative(watchRoot, absolute);
+  if (relativePath.startsWith('..')) {
     return;
   }
-  const normalizedRelative = toPosixRelative(relative);
-  let dropId = buildDropId(normalizedRelative);
-  let observatoryMinute: string | undefined;
-  let observatoryMinuteKey: string | undefined;
-
-  if (strategy === 'observatory') {
-    const minute = extractObservatoryMinute(normalizedRelative);
-    if (!minute) {
-      app.log.warn({ filePath: absolute }, 'Skipping file: unable to extract minute partition for observatory workflow');
-      return;
-    }
-    observatoryMinute = minute;
-    observatoryMinuteKey = minute.replace(/:/g, '-');
-    dropId = `observatory-${observatoryMinuteKey}`;
+  const normalizedRelative = toPosix(relativePath);
+  const minute = extractMinuteFromFilename(normalizedRelative);
+  if (!minute) {
+    app.log.warn({ filePath: absolute }, 'Skipping file without minute timestamp');
+    return;
   }
 
+  const minuteKey = minute.replace(/:/g, '-');
+  const dropId = `observatory-${minuteKey}`;
   sourceToDropId.set(absolute, dropId);
 
   const existing = drops.get(dropId);
   if (existing) {
     if (!existing.sourceFiles.includes(absolute)) {
       existing.sourceFiles.push(absolute);
+      recordActivity(existing, 'Observed additional instrument file');
     }
-    recordActivity(existing, source === 'startup' ? 'Observed additional file for queued drop' : 'Detected additional file for drop');
     return;
   }
 
   const timestamp = new Date().toISOString();
   const record: DropRecord = {
     dropId,
-    sourcePath: absolute,
+    minute,
+    minuteKey,
     sourceFiles: [absolute],
-    relativePath: strategy === 'observatory' ? observatoryMinuteKey ?? normalizedRelative : normalizedRelative,
-    destinationDir: strategy === 'observatory' ? observatoryStagingDir : archiveRoot,
-    destinationFilename: path.basename(absolute),
     status: 'queued',
     observedAt: timestamp,
     updatedAt: timestamp,
-    attempts: 0,
-    observatoryMinute
+    attempts: 0
   };
 
   drops.set(dropId, record);
   metrics.filesObserved += 1;
   metrics.lastEventAt = record.observedAt;
-  recordActivity(record, source === 'startup' ? 'Queued existing file' : 'Detected new file');
-
+  recordActivity(record, source === 'startup' ? 'Queued existing files on startup' : 'Detected new instrument file');
   scheduleLaunch(record, source === 'startup' ? 250 : 50, 1);
 }
 
-function scheduleLaunch(record: DropRecord, delayMs: number, attempt: number) {
-  const existing = pendingLaunchTimers.get(record.dropId);
-  if (existing) {
-    clearTimeout(existing);
+function scheduleLaunch(record: DropRecord, delayMs: number, attempt: number): void {
+  const existingTimer = pendingLaunchTimers.get(record.dropId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
   }
   record.status = 'queued';
   record.updatedAt = new Date().toISOString();
@@ -319,66 +298,36 @@ function scheduleLaunch(record: DropRecord, delayMs: number, attempt: number) {
   pendingLaunchTimers.set(record.dropId, timer);
 }
 
-async function launchWorkflow(record: DropRecord, attempt: number) {
+async function launchWorkflow(record: DropRecord, attempt: number): Promise<void> {
   record.status = 'launching';
   record.updatedAt = new Date().toISOString();
   record.attempts = attempt;
-  recordActivity(record, attempt > 1 ? `Retrying workflow launch (#${attempt})` : 'Launching workflow');
+  recordActivity(record, attempt > 1 ? `Retrying launch (#${attempt})` : 'Launching workflow');
   metrics.triggerAttempts += 1;
 
-  let body: Record<string, unknown>;
-  if (strategy === 'observatory') {
-    const minute =
-      record.observatoryMinute ??
-      extractObservatoryMinute(path.basename(record.sourceFiles[0] ?? '')) ??
-      new Date().toISOString().slice(0, 16);
-    const parameters: Record<string, unknown> = {
-      minute,
-      inboxDir: watchRoot,
-      stagingDir: observatoryStagingDir,
-      archiveDir: archiveRoot,
-      warehousePath: observatoryWarehousePath
-    };
-    if (observatoryMaxFiles) {
-      parameters.maxFiles = observatoryMaxFiles;
-    }
-    if (observatoryVacuum) {
-      parameters.vacuum = observatoryVacuum;
-    }
-    const relativeFiles = record.sourceFiles.map((file) =>
-      toPosixRelative(path.relative(watchRoot, file))
-    );
-    body = {
-      partitionKey: minute,
-      parameters,
-      triggeredBy: 'observatory-file-watcher',
-      trigger: {
-        type: 'file-drop',
-        options: {
-          minute,
-          files: relativeFiles
-        }
+  const relativeFiles = record.sourceFiles.map((file) => toPosix(path.relative(watchRoot, file)));
+  const parameters: Record<string, unknown> = {
+    minute: record.minute,
+    inboxDir: watchRoot,
+    stagingDir,
+    archiveDir,
+    warehousePath,
+    maxFiles,
+    vacuum
+  };
+
+  const body = {
+    partitionKey: record.minute,
+    parameters,
+    triggeredBy: 'observatory-file-watcher',
+    trigger: {
+      type: 'file-drop',
+      options: {
+        minute: record.minute,
+        files: relativeFiles
       }
-    } satisfies Record<string, unknown>;
-  } else {
-    body = {
-      parameters: {
-        dropId: record.dropId,
-        sourcePath: record.sourcePath,
-        relativePath: record.relativePath,
-        destinationDir: record.destinationDir,
-        destinationFilename: record.destinationFilename
-      },
-      triggeredBy: 'file-drop-watcher',
-      trigger: {
-        type: 'file-drop',
-        options: {
-          dropId: record.dropId,
-          relativePath: record.relativePath
-        }
-      }
-    } satisfies Record<string, unknown>;
-  }
+    }
+  } satisfies Record<string, unknown>;
 
   const headers: Record<string, string> = {
     'content-type': 'application/json'
@@ -388,7 +337,7 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
   }
 
   try {
-    const response = await fetch(`${apiBaseUrlRaw}/workflows/${workflowSlug}/run`, {
+    const response = await fetch(`${apiBaseUrl}/workflows/${workflowSlug}/run`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body)
@@ -398,18 +347,19 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
     }
     const payload = (await response.json()) as { data?: { id?: string; status?: string } };
     record.runId = typeof payload?.data?.id === 'string' ? payload.data.id : undefined;
-    record.updatedAt = new Date().toISOString();
     record.errorMessage = null;
+    record.updatedAt = new Date().toISOString();
     metrics.launches += 1;
     metrics.lastEventAt = record.updatedAt;
-    if (autoCompleteOnLaunch) {
+
+    if (autoComplete) {
       record.status = 'completed';
       metrics.completions += 1;
-      recordActivity(record, 'Workflow run launched (auto-completed)');
+      recordActivity(record, 'Workflow run launched');
       releaseRecord(record);
     } else {
-      record.status = 'launched';
-      recordActivity(record, 'Workflow run launched');
+      record.status = 'launching';
+      recordActivity(record, 'Workflow run launched (awaiting completion)');
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -419,13 +369,13 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
     record.updatedAt = new Date().toISOString();
     if (attempt < maxLaunchAttempts) {
       scheduleLaunch(record, Math.min(10_000, 1_500 * attempt), attempt + 1);
-      app.log.warn({ dropId: record.dropId, attempt, error: message }, 'Retrying workflow launch');
+      app.log.warn({ dropId: record.dropId, attempt, error: message }, 'Retrying observatory ingest launch');
       return;
     }
     record.status = 'failed';
     recordActivity(record, `Launch failed permanently: ${message}`);
     releaseRecord(record);
-    app.log.error({ dropId: record.dropId, error: message }, 'Failed to launch workflow after retries');
+    app.log.error({ dropId: record.dropId, error: message }, 'Failed to launch observatory workflow after retries');
   }
 }
 
@@ -433,21 +383,22 @@ function buildStatsSnapshot(): StatsSnapshot {
   const totals: Record<DropStatus, number> = {
     queued: 0,
     launching: 0,
-    launched: 0,
     completed: 0,
     failed: 0
   };
   for (const record of drops.values()) {
     totals[record.status] += 1;
   }
-  const activeDrops = totals.launching + totals.launched;
+  const activeDrops = totals.launching;
 
   return {
     config: {
       watchRoot,
-      archiveRoot,
+      stagingDir,
+      archiveDir,
+      warehousePath,
       workflowSlug,
-      apiBaseUrl: apiBaseUrlRaw,
+      apiBaseUrl,
       maxAttempts: maxLaunchAttempts
     },
     watcher: {
@@ -460,107 +411,35 @@ function buildStatsSnapshot(): StatsSnapshot {
   };
 }
 
-app.get('/healthz', async () => {
-  return {
-    status: 'ok',
-    watcher: {
-      ready: watcherReady,
-      observed: metrics.filesObserved,
-      lastError: metrics.lastError
-    }
-  };
-});
+app.get('/healthz', async () => ({
+  status: 'ok',
+  watcher: {
+    ready: watcherReady,
+    observed: metrics.filesObserved,
+    lastError: metrics.lastError
+  }
+}));
 
 app.get('/api/stats', async () => buildStatsSnapshot());
 
-app.post('/api/drops/:dropId/complete', async (request, reply) => {
-  const params = request.params as { dropId?: string };
-  const dropId = (params.dropId ?? '').trim();
-  if (!dropId) {
-    reply.status(400);
-    return { error: 'dropId is required' };
-  }
-  const record = drops.get(dropId);
-  if (!record) {
-    reply.status(404);
-    return { error: 'drop not found' };
-  }
-
-  const body = (request.body ?? {}) as {
-    runId?: string;
-    status?: string;
-    file?: {
-      destinationPath?: string;
-      bytesMoved?: number;
-      durationMs?: number;
-    };
-  };
-
-  const outcome = typeof body.status === 'string' ? body.status.trim().toLowerCase() : 'succeeded';
-  const success = outcome === 'succeeded' || outcome === 'success' || outcome === 'completed';
-
-  record.status = success ? 'completed' : 'failed';
-  record.runId = typeof body.runId === 'string' ? body.runId : record.runId;
-  record.success = {
-    destinationPath:
-      typeof body.file?.destinationPath === 'string'
-        ? body.file.destinationPath
-        : record.success?.destinationPath ?? record.destinationDir,
-    bytesMoved: typeof body.file?.bytesMoved === 'number' ? body.file.bytesMoved : record.success?.bytesMoved ?? null,
-    durationMs: typeof body.file?.durationMs === 'number' ? body.file.durationMs : record.success?.durationMs ?? null
-  };
-  record.errorMessage = success ? null : record.errorMessage ?? 'Workflow reported failure';
-  record.updatedAt = new Date().toISOString();
-  if (success) {
-    metrics.completions += 1;
-  } else {
-    metrics.runFailures += 1;
-    metrics.lastError = record.errorMessage;
-  }
-  metrics.lastEventAt = record.updatedAt;
-  sourceToDropId.delete(record.sourcePath);
-  recordActivity(record, success ? 'Relocation complete' : 'Workflow reported failure');
-
-  const pendingTimer = pendingLaunchTimers.get(record.dropId);
-  if (pendingTimer) {
-    clearTimeout(pendingTimer);
-    pendingLaunchTimers.delete(record.dropId);
-  }
-
-  return { ok: true };
-});
-
 function renderDashboard(snapshot: StatsSnapshot): string {
   const totals = snapshot.totals;
+  const counts = Object.entries(totals)
+    .map(([status, value]) => `<li><strong>${value}</strong> ${status}</li>`)
+    .join('');
+
   const metricsTable = `
     <table class="metrics">
       <tbody>
-        <tr><th>Watched directory</th><td>${snapshot.config.watchRoot}</td></tr>
-        <tr><th>Archive directory</th><td>${snapshot.config.archiveRoot}</td></tr>
-        <tr><th>Workflow slug</th><td>${snapshot.config.workflowSlug}</td></tr>
-        <tr><th>API base URL</th><td>${snapshot.config.apiBaseUrl}</td></tr>
-        <tr><th>Files observed</th><td>${snapshot.metrics.filesObserved}</td></tr>
-        <tr><th>Runs launched</th><td>${snapshot.metrics.launches}</td></tr>
-        <tr><th>Trigger attempts</th><td>${snapshot.metrics.triggerAttempts}</td></tr>
-        <tr><th>Trigger failures</th><td>${snapshot.metrics.triggerFailures}</td></tr>
-        <tr><th>Run failures</th><td>${snapshot.metrics.runFailures}</td></tr>
-        <tr><th>Completions</th><td>${snapshot.metrics.completions}</td></tr>
-        <tr><th>Active drops</th><td>${snapshot.watcher.activeDrops}</td></tr>
         <tr><th>Watcher ready</th><td>${snapshot.watcher.ready ? 'yes' : 'no'}</td></tr>
-        <tr><th>Last event</th><td>${snapshot.metrics.lastEventAt ?? '—'}</td></tr>
-        <tr><th>Last error</th><td>${snapshot.metrics.lastError ?? '—'}</td></tr>
+        <tr><th>Observed files</th><td>${metrics.filesObserved}</td></tr>
+        <tr><th>Launch attempts</th><td>${metrics.triggerAttempts}</td></tr>
+        <tr><th>Successful launches</th><td>${metrics.launches}</td></tr>
+        <tr><th>Failures</th><td>${metrics.triggerFailures + metrics.runFailures}</td></tr>
+        <tr><th>Last event</th><td>${metrics.lastEventAt ?? '—'}</td></tr>
+        <tr><th>Workflow slug</th><td><code>${snapshot.config.workflowSlug}</code></td></tr>
       </tbody>
     </table>
-  `;
-
-  const countsList = `
-    <ul class="totals">
-      <li>Queued: ${totals.queued}</li>
-      <li>Launching: ${totals.launching}</li>
-      <li>Launched: ${totals.launched}</li>
-      <li>Completed: ${totals.completed}</li>
-      <li>Failed: ${totals.failed}</li>
-    </ul>
   `;
 
   const recentRows = snapshot.recent
@@ -571,11 +450,9 @@ function renderDashboard(snapshot: StatsSnapshot): string {
         <tr>
           <td class="mono">${entry.dropId}</td>
           <td>${entry.status}</td>
-          <td>${entry.source}</td>
-          <td>${entry.destination ?? '—'}</td>
-          <td>${entry.bytesMoved ?? '—'}</td>
+          <td>${entry.minute}</td>
+          <td>${entry.fileCount}</td>
           <td>${entry.runId ?? '—'}</td>
-          <td>${entry.attempts}</td>
           <td>${entry.updatedAt}</td>
           <td>${note}${error}</td>
         </tr>
@@ -589,9 +466,10 @@ function renderDashboard(snapshot: StatsSnapshot): string {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>File Drop Watcher</title>
+        <title>Observatory Ingest Watcher</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+          :root { color-scheme: dark; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; background: #050b18; color: #e2e8f0; }
           h1 { margin-bottom: 0.25rem; }
           .subtitle { color: #94a3b8; margin-bottom: 1.5rem; }
           table.metrics { border-collapse: collapse; width: 100%; max-width: 640px; margin-bottom: 1.5rem; }
@@ -609,10 +487,10 @@ function renderDashboard(snapshot: StatsSnapshot): string {
         </style>
       </head>
       <body>
-        <h1>File Drop Watcher</h1>
-        <p class="subtitle">Monitoring <code>${snapshot.config.watchRoot}</code> → <code>${snapshot.config.archiveRoot}</code></p>
+        <h1>Observatory Ingest Watcher</h1>
+        <p class="subtitle">Monitoring <code>${snapshot.config.watchRoot}</code> → staging <code>${snapshot.config.stagingDir}</code></p>
         ${metricsTable}
-        ${countsList}
+        <ul class="totals">${counts || '<li>No drops yet</li>'}</ul>
         <section>
           <h2>Recent activity</h2>
           <table class="recent">
@@ -620,17 +498,15 @@ function renderDashboard(snapshot: StatsSnapshot): string {
               <tr>
                 <th>Drop</th>
                 <th>Status</th>
-                <th>Source</th>
-                <th>Destination</th>
-                <th>Bytes</th>
+                <th>Partition</th>
+                <th>Files</th>
                 <th>Run ID</th>
-                <th>Attempts</th>
                 <th>Updated</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody>
-              ${recentRows || '<tr><td colspan="9">No activity yet.</td></tr>'}
+              ${recentRows || '<tr><td colspan="7">No activity yet.</td></tr>'}
             </tbody>
           </table>
         </section>
@@ -645,9 +521,10 @@ app.get('/', async (_request, reply) => {
   return reply.send(renderDashboard(snapshot));
 });
 
-async function bootstrapWatcher() {
+async function bootstrapWatcher(): Promise<void> {
   await ensureDirectoryExists(watchRoot);
-  await ensureDirectoryExists(archiveRoot);
+  await ensureDirectoryExists(stagingDir);
+  await ensureDirectoryExists(archiveDir);
 
   if (resumeExisting) {
     await enqueueExistingFiles(watchRoot);
@@ -669,7 +546,7 @@ async function bootstrapWatcher() {
 
   watcher.on('ready', () => {
     watcherReady = true;
-    app.log.info({ watchRoot, archiveRoot }, 'File watcher initialised');
+    app.log.info({ watchRoot, stagingDir, archiveDir }, 'Observatory watcher initialised');
   });
 
   watcher.on('error', (err) => {
@@ -690,11 +567,11 @@ async function bootstrapWatcher() {
   process.on('SIGTERM', shutdown);
 }
 
-async function start() {
+async function start(): Promise<void> {
   await bootstrapWatcher();
   try {
     await app.listen({ port, host });
-    app.log.info({ port, host }, 'File drop watcher service listening');
+    app.log.info({ port, host }, 'Observatory file watcher listening');
   } catch (error) {
     app.log.error({ err: error }, 'Failed to start service');
     process.exit(1);

@@ -50,7 +50,7 @@ flowchart TD
 | `FILE_WATCH_ROOT` | `examples/file-drop/data/inbox` | Directory to monitor for new files. |
 | `FILE_ARCHIVE_DIR` | `examples/file-drop/data/archive` | Root directory for relocated files. |
 | `FILE_DROP_WORKFLOW_SLUG` | `file-drop-relocation` | Workflow triggered when a new file arrives. |
-| `FILE_WATCH_STRATEGY` | `relocation` | Launch behaviour. Set to `observatory` to trigger the environmental observatory ingest workflow. |
+| `FILE_WATCH_STRATEGY` | `relocation` | Launch behaviour used by the generic watcher. (The environmental observatory ships a dedicated watcher that no longer requires this toggle.) |
 | `FILE_WATCH_STAGING_DIR` | Derived from `FILE_WATCH_ROOT` | Observatory mode: destination staging directory passed to the ingest workflow. |
 | `FILE_WATCH_WAREHOUSE_PATH` | Derived from `FILE_WATCH_ROOT` | Observatory mode: DuckDB path passed to the ingest workflow. |
 | `FILE_WATCH_MAX_FILES` | `64` | Observatory mode: upper bound for files processed per hour. |
@@ -71,22 +71,21 @@ flowchart TD
 
 ## Using the Watcher for the Environmental Observatory Example
 
-Reuse the watcher to trigger the `observatory-minute-ingest` workflow automatically whenever instruments drop new minute CSVs into the inbox. From the repository root:
+Use the observatory watcher to trigger the `observatory-minute-ingest` workflow automatically whenever instruments drop new minute CSVs into the inbox. From the repository root:
 
 ```bash
-cd examples/file-drop/services/file-drop-watcher
+cd examples/environmental-observatory/services/observatory-file-watcher
 npm install
 
-FILE_WATCH_ROOT=$(pwd)/../../catalog/data/examples/environmental-observatory/inbox \
-FILE_WATCH_STAGING_DIR=$(pwd)/../../catalog/data/examples/environmental-observatory/staging \
-FILE_ARCHIVE_DIR=$(pwd)/../../catalog/data/examples/environmental-observatory/archive \
-FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../catalog/data/examples/environmental-observatory/warehouse/observatory.duckdb \
-FILE_DROP_WORKFLOW_SLUG=observatory-minute-ingest \
-FILE_WATCH_STRATEGY=observatory \
+FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
+FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
+FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
+FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
+OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
 CATALOG_API_TOKEN=dev-ops-token \
 npm run dev
 ```
 
 The watcher batches files by minute, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Processed inbox files land in `archive/<instrument>/<hour>/<minute>.csv`, keeping replays idempotent. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → DuckDB → visualization → report pipeline operate end-to-end.
 
-> Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/archive/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand.
+> Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/archive/warehouse paths (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand. The same manifest also registers the observatory dashboard so you can watch `status.html` refresh automatically.

@@ -21,6 +21,8 @@ graph TD
   VizAsset --> Reporter[observatory-report-publisher]
   Reporter --> Reports[(reports/<minute>/)]
   Reporter --> ReportAsset[(Asset: observatory.reports.status)]
+  ReportAsset --> Dashboard[observatory-dashboard service]
+  Dashboard --> Viewers[[Operators & stakeholders]]
 ```
 
 ## Data drop and directory layout
@@ -100,7 +102,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the DuckDB loader immediately for the same partition. The loader produces `observatory.timeseries.duckdb` and schedules an expiry after 60 minutes.
 3. The visualization workflow listens to `observatory.timeseries.duckdb`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
 4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports.
-5. Reports are now available for the frontend or external publishing. Asset history exposes run IDs and payload diffs for auditing.
+5. Reports are now available for the frontend or external publishing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run IDs and payload diffs for auditing.
 
 ## Running the demo locally
 
@@ -112,9 +114,9 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-visuali
 
 The catalog packages each observatory bundle automatically when you import the example jobs. Pre-installing dependencies keeps the first run snappy; otherwise the API runs `npm install` on demand the first time a bundle is requested.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher shows up as a managed service. When importing through the UI the catalog now prompts for the inbox, staging, and warehouse paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, warehouse, and reports paths (pre-filled with the defaults above) and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
-4. Launch the file-drop watcher in observatory mode so new inbox files trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
+4. Launch the observatory watcher so new inbox files trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash
    cd examples/environmental-observatory/services/observatory-file-watcher
    npm install
@@ -123,18 +125,26 @@ The catalog packages each observatory bundle automatically when you import the e
    FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
    FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
    FILE_WATCH_WAREHOUSE_PATH=$(pwd)/../../data/warehouse/observatory.duckdb \
-   FILE_DROP_WORKFLOW_SLUG=observatory-minute-ingest \
-   FILE_WATCH_STRATEGY=observatory \
+   OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
    CATALOG_API_TOKEN=dev-ops-token \
    npm run dev
    ```
    Override `CATALOG_API_BASE_URL` if the catalog API is not running on `127.0.0.1:4000`.
-5. Register both workflows by copying the curated JSON definitions:
+5. Launch the dashboard alongside the watcher so the latest `status.html` is always visible:
+   ```bash
+   cd examples/environmental-observatory/services/observatory-dashboard
+   npm install
+
+   REPORTS_DIR=$(pwd)/../../data/reports \
+   PORT=4311 \
+   npm run dev
+   ```
+6. Register both workflows by copying the curated JSON definitions:
    ```bash
    cp examples/environmental-observatory/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
    cp examples/environmental-observatory/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
-6. Simulate an instrument drop by writing new minute CSV files into `inbox` (the watcher will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
+7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the watcher will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash
    curl -X POST http://127.0.0.1:4000/workflows/observatory-minute-ingest/run \
      -H "Authorization: Bearer $TOKEN" \
@@ -149,12 +159,12 @@ The catalog packages each observatory bundle automatically when you import the e
        }
      }'
    ```
-7. Inspect assets via the API:
+8. Inspect assets via the API:
    ```bash
    curl -sS http://127.0.0.1:4000/workflows/observatory-minute-ingest/assets | jq
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 
-8. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
+9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
 
 This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, DuckDB snapshots, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

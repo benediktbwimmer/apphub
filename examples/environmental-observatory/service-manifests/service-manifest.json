@@ -50,11 +50,10 @@
             }
           }
         },
-        { "key": "FILE_WATCH_STRATEGY", "value": "observatory" },
-        { "key": "FILE_DROP_WORKFLOW_SLUG", "value": "observatory-minute-ingest" },
+        { "key": "OBSERVATORY_WORKFLOW_SLUG", "value": "observatory-minute-ingest" },
         { "key": "FILE_WATCH_MAX_FILES", "value": "64" },
         { "key": "FILE_WATCH_VACUUM", "value": "false" },
-        { "key": "FILE_WATCH_AUTO_COMPLETE", "value": "true" },
+        { "key": "OBSERVATORY_AUTO_COMPLETE", "value": "true" },
         { "key": "CATALOG_API_BASE_URL", "value": "http://127.0.0.1:4000" },
         {
           "key": "CATALOG_API_TOKEN",
@@ -66,6 +65,30 @@
             }
           }
         }
+      ]
+    },
+    {
+      "slug": "observatory-dashboard",
+      "displayName": "Observatory Dashboard",
+      "kind": "dashboard",
+      "baseUrl": "http://127.0.0.1:4311",
+      "healthEndpoint": "/healthz",
+      "devCommand": "npm run dev",
+      "workingDir": "examples/environmental-observatory/services/observatory-dashboard",
+      "env": [
+        {
+          "key": "REPORTS_DIR",
+          "value": {
+            "$var": {
+              "name": "REPORTS_DIR",
+              "default": "examples/environmental-observatory/data/reports",
+              "description": "Directory containing observatory status reports (status.html/json/md)."
+            }
+          }
+        },
+        { "key": "HOST", "value": "0.0.0.0" },
+        { "key": "PORT", "value": "4311" },
+        { "key": "DASHBOARD_REFRESH_MS", "value": "10000" }
       ]
     }
   ]

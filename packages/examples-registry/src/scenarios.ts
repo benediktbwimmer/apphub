@@ -287,10 +287,10 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
     id: 'observatory-file-watcher-service',
     type: 'service-manifest',
-    title: 'Observatory file watcher',
-    summary: 'Registers the observatory watcher service configured for minute-level ingest.',
+    title: 'Observatory services',
+    summary: 'Registers the observatory watcher and dashboard services configured for the minute ingest loop.',
     description:
-      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging directory, and DuckDB warehouse so new drops automatically trigger `observatory-minute-ingest`.',
+      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging, archive, and DuckDB paths while also wiring up the dashboard to render fresh reports.',
     difficulty: 'beginner',
     tags: ['observatory', 'automation'],
     docs: [
@@ -318,6 +318,11 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         label: 'Watcher service',
         path: 'examples/environmental-observatory/services/observatory-file-watcher/',
         href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+      },
+      {
+        label: 'Dashboard service',
+        path: 'examples/environmental-observatory/services/observatory-dashboard/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-dashboard'
       }
     ],
     form: {
@@ -328,12 +333,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       variables: {
         FILE_WATCH_ROOT: 'examples/environmental-observatory/data/inbox',
         FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory/data/staging',
+        FILE_ARCHIVE_DIR: 'examples/environmental-observatory/data/archive',
         FILE_WATCH_WAREHOUSE_PATH: 'examples/environmental-observatory/data/warehouse/observatory.duckdb',
+        OBSERVATORY_WORKFLOW_SLUG: 'observatory-minute-ingest',
         CATALOG_API_TOKEN: 'dev-token'
       }
     },
-    analyticsTag: 'service__observatory_file_watcher',
-    requiresApps: ['observatory-file-watcher']
+    analyticsTag: 'service__observatory_services',
+    requiresApps: ['observatory-file-watcher', 'observatory-dashboard']
   },
   {
     id: 'observatory-file-watcher-app',
@@ -377,6 +384,49 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     },
     analyticsTag: 'app__observatory_file_watcher',
     requiresServices: ['observatory-file-watcher']
+  },
+  {
+    id: 'observatory-dashboard-app',
+    type: 'app',
+    title: 'Observatory dashboard app',
+    summary: 'Packages the dashboard service that renders live reports.',
+    description:
+      'Registers the dashboard repository so AppHub can build and launch it as a container. The service reads the latest `status.json` artefacts and refreshes the embedded HTML automatically.',
+    difficulty: 'beginner',
+    tags: ['observatory', 'dashboard'],
+    docs: [
+      {
+        label: 'Environmental observatory walkthrough',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/docs/environmental-observatory-workflows.md'
+      }
+    ],
+    assets: [
+      {
+        label: 'Dashboard repository',
+        path: 'examples/environmental-observatory/services/observatory-dashboard/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-dashboard'
+      },
+      {
+        label: 'Dockerfile',
+        path: 'examples/environmental-observatory/services/observatory-dashboard/Dockerfile',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/services/observatory-dashboard/Dockerfile'
+      }
+    ],
+    form: {
+      id: 'observatory-dashboard',
+      name: 'Observatory Dashboard',
+      description: 'Displays the latest observatory status report with automatic refresh.',
+      repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
+      dockerfilePath: 'examples/environmental-observatory/services/observatory-dashboard/Dockerfile',
+      tags: [
+        { key: 'language', value: 'typescript' },
+        { key: 'framework', value: 'fastify' }
+      ],
+      sourceType: 'remote',
+      metadataStrategy: 'explicit'
+    },
+    analyticsTag: 'app__observatory_dashboard',
+    requiresServices: ['observatory-dashboard']
   },
   {
     id: 'file-relocator-job',
@@ -995,11 +1045,12 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     title: 'Environmental observatory demo',
     summary: 'Loads services, jobs, and workflows for the observatory walkthrough.',
     description:
-      'Prefills the importer with the watcher service, container app, supporting jobs, and both observatory workflows so you can replay the end-to-end environmental observatory demo.',
+      'Prefills the importer with the watcher + dashboard services, their container apps, supporting jobs, and both observatory workflows so you can replay the end-to-end environmental observatory demo.',
     tags: ['observatory', 'end-to-end'],
     includes: [
       'observatory-file-watcher-service',
       'observatory-file-watcher-app',
+      'observatory-dashboard-app',
       'observatory-data-generator-job',
       'observatory-inbox-normalizer-job',
       'observatory-duckdb-loader-job',
@@ -1140,6 +1191,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     includes: [
       'observatory-file-watcher-service',
       'observatory-file-watcher-app',
+      'observatory-dashboard-app',
       'scan-directory-job',
       'generate-visualizations-job',
       'archive-report-job',
