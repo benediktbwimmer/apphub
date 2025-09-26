@@ -12,6 +12,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, stale build cleanup, and asset auto-materialization. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod). A separate asset materializer worker maintains workflow asset graphs, listens to `asset.produced`/`asset.expired` events, and enqueues runs when freshness policies demand updates.
 - **Timestore Service**: DuckDB-backed time series store that partitions datasets by semantic keys, persists manifests in PostgreSQL, and exposes query/maintenance APIs. It reuses the catalog Postgres instance while maintaining an isolated schema (`timestore`).
+- **Filestore Service**: Transactional filesystem gateway that tracks local and S3-backed trees, persists node metadata in Postgres, executes mutations via orchestrated executors, and emits Redis events so Metastore and Timestore stay aligned without manual file edits.
 - **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, workflow, and asset lifecycle changes (`asset.produced` / `asset.expired`). Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
@@ -97,6 +98,18 @@ erDiagram
   DATASET_MANIFESTS ||--o{ DATASET_PARTITIONS : contains
   DATASETS ||--|| DATASET_RETENTION_POLICIES : governed_by
 ```
+
+## Filestore Service
+
+Filestore introduces a dedicated Fastify API (`services/filestore`) that owns canonical knowledge of files and directories across local volumes and S3 buckets. It reuses the shared Postgres cluster (separate `filestore` schema) to store nodes, snapshots, journal entries, and directory rollups; BullMQ queues (via Redis) drive heavy background work such as rollup recomputation and reconciliation.
+
+- **Command pipeline**: clients submit mutations (`create`, `move`, `copy`, `delete`) through REST endpoints. A command orchestrator validates inputs, invokes the appropriate executor (local disk or S3), wraps updates in a transaction, writes the journal, and emits Redis events (`filestore.node.*`, `filestore.command.completed`).
+- **Rollups & caching**: directory aggregates update inline for small trees and enqueue BullMQ jobs for larger recalculations. Redis caches store hot rollup data, invalidated by pub/sub messages to keep responses fast.
+- **Drift detection**: chokidar-based watchers and scheduled S3 audits mark nodes `INCONSISTENT` when out-of-band changes occur. Reconciliation workers stat the physical filesystem, repair metadata, and publish `filestore.node.reconciled` or `filestore.node.missing` events.
+- **Downstream integrations**: Metastore subscribes to filestore events to sync tags/annotations, while Timestore ingests journal deltas into a `filestore_activity` dataset so operators can chart storage growth and reconciliation lag.
+- **Developer experience**: local dev defaults Redis to inline mode, letting engineers run the API, watchers, and workers alongside catalog/metastore/timestore via `npm run dev`. Configuration comes from backend mount manifests that describe local directories or mock S3 buckets.
+
+See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 
 ## Data Model (Initial Draft)
 - `Repository`
