@@ -2017,9 +2017,169 @@ async function testAssetMaterializerAutoRuns(): Promise<void> {
   }
 }
 
+async function testAssetMaterializerPartitionParameterReuse(): Promise<void> {
+  await ensureEmbeddedPostgres();
+
+  const [{ ensureDatabase }, workflowsModule, { AssetMaterializer }] = await Promise.all([
+    import('../src/db/index'),
+    import('../src/db/workflows'),
+    import('../src/assetMaterializerWorker')
+  ]);
+  const {
+    createWorkflowDefinition,
+    createWorkflowRun,
+    createWorkflowRunStep,
+    recordWorkflowRunStepAssets,
+    listWorkflowRunsForDefinition
+  } = workflowsModule;
+
+  await ensureDatabase();
+
+  const materializer = new AssetMaterializer();
+  await materializer.start();
+
+  const waitForRunCount = async (
+    workflowDefinitionId: string,
+    expected: number,
+    timeoutMs = 2000
+  ) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const runs = await listWorkflowRunsForDefinition(workflowDefinitionId, {
+        limit: Math.max(expected, 10)
+      });
+      if (runs.length >= expected) {
+        return runs;
+      }
+      await delay(20);
+    }
+    throw new Error(`Timed out waiting for ${expected} workflow runs for ${workflowDefinitionId}`);
+  };
+
+  const sourceAssetId = `asset.source.${randomUUID()}`;
+  const targetAssetId = `asset.target.${randomUUID()}`;
+
+  try {
+    const sourceWorkflow = await createWorkflowDefinition({
+      slug: `asset-source-${randomUUID()}`.toLowerCase(),
+      name: 'Asset Source',
+      version: 1,
+      steps: [
+        {
+          id: 'emit-source',
+          name: 'Emit Source',
+          type: 'job',
+          jobSlug: 'workflow-step-source',
+          produces: [{ assetId: sourceAssetId }]
+        }
+      ],
+      triggers: [{ type: 'manual' }]
+    });
+
+    const targetDefaults = {
+      reportsDir: '/default/reports',
+      metastoreNamespace: 'default.namespace'
+    } as const;
+
+    const targetWorkflow = await createWorkflowDefinition({
+      slug: `asset-target-${randomUUID()}`.toLowerCase(),
+      name: 'Asset Target',
+      version: 1,
+      steps: [
+        {
+          id: 'build-target',
+          name: 'Build Target',
+          type: 'job',
+          jobSlug: 'workflow-step-target',
+          consumes: [{ assetId: sourceAssetId }],
+          produces: [
+            {
+              assetId: targetAssetId,
+              autoMaterialize: { onUpstreamUpdate: true, priority: 5 }
+            }
+          ]
+        }
+      ],
+      triggers: [{ type: 'manual' }],
+      defaultParameters: targetDefaults
+    });
+
+    await delay(150);
+
+    const partitionKey = '2025-10-21T14:40';
+    const customParameters = {
+      partitionKey,
+      reportsDir: '/custom/reports',
+      metastoreNamespace: 'custom.namespace',
+      siteFilter: 'site-42'
+    } as const;
+
+    const manualRun = await createWorkflowRun(targetWorkflow.id, {
+      status: 'succeeded',
+      partitionKey,
+      parameters: customParameters
+    });
+
+    const manualStep = await createWorkflowRunStep(manualRun.id, {
+      stepId: 'build-target',
+      status: 'succeeded',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString()
+    });
+
+    await recordWorkflowRunStepAssets(
+      targetWorkflow.id,
+      manualRun.id,
+      manualStep.id,
+      'build-target',
+      [
+        {
+          assetId: targetAssetId,
+          partitionKey,
+          payload: { ok: true }
+        }
+      ]
+    );
+
+    const existingRuns = await listWorkflowRunsForDefinition(targetWorkflow.id, { limit: 10 });
+    const baselineCount = existingRuns.length;
+
+    emitApphubEvent({
+      type: 'asset.produced',
+      data: {
+        assetId: sourceAssetId,
+        workflowDefinitionId: sourceWorkflow.id,
+        workflowSlug: sourceWorkflow.slug,
+        workflowRunId: `run-${randomUUID()}`,
+        workflowRunStepId: `step-${randomUUID()}`,
+        stepId: 'emit-source',
+        producedAt: new Date().toISOString(),
+        freshness: null,
+        partitionKey
+      }
+    });
+
+    const runsAfterAuto = await waitForRunCount(targetWorkflow.id, baselineCount + 1);
+    const autoRun = runsAfterAuto.find(
+      (run) => run.triggeredBy === 'asset-materializer' && run.partitionKey === partitionKey
+    );
+    assert.ok(autoRun, 'expected auto-materialized run to exist');
+
+    assert.ok(autoRun.parameters && typeof autoRun.parameters === 'object');
+    const parameters = autoRun.parameters as Record<string, unknown>;
+    assert.equal(parameters.reportsDir, customParameters.reportsDir);
+    assert.equal(parameters.metastoreNamespace, customParameters.metastoreNamespace);
+    assert.equal(parameters.siteFilter, customParameters.siteFilter);
+    assert.equal(parameters.partitionKey, partitionKey);
+  } finally {
+    await materializer.stop();
+  }
+}
+
 runE2E(async ({ registerCleanup }) => {
   registerCleanup(() => shutdownEmbeddedPostgres());
   await ensureEmbeddedPostgres();
   await testWorkflowEndpoints();
   await testAssetMaterializerAutoRuns();
+  await testAssetMaterializerPartitionParameterReuse();
 }, { name: 'catalog-workflows.e2e' });

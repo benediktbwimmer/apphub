@@ -6,7 +6,8 @@ import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { startTimestoreTestServer, type TimestoreTestServer } from '../helpers/timestore';
-import { loadExampleWorkflowDefinition } from '../helpers/examples';
+import { listExampleWorkflowDefinitions } from '../helpers/examples';
+import type { WorkflowDefinitionCreateInput } from '../../../services/catalog/src/workflows/zodSchemas';
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 import { runE2E } from '@apphub/test-helpers';
 
@@ -52,10 +53,6 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-ingest',
   'observatory-daily-publication'
 ];
-
-const OBSERVATORY_WORKFLOW_DEFINITIONS = OBSERVATORY_WORKFLOW_SLUGS.map(
-  loadExampleWorkflowDefinition
-);
 
 type ServerContext = {
   timestore: TimestoreTestServer;
@@ -249,8 +246,11 @@ async function importExampleBundle(app: FastifyInstance, slug: string): Promise<
   assert.equal(confirmResponse.statusCode, 201, `Import failed for ${slug}: ${confirmResponse.payload}`);
 }
 
-async function importExampleWorkflows(app: FastifyInstance): Promise<void> {
-  for (const workflow of OBSERVATORY_WORKFLOW_DEFINITIONS) {
+async function importExampleWorkflows(
+  app: FastifyInstance,
+  definitions: WorkflowDefinitionCreateInput[]
+): Promise<void> {
+  for (const workflow of definitions) {
     const response = await app.inject({
       method: 'POST',
       url: '/workflows',
@@ -282,6 +282,8 @@ async function fetchWorkflowRun(app: FastifyInstance, runId: string) {
     };
   };
 }
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function runWorkflow(
   app: FastifyInstance,
@@ -331,20 +333,32 @@ async function queryTimestoreRowCount(url: string, datasetSlug: string, startIso
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
 }
 
-async function assertWorkflowAsset(
+async function waitForWorkflowAsset(
   app: FastifyInstance,
   slug: string,
   assetId: string,
-  partitionKey: string
-): Promise<void> {
-  const assetsResponse = await app.inject({ method: 'GET', url: `/workflows/${slug}/assets` });
-  assert.equal(assetsResponse.statusCode, 200, `Failed to fetch assets for ${slug}`);
-  const body = JSON.parse(assetsResponse.payload) as {
-    data: { assets: Array<{ assetId: string; latest: { partitionKey: string | null } | null }> };
-  };
-  const entry = body.data.assets.find((candidate) => candidate.assetId === assetId);
-  assert(entry, `Asset ${assetId} not registered under ${slug}`);
-  assert.equal(entry?.latest?.partitionKey, partitionKey);
+  partitionKey: string,
+  timeoutMs = 10_000
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const assetsResponse = await app.inject({ method: 'GET', url: `/workflows/${slug}/assets` });
+    assert.equal(assetsResponse.statusCode, 200, `Failed to fetch assets for ${slug}`);
+    const body = JSON.parse(assetsResponse.payload) as {
+      data: {
+        assets: Array<{
+          assetId: string;
+          latest: { partitionKey: string | null; runId?: string | null } | null;
+        }>;
+      };
+    };
+    const entry = body.data.assets.find((candidate) => candidate.assetId === assetId);
+    if (entry?.latest?.partitionKey === partitionKey) {
+      return entry.latest.runId ?? '';
+    }
+    await delay(50);
+  }
+  throw new Error(`Timed out waiting for asset ${assetId} partition ${partitionKey} on workflow ${slug}`);
 }
 
 async function runObservatoryScenario(app: FastifyInstance, context: ServerContext): Promise<void> {
@@ -353,8 +367,6 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
   for (const slug of OBSERVATORY_BUNDLE_SLUGS) {
     await importExampleBundle(app, slug);
   }
-  await importExampleWorkflows(app);
-
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'observatory-e2e-'));
   const inboxDir = path.join(tempRoot, 'inbox');
   const stagingDir = path.join(tempRoot, 'staging');
@@ -373,6 +385,25 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       mkdir(dir, { recursive: true })
     )
   );
+
+  const workflowDefinitions = listExampleWorkflowDefinitions(OBSERVATORY_WORKFLOW_SLUGS);
+  for (const workflow of workflowDefinitions) {
+    if (workflow.slug === 'observatory-daily-publication') {
+      const defaults = (workflow.defaultParameters ??= {} as Record<string, unknown>);
+      defaults.plotsDir = plotsDir;
+      defaults.reportsDir = reportsDir;
+      defaults.timestoreBaseUrl = timestoreUrl;
+      defaults.timestoreDatasetSlug = 'observatory-timeseries';
+      defaults.metastoreBaseUrl = '';
+      defaults.metastoreNamespace = 'observatory.reports';
+    }
+  }
+
+  await importExampleWorkflows(app, workflowDefinitions);
+
+  const { AssetMaterializer } = await import('../../../services/catalog/src/assetMaterializerWorker');
+  const materializer = new AssetMaterializer();
+  await materializer.start();
 
   try {
     await runWorkflow(app, 'observatory-minute-data-generator', minute, {
@@ -454,24 +485,13 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       `Timestore loader should append 18 rows (3 instruments × 6 rows) but received ${rowCount}`
     );
 
-    await assertWorkflowAsset(
+    const ingestRunId = await waitForWorkflowAsset(
       app,
       'observatory-minute-ingest',
       'observatory.timeseries.timestore',
       minute
     );
-
-    await runWorkflow(app, 'observatory-daily-publication', minute, {
-      timestoreBaseUrl: timestoreUrl,
-      timestoreDatasetSlug: 'observatory-timeseries',
-      plotsDir,
-      reportsDir,
-      partitionKey: minute,
-      lookbackMinutes: 180,
-      metastoreBaseUrl: '',
-      metastoreAuthToken: '',
-      metastoreNamespace: 'observatory.reports'
-    });
+    assert.ok(ingestRunId, 'Ingest asset should provide a producing run id');
 
     const plotsMinuteDir = path.join(plotsDir, minuteKey);
     const plotEntries = await readdir(plotsMinuteDir);
@@ -485,12 +505,28 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       assert(statsResult.size > 0, `Report artifact ${entry} should not be empty`);
     }
 
-    await assertWorkflowAsset(
+    const publicationRunId = await waitForWorkflowAsset(
       app,
       'observatory-daily-publication',
       'observatory.reports.status',
       minute
     );
+    assert.ok(publicationRunId, 'Publication asset should provide a producing run id');
+
+    const publicationRunResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${publicationRunId}` });
+    assert.equal(publicationRunResponse.statusCode, 200, 'Failed to fetch auto-materialized run detail');
+    const publicationRunBody = JSON.parse(publicationRunResponse.payload) as {
+      data: {
+        status: string;
+        triggeredBy?: string | null;
+        parameters?: Record<string, unknown> | null;
+      };
+    };
+    assert.equal(publicationRunBody.data.status, 'succeeded');
+    assert.equal(publicationRunBody.data.triggeredBy, 'asset-materializer');
+    const publicationParameters = (publicationRunBody.data.parameters ?? {}) as Record<string, unknown>;
+    assert.equal(publicationParameters.plotsDir, plotsDir);
+    assert.equal(publicationParameters.reportsDir, reportsDir);
 
     const reportJson = await readJsonFile<{
       summary?: { instrumentCount?: number };
@@ -500,6 +536,7 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       ?? reportJson.visualization?.metrics?.instrumentCount;
     assert.equal(reportedInstrumentCount, 3);
   } finally {
+    await materializer.stop();
     if (process.env.OBSERVATORY_KEEP_TEMP === '1') {
       // preserve temp directory for debugging
     } else {

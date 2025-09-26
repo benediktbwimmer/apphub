@@ -685,6 +685,28 @@ export class AssetMaterializer {
     return config;
   }
 
+  private selectParameterSourceAsset(
+    config: WorkflowConfig,
+    payload: AutoTriggerPayload
+  ): WorkflowProducedAssetConfig | undefined {
+    const direct = config.producedAssets.get(payload.assetNormalizedId);
+    if (direct) {
+      return direct;
+    }
+
+    for (const candidate of config.producedAssets.values()) {
+      if (candidate.policy?.onUpstreamUpdate) {
+        return candidate;
+      }
+    }
+
+    for (const candidate of config.producedAssets.values()) {
+      return candidate;
+    }
+
+    return undefined;
+  }
+
   private async resolveRunParameters(
     config: WorkflowConfig,
     assetConfig: WorkflowProducedAssetConfig | undefined,
@@ -803,7 +825,7 @@ export class AssetMaterializer {
   ): Promise<void> {
     const trigger = this.buildTriggerPayload(payload);
     const partitionKey = 'partitionKey' in payload ? payload.partitionKey ?? null : null;
-    const assetConfig = config.producedAssets.get(payload.assetNormalizedId);
+    const assetConfig = this.selectParameterSourceAsset(config, payload);
     const parameters = await this.resolveRunParameters(config, assetConfig, partitionKey);
     const run = await createWorkflowRun(workflowId, {
       triggeredBy: 'asset-materializer',
