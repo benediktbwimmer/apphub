@@ -1,12 +1,10 @@
 import { METASTORE_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { z } from 'zod';
 import {
   recordResponseSchema,
   searchResponseSchema,
   auditResponseSchema,
-  bulkResponseSchema,
-  recordSummarySchema
+  bulkResponseSchema
 } from './types';
 import type {
   MetastoreSearchResponse,
@@ -143,9 +141,7 @@ export async function deleteRecord(
   });
   const parsed = await parseJsonOrError(
     response,
-    z.object({
-      record: recordSummarySchema
-    })
+    recordResponseSchema
   );
   return parsed.record;
 }

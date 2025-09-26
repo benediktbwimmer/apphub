@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
 import { useToasts } from './useToasts';
-
-type ToastTone = 'success' | 'error' | 'info' | 'warning';
+import type { ToastTone } from './ToastContext';
 
 function resolveDescription(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {

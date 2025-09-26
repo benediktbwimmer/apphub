@@ -40,23 +40,22 @@ export function addHistoryEntry(
   limit: number = SQL_HISTORY_LIMIT
 ): SqlHistoryEntry[] {
   const normalizedStatement = entry.statement.trim();
-  let preserved: Pick<SqlHistoryEntry, 'pinned' | 'label'> | null = null;
+  let preservedPinned: boolean | undefined;
+  let preservedLabel: string | null | undefined;
 
   const deduped = history.filter((item) => {
     const matches = item.statement.trim() === normalizedStatement;
-    if (matches && !preserved) {
-      preserved = {
-        pinned: item.pinned,
-        label: item.label ?? null
-      };
+    if (matches && preservedPinned === undefined && preservedLabel === undefined) {
+      preservedPinned = item.pinned;
+      preservedLabel = item.label ?? null;
     }
     return !matches;
   });
 
   const mergedEntry: SqlHistoryEntry = {
     ...entry,
-    pinned: preserved?.pinned ?? entry.pinned,
-    label: preserved?.label ?? entry.label ?? null
+    pinned: preservedPinned ?? entry.pinned,
+    label: preservedLabel ?? entry.label ?? null
   };
 
   const next = sortHistory([mergedEntry, ...deduped]);

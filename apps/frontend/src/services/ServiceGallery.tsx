@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { normalizePreviewUrl } from '../utils/url';
 import { formatFetchError } from '../catalog/utils';

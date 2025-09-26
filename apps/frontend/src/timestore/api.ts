@@ -315,7 +315,7 @@ export async function fetchSqlSchema(
     const schema = String(row.table_schema ?? 'public');
     const tableName = String(row.table_name ?? 'unknown');
     const columnName = String(row.column_name ?? 'column');
-    const dataType = row.data_type ? String(row.data_type) : undefined;
+    const dataType = row.data_type ? String(row.data_type) : 'unknown';
     const nullable = row.is_nullable ? String(row.is_nullable).toUpperCase() !== 'NO' : undefined;
     const qualifiedName = `${schema}.${tableName}`;
 

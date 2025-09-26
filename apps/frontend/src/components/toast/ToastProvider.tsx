@@ -12,6 +12,7 @@ const TOAST_BASE_CLASSES =
 const TONE_STYLES: Record<ToastTone, string> = {
   info: 'border-slate-200/70 bg-white/95 text-slate-900 dark:border-slate-700/60 dark:bg-slate-900/90 dark:text-slate-100',
   success: 'border-emerald-300/70 bg-emerald-50/95 text-emerald-800 dark:border-emerald-400/60 dark:bg-emerald-900/50 dark:text-emerald-200',
+  warning: 'border-amber-300/70 bg-amber-50/95 text-amber-800 dark:border-amber-400/60 dark:bg-amber-900/60 dark:text-amber-200',
   error: 'border-rose-300/70 bg-rose-50/95 text-rose-700 dark:border-rose-500/60 dark:bg-rose-900/60 dark:text-rose-200'
 };
 

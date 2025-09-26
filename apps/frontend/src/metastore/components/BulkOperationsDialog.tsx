@@ -17,6 +17,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkResponsePayload | null>(null);
+  const dialogTitleId = 'bulk-operations-dialog-title';
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,8 +47,25 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="Bulk operations">
+    <Modal open={open} onClose={handleClose} labelledBy={dialogTitleId} className="items-start justify-center px-4 py-6 sm:items-center" contentClassName="w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80">
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        <header className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              Bulk operations
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Submit a batch of upsert or delete requests using JSON payloads.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+          >
+            Close
+          </button>
+        </header>
         <p className="text-sm text-slate-600 dark:text-slate-300">
           Provide an array of operations or a JSON payload with an <code className="font-mono">operations</code> property.
           Each operation supports <code className="font-mono">upsert</code> or <code className="font-mono">delete</code> semantics.

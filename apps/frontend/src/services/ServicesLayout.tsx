@@ -2,11 +2,11 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useRef } from 'react';
 import { ROUTE_PATHS } from '../routes/paths';
 
-const NAV_ITEMS = [
+const NAV_ITEMS: ReadonlyArray<{ key: string; label: string; path: string; end?: boolean }> = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.servicesOverview, end: true },
   { key: 'timestore', label: 'Timestore', path: ROUTE_PATHS.servicesTimestore },
   { key: 'metastore', label: 'Metastore', path: ROUTE_PATHS.servicesMetastore }
-] as const;
+];
 
 function getTabClasses(isActive: boolean): string {
   if (isActive) {
@@ -58,7 +58,7 @@ export default function ServicesLayout() {
               <NavLink
                 key={item.key}
                 to={item.path}
-                end={item.end}
+                end={item.end ?? false}
                 className={({ isActive }) => getTabClasses(isActive)}
               >
                 {item.label}

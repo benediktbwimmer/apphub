@@ -2,13 +2,11 @@ import { z } from 'zod';
 
 export const recordMetadataSchema = z.object({}).passthrough();
 
-export const recordSummarySchema = z.object({
+const recordBaseSchema = z.object({
   id: z.string(),
   namespace: z.string(),
   recordKey: z.string(),
   displayName: z.string().nullable().optional(),
-  metadata: recordMetadataSchema.optional(),
-  tags: z.array(z.string()).optional(),
   owner: z.string().nullable().optional(),
   schemaHash: z.string().nullable().optional(),
   version: z.number(),
@@ -17,13 +15,16 @@ export const recordSummarySchema = z.object({
   deletedAt: z.string().nullable()
 });
 
+export const recordSummarySchema = recordBaseSchema.extend({
+  metadata: recordMetadataSchema.optional(),
+  tags: z.array(z.string()).optional()
+});
+
 export type MetastoreRecordSummary = z.infer<typeof recordSummarySchema>;
 
-export const recordDetailSchema = recordSummarySchema.extend({
+export const recordDetailSchema = recordBaseSchema.extend({
   metadata: recordMetadataSchema,
-  tags: z.array(z.string()),
-  owner: z.string().nullable().optional(),
-  schemaHash: z.string().nullable().optional()
+  tags: z.array(z.string())
 });
 
 export type MetastoreRecordDetail = z.infer<typeof recordDetailSchema>;

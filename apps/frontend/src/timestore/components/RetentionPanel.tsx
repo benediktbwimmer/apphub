@@ -23,14 +23,14 @@ type EditablePolicyFields = {
 };
 
 function toEditableFields(retention: RetentionResponse | null): EditablePolicyFields {
-  const base = retention?.policy ?? retention?.defaultPolicy ?? {};
-  const rules = base.rules ?? {};
+  const basePolicy = retention?.policy ?? retention?.defaultPolicy ?? null;
+  const rules = basePolicy?.rules ?? {};
   return {
-    mode: base.mode ?? 'hybrid',
+    mode: basePolicy?.mode ?? 'hybrid',
     maxAgeHours: rules.maxAgeHours?.toString() ?? '',
     maxTotalBytes: rules.maxTotalBytes?.toString() ?? '',
-    deleteGraceMinutes: base.deleteGraceMinutes?.toString() ?? '',
-    coldStorageAfterHours: base.coldStorageAfterHours?.toString() ?? ''
+    deleteGraceMinutes: basePolicy?.deleteGraceMinutes?.toString() ?? '',
+    coldStorageAfterHours: basePolicy?.coldStorageAfterHours?.toString() ?? ''
   };
 }
 

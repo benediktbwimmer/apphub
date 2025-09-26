@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Monaco, OnMount } from '@monaco-editor/react';
-import type { editor, languages } from 'monaco-editor';
+import type { editor, languages, IDisposable } from 'monaco-editor';
 import { Editor } from '../../components/Editor';
 import { Spinner } from '../../components';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
@@ -16,15 +16,24 @@ import {
   readHistoryFromStorage,
   removeHistoryEntry,
   SQL_HISTORY_LIMIT,
-  SqlHistoryEntry,
   updateHistoryEntry,
   writeHistoryToStorage
 } from './sqlHistory';
+import type { SqlHistoryEntry } from './sqlHistory';
 import { SQL_KEYWORDS } from './sqlKeywords';
 
 const DEFAULT_QUERY = 'SELECT\n  dataset_slug,\n  count(*) AS record_count\nFROM\n  timestore_runtime.datasets\nGROUP BY\n  1\nORDER BY\n  record_count DESC\nLIMIT 100;';
 
 const COMPLETION_TRIGGER_CHARACTERS = [' ', '.', '\n'];
+
+type CompletionSuggestion = Omit<languages.CompletionItem, 'range'>;
+
+function getSuggestionLabel(suggestion: CompletionSuggestion): string {
+  if (typeof suggestion.label === 'string') {
+    return suggestion.label;
+  }
+  return suggestion.label.label ?? '';
+}
 
 function quoteIdentifier(identifier: string): string {
   if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
@@ -33,8 +42,8 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): languages.CompletionItem[] {
-  const keywordItems = SQL_KEYWORDS.map((keyword, index) => ({
+function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): CompletionSuggestion[] {
+  const keywordItems: CompletionSuggestion[] = SQL_KEYWORDS.map((keyword, index) => ({
     label: keyword,
     kind: monaco.languages.CompletionItemKind.Keyword,
     insertText: keyword,
@@ -42,8 +51,8 @@ function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): languag
     detail: 'keyword'
   }));
 
-  const tableItems: languages.CompletionItem[] = [];
-  const columnItems: languages.CompletionItem[] = [];
+  const tableItems: CompletionSuggestion[] = [];
+  const columnItems: CompletionSuggestion[] = [];
 
   tables.forEach((table, tableIndex) => {
     const label = table.name;
@@ -123,7 +132,7 @@ export default function TimestoreSqlEditorPage() {
 
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const completionProviderRef = useRef<languages.IDisposable | null>(null);
+  const completionProviderRef = useRef<IDisposable | null>(null);
   const runQueryRef = useRef<() => void>(() => {});
 
   const schemaFetcher = useCallback(
@@ -143,6 +152,16 @@ export default function TimestoreSqlEditorPage() {
     intervalMs: 5 * 60 * 1000,
     immediate: true
   });
+
+  const schemaErrorMessage = useMemo(() => {
+    if (!schemaError) {
+      return null;
+    }
+    if (schemaError instanceof Error) {
+      return schemaError.message;
+    }
+    return String(schemaError);
+  }, [schemaError]);
 
   useEffect(() => {
     writeHistoryToStorage(storage, history);
@@ -180,9 +199,12 @@ export default function TimestoreSqlEditorPage() {
           word.endColumn
         );
         const prefix = word.word?.toLowerCase() ?? '';
-        const matching = suggestions.filter((item) =>
-          !prefix || item.label.toLowerCase().startsWith(prefix)
-        );
+        const matching = suggestions.filter((item) => {
+          if (!prefix) {
+            return true;
+          }
+          return getSuggestionLabel(item).toLowerCase().startsWith(prefix);
+        });
         const activeSuggestions = matching.length > 0 ? matching : suggestions;
         return {
           suggestions: activeSuggestions.map((item) => ({
@@ -520,12 +542,12 @@ export default function TimestoreSqlEditorPage() {
                 <span>Loading schema…</span>
               </div>
             )}
-            {schemaError && (
+            {schemaErrorMessage ? (
               <p className="mt-4 text-sm text-rose-600 dark:text-rose-300">
-                Failed to load schema: {schemaError instanceof Error ? schemaError.message : 'Unexpected error'}
+                Failed to load schema: {schemaErrorMessage}
               </p>
-            )}
-            {!schemaLoading && !schemaError && (
+            ) : null}
+            {!schemaLoading && !schemaErrorMessage && (
               <div className="mt-4">
               <input
                 type="search"

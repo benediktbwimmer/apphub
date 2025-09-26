@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-type ToastTone = 'info' | 'success' | 'error';
+type ToastTone = 'info' | 'success' | 'error' | 'warning';
 
 type ToastPayload = {
   title?: string;

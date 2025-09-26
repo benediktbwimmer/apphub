@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { LifecycleMetricsSnapshot } from '../types';
-import { findMetricValue, parsePrometheusMetrics, sumMetricValues } from '../utils';
+import { findMetricValue, formatInstant, parsePrometheusMetrics, sumMetricValues } from '../utils';
 
 interface MetricsSummaryProps {
   lifecycleMetrics: LifecycleMetricsSnapshot | null;

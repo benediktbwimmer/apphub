@@ -2,8 +2,9 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { DatasetList } from '../components/DatasetList';
+import type { DatasetRecord } from '../types';
 
-const DATASET_FIXTURES = [
+const DATASET_FIXTURES: DatasetRecord[] = [
   {
     id: 'ds-1',
     slug: 'observatory.timeseries',

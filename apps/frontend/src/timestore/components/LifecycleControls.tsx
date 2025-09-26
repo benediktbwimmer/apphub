@@ -48,6 +48,17 @@ function resolveDatasetSlug(job: LifecycleJobSummary, fallbackSlug: string): str
   return 'unknown';
 }
 
+function resolveReportTimestamp(report: LifecycleMaintenanceReport): string | null {
+  const [firstEntry] = report.auditLogEntries;
+  if (firstEntry && typeof firstEntry === 'object') {
+    const createdAt = (firstEntry as { createdAt?: unknown }).createdAt;
+    if (typeof createdAt === 'string' && createdAt.trim().length > 0) {
+      return createdAt;
+    }
+  }
+  return null;
+}
+
 export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error, onRefresh, canRun }: LifecycleControlsProps) {
   const authorizedFetch = useAuthorizedFetch();
   const { showSuccess, showError, showInfo } = useToastHelpers();
@@ -171,7 +182,7 @@ export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error
       {lastReport && (
         <section className="mt-5 space-y-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
           <h6 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Last inline run</h6>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Job {lastReport.jobId} • {formatInstant(lastReport.auditLogEntries[0]?.createdAt ?? new Date().toISOString())}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Job {lastReport.jobId} • {formatInstant(resolveReportTimestamp(lastReport))}</p>
           <ul className="space-y-2">
             {lastReport.operations.map((operation) => (
               <li key={operation.operation} className="flex items-center justify-between">
