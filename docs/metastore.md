@@ -123,6 +123,29 @@ npm run dev --workspace @apphub/metastore
 
 The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. Set `APPHUB_METASTORE_PG_SCHEMA` (default `metastore`) to control which Postgres schema is used. The server automatically runs migrations on startup.
 
+## Event Publishing
+
+Metastore publishers should emit lifecycle changes (create/update/delete) through the shared event bus. Import the helper and publish from the code path that commits the record mutation:
+
+```ts
+import { createEventPublisher } from '@apphub/event-bus';
+
+const publisher = createEventPublisher();
+
+await publisher.publish({
+  type: 'metastore.record.updated',
+  source: 'metastore.api',
+  payload: {
+    namespace,
+    key,
+    version: record.version
+  },
+  correlationId: request.id
+});
+```
+
+Events arrive in the catalog's `workflow_events` table and on the WebSocket stream (`workflow.event.received`). Downstream workflows can subscribe to these signals once event-driven scheduling is enabled.
+
 ## Operator UI
 
 The frontend exposes a full-crud Metastore explorer under `/services/metastore`. Operators can:

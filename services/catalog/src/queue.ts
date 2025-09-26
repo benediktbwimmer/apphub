@@ -1,10 +1,19 @@
 import { Queue } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
+import {
+  DEFAULT_EVENT_JOB_NAME,
+  DEFAULT_EVENT_QUEUE_NAME,
+  normalizeEventEnvelope,
+  type EventEnvelope,
+  type EventEnvelopeInput,
+  type EventIngressJobData
+} from '@apphub/event-bus';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { type JobRunRecord, type JsonValue } from './db/types';
 import { runWorkflowOrchestration } from './workflowOrchestrator';
 import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
+import { ingestWorkflowEvent } from './workflowEvents';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -57,6 +66,7 @@ export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch
 export const WORKFLOW_QUEUE_NAME = process.env.WORKFLOW_QUEUE_NAME ?? 'apphub_workflow_queue';
 export const ASSET_EVENT_QUEUE_NAME = process.env.ASSET_EVENT_QUEUE_NAME ?? 'apphub_asset_event_queue';
 export const EXAMPLE_BUNDLE_QUEUE_NAME = process.env.EXAMPLE_BUNDLE_QUEUE_NAME ?? 'apphub_example_bundle_queue';
+export const EVENT_QUEUE_NAME = process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_EVENT_QUEUE_NAME;
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -105,6 +115,16 @@ const exampleBundleQueue = !inlineMode && connection
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 25
+      }
+    })
+  : null;
+
+const eventQueue = !inlineMode && connection
+  ? new Queue<EventIngressJobData>(EVENT_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: 100,
+        removeOnFail: 100
       }
     })
   : null;
@@ -168,6 +188,24 @@ export async function enqueueRepositoryIngestion(
   );
 
   return run;
+}
+
+export async function enqueueWorkflowEvent(
+  input: EventEnvelopeInput
+): Promise<EventEnvelope> {
+  const envelope = normalizeEventEnvelope(input);
+
+  if (inlineMode) {
+    await ingestWorkflowEvent(envelope);
+    return envelope;
+  }
+
+  if (!eventQueue) {
+    throw new Error('Event queue not initialised');
+  }
+
+  await eventQueue.add(DEFAULT_EVENT_JOB_NAME, { envelope });
+  return envelope;
 }
 
 export function getQueueConnection() {

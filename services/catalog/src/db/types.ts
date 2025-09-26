@@ -258,6 +258,38 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type WorkflowEventRecord = {
+  id: string;
+  type: string;
+  source: string;
+  occurredAt: string;
+  receivedAt: string;
+  payload: JsonValue;
+  correlationId: string | null;
+  ttlMs: number | null;
+  metadata: JsonValue | null;
+};
+
+export type WorkflowEventInsert = {
+  id: string;
+  type: string;
+  source: string;
+  occurredAt: string;
+  payload: JsonValue;
+  correlationId?: string | null;
+  ttlMs?: number | null;
+  metadata?: JsonValue | null;
+  receivedAt?: string;
+};
+
+export type WorkflowEventQueryOptions = {
+  type?: string | null;
+  source?: string | null;
+  from?: string | null;
+  to?: string | null;
+  limit?: number;
+};
+
 export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
 export type ServiceKind = string;
@@ -500,6 +532,145 @@ export type WorkflowTriggerDefinition = {
   schedule?: WorkflowTriggerScheduleDefinition;
 };
 
+export type WorkflowEventTriggerStatus = 'active' | 'disabled';
+
+export type WorkflowEventTriggerPredicate =
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'exists';
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'equals' | 'notEquals';
+      value: JsonValue;
+      caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'in' | 'notIn';
+      values: JsonValue[];
+      caseSensitive?: boolean;
+    };
+
+export type WorkflowEventTriggerRecord = {
+  id: string;
+  workflowDefinitionId: string;
+  version: number;
+  status: WorkflowEventTriggerStatus;
+  name: string | null;
+  description: string | null;
+  eventType: string;
+  eventSource: string | null;
+  predicates: WorkflowEventTriggerPredicate[];
+  parameterTemplate: JsonValue | null;
+  throttleWindowMs: number | null;
+  throttleCount: number | null;
+  maxConcurrency: number | null;
+  idempotencyKeyExpression: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+};
+
+export type WorkflowEventTriggerCreateInput = {
+  workflowDefinitionId: string;
+  name?: string | null;
+  description?: string | null;
+  eventType: string;
+  eventSource?: string | null;
+  predicates?: WorkflowEventTriggerPredicate[];
+  parameterTemplate?: JsonValue | null;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
+  maxConcurrency?: number | null;
+  idempotencyKeyExpression?: string | null;
+  metadata?: JsonValue | null;
+  status?: WorkflowEventTriggerStatus;
+  createdBy?: string | null;
+};
+
+export type WorkflowEventTriggerUpdateInput = {
+  name?: string | null;
+  description?: string | null;
+  eventType?: string;
+  eventSource?: string | null;
+  predicates?: WorkflowEventTriggerPredicate[];
+  parameterTemplate?: JsonValue | null;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
+  maxConcurrency?: number | null;
+  idempotencyKeyExpression?: string | null;
+  metadata?: JsonValue | null;
+  status?: WorkflowEventTriggerStatus;
+  updatedBy?: string | null;
+};
+
+export type WorkflowEventTriggerListOptions = {
+  workflowDefinitionId?: string;
+  status?: WorkflowEventTriggerStatus | null;
+  eventType?: string | null;
+  eventSource?: string | null;
+};
+
+export type WorkflowTriggerDeliveryStatus =
+  | 'pending'
+  | 'matched'
+  | 'throttled'
+  | 'skipped'
+  | 'launched'
+  | 'failed';
+
+export type WorkflowTriggerDeliveryRecord = {
+  id: string;
+  triggerId: string;
+  workflowDefinitionId: string;
+  eventId: string;
+  status: WorkflowTriggerDeliveryStatus;
+  attempts: number;
+  lastError: string | null;
+  workflowRunId: string | null;
+  dedupeKey: string | null;
+  nextAttemptAt: string | null;
+  throttledUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowTriggerDeliveryInsert = {
+  triggerId: string;
+  workflowDefinitionId: string;
+  eventId: string;
+  status: WorkflowTriggerDeliveryStatus;
+  attempts?: number;
+  lastError?: string | null;
+  workflowRunId?: string | null;
+  dedupeKey?: string | null;
+  nextAttemptAt?: string | null;
+  throttledUntil?: string | null;
+};
+
+export type WorkflowTriggerDeliveryUpdateInput = {
+  status?: WorkflowTriggerDeliveryStatus;
+  attempts?: number;
+  lastError?: string | null;
+  workflowRunId?: string | null;
+  dedupeKey?: string | null;
+  nextAttemptAt?: string | null;
+  throttledUntil?: string | null;
+};
+
+export type WorkflowTriggerDeliveryListOptions = {
+  triggerId?: string;
+  eventId?: string;
+  status?: WorkflowTriggerDeliveryStatus;
+  limit?: number;
+};
+
 export type WorkflowScheduleWindow = {
   start: string | null;
   end: string | null;
@@ -691,6 +862,7 @@ export type WorkflowDefinitionRecord = {
   description: string | null;
   steps: WorkflowStepDefinition[];
   triggers: WorkflowTriggerDefinition[];
+  eventTriggers: WorkflowEventTriggerRecord[];
   parametersSchema: JsonValue;
   defaultParameters: JsonValue;
   outputSchema: JsonValue;
@@ -708,6 +880,7 @@ export type WorkflowDefinitionCreateInput = {
   description?: string | null;
   steps: WorkflowStepDefinition[];
   triggers?: WorkflowTriggerDefinition[];
+  eventTriggers?: WorkflowEventTriggerRecord[];
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
   outputSchema?: JsonValue;
@@ -721,6 +894,7 @@ export type WorkflowDefinitionUpdateInput = {
   description?: string | null;
   steps?: WorkflowStepDefinition[];
   triggers?: WorkflowTriggerDefinition[];
+  eventTriggers?: WorkflowEventTriggerRecord[];
   parametersSchema?: JsonValue;
   defaultParameters?: JsonValue;
   outputSchema?: JsonValue;

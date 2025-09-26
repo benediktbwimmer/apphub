@@ -65,3 +65,26 @@ Create dedicated dashboards for:
 For day-to-day triage, operators can browse `/services/timestore` in the frontend to inspect dataset metadata, manifests, and the recent lifecycle job history without leaving the UI. When deeper analysis is needed, the SQL editor at `/services/timestore/sql` provides dark-mode aware editing, autocomplete driven by live schema metadata, result exploration (table/JSON/chart), and an in-browser query history so common diagnostics stay one click away.
 
 Surface these alongside existing admin APIs. For manual triage, `services/timestore/src/routes/admin.ts` still exposes JSON summaries via `/admin/lifecycle/status`; the Prometheus metrics ensure parity for automated monitoring.
+
+## Event Publishing
+
+Lifecycle hooks (parquet exports, partition close-out, retention sweeps) should broadcast through `@apphub/event-bus` so workflow automation can respond. Example:
+
+```ts
+import { createEventPublisher } from '@apphub/event-bus';
+
+const publisher = createEventPublisher();
+
+await publisher.publish({
+  type: 'timestore.dataset.partition.finalized',
+  source: 'timestore.lifecycle',
+  payload: {
+    datasetSlug,
+    partitionKey,
+    exportId
+  },
+  correlationId: jobId
+});
+```
+
+The catalog ingests the event into `workflow_events`, exposes it over `/ws`, and surfaces it in `GET /admin/events` for live debugging.

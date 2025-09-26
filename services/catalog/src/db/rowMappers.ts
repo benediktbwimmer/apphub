@@ -52,7 +52,13 @@ import {
   type WorkflowAssetSnapshotRecord,
   type WorkflowExecutionHistoryRecord,
   type WorkflowAssetStalePartitionRecord,
-  type WorkflowAssetPartitionParametersRecord
+  type WorkflowAssetPartitionParametersRecord,
+  type WorkflowEventRecord,
+  type WorkflowEventTriggerRecord,
+  type WorkflowEventTriggerPredicate,
+  type WorkflowEventTriggerStatus,
+  type WorkflowTriggerDeliveryRecord,
+  type WorkflowTriggerDeliveryStatus
 } from './types';
 import type {
   BuildRow,
@@ -78,7 +84,10 @@ import type {
   WorkflowAssetSnapshotRow,
   WorkflowExecutionHistoryRow,
   WorkflowAssetStalePartitionRow,
-  WorkflowAssetPartitionParametersRow
+  WorkflowAssetPartitionParametersRow,
+  WorkflowEventRow,
+  WorkflowEventTriggerRow,
+  WorkflowTriggerDeliveryRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1358,6 +1367,176 @@ function parseJsonColumn(value: unknown): JsonValue | null {
   return null;
 }
 
+export function mapWorkflowEventRow(row: WorkflowEventRow): WorkflowEventRecord {
+  const payload = parseJsonColumn(row.payload) ?? ({} as JsonValue);
+  const metadata = parseJsonColumn(row.metadata);
+  const ttlCandidate = row.ttl_ms === null || row.ttl_ms === undefined ? null : Number(row.ttl_ms);
+  const ttlMs = ttlCandidate !== null && Number.isFinite(ttlCandidate) ? ttlCandidate : null;
+
+  return {
+    id: row.id,
+    type: row.type,
+    source: row.source,
+    occurredAt: row.occurred_at,
+    receivedAt: row.received_at,
+    payload,
+    correlationId: row.correlation_id ?? null,
+    ttlMs,
+    metadata: metadata ?? null
+  } satisfies WorkflowEventRecord;
+}
+
+function normalizeTriggerStatus(value: string): WorkflowEventTriggerStatus {
+  return value === 'disabled' ? 'disabled' : 'active';
+}
+
+function parseCaseSensitiveFlag(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return undefined;
+}
+
+function parseTriggerPredicates(value: unknown): WorkflowEventTriggerPredicate[] {
+  const parsed = parseJsonColumn(value);
+  if (!parsed || !Array.isArray(parsed)) {
+    return [];
+  }
+  const predicates: WorkflowEventTriggerPredicate[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const type = typeof record.type === 'string' ? record.type : 'jsonPath';
+    if (type !== 'jsonPath') {
+      continue;
+    }
+    const path = typeof record.path === 'string' ? record.path.trim() : '';
+    const operator = typeof record.operator === 'string' ? record.operator : '';
+    if (!path || !path.startsWith('$') || path.length > 512) {
+      continue;
+    }
+    switch (operator) {
+      case 'exists': {
+        predicates.push({ type: 'jsonPath', path, operator: 'exists' });
+        break;
+      }
+      case 'equals':
+      case 'notEquals': {
+        const candidate = toJsonValue(record.value);
+        if (candidate !== null && candidate !== undefined) {
+          const predicate: WorkflowEventTriggerPredicate = {
+            type: 'jsonPath',
+            path,
+            operator: operator === 'equals' ? 'equals' : 'notEquals',
+            value: candidate,
+            ...(parseCaseSensitiveFlag(record.caseSensitive) !== undefined
+              ? { caseSensitive: parseCaseSensitiveFlag(record.caseSensitive) }
+              : {})
+          };
+          predicates.push(predicate);
+        }
+        break;
+      }
+      case 'in':
+      case 'notIn': {
+        const valuesRaw = record.values;
+        if (Array.isArray(valuesRaw)) {
+          const normalized: JsonValue[] = [];
+          for (const candidate of valuesRaw) {
+            const jsonValue = toJsonValue(candidate);
+            if (jsonValue !== null && jsonValue !== undefined) {
+              normalized.push(jsonValue);
+            }
+          }
+          if (normalized.length > 0) {
+            const predicate: WorkflowEventTriggerPredicate = {
+              type: 'jsonPath',
+              path,
+              operator: operator === 'in' ? 'in' : 'notIn',
+              values: normalized,
+              ...(parseCaseSensitiveFlag(record.caseSensitive) !== undefined
+                ? { caseSensitive: parseCaseSensitiveFlag(record.caseSensitive) }
+                : {})
+            };
+            predicates.push(predicate);
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return predicates;
+}
+
+function parseTriggerJsonValue(value: unknown): JsonValue | null {
+  const parsed = parseJsonColumn(value);
+  if (parsed === null || parsed === undefined) {
+    return null;
+  }
+  return parsed;
+}
+
+function normalizeDeliveryStatus(value: string): WorkflowTriggerDeliveryStatus {
+  switch (value) {
+    case 'matched':
+    case 'throttled':
+    case 'skipped':
+    case 'launched':
+    case 'failed':
+      return value;
+    default:
+      return 'pending';
+  }
+}
+
+export function mapWorkflowEventTriggerRow(row: WorkflowEventTriggerRow): WorkflowEventTriggerRecord {
+  return {
+    id: row.id,
+    workflowDefinitionId: row.workflow_definition_id,
+    version: row.version,
+    status: normalizeTriggerStatus(row.status ?? 'active'),
+    name: row.name ?? null,
+    description: row.description ?? null,
+    eventType: row.event_type,
+    eventSource: row.event_source ?? null,
+    predicates: parseTriggerPredicates(row.predicates),
+    parameterTemplate: parseTriggerJsonValue(row.parameter_template),
+    throttleWindowMs: row.throttle_window_ms ?? null,
+    throttleCount: row.throttle_count ?? null,
+    maxConcurrency: row.max_concurrency ?? null,
+    idempotencyKeyExpression: row.idempotency_key_expression ?? null,
+    metadata: parseTriggerJsonValue(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by ?? null,
+    updatedBy: row.updated_by ?? null
+  } satisfies WorkflowEventTriggerRecord;
+}
+
+export function mapWorkflowTriggerDeliveryRow(
+  row: WorkflowTriggerDeliveryRow
+): WorkflowTriggerDeliveryRecord {
+  return {
+    id: row.id,
+    triggerId: row.trigger_id,
+    workflowDefinitionId: row.workflow_definition_id,
+    eventId: row.event_id,
+    status: normalizeDeliveryStatus(row.status),
+    attempts: row.attempts ?? 0,
+    lastError: row.last_error ?? null,
+    workflowRunId: row.workflow_run_id ?? null,
+    dedupeKey: row.dedupe_key ?? null,
+    nextAttemptAt: row.next_attempt_at ?? null,
+    throttledUntil: row.throttled_until ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies WorkflowTriggerDeliveryRecord;
+}
+
 export function mapServiceRow(row: ServiceRow): ServiceRecord {
   return {
     id: row.id,
@@ -1384,6 +1563,7 @@ export function mapWorkflowDefinitionRow(row: WorkflowDefinitionRow): WorkflowDe
     description: row.description,
     steps: parseWorkflowSteps(row.steps),
     triggers: parseWorkflowTriggers(row.triggers),
+    eventTriggers: [],
     parametersSchema: ensureJsonObject(row.parameters_schema),
     defaultParameters: ensureJsonValue(row.default_parameters, {} as JsonValue),
     outputSchema: ensureJsonObject(row.output_schema),

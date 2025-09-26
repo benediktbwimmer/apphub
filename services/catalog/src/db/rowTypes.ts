@@ -434,3 +434,53 @@ export type RoleScopeRow = {
   scope: string;
   created_at: string;
 };
+
+export type WorkflowEventTriggerRow = {
+  id: string;
+  workflow_definition_id: string;
+  version: number;
+  status: string;
+  name: string | null;
+  description: string | null;
+  event_type: string;
+  event_source: string | null;
+  predicates: unknown;
+  parameter_template: unknown;
+  throttle_window_ms: number | null;
+  throttle_count: number | null;
+  max_concurrency: number | null;
+  idempotency_key_expression: string | null;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type WorkflowTriggerDeliveryRow = {
+  id: string;
+  trigger_id: string;
+  workflow_definition_id: string;
+  event_id: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  workflow_run_id: string | null;
+  dedupe_key: string | null;
+  next_attempt_at: string | null;
+  throttled_until: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowEventRow = {
+  id: string;
+  type: string;
+  source: string;
+  occurred_at: string;
+  received_at: string;
+  payload: unknown;
+  correlation_id: string | null;
+  ttl_ms: number | null;
+  metadata: unknown;
+};

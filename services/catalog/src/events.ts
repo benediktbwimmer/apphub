@@ -12,7 +12,8 @@ import type {
   JobBundleRecord,
   JobBundleVersionRecord,
   WorkflowDefinitionRecord,
-  WorkflowRunRecord
+  WorkflowRunRecord,
+  WorkflowEventRecord
 } from './db/index';
 import type { AssetExpiredEventData, AssetProducedEventData } from './assets/types';
 import type { ExampleBundleStatus } from './exampleBundles/statusStore';
@@ -74,6 +75,7 @@ export type ApphubEvent =
   | { type: 'asset.produced'; data: AssetProducedEventData }
   | { type: 'asset.expired'; data: AssetExpiredEventData }
   | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
+  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
   | {
       type: 'workflow.analytics.snapshot';
       data: {

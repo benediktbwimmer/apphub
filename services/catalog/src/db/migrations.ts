@@ -755,6 +755,79 @@ const migrations: Migration[] = [
       `ALTER TABLE job_bundle_versions
          ADD COLUMN IF NOT EXISTS replaced_by TEXT`
     ]
+  },
+  {
+    id: '026_workflow_events',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_events (
+         id TEXT PRIMARY KEY,
+         type TEXT NOT NULL,
+         source TEXT NOT NULL,
+         occurred_at TIMESTAMPTZ NOT NULL,
+         received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+         correlation_id TEXT,
+         ttl_ms INTEGER,
+         metadata JSONB
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_type ON workflow_events(type);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_source ON workflow_events(source);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_occurred_at ON workflow_events(occurred_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_received_at ON workflow_events(received_at DESC);`
+    ]
+  },
+  {
+    id: '027_workflow_event_triggers',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_event_triggers (
+         id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         version INTEGER NOT NULL DEFAULT 1,
+         status TEXT NOT NULL DEFAULT 'active',
+         name TEXT,
+         description TEXT,
+         event_type TEXT NOT NULL,
+         event_source TEXT,
+         predicates JSONB NOT NULL DEFAULT '[]'::jsonb,
+         parameter_template JSONB,
+         throttle_window_ms INTEGER,
+         throttle_count INTEGER,
+         max_concurrency INTEGER,
+         idempotency_key_expression TEXT,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_by TEXT,
+         updated_by TEXT
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_triggers_workflow
+         ON workflow_event_triggers(workflow_definition_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_triggers_type_source
+         ON workflow_event_triggers(event_type, COALESCE(event_source, ''));`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_triggers_status
+         ON workflow_event_triggers(status);`,
+      `CREATE TABLE IF NOT EXISTS workflow_trigger_deliveries (
+         id TEXT PRIMARY KEY,
+         trigger_id TEXT NOT NULL REFERENCES workflow_event_triggers(id) ON DELETE CASCADE,
+         workflow_definition_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         event_id TEXT NOT NULL,
+         status TEXT NOT NULL,
+         attempts INTEGER NOT NULL DEFAULT 0,
+         last_error TEXT,
+         workflow_run_id TEXT,
+         dedupe_key TEXT,
+         next_attempt_at TIMESTAMPTZ,
+         throttled_until TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_trigger
+         ON workflow_trigger_deliveries(trigger_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_event
+         ON workflow_trigger_deliveries(event_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_status
+         ON workflow_trigger_deliveries(status);`
+    ]
   }
 ];
 

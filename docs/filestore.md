@@ -81,6 +81,24 @@ graph TD
 - Redis pub/sub channel (default `apphub:filestore`) broadcasts events like `filestore.node.created`, `filestore.node.updated`, `filestore.node.deleted`, `filestore.command.completed`, and `filestore.drift.detected`.
 - Catalog’s existing WebSocket relay can be extended to proxy these events to the frontend without introducing Kafka.
 - Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline`.
+- New publishers should emit through `@apphub/event-bus` so the catalog persists each event in `workflow_events`. Example:
+
+  ```ts
+  import { createEventPublisher } from '@apphub/event-bus';
+
+  const publisher = createEventPublisher();
+
+  await publisher.publish({
+    type: 'filestore.object.created',
+    source: 'filestore.orchestrator',
+    payload: {
+      nodeId,
+      path,
+      backendId
+    },
+    correlationId: commandId
+  });
+  ```
 
 ## Command Flow
 

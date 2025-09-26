@@ -11,3 +11,4 @@ export * from './jobs';
 export * from './jobBundles';
 export * from './workflows';
 export * from './audit';
+export * from './workflowEvents';

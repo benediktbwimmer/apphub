@@ -34,7 +34,16 @@ import {
   type WorkflowExecutionHistoryRecord,
   type WorkflowExecutionHistoryEventInput,
   type WorkflowAssetStalePartitionRecord,
-  type WorkflowAssetPartitionParametersRecord
+  type WorkflowAssetPartitionParametersRecord,
+  type WorkflowEventTriggerPredicate,
+  type WorkflowEventTriggerRecord,
+  type WorkflowEventTriggerCreateInput,
+  type WorkflowEventTriggerUpdateInput,
+  type WorkflowEventTriggerListOptions,
+  type WorkflowTriggerDeliveryRecord,
+  type WorkflowTriggerDeliveryInsert,
+  type WorkflowTriggerDeliveryUpdateInput,
+  type WorkflowTriggerDeliveryListOptions
 } from './types';
 import {
   mapWorkflowDefinitionRow,
@@ -46,7 +55,9 @@ import {
   mapWorkflowAssetSnapshotRow,
   mapWorkflowExecutionHistoryRow,
   mapWorkflowAssetStalePartitionRow,
-  mapWorkflowAssetPartitionParametersRow
+  mapWorkflowAssetPartitionParametersRow,
+  mapWorkflowEventTriggerRow,
+  mapWorkflowTriggerDeliveryRow
 } from './rowMappers';
 import type {
   WorkflowDefinitionRow,
@@ -58,8 +69,15 @@ import type {
   WorkflowAssetSnapshotRow,
   WorkflowExecutionHistoryRow,
   WorkflowAssetStalePartitionRow,
-  WorkflowAssetPartitionParametersRow
+  WorkflowAssetPartitionParametersRow,
+  WorkflowEventTriggerRow,
+  WorkflowTriggerDeliveryRow
 } from './rowTypes';
+import {
+  normalizeWorkflowEventTriggerCreate,
+  normalizeWorkflowEventTriggerUpdate,
+  serializeTriggerPredicates
+} from '../workflows/eventTriggerValidation';
 import { useConnection, useTransaction } from './utils';
 
 type AnalyticsTimeRange = {
@@ -1759,6 +1777,515 @@ export async function updateWorkflowSchedule(
   }
 
   return schedule;
+}
+
+function serializeTriggerJson(value: JsonValue | null): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return JSON.stringify(value);
+}
+
+export async function createWorkflowEventTrigger(
+  input: WorkflowEventTriggerCreateInput
+): Promise<WorkflowEventTriggerRecord> {
+  const normalized = normalizeWorkflowEventTriggerCreate(input);
+  const id = randomUUID();
+  const predicateJson = serializeTriggerPredicates(normalized.predicates);
+  const parameterTemplateJson = serializeJson(normalized.parameterTemplate);
+  const metadataJson = serializeJson(normalized.metadata);
+
+  let trigger: WorkflowEventTriggerRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const definition = await fetchWorkflowDefinitionById(client, input.workflowDefinitionId);
+    if (!definition) {
+      throw new Error(`Workflow definition ${input.workflowDefinitionId} not found`);
+    }
+
+    const { rows } = await client.query<WorkflowEventTriggerRow>(
+      `INSERT INTO workflow_event_triggers (
+         id,
+         workflow_definition_id,
+         version,
+         status,
+         name,
+         description,
+         event_type,
+         event_source,
+         predicates,
+         parameter_template,
+         throttle_window_ms,
+         throttle_count,
+         max_concurrency,
+         idempotency_key_expression,
+         metadata,
+         created_at,
+         updated_at,
+         created_by,
+         updated_by
+       ) VALUES (
+         $1,
+         $2,
+         1,
+         $3,
+         $4,
+         $5,
+         $6,
+         $7,
+         $8::jsonb,
+         $9::jsonb,
+         $10,
+         $11,
+         $12,
+         $13,
+         $14::jsonb,
+         NOW(),
+         NOW(),
+         $15,
+         $15
+       )
+       RETURNING *`,
+      [
+        id,
+        input.workflowDefinitionId,
+        normalized.status,
+        normalized.name,
+        normalized.description,
+        normalized.eventType,
+        normalized.eventSource,
+        predicateJson,
+        parameterTemplateJson,
+        normalized.throttleWindowMs,
+        normalized.throttleCount,
+        normalized.maxConcurrency,
+        normalized.idempotencyKeyExpression,
+        metadataJson,
+        normalized.createdBy ?? null
+      ]
+    );
+
+    if (rows.length === 0) {
+      throw new Error('Failed to create workflow event trigger');
+    }
+
+    trigger = mapWorkflowEventTriggerRow(rows[0]);
+  });
+
+  if (!trigger) {
+    throw new Error('Failed to create workflow event trigger');
+  }
+
+  return trigger;
+}
+
+function predicatesEqual(a: WorkflowEventTriggerPredicate[], b: WorkflowEventTriggerPredicate[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index];
+    const right = b[index];
+    if (JSON.stringify(left) !== JSON.stringify(right)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function jsonValuesEqual(a: JsonValue | null, b: JsonValue | null): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+export async function updateWorkflowEventTrigger(
+  triggerId: string,
+  updates: WorkflowEventTriggerUpdateInput
+): Promise<WorkflowEventTriggerRecord | null> {
+  const normalized = normalizeWorkflowEventTriggerUpdate(updates);
+  let trigger: WorkflowEventTriggerRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const { rows } = await client.query<WorkflowEventTriggerRow>(
+      'SELECT * FROM workflow_event_triggers WHERE id = $1 FOR UPDATE',
+      [triggerId]
+    );
+    if (rows.length === 0) {
+      trigger = null;
+      return;
+    }
+
+    const existing = mapWorkflowEventTriggerRow(rows[0]);
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+    let versionShouldIncrement = false;
+
+    if (normalized.name !== undefined) {
+      sets.push(`name = $${index}`);
+      values.push(normalized.name);
+      if (existing.name !== normalized.name) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.description !== undefined) {
+      sets.push(`description = $${index}`);
+      values.push(normalized.description);
+      if (existing.description !== normalized.description) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.eventType !== undefined) {
+      sets.push(`event_type = $${index}`);
+      values.push(normalized.eventType);
+      if (existing.eventType !== normalized.eventType) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.eventSource !== undefined) {
+      sets.push(`event_source = $${index}`);
+      values.push(normalized.eventSource);
+      if (existing.eventSource !== normalized.eventSource) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.predicates !== undefined) {
+      const serialized = serializeTriggerPredicates(normalized.predicates);
+      sets.push(`predicates = $${index}::jsonb`);
+      values.push(serialized);
+      if (!predicatesEqual(existing.predicates, normalized.predicates)) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.parameterTemplate !== undefined) {
+      sets.push(`parameter_template = $${index}::jsonb`);
+      values.push(serializeTriggerJson(normalized.parameterTemplate));
+      if (!jsonValuesEqual(existing.parameterTemplate, normalized.parameterTemplate ?? null)) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.throttleWindowMs !== undefined) {
+      sets.push(`throttle_window_ms = $${index}`);
+      values.push(normalized.throttleWindowMs);
+      if (existing.throttleWindowMs !== normalized.throttleWindowMs) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.throttleCount !== undefined) {
+      sets.push(`throttle_count = $${index}`);
+      values.push(normalized.throttleCount);
+      if (existing.throttleCount !== normalized.throttleCount) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.maxConcurrency !== undefined) {
+      sets.push(`max_concurrency = $${index}`);
+      values.push(normalized.maxConcurrency);
+      if (existing.maxConcurrency !== normalized.maxConcurrency) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.idempotencyKeyExpression !== undefined) {
+      sets.push(`idempotency_key_expression = $${index}`);
+      values.push(normalized.idempotencyKeyExpression);
+      if (existing.idempotencyKeyExpression !== normalized.idempotencyKeyExpression) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.metadata !== undefined) {
+      sets.push(`metadata = $${index}::jsonb`);
+      values.push(serializeTriggerJson(normalized.metadata));
+      if (!jsonValuesEqual(existing.metadata, normalized.metadata ?? null)) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.status !== undefined) {
+      sets.push(`status = $${index}`);
+      values.push(normalized.status);
+      if (existing.status !== normalized.status) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.updatedBy !== undefined) {
+      sets.push(`updated_by = $${index}`);
+      values.push(normalized.updatedBy);
+      index += 1;
+    }
+
+    if (versionShouldIncrement) {
+      sets.push('version = version + 1');
+    }
+
+    sets.push('updated_at = NOW()');
+
+    if (sets.length === 1 && sets[0] === 'updated_at = NOW()') {
+      // No-op update; return the existing row.
+      trigger = existing;
+      return;
+    }
+
+    const query = `UPDATE workflow_event_triggers SET ${sets.join(', ')} WHERE id = $${index} RETURNING *`;
+    values.push(triggerId);
+
+    const updated = await client.query<WorkflowEventTriggerRow>(query, values);
+    if (updated.rows.length === 0) {
+      trigger = existing;
+      return;
+    }
+    trigger = mapWorkflowEventTriggerRow(updated.rows[0]);
+  });
+
+  return trigger;
+}
+
+export async function getWorkflowEventTriggerById(
+  triggerId: string
+): Promise<WorkflowEventTriggerRecord | null> {
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowEventTriggerRow>(
+      'SELECT * FROM workflow_event_triggers WHERE id = $1',
+      [triggerId]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapWorkflowEventTriggerRow(rows[0]);
+  });
+}
+
+export async function listWorkflowEventTriggers(
+  options: WorkflowEventTriggerListOptions = {}
+): Promise<WorkflowEventTriggerRecord[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let index = 1;
+
+  if (options.workflowDefinitionId) {
+    conditions.push(`workflow_definition_id = $${index}`);
+    params.push(options.workflowDefinitionId);
+    index += 1;
+  }
+
+  if (options.status) {
+    conditions.push(`status = $${index}`);
+    params.push(options.status);
+    index += 1;
+  }
+
+  if (options.eventType) {
+    conditions.push(`event_type = $${index}`);
+    params.push(options.eventType);
+    index += 1;
+  }
+
+  if (options.eventSource) {
+    conditions.push(`event_source = $${index}`);
+    params.push(options.eventSource);
+    index += 1;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT * FROM workflow_event_triggers ${whereClause} ORDER BY created_at DESC`;
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowEventTriggerRow>(query, params);
+    return rows.map(mapWorkflowEventTriggerRow);
+  });
+}
+
+export async function createWorkflowTriggerDelivery(
+  input: WorkflowTriggerDeliveryInsert
+): Promise<WorkflowTriggerDeliveryRecord> {
+  const id = randomUUID();
+  const attempts = input.attempts ?? 0;
+
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowTriggerDeliveryRow>(
+      `INSERT INTO workflow_trigger_deliveries (
+         id,
+         trigger_id,
+         workflow_definition_id,
+         event_id,
+         status,
+         attempts,
+         last_error,
+         workflow_run_id,
+         dedupe_key,
+         next_attempt_at,
+         throttled_until,
+         created_at,
+         updated_at
+       ) VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         $5,
+         $6,
+         $7,
+         $8,
+         $9,
+         $10,
+         $11,
+         NOW(),
+         NOW()
+       )
+       RETURNING *`,
+      [
+        id,
+        input.triggerId,
+        input.workflowDefinitionId,
+        input.eventId,
+        input.status,
+        attempts,
+        input.lastError ?? null,
+        input.workflowRunId ?? null,
+        input.dedupeKey ?? null,
+        input.nextAttemptAt ?? null,
+        input.throttledUntil ?? null
+      ]
+    )
+  );
+
+  if (rows.length === 0) {
+    throw new Error('Failed to create workflow trigger delivery');
+  }
+
+  return mapWorkflowTriggerDeliveryRow(rows[0]);
+}
+
+export async function updateWorkflowTriggerDelivery(
+  deliveryId: string,
+  updates: WorkflowTriggerDeliveryUpdateInput
+): Promise<WorkflowTriggerDeliveryRecord | null> {
+  const keys = Object.keys(updates);
+  if (keys.length === 0) {
+    return getWorkflowTriggerDeliveryById(deliveryId);
+  }
+
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let index = 1;
+
+  if (updates.status !== undefined) {
+    sets.push(`status = $${index}`);
+    values.push(updates.status);
+    index += 1;
+  }
+  if (updates.attempts !== undefined) {
+    sets.push(`attempts = $${index}`);
+    values.push(updates.attempts);
+    index += 1;
+  }
+  if (updates.lastError !== undefined) {
+    sets.push(`last_error = $${index}`);
+    values.push(updates.lastError);
+    index += 1;
+  }
+  if (updates.workflowRunId !== undefined) {
+    sets.push(`workflow_run_id = $${index}`);
+    values.push(updates.workflowRunId);
+    index += 1;
+  }
+  if (updates.dedupeKey !== undefined) {
+    sets.push(`dedupe_key = $${index}`);
+    values.push(updates.dedupeKey);
+    index += 1;
+  }
+  if (updates.nextAttemptAt !== undefined) {
+    sets.push(`next_attempt_at = $${index}`);
+    values.push(updates.nextAttemptAt);
+    index += 1;
+  }
+  if (updates.throttledUntil !== undefined) {
+    sets.push(`throttled_until = $${index}`);
+    values.push(updates.throttledUntil);
+    index += 1;
+  }
+
+  if (sets.length === 0) {
+    return getWorkflowTriggerDeliveryById(deliveryId);
+  }
+
+  sets.push('updated_at = NOW()');
+
+  const query = `UPDATE workflow_trigger_deliveries SET ${sets.join(', ')} WHERE id = $${index} RETURNING *`;
+  values.push(deliveryId);
+
+  const { rows } = await useConnection((client) => client.query<WorkflowTriggerDeliveryRow>(query, values));
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowTriggerDeliveryRow(rows[0]);
+}
+
+export async function getWorkflowTriggerDeliveryById(
+  deliveryId: string
+): Promise<WorkflowTriggerDeliveryRecord | null> {
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowTriggerDeliveryRow>('SELECT * FROM workflow_trigger_deliveries WHERE id = $1', [deliveryId])
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowTriggerDeliveryRow(rows[0]);
+}
+
+export async function listWorkflowTriggerDeliveries(
+  options: WorkflowTriggerDeliveryListOptions = {}
+): Promise<WorkflowTriggerDeliveryRecord[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let index = 1;
+
+  if (options.triggerId) {
+    conditions.push(`trigger_id = $${index}`);
+    params.push(options.triggerId);
+    index += 1;
+  }
+
+  if (options.eventId) {
+    conditions.push(`event_id = $${index}`);
+    params.push(options.eventId);
+    index += 1;
+  }
+
+  if (options.status) {
+    conditions.push(`status = $${index}`);
+    params.push(options.status);
+    index += 1;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const query = `SELECT * FROM workflow_trigger_deliveries ${whereClause} ORDER BY created_at DESC LIMIT ${limit}`;
+
+  const { rows } = await useConnection((client) => client.query<WorkflowTriggerDeliveryRow>(query, params));
+  return rows.map(mapWorkflowTriggerDeliveryRow);
 }
 
 export async function deleteWorkflowSchedule(scheduleId: string): Promise<boolean> {

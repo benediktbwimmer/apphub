@@ -19,6 +19,7 @@ import {
 } from './shared/serializers';
 import type { IngestionEvent } from '../db/index';
 import type { ExampleBundleStatus } from '../exampleBundles/statusStore';
+import type { WorkflowEventRecord } from '../db/types';
 
 type WorkflowAnalyticsSnapshotData = Extract<
   ApphubEvent,
@@ -42,7 +43,8 @@ type OutboundEvent =
   | { type: 'workflow.definition.updated'; data: { workflow: SerializedWorkflowDefinition } }
   | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
   | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData }
-  | { type: 'example.bundle.progress'; data: ExampleBundleStatus };
+  | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
+  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   switch (event.type) {
@@ -98,6 +100,11 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
       return {
         type: 'example.bundle.progress',
         data: event.data
+      };
+    case 'workflow.event.received':
+      return {
+        type: 'workflow.event.received',
+        data: { event: event.data.event }
       };
     default:
       return null;

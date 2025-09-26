@@ -57,6 +57,12 @@
       "@apphub/example-bundler/*": [
         "packages/example-bundler/src/*"
       ],
+      "@apphub/event-bus": [
+        "packages/event-bus/src/index.ts"
+      ],
+      "@apphub/event-bus/*": [
+        "packages/event-bus/src/*"
+      ],
       "@apphub/filestore-client": [
         "packages/filestore-client/src/index.ts"
       ],
