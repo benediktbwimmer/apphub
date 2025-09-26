@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   getDatasetBySlug,
   listPartitionsForQuery,
-  type PartitionWithTarget
+  type PartitionWithTarget,
+  type DatasetRecord
 } from '../db/metadata';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { resolvePartitionLocation } from '../storage';
@@ -47,10 +48,11 @@ export interface QueryPlan {
 
 export async function buildQueryPlan(
   datasetSlug: string,
-  requestInput: unknown
+  requestInput: unknown,
+  datasetOverride?: DatasetRecord
 ): Promise<QueryPlan> {
   const request = queryRequestSchema.parse(requestInput);
-  const dataset = await getDatasetBySlug(datasetSlug);
+  const dataset = datasetOverride ?? (await getDatasetBySlug(datasetSlug));
   if (!dataset) {
     throw new Error(`Dataset ${datasetSlug} not found`);
   }

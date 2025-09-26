@@ -1,41 +1,158 @@
 import type { FastifyRequest } from 'fastify';
+import { getDatasetBySlug, type DatasetRecord } from '../db/metadata';
 
 const REQUIRED_SCOPE = process.env.TIMESTORE_REQUIRE_SCOPE;
 const ADMIN_SCOPE = process.env.TIMESTORE_ADMIN_SCOPE || REQUIRED_SCOPE;
+const WRITE_SCOPE_ENV = process.env.TIMESTORE_REQUIRE_WRITE_SCOPE;
+const WRITE_SCOPE = WRITE_SCOPE_ENV || ADMIN_SCOPE || REQUIRED_SCOPE || null;
 
-function extractScopes(request: FastifyRequest): string[] {
-  const scopeHeader = request.headers['x-iam-scopes'];
-  if (typeof scopeHeader === 'string') {
-    return scopeHeader.split(',').map((scope) => scope.trim()).filter((scope) => scope.length > 0);
-  }
-  return [];
-}
-
-export async function authorizeDatasetAccess(request: FastifyRequest, datasetSlug: string): Promise<void> {
-  if (!REQUIRED_SCOPE) {
-    return;
-  }
-
-  const scopes = extractScopes(request);
-
-  if (!scopes.includes(REQUIRED_SCOPE)) {
-    const message = `Missing required scope ${REQUIRED_SCOPE} for dataset ${datasetSlug}`;
-    const error = new Error(message);
-    (error as Error & { statusCode?: number }).statusCode = 403;
-    throw error;
-  }
+export interface RequestActor {
+  id: string;
+  scopes: string[];
 }
 
 export async function authorizeAdminAccess(request: FastifyRequest): Promise<void> {
+  const scopes = getRequestScopes(request);
   if (!ADMIN_SCOPE) {
     return;
   }
-
-  const scopes = extractScopes(request);
-  if (!scopes.includes(ADMIN_SCOPE)) {
+  if (!hasRequiredScope(scopes, [ADMIN_SCOPE])) {
     const message = `Missing required admin scope ${ADMIN_SCOPE}`;
     const error = new Error(message);
     (error as Error & { statusCode?: number }).statusCode = 403;
     throw error;
   }
+}
+
+export async function loadDatasetForRead(request: FastifyRequest, datasetSlug: string): Promise<DatasetRecord> {
+  const dataset = await getDatasetBySlug(datasetSlug);
+  if (!dataset) {
+    const error = new Error(`Dataset ${datasetSlug} not found`);
+    (error as Error & { statusCode?: number }).statusCode = 404;
+    throw error;
+  }
+  assertDatasetReadAccess(request, dataset);
+  return dataset;
+}
+
+export async function loadDatasetForWrite(
+  request: FastifyRequest,
+  datasetSlug: string
+): Promise<DatasetRecord | null> {
+  const dataset = await getDatasetBySlug(datasetSlug);
+  assertDatasetWriteAccess(request, dataset);
+  return dataset;
+}
+
+export function assertDatasetReadAccess(request: FastifyRequest, dataset: DatasetRecord): void {
+  const requestScopes = getRequestScopes(request);
+  const policyScopes = getDatasetReadScopes(dataset);
+  const fallback = REQUIRED_SCOPE ? [REQUIRED_SCOPE] : [];
+  const required = policyScopes ?? fallback;
+  if (required.length === 0) {
+    return;
+  }
+  if (!hasRequiredScope(requestScopes, required)) {
+    const message = `Missing required scope for dataset ${dataset.slug}`;
+    const error = new Error(message);
+    (error as Error & { statusCode?: number }).statusCode = 403;
+    throw error;
+  }
+}
+
+export function assertDatasetWriteAccess(
+  request: FastifyRequest,
+  dataset: DatasetRecord | null
+): void {
+  const requestScopes = getRequestScopes(request);
+  const policyScopes = dataset ? getDatasetWriteScopes(dataset) : null;
+  const fallback = WRITE_SCOPE ? [WRITE_SCOPE] : [];
+  const required = policyScopes ?? fallback;
+  if (required.length === 0) {
+    return;
+  }
+  if (!hasRequiredScope(requestScopes, required)) {
+    const message = dataset
+      ? `Missing required write scope for dataset ${dataset.slug}`
+      : 'Missing required scope to create dataset';
+    const error = new Error(message);
+    (error as Error & { statusCode?: number }).statusCode = 403;
+    throw error;
+  }
+}
+
+export function getRequestScopes(request: FastifyRequest): string[] {
+  const scopeHeader = request.headers['x-iam-scopes'];
+  if (typeof scopeHeader === 'string') {
+    return scopeHeader
+      .split(',')
+      .map((scope) => scope.trim())
+      .filter((scope) => scope.length > 0);
+  }
+  return [];
+}
+
+export function getRequestActorId(request: FastifyRequest): string | null {
+  const possible = [request.headers['x-iam-user'], request.headers['x-user-id'], request.headers['x-actor-id']];
+  for (const value of possible) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+export function resolveRequestActor(request: FastifyRequest): RequestActor | undefined {
+  const id = getRequestActorId(request);
+  if (!id) {
+    return undefined;
+  }
+  const scopes = getRequestScopes(request);
+  return {
+    id,
+    scopes
+  };
+}
+
+function getDatasetReadScopes(dataset: DatasetRecord): string[] | null {
+  const config = getDatasetIamConfig(dataset);
+  return config.readScopes ?? null;
+}
+
+function getDatasetWriteScopes(dataset: DatasetRecord): string[] | null {
+  const config = getDatasetIamConfig(dataset);
+  return config.writeScopes ?? null;
+}
+
+function getDatasetIamConfig(dataset: DatasetRecord | null): {
+  readScopes?: string[];
+  writeScopes?: string[];
+} {
+  if (!dataset || !dataset.metadata || typeof dataset.metadata !== 'object') {
+    return {};
+  }
+  const candidate = (dataset.metadata as Record<string, unknown>).iam;
+  if (!candidate || typeof candidate !== 'object') {
+    return {};
+  }
+  const readScopes = asStringArray((candidate as Record<string, unknown>).readScopes);
+  const writeScopes = asStringArray((candidate as Record<string, unknown>).writeScopes);
+  return {
+    readScopes: readScopes ?? undefined,
+    writeScopes: writeScopes ?? undefined
+  };
+}
+
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const result = value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+  return result.length > 0 ? result : [];
+}
+
+function hasRequiredScope(scopes: string[], required: string[]): boolean {
+  return required.some((scope) => scopes.includes(scope));
 }

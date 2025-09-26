@@ -36,6 +36,7 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
 | `TIMESTORE_REQUIRE_SCOPE` | Optional scope required via `x-iam-scopes` header for query access. | _(unset)_ |
 | `TIMESTORE_ADMIN_SCOPE` | Scope required for administrative dataset routes; falls back to `TIMESTORE_REQUIRE_SCOPE` if unset. | _(unset)_ |
+| `TIMESTORE_REQUIRE_WRITE_SCOPE` | Scope required to create or ingest into datasets when dataset metadata does not specify write scopes. | _(unset)_ |
 
 When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the catalog connection pool helpers so migrations and manifests share the managed database.
 
@@ -49,6 +50,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 - Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`). Supported aggregations include `avg`, `min`, `max`, `sum`, `median`, `count`, `count_distinct`, and `percentile` (with `percentile` requiring a `percentile` value between 0 and 1).
 - Remote partitions referenced via `s3://` manifests are streamed through DuckDB's HTTPFS extension; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
 - In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
+- Dataset-specific IAM rules can be stored under `datasets.metadata.iam` (e.g., `{ readScopes: ['observatory:read'], writeScopes: ['observatory:write'] }`). These override the global `TIMESTORE_REQUIRE_SCOPE`/`TIMESTORE_REQUIRE_WRITE_SCOPE` values.
 
 ## Administrative API
 - `GET /admin/datasets` lists datasets with optional status filters, search, and cursor-based pagination.
@@ -57,6 +59,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 - `GET /admin/datasets/:datasetId/retention` shows the stored and effective retention policy; `PUT` updates the policy and records an audit event.
 - `GET /admin/storage-targets` lists storage targets with optional kind filtering; `PUT /admin/datasets/:datasetId/storage-target` updates the default storage target for a dataset.
 - Administrative routes require the scope defined by `TIMESTORE_ADMIN_SCOPE` (or `TIMESTORE_REQUIRE_SCOPE` when unset) via the `x-iam-scopes` header.
+- Ingestion requests honour dataset write scopes and optionally accept `x-iam-user`/`x-user-id` headers for audit logging; when provided, the actor id is attached to audit logs.
 
 ## Testing
 - Run `npm run lint --workspace @apphub/timestore` to type-check the service.

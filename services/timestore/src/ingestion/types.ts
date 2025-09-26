@@ -9,6 +9,11 @@ export const fieldDefinitionSchema = z.object({
   type: fieldTypeSchema
 });
 
+export const ingestionActorSchema = z.object({
+  id: z.string().min(1),
+  scopes: z.array(z.string().min(1)).default([])
+});
+
 export const ingestionRequestSchema = z.object({
   datasetSlug: z.string().min(1),
   datasetName: z.string().min(1).optional(),
@@ -23,7 +28,8 @@ export const ingestionRequestSchema = z.object({
     })
   }),
   rows: z.array(z.record(z.string(), z.unknown())),
-  idempotencyKey: z.string().min(1).max(255).optional()
+  idempotencyKey: z.string().min(1).max(255).optional(),
+  actor: ingestionActorSchema.optional()
 });
 
 export type IngestionRequest = z.infer<typeof ingestionRequestSchema>;
@@ -33,6 +39,8 @@ export const ingestionJobPayloadSchema = ingestionRequestSchema.extend({
 });
 
 export type IngestionJobPayload = z.infer<typeof ingestionJobPayloadSchema>;
+
+export type IngestionActor = z.infer<typeof ingestionActorSchema>;
 
 export interface IngestionProcessingResult {
   dataset: DatasetRecord;
