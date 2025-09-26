@@ -11,9 +11,9 @@ function AppLayout() {
       <AiBuilderSettingsProvider>
         <PreviewScaleProvider>
           <AppHubEventsProvider>
-            <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-12 lg:px-0">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10 lg:flex-row lg:items-start lg:gap-12 lg:px-0">
               <Navbar />
-              <main className="flex flex-col gap-8 pb-8">
+              <main className="flex flex-1 flex-col gap-8 pb-8">
                 <Outlet />
               </main>
             </div>
