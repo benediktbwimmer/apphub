@@ -321,10 +321,7 @@ export default function TimestoreSqlEditorPage() {
     if (!result || result.rows.length === 0) {
       return false;
     }
-    const numericColumn = result.columns.find((column) => {
-      const type = column.type?.toLowerCase() ?? '';
-      return type.includes('int') || type.includes('double') || type.includes('float') || type.includes('numeric');
-    });
+    const numericColumn = result.columns.find((column, index) => isNumericColumn(column, result.rows, index));
     return Boolean(numericColumn);
   }, [result]);
 
@@ -680,19 +677,13 @@ function SqlChart({ rows, columns }: SqlChartProps) {
     return <p className="text-sm text-slate-600 dark:text-slate-300">No data to chart yet.</p>;
   }
 
-  const numericColumn = columns.find((column) => {
-    const type = column.type?.toLowerCase() ?? '';
-    return type.includes('int') || type.includes('double') || type.includes('float') || type.includes('numeric');
-  });
+  const numericColumn = columns.find((column, index) => isNumericColumn(column, rows, index));
 
   if (!numericColumn) {
     return <p className="text-sm text-slate-600 dark:text-slate-300">No numeric column available for charting.</p>;
   }
 
-  const timeColumn = columns.find((column) => {
-    const type = column.type?.toLowerCase() ?? '';
-    return type.includes('time') || type.includes('date');
-  });
+  const timeColumn = columns.find((column, index) => isTemporalColumn(column, rows, index));
 
   const values = rows
     .map((row, index) => ({
@@ -771,4 +762,46 @@ function SqlChart({ rows, columns }: SqlChartProps) {
       </div>
     </div>
   );
+}
+
+function isNumericColumn(column: SqlQueryResult['columns'][number], rows: Array<Record<string, unknown>>, index: number): boolean {
+  const type = column.type?.toLowerCase() ?? '';
+  if (type.includes('int') || type.includes('double') || type.includes('float') || type.includes('numeric') || type.includes('decimal')) {
+    return true;
+  }
+  for (const row of rows) {
+    const value = row[column.name];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (typeof value === 'number') {
+      return true;
+    }
+    if (typeof value === 'string' && !Number.isNaN(Number(value))) {
+      return true;
+    }
+    return false;
+  }
+  return index === 0 && rows.length > 0 && typeof rows[0][column.name] !== 'undefined' && !Number.isNaN(Number(rows[0][column.name] as unknown));
+}
+
+function isTemporalColumn(column: SqlQueryResult['columns'][number], rows: Array<Record<string, unknown>>, index: number): boolean {
+  const type = column.type?.toLowerCase() ?? '';
+  if (type.includes('time') || type.includes('date')) {
+    return true;
+  }
+  for (const row of rows) {
+    const value = row[column.name];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (value instanceof Date) {
+      return true;
+    }
+    if (typeof value === 'string' && !Number.isNaN(Date.parse(value))) {
+      return true;
+    }
+    return false;
+  }
+  return index === 0 && rows.length > 0 && typeof rows[0][column.name] !== 'undefined' && !Number.isNaN(Date.parse(String(rows[0][column.name])));
 }
