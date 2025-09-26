@@ -6,6 +6,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 import EmbeddedPostgres from 'embedded-postgres';
+import { normalizeEventEnvelope } from '@apphub/event-bus';
 import { runE2E } from '@apphub/test-helpers';
 type CatalogDbModule = typeof import('../src/db');
 
@@ -85,6 +86,18 @@ async function testEventTriggerCrud(): Promise<void> {
   await ensureEmbeddedPostgres();
   const db = await loadCatalogDb();
   await db.ensureDatabase();
+  const { processEventTriggersForEnvelope } = await import('../src/eventTriggerProcessor');
+
+  await db.createJobDefinition({
+    slug: 'noop-job',
+    name: 'Noop Job',
+    type: 'manual',
+    runtime: 'node',
+    entryPoint: 'tests.noop',
+    parametersSchema: {},
+    defaultParameters: {},
+    outputSchema: {}
+  });
 
   const workflow = await db.createWorkflowDefinition({
     slug: `wf-${randomUUID()}`.toLowerCase(),
@@ -197,6 +210,46 @@ async function testEventTriggerCrud(): Promise<void> {
   const deliveries = await db.listWorkflowTriggerDeliveries({ triggerId: trigger.id });
   assert.equal(deliveries.length, 1);
   assert.equal(deliveries[0].status, 'matched');
+
+  const activeTrigger = await db.createWorkflowEventTrigger({
+    workflowDefinitionId: workflow.id,
+    name: 'Metastore Updated (active)',
+    eventType: 'metastore.record.updated',
+    predicates: [
+      {
+        type: 'jsonPath',
+        path: '$.payload.namespace',
+        operator: 'equals',
+        value: 'feature-flags'
+      }
+    ],
+    parameterTemplate: {
+      namespace: '{{ event.payload.namespace }}'
+    },
+    status: 'active',
+    createdBy: 'event-trigger-test'
+  });
+
+  const envelope = normalizeEventEnvelope({
+    type: 'metastore.record.updated',
+    source: 'metastore.worker',
+    payload: {
+      namespace: 'feature-flags',
+      status: 'active'
+    }
+  });
+
+  await processEventTriggersForEnvelope(envelope);
+
+  const triggerDeliveries = await db.listWorkflowTriggerDeliveries({ triggerId: activeTrigger.id });
+  assert.equal(triggerDeliveries.length, 1);
+  assert.equal(triggerDeliveries[0].status, 'launched');
+
+  const runs = await db.listWorkflowRunsForDefinition(workflow.id, { limit: 5 });
+  const eventRun = runs.find((run) => run.triggeredBy === 'event-trigger');
+  assert.ok(eventRun, 'expected event-triggered workflow run');
+  const runParameters = (eventRun?.parameters ?? {}) as Record<string, unknown>;
+  assert.equal(runParameters.namespace, 'feature-flags');
 }
 
 runE2E(async ({ registerCleanup }) => {

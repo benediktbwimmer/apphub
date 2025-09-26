@@ -1,6 +1,12 @@
 import { Worker } from 'bullmq';
 import { DEFAULT_EVENT_JOB_NAME, validateEventEnvelope, type EventIngressJobData } from '@apphub/event-bus';
-import { EVENT_QUEUE_NAME, closeQueueConnection, getQueueConnection, isInlineQueueMode } from './queue';
+import {
+  EVENT_QUEUE_NAME,
+  closeQueueConnection,
+  enqueueEventTriggerEvaluation,
+  getQueueConnection,
+  isInlineQueueMode
+} from './queue';
 import { ingestWorkflowEvent } from './workflowEvents';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
@@ -19,6 +25,7 @@ async function runQueuedWorker(): Promise<void> {
     async (job) => {
       const validated = validateEventEnvelope(job.data.envelope);
       await ingestWorkflowEvent(validated);
+      await enqueueEventTriggerEvaluation(validated);
     },
     {
       connection,

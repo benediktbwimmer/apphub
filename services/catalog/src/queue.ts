@@ -67,6 +67,9 @@ export const WORKFLOW_QUEUE_NAME = process.env.WORKFLOW_QUEUE_NAME ?? 'apphub_wo
 export const ASSET_EVENT_QUEUE_NAME = process.env.ASSET_EVENT_QUEUE_NAME ?? 'apphub_asset_event_queue';
 export const EXAMPLE_BUNDLE_QUEUE_NAME = process.env.EXAMPLE_BUNDLE_QUEUE_NAME ?? 'apphub_example_bundle_queue';
 export const EVENT_QUEUE_NAME = process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_EVENT_QUEUE_NAME;
+export const EVENT_TRIGGER_QUEUE_NAME =
+  process.env.APPHUB_EVENT_TRIGGER_QUEUE_NAME ?? 'apphub_event_trigger_queue';
+export const EVENT_TRIGGER_JOB_NAME = 'apphub.event.trigger';
 
 const queue = !inlineMode && connection
   ? new Queue(INGEST_QUEUE_NAME, {
@@ -125,6 +128,25 @@ const eventQueue = !inlineMode && connection
       defaultJobOptions: {
         removeOnComplete: 100,
         removeOnFail: 100
+      }
+    })
+  : null;
+
+export type EventTriggerJobData = {
+  envelope: EventEnvelope;
+};
+
+const eventTriggerQueue = !inlineMode && connection
+  ? new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: 100,
+        removeOnFail: 50,
+        attempts: Number(process.env.EVENT_TRIGGER_ATTEMPTS ?? 3),
+        backoff: {
+          type: 'exponential',
+          delay: Number(process.env.EVENT_TRIGGER_BACKOFF_MS ?? 5_000)
+        }
       }
     })
   : null;
@@ -197,6 +219,8 @@ export async function enqueueWorkflowEvent(
 
   if (inlineMode) {
     await ingestWorkflowEvent(envelope);
+    const { processEventTriggersForEnvelope } = await import('./eventTriggerProcessor');
+    await processEventTriggersForEnvelope(envelope);
     return envelope;
   }
 
@@ -206,6 +230,20 @@ export async function enqueueWorkflowEvent(
 
   await eventQueue.add(DEFAULT_EVENT_JOB_NAME, { envelope });
   return envelope;
+}
+
+export async function enqueueEventTriggerEvaluation(envelope: EventEnvelope): Promise<void> {
+  if (inlineMode) {
+    const { processEventTriggersForEnvelope } = await import('./eventTriggerProcessor');
+    await processEventTriggersForEnvelope(envelope);
+    return;
+  }
+
+  if (!eventTriggerQueue) {
+    throw new Error('Event trigger queue not initialised');
+  }
+
+  await eventTriggerQueue.add(EVENT_TRIGGER_JOB_NAME, { envelope });
 }
 
 export function getQueueConnection() {

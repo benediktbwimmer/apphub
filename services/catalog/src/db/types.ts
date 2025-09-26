@@ -669,6 +669,7 @@ export type WorkflowTriggerDeliveryListOptions = {
   eventId?: string;
   status?: WorkflowTriggerDeliveryStatus;
   limit?: number;
+  dedupeKey?: string | null;
 };
 
 export type WorkflowScheduleWindow = {

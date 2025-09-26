@@ -2117,6 +2117,28 @@ export async function listWorkflowEventTriggers(
   });
 }
 
+export async function listWorkflowEventTriggersForEvent(
+  eventType: string,
+  eventSource: string | null
+): Promise<WorkflowEventTriggerRecord[]> {
+  const conditions = ['status = $1', 'event_type = $2'];
+  const params: unknown[] = ['active', eventType];
+  let index = 3;
+
+  if (eventSource) {
+    conditions.push(`(event_source = $${index} OR event_source IS NULL)`);
+    params.push(eventSource);
+    index += 1;
+  } else {
+    conditions.push('event_source IS NULL');
+  }
+
+  const query = `SELECT * FROM workflow_event_triggers WHERE ${conditions.join(' AND ')} ORDER BY created_at ASC`;
+
+  const { rows } = await useConnection((client) => client.query<WorkflowEventTriggerRow>(query, params));
+  return rows.map(mapWorkflowEventTriggerRow);
+}
+
 export async function createWorkflowTriggerDelivery(
   input: WorkflowTriggerDeliveryInsert
 ): Promise<WorkflowTriggerDeliveryRecord> {
@@ -2280,12 +2302,69 @@ export async function listWorkflowTriggerDeliveries(
     index += 1;
   }
 
+  if (options.dedupeKey) {
+    conditions.push(`dedupe_key = $${index}`);
+    params.push(options.dedupeKey);
+    index += 1;
+  }
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const query = `SELECT * FROM workflow_trigger_deliveries ${whereClause} ORDER BY created_at DESC LIMIT ${limit}`;
 
   const { rows } = await useConnection((client) => client.query<WorkflowTriggerDeliveryRow>(query, params));
   return rows.map(mapWorkflowTriggerDeliveryRow);
+}
+
+export async function countRecentWorkflowTriggerDeliveries(
+  triggerId: string,
+  sinceIso: string
+): Promise<number> {
+  const { rows } = await useConnection((client) =>
+    client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM workflow_trigger_deliveries
+        WHERE trigger_id = $1
+          AND created_at >= $2
+          AND status IN ('pending', 'matched', 'launched', 'throttled')`,
+      [triggerId, sinceIso]
+    )
+  );
+  return rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
+}
+
+export async function countActiveWorkflowTriggerDeliveries(triggerId: string): Promise<number> {
+  const { rows } = await useConnection((client) =>
+    client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM workflow_trigger_deliveries
+        WHERE trigger_id = $1
+          AND status IN ('pending', 'matched', 'launched')`,
+      [triggerId]
+    )
+  );
+  return rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
+}
+
+export async function findWorkflowTriggerDeliveryByDedupeKey(
+  triggerId: string,
+  dedupeKey: string
+): Promise<WorkflowTriggerDeliveryRecord | null> {
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowTriggerDeliveryRow>(
+      `SELECT *
+         FROM workflow_trigger_deliveries
+        WHERE trigger_id = $1
+          AND dedupe_key = $2
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [triggerId, dedupeKey]
+    )
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowTriggerDeliveryRow(rows[0]);
 }
 
 export async function deleteWorkflowSchedule(scheduleId: string): Promise<boolean> {

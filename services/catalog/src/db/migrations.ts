@@ -826,7 +826,9 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_event
          ON workflow_trigger_deliveries(event_id);`,
       `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_status
-         ON workflow_trigger_deliveries(status);`
+         ON workflow_trigger_deliveries(status);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_dedupe
+         ON workflow_trigger_deliveries(trigger_id, dedupe_key)`
     ]
   }
 ];

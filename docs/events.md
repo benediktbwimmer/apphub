@@ -62,6 +62,8 @@ CREATE TABLE workflow_events (
 
 Every record is emitted to WebSocket subscribers via `workflow.event.received` events so operators can trace trigger activity in real time.
 
+The event trigger worker (`npm run event-triggers --workspace @apphub/catalog`) consumes a dedicated queue (`apphub_event_trigger_queue` by default), evaluates trigger predicates, records delivery history, and enqueues matching workflows. In local inline mode (`REDIS_URL=inline`) both ingress and trigger processing happen in-process without Redis.
+
 ## Inspecting Events
 
 An internal admin endpoint returns recent events with optional filters:
