@@ -49,8 +49,8 @@ export function ServicePlaceholderDialog({
       closeOnBackdrop={false}
       labelledBy={dialogTitleId}
       describedBy={scenario.summary ? dialogDescriptionId : undefined}
-      className="items-center justify-center px-4 py-8"
-      contentClassName="border-0 bg-white p-6 text-slate-800 shadow-2xl dark:bg-slate-900 dark:text-slate-100"
+      className="items-start justify-center px-4 py-8"
+      contentClassName="max-h-[calc(100vh-4rem)] overflow-y-auto border-0 bg-white p-6 text-slate-800 shadow-2xl dark:bg-slate-900 dark:text-slate-100"
     >
       <div className="mb-6 flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
