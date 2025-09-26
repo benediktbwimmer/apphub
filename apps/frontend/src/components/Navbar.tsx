@@ -55,21 +55,16 @@ export default function Navbar({ variant = 'default', onExitFullscreen }: Navbar
 function SidebarNavbar({ isPathActive }: { isPathActive: PathPredicate }) {
   return (
     <aside className="flex-shrink-0 lg:sticky lg:top-10 lg:self-start">
-      <div className="flex flex-col items-center gap-8 rounded-3xl border border-slate-200/70 bg-white/80 px-5 py-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600/15 text-xs font-bold uppercase tracking-[0.35em] text-violet-600 shadow-inner shadow-violet-500/25 dark:bg-violet-500/15 dark:text-violet-200">
-            AH
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[0.55rem] font-semibold uppercase tracking-[0.6em] text-violet-600 dark:text-violet-300">
-              Osiris
-            </span>
-            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AppHub</span>
-          </div>
+      <div className="flex h-full max-h-[calc(100vh-5rem)] flex-col items-center gap-6 rounded-3xl border border-slate-200/70 bg-white/80 px-4 py-5 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100">
+        <div className="flex flex-col items-center text-center">
+          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.6em] text-violet-600 dark:text-violet-300">
+            Osiris
+          </span>
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AppHub</span>
         </div>
         <nav
           aria-label="Primary"
-          className="flex w-full flex-row flex-wrap items-center justify-center gap-2 lg:flex-col lg:flex-nowrap lg:items-center lg:gap-3"
+          className="flex w-full flex-1 flex-row flex-wrap items-center justify-center gap-2 overflow-y-auto pb-1 lg:flex-col lg:flex-nowrap lg:items-center lg:gap-2"
         >
           {PRIMARY_NAV_ITEMS.map((item) => {
             const Icon = NAV_ICON_MAP[item.key];
