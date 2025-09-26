@@ -15,7 +15,9 @@ import {
   type WorkflowRunWithDefinition,
   type WorkflowRunMetrics,
   type WorkflowRunStats,
-  type WorkflowRunStepRecord
+  type WorkflowRunStepRecord,
+  type WorkflowEventTriggerRecord,
+  type WorkflowTriggerDeliveryRecord
 } from '../../db/index';
 import type { BundleDownloadInfo } from '../../jobs/bundleStorage';
 import type { WorkflowJsonValue } from '../../workflows/zodSchemas';
@@ -436,6 +438,48 @@ export function serializeWorkflowRunMetrics(metrics: WorkflowRunMetrics) {
   };
 }
 
+export function serializeWorkflowEventTrigger(trigger: WorkflowEventTriggerRecord) {
+  return {
+    id: trigger.id,
+    workflowDefinitionId: trigger.workflowDefinitionId,
+    version: trigger.version,
+    status: trigger.status,
+    name: trigger.name,
+    description: trigger.description,
+    eventType: trigger.eventType,
+    eventSource: trigger.eventSource,
+    predicates: trigger.predicates,
+    parameterTemplate: trigger.parameterTemplate,
+    throttleWindowMs: trigger.throttleWindowMs,
+    throttleCount: trigger.throttleCount,
+    maxConcurrency: trigger.maxConcurrency,
+    idempotencyKeyExpression: trigger.idempotencyKeyExpression,
+    metadata: trigger.metadata,
+    createdAt: trigger.createdAt,
+    updatedAt: trigger.updatedAt,
+    createdBy: trigger.createdBy,
+    updatedBy: trigger.updatedBy
+  };
+}
+
+export function serializeWorkflowTriggerDelivery(delivery: WorkflowTriggerDeliveryRecord) {
+  return {
+    id: delivery.id,
+    triggerId: delivery.triggerId,
+    workflowDefinitionId: delivery.workflowDefinitionId,
+    eventId: delivery.eventId,
+    status: delivery.status,
+    attempts: delivery.attempts,
+    lastError: delivery.lastError,
+    workflowRunId: delivery.workflowRunId,
+    dedupeKey: delivery.dedupeKey,
+    nextAttemptAt: delivery.nextAttemptAt,
+    throttledUntil: delivery.throttledUntil,
+    createdAt: delivery.createdAt,
+    updatedAt: delivery.updatedAt
+  };
+}
+
 export type SerializedRepository = ReturnType<typeof serializeRepository>;
 export type SerializedBuild = ReturnType<typeof serializeBuild>;
 export type SerializedLaunch = ReturnType<typeof serializeLaunch>;
@@ -447,3 +491,5 @@ export type SerializedWorkflowRunStats = ReturnType<typeof serializeWorkflowRunS
 export type SerializedWorkflowRunMetrics = ReturnType<typeof serializeWorkflowRunMetrics>;
 export type SerializedJobBundle = ReturnType<typeof serializeJobBundle>;
 export type SerializedJobBundleVersion = ReturnType<typeof serializeJobBundleVersion>;
+export type SerializedWorkflowEventTrigger = ReturnType<typeof serializeWorkflowEventTrigger>;
+export type SerializedWorkflowTriggerDelivery = ReturnType<typeof serializeWorkflowTriggerDelivery>;

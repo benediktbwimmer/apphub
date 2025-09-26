@@ -252,7 +252,128 @@ async function testEventTriggerCrud(): Promise<void> {
   assert.equal(runParameters.namespace, 'feature-flags');
 }
 
+async function testEventTriggerApi(): Promise<void> {
+  process.env.APPHUB_AUTH_DISABLED = '1';
+  await ensureEmbeddedPostgres();
+  const db = await loadCatalogDb();
+  await db.ensureDatabase();
+
+  const { buildServer } = await import('../src/server');
+  const app = await buildServer();
+
+  try {
+    await db.createJobDefinition({
+      slug: 'api-noop-job',
+      name: 'API Noop Job',
+      type: 'manual',
+      runtime: 'node',
+      entryPoint: 'tests.noop',
+      parametersSchema: {},
+      defaultParameters: {},
+      outputSchema: {}
+    });
+
+    const workflow = await db.createWorkflowDefinition({
+      slug: `api-wf-${randomUUID()}`.toLowerCase(),
+      name: 'API Trigger Workflow',
+      steps: [
+        {
+          id: 'step-1',
+          name: 'Noop',
+          type: 'job',
+          jobSlug: 'api-noop-job'
+        }
+      ],
+      triggers: [{ type: 'manual' }]
+    });
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: `/workflows/${workflow.slug}/triggers`,
+      payload: {
+        name: 'API Trigger',
+        description: 'Created via API test',
+        eventType: 'metastore.record.created',
+        eventSource: 'metastore.api',
+        predicates: [
+          {
+            path: '$.payload.namespace',
+            operator: 'equals',
+            value: 'api-tests'
+          }
+        ],
+        parameterTemplate: {
+          namespace: '{{ event.payload.namespace }}'
+        }
+      }
+    });
+
+    assert.equal(createResponse.statusCode, 201);
+    const createdBody = createResponse.json() as { data: { id: string; status: string } };
+    const createdTrigger = createdBody.data;
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: `/workflows/${workflow.slug}/triggers`
+    });
+    assert.equal(listResponse.statusCode, 200);
+    const listBody = listResponse.json() as { data: { triggers: Array<{ id: string }> } };
+    assert.equal(listBody.data.triggers.length, 1);
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: `/workflows/${workflow.slug}/triggers/${createdTrigger.id}`
+    });
+    assert.equal(getResponse.statusCode, 200);
+    const fetched = getResponse.json() as { data: { id: string; status: string } };
+    assert.equal(fetched.data.id, createdTrigger.id);
+
+    const updateResponse = await app.inject({
+      method: 'PATCH',
+      url: `/workflows/${workflow.slug}/triggers/${createdTrigger.id}`,
+      payload: {
+        status: 'disabled',
+        description: 'updated via API'
+      }
+    });
+    assert.equal(updateResponse.statusCode, 200);
+    const updated = updateResponse.json() as { data: { status: string; description: string | null } };
+    assert.equal(updated.data.status, 'disabled');
+
+    await db.createWorkflowTriggerDelivery({
+      triggerId: createdTrigger.id,
+      workflowDefinitionId: workflow.id,
+      eventId: `evt-${randomUUID()}`,
+      status: 'matched'
+    });
+
+    const deliveriesResponse = await app.inject({
+      method: 'GET',
+      url: `/workflows/${workflow.slug}/triggers/${createdTrigger.id}/deliveries?status=matched&limit=5`
+    });
+    assert.equal(deliveriesResponse.statusCode, 200);
+    const deliveriesBody = deliveriesResponse.json() as { data: Array<{ id: string; status: string }> };
+    assert.equal(deliveriesBody.data.length, 1);
+    assert.equal(deliveriesBody.data[0].status, 'matched');
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/workflows/${workflow.slug}/triggers/${createdTrigger.id}`
+    });
+    assert.equal(deleteResponse.statusCode, 204);
+
+    const afterDelete = await app.inject({
+      method: 'GET',
+      url: `/workflows/${workflow.slug}/triggers/${createdTrigger.id}`
+    });
+    assert.equal(afterDelete.statusCode, 404);
+  } finally {
+    await app.close();
+  }
+}
+
 runE2E(async ({ registerCleanup }) => {
   registerCleanup(() => shutdownEmbeddedPostgres());
   await testEventTriggerCrud();
+  await testEventTriggerApi();
 }, { name: 'catalog-event-triggers.e2e' });

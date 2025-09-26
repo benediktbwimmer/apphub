@@ -76,6 +76,7 @@ import {
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import type { JsonValue } from './shared/serializers';
+import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
@@ -800,6 +801,8 @@ const workflowScheduleIdParamSchema = z
   .strict();
 
 export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void> {
+  await registerWorkflowTriggerRoutes(app);
+
   app.get('/workflows', async (_request, reply) => {
     try {
       const workflows = await listWorkflowDefinitions();

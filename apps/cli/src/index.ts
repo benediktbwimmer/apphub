@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import { registerJobsCommands } from './commands/jobs';
+import { registerWorkflowCommands } from './commands/workflows';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -12,6 +13,7 @@ export function createProgram(): Command {
     .version('0.1.0');
 
   registerJobsCommands(program);
+  registerWorkflowCommands(program);
 
   return program;
 }
@@ -28,4 +30,6 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+if (require.main === module) {
+  void main();
+}

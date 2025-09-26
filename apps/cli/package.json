@@ -17,7 +17,8 @@
     "commander": "^11.1.0",
     "esbuild": "^0.21.5",
     "fast-glob": "^3.3.2",
-    "tar": "^6.2.0"
+    "tar": "^6.2.0",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

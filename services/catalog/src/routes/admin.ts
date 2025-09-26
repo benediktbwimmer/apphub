@@ -8,8 +8,41 @@ import {
   nukeCatalogRunData
 } from '../db/index';
 import { resetServiceManifestState } from '../serviceRegistry';
+import { getEventQueueStats, getEventTriggerQueueStats } from '../queue';
+import { getEventSchedulerMetricsSnapshot } from '../eventSchedulerMetrics';
+import {
+  getSourcePauseStates,
+  getTriggerPauseStates,
+  getRateLimitConfiguration
+} from '../eventSchedulerState';
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/admin/event-health', async (request, reply) => {
+    try {
+      const [ingressQueue, triggerQueue, metricsSnapshot] = await Promise.all([
+        getEventQueueStats(),
+        getEventTriggerQueueStats(),
+        Promise.resolve(getEventSchedulerMetricsSnapshot())
+      ]);
+
+      reply.status(200).send({
+        data: {
+          queues: {
+            ingress: ingressQueue,
+            triggers: triggerQueue
+          },
+          metrics: metricsSnapshot,
+          pausedSources: getSourcePauseStates(),
+          pausedTriggers: getTriggerPauseStates(),
+          rateLimits: getRateLimitConfiguration()
+        }
+      });
+    } catch (err) {
+      request.log.error({ err }, 'Failed to collect event health');
+      reply.status(500).send({ error: 'Failed to collect event health' });
+    }
+  });
+
   app.get('/admin/events', async (request, reply) => {
     const query = (request.query ?? {}) as Record<string, unknown>;
 

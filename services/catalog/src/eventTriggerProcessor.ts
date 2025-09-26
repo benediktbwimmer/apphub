@@ -18,6 +18,8 @@ import type {
 import { enqueueWorkflowRun } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
+import { recordTriggerEvaluation } from './eventSchedulerMetrics';
+import { isTriggerPaused, registerTriggerFailure, registerTriggerSuccess } from './eventSchedulerState';
 
 const liquid = new Liquid({ cache: false, strictFilters: false, strictVariables: false });
 
@@ -161,10 +163,21 @@ async function processTrigger(
   event: EventEnvelope
 ): Promise<void> {
   const context = buildTriggerContext(trigger, event);
+  const pauseState = isTriggerPaused(trigger.id);
+  if (pauseState.paused) {
+    await createDeliveryRecord(trigger, event, 'skipped', {
+      dedupeKey: null,
+      lastError: `Trigger paused until ${pauseState.until ?? 'unspecified'}`
+    });
+    recordTriggerEvaluation(trigger, 'paused');
+    return;
+  }
+
   const predicatesMatch = trigger.predicates.every((predicate) =>
     evaluatePredicate(predicate, event)
   );
   if (!predicatesMatch) {
+    recordTriggerEvaluation(trigger, 'filtered');
     return;
   }
 
@@ -182,6 +195,8 @@ async function processTrigger(
         workflowRunId: existing.workflowRunId ?? null,
         lastError: 'Duplicate event (idempotency key)'
       });
+      recordTriggerEvaluation(trigger, 'skipped');
+      registerTriggerSuccess(trigger.id);
       return;
     }
   }
@@ -198,6 +213,7 @@ async function processTrigger(
         throttledUntil: until,
         lastError: 'Throttle window exceeded'
       });
+      recordTriggerEvaluation(trigger, 'throttled');
       return;
     }
   }
@@ -207,10 +223,12 @@ async function processTrigger(
       dedupeKey,
       lastError: 'Max concurrency reached'
     });
+    recordTriggerEvaluation(trigger, 'throttled');
     return;
   }
 
   const delivery = await createDeliveryRecord(trigger, event, 'matched', { dedupeKey });
+  recordTriggerEvaluation(trigger, 'matched');
 
   try {
     const renderedParameters = await renderJsonTemplate(trigger.parameterTemplate, context);
@@ -240,12 +258,27 @@ async function processTrigger(
     });
 
     await enqueueWorkflowRun(run.id);
+    recordTriggerEvaluation(trigger, 'launched');
+    registerTriggerSuccess(trigger.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await updateWorkflowTriggerDelivery(delivery.id, {
       status: 'failed',
       lastError: message
     });
+    recordTriggerEvaluation(trigger, 'failed', { error: message });
+    const pauseOutcome = registerTriggerFailure(trigger.id, message);
+    if (pauseOutcome.paused) {
+      recordTriggerEvaluation(trigger, 'paused', { error: message });
+      logger.warn(
+        'Trigger paused due to repeated failures',
+        normalizeMeta({
+          triggerId: trigger.id,
+          workflowDefinitionId: trigger.workflowDefinitionId,
+          resumeAt: pauseOutcome.until ?? null
+        })
+      );
+    }
     throw err;
   }
 }

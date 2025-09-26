@@ -64,6 +64,12 @@ Every record is emitted to WebSocket subscribers via `workflow.event.received` e
 
 The event trigger worker (`npm run event-triggers --workspace @apphub/catalog`) consumes a dedicated queue (`apphub_event_trigger_queue` by default), evaluates trigger predicates, records delivery history, and enqueues matching workflows. In local inline mode (`REDIS_URL=inline`) both ingress and trigger processing happen in-process without Redis.
 
+### Monitoring & Health
+
+- `GET /admin/event-health` surfaces queue depth, in-memory metrics (per-source lag, trigger success/failure counters), current rate-limit configuration, and paused sources/triggers.
+- Set `EVENT_SOURCE_RATE_LIMITS` with entries like `[{"source":"metastore.api","limit":200,"intervalMs":60000,"pauseMs":60000}]` to throttle noisy publishers; default is unlimited.
+- Trigger auto-pausing is controlled via `EVENT_TRIGGER_ERROR_THRESHOLD` (default `5` failures within `EVENT_TRIGGER_ERROR_WINDOW_MS`, default `300000`) and resumes after `EVENT_TRIGGER_PAUSE_MS` (default `300000`).
+
 ## Inspecting Events
 
 An internal admin endpoint returns recent events with optional filters:

@@ -2062,6 +2062,35 @@ export async function updateWorkflowEventTrigger(
   return trigger;
 }
 
+export async function deleteWorkflowEventTrigger(triggerId: string): Promise<boolean> {
+  let deleted = false;
+  let definition: WorkflowDefinitionRecord | null = null;
+
+  await useTransaction(async (client) => {
+    const existing = await client.query<WorkflowEventTriggerRow>(
+      'SELECT * FROM workflow_event_triggers WHERE id = $1 FOR UPDATE',
+      [triggerId]
+    );
+
+    if (existing.rows.length === 0) {
+      return;
+    }
+
+    const trigger = mapWorkflowEventTriggerRow(existing.rows[0]);
+
+    await client.query('DELETE FROM workflow_event_triggers WHERE id = $1', [triggerId]);
+    deleted = true;
+
+    definition = await fetchWorkflowDefinitionById(client, trigger.workflowDefinitionId);
+  });
+
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
+  return deleted;
+}
+
 export async function getWorkflowEventTriggerById(
   triggerId: string
 ): Promise<WorkflowEventTriggerRecord | null> {

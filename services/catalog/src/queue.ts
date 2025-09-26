@@ -14,6 +14,11 @@ import { type JobRunRecord, type JsonValue } from './db/types';
 import { runWorkflowOrchestration } from './workflowOrchestrator';
 import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
 import { ingestWorkflowEvent } from './workflowEvents';
+import {
+  recordEventIngress,
+  recordEventIngressFailure
+} from './eventSchedulerMetrics';
+import { registerSourceEvent } from './eventSchedulerState';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -218,9 +223,35 @@ export async function enqueueWorkflowEvent(
   const envelope = normalizeEventEnvelope(input);
 
   if (inlineMode) {
-    await ingestWorkflowEvent(envelope);
+    try {
+      await ingestWorkflowEvent(envelope);
+    } catch (err) {
+      recordEventIngressFailure(envelope.source ?? 'unknown');
+      throw err;
+    }
+
+    const registration = registerSourceEvent(envelope.source ?? 'unknown');
+    recordEventIngress(envelope, {
+      throttled: registration.reason === 'rate_limit' && registration.allowed === false,
+      dropped: registration.allowed === false
+    });
+
+    if (!registration.allowed) {
+      console.warn('[event-scheduler] Dropping event in inline mode due to source pause', {
+        source: envelope.source,
+        reason: registration.reason,
+        resumeAt: registration.until
+      });
+      return envelope;
+    }
+
     const { processEventTriggersForEnvelope } = await import('./eventTriggerProcessor');
-    await processEventTriggersForEnvelope(envelope);
+    try {
+      await processEventTriggersForEnvelope(envelope);
+    } catch (err) {
+      recordEventIngressFailure(envelope.source ?? 'unknown');
+      throw err;
+    }
     return envelope;
   }
 
@@ -244,6 +275,50 @@ export async function enqueueEventTriggerEvaluation(envelope: EventEnvelope): Pr
   }
 
   await eventTriggerQueue.add(EVENT_TRIGGER_JOB_NAME, { envelope });
+}
+
+async function getQueueCounts(target: Queue | null): Promise<Record<string, number>> {
+  if (!target) {
+    return {};
+  }
+  try {
+    return await target.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused');
+  } catch (err) {
+    console.error('[event-scheduler] Failed to collect queue counts', err);
+    return {};
+  }
+}
+
+export async function getEventQueueStats(): Promise<{
+  mode: 'inline' | 'queue' | 'disabled';
+  counts?: Record<string, number>;
+}> {
+  if (inlineMode) {
+    return { mode: 'inline' };
+  }
+  if (!eventQueue) {
+    return { mode: 'disabled' };
+  }
+  return {
+    mode: 'queue',
+    counts: await getQueueCounts(eventQueue)
+  };
+}
+
+export async function getEventTriggerQueueStats(): Promise<{
+  mode: 'inline' | 'queue' | 'disabled';
+  counts?: Record<string, number>;
+}> {
+  if (inlineMode) {
+    return { mode: 'inline' };
+  }
+  if (!eventTriggerQueue) {
+    return { mode: 'disabled' };
+  }
+  return {
+    mode: 'queue',
+    counts: await getQueueCounts(eventTriggerQueue)
+  };
 }
 
 export function getQueueConnection() {

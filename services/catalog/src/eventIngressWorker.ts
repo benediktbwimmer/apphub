@@ -10,6 +10,8 @@ import {
 import { ingestWorkflowEvent } from './workflowEvents';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
+import { recordEventIngress, recordEventIngressFailure } from './eventSchedulerMetrics';
+import { registerSourceEvent } from './eventSchedulerState';
 
 const EVENT_WORKER_CONCURRENCY = Number(process.env.EVENT_INGRESS_CONCURRENCY ?? 5);
 const inlineMode = isInlineQueueMode();
@@ -24,8 +26,37 @@ async function runQueuedWorker(): Promise<void> {
     EVENT_QUEUE_NAME,
     async (job) => {
       const validated = validateEventEnvelope(job.data.envelope);
-      await ingestWorkflowEvent(validated);
-      await enqueueEventTriggerEvaluation(validated);
+      try {
+        await ingestWorkflowEvent(validated);
+      } catch (err) {
+        recordEventIngressFailure(validated.source ?? 'unknown');
+        throw err;
+      }
+
+      const evaluation = registerSourceEvent(validated.source ?? 'unknown');
+      recordEventIngress(validated, {
+        throttled: evaluation.reason === 'rate_limit' && evaluation.allowed === false,
+        dropped: evaluation.allowed === false
+      });
+
+      if (!evaluation.allowed) {
+        logger.warn(
+          'Event dropped due to source pause or rate limit',
+          normalizeMeta({
+            source: validated.source ?? 'unknown',
+            reason: evaluation.reason ?? 'paused',
+            resumeAt: evaluation.until ?? null
+          })
+        );
+        return;
+      }
+
+      try {
+        await enqueueEventTriggerEvaluation(validated);
+      } catch (err) {
+        recordEventIngressFailure(validated.source ?? 'unknown');
+        throw err;
+      }
     },
     {
       connection,
