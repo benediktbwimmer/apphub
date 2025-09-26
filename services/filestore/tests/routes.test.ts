@@ -63,11 +63,21 @@ runE2E(async ({ registerCleanup }) => {
   process.env.FILESTORE_PG_SCHEMA = `filestore_test_${randomUUID().slice(0, 8)}`;
   process.env.FILESTORE_PGPOOL_MAX = '4';
   process.env.FILESTORE_METRICS_ENABLED = 'false';
+  process.env.FILESTORE_REDIS_URL = 'inline';
+  process.env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS = '60';
+  process.env.FILESTORE_EVENTS_MODE = 'inline';
 
   const configModulePath = require.resolve('../src/config/serviceConfig');
   delete require.cache[configModulePath];
 
-  for (const modulePath of ['../src/db/client', '../src/db/schema', '../src/db/migrations', '../src/app']) {
+  for (const modulePath of [
+    '../src/db/client',
+    '../src/db/schema',
+    '../src/db/migrations',
+    '../src/app',
+    '../src/rollup/manager',
+    '../src/events/publisher'
+  ]) {
     const resolved = require.resolve(modulePath);
     delete require.cache[resolved];
   }
@@ -101,6 +111,14 @@ runE2E(async ({ registerCleanup }) => {
     }
   });
   assert.equal(parentResponse.statusCode, 201, parentResponse.body);
+  const parentBody = parentResponse.json() as {
+    data: {
+      node: { rollup: { directoryCount: number; childCount: number } | null } | null;
+    };
+  };
+  assert.ok(parentBody.data.node?.rollup);
+  assert.equal(parentBody.data.node?.rollup?.directoryCount, 0);
+  assert.equal(parentBody.data.node?.rollup?.childCount, 0);
   const countAfterParent = await getJournalCount(dbClientModule);
   assert.equal(countAfterParent - countBeforeParent, 1);
 
@@ -117,7 +135,12 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(createResponse.statusCode, 201, createResponse.body);
   const createBody = createResponse.json() as {
     data: {
-      node: { id: number; path: string; metadata: Record<string, unknown> } | null;
+      node: {
+        id: number;
+        path: string;
+        metadata: Record<string, unknown>;
+        rollup: { directoryCount: number; childCount: number; state: string } | null;
+      } | null;
       journalEntryId: number;
       idempotent: boolean;
     };
@@ -127,6 +150,9 @@ runE2E(async ({ registerCleanup }) => {
   const nodeId = createBody.data.node!.id;
   assert.equal(createBody.data.node!.path, 'datasets/observatory');
   assert.equal((createBody.data.node!.metadata as { owner?: string }).owner, 'astro');
+  assert.ok(createBody.data.node!.rollup);
+  assert.equal(createBody.data.node!.rollup?.directoryCount, 0);
+  assert.equal(createBody.data.node!.rollup?.childCount, 0);
   const countAfterCreate = await getJournalCount(dbClientModule);
   assert.equal(countAfterCreate - countAfterParent, 1);
 
@@ -148,16 +174,25 @@ runE2E(async ({ registerCleanup }) => {
 
   const byIdResponse = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });
   assert.equal(byIdResponse.statusCode, 200, byIdResponse.body);
-  const byIdBody = byIdResponse.json() as { data: { id: number; path: string; state: string } };
+  const byIdBody = byIdResponse.json() as {
+    data: { id: number; path: string; state: string; rollup: { state: string; directoryCount: number } | null };
+  };
   assert.equal(byIdBody.data.id, nodeId);
   assert.equal(byIdBody.data.path, 'datasets/observatory');
   assert.equal(byIdBody.data.state, 'active');
+  assert.ok(byIdBody.data.rollup);
+  assert.equal(byIdBody.data.rollup?.state, 'up_to_date');
 
   const byPathResponse = await app.inject({
     method: 'GET',
     url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=datasets/observatory`
   });
   assert.equal(byPathResponse.statusCode, 200, byPathResponse.body);
+  const byPathBody = byPathResponse.json() as {
+    data: { rollup: { directoryCount: number; childCount: number; state: string } | null };
+  };
+  assert.ok(byPathBody.data.rollup);
+  assert.equal(byPathBody.data.rollup?.directoryCount, 0);
 
   const deleteResponse = await app.inject({
     method: 'DELETE',
@@ -168,19 +203,31 @@ runE2E(async ({ registerCleanup }) => {
     }
   });
   assert.equal(deleteResponse.statusCode, 200, deleteResponse.body);
-  const deleteBody = deleteResponse.json() as { data: { node: { state: string } | null } };
+  const deleteBody = deleteResponse.json() as {
+    data: { node: { state: string; rollup: { state: string; directoryCount: number } | null } | null };
+  };
   assert.equal(deleteBody.data.node?.state, 'deleted');
+  assert.ok(deleteBody.data.node?.rollup);
+  assert.equal(deleteBody.data.node?.rollup?.state, 'invalid');
 
   const afterDeleteById = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });
   assert.equal(afterDeleteById.statusCode, 200, afterDeleteById.body);
-  const afterDeleteBody = afterDeleteById.json() as { data: { state: string } };
+  const afterDeleteBody = afterDeleteById.json() as {
+    data: { state: string; rollup: { state: string; directoryCount: number } | null };
+  };
   assert.equal(afterDeleteBody.data.state, 'deleted');
+  assert.ok(afterDeleteBody.data.rollup);
+  assert.equal(afterDeleteBody.data.rollup?.state, 'invalid');
 
   const afterDeleteByPath = await app.inject({
     method: 'GET',
     url: `/v1/nodes/by-path?backendMountId=${backendMountId}&path=datasets/observatory`
   });
   assert.equal(afterDeleteByPath.statusCode, 200, afterDeleteByPath.body);
-  const afterDeleteByPathBody = afterDeleteByPath.json() as { data: { state: string } };
+  const afterDeleteByPathBody = afterDeleteByPath.json() as {
+    data: { state: string; rollup: { state: string } | null };
+  };
   assert.equal(afterDeleteByPathBody.data.state, 'deleted');
+  assert.ok(afterDeleteByPathBody.data.rollup);
+  assert.equal(afterDeleteByPathBody.data.rollup?.state, 'invalid');
 });

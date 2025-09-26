@@ -20,6 +20,24 @@ const configSchema = z.object({
     maxConnections: z.number().int().positive(),
     idleTimeoutMs: z.number().int().nonnegative(),
     connectionTimeoutMs: z.number().int().nonnegative()
+  }),
+  redis: z.object({
+    url: z.string().min(1),
+    keyPrefix: z.string().min(1),
+    inline: z.boolean()
+  }),
+  rollups: z.object({
+    queueName: z.string().min(1),
+    cacheTtlSeconds: z.number().int().positive(),
+    cacheMaxEntries: z.number().int().positive(),
+    recalcDepthThreshold: z.number().int().nonnegative(),
+    recalcChildCountThreshold: z.number().int().nonnegative(),
+    maxCascadeDepth: z.number().int().positive(),
+    queueConcurrency: z.number().int().positive()
+  }),
+  events: z.object({
+    mode: z.union([z.literal('inline'), z.literal('redis')]),
+    channel: z.string().min(1)
   })
 });
 
@@ -82,6 +100,25 @@ export function loadServiceConfig(): ServiceConfig {
     10_000
   );
   const metricsEnabled = parseBoolean(env.FILESTORE_METRICS_ENABLED, true);
+  const redisUrl = env.FILESTORE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const redisKeyPrefix = env.FILESTORE_REDIS_KEY_PREFIX || 'filestore';
+  const rollupQueueName = env.FILESTORE_ROLLUP_QUEUE_NAME || 'filestore_rollup_queue';
+  const rollupCacheTtlSeconds = parseNumber(env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS, 300);
+  const rollupCacheMaxEntries = parseNumber(env.FILESTORE_ROLLUP_CACHE_MAX_ENTRIES, 1024);
+  const rollupRecalcDepthThreshold = parseNumber(env.FILESTORE_ROLLUP_RECALC_DEPTH_THRESHOLD, 4);
+  const rollupRecalcChildThreshold = parseNumber(env.FILESTORE_ROLLUP_RECALC_CHILD_THRESHOLD, 250);
+  const rollupMaxCascadeDepth = parseNumber(env.FILESTORE_ROLLUP_MAX_CASCADE_DEPTH, 64);
+  const rollupQueueConcurrency = parseNumber(env.FILESTORE_ROLLUP_QUEUE_CONCURRENCY, 1);
+  const eventsModeEnv = (env.FILESTORE_EVENTS_MODE || '').trim().toLowerCase();
+  const derivedRedisInline = redisUrl === 'inline';
+  const eventsMode: 'inline' | 'redis' = eventsModeEnv === 'inline'
+    ? 'inline'
+    : eventsModeEnv === 'redis'
+      ? 'redis'
+      : derivedRedisInline
+        ? 'inline'
+        : 'redis';
+  const eventsChannel = env.FILESTORE_EVENTS_CHANNEL || `${redisKeyPrefix}:filestore`;
 
   const candidateConfig: ServiceConfig = {
     host,
@@ -94,6 +131,24 @@ export function loadServiceConfig(): ServiceConfig {
       maxConnections: maxConnections > 0 ? maxConnections : 1,
       idleTimeoutMs: idleTimeoutMs >= 0 ? idleTimeoutMs : 0,
       connectionTimeoutMs: connectionTimeoutMs >= 0 ? connectionTimeoutMs : 0
+    },
+    redis: {
+      url: redisUrl,
+      keyPrefix: redisKeyPrefix,
+      inline: redisUrl === 'inline'
+    },
+    rollups: {
+      queueName: rollupQueueName,
+      cacheTtlSeconds: rollupCacheTtlSeconds > 0 ? rollupCacheTtlSeconds : 60,
+      cacheMaxEntries: rollupCacheMaxEntries > 0 ? rollupCacheMaxEntries : 512,
+      recalcDepthThreshold: Math.max(0, rollupRecalcDepthThreshold),
+      recalcChildCountThreshold: Math.max(0, rollupRecalcChildThreshold),
+      maxCascadeDepth: rollupMaxCascadeDepth > 0 ? rollupMaxCascadeDepth : 64,
+      queueConcurrency: rollupQueueConcurrency > 0 ? rollupQueueConcurrency : 1
+    },
+    events: {
+      mode: eventsMode,
+      channel: eventsChannel
     }
   };
 

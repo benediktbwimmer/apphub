@@ -5,11 +5,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { after, before, test } from 'node:test';
+import { after, afterEach, before, test } from 'node:test';
 import EmbeddedPostgres from 'embedded-postgres';
 
 import type { CommandExecutor } from '../src/executors/types';
 import { filestoreEvents } from '../src/events/bus';
+import type { FilestoreEvent } from '../src/events/publisher';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -21,6 +22,9 @@ let migrationsModule: typeof import('../src/db/migrations');
 let configModule: typeof import('../src/config/serviceConfig');
 let nodesModule: typeof import('../src/db/nodes');
 let orchestratorModule: typeof import('../src/commands/orchestrator');
+let rollupManagerModule: typeof import('../src/rollup/manager');
+let eventsModule: typeof import('../src/events/publisher');
+let serviceConfig: import('../src/config/serviceConfig').ServiceConfig;
 
 before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'filestore-orchestrator-pg-'));
@@ -48,13 +52,18 @@ before(async () => {
   process.env.FILESTORE_PG_SCHEMA = `filestore_test_${randomUUID().slice(0, 8)}`;
   process.env.FILESTORE_PGPOOL_MAX = '4';
   process.env.FILESTORE_METRICS_ENABLED = 'false';
+  process.env.FILESTORE_REDIS_URL = 'inline';
+  process.env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS = '60';
+  process.env.FILESTORE_EVENTS_MODE = 'inline';
 
   const modulePaths = [
     '../src/db/nodes',
     '../src/db/migrations',
     '../src/db/schema',
     '../src/db/client',
-    '../src/config/serviceConfig'
+    '../src/config/serviceConfig',
+    '../src/rollup/manager',
+    '../src/events/publisher'
   ];
 
   for (const modulePath of modulePaths) {
@@ -70,12 +79,25 @@ before(async () => {
   migrationsModule = await import('../src/db/migrations');
   nodesModule = await import('../src/db/nodes');
   orchestratorModule = await import('../src/commands/orchestrator');
+  rollupManagerModule = await import('../src/rollup/manager');
+  eventsModule = await import('../src/events/publisher');
+  rollupManagerModule.resetRollupManagerForTests();
+  eventsModule.resetFilestoreEventsForTests();
+  serviceConfig = configModule.loadServiceConfig();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrationsWithConnection();
+  await eventsModule.initializeFilestoreEvents({ config: serviceConfig });
 });
 
 after(async () => {
+  if (eventsModule) {
+    await eventsModule.shutdownFilestoreEvents().catch(() => undefined);
+    eventsModule.resetFilestoreEventsForTests();
+  }
+  if (rollupManagerModule) {
+    await rollupManagerModule.shutdownRollupManager();
+  }
   if (clientModule) {
     await clientModule.closePool();
   }
@@ -87,6 +109,18 @@ after(async () => {
   }
   for (const dir of backendRoots) {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+afterEach(async () => {
+  if (rollupManagerModule) {
+    await rollupManagerModule.shutdownRollupManager();
+    rollupManagerModule.resetRollupManagerForTests();
+  }
+  if (eventsModule) {
+    await eventsModule.shutdownFilestoreEvents().catch(() => undefined);
+    eventsModule.resetFilestoreEventsForTests();
+    await eventsModule.initializeFilestoreEvents({ config: serviceConfig });
   }
 });
 
@@ -135,6 +169,11 @@ test('createDirectory inserts node, journal entry, and emits event', async () =>
   });
   const countAfterParent = await getJournalCount();
 
+  const recordedFilestoreEvents: FilestoreEvent[] = [];
+  const unsubscribeFilestoreEvents = eventsModule.subscribeToFilestoreEvents((event) => {
+    recordedFilestoreEvents.push(event);
+  });
+
   const recordedEvents: unknown[] = [];
   const listener = (payload: unknown) => recordedEvents.push(payload);
   filestoreEvents.on('command.completed', listener);
@@ -151,6 +190,7 @@ test('createDirectory inserts node, journal entry, and emits event', async () =>
   });
 
   filestoreEvents.off('command.completed', listener);
+  unsubscribeFilestoreEvents();
 
   assert.equal(result.idempotent, false);
   assert.ok(result.node);
@@ -166,6 +206,49 @@ test('createDirectory inserts node, journal entry, and emits event', async () =>
   );
   assert.ok(node);
   assert.equal(node?.state, 'active');
+
+  const parentNode = await clientModule.withConnection(async (client) =>
+    nodesModule.getNodeByPath(client, backendMountId, 'datasets')
+  );
+  assert.ok(parentNode);
+
+  const childRollup = await rollupManagerModule.getRollupSummary(node!.id);
+  assert.ok(childRollup);
+  assert.equal(childRollup?.directoryCount, 0);
+  assert.equal(childRollup?.childCount, 0);
+  assert.equal(childRollup?.state, 'up_to_date');
+
+  const parentRollup = await rollupManagerModule.getRollupSummary(parentNode!.id);
+  assert.ok(parentRollup);
+  assert.equal(parentRollup?.directoryCount, 1);
+  assert.equal(parentRollup?.childCount, 1);
+
+  const cachedParent = await rollupManagerModule.getRollupSummary(parentNode!.id);
+  assert.equal(cachedParent?.directoryCount, parentRollup?.directoryCount);
+
+  const commandEvent = recordedFilestoreEvents.find(
+    (event) => event.type === 'filestore.command.completed' && event.data.path === 'datasets/observatory'
+  );
+  assert.ok(commandEvent);
+  if (!commandEvent || commandEvent.type !== 'filestore.command.completed') {
+    assert.fail('expected command completed event for datasets/observatory');
+  }
+
+  const nodeEvent = recordedFilestoreEvents.find(
+    (event) =>
+      (event.type === 'filestore.node.created' || event.type === 'filestore.node.updated') &&
+      event.data.path === 'datasets/observatory'
+  );
+  assert.ok(nodeEvent);
+  if (!nodeEvent) {
+    assert.fail('expected node event for datasets/observatory');
+  }
+  if (nodeEvent.type !== 'filestore.node.created' && nodeEvent.type !== 'filestore.node.updated') {
+    assert.fail('unexpected node event type');
+  }
+  assert.equal(nodeEvent.type, 'filestore.node.created');
+  assert.equal(nodeEvent.data.backendMountId, backendMountId);
+  assert.equal(nodeEvent.data.state, 'active');
 
   const finalCount = await getJournalCount();
   assert.equal(countAfterParent - countBeforeParent, 1);
@@ -254,6 +337,21 @@ test('deleteNode marks node as deleted', async () => {
     executors
   });
 
+  const parentNode = await clientModule.withConnection(async (client) =>
+    nodesModule.getNodeByPath(client, backendMountId, 'datasets')
+  );
+  assert.ok(parentNode);
+
+  const preDeleteParentRollup = await rollupManagerModule.getRollupSummary(parentNode!.id);
+  assert.ok(preDeleteParentRollup);
+  assert.equal(preDeleteParentRollup?.directoryCount, 1);
+  assert.equal(preDeleteParentRollup?.childCount, 1);
+
+  const recordedFilestoreEvents: FilestoreEvent[] = [];
+  const unsubscribeFilestoreEvents = eventsModule.subscribeToFilestoreEvents((event) => {
+    recordedFilestoreEvents.push(event);
+  });
+
   const result = await orchestratorModule.runCommand({
     command: {
       type: 'deleteNode',
@@ -264,6 +362,8 @@ test('deleteNode marks node as deleted', async () => {
     idempotencyKey: 'delete-1'
   });
 
+  unsubscribeFilestoreEvents();
+
   assert.equal(result.idempotent, false);
   assert.equal(result.node?.state, 'deleted');
   assert.equal(result.result.state, 'deleted');
@@ -273,4 +373,24 @@ test('deleteNode marks node as deleted', async () => {
   );
   assert.ok(node);
   assert.equal(node?.state, 'deleted');
+
+  const deleteEvent = recordedFilestoreEvents.find(
+    (event) => event.type === 'filestore.node.deleted' && event.data.path === 'datasets/to-delete'
+  );
+  assert.ok(deleteEvent);
+  if (!deleteEvent || deleteEvent.type !== 'filestore.node.deleted') {
+    assert.fail('expected node deleted event for datasets/to-delete');
+  }
+  assert.equal(deleteEvent.data.state, 'deleted');
+
+  const deletedRollup = await rollupManagerModule.getRollupSummary(node!.id);
+  assert.ok(deletedRollup);
+  assert.equal(deletedRollup?.state, 'invalid');
+  assert.equal(deletedRollup?.directoryCount, 0);
+  assert.equal(deletedRollup?.childCount, 0);
+
+  const parentRollup = await rollupManagerModule.getRollupSummary(parentNode!.id);
+  assert.ok(parentRollup);
+  assert.equal(parentRollup?.directoryCount, 0);
+  assert.equal(parentRollup?.childCount, 0);
 });

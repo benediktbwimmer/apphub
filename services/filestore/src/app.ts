@@ -7,7 +7,10 @@ import { POSTGRES_SCHEMA, closePool } from './db/client';
 import { runMigrationsWithConnection } from './db/migrations';
 import { registerExecutor } from './executors/registry';
 import { createLocalExecutor } from './executors/localExecutor';
+import { createS3Executor } from './executors/s3Executor';
 import { registerV1Routes } from './routes/v1/index';
+import { initializeRollupManager, shutdownRollupManager } from './rollup/manager';
+import { initializeFilestoreEvents, shutdownFilestoreEvents } from './events/publisher';
 
 export type BuildAppOptions = {
   config?: ServiceConfig;
@@ -24,6 +27,13 @@ export async function buildApp(options?: BuildAppOptions) {
 
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
   registerExecutor(createLocalExecutor());
+  registerExecutor(createS3Executor());
+  await initializeRollupManager({
+    config,
+    registry: app.metrics.enabled ? app.metrics.registry : undefined,
+    metricsEnabled: app.metrics.enabled
+  });
+  await initializeFilestoreEvents({ config });
   await registerSystemRoutes(app);
   await registerV1Routes(app);
 
@@ -33,7 +43,9 @@ export async function buildApp(options?: BuildAppOptions) {
   });
 
   app.addHook('onClose', async () => {
+    await shutdownFilestoreEvents();
     await closePool();
+    await shutdownRollupManager();
   });
 
   return { app, config };

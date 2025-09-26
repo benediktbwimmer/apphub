@@ -4,6 +4,8 @@ import { runCommand } from '../../commands/orchestrator';
 import { getNodeById, getNodeByPath, type NodeRecord } from '../../db/nodes';
 import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
+import { getRollupSummary } from '../../rollup/manager';
+import type { RollupSummary } from '../../rollup/types';
 
 const createDirectorySchema = z.object({
   backendMountId: z.number().int().positive(),
@@ -24,7 +26,23 @@ const nodeByPathQuerySchema = z.object({
   path: z.string().min(1)
 });
 
-function serializeNode(node: NodeRecord) {
+function serializeRollup(summary: RollupSummary | null) {
+  if (!summary) {
+    return null;
+  }
+  return {
+    nodeId: summary.nodeId,
+    sizeBytes: summary.sizeBytes,
+    fileCount: summary.fileCount,
+    directoryCount: summary.directoryCount,
+    childCount: summary.childCount,
+    state: summary.state,
+    lastCalculatedAt: summary.lastCalculatedAt ? summary.lastCalculatedAt.toISOString() : null
+  };
+}
+
+async function serializeNode(node: NodeRecord) {
+  const rollup = await getRollupSummary(node.id);
   return {
     id: node.id,
     backendMountId: node.backendMountId,
@@ -44,7 +62,8 @@ function serializeNode(node: NodeRecord) {
     lastModifiedAt: node.lastModifiedAt,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
-    deletedAt: node.deletedAt
+    deletedAt: node.deletedAt,
+    rollup: serializeRollup(rollup)
   };
 }
 
@@ -141,11 +160,12 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       });
 
       const status = result.idempotent ? 200 : 201;
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
       return reply.status(status).send({
         data: {
           idempotent: result.idempotent,
           journalEntryId: result.journalEntryId,
-          node: result.node ? serializeNode(result.node) : null,
+          node: nodePayload,
           result: result.result
         }
       });
@@ -182,11 +202,12 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         principal
       });
 
+      const nodePayload = result.node ? await serializeNode(result.node) : null;
       return reply.status(200).send({
         data: {
           idempotent: result.idempotent,
           journalEntryId: result.journalEntryId,
-          node: result.node ? serializeNode(result.node) : null,
+          node: nodePayload,
           result: result.result
         }
       });
@@ -216,7 +237,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    return reply.status(200).send({ data: serializeNode(node) });
+    return reply.status(200).send({ data: await serializeNode(node) });
   });
 
   app.get('/v1/nodes/by-path', async (request, reply) => {
@@ -245,6 +266,6 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    return reply.status(200).send({ data: serializeNode(node) });
+    return reply.status(200).send({ data: await serializeNode(node) });
   });
 }

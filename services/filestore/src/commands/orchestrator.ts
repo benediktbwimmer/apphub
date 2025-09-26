@@ -17,6 +17,13 @@ import { resolveExecutor } from '../executors/registry';
 import type { CommandExecutor, ExecutorResult } from '../executors/types';
 import type { BackendMountRecord } from '../db/backendMounts';
 import { emitCommandCompleted } from '../events/bus';
+import {
+  applyRollupPlanWithinTransaction,
+  finalizeRollupPlan,
+  collectAncestorChain,
+  computeContribution
+} from '../rollup/manager';
+import { createEmptyRollupPlan, type AppliedRollupPlan, type RollupPlan } from '../rollup/types';
 
 export type RunCommandOptions = {
   command: unknown;
@@ -41,7 +48,19 @@ type InternalCommandOutcome = {
   affectedNodeIds: number[];
   backendMountId: number;
   result: CommandResultPayload;
+  rollupPlan: RollupPlan;
 };
+
+type Contribution = ReturnType<typeof computeContribution>;
+
+function diffContribution(before: Contribution, after: Contribution) {
+  return {
+    sizeBytesDelta: after.sizeBytes - before.sizeBytes,
+    fileCountDelta: after.fileCount - before.fileCount,
+    directoryCountDelta: after.directoryCount - before.directoryCount,
+    childCountDelta: (after.active ? 1 : 0) - (before.active ? 1 : 0)
+  };
+}
 
 async function applyCreateDirectory(
   client: PoolClient,
@@ -61,21 +80,23 @@ async function applyCreateDirectory(
 
   const parentPath = getParentPath(normalizedPath);
   let parentId: number | null = null;
+  let parent: NodeRecord | null = null;
   if (parentPath) {
-    const parent = await getNodeByPath(client, backend.id, parentPath, { forUpdate: true });
-    if (!parent) {
+    const resolvedParent = await getNodeByPath(client, backend.id, parentPath, { forUpdate: true });
+    if (!resolvedParent) {
       throw new FilestoreError('Parent directory not found', 'PARENT_NOT_FOUND', {
         backendMountId: backend.id,
         path: parentPath
       });
     }
-    if (parent.kind !== 'directory') {
+    if (resolvedParent.kind !== 'directory') {
       throw new FilestoreError('Parent is not a directory', 'NOT_A_DIRECTORY', {
         backendMountId: backend.id,
         path: parentPath
       });
     }
-    parentId = parent.id;
+    parent = resolvedParent;
+    parentId = resolvedParent.id;
   }
 
   const executorResult = await executor.execute(command, { backend });
@@ -118,11 +139,56 @@ async function applyCreateDirectory(
 
   await recordSnapshot(client, node);
 
+  const rollupPlan: RollupPlan = {
+    ensure: [node.id],
+    increments: [],
+    invalidate: [],
+    touchedNodeIds: [node.id],
+    scheduleCandidates: []
+  };
+
+  const beforeContribution = computeContribution(existing && existing.state === 'active' ? existing : null);
+  const afterContribution = computeContribution(node);
+  const contributionDiff = diffContribution(beforeContribution, afterContribution);
+
+  if (parent) {
+    const ancestors = await collectAncestorChain(client, parent);
+    ancestors.forEach((ancestor, index) => {
+      const childCountDelta = index === 0 ? contributionDiff.childCountDelta : 0;
+      if (
+        contributionDiff.sizeBytesDelta !== 0 ||
+        contributionDiff.fileCountDelta !== 0 ||
+        contributionDiff.directoryCountDelta !== 0 ||
+        childCountDelta !== 0
+      ) {
+        rollupPlan.increments.push({
+          nodeId: ancestor.id,
+          sizeBytesDelta: contributionDiff.sizeBytesDelta,
+          fileCountDelta: contributionDiff.fileCountDelta,
+          directoryCountDelta: contributionDiff.directoryCountDelta,
+          childCountDelta,
+          markPending: false
+        });
+        rollupPlan.touchedNodeIds.push(ancestor.id);
+        if (index === 0) {
+          rollupPlan.scheduleCandidates.push({
+            nodeId: ancestor.id,
+            backendMountId: backend.id,
+            reason: 'mutation',
+            depth: ancestor.depth,
+            childCountDelta
+          });
+        }
+      }
+    });
+  }
+
   return {
     primaryNode: node,
     affectedNodeIds: [node.id],
     backendMountId: backend.id,
-    result: buildResultPayload(node, command.type)
+    result: buildResultPayload(node, command.type),
+    rollupPlan
   };
 }
 
@@ -145,6 +211,8 @@ async function applyDeleteNode(
     await ensureNoActiveChildren(client, existing.id);
   }
 
+  const parentNode = existing.parentId ? await getNodeById(client, existing.parentId, { forUpdate: true }) : null;
+
   await executor.execute(command, { backend });
 
   if (existing.state === 'deleted') {
@@ -152,7 +220,14 @@ async function applyDeleteNode(
       primaryNode: existing,
       affectedNodeIds: [existing.id],
       backendMountId: backend.id,
-      result: buildResultPayload(existing, command.type)
+      result: buildResultPayload(existing, command.type),
+      rollupPlan: {
+        ensure: [],
+        increments: [],
+        invalidate: [],
+        touchedNodeIds: [],
+        scheduleCandidates: []
+      }
     };
   }
 
@@ -166,11 +241,56 @@ async function applyDeleteNode(
 
   await recordSnapshot(client, updated);
 
+  const rollupPlan: RollupPlan = {
+    ensure: [],
+    increments: [],
+    invalidate: [{ nodeId: updated.id, state: 'invalid' }],
+    touchedNodeIds: [updated.id],
+    scheduleCandidates: []
+  };
+
+  const beforeContribution = computeContribution(existing);
+  const afterContribution = computeContribution(null);
+  const contributionDiff = diffContribution(beforeContribution, afterContribution);
+
+  if (parentNode) {
+    const ancestors = await collectAncestorChain(client, parentNode);
+    ancestors.forEach((ancestor, index) => {
+      const childCountDelta = index === 0 ? contributionDiff.childCountDelta : 0;
+      if (
+        contributionDiff.sizeBytesDelta !== 0 ||
+        contributionDiff.fileCountDelta !== 0 ||
+        contributionDiff.directoryCountDelta !== 0 ||
+        childCountDelta !== 0
+      ) {
+        rollupPlan.increments.push({
+          nodeId: ancestor.id,
+          sizeBytesDelta: contributionDiff.sizeBytesDelta,
+          fileCountDelta: contributionDiff.fileCountDelta,
+          directoryCountDelta: contributionDiff.directoryCountDelta,
+          childCountDelta,
+          markPending: false
+        });
+        rollupPlan.touchedNodeIds.push(ancestor.id);
+        if (index === 0) {
+          rollupPlan.scheduleCandidates.push({
+            nodeId: ancestor.id,
+            backendMountId: backend.id,
+            reason: 'mutation',
+            depth: ancestor.depth,
+            childCountDelta
+          });
+        }
+      }
+    });
+  }
+
   return {
     primaryNode: updated,
     affectedNodeIds: [updated.id],
     backendMountId: backend.id,
-    result: buildResultPayload(updated, command.type)
+    result: buildResultPayload(updated, command.type),
+    rollupPlan
   };
 }
 
@@ -268,6 +388,8 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
 
   let emitted: InternalCommandOutcome | null = null;
   let runtimeExecutor: CommandExecutor | undefined;
+  let appliedRollupPlan: AppliedRollupPlan = { updated: new Map() };
+  let rollupPlan: RollupPlan = createEmptyRollupPlan();
 
   const outcome: RunCommandResult = await withTransaction(async (client) => {
     const backend = await getBackendMountById(client, parsed.backendMountId);
@@ -312,6 +434,8 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     const startTime = process.hrtime.bigint();
 
     emitted = await executeCommand(client, backend, parsed, runtimeExecutor);
+    rollupPlan = emitted.rollupPlan;
+    appliedRollupPlan = await applyRollupPlanWithinTransaction(client, rollupPlan);
 
     const durationNs = Number(process.hrtime.bigint() - startTime);
     const durationMs = Math.round(durationNs / 1_000_000);
@@ -343,6 +467,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
   });
 
   if (emitted !== null) {
+    await finalizeRollupPlan(rollupPlan, appliedRollupPlan);
     const eventDetails: InternalCommandOutcome = emitted;
     const eventPath =
       outcome.node?.path ??
@@ -356,6 +481,8 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
       nodeId: outcome.node?.id ?? null,
       path: eventPath,
       idempotencyKey: options.idempotencyKey,
+      principal: options.principal ?? null,
+      node: outcome.node ?? null,
       result: outcome.result
     });
   }

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import type { NodeRecord } from '../db/nodes';
 
 export type CommandCompletedEvent = {
   command: string;
@@ -7,6 +8,8 @@ export type CommandCompletedEvent = {
   nodeId: number | null;
   path: string;
   idempotencyKey?: string | null;
+  principal?: string | null;
+  node?: NodeRecord | null;
   result: Record<string, unknown>;
 };
 
