@@ -5,6 +5,7 @@ import { ROUTE_PATHS } from '../routes/paths';
 const NAV_ITEMS: ReadonlyArray<{ key: string; label: string; path: string; end?: boolean }> = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.servicesOverview, end: true },
   { key: 'timestore', label: 'Timestore', path: ROUTE_PATHS.servicesTimestore },
+  { key: 'filestore', label: 'Filestore', path: ROUTE_PATHS.servicesFilestore },
   { key: 'metastore', label: 'Metastore', path: ROUTE_PATHS.servicesMetastore }
 ];
 

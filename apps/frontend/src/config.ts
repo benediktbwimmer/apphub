@@ -18,3 +18,8 @@ export const METASTORE_BASE_URL = normalizeBaseUrl(
   import.meta.env.VITE_METASTORE_BASE_URL,
   `${API_BASE_URL}/metastore`
 );
+
+export const FILESTORE_BASE_URL = normalizeBaseUrl(
+  import.meta.env.VITE_FILESTORE_BASE_URL,
+  `${API_BASE_URL}/filestore`
+);

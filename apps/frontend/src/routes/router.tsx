@@ -11,6 +11,7 @@ import TimestoreDatasetsPage from '../timestore/TimestoreDatasetsPage';
 import TimestoreLayout from '../timestore/TimestoreLayout';
 import TimestoreSqlEditorPage from '../timestore/sql/TimestoreSqlEditorPage';
 import MetastoreExplorerPage from '../metastore/MetastoreExplorerPage';
+import FilestoreLayout from '../filestore/FilestoreLayout';
 import ServicesRouteError from '../services/ServicesRouteError';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
@@ -75,6 +76,10 @@ export const appRouteConfig: RouteObject[] = [
                 element: <TimestoreSqlEditorPage />
               }
             ]
+          },
+          {
+            path: ROUTE_SEGMENTS.servicesFilestore,
+            element: <FilestoreLayout />
           },
           {
             path: ROUTE_SEGMENTS.servicesMetastore,

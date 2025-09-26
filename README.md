@@ -134,6 +134,8 @@ npm run dev --workspace @apphub/frontend
 
 The Vite dev server binds to `http://localhost:5173`.
 
+Override `VITE_FILESTORE_BASE_URL` in `.env.local` when the filestore service runs on a distinct origin from the catalog proxy.
+
 ### Docker Images
 
 Build the combined API + worker + frontend image:

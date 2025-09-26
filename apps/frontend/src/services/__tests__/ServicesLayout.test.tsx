@@ -8,12 +8,13 @@ function renderWithRouter(initialPath: string) {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="/services" element={<ServicesLayout />}>
-          <Route index element={<div>Redirect</div>} />
-          <Route path="overview" element={<div>Overview content</div>} />
-          <Route path="timestore" element={<div>Timestore content</div>} />
-          <Route path="metastore" element={<div>Metastore content</div>} />
-        </Route>
+          <Route path="/services" element={<ServicesLayout />}>
+            <Route index element={<div>Redirect</div>} />
+            <Route path="overview" element={<div>Overview content</div>} />
+            <Route path="timestore" element={<div>Timestore content</div>} />
+            <Route path="filestore" element={<div>Filestore content</div>} />
+            <Route path="metastore" element={<div>Metastore content</div>} />
+          </Route>
       </Routes>
     </MemoryRouter>
   );
@@ -25,8 +26,8 @@ describe('ServicesLayout', () => {
     const nav = screen.getByRole('navigation', { name: /service sections/i });
     expect(nav).toBeInTheDocument();
 
-    const tabs = screen.getAllByRole('link', { name: /overview|timestore|metastore/i });
-    expect(tabs).toHaveLength(3);
+    const tabs = screen.getAllByRole('link');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Overview', 'Timestore', 'Filestore', 'Metastore']);
 
     const overviewLink = screen.getByRole('link', { name: 'Overview' });
     expect(overviewLink).toHaveAttribute('aria-current', 'page');
@@ -40,12 +41,12 @@ describe('ServicesLayout', () => {
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('link', { name: 'Metastore' }));
+    await user.click(screen.getByRole('link', { name: 'Filestore' }));
 
     await waitFor(() => {
       expect(heading).toHaveFocus();
     });
-    expect(screen.getByText('Metastore content')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Metastore' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('Filestore content')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Filestore' })).toHaveAttribute('aria-current', 'page');
   });
 });

@@ -9,6 +9,7 @@ Set the following variables in `.env.local` to target locally running services:
 - `VITE_API_BASE_URL` – Catalog API base URL (defaults to `http://localhost:4000`).
 - `VITE_TIMESTORE_BASE_URL` – Timestore API base URL (defaults to `${VITE_API_BASE_URL}/timestore`).
 - `VITE_METASTORE_BASE_URL` – Metastore API base URL (defaults to `${VITE_API_BASE_URL}/metastore`).
+- `VITE_FILESTORE_BASE_URL` – Filestore API base URL (defaults to `${VITE_API_BASE_URL}/filestore`).
 
 Currently, two official plugins are available:
 

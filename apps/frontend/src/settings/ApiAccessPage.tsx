@@ -19,6 +19,18 @@ const SCOPE_METADATA: Record<string, { title: string; description: string }> = {
     title: 'Administer metastore',
     description: 'Permanently purge records and manage token reloads.'
   },
+  'filestore:read': {
+    title: 'Read filestore nodes',
+    description: 'Inspect directories and node metadata across backends.'
+  },
+  'filestore:write': {
+    title: 'Write filestore nodes',
+    description: 'Create directories, update metadata, and prune nodes.'
+  },
+  'filestore:admin': {
+    title: 'Administer filestore',
+    description: 'Trigger reconciliations, enforce consistency, and manage backends.'
+  },
   'jobs:run': {
     title: 'Run jobs',
     description: 'Enqueue existing job definitions for execution.'
@@ -136,14 +148,14 @@ export default function ApiAccessPage() {
 
   const availableScopes = useMemo(() => identity?.scopes ?? [], [identity]);
 
-  const orderedScopes = useMemo(
-    () =>
-      Array.from(new Set([...availableScopes, ...Object.keys(SCOPE_METADATA)])).map((scope) => ({
-        id: scope,
-        meta: SCOPE_METADATA[scope] ?? { title: scope, description: '' }
-      })),
-    [availableScopes]
-  );
+  const orderedScopes = useMemo(() => {
+    const combined = Array.from(new Set([...availableScopes, ...Object.keys(SCOPE_METADATA)]));
+    combined.sort((a, b) => a.localeCompare(b));
+    return combined.map((scope) => ({
+      id: scope,
+      meta: SCOPE_METADATA[scope] ?? { title: scope, description: '' }
+    }));
+  }, [availableScopes]);
 
   const handleScopeToggle = (scope: string) => {
     setSelectedScopes((prev) => {
