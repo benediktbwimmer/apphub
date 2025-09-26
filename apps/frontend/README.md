@@ -11,6 +11,12 @@ Set the following variables in `.env.local` to target locally running services:
 - `VITE_METASTORE_BASE_URL` – Metastore API base URL (defaults to `${VITE_API_BASE_URL}/metastore`).
 - `VITE_FILESTORE_BASE_URL` – Filestore API base URL (defaults to `${VITE_API_BASE_URL}/filestore`).
 
+## Filestore explorer
+
+- The services console now includes a Filestore explorer at `/services/filestore`. Supply an operator token with the `filestore:read` scope (and `filestore:write` for reconciliation controls) via the auth dropdown in the UI.
+- Point the explorer at a running Filestore instance by setting `VITE_FILESTORE_BASE_URL` in `.env.local` (defaults to `${VITE_API_BASE_URL}/filestore`).
+- The page consumes the typed helpers in `apps/frontend/src/filestore/api.ts` for listings, node detail polling, and SSE activity feeds.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh

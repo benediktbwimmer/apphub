@@ -71,6 +71,14 @@ export const filestoreNodeResponseSchema = z.object({
   data: filestoreNodeSchema
 });
 
+export const filestorePaginationSchema = z.object({
+  total: z.number().nonnegative(),
+  limit: z.number().positive(),
+  offset: z.number().nonnegative(),
+  nextOffset: z.number().nullable()
+});
+export type FilestorePagination = z.infer<typeof filestorePaginationSchema>;
+
 export const filestoreCommandResponseEnvelopeSchema = z.object({
   data: filestoreCommandResponseSchema
 });
@@ -81,6 +89,38 @@ export const filestoreReconciliationEnvelopeSchema = z.object({
 
 export const filestoreReconciliationReasonSchema = z.enum(['drift', 'audit', 'manual']);
 export type FilestoreReconciliationReason = z.infer<typeof filestoreReconciliationReasonSchema>;
+
+export const filestoreNodeListEnvelopeSchema = z.object({
+  data: z.object({
+    nodes: z.array(filestoreNodeSchema),
+    pagination: filestorePaginationSchema,
+    filters: z.object({
+      backendMountId: z.number(),
+      path: z.string().nullable(),
+      depth: z.number().nullable(),
+      states: z.array(filestoreNodeStateSchema),
+      kinds: z.array(filestoreNodeKindSchema),
+      search: z.string().nullable(),
+      driftOnly: z.boolean()
+    })
+  })
+});
+export type FilestoreNodeList = z.infer<typeof filestoreNodeListEnvelopeSchema>['data'];
+
+export const filestoreNodeChildrenEnvelopeSchema = z.object({
+  data: z.object({
+    parent: filestoreNodeSchema,
+    children: z.array(filestoreNodeSchema),
+    pagination: filestorePaginationSchema,
+    filters: z.object({
+      states: z.array(filestoreNodeStateSchema),
+      kinds: z.array(filestoreNodeKindSchema),
+      search: z.string().nullable(),
+      driftOnly: z.boolean()
+    })
+  })
+});
+export type FilestoreNodeChildren = z.infer<typeof filestoreNodeChildrenEnvelopeSchema>['data'];
 
 export const filestoreNodeEventPayloadSchema = z.object({
   backendMountId: z.number(),

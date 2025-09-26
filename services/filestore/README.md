@@ -65,5 +65,13 @@ For local development without Redis, use the SSE endpoint exposed at `/v1/events
 - `GET /healthz` / `GET /health` – Liveness probe.
 - `GET /readyz` / `GET /ready` – Readiness probe that validates Postgres connectivity.
 - `GET /metrics` – Prometheus metrics, guarded by `FILESTORE_METRICS_ENABLED`.
+- `GET /v1/nodes` – Paginated node listing with filters for backend mount (`backendMountId`), path prefix (`path`), depth (`depth`), node states (`states`), drift-only (`driftOnly`), and free-text search (`search`).
+- `GET /v1/nodes/:id` – Fetch a specific node (including rollup summary) by numeric identifier.
+- `GET /v1/nodes/:id/children` – Return immediate children for a node with optional state/search filters.
+- `GET /v1/nodes/by-path` – Resolve a node by backend mount and relative path.
+- `POST /v1/directories` – Create directories (idempotent when `Idempotency-Key` provided).
+- `DELETE /v1/nodes` – Soft-delete nodes by path, optionally recursively.
+- `POST /v1/reconciliation` – Enqueue reconciliation jobs for drift or manual inspections.
+- `GET /v1/events/stream` – Server-Sent Events stream for local observers when Redis is disabled.
 
 Migrations run automatically during startup; the service terminates if schema creation or migration fails.

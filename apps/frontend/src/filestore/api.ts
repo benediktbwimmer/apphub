@@ -4,12 +4,18 @@ import { z } from 'zod';
 import {
   filestoreCommandResponseEnvelopeSchema,
   filestoreEventSchema,
+  filestoreNodeChildrenEnvelopeSchema,
+  filestoreNodeListEnvelopeSchema,
   filestoreNodeResponseSchema,
   filestoreReconciliationEnvelopeSchema,
   type FilestoreCommandResponse,
   type FilestoreEvent,
   type FilestoreEventType,
+  type FilestoreNodeChildren,
+  type FilestoreNodeKind,
+  type FilestoreNodeList,
   type FilestoreNode,
+  type FilestoreNodeState,
   type FilestoreReconciliationReason,
   type FilestoreReconciliationResult
 } from './types';
@@ -23,6 +29,36 @@ type JsonHeadersOptions = {
 
 type RequestOptions = {
   signal?: AbortSignal;
+};
+
+function appendQueryValues(params: URLSearchParams, key: string, values?: readonly string[]) {
+  if (!values || values.length === 0) {
+    return;
+  }
+  for (const value of values) {
+    params.append(key, value);
+  }
+}
+
+export type ListNodesParams = {
+  backendMountId: number;
+  limit?: number;
+  offset?: number;
+  path?: string | null;
+  depth?: number | null;
+  search?: string | null;
+  states?: FilestoreNodeState[];
+  kinds?: FilestoreNodeKind[];
+  driftOnly?: boolean;
+};
+
+export type FetchNodeChildrenParams = {
+  limit?: number;
+  offset?: number;
+  search?: string | null;
+  states?: FilestoreNodeState[];
+  kinds?: FilestoreNodeKind[];
+  driftOnly?: boolean;
 };
 
 export type CreateDirectoryInput = {
@@ -179,6 +215,66 @@ export async function fetchNodeByPath(
   url.searchParams.set('path', input.path);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   const payload = await parseJsonOrThrow(response, filestoreNodeResponseSchema);
+  return payload.data;
+}
+
+export async function listNodes(
+  authorizedFetch: AuthorizedFetch,
+  params: ListNodesParams,
+  options: RequestOptions = {}
+): Promise<FilestoreNodeList> {
+  const url = new URL('/v1/nodes', FILESTORE_BASE_URL);
+  url.searchParams.set('backendMountId', String(params.backendMountId));
+  if (params.limit && params.limit > 0) {
+    url.searchParams.set('limit', String(params.limit));
+  }
+  if (params.offset && params.offset > 0) {
+    url.searchParams.set('offset', String(params.offset));
+  }
+  if (params.path && params.path.trim().length > 0) {
+    url.searchParams.set('path', params.path.trim());
+  }
+  if (typeof params.depth === 'number' && Number.isFinite(params.depth)) {
+    url.searchParams.set('depth', String(params.depth));
+  }
+  if (params.search && params.search.trim().length > 0) {
+    url.searchParams.set('search', params.search.trim());
+  }
+  if (params.driftOnly) {
+    url.searchParams.set('driftOnly', 'true');
+  }
+  appendQueryValues(url.searchParams, 'states', params.states);
+  appendQueryValues(url.searchParams, 'kinds', params.kinds);
+
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  const payload = await parseJsonOrThrow(response, filestoreNodeListEnvelopeSchema);
+  return payload.data;
+}
+
+export async function fetchNodeChildren(
+  authorizedFetch: AuthorizedFetch,
+  nodeId: number,
+  params: FetchNodeChildrenParams = {},
+  options: RequestOptions = {}
+): Promise<FilestoreNodeChildren> {
+  const url = new URL(`/v1/nodes/${nodeId}/children`, FILESTORE_BASE_URL);
+  if (params.limit && params.limit > 0) {
+    url.searchParams.set('limit', String(params.limit));
+  }
+  if (params.offset && params.offset > 0) {
+    url.searchParams.set('offset', String(params.offset));
+  }
+  if (params.search && params.search.trim().length > 0) {
+    url.searchParams.set('search', params.search.trim());
+  }
+  if (params.driftOnly) {
+    url.searchParams.set('driftOnly', 'true');
+  }
+  appendQueryValues(url.searchParams, 'states', params.states);
+  appendQueryValues(url.searchParams, 'kinds', params.kinds);
+
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  const payload = await parseJsonOrThrow(response, filestoreNodeChildrenEnvelopeSchema);
   return payload.data;
 }
 
@@ -366,7 +462,16 @@ export function subscribeToFilestoreEvents(
   };
 }
 
-export type { FilestoreEvent, FilestoreEventType, FilestoreNode } from './types';
+export type {
+  FilestoreEvent,
+  FilestoreEventType,
+  FilestoreNode,
+  FilestoreNodeChildren,
+  FilestoreNodeList,
+  FilestorePagination,
+  FilestoreNodeState,
+  FilestoreNodeKind
+} from './types';
 export type {
   FilestoreCommandCompletedPayload,
   FilestoreCommandResponse,

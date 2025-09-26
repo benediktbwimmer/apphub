@@ -175,6 +175,153 @@ runE2E(async ({ registerCleanup }) => {
   const countAfterIdempotent = await getJournalCount(dbClientModule);
   assert.equal(countAfterIdempotent, countAfterCreate);
 
+  const catalogResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/directories',
+    payload: {
+      backendMountId,
+      path: 'datasets/catalog'
+    }
+  });
+  assert.equal(catalogResponse.statusCode, 201, catalogResponse.body);
+  const catalogBody = catalogResponse.json() as {
+    data: { node: { id: number; path: string } | null; journalEntryId: number };
+  };
+  const catalogId = catalogBody.data.node?.id;
+  assert.equal(catalogBody.data.node?.path, 'datasets/catalog');
+
+  const rawResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/directories',
+    payload: {
+      backendMountId,
+      path: 'datasets/observatory/raw'
+    }
+  });
+  assert.equal(rawResponse.statusCode, 201, rawResponse.body);
+  const rawBody = rawResponse.json() as {
+    data: { node: { id: number; path: string } | null };
+  };
+  const rawId = rawBody.data.node?.id;
+  assert.equal(rawBody.data.node?.path, 'datasets/observatory/raw');
+  assert.ok(rawId);
+
+  const processedResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/directories',
+    payload: {
+      backendMountId,
+      path: 'datasets/observatory/processed'
+    }
+  });
+  assert.equal(processedResponse.statusCode, 201, processedResponse.body);
+  const processedBody = processedResponse.json() as {
+    data: { node: { id: number; path: string } | null };
+  };
+  assert.equal(processedBody.data.node?.path, 'datasets/observatory/processed');
+
+  const listResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?backendMountId=${backendMountId}&limit=2`
+  });
+  assert.equal(listResponse.statusCode, 200, listResponse.body);
+  const listBody = listResponse.json() as {
+    data: {
+      nodes: Array<{ path: string }>;
+      pagination: { total: number; limit: number; offset: number; nextOffset: number | null };
+      filters: { backendMountId: number; path: string | null; depth: number | null; states: string[]; kinds: string[]; search: string | null; driftOnly: boolean };
+    };
+  };
+  assert.equal(listBody.data.nodes.length, 2);
+  assert.equal(listBody.data.pagination.limit, 2);
+  assert.equal(listBody.data.pagination.offset, 0);
+  assert.equal(listBody.data.pagination.nextOffset, 2);
+  assert.ok(listBody.data.pagination.total >= 4);
+  assert.equal(listBody.data.filters.backendMountId, backendMountId);
+  assert.equal(listBody.data.filters.path, null);
+  assert.equal(listBody.data.filters.driftOnly, false);
+  assert.deepEqual(listBody.data.filters.states, []);
+
+  const scopedListResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?backendMountId=${backendMountId}&path=datasets&depth=1`
+  });
+  assert.equal(scopedListResponse.statusCode, 200, scopedListResponse.body);
+  const scopedListBody = scopedListResponse.json() as {
+    data: {
+      nodes: Array<{ path: string }>;
+      filters: { path: string | null; depth: number | null };
+    };
+  };
+  assert.equal(scopedListBody.data.filters.path, 'datasets');
+  assert.equal(scopedListBody.data.filters.depth, 1);
+  const scopedPaths = scopedListBody.data.nodes.map((node) => node.path);
+  assert.ok(scopedPaths.includes('datasets'));
+  assert.ok(scopedPaths.includes('datasets/catalog'));
+  assert.ok(scopedPaths.includes('datasets/observatory'));
+
+  const searchResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?backendMountId=${backendMountId}&search=raw`
+  });
+  assert.equal(searchResponse.statusCode, 200, searchResponse.body);
+  const searchBody = searchResponse.json() as {
+    data: { nodes: Array<{ path: string }>; filters: { search: string | null } };
+  };
+  assert.equal(searchBody.data.filters.search, 'raw');
+  assert.ok(searchBody.data.nodes.some((node) => node.path.endsWith('/raw')));
+
+  const childrenResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes/${nodeId}/children?limit=10`
+  });
+  assert.equal(childrenResponse.statusCode, 200, childrenResponse.body);
+  const childrenBody = childrenResponse.json() as {
+    data: {
+      parent: { id: number; path: string };
+      children: Array<{ path: string }>;
+      pagination: { total: number };
+      filters: { driftOnly: boolean; search: string | null };
+    };
+  };
+  assert.equal(childrenBody.data.parent.id, nodeId);
+  assert.equal(childrenBody.data.pagination.total, 2);
+  const childPaths = childrenBody.data.children.map((node) => node.path);
+  assert.ok(childPaths.includes('datasets/observatory/raw'));
+  assert.ok(childPaths.includes('datasets/observatory/processed'));
+  assert.equal(childrenBody.data.filters.driftOnly, false);
+  assert.equal(childrenBody.data.filters.search, null);
+
+  assert.ok(catalogId);
+  if (catalogId) {
+    await dbClientModule.withConnection(async (client) => {
+      await client.query(
+        `UPDATE nodes
+            SET consistency_state = 'inconsistent',
+                last_drift_detected_at = NOW()
+          WHERE id = $1`,
+        [catalogId]
+      );
+    });
+  }
+
+  const driftResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?backendMountId=${backendMountId}&driftOnly=true`
+  });
+  assert.equal(driftResponse.statusCode, 200, driftResponse.body);
+  const driftBody = driftResponse.json() as {
+    data: {
+      nodes: Array<{ id: number; consistencyState: string; lastDriftDetectedAt: string | null }>;
+      filters: { driftOnly: boolean };
+    };
+  };
+  assert.equal(driftBody.data.filters.driftOnly, true);
+  assert.ok(driftBody.data.nodes.length >= 1);
+  if (catalogId) {
+    assert.ok(driftBody.data.nodes.some((node) => node.id === catalogId));
+  }
+
   const byIdResponse = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });
   assert.equal(byIdResponse.statusCode, 200, byIdResponse.body);
   const byIdBody = byIdResponse.json() as {
@@ -195,14 +342,15 @@ runE2E(async ({ registerCleanup }) => {
     data: { rollup: { directoryCount: number; childCount: number; state: string } | null };
   };
   assert.ok(byPathBody.data.rollup);
-  assert.equal(byPathBody.data.rollup?.directoryCount, 0);
+  assert.equal(byPathBody.data.rollup?.directoryCount, 2);
 
   const deleteResponse = await app.inject({
     method: 'DELETE',
     url: '/v1/nodes',
     payload: {
       backendMountId,
-      path: 'datasets/observatory'
+      path: 'datasets/observatory',
+      recursive: true
     }
   });
   assert.equal(deleteResponse.statusCode, 200, deleteResponse.body);
@@ -212,6 +360,20 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(deleteBody.data.node?.state, 'deleted');
   assert.ok(deleteBody.data.node?.rollup);
   assert.equal(deleteBody.data.node?.rollup?.state, 'invalid');
+
+  const deletedListResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?backendMountId=${backendMountId}&states=deleted`
+  });
+  assert.equal(deletedListResponse.statusCode, 200, deletedListResponse.body);
+  const deletedListBody = deletedListResponse.json() as {
+    data: {
+      nodes: Array<{ path: string; state: string }>;
+      filters: { states: string[] };
+    };
+  };
+  assert.ok(deletedListBody.data.nodes.some((node) => node.path === 'datasets/observatory'));
+  assert.deepEqual(deletedListBody.data.filters.states, ['deleted']);
 
   const afterDeleteById = await app.inject({ method: 'GET', url: `/v1/nodes/${nodeId}` });
   assert.equal(afterDeleteById.statusCode, 200, afterDeleteById.body);

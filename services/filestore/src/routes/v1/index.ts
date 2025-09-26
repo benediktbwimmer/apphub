@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { runCommand } from '../../commands/orchestrator';
-import { getNodeById, getNodeByPath, type NodeRecord } from '../../db/nodes';
+import {
+  getNodeById,
+  getNodeByPath,
+  listNodeChildren,
+  listNodes,
+  type NodeKind,
+  type NodeRecord,
+  type NodeState
+} from '../../db/nodes';
 import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
 import { getRollupSummary } from '../../rollup/manager';
@@ -9,6 +17,7 @@ import type { RollupSummary } from '../../rollup/types';
 import { subscribeToFilestoreEvents } from '../../events/publisher';
 import { ensureReconciliationManager } from '../../reconciliation/manager';
 import type { ReconciliationReason } from '../../reconciliation/types';
+import { getNodeDepth, normalizePath } from '../../utils/path';
 
 const createDirectorySchema = z.object({
   backendMountId: z.number().int().positive(),
@@ -36,6 +45,82 @@ const reconciliationRequestSchema = z.object({
   reason: z.enum(['drift', 'audit', 'manual']).optional(),
   detectChildren: z.boolean().optional(),
   requestedHash: z.boolean().optional()
+});
+
+const nodeStateFilterSchema = z.enum(['active', 'inconsistent', 'missing', 'deleted']);
+const nodeKindFilterSchema = z.enum(['file', 'directory']);
+
+function preprocessQueryArray(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (value.includes(',')) {
+      return value
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  }
+  return [value];
+}
+
+function preprocessBooleanQuery(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return value;
+}
+
+const optionalStateFilterSchema = z
+  .preprocess(preprocessQueryArray, z.array(nodeStateFilterSchema).min(1))
+  .optional();
+
+const optionalKindFilterSchema = z
+  .preprocess(preprocessQueryArray, z.array(nodeKindFilterSchema).min(1))
+  .optional();
+
+const booleanQuerySchema = z.preprocess(preprocessBooleanQuery, z.boolean()).optional();
+
+const listNodesQuerySchema = z.object({
+  backendMountId: z.coerce.number().int().positive(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  path: z.string().min(1).optional(),
+  depth: z.coerce.number().int().min(0).max(10).optional(),
+  search: z.string().min(1).optional(),
+  states: optionalStateFilterSchema,
+  kinds: optionalKindFilterSchema,
+  driftOnly: booleanQuerySchema
+});
+
+const listChildrenQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+  search: z.string().min(1).optional(),
+  states: optionalStateFilterSchema,
+  kinds: optionalKindFilterSchema,
+  driftOnly: booleanQuerySchema
 });
 
 function serializeRollup(summary: RollupSummary | null) {
@@ -225,6 +310,170 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           journalEntryId: result.journalEntryId,
           node: nodePayload,
           result: result.result
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get('/v1/nodes', async (request, reply) => {
+    const parseResult = listNodesQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid query parameters',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const query = parseResult.data;
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    const driftOnly = query.driftOnly ?? false;
+    const stateFilters = (query.states ?? undefined) as NodeState[] | undefined;
+    const kindFilters = (query.kinds ?? undefined) as NodeKind[] | undefined;
+    const searchTerm = query.search?.trim();
+
+    let pathPrefix: string | undefined;
+    if (query.path) {
+      try {
+        pathPrefix = normalizePath(query.path);
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    }
+
+    const maxDepth =
+      typeof query.depth === 'number'
+        ? pathPrefix
+          ? getNodeDepth(pathPrefix) + query.depth
+          : query.depth
+        : undefined;
+
+    try {
+      const result = await withConnection((client) =>
+        listNodes(client, {
+          backendMountId: query.backendMountId,
+          limit,
+          offset,
+          pathPrefix,
+          maxDepth,
+          states: stateFilters,
+          kinds: kindFilters,
+          searchTerm: searchTerm ?? undefined,
+          driftOnly
+        })
+      );
+
+      const nodesPayload = await Promise.all(result.nodes.map((node) => serializeNode(node)));
+      const nextOffset = offset + nodesPayload.length < result.total ? offset + nodesPayload.length : null;
+
+      return reply.status(200).send({
+        data: {
+          nodes: nodesPayload,
+          pagination: {
+            total: result.total,
+            limit,
+            offset,
+            nextOffset
+          },
+          filters: {
+            backendMountId: query.backendMountId,
+            path: pathPrefix ?? null,
+            depth: typeof query.depth === 'number' ? query.depth : null,
+            states: query.states ?? [],
+            kinds: query.kinds ?? [],
+            search: searchTerm ?? null,
+            driftOnly
+          }
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get('/v1/nodes/:id/children', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Node id must be a positive integer'
+        }
+      });
+    }
+
+    const parseResult = listChildrenQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid query parameters',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    let parent: NodeRecord | null;
+    try {
+      parent = await withConnection((client) => getNodeById(client, id));
+    } catch (err) {
+      return sendError(reply, err);
+    }
+
+    if (!parent) {
+      return reply.status(404).send({
+        error: {
+          code: 'NODE_NOT_FOUND',
+          message: 'Node not found'
+        }
+      });
+    }
+
+    const query = parseResult.data;
+    const limit = query.limit ?? 100;
+    const offset = query.offset ?? 0;
+    const driftOnly = query.driftOnly ?? false;
+    const stateFilters = (query.states ?? undefined) as NodeState[] | undefined;
+    const kindFilters = (query.kinds ?? undefined) as NodeKind[] | undefined;
+    const searchTerm = query.search?.trim();
+
+    try {
+      const result = await withConnection((client) =>
+        listNodeChildren(client, id, {
+          limit,
+          offset,
+          states: stateFilters,
+          kinds: kindFilters,
+          searchTerm: searchTerm ?? undefined,
+          driftOnly
+        })
+      );
+
+      const parentPayload = await serializeNode(parent);
+      const childrenPayload = await Promise.all(result.nodes.map((node) => serializeNode(node)));
+      const nextOffset = offset + childrenPayload.length < result.total ? offset + childrenPayload.length : null;
+
+      return reply.status(200).send({
+        data: {
+          parent: parentPayload,
+          children: childrenPayload,
+          pagination: {
+            total: result.total,
+            limit,
+            offset,
+            nextOffset
+          },
+          filters: {
+            states: query.states ?? [],
+            kinds: query.kinds ?? [],
+            search: searchTerm ?? null,
+            driftOnly
+          }
         }
       });
     } catch (err) {

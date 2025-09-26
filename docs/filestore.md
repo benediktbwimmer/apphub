@@ -52,6 +52,8 @@ graph TD
 ### API Gateway
 - Fastify service under `services/filestore` following catalog/metastore conventions.
 - Implements REST endpoints for node inspection, directory listing, snapshots, and mutation commands.
+- Provides browse-friendly read APIs (`GET /v1/nodes`, `GET /v1/nodes/:id`, `GET /v1/nodes/:id/children`, `GET /v1/nodes/by-path`) with filters for backend mount, path prefix, depth, node state, and drift-only queries.
+- Streams change notifications via Server-Sent Events at `/v1/events/stream` for local development or environments without Redis.
 - Handles auth, validation (zod schemas), idempotency headers, and streaming uploads/downloads.
 
 ### Command Orchestrator
@@ -82,6 +84,12 @@ graph TD
 - Catalog’s existing WebSocket relay can be extended to proxy these events to the frontend without introducing Kafka.
 - Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline`.
 - Commands receive payloads containing the journal ID, backend mount, node metadata, and idempotency key when present—ideal for syncing mirrors or triggering downstream workflows.
+
+## Operator Explorer
+
+- The web console at `/services/filestore` (apps/frontend) now renders a Filestore explorer backed by the new browse endpoints and SSE stream. It requires a token with `filestore:read` scope (and `filestore:write` for reconciliation controls).
+- Configure `VITE_FILESTORE_BASE_URL` when running the Vite dev server so the explorer points at the correct Filestore instance.
+- The UI debounces event-driven refreshes and uses typed helpers in `apps/frontend/src/filestore/api.ts` for pagination, children queries, and reconciliation commands.
 
 ## Command Flow
 

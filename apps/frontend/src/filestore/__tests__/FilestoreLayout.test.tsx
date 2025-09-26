@@ -9,6 +9,11 @@ vi.mock('../../auth/useAuth', () => ({
   useAuth: () => authContextValue
 }));
 
+vi.mock('../FilestoreExplorerPage', () => ({
+  __esModule: true,
+  default: () => <div data-testid="filestore-explorer-stub">Explorer stub</div>
+}));
+
 describe('FilestoreLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,7 +60,7 @@ describe('FilestoreLayout', () => {
     expect(screen.getByText(/filestore:read/)).toBeInTheDocument();
   });
 
-  it('presents the placeholder experience when scopes are granted', () => {
+  it('renders the explorer view when scopes are granted', () => {
     authContextValue.identity = {
       subject: 'user-1',
       kind: 'user',
@@ -71,8 +76,6 @@ describe('FilestoreLayout', () => {
 
     render(<FilestoreLayout />);
 
-    expect(screen.getByText('Filestore workspace')).toBeInTheDocument();
-    expect(screen.getByText(/Directory explorers, reconciliation monitors/)).toBeInTheDocument();
-    expect(screen.getByText(/filestore:write/)).toBeInTheDocument();
+    expect(screen.getByTestId('filestore-explorer-stub')).toBeInTheDocument();
   });
 });

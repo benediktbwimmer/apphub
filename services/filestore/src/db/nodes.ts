@@ -278,3 +278,160 @@ export async function ensureNoActiveChildren(client: PoolClient, nodeId: number)
     throw new FilestoreError('Directory contains active children', 'CHILDREN_EXIST', { nodeId });
   }
 }
+
+function escapeLikePattern(input: string): string {
+  return input.replace(/([%_\\])/g, '\\$1');
+}
+
+type ListNodesOptions = {
+  backendMountId: number;
+  limit: number;
+  offset: number;
+  pathPrefix?: string;
+  maxDepth?: number;
+  states?: NodeState[];
+  kinds?: NodeKind[];
+  searchTerm?: string;
+  driftOnly?: boolean;
+};
+
+type ListNodesResult = {
+  nodes: NodeRecord[];
+  total: number;
+};
+
+export async function listNodes(client: PoolClient, options: ListNodesOptions): Promise<ListNodesResult> {
+  const conditions: string[] = [];
+  const values: Array<string | number | boolean | NodeState[] | NodeKind[]> = [];
+
+  conditions.push(`backend_mount_id = $${values.length + 1}`);
+  values.push(options.backendMountId);
+
+  if (options.pathPrefix) {
+    const normalized = options.pathPrefix;
+    const escapedPrefix = escapeLikePattern(normalized);
+    const equalsParam = values.length + 1;
+    values.push(normalized);
+    const likeParam = values.length + 1;
+    values.push(`${escapedPrefix}/%`);
+    conditions.push(`(path = $${equalsParam} OR path LIKE $${likeParam} ESCAPE '\\')`);
+  }
+
+  if (typeof options.maxDepth === 'number') {
+    const depthParam = values.length + 1;
+    values.push(options.maxDepth);
+    conditions.push(`depth <= $${depthParam}`);
+  }
+
+  if (options.states && options.states.length > 0) {
+    const stateParam = values.length + 1;
+    values.push(options.states);
+    conditions.push(`state = ANY($${stateParam}::text[])`);
+  }
+
+  if (options.kinds && options.kinds.length > 0) {
+    const kindParam = values.length + 1;
+    values.push(options.kinds);
+    conditions.push(`kind = ANY($${kindParam}::text[])`);
+  }
+
+  if (options.driftOnly) {
+    const consistencyParam = values.length + 1;
+    values.push('active');
+    conditions.push(`(consistency_state <> $${consistencyParam} OR last_drift_detected_at IS NOT NULL)`);
+  }
+
+  if (options.searchTerm) {
+    const escapedSearch = `%${escapeLikePattern(options.searchTerm)}%`;
+    const searchParam = values.length + 1;
+    values.push(escapedSearch);
+    conditions.push(`(path ILIKE $${searchParam} ESCAPE '\\' OR name ILIKE $${searchParam} ESCAPE '\\')`);
+  }
+
+  const limitParam = values.length + 1;
+  values.push(options.limit);
+  const offsetParam = values.length + 1;
+  values.push(options.offset);
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const query = `
+    SELECT *, COUNT(*) OVER() AS total_count
+      FROM nodes
+      ${whereClause}
+     ORDER BY depth ASC, path ASC
+     LIMIT $${limitParam}
+    OFFSET $${offsetParam}
+  `;
+
+  const result = await client.query(query, values);
+  const total = result.rows.length > 0 ? Number(result.rows[0].total_count) : 0;
+  return {
+    nodes: result.rows.map(mapRow),
+    total
+  };
+}
+
+type ListChildrenOptions = {
+  limit: number;
+  offset: number;
+  states?: NodeState[];
+  kinds?: NodeKind[];
+  searchTerm?: string;
+  driftOnly?: boolean;
+};
+
+export async function listNodeChildren(
+  client: PoolClient,
+  parentId: number,
+  options: ListChildrenOptions
+): Promise<ListNodesResult> {
+  const conditions: string[] = [`parent_id = $1`];
+  const values: Array<string | number | NodeState[] | NodeKind[]> = [parentId];
+
+  if (options.states && options.states.length > 0) {
+    const stateParam = values.length + 1;
+    values.push(options.states);
+    conditions.push(`state = ANY($${stateParam}::text[])`);
+  }
+
+  if (options.kinds && options.kinds.length > 0) {
+    const kindParam = values.length + 1;
+    values.push(options.kinds);
+    conditions.push(`kind = ANY($${kindParam}::text[])`);
+  }
+
+  if (options.driftOnly) {
+    const consistencyParam = values.length + 1;
+    values.push('active');
+    conditions.push(`(consistency_state <> $${consistencyParam} OR last_drift_detected_at IS NOT NULL)`);
+  }
+
+  if (options.searchTerm) {
+    const escapedSearch = `%${escapeLikePattern(options.searchTerm)}%`;
+    const searchParam = values.length + 1;
+    values.push(escapedSearch);
+    conditions.push(`(path ILIKE $${searchParam} ESCAPE '\\' OR name ILIKE $${searchParam} ESCAPE '\\')`);
+  }
+
+  const limitParam = values.length + 1;
+  values.push(options.limit);
+  const offsetParam = values.length + 1;
+  values.push(options.offset);
+
+  const query = `
+    SELECT *, COUNT(*) OVER() AS total_count
+      FROM nodes
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY kind ASC, name ASC
+     LIMIT $${limitParam}
+    OFFSET $${offsetParam}
+  `;
+
+  const result = await client.query(query, values);
+  const total = result.rows.length > 0 ? Number(result.rows[0].total_count) : 0;
+  return {
+    nodes: result.rows.map(mapRow),
+    total
+  };
+}
