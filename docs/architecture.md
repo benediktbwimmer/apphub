@@ -10,6 +10,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
 - **Background Workers**: Handle ingestion and build pipelines, periodic repo sync (polling webhooks), tag enrichment, stale build cleanup, and asset auto-materialization. The ingestion worker hydrates metadata before handing off to a dedicated build worker that can run inline (dev) or via BullMQ (prod). A separate asset materializer worker maintains workflow asset graphs, listens to `asset.produced`/`asset.expired` events, and enqueues runs when freshness policies demand updates.
+- **Timestore Service**: DuckDB-backed time series store that partitions datasets by semantic keys, persists manifests in PostgreSQL, and exposes query/maintenance APIs. It reuses the catalog Postgres instance while maintaining an isolated schema (`timestore`).
 - **Service Registry**: Maintains a catalogue of auxiliary services (kind, base URL, health, capabilities) in PostgreSQL. Services can be registered declaratively via manifest or at runtime through authenticated API calls, and health polling keeps status changes flowing to subscribers.
 - **Real-Time Event Stream**: A lightweight event bus in the catalog service emits repository, build, launch, workflow, and asset lifecycle changes (`asset.produced` / `asset.expired`). Fastify exposes these events over a WebSocket endpoint so the frontend can react without polling.
 
@@ -74,6 +75,25 @@ graph TD
   Worker --> Postgres
   Worker --> Events
   Services --> Postgres
+```
+
+## Timestore Service
+
+Timestore complements the catalog API by storing columnar time series partitions in DuckDB files that live on either local disk (`services/data/timestore`) or object storage. Metadata, manifests, and retention policy state reuse the existing catalog PostgreSQL instance but live inside a dedicated `timestore` schema so tables do not collide.
+
+- **Local development**: run `npm run dev:timestore` (server) and optionally `npm run dev:timestore:lifecycle` (maintenance worker). Both commands default to `TIMESTORE_DATABASE_URL=<catalog DATABASE_URL>` and ensure the schema exists on boot.
+- **Configuration**: environment variables prefixed with `TIMESTORE_` manage host/port, storage driver (`local` or `s3`), storage root, and schema. The service shares the catalog pool helper, so overriding `DATABASE_URL` automatically propagates to both services.
+- **APIs**: the skeleton exposes `/health` and `/ready` endpoints; future tickets add ingestion, querying, and lifecycle automation.
+- **Metadata schema**: the `timestore` Postgres schema tracks storage targets, datasets, schema versions, manifests, partitions, and retention policies. Manifests are versioned per dataset, require monotonically increasing versions, and roll up partition counts/bytes/rows for fast discovery.
+
+```mermaid
+erDiagram
+  STORAGE_TARGETS ||--o{ DATASETS : hosts
+  DATASETS ||--o{ DATASET_SCHEMA_VERSIONS : versioned
+  DATASETS ||--o{ DATASET_MANIFESTS : publishes
+  DATASET_MANIFESTS ||--|| DATASET_SCHEMA_VERSIONS : references
+  DATASET_MANIFESTS ||--o{ DATASET_PARTITIONS : contains
+  DATASETS ||--|| DATASET_RETENTION_POLICIES : governed_by
 ```
 
 ## Data Model (Initial Draft)

@@ -23,12 +23,21 @@
       "types": "./dist/exampleJobBundles.d.ts",
       "require": "./dist/exampleJobBundles.js",
       "default": "./dist/exampleJobBundles.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.ts",
+      "require": "./dist/postgres.js",
+      "default": "./dist/postgres.js"
     }
   },
   "scripts": {
     "build": "tsc -b"
   },
   "dependencies": {
-    "@apphub/examples-registry": "0.1.0"
+    "@apphub/examples-registry": "0.1.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5"
   }
 }
