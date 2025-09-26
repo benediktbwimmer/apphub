@@ -51,10 +51,26 @@ export function createStorageDriver(
     if (!bucket) {
       throw new Error('S3 storage target missing bucket configuration');
     }
+    const accessKeyId = typeof target.config.accessKeyId === 'string'
+      ? target.config.accessKeyId
+      : config.storage.s3?.accessKeyId;
+    const secretAccessKey = typeof target.config.secretAccessKey === 'string'
+      ? target.config.secretAccessKey
+      : config.storage.s3?.secretAccessKey;
+    const sessionToken = typeof target.config.sessionToken === 'string'
+      ? target.config.sessionToken
+      : config.storage.s3?.sessionToken;
+    const forcePathStyle = typeof target.config.forcePathStyle === 'boolean'
+      ? target.config.forcePathStyle
+      : config.storage.s3?.forcePathStyle;
     return new S3StorageDriver({
       bucket,
       endpoint: typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint,
-      region: typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region
+      region: typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region,
+      accessKeyId,
+      secretAccessKey,
+      sessionToken,
+      forcePathStyle
     });
   }
 
@@ -84,6 +100,10 @@ interface S3DriverOptions {
   bucket: string;
   endpoint?: string;
   region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+  forcePathStyle?: boolean;
 }
 
 class S3StorageDriver implements StorageDriver {
@@ -93,7 +113,15 @@ class S3StorageDriver implements StorageDriver {
     this.client = new S3Client({
       region: options.region ?? 'us-east-1',
       endpoint: options.endpoint,
-      forcePathStyle: Boolean(options.endpoint)
+      forcePathStyle: options.forcePathStyle ?? Boolean(options.endpoint),
+      credentials:
+        options.accessKeyId && options.secretAccessKey
+          ? {
+              accessKeyId: options.accessKeyId,
+              secretAccessKey: options.secretAccessKey,
+              sessionToken: options.sessionToken
+            }
+          : undefined
     });
   }
 
@@ -190,10 +218,33 @@ export async function deletePartitionFile(
       throw new Error('S3 storage target missing bucket configuration');
     }
 
+    const region = typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region ?? 'us-east-1';
+    const endpoint = typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint;
+    const accessKeyId = typeof target.config.accessKeyId === 'string'
+      ? target.config.accessKeyId
+      : config.storage.s3?.accessKeyId;
+    const secretAccessKey = typeof target.config.secretAccessKey === 'string'
+      ? target.config.secretAccessKey
+      : config.storage.s3?.secretAccessKey;
+    const sessionToken = typeof target.config.sessionToken === 'string'
+      ? target.config.sessionToken
+      : config.storage.s3?.sessionToken;
+    const forcePathStyle = typeof target.config.forcePathStyle === 'boolean'
+      ? target.config.forcePathStyle
+      : config.storage.s3?.forcePathStyle ?? Boolean(endpoint);
+
     const client = new S3Client({
-      region: typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region ?? 'us-east-1',
-      endpoint: typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint,
-      forcePathStyle: Boolean(target.config.endpoint ?? config.storage.s3?.endpoint)
+      region,
+      endpoint,
+      forcePathStyle,
+      credentials:
+        accessKeyId && secretAccessKey
+          ? {
+              accessKeyId,
+              secretAccessKey,
+              sessionToken
+            }
+          : undefined
     });
 
     await client.send(

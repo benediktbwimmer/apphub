@@ -33,6 +33,12 @@ const lifecycleSchema = z.object({
   })
 });
 
+const cacheSchema = z.object({
+  enabled: z.boolean(),
+  directory: z.string().min(1),
+  maxBytes: z.number().int().positive()
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -58,9 +64,16 @@ const configSchema = z.object({
       .object({
         bucket: z.string().min(1),
         endpoint: z.string().min(1).optional(),
-        region: z.string().min(1).optional()
+        region: z.string().min(1).optional(),
+        accessKeyId: z.string().min(1).optional(),
+        secretAccessKey: z.string().min(1).optional(),
+        sessionToken: z.string().min(1).optional(),
+        forcePathStyle: z.boolean().optional()
       })
       .optional()
+  }),
+  query: z.object({
+    cache: cacheSchema
   }),
   lifecycle: lifecycleSchema
 });
@@ -98,6 +111,13 @@ function resolveStorageRoot(envValue: string | undefined): string {
   return path.resolve(process.cwd(), 'services', 'data', 'timestore');
 }
 
+function resolveCacheDirectory(envValue: string | undefined): string {
+  if (envValue) {
+    return envValue;
+  }
+  return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'cache');
+}
+
 export function loadServiceConfig(): ServiceConfig {
   if (cachedConfig) {
     return cachedConfig;
@@ -120,6 +140,13 @@ export function loadServiceConfig(): ServiceConfig {
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
+  const s3AccessKeyId = env.TIMESTORE_S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.TIMESTORE_S3_SECRET_ACCESS_KEY;
+  const s3SessionToken = env.TIMESTORE_S3_SESSION_TOKEN;
+  const s3ForcePathStyle = parseBoolean(env.TIMESTORE_S3_FORCE_PATH_STYLE, false);
+  const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
+  const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
+  const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
   const lifecycleEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_ENABLED, true);
   const lifecycleQueueName = env.TIMESTORE_LIFECYCLE_QUEUE_NAME || 'timestore_lifecycle_queue';
   const lifecycleIntervalSeconds = parseNumber(env.TIMESTORE_LIFECYCLE_INTERVAL_SECONDS, 300);
@@ -150,13 +177,24 @@ export function loadServiceConfig(): ServiceConfig {
       driver: storageDriver,
       root: storageRoot,
       s3:
-        storageDriver === 's3'
+        storageDriver === 's3' || Boolean(s3Bucket)
           ? {
               bucket: s3Bucket || 'timestore-data',
               endpoint: s3Endpoint,
-              region: s3Region
+              region: s3Region,
+              accessKeyId: s3AccessKeyId,
+              secretAccessKey: s3SecretAccessKey,
+              sessionToken: s3SessionToken,
+              forcePathStyle: s3ForcePathStyle ? true : undefined
             }
           : undefined
+    },
+    query: {
+      cache: {
+        enabled: queryCacheEnabled,
+        directory: queryCacheDirectory,
+        maxBytes: queryCacheMaxBytes > 0 ? queryCacheMaxBytes : 1 * 1024 * 1024
+      }
     },
     lifecycle: {
       enabled: lifecycleEnabled,

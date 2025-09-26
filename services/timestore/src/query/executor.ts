@@ -1,4 +1,6 @@
 import { loadDuckDb, isCloseable } from '@apphub/shared';
+import { mkdir } from 'node:fs/promises';
+import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import type { QueryPlan } from './planner';
 
 interface QueryResultRow {
@@ -15,8 +17,10 @@ export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionR
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();
+  const config = loadServiceConfig();
 
   try {
+    await prepareConnectionForPlan(connection, plan, config);
     await attachPartitions(connection, plan);
     await createDatasetView(connection, plan);
 
@@ -39,6 +43,18 @@ export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionR
       db.close();
     }
   }
+}
+
+async function prepareConnectionForPlan(
+  connection: any,
+  plan: QueryPlan,
+  config: ServiceConfig
+): Promise<void> {
+  if (!plan.partitions.some(isS3Partition)) {
+    return;
+  }
+
+  await configureS3Support(connection, config);
 }
 
 async function attachPartitions(connection: any, plan: QueryPlan): Promise<void> {
@@ -179,4 +195,53 @@ function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {
     }
     return normalized;
   });
+}
+
+function isS3Partition(partition: QueryPlan['partitions'][number]): boolean {
+  return partition.location.startsWith('s3://');
+}
+
+export async function configureS3Support(connection: any, config: ServiceConfig): Promise<void> {
+  const s3 = config.storage.s3;
+  if (!s3 || !s3.bucket) {
+    throw new Error('Remote partitions require S3 configuration but none was provided');
+  }
+
+  await run(connection, 'INSTALL httpfs');
+  await run(connection, 'LOAD httpfs');
+
+  if (s3.region) {
+    await run(connection, `SET s3_region='${escapeSqlLiteral(s3.region)}'`);
+  }
+  if (s3.endpoint) {
+    await run(connection, `SET s3_endpoint='${escapeSqlLiteral(s3.endpoint)}'`);
+    const isSecure = /^https:/i.test(s3.endpoint);
+    const isInsecure = /^http:/i.test(s3.endpoint);
+    if (isSecure) {
+      await run(connection, 'SET s3_use_ssl=true');
+    } else if (isInsecure) {
+      await run(connection, 'SET s3_use_ssl=false');
+    }
+  }
+  if (s3.forcePathStyle) {
+    await run(connection, `SET s3_url_style='path'`);
+  }
+  if (s3.accessKeyId && s3.secretAccessKey) {
+    await run(connection, `SET s3_access_key_id='${escapeSqlLiteral(s3.accessKeyId)}'`);
+    await run(connection, `SET s3_secret_access_key='${escapeSqlLiteral(s3.secretAccessKey)}'`);
+  }
+  if (s3.sessionToken) {
+    await run(connection, `SET s3_session_token='${escapeSqlLiteral(s3.sessionToken)}'`);
+  }
+
+  const cacheConfig = config.query.cache;
+  if (cacheConfig.enabled) {
+    await mkdir(cacheConfig.directory, { recursive: true });
+    await run(connection, `SET s3_cache_directory='${escapeSqlLiteral(cacheConfig.directory)}'`);
+    await run(connection, `SET s3_cache_size='${String(cacheConfig.maxBytes)}'`);
+  }
+}
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
 }

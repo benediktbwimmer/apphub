@@ -22,6 +22,15 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_STORAGE_DRIVER` | `local` or `s3`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
 | `TIMESTORE_S3_BUCKET` | Bucket for remote partition storage when `storageDriver` is `s3`. | `timestore-data` |
+| `TIMESTORE_S3_ENDPOINT` | Optional S3-compatible endpoint (e.g., MinIO). | _(unset)_ |
+| `TIMESTORE_S3_REGION` | Region used for S3 operations. | _(unset)_ |
+| `TIMESTORE_S3_ACCESS_KEY_ID` | Access key for DuckDB remote reads and writers. | _(unset)_ |
+| `TIMESTORE_S3_SECRET_ACCESS_KEY` | Secret key paired with the access key. | _(unset)_ |
+| `TIMESTORE_S3_SESSION_TOKEN` | Session token for temporary credentials. | _(unset)_ |
+| `TIMESTORE_S3_FORCE_PATH_STYLE` | Force path-style S3 URLs (`true`/`false`). | `false` |
+| `TIMESTORE_QUERY_CACHE_ENABLED` | Enable DuckDB local cache for remote partitions. | `true` |
+| `TIMESTORE_QUERY_CACHE_DIR` | Filesystem directory for cached remote partitions. | `<repo>/services/data/timestore/cache` |
+| `TIMESTORE_QUERY_CACHE_MAX_BYTES` | Upper bound for cached partition bytes. | `5368709120` |
 | `TIMESTORE_LOG_LEVEL` | Pino log level for Fastify. | `info` |
 | `TIMESTORE_INGEST_QUEUE_NAME` | BullMQ queue name for ingestion jobs. | `timestore_ingest_queue` |
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
@@ -37,6 +46,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 ## Query API
 - `POST /datasets/:datasetSlug/query` returns time-series data by scanning published partitions via DuckDB. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
 - Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`).
+- Remote partitions referenced via `s3://` manifests are streamed through DuckDB's HTTPFS extension; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
 - In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
 
 ## Testing
