@@ -77,6 +77,9 @@ describe('filestore types', () => {
     });
 
     expect(event.type).toBe('filestore.node.created');
+    if (event.type !== 'filestore.node.created') {
+      throw new Error('Expected node created event.');
+    }
     expect(event.data.journalId).toBe(99);
   });
 

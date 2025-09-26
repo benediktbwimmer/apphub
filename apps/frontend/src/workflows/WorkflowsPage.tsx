@@ -11,10 +11,12 @@ import WorkflowFilters from './components/WorkflowFilters';
 import RunOutcomeChart from './components/RunOutcomeChart';
 import WorkflowRunTrends from './components/WorkflowRunTrends';
 import WorkflowAssetPanel from './components/WorkflowAssetPanel';
+import EventTriggersPanel from './components/eventTriggers/EventTriggersPanel';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
 import { INITIAL_FILTERS, useWorkflowsController } from './hooks/useWorkflowsController';
+import type { WorkflowEventSampleQuery, WorkflowTriggerDeliveriesQuery } from './api';
 
 export default function WorkflowsPage() {
   const {
@@ -101,12 +103,12 @@ export default function WorkflowsPage() {
     triggerDeliveriesError,
     triggerDeliveriesLimit,
     triggerDeliveriesQuery,
-    loadTriggerDeliveries,
+    loadTriggerDeliveries: loadTriggerDeliveriesFn,
     eventSamples,
     eventSamplesLoading,
     eventSamplesError,
     eventSamplesQuery,
-    loadEventSamples,
+    loadEventSamples: loadEventSamplesFn,
     refreshEventSamples,
     eventHealth,
     eventHealthLoading,
@@ -259,9 +261,9 @@ export default function WorkflowsPage() {
             deliveriesError={triggerDeliveriesError}
             deliveriesLimit={triggerDeliveriesLimit}
             deliveriesQuery={triggerDeliveriesQuery}
-            onReloadDeliveries={(query) => {
+            onReloadDeliveries={(query: WorkflowTriggerDeliveriesQuery) => {
               if (workflowDetail && selectedEventTrigger) {
-                void loadTriggerDeliveries(workflowDetail.slug, selectedEventTrigger.id, query);
+                void loadTriggerDeliveriesFn(workflowDetail.slug, selectedEventTrigger.id, query);
               }
             }}
             eventHealth={eventHealth}
@@ -272,7 +274,7 @@ export default function WorkflowsPage() {
             eventSamplesLoading={eventSamplesLoading}
             eventSamplesError={eventSamplesError}
             eventSamplesQuery={eventSamplesQuery}
-            loadEventSamples={(query) => void loadEventSamples(query)}
+            loadEventSamples={(query: WorkflowEventSampleQuery) => void loadEventSamplesFn(query)}
             refreshEventSamples={refreshEventSamples}
             canEdit={canEditWorkflows}
           />

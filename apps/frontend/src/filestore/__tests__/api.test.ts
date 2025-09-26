@@ -5,6 +5,8 @@ import type { FilestoreEvent } from '../api';
 
 const iso = new Date().toISOString();
 
+type FetchLike = (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => Promise<Response>;
+
 describe('filestore api helpers', () => {
   it('parses SSE frames into typed events', () => {
     const frame = [
@@ -13,9 +15,16 @@ describe('filestore api helpers', () => {
     ].join('\n');
 
     const event = parseFilestoreEventFrame(frame);
-    expect(event?.type).toBe('filestore.node.created');
-    expect(event?.data.backendMountId).toBe(3);
-    expect(event?.data.command).toBe('createDirectory');
+    expect(event).not.toBeNull();
+    if (!event) {
+      throw new Error('Expected filestore event.');
+    }
+    expect(event.type).toBe('filestore.node.created');
+    if (event.type !== 'filestore.node.created') {
+      throw new Error('Unexpected event type.');
+    }
+    expect(event.data.backendMountId).toBe(3);
+    expect(event.data.command).toBe('createDirectory');
   });
 
   it('honours event type filters', () => {
@@ -87,7 +96,10 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error('Expected metadata request URL to be a string.');
+      }
       expect(input).toContain('/v1/nodes/42/metadata');
       expect(init?.method).toBe('PATCH');
       const body = init?.body ? JSON.parse(init.body as string) : {};
@@ -106,7 +118,8 @@ describe('filestore api helpers', () => {
     });
 
     expect(result.journalEntryId).toBe(77);
-    expect(result.result.nodeId).toBe(42);
+    const metadataResult = result.result as { nodeId: number };
+    expect(metadataResult.nodeId).toBe(42);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -120,7 +133,7 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
       expect(init?.method).toBe('POST');
       const body = init?.body ? JSON.parse(init.body as string) : {};
       expect(body.path).toBe('datasets/raw');
@@ -151,7 +164,7 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
       expect(init?.method).toBe('POST');
       const body = init?.body ? JSON.parse(init.body as string) : {};
       expect(body.path).toBe('datasets/archive');
@@ -182,7 +195,7 @@ describe('filestore api helpers', () => {
       }
     };
 
-    const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+    const fetchMock = vi.fn<FetchLike>(async (_input, init) => {
       expect(init?.method).toBe('POST');
       expect(init?.headers).toMatchObject({
         'Idempotency-Key': 'upload-1',

@@ -26,7 +26,7 @@ import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
 
 const LIST_PAGE_SIZE = 25;
 const ACTIVITY_LIMIT = 50;
-const STATE_OPTIONS: FilestoreNodeState[] = ['active', 'inconsistent', 'missing', 'deleted'];
+const STATE_OPTIONS: FilestoreNodeState[] = ['active', 'inconsistent', 'missing', 'deleted', 'unknown'];
 const KIND_LABEL: Record<FilestoreNodeKind, string> = {
   directory: 'Directory',
   file: 'File',
@@ -36,13 +36,15 @@ const STATE_LABEL: Record<FilestoreNodeState, string> = {
   active: 'Active',
   inconsistent: 'Inconsistent',
   missing: 'Missing',
-  deleted: 'Deleted'
+  deleted: 'Deleted',
+  unknown: 'Unknown'
 };
 const STATE_BADGE_CLASS: Record<FilestoreNodeState, string> = {
   active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
   inconsistent: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
   missing: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-  deleted: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+  deleted: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
+  unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
 };
 const CONSISTENCY_LABEL: Record<string, string> = {
   active: 'Consistent',
@@ -384,7 +386,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         showSuccess('Reconciliation job enqueued');
         scheduleRefresh('node', refetchNode);
       } catch (err) {
-        showError(err instanceof Error ? err.message : 'Failed to enqueue reconciliation job');
+        showError('Failed to enqueue reconciliation job', err);
       } finally {
         setReconciling(false);
       }
@@ -421,7 +423,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Metadata must be valid JSON';
       setMetadataErrorMessage(message);
-      showError(message);
+      showError('Metadata validation failed', err, message);
       return;
     }
 
@@ -471,7 +473,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update metadata';
       setMetadataErrorMessage(message);
-      showError(message);
+      showError('Metadata update failed', err, message);
     } finally {
       setMetadataPending(false);
     }

@@ -96,10 +96,11 @@ function ensurePredicateInputs(
           caseSensitive: typed.caseSensitive || undefined
         } satisfies WorkflowEventTriggerPredicateInput;
       }
+      const values = 'values' in typed && Array.isArray(typed.values) ? typed.values : [];
       return {
         path: typed.path,
         operator: typed.operator,
-        values: typed.values ?? [],
+        values,
         caseSensitive: typed.caseSensitive || undefined
       } satisfies WorkflowEventTriggerPredicateInput;
     }
