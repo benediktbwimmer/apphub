@@ -10,6 +10,33 @@ import {
 } from './context';
 import { API_BASE_URL } from '../config';
 
+const DEV_SERVICE_SCOPES = [
+  'timestore:read',
+  'timestore:write',
+  'timestore:admin',
+  'timestore:sql:read',
+  'timestore:sql:exec',
+  'timestore:metrics',
+  'metastore:read',
+  'metastore:write',
+  'metastore:delete',
+  'metastore:admin'
+] as const;
+
+function normalizeIdentity(identity: AuthIdentity | null): AuthIdentity | null {
+  if (!identity || !identity.authDisabled) {
+    return identity;
+  }
+  const scopes = new Set(identity.scopes);
+  for (const scope of DEV_SERVICE_SCOPES) {
+    scopes.add(scope);
+  }
+  return {
+    ...identity,
+    scopes: Array.from(scopes)
+  } satisfies AuthIdentity;
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text) {
@@ -97,7 +124,7 @@ export function AuthProvider({ children }: PropsWithChildren<unknown>) {
           throw new Error(extractErrorMessage(payload) ?? 'Failed to load identity');
         }
         const payload = await parseJson<{ data?: AuthIdentity }>(response);
-        setIdentity(payload.data ?? null);
+        setIdentity(normalizeIdentity(payload.data ?? null));
       } catch (err) {
         setIdentity(null);
         setIdentityError(err instanceof Error ? err.message : 'Failed to load identity');

@@ -163,6 +163,7 @@ docker run --rm -it \
   --privileged \
   -p 4000:4000 \
   -p 4100:4100 \
+  -p 4200:4200 \
   -p 4173:4173 \
   -p 6379:6379 \
   -v apphub-data:/app/data \
@@ -191,6 +192,7 @@ docker run -d \
   --restart unless-stopped \
   -p 0.0.0.0:4000:4000 \
   -p 0.0.0.0:4100:4100 \
+  -p 0.0.0.0:4200:4200 \
   -p 0.0.0.0:4173:4173 \
   -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \
