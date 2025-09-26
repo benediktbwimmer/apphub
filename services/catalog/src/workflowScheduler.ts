@@ -1,4 +1,4 @@
-import { CronExpressionParser, type CronExpressionOptions } from 'cron-parser';
+import { parseCronExpression, type ParserOptions } from './workflows/cronParser';
 import {
   createWorkflowRun,
   listDueWorkflowSchedules,
@@ -47,7 +47,7 @@ function computeNextOccurrence(
   from: Date,
   { inclusive = false }: { inclusive?: boolean } = {}
 ): Date | null {
-  const options: CronExpressionOptions = {};
+  const options: ParserOptions = {};
   if (schedule.timezone) {
     options.tz = schedule.timezone;
   }
@@ -67,7 +67,7 @@ function computeNextOccurrence(
   const currentDate = inclusive ? new Date(reference.getTime() - 1) : reference;
 
   try {
-    const interval = CronExpressionParser.parse(schedule.cron, {
+    const interval = parseCronExpression(schedule.cron, {
       ...options,
       currentDate
     });
@@ -85,7 +85,7 @@ function computePreviousOccurrence(
   schedule: WorkflowScheduleRecord,
   occurrence: Date
 ): Date | null {
-  const options: CronExpressionOptions = {};
+  const options: ParserOptions = {};
   if (schedule.timezone) {
     options.tz = schedule.timezone;
   }
@@ -93,7 +93,7 @@ function computePreviousOccurrence(
   const startWindow = parseScheduleDate(schedule.startWindow);
 
   try {
-    const interval = CronExpressionParser.parse(schedule.cron, {
+    const interval = parseCronExpression(schedule.cron, {
       ...options,
       currentDate: new Date(occurrence.getTime() - 1)
     });

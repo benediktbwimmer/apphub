@@ -1,4 +1,4 @@
-import { CronExpressionParser, type CronExpressionOptions } from 'cron-parser';
+import { parseCronExpression, type ParserOptions } from './cronParser';
 import { z } from 'zod';
 
 export type WorkflowJsonValue =
@@ -179,9 +179,9 @@ const isoDateTimeSchema = z
       }, 'Invalid ISO timestamp')
   );
 
-function isValidCronExpression(expression: string, options: CronExpressionOptions = {}) {
+function isValidCronExpression(expression: string, options: ParserOptions = {}) {
   try {
-    CronExpressionParser.parse(expression, {
+    parseCronExpression(expression, {
       ...options,
       currentDate: new Date()
     });
