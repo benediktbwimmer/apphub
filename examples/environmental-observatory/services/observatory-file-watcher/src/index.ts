@@ -52,6 +52,10 @@ type StatsSnapshot = {
     timestoreTableName: string;
     timestoreStorageTargetId: string;
     workflowSlug: string;
+    publicationWorkflowSlug: string;
+    visualizationAssetId: string;
+    plotsDir: string;
+    reportsDir: string;
     apiBaseUrl: string;
     maxAttempts: number;
   };
@@ -68,6 +72,8 @@ const ROOT_DIR = path.resolve(process.cwd());
 const DEFAULT_WATCH_ROOT = path.resolve(ROOT_DIR, '..', '..', 'data', 'inbox');
 const DEFAULT_STAGING_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'staging');
 const DEFAULT_ARCHIVE_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'archive');
+const DEFAULT_PLOTS_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'plots');
+const DEFAULT_REPORTS_DIR = path.resolve(ROOT_DIR, '..', '..', 'data', 'reports');
 const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
 const DEFAULT_TIMESTORE_DATASET_SLUG = 'observatory-timeseries';
 const DEFAULT_TIMESTORE_DATASET_NAME = 'Observatory Time Series';
@@ -118,6 +124,25 @@ const workflowSlug = (
   process.env.FILE_DROP_WORKFLOW_SLUG ??
   'observatory-minute-ingest'
 ).trim();
+const publicationWorkflowSlug = (
+  process.env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG ?? 'observatory-daily-publication'
+).trim();
+const visualizationAssetId = (
+  process.env.OBSERVATORY_VISUALIZATION_ASSET_ID ?? 'observatory.visualizations.minute'
+).trim();
+const plotsRoot = path.resolve(
+  process.env.OBSERVATORY_PLOTS_DIR ?? process.env.PLOTS_DIR ?? DEFAULT_PLOTS_DIR
+);
+const reportsRoot = path.resolve(
+  process.env.OBSERVATORY_REPORTS_DIR ?? process.env.REPORTS_DIR ?? DEFAULT_REPORTS_DIR
+);
+const metastoreBaseUrl = (process.env.METASTORE_BASE_URL ?? '').trim().replace(/\/$/, '');
+const metastoreAuthToken = (process.env.METASTORE_API_TOKEN ?? '').trim() || null;
+const metastoreNamespace = (process.env.METASTORE_NAMESPACE ?? 'observatory.reports').trim();
+const lookbackMinutes = Math.max(
+  1,
+  Number.parseInt(process.env.OBSERVATORY_LOOKBACK_MINUTES ?? '180', 10) || 180
+);
 const apiBaseUrl = (process.env.CATALOG_API_BASE_URL ?? 'http://127.0.0.1:4000')
   .trim()
   .replace(/\/$/, '');
@@ -302,6 +327,71 @@ function scheduleLaunch(record: DropRecord, delayMs: number, attempt: number): v
   pendingLaunchTimers.set(record.dropId, timer);
 }
 
+async function seedPublicationPartitionParameters(partitionKey: string): Promise<void> {
+  if (!publicationWorkflowSlug || !visualizationAssetId) {
+    return;
+  }
+
+  const parameters: Record<string, unknown> = {
+    plotsDir: plotsRoot,
+    reportsDir: reportsRoot,
+    timestoreBaseUrl,
+    timestoreDatasetSlug,
+    lookbackMinutes
+  };
+  if (metastoreBaseUrl) {
+    parameters.metastoreBaseUrl = metastoreBaseUrl;
+  }
+  if (metastoreNamespace) {
+    parameters.metastoreNamespace = metastoreNamespace;
+  }
+  if (metastoreAuthToken) {
+    parameters.metastoreAuthToken = metastoreAuthToken;
+  }
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json'
+  };
+  if (apiToken) {
+    headers.authorization = `Bearer ${apiToken}`;
+  }
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/workflows/${encodeURIComponent(publicationWorkflowSlug)}/assets/${encodeURIComponent(visualizationAssetId)}/partition-parameters`,
+      {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ partitionKey, parameters })
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`API responded with status ${response.status}`);
+    }
+    app.log.info(
+      {
+        partitionKey,
+        workflowSlug: publicationWorkflowSlug,
+        assetId: visualizationAssetId,
+        plotsDir: plotsRoot,
+        reportsDir: reportsRoot
+      },
+      'Seeded publication partition parameters'
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    app.log.warn(
+      {
+        partitionKey,
+        workflowSlug: publicationWorkflowSlug,
+        assetId: visualizationAssetId,
+        error: message
+      },
+      'Failed to seed publication partition parameters'
+    );
+  }
+}
+
 async function launchWorkflow(record: DropRecord, attempt: number): Promise<void> {
   record.status = 'launching';
   record.updatedAt = new Date().toISOString();
@@ -345,6 +435,8 @@ async function launchWorkflow(record: DropRecord, attempt: number): Promise<void
   }
 
   try {
+    await seedPublicationPartitionParameters(record.minute);
+
     const response = await fetch(`${apiBaseUrl}/workflows/${workflowSlug}/run`, {
       method: 'POST',
       headers,
@@ -410,6 +502,10 @@ function buildStatsSnapshot(): StatsSnapshot {
       timestoreTableName,
       timestoreStorageTargetId,
       workflowSlug,
+      publicationWorkflowSlug,
+      visualizationAssetId,
+      plotsDir: plotsRoot,
+      reportsDir: reportsRoot,
       apiBaseUrl,
       maxAttempts: maxLaunchAttempts
     },
@@ -537,6 +633,8 @@ async function bootstrapWatcher(): Promise<void> {
   await ensureDirectoryExists(watchRoot);
   await ensureDirectoryExists(stagingDir);
   await ensureDirectoryExists(archiveDir);
+  await ensureDirectoryExists(plotsRoot);
+  await ensureDirectoryExists(reportsRoot);
 
   if (resumeExisting) {
     await enqueueExistingFiles(watchRoot);
@@ -558,7 +656,18 @@ async function bootstrapWatcher(): Promise<void> {
 
   watcher.on('ready', () => {
     watcherReady = true;
-    app.log.info({ watchRoot, stagingDir, archiveDir }, 'Observatory watcher initialised');
+    app.log.info(
+      {
+        watchRoot,
+        stagingDir,
+        archiveDir,
+        plotsDir: plotsRoot,
+        reportsDir: reportsRoot,
+        publicationWorkflowSlug,
+        visualizationAssetId
+      },
+      'Observatory watcher initialised'
+    );
   });
 
   watcher.on('error', (err) => {

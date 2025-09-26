@@ -44,6 +44,26 @@
           }
         },
         {
+          "key": "OBSERVATORY_PLOTS_DIR",
+          "value": {
+            "$var": {
+              "name": "OBSERVATORY_PLOTS_DIR",
+              "default": "examples/environmental-observatory/data/plots",
+              "description": "Directory where visualization artifacts are written before publication."
+            }
+          }
+        },
+        {
+          "key": "OBSERVATORY_REPORTS_DIR",
+          "value": {
+            "$var": {
+              "name": "OBSERVATORY_REPORTS_DIR",
+              "default": "examples/environmental-observatory/data/reports",
+              "description": "Directory where published reports should be stored."
+            }
+          }
+        },
+        {
           "key": "TIMESTORE_BASE_URL",
           "value": {
             "$var": {
