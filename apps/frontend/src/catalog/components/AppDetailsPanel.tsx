@@ -825,6 +825,9 @@ function LaunchSummarySection({
 
   const envForLaunch = useMemo<LaunchEnvVar[]>(() => envRows.map(({ key, value }) => ({ key, value })), [envRows]);
 
+  const editingDisabled =
+    isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
+
   useEffect(() => {
     const launchCommand = launch?.command?.trim();
     if (launchCommand && launchCommand.length > 0) {
@@ -851,9 +854,6 @@ function LaunchSummarySection({
     launch?.command,
     pendingLaunchId
   ]);
-
-  const editingDisabled =
-    isLaunching || (launch ? ACTIVE_LAUNCH_STATUSES.has(launch.status) : false);
 
   const detailsRegionId = `launch-${app.id}-details`;
 
