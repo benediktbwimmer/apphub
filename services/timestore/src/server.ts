@@ -9,12 +9,24 @@ import { registerQueryRoutes } from './routes/query';
 import { registerAdminRoutes } from './routes/admin';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
 import { closeLifecycleQueue } from './lifecycle/queue';
+import { timestoreMetricsPlugin } from './observability/metricsPlugin';
+import { setupTracing } from './observability/tracing';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
+  setupTracing(config.observability.tracing);
   const app = fastify({
     logger: {
       level: config.logLevel
+    }
+  });
+
+  await app.register(timestoreMetricsPlugin, {
+    metrics: {
+      enabled: config.observability.metrics.enabled,
+      collectDefaultMetrics: config.observability.metrics.collectDefaultMetrics,
+      prefix: config.observability.metrics.prefix,
+      scope: config.observability.metrics.scope
     }
   });
 

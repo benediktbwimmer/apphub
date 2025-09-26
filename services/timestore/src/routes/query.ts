@@ -4,6 +4,9 @@ import { executeQueryPlan } from '../query/executor';
 import { loadDatasetForRead, resolveRequestActor, getRequestScopes } from '../service/iam';
 import { recordDatasetAccessEvent } from '../db/metadata';
 import { randomUUID } from 'node:crypto';
+import { observeQuery } from '../observability/metrics';
+import { endSpan, startSpan } from '../observability/tracing';
+import { loadServiceConfig } from '../config/serviceConfig';
 
 interface QueryRequestRouteParams {
   datasetSlug: string;
@@ -16,6 +19,15 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
     const actor = resolveRequestActor(fastifyRequest);
     const scopes = getRequestScopes(fastifyRequest);
     let datasetId: string | null = null;
+    const span = startSpan('timestore.query', {
+      'timestore.dataset_slug': datasetSlug,
+      'http.method': request.method,
+      'http.route': '/datasets/:datasetSlug/query'
+    });
+    const start = process.hrtime.bigint();
+    const config = loadServiceConfig();
+    let mode: 'raw' | 'downsampled' = 'raw';
+    let remotePartitions = 0;
 
     const recordFailure = async (stage: string, error: unknown) => {
       await recordDatasetAccessEvent({
@@ -48,12 +60,24 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
       datasetId = dataset.id;
     } catch (error) {
       await recordFailure('authorize', error);
+      observeQuery({
+        datasetSlug,
+        mode,
+        result: 'failure',
+        durationSeconds: durationSince(start),
+        remotePartitions,
+        cacheEnabled: config.query.cache.enabled
+      });
+      endSpan(span, error);
       throw error;
     }
 
     try {
       const plan = await buildQueryPlan(datasetSlug, request.body ?? {}, dataset);
+      mode = plan.mode;
+      remotePartitions = countRemotePartitions(plan);
       const result = await executeQueryPlan(plan);
+      const durationSeconds = durationSince(start);
 
       (request.log ?? reply.log).info(
         {
@@ -85,9 +109,34 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         }
       });
 
+      observeQuery({
+        datasetSlug,
+        mode: result.mode,
+        result: 'success',
+        durationSeconds,
+        rowCount: result.rows.length,
+        remotePartitions,
+        cacheEnabled: config.query.cache.enabled
+      });
+      if (span) {
+        span.setAttribute('timestore.query.mode', result.mode);
+        span.setAttribute('timestore.query.rows', result.rows.length);
+        span.setAttribute('timestore.query.remote_partitions', remotePartitions);
+      }
+      endSpan(span);
+
       return reply.status(200).send(result);
     } catch (error) {
       await recordFailure('execute', error);
+      observeQuery({
+        datasetSlug,
+        mode,
+        result: 'failure',
+        durationSeconds: durationSince(start),
+        remotePartitions,
+        cacheEnabled: config.query.cache.enabled
+      });
+      endSpan(span, error);
       (request.log ?? reply.log).error(
         {
           event: 'dataset.query.failed',
@@ -100,4 +149,17 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
       throw error;
     }
   });
+}
+
+function durationSince(start: bigint): number {
+  const elapsed = Number(process.hrtime.bigint() - start);
+  return elapsed / 1_000_000_000;
+}
+
+function countRemotePartitions(plan: Awaited<ReturnType<typeof buildQueryPlan>>): number {
+  return plan.partitions.filter((partition) =>
+    partition.location.startsWith('s3://') ||
+    partition.location.startsWith('http://') ||
+    partition.location.startsWith('https://')
+  ).length;
 }

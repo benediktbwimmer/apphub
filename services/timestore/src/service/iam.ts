@@ -5,6 +5,7 @@ const REQUIRED_SCOPE = process.env.TIMESTORE_REQUIRE_SCOPE;
 const ADMIN_SCOPE = process.env.TIMESTORE_ADMIN_SCOPE || REQUIRED_SCOPE;
 const WRITE_SCOPE_ENV = process.env.TIMESTORE_REQUIRE_WRITE_SCOPE;
 const WRITE_SCOPE = WRITE_SCOPE_ENV || ADMIN_SCOPE || REQUIRED_SCOPE || null;
+const METRICS_SCOPE = process.env.TIMESTORE_METRICS_SCOPE || ADMIN_SCOPE || REQUIRED_SCOPE || null;
 
 export interface RequestActor {
   id: string;
@@ -18,6 +19,23 @@ export async function authorizeAdminAccess(request: FastifyRequest): Promise<voi
   }
   if (!hasRequiredScope(scopes, [ADMIN_SCOPE])) {
     const message = `Missing required admin scope ${ADMIN_SCOPE}`;
+    const error = new Error(message);
+    (error as Error & { statusCode?: number }).statusCode = 403;
+    throw error;
+  }
+}
+
+export async function authorizeMetricsAccess(
+  request: FastifyRequest,
+  overrideScope: string | null = null
+): Promise<void> {
+  const requiredScope = overrideScope ?? METRICS_SCOPE;
+  if (!requiredScope) {
+    return;
+  }
+  const scopes = getRequestScopes(request);
+  if (!hasRequiredScope(scopes, [requiredScope])) {
+    const message = `Missing required metrics scope ${requiredScope}`;
     const error = new Error(message);
     (error as Error & { statusCode?: number }).statusCode = 403;
     throw error;

@@ -39,6 +39,18 @@ const cacheSchema = z.object({
   maxBytes: z.number().int().positive()
 });
 
+const metricsSchema = z.object({
+  enabled: z.boolean(),
+  collectDefaultMetrics: z.boolean(),
+  prefix: z.string().min(1),
+  scope: z.string().min(1).nullable()
+});
+
+const tracingSchema = z.object({
+  enabled: z.boolean(),
+  serviceName: z.string().min(1)
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -75,7 +87,11 @@ const configSchema = z.object({
   query: z.object({
     cache: cacheSchema
   }),
-  lifecycle: lifecycleSchema
+  lifecycle: lifecycleSchema,
+  observability: z.object({
+    metrics: metricsSchema,
+    tracing: tracingSchema
+  })
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -161,6 +177,12 @@ export function loadServiceConfig(): ServiceConfig {
   const lifecycleExportsEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_EXPORTS_ENABLED, true);
   const lifecycleExportPrefix = env.TIMESTORE_LIFECYCLE_EXPORT_PREFIX || 'exports';
   const lifecycleExportMinIntervalHours = parseNumber(env.TIMESTORE_LIFECYCLE_EXPORT_MIN_INTERVAL_HOURS, 24);
+  const metricsEnabled = parseBoolean(env.TIMESTORE_METRICS_ENABLED, true);
+  const metricsCollectDefault = parseBoolean(env.TIMESTORE_METRICS_COLLECT_DEFAULT, true);
+  const metricsPrefix = env.TIMESTORE_METRICS_PREFIX || 'timestore_';
+  const metricsScope = env.TIMESTORE_METRICS_SCOPE || env.TIMESTORE_ADMIN_SCOPE || env.TIMESTORE_REQUIRE_SCOPE || null;
+  const tracingEnabled = parseBoolean(env.TIMESTORE_TRACING_ENABLED, false);
+  const tracingServiceName = env.TIMESTORE_TRACING_SERVICE_NAME || 'timestore';
 
   const candidateConfig = {
     host,
@@ -219,6 +241,18 @@ export function loadServiceConfig(): ServiceConfig {
         outputFormat: 'parquet',
         outputPrefix: lifecycleExportPrefix,
         minIntervalHours: lifecycleExportMinIntervalHours
+      }
+    },
+    observability: {
+      metrics: {
+        enabled: metricsEnabled,
+        collectDefaultMetrics: metricsCollectDefault,
+        prefix: metricsPrefix,
+        scope: metricsScope
+      },
+      tracing: {
+        enabled: tracingEnabled,
+        serviceName: tracingServiceName
       }
     }
   } satisfies ServiceConfig;

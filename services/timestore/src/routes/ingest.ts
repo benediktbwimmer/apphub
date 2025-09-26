@@ -5,6 +5,8 @@ import { ingestionRequestSchema, ingestionJobPayloadSchema } from '../ingestion/
 import { enqueueIngestionJob, isInlineQueueMode } from '../queue';
 import { loadDatasetForWrite, resolveRequestActor, getRequestScopes } from '../service/iam';
 import { recordDatasetAccessEvent } from '../db/metadata';
+import { observeIngestion } from '../observability/metrics';
+import { endSpan, startSpan } from '../observability/tracing';
 
 const paramsSchema = z.object({
   datasetSlug: z.string().min(1)
@@ -18,6 +20,13 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
     const fastifyRequest = request as FastifyRequest;
     const actor = resolveRequestActor(fastifyRequest);
     const scopes = getRequestScopes(fastifyRequest);
+    const span = startSpan('timestore.ingest', {
+      'timestore.dataset_slug': params.datasetSlug,
+      'http.method': request.method,
+      'http.route': '/datasets/:datasetSlug/ingest'
+    });
+    const start = process.hrtime.bigint();
+    let mode: 'inline' | 'queued' = 'inline';
     let datasetResult = await loadDatasetForWrite(fastifyRequest, params.datasetSlug).catch(async (error) => {
       await recordDatasetAccessEvent({
         id: `daa-${randomUUID()}`,
@@ -32,6 +41,13 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           error: error instanceof Error ? error.message : String(error)
         }
       });
+      observeIngestion({
+        datasetSlug: params.datasetSlug,
+        mode,
+        result: 'failure',
+        durationSeconds: durationSince(start)
+      });
+      endSpan(span, error);
       throw error;
     });
     let datasetId: string | null = datasetResult?.id ?? null;
@@ -86,6 +102,8 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
 
       const result = await enqueueIngestionJob(payload);
 
+      mode = result.mode;
+
       if (result.mode === 'inline' && result.result) {
         datasetId = result.result.dataset.id;
         (request.log ?? reply.log).info(
@@ -113,6 +131,14 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
           }
         });
 
+        const durationSeconds = durationSince(start);
+        observeIngestion({
+          datasetSlug: params.datasetSlug,
+          mode,
+          result: 'success',
+          durationSeconds
+        });
+        endSpan(span);
         return reply.status(201).send({
           mode: 'inline',
           manifest: result.result.manifest,
@@ -147,12 +173,27 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
         }
       });
 
+      const durationSeconds = durationSince(start);
+      observeIngestion({
+        datasetSlug: params.datasetSlug,
+        mode,
+        result: 'success',
+        durationSeconds
+      });
+      endSpan(span);
       return reply.status(isInlineQueueMode() ? 200 : 202).send({
         mode: result.mode,
         jobId: result.jobId
       });
     } catch (error) {
       await recordFailure('enqueue', error);
+      observeIngestion({
+        datasetSlug: params.datasetSlug,
+        mode,
+        result: 'failure',
+        durationSeconds: durationSince(start)
+      });
+      endSpan(span, error);
       (request.log ?? reply.log).error(
         {
           event: 'dataset.ingest.failed',
@@ -165,4 +206,9 @@ export async function registerIngestionRoutes(app: FastifyInstance): Promise<voi
       throw error;
     }
   });
+}
+
+function durationSince(start: bigint): number {
+  const elapsed = Number(process.hrtime.bigint() - start);
+  return elapsed / 1_000_000_000;
 }

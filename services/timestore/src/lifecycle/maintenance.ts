@@ -25,6 +25,7 @@ import {
   recordJobStarted,
   recordOperationTotals
 } from './metrics';
+import { observeLifecycleJob, observeLifecycleOperation } from '../observability/metrics';
 import {
   createDefaultRetentionPolicy,
   normalizeOperations,
@@ -60,6 +61,10 @@ export async function runLifecycleJob(
   });
 
   recordJobStarted();
+  observeLifecycleJob({
+    datasetId: dataset?.id ?? null,
+    status: 'started'
+  });
 
   if (!dataset) {
     const errorMessage = `dataset ${payload.datasetId ?? payload.datasetSlug ?? '<unknown>'} not found`;
@@ -87,6 +92,10 @@ export async function runLifecycleJob(
       }
     });
     recordJobSkipped();
+    observeLifecycleJob({
+      datasetId: dataset.id,
+      status: 'skipped'
+    });
     return {
       jobId: jobRun.id,
       datasetId: dataset.id,
@@ -128,6 +137,13 @@ export async function runLifecycleJob(
         status: result.status,
         message: result.message,
         details: result.details
+      });
+
+      observeLifecycleOperation({
+        operation,
+        status: result.status,
+        partitions: result.totals?.partitions,
+        bytes: result.totals?.bytes
       });
 
       if (result.auditEvents) {
@@ -181,6 +197,11 @@ export async function runLifecycleJob(
       }
     });
     recordJobCompleted();
+    observeLifecycleJob({
+      datasetId: dataset.id,
+      status: 'completed',
+      durationSeconds: (Date.now() - startedAt.getTime()) / 1000
+    });
 
     return {
       jobId: jobRun.id,
@@ -203,6 +224,11 @@ export async function runLifecycleJob(
       }
     });
     recordJobFailed();
+    observeLifecycleJob({
+      datasetId: dataset?.id ?? null,
+      status: 'failed',
+      durationSeconds: (Date.now() - startedAt.getTime()) / 1000
+    });
     throw err;
   }
 }

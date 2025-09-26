@@ -3,6 +3,7 @@ import type { JobsOptions, WorkerOptions, Processor } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
 import type { ServiceConfig } from '../config/serviceConfig';
 import type { LifecycleJobPayload } from './types';
+import { metricsEnabled, updateLifecycleQueueDepth } from '../observability/metrics';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -81,6 +82,23 @@ export async function enqueueLifecycleJob(
   }
   const queue = ensureLifecycleQueue(config);
   await queue.add(payload.datasetSlug, payload, options);
+  if (metricsEnabled()) {
+    try {
+      const counts = await queue.getJobCounts();
+      updateLifecycleQueueDepth({
+        waiting: counts.waiting,
+        active: counts.active,
+        completed: counts.completed,
+        failed: counts.failed,
+        delayed: counts.delayed,
+        paused: counts.paused
+      });
+    } catch (error) {
+      console.warn('[timestore:lifecycle] failed to collect queue metrics', {
+        error: error instanceof Error ? error.message : error
+      });
+    }
+  }
 }
 
 export async function closeLifecycleQueue(): Promise<void> {

@@ -71,6 +71,18 @@ function createTestConfig(cacheDir: string): ServiceConfig {
         outputPrefix: 'exports',
         minIntervalHours: 24
       }
+    },
+    observability: {
+      metrics: {
+        enabled: true,
+        collectDefaultMetrics: false,
+        prefix: 'timestore_',
+        scope: null
+      },
+      tracing: {
+        enabled: false,
+        serviceName: 'test'
+      }
     }
   } satisfies ServiceConfig;
 }

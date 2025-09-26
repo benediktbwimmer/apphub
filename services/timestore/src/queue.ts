@@ -3,6 +3,7 @@ import { Queue as BullQueue } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
 import { ingestionJobPayloadSchema, type IngestionJobPayload, type IngestionProcessingResult } from './ingestion/types';
 import { processIngestionJob } from './ingestion/processor';
+import { metricsEnabled, updateIngestionQueueDepth } from './observability/metrics';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 const inlineMode = redisUrl === 'inline';
@@ -42,6 +43,24 @@ export async function enqueueIngestionJob(
     jobPayload,
     jobOptions
   );
+
+  if (metricsEnabled()) {
+    try {
+      const counts = await queue.getJobCounts();
+      updateIngestionQueueDepth({
+        waiting: counts.waiting,
+        active: counts.active,
+        completed: counts.completed,
+        failed: counts.failed,
+        delayed: counts.delayed,
+        paused: counts.paused
+      });
+    } catch (error) {
+      console.warn('[timestore:queue] failed to collect ingestion queue metrics', {
+        error: error instanceof Error ? error.message : error
+      });
+    }
+  }
 
   return {
     jobId: String(job.id),
