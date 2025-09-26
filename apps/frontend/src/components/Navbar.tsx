@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
+import type { JSX } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { PRIMARY_NAV_ITEMS, PrimaryNavKey } from '../routes/paths';
+import { PRIMARY_NAV_ITEMS, type PrimaryNavKey } from '../routes/paths';
 
 interface NavbarProps {
   variant?: 'default' | 'overlay';
