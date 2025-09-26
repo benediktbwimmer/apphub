@@ -355,7 +355,9 @@ function summarizePlaceholders(
 ): ManifestPlaceholderSummary[] {
   const requireExplicit = Boolean(options.requireExplicitValues);
   const summaries = Array.from(collector.values()).map<ManifestPlaceholderSummary>((entry) => {
-    const explicitMissing = requireExplicit ? entry.valueSource !== 'variable' : false;
+    const explicitMissing = requireExplicit
+      ? entry.required && entry.valueSource !== 'variable'
+      : false;
     const missing = entry.missing || (entry.required && entry.value === undefined) || explicitMissing;
     return {
       name: entry.name,

@@ -47,6 +47,22 @@ async function run() {
     }
   ]);
   assert.equal(placeholderPort, 5173, 'placeholder metadata should fall back to default port value');
+
+  const previewWithRequire = await previewServiceConfigImport({
+    path: 'examples/environmental-observatory/service-manifests',
+    configPath: 'service-config.json',
+    module: 'github.com/apphub/examples/environmental-observatory',
+    requirePlaceholderValues: true
+  });
+  const optionalPlaceholder = previewWithRequire.placeholders.find(
+    (entry) => entry.name === 'TIMESTORE_STORAGE_TARGET_ID'
+  );
+  assert(optionalPlaceholder, 'optional placeholder should be reported in preview');
+  assert.equal(
+    optionalPlaceholder?.missing,
+    false,
+    'optional placeholders with defaults should not require explicit values'
+  );
 }
 
 run().catch((err) => {
