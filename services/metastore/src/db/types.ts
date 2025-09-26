@@ -68,3 +68,25 @@ export type RecordDeleteInput = {
   actor?: string | null;
   expectedVersion?: number;
 };
+
+export type RecordPatchInput = {
+  namespace: string;
+  key: string;
+  metadataPatch?: Record<string, unknown>;
+  metadataUnset?: string[];
+  tags?: {
+    set?: string[];
+    add?: string[];
+    remove?: string[];
+  };
+  owner?: string | null | undefined;
+  schemaHash?: string | null | undefined;
+  expectedVersion?: number;
+  actor?: string | null;
+};
+
+export type RecordPurgeInput = {
+  namespace: string;
+  key: string;
+  expectedVersion?: number;
+};

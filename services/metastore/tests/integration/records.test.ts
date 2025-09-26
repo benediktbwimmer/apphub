@@ -81,7 +81,7 @@ async function setupMetastore(): Promise<TestContext> {
 }
 
 runE2E(async ({ registerCleanup }) => {
-  const envSnapshot = snapshotEnv(['DATABASE_URL', 'APPHUB_AUTH_DISABLED', 'NODE_ENV']);
+  const envSnapshot = snapshotEnv(['DATABASE_URL', 'APPHUB_AUTH_DISABLED', 'NODE_ENV', 'APPHUB_METASTORE_TOKENS']);
   registerCleanup(async () => {
     restoreEnv(envSnapshot);
   });
@@ -157,6 +157,82 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(updateBody.record.version, 2);
   assert.equal(updateBody.record.metadata.status, 'paused');
 
+  // Patch record to merge metadata, adjust tags, and clear owner
+  const patchResponse = await app.inject({
+    method: 'PATCH',
+    url: '/records/analytics/pipeline-1',
+    payload: {
+      metadata: {
+        status: 'active',
+        thresholds: { latencyMs: 180 }
+      },
+      metadataUnset: ['notes'],
+      tags: {
+        add: ['patched'],
+        remove: ['maintenance']
+      },
+      owner: null
+    }
+  });
+  assert.equal(patchResponse.statusCode, 200, patchResponse.body);
+  const patchBody = patchResponse.json() as {
+    record: { metadata: Record<string, unknown>; tags: string[]; owner: string | null; version: number };
+  };
+  assert.equal(patchBody.record.metadata.status, 'active');
+  assert.equal(
+    (patchBody.record.metadata.thresholds as Record<string, unknown>).latencyMs,
+    180
+  );
+  assert.equal(patchBody.record.owner, null);
+  assert.deepEqual(patchBody.record.tags.sort(), ['patched', 'pipelines']);
+
+  // Numeric comparison search should treat metadata latency as a number
+  const numericSearchResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      filter: {
+        field: 'metadata.thresholds.latencyMs',
+        operator: 'lt',
+        value: 200
+      }
+    }
+  });
+  assert.equal(numericSearchResponse.statusCode, 200, numericSearchResponse.body);
+  const numericSearchBody = numericSearchResponse.json() as {
+    pagination: { total: number };
+    records: Array<{ metadata: Record<string, unknown> }>;
+  };
+  assert.equal(numericSearchBody.pagination.total, 1);
+  assert.equal(
+    (numericSearchBody.records[0]?.metadata.thresholds as Record<string, unknown>).latencyMs,
+    180
+  );
+
+  // Projection search should trim the payload to requested fields
+  const projectionSearchResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      projection: ['namespace', 'key', 'metadata.status'],
+      filter: {
+        field: 'metadata.status',
+        operator: 'eq',
+        value: 'active'
+      }
+    }
+  });
+  assert.equal(projectionSearchResponse.statusCode, 200, projectionSearchResponse.body);
+  const projectionBody = projectionSearchResponse.json() as {
+    records: Array<{ metadata: Record<string, unknown>; namespace: string; key: string }>;
+  };
+  const projectedRecord = projectionBody.records[0];
+  assert.deepEqual(Object.keys(projectedRecord).sort(), ['key', 'metadata', 'namespace']);
+  assert.deepEqual(Object.keys(projectedRecord.metadata ?? {}).sort(), ['status']);
+  assert.equal(projectedRecord.metadata.status, 'active');
+
   // Search records
   const searchResponse = await app.inject({
     method: 'POST',
@@ -168,7 +244,7 @@ runE2E(async ({ registerCleanup }) => {
         condition: {
           field: 'metadata.status',
           operator: 'eq',
-          value: 'paused'
+          value: 'active'
         }
       }
     }
@@ -179,7 +255,43 @@ runE2E(async ({ registerCleanup }) => {
     records: Array<{ key: string; metadata: Record<string, unknown> }>;
   };
   assert.equal(searchBody.pagination.total, 1);
-  assert.equal(searchBody.records[0]?.metadata.status, 'paused');
+  assert.equal(searchBody.records[0]?.metadata.status, 'active');
+
+  // Bulk operations should honor continueOnError and report per-op status
+  const bulkContinueResponse = await app.inject({
+    method: 'POST',
+    url: '/records/bulk',
+    payload: {
+      continueOnError: true,
+      operations: [
+        {
+          namespace: 'analytics',
+          key: 'pipeline-1',
+          metadata: {
+            status: 'active',
+            thresholds: { latencyMs: 170 }
+          },
+          tags: ['pipelines', 'patched']
+        },
+        {
+          type: 'delete',
+          namespace: 'analytics',
+          key: 'non-existent'
+        }
+      ]
+    }
+  });
+  assert.equal(bulkContinueResponse.statusCode, 200, bulkContinueResponse.body);
+  const bulkContinueBody = bulkContinueResponse.json() as {
+    operations: Array<Record<string, unknown>>;
+  };
+  assert.equal(bulkContinueBody.operations.length, 2);
+  const okOperation = bulkContinueBody.operations.find((op) => op.status === 'ok');
+  assert.ok(okOperation);
+  assert.equal(okOperation?.type, 'upsert');
+  const errorOperation = bulkContinueBody.operations.find((op) => op.status === 'error');
+  assert.ok(errorOperation);
+  assert.equal((errorOperation?.error as Record<string, unknown>).code, 'not_found');
 
   // Bulk upsert + delete
   const bulkResponse = await app.inject({
@@ -215,6 +327,69 @@ runE2E(async ({ registerCleanup }) => {
     url: '/records/analytics/pipeline-1?includeDeleted=true'
   });
   assert.equal(fetchDeleted.statusCode, 200, fetchDeleted.body);
-  const deletedBody = fetchDeleted.json() as { record: { deletedAt: string | null } };
+  const deletedBody = fetchDeleted.json() as { record: { deletedAt: string | null; version: number } };
   assert.ok(deletedBody.record.deletedAt);
+
+  const auditResponse = await app.inject({
+    method: 'GET',
+    url: '/records/analytics/pipeline-1/audit'
+  });
+  assert.equal(auditResponse.statusCode, 200, auditResponse.body);
+  const auditBody = auditResponse.json() as {
+    pagination: { total: number };
+    entries: Array<{ action: string }>;
+  };
+  assert.ok(auditBody.pagination.total >= 1);
+  assert.ok(auditBody.entries.some((entry) => entry.action === 'delete'));
+
+  const purgeResponse = await app.inject({
+    method: 'DELETE',
+    url: '/records/analytics/pipeline-1/purge',
+    payload: {
+      expectedVersion: deletedBody.record.version
+    }
+  });
+  assert.equal(purgeResponse.statusCode, 200, purgeResponse.body);
+  const purgeBody = purgeResponse.json() as { purged: boolean; record: { key: string } };
+  assert.equal(purgeBody.purged, true);
+
+  const fetchAfterPurge = await app.inject({
+    method: 'GET',
+    url: '/records/analytics/pipeline-1?includeDeleted=true'
+  });
+  assert.equal(fetchAfterPurge.statusCode, 404, fetchAfterPurge.body);
+
+  const auditAfterPurge = await app.inject({
+    method: 'GET',
+    url: '/records/analytics/pipeline-1/audit'
+  });
+  assert.equal(auditAfterPurge.statusCode, 200, auditAfterPurge.body);
+  const auditAfterBody = auditAfterPurge.json() as { pagination: { total: number } };
+  assert.equal(auditAfterBody.pagination.total, 0);
+
+  process.env.APPHUB_METASTORE_TOKENS = JSON.stringify([
+    {
+      token: 'abc123',
+      subject: 'service-a',
+      scopes: ['metastore:read'],
+      namespaces: '*',
+      kind: 'service'
+    },
+    {
+      token: 'def456',
+      subject: 'service-b',
+      scopes: ['metastore:write', 'metastore:delete'],
+      namespaces: '*',
+      kind: 'service'
+    }
+  ]);
+
+  const reloadTokensResponse = await app.inject({
+    method: 'POST',
+    url: '/admin/tokens/reload'
+  });
+  assert.equal(reloadTokensResponse.statusCode, 200, reloadTokensResponse.body);
+  const reloadTokensBody = reloadTokensResponse.json() as { reloaded: boolean; tokenCount: number };
+  assert.equal(reloadTokensBody.reloaded, true);
+  assert.equal(reloadTokensBody.tokenCount, 2);
 }, { name: 'metastore-record-lifecycle' });

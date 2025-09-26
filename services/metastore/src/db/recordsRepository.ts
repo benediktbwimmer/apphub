@@ -4,6 +4,8 @@ import type {
   MetastoreRecord,
   MetastoreRecordRow,
   RecordDeleteInput,
+  RecordPatchInput,
+  RecordPurgeInput,
   RecordUpdateInput,
   RecordWriteInput
 } from './types';
@@ -46,6 +48,115 @@ function normalizeTags(tags?: string[]): string[] {
     }
   }
   return Array.from(deduped);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function deepMergeMetadata(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const current = result[key];
+    if (isPlainObject(current) && isPlainObject(value)) {
+      result[key] = deepMergeMetadata(current as Record<string, unknown>, value as Record<string, unknown>);
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function unsetPath(
+  target: Record<string, unknown>,
+  segments: string[]
+): Record<string, unknown> {
+  if (segments.length === 0) {
+    return target;
+  }
+  const [head, ...rest] = segments;
+  if (!Object.prototype.hasOwnProperty.call(target, head)) {
+    return target;
+  }
+
+  const cloned: Record<string, unknown> = { ...target };
+
+  if (rest.length === 0) {
+    delete cloned[head];
+    return cloned;
+  }
+
+  const next = target[head];
+  if (!isPlainObject(next)) {
+    delete cloned[head];
+    return cloned;
+  }
+
+  const updatedChild = unsetPath(next as Record<string, unknown>, rest);
+  if (updatedChild === next) {
+    return target;
+  }
+  if (Object.keys(updatedChild).length === 0) {
+    delete cloned[head];
+  } else {
+    cloned[head] = updatedChild;
+  }
+  return cloned;
+}
+
+function unsetMetadataPaths(
+  metadata: Record<string, unknown>,
+  paths: string[]
+): Record<string, unknown> {
+  let result: Record<string, unknown> = { ...metadata };
+  for (const path of paths) {
+    const trimmed = path.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const segments = trimmed.split('.').map((segment) => segment.trim()).filter(Boolean);
+    if (segments.length === 0) {
+      continue;
+    }
+    const updated = unsetPath(result, segments);
+    if (updated !== result) {
+      result = updated;
+    }
+  }
+  return result;
+}
+
+function applyTagPatch(existing: string[], patch?: RecordPatchInput['tags']): string[] {
+  if (!patch) {
+    return existing;
+  }
+
+  if (patch.set && patch.set.length > 0) {
+    return normalizeTags(patch.set);
+  }
+
+  const working = new Set(existing.map((tag) => tag.trim()).filter(Boolean));
+
+  if (patch.add) {
+    for (const tag of patch.add) {
+      if (typeof tag === 'string' && tag.trim().length > 0) {
+        working.add(tag.trim());
+      }
+    }
+  }
+
+  if (patch.remove) {
+    for (const tag of patch.remove) {
+      if (typeof tag === 'string' && tag.trim().length > 0) {
+        working.delete(tag.trim());
+      }
+    }
+  }
+
+  return Array.from(working);
 }
 
 export async function createRecord(
@@ -115,6 +226,13 @@ export class OptimisticLockError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'OptimisticLockError';
+  }
+}
+
+export class RecordDeletedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RecordDeletedError';
   }
 }
 
@@ -233,6 +351,74 @@ export async function softDeleteRecord(
   return deleted;
 }
 
+export async function patchRecord(
+  client: PoolClient,
+  input: RecordPatchInput
+): Promise<MetastoreRecord | null> {
+  const previous = await selectForUpdate(client, input.namespace, input.key, {
+    includeDeleted: true
+  });
+
+  if (!previous) {
+    return null;
+  }
+
+  if (previous.deletedAt) {
+    throw new RecordDeletedError('Cannot patch a soft-deleted record');
+  }
+
+  if (typeof input.expectedVersion === 'number' && previous.version !== input.expectedVersion) {
+    throw new OptimisticLockError('Version mismatch while patching metastore record');
+  }
+
+  let metadata = previous.metadata;
+  if (input.metadataPatch) {
+    metadata = deepMergeMetadata(metadata, normalizeMetadata(input.metadataPatch));
+  }
+
+  if (input.metadataUnset && input.metadataUnset.length > 0) {
+    metadata = unsetMetadataPaths(metadata, input.metadataUnset);
+  }
+
+  metadata = normalizeMetadata(metadata);
+
+  const tags = applyTagPatch(previous.tags, input.tags);
+  const owner = input.owner !== undefined ? input.owner : previous.owner;
+  const schemaHash = input.schemaHash !== undefined ? input.schemaHash : previous.schemaHash;
+  const actor = input.actor ?? null;
+
+  const result = await client.query<MetastoreRecordRow>(
+    `UPDATE metastore_records
+       SET metadata = $1::jsonb,
+           tags = $2::text[],
+           owner = $3,
+           schema_hash = $4,
+           updated_at = NOW(),
+           updated_by = $5,
+           version = version + 1
+     WHERE namespace = $6
+       AND record_key = $7
+     RETURNING *`,
+    [
+      JSON.stringify(metadata),
+      normalizeTags(tags),
+      owner ?? null,
+      schemaHash ?? null,
+      actor,
+      input.namespace,
+      input.key
+    ]
+  );
+
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error('Failed to patch metastore record');
+  }
+
+  const updated = toRecord(result.rows[0]);
+  await writeAuditEntry({ client, action: 'update', record: updated, previousRecord: previous, actor });
+  return updated;
+}
+
 export type UpsertResult = {
   record: MetastoreRecord | null;
   created: boolean;
@@ -265,6 +451,36 @@ export async function upsertRecord(
     expectedVersion: input.expectedVersion ?? existing.version
   });
   return { record: updated, created: false };
+}
+
+export async function hardDeleteRecord(
+  client: PoolClient,
+  input: RecordPurgeInput
+): Promise<MetastoreRecord | null> {
+  const previous = await selectForUpdate(client, input.namespace, input.key, {
+    includeDeleted: true
+  });
+
+  if (!previous) {
+    return null;
+  }
+
+  if (typeof input.expectedVersion === 'number' && previous.version !== input.expectedVersion) {
+    throw new OptimisticLockError('Version mismatch while purging metastore record');
+  }
+
+  await client.query(`DELETE FROM metastore_record_audits WHERE namespace = $1 AND record_key = $2`, [
+    input.namespace,
+    input.key
+  ]);
+
+  const result = await client.query(`DELETE FROM metastore_records WHERE id = $1`, [previous.id]);
+
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error('Failed to purge metastore record');
+  }
+
+  return previous;
 }
 
 export type SearchRecordsResult = {

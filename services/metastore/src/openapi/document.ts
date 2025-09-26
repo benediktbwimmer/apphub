@@ -137,6 +137,87 @@ export const openApiDocument: OpenAPIV3.Document = {
         }
       }
     },
+    '/records/{namespace}/{key}/audit': {
+      get: {
+        tags: ['Records'],
+        summary: 'List record audit entries',
+        operationId: 'listRecordAudit',
+        parameters: [
+          { name: 'namespace', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 200 } },
+          { name: 'offset', in: 'query', required: false, schema: { type: 'integer', minimum: 0 } }
+        ],
+        responses: {
+          '200': {
+            description: 'Audit trail entries',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    pagination: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer' },
+                        limit: { type: 'integer' },
+                        offset: { type: 'integer' }
+                      }
+                    },
+                    entries: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/MetastoreAuditEntry' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/records/{namespace}/{key}/purge': {
+      delete: {
+        tags: ['Records'],
+        summary: 'Hard delete a record and its audit trail',
+        operationId: 'purgeRecord',
+        parameters: [
+          { name: 'namespace', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string' } }
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  expectedVersion: { type: 'integer', minimum: 1 }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Record purged',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    purged: { type: 'boolean' },
+                    record: { $ref: '#/components/schemas/MetastoreRecord' }
+                  }
+                }
+              }
+            }
+          },
+          '404': { description: 'Record not found' },
+          '409': { description: 'Version conflict' }
+        }
+      }
+    },
     '/records/{namespace}/{key}': {
       get: {
         tags: ['Records'],
@@ -222,6 +303,58 @@ export const openApiDocument: OpenAPIV3.Document = {
           '409': { description: 'Version conflict' }
         }
       },
+      patch: {
+        tags: ['Records'],
+        summary: 'Patch a record',
+        operationId: 'patchRecord',
+        parameters: [
+          { name: 'namespace', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string' } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  metadata: { type: 'object', additionalProperties: true },
+                  metadataUnset: { type: 'array', items: { type: 'string' } },
+                  tags: {
+                    type: 'object',
+                    properties: {
+                      set: { type: 'array', items: { type: 'string' } },
+                      add: { type: 'array', items: { type: 'string' } },
+                      remove: { type: 'array', items: { type: 'string' } }
+                    },
+                    additionalProperties: false
+                  },
+                  owner: { type: 'string', nullable: true },
+                  schemaHash: { type: 'string', nullable: true },
+                  expectedVersion: { type: 'integer', minimum: 1 }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Record patched',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    record: { $ref: '#/components/schemas/MetastoreRecord' }
+                  }
+                }
+              }
+            }
+          },
+          '404': { description: 'Record not found' },
+          '409': { description: 'Version conflict or record soft-deleted' }
+        }
+      },
       delete: {
         tags: ['Records'],
         summary: 'Soft delete a record',
@@ -281,6 +414,7 @@ export const openApiDocument: OpenAPIV3.Document = {
                   limit: { type: 'integer', minimum: 1, maximum: 200 },
                   offset: { type: 'integer', minimum: 0 },
                   includeDeleted: { type: 'boolean' },
+                  projection: { type: 'array', items: { type: 'string' }, maxItems: 32 },
                   sort: {
                     type: 'array',
                     items: {
@@ -368,7 +502,8 @@ export const openApiDocument: OpenAPIV3.Document = {
                         }
                       ]
                     }
-                  }
+                  },
+                  continueOnError: { type: 'boolean' }
                 }
               }
             }
@@ -384,29 +519,7 @@ export const openApiDocument: OpenAPIV3.Document = {
                   properties: {
                     operations: {
                       type: 'array',
-                      items: {
-                        oneOf: [
-                          {
-                            type: 'object',
-                            properties: {
-                              type: { type: 'string', enum: ['upsert'] },
-                              namespace: { type: 'string' },
-                              key: { type: 'string' },
-                              created: { type: 'boolean' },
-                              record: { $ref: '#/components/schemas/MetastoreRecord' }
-                            }
-                          },
-                          {
-                            type: 'object',
-                            properties: {
-                              type: { type: 'string', enum: ['delete'] },
-                              namespace: { type: 'string' },
-                              key: { type: 'string' },
-                              record: { $ref: '#/components/schemas/MetastoreRecord' }
-                            }
-                          }
-                        ]
-                      }
+                      items: { $ref: '#/components/schemas/BulkOperationResult' }
                     }
                   }
                 }
@@ -451,12 +564,87 @@ export const openApiDocument: OpenAPIV3.Document = {
           '503': { description: 'Metrics disabled' }
         }
       }
+    },
+    '/admin/tokens/reload': {
+      post: {
+        tags: ['System'],
+        summary: 'Reload bearer tokens',
+        operationId: 'reloadTokens',
+        responses: {
+          '200': {
+            description: 'Tokens reloaded',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    reloaded: { type: 'boolean' },
+                    tokenCount: { type: 'integer' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   components: {
     schemas: {
       MetastoreRecord: recordSchema,
-      SearchFilter: searchFilterSchema
+      SearchFilter: searchFilterSchema,
+      MetastoreAuditEntry: {
+        type: 'object',
+        required: ['id', 'namespace', 'key', 'action', 'createdAt'],
+        properties: {
+          id: { type: 'integer' },
+          namespace: { type: 'string' },
+          key: { type: 'string' },
+          action: { type: 'string', enum: ['create', 'update', 'delete', 'restore'] },
+          actor: { type: 'string', nullable: true },
+          previousVersion: { type: 'integer', nullable: true },
+          version: { type: 'integer', nullable: true },
+          metadata: { type: 'object', nullable: true, additionalProperties: true },
+          previousMetadata: { type: 'object', nullable: true, additionalProperties: true },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
+      BulkOperationResult: {
+        oneOf: [
+          {
+            type: 'object',
+            required: ['status', 'type', 'namespace', 'key', 'record'],
+            properties: {
+              status: { type: 'string', enum: ['ok'] },
+              type: { type: 'string', enum: ['upsert', 'delete'] },
+              namespace: { type: 'string' },
+              key: { type: 'string' },
+              created: { type: 'boolean' },
+              record: { $ref: '#/components/schemas/MetastoreRecord' }
+            },
+            additionalProperties: false
+          },
+          {
+            type: 'object',
+            required: ['status', 'namespace', 'key', 'error'],
+            properties: {
+              status: { type: 'string', enum: ['error'] },
+              namespace: { type: 'string' },
+              key: { type: 'string' },
+              error: {
+                type: 'object',
+                required: ['statusCode', 'code', 'message'],
+                properties: {
+                  statusCode: { type: 'integer' },
+                  code: { type: 'string' },
+                  message: { type: 'string' }
+                }
+              }
+            },
+            additionalProperties: false
+          }
+        ]
+      }
     }
   }
 };

@@ -10,6 +10,7 @@ import { runMigrations } from './db/migrations';
 import { closePool, getClient } from './db/client';
 import { openApiDocument } from './openapi/document';
 import { registerRecordRoutes } from './routes/records';
+import { registerAdminRoutes } from './routes/admin';
 
 export type BuildAppOptions = {
   config?: ReturnType<typeof loadServiceConfig>;
@@ -49,6 +50,7 @@ export async function buildApp(options?: BuildAppOptions) {
 
   await registerSystemRoutes(app);
   await registerRecordRoutes(app);
+  await registerAdminRoutes(app);
 
   app.get('/openapi.json', async () => openApiDocument);
 

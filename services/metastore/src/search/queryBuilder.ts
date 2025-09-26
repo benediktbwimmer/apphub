@@ -26,6 +26,10 @@ type FieldSpec =
   | { kind: 'metadata'; path: string[] };
 
 const FIELD_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+const NUMERIC_REGEX = /^-?\d+(?:\.\d+)?$/;
+const ISO_INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/;
+
+type ComparisonCategory = 'number' | 'boolean' | 'timestamp' | 'text';
 
 function parseField(field: string): FieldSpec {
   if (field.startsWith('metadata.')) {
@@ -95,6 +99,87 @@ function ensureArray(value: unknown): unknown[] {
     return value;
   }
   return value === undefined ? [] : [value];
+}
+
+function detectComparisonCategory(value: unknown): ComparisonCategory {
+  if (typeof value === 'number') {
+    return 'number';
+  }
+  if (typeof value === 'boolean') {
+    return 'boolean';
+  }
+  if (value instanceof Date) {
+    return 'timestamp';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (NUMERIC_REGEX.test(trimmed)) {
+      return 'number';
+    }
+    if (/^(true|false)$/i.test(trimmed)) {
+      return 'boolean';
+    }
+    if (ISO_INSTANT_REGEX.test(trimmed)) {
+      return 'timestamp';
+    }
+  }
+  return 'text';
+}
+
+function coerceValueForCategory(value: unknown, category: ComparisonCategory): unknown {
+  switch (category) {
+    case 'number': {
+      if (typeof value === 'number') {
+        return value;
+      }
+      if (typeof value === 'string') {
+        const parsed = Number(value.trim());
+        return Number.isFinite(parsed) ? parsed : value;
+      }
+      return value;
+    }
+    case 'boolean': {
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      if (typeof value === 'string') {
+        const lowered = value.trim().toLowerCase();
+        if (lowered === 'true') {
+          return true;
+        }
+        if (lowered === 'false') {
+          return false;
+        }
+      }
+      return value;
+    }
+    case 'timestamp': {
+      if (value instanceof Date) {
+        return value;
+      }
+      if (typeof value === 'string') {
+        return value.trim();
+      }
+      return value;
+    }
+    default:
+      return typeof value === 'string' ? value : String(value ?? '');
+  }
+}
+
+function buildMetadataComparableExpression(path: string[], category: ComparisonCategory): string {
+  const textExpr = buildJsonTextPath(path);
+
+  switch (category) {
+    case 'number':
+      return `CASE WHEN ${textExpr} ~ '${NUMERIC_REGEX.source}' THEN (${textExpr})::numeric END`;
+    case 'boolean':
+      return `CASE WHEN LOWER(${textExpr}) IN ('true','false') THEN (${textExpr})::boolean END`;
+    case 'timestamp':
+      return `CASE WHEN ${textExpr} ~* '${ISO_INSTANT_REGEX.source}' THEN (${textExpr})::timestamptz END`;
+    default:
+      return textExpr;
+  }
 }
 
 function buildCondition(builder: SqlBuilder, condition: FilterCondition): string {
@@ -203,20 +288,22 @@ function buildCondition(builder: SqlBuilder, condition: FilterCondition): string
     case 'lte':
     case 'gt':
     case 'gte': {
-      const textExpr = buildJsonTextPath(fieldSpec.path);
-      const placeholder = builder.add(String(condition.value ?? ''));
+      const category = detectComparisonCategory(condition.value);
+      const expression = buildMetadataComparableExpression(fieldSpec.path, category);
+      const placeholder = builder.add(coerceValueForCategory(condition.value, category));
       const opMap = { lt: '<', lte: '<=', gt: '>', gte: '>=' } as const;
-      return `${textExpr} ${opMap[operator]} ${placeholder}`;
+      return `(${expression}) ${opMap[operator]} ${placeholder}`;
     }
     case 'between': {
       const values = ensureArray(condition.values);
       if (values.length !== 2) {
         throw new Error('Between operator expects exactly two values');
       }
-      const textExpr = buildJsonTextPath(fieldSpec.path);
-      const startPlaceholder = builder.add(String(values[0] ?? ''));
-      const endPlaceholder = builder.add(String(values[1] ?? ''));
-      return `${textExpr} BETWEEN ${startPlaceholder} AND ${endPlaceholder}`;
+      const category = detectComparisonCategory(values[0]);
+      const expression = buildMetadataComparableExpression(fieldSpec.path, category);
+      const startPlaceholder = builder.add(coerceValueForCategory(values[0], category));
+      const endPlaceholder = builder.add(coerceValueForCategory(values[1], category));
+      return `(${expression}) BETWEEN ${startPlaceholder} AND ${endPlaceholder}`;
     }
     default:
       throw new Error(`Operator ${operator} not supported for metadata fields`);

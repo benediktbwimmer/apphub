@@ -8,6 +8,9 @@ The metastore provides a flexible metadata backend for platform features that ne
 - Support expressive search with boolean composition, range comparisons, containment checks, and array membership across metadata fields and top-level attributes.
 - Enforce optimistic locking via the `version` column, so clients cannot overwrite concurrent updates accidentally.
 - Emit Prometheus metrics (`metastore_http_requests_total`, `metastore_http_request_duration_seconds`) and health checks (`/healthz`, `/readyz`, `/metrics`).
+- Accept JSON merge-style patches for records, allowing deep metadata updates, tag add/remove/set operations, and targeted key removal without resending entire documents.
+- Expose audit trails (`GET /records/:namespace/:key/audit`) and an irreversible purge path for compliance-driven deletions.
+- Reload bearer token definitions at runtime via `/admin/tokens/reload` to simplify credential rotation.
 
 ## Data Model
 ```text
@@ -46,12 +49,16 @@ GIN indexes exist on `metadata`, `tags`, and `updated_at` to keep search queries
 | --- | --- | --- |
 | `POST /records` | Create a record (idempotent on key). Returns 201 on first write and 200 on no-op. | `metastore:write` |
 | `PUT /records/:namespace/:key` | Upsert or restore a record. Accepts `expectedVersion` for optimistic locking. | `metastore:write` |
+| `PATCH /records/:namespace/:key` | Deep-merge metadata, adjust tags (set/add/remove), and optionally clear fields. | `metastore:write` |
 | `GET /records/:namespace/:key` | Fetch a record. Optional `includeDeleted=true` exposes soft-deleted rows. | `metastore:read` |
 | `DELETE /records/:namespace/:key` | Soft delete a record (retains metadata + audit trail). | `metastore:delete` |
-| `POST /records/search` | Execute filtered, paginated search requests. Supports boolean filter trees, sort order, and result counts. | `metastore:read` |
-| `POST /records/bulk` | Apply batched upsert/delete operations transactionally. | `metastore:write` (+ `metastore:delete` if deletes present) |
+| `GET /records/:namespace/:key/audit` | Retrieve the audit trail for a record with paging. | `metastore:read` |
+| `DELETE /records/:namespace/:key/purge` | Hard delete a record and its audit entries (irreversible). | `metastore:admin` |
+| `POST /records/search` | Execute filtered, paginated search requests. Supports boolean filter trees, sort order, projection, and result counts. | `metastore:read` |
+| `POST /records/bulk` | Apply batched upsert/delete operations; optional `continueOnError` yields per-op success/error statuses. | `metastore:write` (+ `metastore:delete` if deletes present) |
 | `GET /healthz` / `GET /readyz` | Liveness and readiness probes (readiness checks Postgres connectivity). | none |
 | `GET /metrics` | Prometheus metrics (disabled when `APPHUB_METRICS_ENABLED=0`). | none |
+| `POST /admin/tokens/reload` | Reload bearer tokens from file/env without restarting the service. | `metastore:admin` |
 
 ### Search DSL
 Search payloads accept a filter tree composed of condition, group, and not nodes. Example:
@@ -88,7 +95,8 @@ Search payloads accept a filter tree composed of condition, group, and not nodes
   },
   "sort": [{ "field": "updatedAt", "direction": "desc" }],
   "limit": 25,
-  "offset": 0
+  "offset": 0,
+  "projection": ["namespace", "key", "metadata.status"]
 }
 ```
 
@@ -100,7 +108,7 @@ Supported comparison operators:
 - `array_contains` (array membership for metadata arrays or `tags`)
 - `exists`
 
-Boolean operators: `and`, `or`, plus `not` combinator. Filter depth is capped at 8 levels to protect query compilation.
+Boolean operators: `and`, `or`, plus `not` combinator. Filter depth is capped at 8 levels to protect query compilation. Numeric, boolean, and ISO 8601 timestamp comparisons auto-cast metadata values when using `<`, `>`, or `between`.
 
 ## Authentication & Namespaces
 - Bearer tokens are loaded from `APPHUB_METASTORE_TOKENS`, `APPHUB_METASTORE_TOKENS_PATH`, or fall back to `APPHUB_OPERATOR_TOKENS`. 

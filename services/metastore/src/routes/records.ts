@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
+import type { PoolClient } from 'pg';
 import { ensureNamespaceAccess, ensureScope } from './helpers';
 import { serializeRecord } from './serializers';
 import {
@@ -8,7 +9,10 @@ import {
   upsertRecord,
   softDeleteRecord,
   searchRecords,
-  OptimisticLockError
+  OptimisticLockError,
+  patchRecord,
+  hardDeleteRecord,
+  RecordDeletedError
 } from '../db/recordsRepository';
 import { withConnection, withTransaction } from '../db/client';
 import {
@@ -16,10 +20,15 @@ import {
   parseCreateRecordPayload,
   parseDeleteRecordPayload,
   parseSearchPayload,
-  parseUpdateRecordPayload
+  parseUpdateRecordPayload,
+  parsePatchRecordPayload,
+  parsePurgeRecordPayload,
+  parseAuditQuery
 } from '../schemas/records';
 import { HttpError, toHttpError } from './errors';
 import { hasScope } from '../auth/identity';
+import { listRecordAudits } from '../db/auditRepository';
+import { serializeAuditEntry } from './serializers';
 
 const includeDeletedQuerySchema = z.object({
   includeDeleted: z.coerce.boolean().optional()
@@ -31,6 +40,9 @@ function mapError(err: unknown): HttpError {
   }
   if (err instanceof OptimisticLockError) {
     return new HttpError(409, 'version_conflict', err.message);
+  }
+  if (err instanceof RecordDeletedError) {
+    return new HttpError(409, 'record_deleted', err.message);
   }
   const httpLike = toHttpError(err);
   if (httpLike) {
@@ -133,6 +145,65 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
     }
   });
 
+  app.patch<{
+    Params: { namespace: string; key: string };
+  }>('/records/:namespace/:key', async (request, reply) => {
+    if (!ensureScope(request, reply, 'metastore:write')) {
+      return;
+    }
+
+    const { namespace, key } = request.params;
+
+    if (!ensureNamespaceAccess(request, reply, namespace)) {
+      return;
+    }
+
+    let payload;
+    try {
+      payload = parsePatchRecordPayload(request.body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid patch payload';
+      reply.code(400).send({ statusCode: 400, error: 'bad_request', message });
+      return;
+    }
+
+    try {
+      const updated = await withTransaction((client) =>
+        patchRecord(client, {
+          namespace,
+          key,
+          metadataPatch: payload.metadata,
+          metadataUnset: payload.metadataUnset,
+          tags: payload.tags,
+          owner: payload.owner,
+          schemaHash: payload.schemaHash,
+          expectedVersion: payload.expectedVersion,
+          actor: request.identity.subject
+        })
+      );
+
+      if (!updated) {
+        reply.code(404).send({
+          statusCode: 404,
+          error: 'not_found',
+          message: 'Record not found'
+        });
+        return;
+      }
+
+      reply.send({
+        record: serializeRecord(updated)
+      });
+    } catch (err) {
+      const error = mapError(err);
+      reply.code(error.statusCode).send({
+        statusCode: error.statusCode,
+        error: error.code,
+        message: error.message
+      });
+    }
+  });
+
   app.get<{
     Params: { namespace: string; key: string };
     Querystring: { includeDeleted?: string | boolean };
@@ -171,6 +242,47 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
     }
 
     reply.send({ record: serializeRecord(record) });
+  });
+
+  app.get<{
+    Params: { namespace: string; key: string };
+  }>('/records/:namespace/:key/audit', async (request, reply) => {
+    if (!ensureScope(request, reply, 'metastore:read')) {
+      return;
+    }
+
+    const { namespace, key } = request.params;
+
+    if (!ensureNamespaceAccess(request, reply, namespace)) {
+      return;
+    }
+
+    let query;
+    try {
+      query = parseAuditQuery(request.query);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid audit query';
+      reply.code(400).send({ statusCode: 400, error: 'bad_request', message });
+      return;
+    }
+
+    const result = await withConnection((client) =>
+      listRecordAudits(client, {
+        namespace,
+        key,
+        limit: query.limit,
+        offset: query.offset
+      })
+    );
+
+    reply.send({
+      pagination: {
+        total: result.total,
+        limit: query.limit ?? 50,
+        offset: query.offset ?? 0
+      },
+      entries: result.entries.map(serializeAuditEntry)
+    });
   });
 
   app.delete<{
@@ -221,6 +333,53 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
     }
   });
 
+  app.delete<{
+    Params: { namespace: string; key: string };
+  }>('/records/:namespace/:key/purge', async (request, reply) => {
+    if (!ensureScope(request, reply, 'metastore:admin')) {
+      return;
+    }
+
+    const { namespace, key } = request.params;
+
+    if (!ensureNamespaceAccess(request, reply, namespace)) {
+      return;
+    }
+
+    const payload = parsePurgeRecordPayload(request.body);
+
+    try {
+      const record = await withTransaction((client) =>
+        hardDeleteRecord(client, {
+          namespace,
+          key,
+          expectedVersion: payload.expectedVersion
+        })
+      );
+
+      if (!record) {
+        reply.code(404).send({
+          statusCode: 404,
+          error: 'not_found',
+          message: 'Record not found'
+        });
+        return;
+      }
+
+      reply.send({
+        purged: true,
+        record: serializeRecord(record)
+      });
+    } catch (err) {
+      const error = mapError(err);
+      reply.code(error.statusCode).send({
+        statusCode: error.statusCode,
+        error: error.code,
+        message: error.message
+      });
+    }
+  });
+
   app.post('/records/search', async (request, reply) => {
     if (!ensureScope(request, reply, 'metastore:read')) {
       return;
@@ -247,7 +406,8 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
           filter: payload.filter,
           limit: payload.limit,
           offset: payload.offset,
-          sort: payload.sort
+          sort: payload.sort,
+          projection: payload.projection
         })
       );
 
@@ -257,7 +417,7 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
           limit: payload.limit ?? 50,
           offset: payload.offset ?? 0
         },
-        records: records.map(serializeRecord)
+        records: records.map((record) => serializeRecord(record, payload.projection))
       });
     } catch (err) {
       const error = mapError(err);
@@ -301,58 +461,89 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
     }
 
     try {
-      const results = await withTransaction(async (client) => {
-        const responses: unknown[] = [];
-        for (const operation of payload.operations) {
-          if (operation.type === 'delete') {
-            const deleted = await softDeleteRecord(client, {
-              namespace: operation.namespace,
-              key: operation.key,
-              expectedVersion: operation.expectedVersion,
-              actor: request.identity.subject
-            });
-            if (!deleted) {
-              throw new HttpError(404, 'not_found', `Record ${operation.namespace}/${operation.key} not found`);
-            }
-            responses.push({
-              type: 'delete',
-              namespace: operation.namespace,
-              key: operation.key,
-              record: serializeRecord(deleted)
-            });
-            continue;
-          }
+      const continueOnError = payload.continueOnError === true;
 
-          const result = await upsertRecord(client, {
+      const executeOperation = async (
+        client: PoolClient,
+        operation: (typeof payload.operations)[number]
+      ): Promise<Record<string, unknown>> => {
+        if (operation.type === 'delete') {
+          const deleted = await softDeleteRecord(client, {
             namespace: operation.namespace,
             key: operation.key,
-            metadata: operation.metadata,
-            tags: operation.tags,
-            owner: operation.owner,
-            schemaHash: operation.schemaHash,
             expectedVersion: operation.expectedVersion,
             actor: request.identity.subject
           });
-
-          if (!result.record) {
-            throw new HttpError(500, 'upsert_failed', `Failed to upsert record ${operation.namespace}/${operation.key}`);
+          if (!deleted) {
+            throw new HttpError(404, 'not_found', `Record ${operation.namespace}/${operation.key} not found`);
           }
-
-          responses.push({
-            type: 'upsert',
+          return {
+            type: 'delete',
             namespace: operation.namespace,
             key: operation.key,
-            created: result.created,
-            record: serializeRecord(result.record)
-          });
+            record: serializeRecord(deleted)
+          };
         }
 
+        const result = await upsertRecord(client, {
+          namespace: operation.namespace,
+          key: operation.key,
+          metadata: operation.metadata,
+          tags: operation.tags,
+          owner: operation.owner,
+          schemaHash: operation.schemaHash,
+          expectedVersion: operation.expectedVersion,
+          actor: request.identity.subject
+        });
+
+        if (!result.record) {
+          throw new HttpError(500, 'upsert_failed', `Failed to upsert record ${operation.namespace}/${operation.key}`);
+        }
+
+        return {
+          type: 'upsert',
+          namespace: operation.namespace,
+          key: operation.key,
+          created: result.created,
+          record: serializeRecord(result.record)
+        };
+      };
+
+      if (continueOnError) {
+        const results = [] as Array<Record<string, unknown>>;
+        for (const operation of payload.operations) {
+          try {
+            const outcome = await withTransaction((client) => executeOperation(client, operation));
+            results.push({ status: 'ok', ...outcome });
+          } catch (err) {
+            const error = mapError(err);
+            results.push({
+              status: 'error',
+              namespace: operation.namespace,
+              key: operation.key,
+              error: {
+                statusCode: error.statusCode,
+                code: error.code,
+                message: error.message
+              }
+            });
+          }
+        }
+
+        reply.send({ operations: results });
+        return;
+      }
+
+      const results = await withTransaction(async (client) => {
+        const responses: Array<Record<string, unknown>> = [];
+        for (const operation of payload.operations) {
+          const outcome = await executeOperation(client, operation);
+          responses.push({ status: 'ok', ...outcome });
+        }
         return responses;
       });
 
-      reply.send({
-        operations: results
-      });
+      reply.send({ operations: results });
     } catch (err) {
       const error = mapError(err);
       reply.code(error.statusCode).send({

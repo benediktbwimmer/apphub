@@ -1,11 +1,18 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import type { ServiceConfig } from '../config/serviceConfig';
+import { refreshServiceTokens } from '../config/serviceConfig';
 import { createDisabledIdentity, createIdentityFromToken, type AuthIdentity } from './identity';
 
 declare module 'fastify' {
   interface FastifyRequest {
     identity: AuthIdentity;
+  }
+
+  interface FastifyInstance {
+    auth: {
+      reloadTokens: () => { count: number };
+    };
   }
 }
 
@@ -53,6 +60,17 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, options) => {
   let tokenIndex = buildTokenIndex(config);
 
   app.decorateRequest<AuthIdentity | null>('identity', null);
+
+  app.decorate('auth', {
+    reloadTokens: () => {
+      const tokens = refreshServiceTokens();
+      config.tokens = tokens;
+      tokenIndex = buildTokenIndex(config);
+      const count = tokenIndex.size;
+      app.log.info({ tokenCount: count }, 'Auth tokens reloaded');
+      return { count };
+    }
+  });
 
   app.addHook('onRequest', async (request, reply) => {
     if (config.authDisabled) {

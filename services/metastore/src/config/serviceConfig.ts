@@ -178,3 +178,18 @@ export function loadServiceConfig(): ServiceConfig {
 
   return cachedConfig;
 }
+
+export function refreshServiceTokens(): TokenDefinition[] {
+  const tokens = loadTokens();
+  if (cachedConfig) {
+    cachedConfig = {
+      ...cachedConfig,
+      tokens
+    } satisfies ServiceConfig;
+  }
+  return tokens;
+}
+
+export function resetServiceConfigCache(): void {
+  cachedConfig = null;
+}
