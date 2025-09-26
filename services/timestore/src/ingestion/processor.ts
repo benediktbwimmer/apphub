@@ -21,6 +21,7 @@ import { createStorageDriver } from '../storage';
 import { ensureDefaultStorageTarget } from '../service/bootstrap';
 import type { IngestionJobPayload, IngestionProcessingResult } from './types';
 import { observeIngestionJob } from '../observability/metrics';
+import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
 
 export async function processIngestionJob(
@@ -170,6 +171,29 @@ export async function processIngestionJob(
       result: 'success',
       durationSeconds: durationSince(start)
     });
+
+    try {
+      await publishTimestoreEvent(
+        'timestore.partition.created',
+        {
+          datasetId: dataset.id,
+          datasetSlug,
+          manifestId: manifest.id,
+          partitionId,
+          partitionKey: payload.partition.key,
+          storageTargetId: storageTarget.id,
+          filePath: writeResult.relativePath,
+          rowCount: writeResult.rowCount,
+          fileSizeBytes: writeResult.fileSizeBytes,
+          checksum: writeResult.checksum ?? null,
+          receivedAt: payload.receivedAt
+        },
+        'timestore.ingest'
+      );
+    } catch (err) {
+      console.error('[timestore] failed to publish partition.created event', err);
+    }
+
     endSpan(span);
     return {
       dataset,

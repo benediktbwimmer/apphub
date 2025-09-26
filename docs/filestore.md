@@ -78,27 +78,10 @@ graph TD
 - **Watchers**: per-mount adapters (chokidar for local, S3 notification/listing) detect out-of-band changes, tag nodes as `INCONSISTENT`, and enqueue reconciliation work.
 
 ### Event Pipeline
-- Redis pub/sub channel (default `apphub:filestore`) broadcasts events like `filestore.node.created`, `filestore.node.updated`, `filestore.node.deleted`, `filestore.command.completed`, and `filestore.drift.detected`.
+- Redis pub/sub channel (default `apphub:filestore`) still powers in-process listeners, while the orchestrator now forwards every successful command as `filestore.command.completed` on the shared event bus.
 - Catalog’s existing WebSocket relay can be extended to proxy these events to the frontend without introducing Kafka.
 - Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline`.
-- New publishers should emit through `@apphub/event-bus` so the catalog persists each event in `workflow_events`. Example:
-
-  ```ts
-  import { createEventPublisher } from '@apphub/event-bus';
-
-  const publisher = createEventPublisher();
-
-  await publisher.publish({
-    type: 'filestore.object.created',
-    source: 'filestore.orchestrator',
-    payload: {
-      nodeId,
-      path,
-      backendId
-    },
-    correlationId: commandId
-  });
-  ```
+- Commands receive payloads containing the journal ID, backend mount, node metadata, and idempotency key when present—ideal for syncing mirrors or triggering downstream workflows.
 
 ## Command Flow
 

@@ -68,7 +68,7 @@ Surface these alongside existing admin APIs. For manual triage, `services/timest
 
 ## Event Publishing
 
-Lifecycle hooks (parquet exports, partition close-out, retention sweeps) should broadcast through `@apphub/event-bus` so workflow automation can respond. Example:
+Lifecycle hooks (parquet exports, partition creation, retention sweeps) now publish to the shared event bus so downstream automation can respond. Example:
 
 ```ts
 import { createEventPublisher } from '@apphub/event-bus';
@@ -76,15 +76,21 @@ import { createEventPublisher } from '@apphub/event-bus';
 const publisher = createEventPublisher();
 
 await publisher.publish({
-  type: 'timestore.dataset.partition.finalized',
+  type: 'timestore.dataset.export.completed',
   source: 'timestore.lifecycle',
   payload: {
     datasetSlug,
-    partitionKey,
-    exportId
+    manifestId,
+    storageTargetId,
+    filePath,
+    rowCount
   },
   correlationId: jobId
 });
 ```
 
 The catalog ingests the event into `workflow_events`, exposes it over `/ws`, and surfaces it in `GET /admin/events` for live debugging.
+
+Additional events emitted:
+- `timestore.partition.created` whenever ingestion finalizes a new partition/manifest.
+- `timestore.partition.deleted` when retention removes partitions (payload includes reasons).

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { NodeRecord } from '../db/nodes';
+import { publishFilestoreEvent } from './publisher';
 
 export type CommandCompletedEvent = {
   command: string;
@@ -45,4 +46,7 @@ export const filestoreEvents = new TypedEventEmitter();
 
 export function emitCommandCompleted(payload: CommandCompletedEvent): void {
   filestoreEvents.emit('command.completed', payload);
+  void publishFilestoreEvent('filestore.command.completed', payload).catch((err) => {
+    console.error('[filestore] failed to publish command.completed event', err);
+  });
 }

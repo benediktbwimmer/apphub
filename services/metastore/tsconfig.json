@@ -20,6 +20,9 @@
     },
     {
       "path": "../../packages/examples-registry"
+    },
+    {
+      "path": "../../packages/event-bus"
     }
   ]
 }

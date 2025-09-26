@@ -9,6 +9,7 @@ import { getManifestById, updateManifestSummaryAndMetadata } from '../db/metadat
 import { resolvePartitionLocation } from '../storage';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
+import { publishTimestoreEvent } from '../events/publisher';
 
 export async function performParquetExport(
   context: LifecycleJobContext,
@@ -98,6 +99,26 @@ export async function performParquetExport(
       }
     }
   ];
+
+  try {
+    await publishTimestoreEvent(
+      'timestore.dataset.export.completed',
+      {
+        datasetId: context.dataset.id,
+        datasetSlug: context.dataset.slug,
+        manifestId: context.manifest.id,
+        exportId: exportResult.assetId,
+        storageTargetId: storageTarget.id,
+        filePath: relativePath,
+        rowCount: exportResult.rowCount,
+        fileSizeBytes: exportResult.fileSizeBytes,
+        exportedAt: exportTimestamp.toISOString()
+      },
+      'timestore.lifecycle'
+    );
+  } catch (err) {
+    console.error('[timestore] failed to publish dataset.export completed event', err);
+  }
 
   return {
     operation: 'parquetExport',

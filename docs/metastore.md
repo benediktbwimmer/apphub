@@ -146,6 +146,11 @@ await publisher.publish({
 
 Events arrive in the catalog's `workflow_events` table and on the WebSocket stream (`workflow.event.received`). Downstream workflows can subscribe to these signals once event-driven scheduling is enabled.
 
+Emitted event types include:
+- `metastore.record.created` whenever a record is first written via POST/PUT.
+- `metastore.record.updated` for PATCH/PUT mutations (including restores).
+- `metastore.record.deleted` for soft deletes (`mode: "soft"`) and purges (`mode: "hard"`).
+
 ## Operator UI
 
 The frontend exposes a full-crud Metastore explorer under `/services/metastore`. Operators can:

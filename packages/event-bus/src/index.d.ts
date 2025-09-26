@@ -14,23 +14,23 @@ export declare const eventEnvelopeSchema: z.ZodObject<{
     ttl: z.ZodOptional<z.ZodNumber>;
     metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JsonValue, z.ZodTypeDef, JsonValue>>>;
 }, "strict", z.ZodTypeAny, {
-    type: string;
     id: string;
+    type: string;
     source: string;
     occurredAt: string;
     payload: JsonValue;
-    metadata?: Record<string, JsonValue> | undefined;
-    ttl?: number | undefined;
     correlationId?: string | undefined;
+    ttl?: number | undefined;
+    metadata?: Record<string, JsonValue> | undefined;
 }, {
-    type: string;
     id: string;
+    type: string;
     source: string;
     occurredAt: string;
     payload: JsonValue;
-    metadata?: Record<string, JsonValue> | undefined;
-    ttl?: number | undefined;
     correlationId?: string | undefined;
+    ttl?: number | undefined;
+    metadata?: Record<string, JsonValue> | undefined;
 }>;
 export type EventEnvelope = z.infer<typeof eventEnvelopeSchema>;
 export type EventEnvelopeInput = Omit<EventEnvelope, 'id' | 'occurredAt'> & {

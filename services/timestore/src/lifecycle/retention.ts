@@ -9,6 +9,7 @@ import {
 import { createDefaultRetentionPolicy, type RetentionPolicy } from './types';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
+import { publishTimestoreEvent } from '../events/publisher';
 
 export async function enforceRetention(
   context: LifecycleJobContext,
@@ -98,6 +99,32 @@ export async function enforceRetention(
         reason: buildRetentionReason(partition, policy, graceMs, nowMs)
       }
     });
+  }
+
+  if (deletions.size > 0) {
+    try {
+      await publishTimestoreEvent(
+        'timestore.partition.deleted',
+        {
+          datasetId: context.dataset.id,
+          datasetSlug: context.dataset.slug,
+          manifestId: context.manifest.id,
+          partitions: Array.from(deletions.values()).map((partition) => ({
+            id: partition.id,
+            storageTargetId: partition.storageTargetId,
+            partitionKey: partition.partitionKey ?? null,
+            startTime: partition.startTime,
+            endTime: partition.endTime,
+            filePath: partition.filePath,
+            fileSizeBytes: partition.fileSizeBytes ?? null,
+            reason: buildRetentionReason(partition, policy, graceMs, nowMs)
+          }))
+        },
+        'timestore.lifecycle'
+      );
+    } catch (err) {
+      console.error('[timestore] failed to publish partition.deleted event', err);
+    }
   }
 
   return {
