@@ -20,6 +20,15 @@ export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionR
   const config = loadServiceConfig();
 
   try {
+    if (plan.partitions.length === 0) {
+      const columns = deriveColumns(plan, plan.mode);
+      return {
+        rows: [],
+        columns,
+        mode: plan.mode
+      };
+    }
+
     await prepareConnectionForPlan(connection, plan, config);
     await attachPartitions(connection, plan);
     await createDatasetView(connection, plan);
@@ -88,7 +97,7 @@ function buildFinalQuery(plan: QueryPlan): {
     const timestampColumn = quoteIdentifier(plan.timestampColumn);
     const windowExpression = buildWindowExpression(plan.downsample.intervalLiteral, timestampColumn);
     const aggregations = plan.downsample.aggregations
-      .map((aggregation) => `${aggregation.fn.toUpperCase()}(${quoteIdentifier(aggregation.column)}) AS ${quoteIdentifier(aggregation.alias)}`)
+      .map((aggregation) => `${aggregation.expression} AS ${quoteIdentifier(aggregation.alias)}`)
       .join(', ');
 
     const limitClause = plan.limit ? ` LIMIT ${plan.limit}` : '';

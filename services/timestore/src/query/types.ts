@@ -1,19 +1,43 @@
 import { z } from 'zod';
 
-export const aggregationFunctionSchema = z.enum(['avg', 'min', 'max', 'sum']);
+const commonAggregations = z.object({
+  fn: z.enum(['avg', 'min', 'max', 'sum', 'median']),
+  column: z.string().min(1),
+  alias: z.string().min(1).optional()
+});
+
+const countAggregation = z.object({
+  fn: z.literal('count'),
+  column: z.string().min(1).optional(),
+  alias: z.string().min(1).optional()
+});
+
+const countDistinctAggregation = z.object({
+  fn: z.literal('count_distinct'),
+  column: z.string().min(1),
+  alias: z.string().min(1).optional()
+});
+
+const percentileAggregation = z.object({
+  fn: z.literal('percentile'),
+  column: z.string().min(1),
+  percentile: z.number().min(0).max(1),
+  alias: z.string().min(1).optional()
+});
+
+export const aggregationSchema = z.union([
+  commonAggregations,
+  countAggregation,
+  countDistinctAggregation,
+  percentileAggregation
+]);
+
+export type AggregationInput = z.infer<typeof aggregationSchema>;
 
 export const downsampleSchema = z.object({
   intervalUnit: z.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).default('minute'),
   intervalSize: z.number().int().positive().default(1),
-  aggregations: z
-    .array(
-      z.object({
-        column: z.string().min(1),
-        fn: aggregationFunctionSchema,
-        alias: z.string().min(1).optional()
-      })
-    )
-    .min(1)
+  aggregations: z.array(aggregationSchema).min(1)
 });
 
 export const partitionFilterSchema = z.object({
@@ -34,6 +58,7 @@ export const queryRequestSchema = z.object({
 
 export type QueryRequest = z.infer<typeof queryRequestSchema>;
 export type DownsampleInput = z.infer<typeof downsampleSchema>;
+export type DownsampleAggregationInput = AggregationInput;
 
 export const queryResponseSchema = z.object({
   rows: z.array(z.record(z.string(), z.unknown())),

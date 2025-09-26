@@ -6,7 +6,12 @@ import {
 } from '../db/metadata';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { resolvePartitionLocation } from '../storage';
-import { queryRequestSchema, type QueryRequest, type DownsampleInput } from './types';
+import {
+  queryRequestSchema,
+  type QueryRequest,
+  type DownsampleInput,
+  type DownsampleAggregationInput
+} from './types';
 
 export interface QueryPlanPartition {
   id: string;
@@ -18,9 +23,8 @@ export interface QueryPlanPartition {
 }
 
 export interface DownsampleAggregationPlan {
-  column: string;
-  fn: 'avg' | 'min' | 'max' | 'sum';
   alias: string;
+  expression: string;
 }
 
 export interface DownsamplePlan {
@@ -62,9 +66,6 @@ export async function buildQueryPlan(
 
   const config = loadServiceConfig();
   const partitions = await listPartitionsForQuery(dataset.id, rangeStart, rangeEnd, request.filters ?? {});
-  if (partitions.length === 0) {
-    throw new Error('No partitions available for the requested time range');
-  }
 
   const planPartitions = partitions.map((partition, index) =>
     buildPlanPartition(partition, index, config)
@@ -117,18 +118,69 @@ function buildDownsamplePlan(
   aggregations: DownsampleInput['aggregations']
 ): DownsamplePlan {
   const intervalLiteral = createIntervalLiteral(intervalSize, intervalUnit);
-  const aggregationPlans = aggregations.map((aggregation) => ({
-    column: aggregation.column,
-    fn: aggregation.fn,
-    alias: aggregation.alias ?? `${aggregation.fn}_${aggregation.column}`
-  }));
+  const aggregationPlans = aggregations.map(createDownsampleAggregationPlan);
   return {
     intervalLiteral,
     aggregations: aggregationPlans
   } satisfies DownsamplePlan;
 }
 
+function createDownsampleAggregationPlan(aggregation: DownsampleAggregationInput): DownsampleAggregationPlan {
+  const alias = resolveAggregationAlias(aggregation);
+  const expression = resolveAggregationExpression(aggregation);
+  return {
+    alias,
+    expression
+  } satisfies DownsampleAggregationPlan;
+}
+
+function resolveAggregationAlias(aggregation: DownsampleAggregationInput): string {
+  if (aggregation.alias) {
+    return aggregation.alias;
+  }
+
+  switch (aggregation.fn) {
+    case 'count':
+      return aggregation.column ? `count_${aggregation.column}` : 'count';
+    case 'count_distinct':
+      return `count_distinct_${aggregation.column}`;
+    case 'percentile': {
+      const percentileLabel = Math.round(aggregation.percentile * 100);
+      return `p${percentileLabel}_${aggregation.column}`;
+    }
+    default:
+      return `${aggregation.fn}_${aggregation.column}`;
+  }
+}
+
+function resolveAggregationExpression(aggregation: DownsampleAggregationInput): string {
+  const column = aggregation.column ? quoteIdentifier(aggregation.column) : null;
+
+  switch (aggregation.fn) {
+    case 'avg':
+    case 'min':
+    case 'max':
+    case 'sum':
+    case 'median':
+      return `${aggregation.fn.toUpperCase()}(${column})`;
+    case 'count':
+      return column ? `COUNT(${column})` : 'COUNT(*)';
+    case 'count_distinct':
+      return `COUNT(DISTINCT ${column})`;
+    case 'percentile':
+      return `QUANTILE(${column}, ${Number(aggregation.percentile)})`;
+    default: {
+      const exhaustive: never = aggregation;
+      throw new Error(`Unsupported aggregation function: ${(exhaustive as { fn: string }).fn}`);
+    }
+  }
+}
+
 function createIntervalLiteral(size: number, unit: DownsampleInput['intervalUnit']): string {
   const unitSuffix = size === 1 ? unit : `${unit}s`;
   return `${size} ${unitSuffix}`;
+}
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
 }

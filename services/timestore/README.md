@@ -45,7 +45,7 @@ When the service boots it ensures the configured Postgres schema exists, runs ti
 
 ## Query API
 - `POST /datasets/:datasetSlug/query` returns time-series data by scanning published partitions via DuckDB. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
-- Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`).
+- Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`). Supported aggregations include `avg`, `min`, `max`, `sum`, `median`, `count`, `count_distinct`, and `percentile` (with `percentile` requiring a `percentile` value between 0 and 1).
 - Remote partitions referenced via `s3://` manifests are streamed through DuckDB's HTTPFS extension; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
 - In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
 

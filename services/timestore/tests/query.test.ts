@@ -156,3 +156,45 @@ test('execute downsampled query with aggregations', async () => {
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0]?.avg_temp, 22.5);
 });
+
+test('execute downsampled query with count and percentile', async () => {
+  const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T02:00:00.000Z'
+    },
+    timestampColumn: 'timestamp',
+    downsample: {
+      intervalUnit: 'hour',
+      intervalSize: 1,
+      aggregations: [
+        { fn: 'count' },
+        { fn: 'percentile', column: 'temperature_c', percentile: 0.5, alias: 'p50_temp' }
+      ]
+    }
+  });
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'downsampled');
+  assert.deepEqual(result.columns, ['timestamp', 'count', 'p50_temp']);
+  assert.equal(result.rows.length, 1);
+  assert.equal(Number(result.rows[0]?.count), 6);
+  assert.equal(Number(result.rows[0]?.p50_temp), 22);
+});
+
+test('returns empty result when no partitions match', async () => {
+  const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2025-01-01T00:00:00.000Z',
+      end: '2025-01-01T02:00:00.000Z'
+    },
+    columns: ['timestamp', 'temperature_c']
+  });
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'raw');
+  assert.deepEqual(result.columns, ['timestamp', 'temperature_c']);
+  assert.equal(result.rows.length, 0);
+});
