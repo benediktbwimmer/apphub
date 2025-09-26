@@ -88,6 +88,11 @@ export async function buildServer() {
           'timestore:sql:exec',
           'timestore:metrics'
         ]
+      },
+      {
+        slug: 'filestore',
+        basePath: '/filestore',
+        forwardedScopes: ['filestore:read', 'filestore:write', 'filestore:admin']
       }
     ])
   );

@@ -21,7 +21,10 @@ type OperatorScope =
   | 'workflows:run'
   | 'job-bundles:write'
   | 'job-bundles:read'
-  | 'auth:manage-api-keys';
+  | 'auth:manage-api-keys'
+  | 'filestore:read'
+  | 'filestore:write'
+  | 'filestore:admin';
 
 const ALL_SCOPES: OperatorScope[] = [
   'jobs:write',
@@ -30,7 +33,10 @@ const ALL_SCOPES: OperatorScope[] = [
   'workflows:run',
   'job-bundles:write',
   'job-bundles:read',
-  'auth:manage-api-keys'
+  'auth:manage-api-keys',
+  'filestore:read',
+  'filestore:write',
+  'filestore:admin'
 ];
 
 export const OPERATOR_SCOPES: readonly OperatorScope[] = [...ALL_SCOPES];
@@ -42,7 +48,10 @@ const SCOPE_ALIASES: Record<OperatorScope, OperatorScope[]> = {
   'workflows:run': [],
   'job-bundles:write': ['job-bundles:read'],
   'job-bundles:read': [],
-  'auth:manage-api-keys': []
+  'auth:manage-api-keys': [],
+  'filestore:read': [],
+  'filestore:write': ['filestore:read'],
+  'filestore:admin': ['filestore:write', 'filestore:read']
 };
 
 type OperatorKind = 'user' | 'service';

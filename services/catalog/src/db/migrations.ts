@@ -830,6 +830,20 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_trigger_deliveries_dedupe
          ON workflow_trigger_deliveries(trigger_id, dedupe_key)`
     ]
+  },
+  {
+    id: '028_filestore_scopes',
+    statements: [
+      `INSERT INTO role_scopes (role_id, scope)
+         VALUES
+           ('role-viewer', 'filestore:read'),
+           ('role-editor', 'filestore:read'),
+           ('role-editor', 'filestore:write'),
+           ('role-admin', 'filestore:read'),
+           ('role-admin', 'filestore:write'),
+           ('role-admin', 'filestore:admin')
+       ON CONFLICT DO NOTHING;`
+    ]
   }
 ];
 

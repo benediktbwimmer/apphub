@@ -12,6 +12,7 @@ COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
 COPY services/catalog/package.json services/catalog/package-lock.json services/catalog/
 COPY services/metastore/package.json services/metastore/
 COPY services/timestore/package.json services/timestore/
+COPY services/filestore/package.json services/filestore/
 COPY packages/example-bundler/package.json packages/example-bundler/
 COPY packages/examples-registry/package.json packages/examples-registry/
 COPY packages/shared/package.json packages/shared/
@@ -26,10 +27,12 @@ RUN npm run build --workspace @apphub/catalog
 RUN npm run build --workspace @apphub/metastore
 RUN npm run build --workspace @apphub/frontend
 RUN npm run build --workspace @apphub/timestore
+RUN npm run build --workspace @apphub/filestore
 RUN npm prune --omit=dev
 RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
 RUN rm -rf services/metastore/node_modules && ln -s ../../node_modules services/metastore/node_modules
 RUN rm -rf services/timestore/node_modules && ln -s ../../node_modules services/timestore/node_modules
+RUN rm -rf services/filestore/node_modules && ln -s ../../node_modules services/filestore/node_modules
 RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
 RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
 RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
@@ -83,7 +86,12 @@ ENV NODE_ENV=production \
     TIMESTORE_PG_SCHEMA=timestore \
     TIMESTORE_STORAGE_ROOT=/app/data/timestore \
     TIMESTORE_HOST=0.0.0.0 \
-    TIMESTORE_PORT=4200
+    TIMESTORE_PORT=4200 \
+    FILESTORE_DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub \
+    FILESTORE_PG_SCHEMA=filestore \
+    FILESTORE_HOST=0.0.0.0 \
+    FILESTORE_PORT=4300 \
+    FILESTORE_REDIS_URL=redis://127.0.0.1:6379
 
 COPY --from=builder /app/node_modules node_modules
 COPY --from=builder /app/packages packages
@@ -97,6 +105,9 @@ COPY --from=builder /app/services/metastore/dist services/metastore/dist
 COPY --from=builder /app/services/timestore/package.json services/timestore/package.json
 COPY --from=builder /app/services/timestore/node_modules services/timestore/node_modules
 COPY --from=builder /app/services/timestore/dist services/timestore/dist
+COPY --from=builder /app/services/filestore/package.json services/filestore/package.json
+COPY --from=builder /app/services/filestore/node_modules services/filestore/node_modules
+COPY --from=builder /app/services/filestore/dist services/filestore/dist
 COPY --from=builder /app/apps/cli apps/cli
 COPY --from=builder /app/examples examples
 COPY --from=builder /app/apps/frontend/dist apps/frontend/dist
@@ -162,11 +173,34 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
+[program:filestore-api]
+command=node services/filestore/dist/server.js
+directory=/app
+environment=FILESTORE_HOST=0.0.0.0,FILESTORE_PORT=4300
+priority=26
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:filestore-reconcile]
+command=node services/filestore/dist/reconciliation/worker.js
+directory=/app
+priority=27
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
 [program:timestore-api]
 command=node services/timestore/dist/server.js
 directory=/app
 environment=TIMESTORE_HOST=0.0.0.0,TIMESTORE_PORT=4200,TIMESTORE_STORAGE_ROOT=/app/data/timestore
-priority=27
+priority=30
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -177,7 +211,7 @@ stderr_logfile_maxbytes=0
 [program:timestore-ingest]
 command=node services/timestore/dist/workers/ingestionWorker.js
 directory=/app
-priority=28
+priority=31
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -188,7 +222,7 @@ stderr_logfile_maxbytes=0
 [program:timestore-lifecycle]
 command=node services/timestore/dist/workers/lifecycleWorker.js
 directory=/app
-priority=29
+priority=32
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -199,7 +233,7 @@ stderr_logfile_maxbytes=0
 [program:ingestion-worker]
 command=node services/catalog/dist/ingestionWorker.js
 directory=/app
-priority=30
+priority=35
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -210,7 +244,7 @@ stderr_logfile_maxbytes=0
 [program:build-worker]
 command=node services/catalog/dist/buildWorker.js
 directory=/app
-priority=40
+priority=45
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -221,7 +255,7 @@ stderr_logfile_maxbytes=0
 [program:workflow-worker]
 command=node services/catalog/dist/workflowWorker.js
 directory=/app
-priority=45
+priority=50
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -232,7 +266,7 @@ stderr_logfile_maxbytes=0
 [program:launch-worker]
 command=node services/catalog/dist/launchWorker.js
 directory=/app
-priority=50
+priority=55
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -243,7 +277,7 @@ stderr_logfile_maxbytes=0
 [program:auto-materializer-worker]
 command=node services/catalog/dist/assetMaterializerWorker.js
 directory=/app
-priority=55
+priority=60
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -254,7 +288,7 @@ stderr_logfile_maxbytes=0
 [program:frontend]
 command=serve -s apps/frontend/dist -l tcp://0.0.0.0:%(ENV_FRONTEND_PORT)s --no-port-switching
 directory=/app
-priority=60
+priority=65
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout
@@ -263,6 +297,6 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 SUPERVISOR
 
-EXPOSE 4000 4173 4200 6379
+EXPOSE 4000 4173 4200 4300 6379
 
 CMD ["supervisord", "-n"]
