@@ -339,8 +339,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
         CATALOG_API_TOKEN: 'dev-token'
       }
     },
-    analyticsTag: 'service__observatory_services',
-    requiresApps: ['observatory-file-watcher', 'observatory-dashboard']
+    analyticsTag: 'service__observatory_services'
   },
   {
     id: 'observatory-file-watcher-app',
