@@ -11,9 +11,10 @@
     "start": "node dist/server.js",
     "migrate": "tsx src/scripts/runMigrations.ts",
     "test": "npm run test:integration",
-    "test:integration": "tsx tests/integration/records.test.ts"
+    "test:integration": "tsx tests/integration/records.test.ts && tsx tests/integration/autoMigrations.test.ts"
   },
   "dependencies": {
+    "@apphub/shared": "0.1.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/swagger": "^9.5.2",
     "@fastify/swagger-ui": "^5.2.3",

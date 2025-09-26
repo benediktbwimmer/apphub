@@ -1,56 +1,81 @@
-import { Pool, type PoolClient } from 'pg';
-import pg from 'pg';
-
-pg.types.setTypeParser(pg.types.builtins.INT8, (value: string) => Number.parseInt(value, 10));
+import type { Pool, PoolClient } from 'pg';
+import { createPostgresPool, type PostgresAcquireOptions } from '@apphub/shared';
+import { runMigrations } from './migrations';
+import { loadServiceConfig } from '../config/serviceConfig';
 
 const DEFAULT_DATABASE_URL = 'postgres://apphub:apphub@127.0.0.1:5432/apphub';
 
-const pool = new Pool({
+const serviceConfig = loadServiceConfig();
+
+const poolHelpers = createPostgresPool({
   connectionString: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
-  max: Number(process.env.PGPOOL_MAX ?? 10),
-  idleTimeoutMillis: Number(process.env.PGPOOL_IDLE_TIMEOUT_MS ?? 30_000),
-  connectionTimeoutMillis: Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 10_000)
+  max: serviceConfig.database.maxConnections,
+  idleTimeoutMillis: serviceConfig.database.idleTimeoutMs,
+  connectionTimeoutMillis: serviceConfig.database.connectionTimeoutMs,
+  schema: serviceConfig.database.schema
 });
 
-pool.on('error', (err: Error) => {
-  console.error('[metastore:db] unexpected error on idle client', err);
-});
+const {
+  getClient: baseGetClient,
+  withConnection: baseWithConnection,
+  withTransaction: baseWithTransaction,
+  closePool: baseClosePool,
+  getPool: baseGetPool
+} = poolHelpers;
 
-export async function getClient(): Promise<PoolClient> {
-  return pool.connect();
+function quoteIdentifier(input: string): string {
+  return `"${input.replace(/"/g, '""')}"`;
 }
 
-export async function withConnection<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await getClient();
+let schemaReadyPromise: Promise<void> | null = null;
+
+async function prepareSchema(): Promise<void> {
+  // Ensure the dedicated schema exists before applying migrations.
+  const rawClient = await baseGetClient({ setSearchPath: false });
   try {
-    return await fn(client);
+    await rawClient.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdentifier(serviceConfig.database.schema)}`);
   } finally {
-    client.release();
+    rawClient.release();
   }
-}
 
-export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  return withConnection(async (client) => {
-    await client.query('BEGIN');
-    try {
-      const result = await fn(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackErr) {
-        console.error('[metastore:db] failed to rollback transaction', rollbackErr);
-      }
-      throw err;
-    }
+  await baseWithConnection(async (client) => {
+    await runMigrations(client);
   });
 }
 
+export async function ensureSchemaReady(): Promise<void> {
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = prepareSchema().catch((err) => {
+      schemaReadyPromise = null;
+      throw err;
+    });
+  }
+
+  await schemaReadyPromise;
+}
+
+export async function getClient(options?: PostgresAcquireOptions): Promise<PoolClient> {
+  return baseGetClient(options);
+}
+
+export async function withConnection<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  options?: PostgresAcquireOptions
+): Promise<T> {
+  return baseWithConnection(fn, options);
+}
+
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  options?: PostgresAcquireOptions
+): Promise<T> {
+  return baseWithTransaction(fn, options);
+}
+
 export async function closePool(): Promise<void> {
-  await pool.end();
+  await baseClosePool();
 }
 
 export function getPool(): Pool {
-  return pool;
+  return baseGetPool();
 }

@@ -1,6 +1,6 @@
 # Metastore Service
 
-The metastore provides a flexible metadata backend for platform features that need to persist JSON documents without adding bespoke tables to the catalog schema. It runs as a standalone Fastify service in `services/metastore`, but reuses the same PostgreSQL instance as the catalog API.
+The metastore provides a flexible metadata backend for platform features that need to persist JSON documents without adding bespoke tables to the catalog schema. It runs as a standalone Fastify service in `services/metastore`, sharing the PostgreSQL instance with the catalog API but storing its data in a dedicated `metastore` schema.
 
 ## Capabilities
 - Store arbitrary JSON metadata per record, scoped by `namespace` + `key`.
@@ -121,7 +121,7 @@ npm install
 npm run dev --workspace @apphub/metastore
 ```
 
-The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. The server automatically runs migrations on startup.
+The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. Set `APPHUB_METASTORE_PG_SCHEMA` (default `metastore`) to control which Postgres schema is used. The server automatically runs migrations on startup.
 
 ## Testing
 ```bash

@@ -6,8 +6,7 @@ import { loadServiceConfig } from './config/serviceConfig';
 import { authPlugin } from './auth/plugin';
 import { metricsPlugin } from './plugins/metrics';
 import { registerSystemRoutes } from './routes/system';
-import { runMigrations } from './db/migrations';
-import { closePool, getClient } from './db/client';
+import { closePool, ensureSchemaReady } from './db/client';
 import { openApiDocument } from './openapi/document';
 import { registerRecordRoutes } from './routes/records';
 import { registerAdminRoutes } from './routes/admin';
@@ -55,12 +54,7 @@ export async function buildApp(options?: BuildAppOptions) {
   app.get('/openapi.json', async () => openApiDocument);
 
   app.addHook('onReady', async () => {
-    const client = await getClient();
-    try {
-      await runMigrations(client);
-    } finally {
-      client.release();
-    }
+    await ensureSchemaReady();
   });
 
   app.addHook('onClose', async () => {

@@ -20,6 +20,12 @@ export type ServiceConfig = {
   tokens: TokenDefinition[];
   defaultNamespace: string;
   metricsEnabled: boolean;
+  database: {
+    schema: string;
+    maxConnections: number;
+    idleTimeoutMs: number;
+    connectionTimeoutMs: number;
+  };
 };
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -45,6 +51,14 @@ function parsePort(value: string | undefined, defaultValue: number): number {
     return defaultValue;
   }
   return parsed;
+}
+
+function parseNumber(value: string | undefined, defaultValue: number): number {
+  if (!value) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 const KNOWN_SCOPES: TokenScope[] = ['metastore:read', 'metastore:write', 'metastore:delete', 'metastore:admin'];
@@ -166,6 +180,17 @@ export function loadServiceConfig(): ServiceConfig {
   const tokens = loadTokens();
   const defaultNamespace = process.env.APPHUB_METASTORE_DEFAULT_NAMESPACE ?? 'default';
   const metricsEnabled = parseBoolean(process.env.APPHUB_METRICS_ENABLED, true);
+  const schema = process.env.APPHUB_METASTORE_PG_SCHEMA ?? 'metastore';
+  const maxConnections = parseNumber(process.env.APPHUB_METASTORE_PGPOOL_MAX ?? process.env.PGPOOL_MAX, 10);
+  const idleTimeoutMs = parseNumber(
+    process.env.APPHUB_METASTORE_PGPOOL_IDLE_TIMEOUT_MS ?? process.env.PGPOOL_IDLE_TIMEOUT_MS,
+    30_000
+  );
+  const connectionTimeoutMs = parseNumber(
+    process.env.APPHUB_METASTORE_PGPOOL_CONNECTION_TIMEOUT_MS ??
+      process.env.PGPOOL_CONNECTION_TIMEOUT_MS,
+    10_000
+  );
 
   cachedConfig = {
     host,
@@ -173,7 +198,13 @@ export function loadServiceConfig(): ServiceConfig {
     authDisabled,
     tokens,
     defaultNamespace,
-    metricsEnabled
+    metricsEnabled,
+    database: {
+      schema,
+      maxConnections,
+      idleTimeoutMs,
+      connectionTimeoutMs
+    }
   } satisfies ServiceConfig;
 
   return cachedConfig;
