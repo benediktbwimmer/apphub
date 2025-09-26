@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { ServiceConfig } from '../config/serviceConfig';
 import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata';
@@ -171,6 +171,41 @@ export function resolvePartitionLocation(
   }
 
   throw new Error(`Unsupported storage target kind: ${target.kind}`);
+}
+
+export async function deletePartitionFile(
+  partition: DatasetPartitionRecord,
+  target: StorageTargetRecord,
+  config: ServiceConfig
+): Promise<void> {
+  if (target.kind === 'local') {
+    const location = resolvePartitionLocation(partition, target, config);
+    await fs.rm(location, { force: true });
+    return;
+  }
+
+  if (target.kind === 's3') {
+    const bucket = typeof target.config.bucket === 'string' ? target.config.bucket : config.storage.s3?.bucket;
+    if (!bucket) {
+      throw new Error('S3 storage target missing bucket configuration');
+    }
+
+    const client = new S3Client({
+      region: typeof target.config.region === 'string' ? target.config.region : config.storage.s3?.region ?? 'us-east-1',
+      endpoint: typeof target.config.endpoint === 'string' ? target.config.endpoint : config.storage.s3?.endpoint,
+      forcePathStyle: Boolean(target.config.endpoint ?? config.storage.s3?.endpoint)
+    });
+
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: partition.filePath
+      })
+    );
+    return;
+  }
+
+  throw new Error(`Unsupported storage target kind for deletion: ${target.kind}`);
 }
 
 async function writeDuckDbFile(

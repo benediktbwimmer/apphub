@@ -7,7 +7,7 @@ export type DatasetStatus = 'active' | 'inactive';
 export type WriteFormat = 'duckdb' | 'parquet';
 export type ManifestStatus = 'draft' | 'published' | 'superseded';
 
-type JsonObject = Record<string, unknown>;
+export type JsonObject = Record<string, unknown>;
 
 export interface StorageTargetRecord {
   id: string;
@@ -144,6 +144,66 @@ export interface RetentionPolicyRecord {
   updatedAt: string;
 }
 
+export type LifecycleJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface LifecycleJobRunRecord {
+  id: string;
+  jobKind: string;
+  datasetId: string | null;
+  operations: string[];
+  triggerSource: string;
+  status: LifecycleJobStatus;
+  scheduledFor: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  attempts: number;
+  error: string | null;
+  metadata: JsonObject;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LifecycleAuditLogRecord {
+  id: string;
+  datasetId: string;
+  manifestId: string | null;
+  eventType: string;
+  payload: JsonObject;
+  createdAt: string;
+}
+
+export interface CreateLifecycleJobRunInput {
+  id: string;
+  jobKind: string;
+  datasetId?: string | null;
+  operations?: string[];
+  triggerSource: string;
+  scheduledFor?: Date | null;
+  startedAt?: Date | null;
+  attempts?: number;
+  status?: LifecycleJobStatus;
+  metadata?: JsonObject;
+}
+
+export interface UpdateLifecycleJobRunInput {
+  id: string;
+  status: LifecycleJobStatus;
+  completedAt?: Date | null;
+  durationMs?: number | null;
+  error?: string | null;
+  attemptsDelta?: number;
+  metadataPatch?: JsonObject;
+}
+
+export interface LifecycleAuditLogInput {
+  id: string;
+  datasetId: string;
+  manifestId?: string | null;
+  eventType: string;
+  payload?: JsonObject;
+}
+
 export interface IngestionBatchRecord {
   id: string;
   datasetId: string;
@@ -244,6 +304,16 @@ export async function createDatasetManifest(
   return withTransaction(async (client) => {
     await assertVersionIsMonotonic(client, input.datasetId, input.version);
 
+    if (input.parentManifestId && input.status === 'published') {
+      await client.query(
+        `UPDATE dataset_manifests
+            SET status = 'superseded',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [input.parentManifestId]
+      );
+    }
+
     const publishedAt = input.status === 'published' ? new Date() : null;
     const { rows: manifestRows } = await client.query<DatasetManifestRow>(
       `INSERT INTO dataset_manifests (
@@ -321,6 +391,18 @@ export async function getDatasetById(id: string): Promise<DatasetRecord | null> 
   });
 }
 
+export async function listActiveDatasets(): Promise<DatasetRecord[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetRow>(
+      `SELECT *
+         FROM datasets
+        WHERE status = 'active'
+        ORDER BY updated_at DESC`
+    );
+    return rows.map(mapDataset);
+  });
+}
+
 export async function updateDatasetDefaultStorageTarget(
   datasetId: string,
   storageTargetId: string
@@ -393,6 +475,209 @@ export async function getRetentionPolicy(datasetId: string): Promise<RetentionPo
   });
 }
 
+export async function createLifecycleJobRun(
+  input: CreateLifecycleJobRunInput
+): Promise<LifecycleJobRunRecord> {
+  const operations = input.operations && input.operations.length > 0 ? input.operations : [];
+  const metadataJson = JSON.stringify(input.metadata ?? {});
+  const status = input.status ?? 'running';
+  const attempts = input.attempts ?? 1;
+  const scheduledFor = input.scheduledFor ? input.scheduledFor.toISOString() : null;
+  const startedAt = (input.startedAt ?? new Date()).toISOString();
+
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleJobRunRow>(
+      `INSERT INTO lifecycle_job_runs (
+         id,
+         job_kind,
+         dataset_id,
+         operations,
+         trigger_source,
+         status,
+         scheduled_for,
+         started_at,
+         attempts,
+         metadata
+       ) VALUES ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10::jsonb)
+       RETURNING *` as const,
+      [
+        input.id,
+        input.jobKind,
+        input.datasetId ?? null,
+        operations,
+        input.triggerSource,
+        status,
+        scheduledFor,
+        startedAt,
+        attempts,
+        metadataJson
+      ]
+    );
+    return mapLifecycleJobRun(rows[0]);
+  });
+}
+
+export async function getLifecycleJobRun(id: string): Promise<LifecycleJobRunRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleJobRunRow>(
+      'SELECT * FROM lifecycle_job_runs WHERE id = $1 LIMIT 1',
+      [id]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapLifecycleJobRun(rows[0]);
+  });
+}
+
+export async function updateLifecycleJobRun(
+  updates: UpdateLifecycleJobRunInput
+): Promise<LifecycleJobRunRecord> {
+  const metadataJson = JSON.stringify(updates.metadataPatch ?? {});
+  const attemptsDelta = updates.attemptsDelta ?? 0;
+  const completedAt = updates.completedAt ? updates.completedAt.toISOString() : null;
+  const shouldUpdateError = Object.prototype.hasOwnProperty.call(updates, 'error');
+  const errorValue = shouldUpdateError ? updates.error ?? null : null;
+
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleJobRunRow>(
+      `UPDATE lifecycle_job_runs
+          SET status = $2,
+              completed_at = COALESCE($3::timestamptz, completed_at),
+              duration_ms = COALESCE($4::integer, duration_ms),
+              error = CASE WHEN $8 THEN $5 ELSE error END,
+              attempts = attempts + $6,
+              metadata = metadata || $7::jsonb,
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING *` as const,
+      [
+        updates.id,
+        updates.status,
+        completedAt,
+        updates.durationMs ?? null,
+        errorValue,
+        attemptsDelta,
+        metadataJson,
+        shouldUpdateError
+      ]
+    );
+    if (rows.length === 0) {
+      throw new Error(`Lifecycle job run ${updates.id} not found`);
+    }
+    return mapLifecycleJobRun(rows[0]);
+  });
+}
+
+export async function listRecentLifecycleJobRuns(limit = 20): Promise<LifecycleJobRunRecord[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 100));
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleJobRunRow>(
+      `SELECT *
+         FROM lifecycle_job_runs
+        ORDER BY created_at DESC
+        LIMIT $1`,
+      [boundedLimit]
+    );
+    return rows.map(mapLifecycleJobRun);
+  });
+}
+
+export async function recordLifecycleAuditEvent(
+  input: LifecycleAuditLogInput
+): Promise<LifecycleAuditLogRecord> {
+  const payload = JSON.stringify(input.payload ?? {});
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleAuditLogRow>(
+      `INSERT INTO lifecycle_audit_log (
+         id,
+         dataset_id,
+         manifest_id,
+         event_type,
+         payload
+       ) VALUES ($1, $2, $3, $4, $5::jsonb)
+       RETURNING *` as const,
+      [input.id, input.datasetId, input.manifestId ?? null, input.eventType, payload]
+    );
+    return mapLifecycleAuditLog(rows[0]);
+  });
+}
+
+export async function updateManifestSummaryAndMetadata(
+  manifestId: string,
+  summary: JsonObject,
+  metadata: JsonObject
+): Promise<DatasetManifestRecord> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetManifestRow>(
+      `UPDATE dataset_manifests
+          SET summary = $2::jsonb,
+              metadata = $3::jsonb,
+              updated_at = NOW()
+        WHERE id = $1
+        RETURNING *` as const,
+      [manifestId, JSON.stringify(summary ?? {}), JSON.stringify(metadata ?? {})]
+    );
+    if (rows.length === 0) {
+      throw new Error(`Manifest ${manifestId} not found`);
+    }
+    return mapManifest(rows[0]);
+  });
+}
+
+export async function deleteDatasetPartitions(partitionIds: string[]): Promise<void> {
+  if (partitionIds.length === 0) {
+    return;
+  }
+  await withConnection(async (client) => {
+    await client.query('DELETE FROM dataset_partitions WHERE id = ANY($1)', [partitionIds]);
+  });
+}
+
+export async function refreshManifestRollups(
+  manifestId: string
+): Promise<DatasetManifestWithPartitions> {
+  return withTransaction(async (client) => {
+    const { rows: manifestRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1 LIMIT 1',
+      [manifestId]
+    );
+    if (manifestRows.length === 0) {
+      throw new Error(`Manifest ${manifestId} not found`);
+    }
+    const partitions = await fetchPartitions(client, manifestId);
+    const rollups = calculatePartitionRollups(partitions);
+    await updateManifestRollups(client, manifestId, rollups);
+    const { rows: updatedRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1 LIMIT 1',
+      [manifestId]
+    );
+    const manifest = mapManifest(updatedRows[0] ?? manifestRows[0]);
+    return {
+      ...manifest,
+      partitions
+    };
+  });
+}
+
+export async function listLifecycleAuditEvents(
+  datasetId: string,
+  limit = 50
+): Promise<LifecycleAuditLogRecord[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 200));
+  return withConnection(async (client) => {
+    const { rows } = await client.query<LifecycleAuditLogRow>(
+      `SELECT *
+         FROM lifecycle_audit_log
+        WHERE dataset_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [datasetId, boundedLimit]
+    );
+    return rows.map(mapLifecycleAuditLog);
+  });
+}
+
 export async function getStorageTargetById(id: string): Promise<StorageTargetRecord | null> {
   return withConnection(async (client) => {
     const { rows } = await client.query<StorageTargetRow>(
@@ -442,6 +727,19 @@ export async function findSchemaVersionByChecksum(
         ORDER BY version DESC
         LIMIT 1`,
       [datasetId, checksum]
+    );
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapSchemaVersion(rows[0]);
+  });
+}
+
+export async function getSchemaVersionById(id: string): Promise<DatasetSchemaVersionRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetSchemaVersionRow>(
+      'SELECT * FROM dataset_schema_versions WHERE id = $1 LIMIT 1',
+      [id]
     );
     if (rows.length === 0) {
       return null;
@@ -562,6 +860,30 @@ export async function listPartitionsForQuery(
     return rows
       .filter((row) => partitionMatchesFilters(row.partition_key, partitionFilters))
       .map(mapPartitionWithTarget);
+  });
+}
+
+export async function getPartitionsWithTargetsForManifest(
+  manifestId: string
+): Promise<PartitionWithTarget[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<PartitionWithTargetRow>(
+      `SELECT
+         p.*,
+         t.id AS storage_target_id,
+         t.name AS storage_target_name,
+         t.kind AS storage_target_kind,
+         t.description AS storage_target_description,
+         t.config AS storage_target_config,
+         t.created_at AS storage_target_created_at,
+         t.updated_at AS storage_target_updated_at
+        FROM dataset_partitions p
+        JOIN storage_targets t ON t.id = p.storage_target_id
+       WHERE p.manifest_id = $1
+       ORDER BY p.start_time ASC, p.id ASC`,
+      [manifestId]
+    );
+    return rows.map(mapPartitionWithTarget);
   });
 }
 
@@ -768,6 +1090,33 @@ type PartitionWithTargetRow = DatasetPartitionRow & {
   storage_target_updated_at: string;
 };
 
+type LifecycleJobRunRow = {
+  id: string;
+  job_kind: string;
+  dataset_id: string | null;
+  operations: string[] | null;
+  trigger_source: string;
+  status: LifecycleJobStatus;
+  scheduled_for: string | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  attempts: number;
+  error: string | null;
+  metadata: JsonObject;
+  created_at: string;
+  updated_at: string;
+};
+
+type LifecycleAuditLogRow = {
+  id: string;
+  dataset_id: string;
+  manifest_id: string | null;
+  event_type: string;
+  payload: JsonObject;
+  created_at: string;
+};
+
 function mapStorageTarget(row: StorageTargetRow): StorageTargetRecord {
   return {
     id: row.id,
@@ -877,6 +1226,37 @@ function mapPartitionWithTarget(row: PartitionWithTargetRow): PartitionWithTarge
       createdAt: row.storage_target_created_at,
       updatedAt: row.storage_target_updated_at
     }
+  };
+}
+
+function mapLifecycleJobRun(row: LifecycleJobRunRow): LifecycleJobRunRecord {
+  return {
+    id: row.id,
+    jobKind: row.job_kind,
+    datasetId: row.dataset_id,
+    operations: row.operations ?? [],
+    triggerSource: row.trigger_source,
+    status: row.status,
+    scheduledFor: row.scheduled_for,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationMs: row.duration_ms,
+    attempts: row.attempts,
+    error: row.error,
+    metadata: row.metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapLifecycleAuditLog(row: LifecycleAuditLogRow): LifecycleAuditLogRecord {
+  return {
+    id: row.id,
+    datasetId: row.dataset_id,
+    manifestId: row.manifest_id,
+    eventType: row.event_type,
+    payload: row.payload,
+    createdAt: row.created_at
   };
 }
 

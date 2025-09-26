@@ -4,6 +4,7 @@ import {
   createDatasetManifest,
   createDatasetSchemaVersion,
   findSchemaVersionByChecksum,
+  getLatestPublishedManifest,
   getDatasetBySlug,
   getIngestionBatch,
   getManifestById,
@@ -99,12 +100,15 @@ export async function processIngestionJob(
     throw new Error('Partition end time must be greater than or equal to start time');
   }
 
+  const previousManifest = await getLatestPublishedManifest(dataset.id);
+
   const manifest = await createDatasetManifest({
     id: `dm-${randomUUID()}`,
     datasetId: dataset.id,
     version: manifestVersion,
     status: 'published',
     schemaVersionId: schemaVersion.id,
+    parentManifestId: previousManifest?.id,
     summary: {
       batchRowCount: writeResult.rowCount,
       tableName

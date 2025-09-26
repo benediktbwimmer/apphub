@@ -124,6 +124,43 @@ const migrations: Migration[] = [
          UNIQUE (dataset_id, idempotency_key)
        );`
     ]
+  },
+  {
+    id: '003_timestore_lifecycle_maintenance',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS lifecycle_job_runs (
+         id TEXT PRIMARY KEY,
+         job_kind TEXT NOT NULL,
+         dataset_id TEXT REFERENCES datasets(id) ON DELETE SET NULL,
+         operations TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+         trigger_source TEXT NOT NULL,
+         status TEXT NOT NULL,
+         scheduled_for TIMESTAMPTZ,
+         started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         completed_at TIMESTAMPTZ,
+         duration_ms INTEGER,
+         attempts INTEGER NOT NULL DEFAULT 0,
+         error TEXT,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CHECK (status IN ('queued', 'running', 'completed', 'failed', 'skipped'))
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_lifecycle_job_runs_dataset
+         ON lifecycle_job_runs(dataset_id, created_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_lifecycle_job_runs_status
+         ON lifecycle_job_runs(status, created_at DESC);`,
+      `CREATE TABLE IF NOT EXISTS lifecycle_audit_log (
+         id TEXT PRIMARY KEY,
+         dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+         manifest_id TEXT REFERENCES dataset_manifests(id) ON DELETE SET NULL,
+         event_type TEXT NOT NULL,
+         payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_lifecycle_audit_dataset
+         ON lifecycle_audit_log(dataset_id, created_at DESC);`
+    ]
   }
 ];
 

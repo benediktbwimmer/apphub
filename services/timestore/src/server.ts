@@ -6,7 +6,9 @@ import { loadServiceConfig } from './config/serviceConfig';
 import { registerHealthRoutes } from './routes/health';
 import { registerIngestionRoutes } from './routes/ingest';
 import { registerQueryRoutes } from './routes/query';
+import { registerAdminRoutes } from './routes/admin';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
+import { closeLifecycleQueue } from './lifecycle/queue';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -19,9 +21,11 @@ async function start(): Promise<void> {
   await registerHealthRoutes(app);
   await registerIngestionRoutes(app);
   await registerQueryRoutes(app);
+  await registerAdminRoutes(app);
 
   app.addHook('onClose', async () => {
     await closePool();
+    await closeLifecycleQueue();
   });
 
   await ensureSchemaExists(POSTGRES_SCHEMA);

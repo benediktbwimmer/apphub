@@ -5,6 +5,34 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 type StorageDriver = 'local' | 's3';
 
+const retentionRuleSchema = z.object({
+  maxAgeHours: z.number().int().positive().optional(),
+  maxTotalBytes: z.number().int().positive().optional()
+});
+
+const lifecycleSchema = z.object({
+  enabled: z.boolean(),
+  queueName: z.string().min(1),
+  intervalSeconds: z.number().int().positive(),
+  jitterSeconds: z.number().int().nonnegative(),
+  jobConcurrency: z.number().int().positive(),
+  compaction: z.object({
+    smallPartitionBytes: z.number().int().positive(),
+    targetPartitionBytes: z.number().int().positive(),
+    maxPartitionsPerGroup: z.number().int().positive()
+  }),
+  retention: z.object({
+    defaultRules: retentionRuleSchema,
+    deleteGraceMinutes: z.number().int().nonnegative()
+  }),
+  exports: z.object({
+    enabled: z.boolean(),
+    outputFormat: z.literal('parquet'),
+    outputPrefix: z.string().min(1),
+    minIntervalHours: z.number().int().positive()
+  })
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -33,7 +61,8 @@ const configSchema = z.object({
         region: z.string().min(1).optional()
       })
       .optional()
-  })
+  }),
+  lifecycle: lifecycleSchema
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -46,6 +75,20 @@ function parseNumber(value: string | undefined, fallback: number): number {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
 }
 
 function resolveStorageRoot(envValue: string | undefined): string {
@@ -77,6 +120,20 @@ export function loadServiceConfig(): ServiceConfig {
   const s3Bucket = env.TIMESTORE_S3_BUCKET;
   const s3Endpoint = env.TIMESTORE_S3_ENDPOINT;
   const s3Region = env.TIMESTORE_S3_REGION;
+  const lifecycleEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_ENABLED, true);
+  const lifecycleQueueName = env.TIMESTORE_LIFECYCLE_QUEUE_NAME || 'timestore_lifecycle_queue';
+  const lifecycleIntervalSeconds = parseNumber(env.TIMESTORE_LIFECYCLE_INTERVAL_SECONDS, 300);
+  const lifecycleJitterSeconds = parseNumber(env.TIMESTORE_LIFECYCLE_JITTER_SECONDS, 30);
+  const lifecycleConcurrency = parseNumber(env.TIMESTORE_LIFECYCLE_CONCURRENCY, 1);
+  const lifecycleSmallPartitionBytes = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_SMALL_BYTES, 20 * 1024 * 1024);
+  const lifecycleTargetPartitionBytes = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_TARGET_BYTES, 200 * 1024 * 1024);
+  const lifecycleMaxPartitionsPerGroup = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_MAX_PARTITIONS, 16);
+  const lifecycleDefaultMaxAgeHours = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_MAX_AGE_HOURS, 720);
+  const lifecycleDefaultMaxTotalBytes = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_MAX_TOTAL_BYTES, 500 * 1024 * 1024 * 1024);
+  const lifecycleDeleteGraceMinutes = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_DELETE_GRACE_MINUTES, 5);
+  const lifecycleExportsEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_EXPORTS_ENABLED, true);
+  const lifecycleExportPrefix = env.TIMESTORE_LIFECYCLE_EXPORT_PREFIX || 'exports';
+  const lifecycleExportMinIntervalHours = parseNumber(env.TIMESTORE_LIFECYCLE_EXPORT_MIN_INTERVAL_HOURS, 24);
 
   const candidateConfig = {
     host,
@@ -100,6 +157,31 @@ export function loadServiceConfig(): ServiceConfig {
               region: s3Region
             }
           : undefined
+    },
+    lifecycle: {
+      enabled: lifecycleEnabled,
+      queueName: lifecycleQueueName,
+      intervalSeconds: lifecycleIntervalSeconds,
+      jitterSeconds: lifecycleJitterSeconds,
+      jobConcurrency: lifecycleConcurrency,
+      compaction: {
+        smallPartitionBytes: lifecycleSmallPartitionBytes,
+        targetPartitionBytes: lifecycleTargetPartitionBytes,
+        maxPartitionsPerGroup: lifecycleMaxPartitionsPerGroup
+      },
+      retention: {
+        defaultRules: {
+          maxAgeHours: lifecycleDefaultMaxAgeHours > 0 ? lifecycleDefaultMaxAgeHours : undefined,
+          maxTotalBytes: lifecycleDefaultMaxTotalBytes > 0 ? lifecycleDefaultMaxTotalBytes : undefined
+        },
+        deleteGraceMinutes: lifecycleDeleteGraceMinutes
+      },
+      exports: {
+        enabled: lifecycleExportsEnabled,
+        outputFormat: 'parquet',
+        outputPrefix: lifecycleExportPrefix,
+        minIntervalHours: lifecycleExportMinIntervalHours
+      }
     }
   } satisfies ServiceConfig;
 
