@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "lint": "tsc -b --pretty false",
     "build": "npm run build:ts && npm run build:assets",
-    "build:ts": "tsc -b",
+    "build:ts": "tsc --build --clean && tsc -b",
     "build:assets": "node scripts/copyPythonHarness.js",
     "start": "node dist/server.js",
     "ingest": "tsx src/ingestionWorker.ts",
