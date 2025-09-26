@@ -22,7 +22,13 @@ import {
   type ServiceNetworkMemberRecord
 } from './db/index';
 import { isStubRunnerEnabled, runStubLaunchStart, runStubLaunchStop } from './launchPreviewStub';
-import { buildDockerRunCommand, parseDockerCommand, stringifyDockerCommand } from './launchCommand';
+import {
+  buildDockerRunCommand,
+  parseDockerCommand,
+  resolveLaunchVolumeMounts,
+  stringifyDockerCommand
+} from './launchCommand';
+import type { ResolvedVolumeMount } from './launchCommand';
 import {
   DEFAULT_LAUNCH_INTERNAL_PORT,
   resolveLaunchInternalPort,
@@ -246,6 +252,122 @@ function adjustPublishArgs(args: string[], desiredPort: number): { args: string[
   }
 
   return { args: updated, changed };
+}
+
+function extractTargetFromShortVolumeSpec(spec: string | undefined): string | null {
+  if (!spec) {
+    return null;
+  }
+  const trimmed = spec.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const segments = trimmed.split(':');
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (segment.startsWith('/')) {
+      return segment;
+    }
+  }
+  return null;
+}
+
+function extractTargetFromMountSpec(spec: string | undefined): string | null {
+  if (!spec) {
+    return null;
+  }
+  const trimmed = spec.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const payload = trimmed.startsWith('--mount=') ? trimmed.slice(8) : trimmed;
+  const parts = payload.split(',');
+  for (const part of parts) {
+    const [rawKey, rawValue] = part.split('=');
+    if (!rawValue) {
+      continue;
+    }
+    const key = rawKey.trim().toLowerCase();
+    const value = rawValue.trim();
+    if (!value || !value.startsWith('/')) {
+      continue;
+    }
+    if (key === 'target' || key === 'dst' || key === 'destination') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function collectExistingVolumeTargets(args: string[]): Set<string> {
+  const targets = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === '-v' || token === '--volume') {
+      const target = extractTargetFromShortVolumeSpec(args[index + 1]);
+      if (target) {
+        targets.add(target);
+      }
+      index += 1;
+      continue;
+    }
+
+    const inlineVolumeMatch = token.match(/^(-v|--volume)=(.+)$/);
+    if (inlineVolumeMatch) {
+      const target = extractTargetFromShortVolumeSpec(inlineVolumeMatch[2]);
+      if (target) {
+        targets.add(target);
+      }
+      continue;
+    }
+
+    if (token === '--mount') {
+      const target = extractTargetFromMountSpec(args[index + 1]);
+      if (target) {
+        targets.add(target);
+      }
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--mount=')) {
+      const target = extractTargetFromMountSpec(token);
+      if (target) {
+        targets.add(target);
+      }
+    }
+  }
+  return targets;
+}
+
+function ensureVolumeArgs(
+  args: string[],
+  mounts: ResolvedVolumeMount[]
+): { args: string[]; changed: boolean } {
+  if (mounts.length === 0) {
+    return { args, changed: false };
+  }
+
+  const existingTargets = collectExistingVolumeTargets(args);
+  const uniqueMounts: ResolvedVolumeMount[] = [];
+  for (const mount of mounts) {
+    if (!existingTargets.has(mount.target) && !uniqueMounts.some((entry) => entry.target === mount.target)) {
+      uniqueMounts.push(mount);
+    }
+  }
+
+  if (uniqueMounts.length === 0) {
+    return { args, changed: false };
+  }
+
+  const updated = [...args];
+  const insertIndex = updated.length > 0 && updated[0] === 'run' ? 1 : 0;
+  const volumeArgs: string[] = [];
+  for (const mount of uniqueMounts) {
+    volumeArgs.push('-v', `${mount.source}:${mount.target}:${mount.mode}`);
+  }
+  updated.splice(insertIndex, 0, ...volumeArgs);
+  return { args: updated, changed: true };
 }
 
 function extractContainerPort(args: string[]): number | null {
@@ -694,6 +816,7 @@ export async function runLaunchStart(launchId: string) {
   const manifestPort = await resolveManifestPortForRepository(launch.repositoryId);
   const containerPort = envDefinedPort ?? manifestPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandSource = launch.command?.trim() ?? '';
+  const requiredVolumeMounts = resolveLaunchVolumeMounts(launch.env);
   let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
   let commandLabel = commandSource;
   let containerName: string | null = null;
@@ -720,6 +843,19 @@ export async function runLaunchStart(launchId: string) {
     containerName = fallback.containerName;
   }
 
+  if (!runArgs || runArgs.length === 0) {
+    const message = 'Launch command invalid';
+    failLaunch(launch.id, message);
+    log('Launch command missing', { launchId, command: commandSource });
+    return;
+  }
+
+  const volumeAdjustment = ensureVolumeArgs(runArgs, requiredVolumeMounts);
+  runArgs = volumeAdjustment.args;
+  if (volumeAdjustment.changed) {
+    commandLabel = stringifyDockerCommand(runArgs);
+  }
+
   const containerPortForLookup = extractContainerPort(runArgs) ?? containerPort;
   const effectiveCommand = commandLabel || stringifyDockerCommand(runArgs);
 
@@ -732,12 +868,6 @@ export async function runLaunchStart(launchId: string) {
     containerPort: containerPortForLookup
   });
 
-  if (!runArgs || runArgs.length === 0) {
-    const message = 'Launch command invalid';
-    failLaunch(launch.id, message);
-    log('Launch command missing', { launchId, command: commandSource });
-    return;
-  }
   const runResult = await runDockerCommand(runArgs);
   if (runResult.exitCode !== 0 || runResult.stdout.trim().length === 0) {
     const message = runResult.stderr || 'docker run failed';

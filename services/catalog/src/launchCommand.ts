@@ -70,7 +70,7 @@ function statPath(targetPath: string): PathStats {
   }
 }
 
-type ResolvedVolumeMount = {
+export type ResolvedVolumeMount = {
   source: string;
   target: string;
   mode: 'rw';
@@ -161,6 +161,10 @@ function resolveVolumeMounts(envVars?: LaunchEnvVar[]): ResolvedVolumeMount[] {
   }
 
   return mounts;
+}
+
+export function resolveLaunchVolumeMounts(envVars?: LaunchEnvVar[]): ResolvedVolumeMount[] {
+  return resolveVolumeMounts(envVars);
 }
 
 const SAFE_ARG_PATTERN = /^[A-Za-z0-9_@%+=:,./-]+$/;
