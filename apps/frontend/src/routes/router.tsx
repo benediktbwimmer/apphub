@@ -8,7 +8,7 @@ import { RequireOperatorToken } from './RequireOperatorToken';
 import ServiceGallery from '../services/ServiceGallery';
 import ServicesLayout from '../services/ServicesLayout';
 import TimestoreDatasetsPage from '../timestore/TimestoreDatasetsPage';
-import MetastorePlaceholder from '../services/MetastorePlaceholder';
+import MetastoreExplorerPage from '../metastore/MetastoreExplorerPage';
 import ServicesRouteError from '../services/ServicesRouteError';
 import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
@@ -62,7 +62,7 @@ export const appRouteConfig: RouteObject[] = [
           },
           {
             path: ROUTE_SEGMENTS.servicesMetastore,
-            element: <MetastorePlaceholder />
+            element: <MetastoreExplorerPage />
           }
         ]
       },

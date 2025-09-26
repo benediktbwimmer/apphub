@@ -68,7 +68,7 @@ export function RetentionPanel({ datasetId, retention, loading, error, onRefresh
 
   useEffect(() => {
     setFields(toEditableFields(retention));
-  }, [retention?.policy, retention?.defaultPolicy]);
+  }, [retention]);
 
   const handleChange = (key: keyof EditablePolicyFields) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFields((prev) => ({ ...prev, [key]: event.target.value }));

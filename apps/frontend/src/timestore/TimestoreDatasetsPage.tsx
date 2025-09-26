@@ -59,6 +59,8 @@ const STATUS_LABELS: Record<'active' | 'inactive' | 'all', string> = {
   all: 'All'
 };
 
+const EMPTY_DATASETS: DatasetRecord[] = [];
+
 export default function TimestoreDatasetsPage() {
   const { identity } = useAuth();
   const authorizedFetch = useAuthorizedFetch();
@@ -115,7 +117,7 @@ export default function TimestoreDatasetsPage() {
     fetcher: datasetFetcher
   });
 
-  const datasets = datasetsPayload?.datasets ?? [];
+  const datasets = datasetsPayload?.datasets ?? EMPTY_DATASETS;
   const nextCursor = datasetsPayload?.nextCursor ?? null;
 
   useEffect(() => {

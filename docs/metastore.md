@@ -123,6 +123,16 @@ npm run dev --workspace @apphub/metastore
 
 The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. Set `APPHUB_METASTORE_PG_SCHEMA` (default `metastore`) to control which Postgres schema is used. The server automatically runs migrations on startup.
 
+## Operator UI
+
+The frontend exposes a full-crud Metastore explorer under `/services/metastore`. Operators can:
+
+- Search within a namespace (with optional soft-delete visibility) and inspect record metadata, tags, owners, and schema hashes.
+- Edit records with optimistic locking, apply targeted JSON patches, or restore soft-deleted entries via the toolbar actions.
+- Execute bulk upsert/delete payloads using the inline dialog, with validation mirroring the API schemas.
+- Review audit history and follow cross-links to related Timestore datasets or assets for additional context.
+- Trigger purge operations when holding the `metastore:admin` scope, with clear confirmations.
+
 ## Testing
 ```bash
 npm run lint --workspace @apphub/metastore

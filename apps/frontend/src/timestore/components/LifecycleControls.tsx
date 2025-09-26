@@ -23,9 +23,29 @@ interface LifecycleControlsProps {
   canRun: boolean;
 }
 
-function resolveDatasetSlug(job: LifecycleJobSummary): string {
-  const metadataSlug = typeof job.metadata?.datasetSlug === 'string' ? job.metadata.datasetSlug : null;
-  return metadataSlug ?? 'unknown';
+function resolveDatasetSlug(job: LifecycleJobSummary, fallbackSlug: string): string {
+  const metadataSlug = typeof job.metadata?.datasetSlug === 'string' ? job.metadata.datasetSlug.trim() : '';
+  if (metadataSlug.length > 0) {
+    return metadataSlug;
+  }
+
+  const explicitSlug = typeof (job.metadata as Record<string, unknown> | undefined)?.slug === 'string'
+    ? ((job.metadata as Record<string, unknown>).slug as string).trim()
+    : '';
+  if (explicitSlug.length > 0) {
+    return explicitSlug;
+  }
+
+  const fallback = fallbackSlug.trim();
+  if (fallback.length > 0) {
+    return fallback;
+  }
+
+  if (job.datasetId && job.datasetId.trim().length > 0) {
+    return job.datasetId;
+  }
+
+  return 'unknown';
 }
 
 export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error, onRefresh, canRun }: LifecycleControlsProps) {
@@ -187,7 +207,7 @@ export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{job.status}</div>
-                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">{resolveDatasetSlug(job)}</div>
+                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">{resolveDatasetSlug(job, datasetSlug)}</div>
                   </div>
                   <button
                     type="button"

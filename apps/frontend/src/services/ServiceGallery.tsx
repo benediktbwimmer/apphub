@@ -14,6 +14,7 @@ const STATUS_PRIORITY = STATUS_ORDER.reduce<Record<string, number>>((acc, status
   return acc;
 }, {});
 const UNKNOWN_STATUS_PRIORITY = STATUS_ORDER.length;
+const EMPTY_SERVICES: ServiceSummary[] = [];
 
 function hasServiceData(payload: ServicesResponse): payload is { data: ServiceSummary[] } {
   return Array.isArray((payload as { data?: unknown }).data);
@@ -155,7 +156,7 @@ export default function ServiceGallery() {
       return hasServiceData(payload) ? payload.data : [];
     }
   });
-  const services = servicesData ?? [];
+  const services = servicesData ?? EMPTY_SERVICES;
   const errorMessage = error
     ? formatFetchError(error, 'Failed to load services', API_BASE_URL)
     : null;
