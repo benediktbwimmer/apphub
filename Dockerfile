@@ -10,6 +10,7 @@ COPY tsconfig.base.json tsconfig.base.json
 COPY apps/frontend/package.json apps/frontend/package-lock.json apps/frontend/
 COPY apps/cli/package.json apps/cli/package-lock.json apps/cli/
 COPY services/catalog/package.json services/catalog/package-lock.json services/catalog/
+COPY services/metastore/package.json services/metastore/
 COPY packages/example-bundler/package.json packages/example-bundler/
 COPY packages/examples-registry/package.json packages/examples-registry/
 COPY packages/shared/package.json packages/shared/
@@ -21,9 +22,11 @@ ARG VITE_API_BASE_URL=http://localhost:4000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 RUN npm run build --workspace @apphub/catalog
+RUN npm run build --workspace @apphub/metastore
 RUN npm run build --workspace @apphub/frontend
 RUN npm prune --omit=dev
 RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
+RUN rm -rf services/metastore/node_modules && ln -s ../../node_modules services/metastore/node_modules
 RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
 RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
 RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
@@ -80,6 +83,9 @@ COPY --from=builder /app/services/catalog/package.json services/catalog/package.
 COPY --from=builder /app/services/catalog/package-lock.json services/catalog/package-lock.json
 COPY --from=builder /app/services/catalog/node_modules services/catalog/node_modules
 COPY --from=builder /app/services/catalog/dist services/catalog/dist
+COPY --from=builder /app/services/metastore/package.json services/metastore/package.json
+COPY --from=builder /app/services/metastore/node_modules services/metastore/node_modules
+COPY --from=builder /app/services/metastore/dist services/metastore/dist
 COPY --from=builder /app/apps/cli apps/cli
 COPY --from=builder /app/examples examples
 COPY --from=builder /app/apps/frontend/dist apps/frontend/dist
@@ -126,6 +132,18 @@ stderr_logfile_maxbytes=0
 command=node services/catalog/dist/server.js
 directory=/app
 priority=20
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:metastore-api]
+command=node services/metastore/dist/server.js
+directory=/app
+environment=PORT=4100,HOST=0.0.0.0
+priority=25
 autostart=true
 autorestart=true
 stdout_logfile=/dev/stdout

@@ -1,0 +1,124 @@
+# Metastore Service
+
+The metastore provides a flexible metadata backend for platform features that need to persist JSON documents without adding bespoke tables to the catalog schema. It runs as a standalone Fastify service in `services/metastore`, but reuses the same PostgreSQL instance as the catalog API.
+
+## Capabilities
+- Store arbitrary JSON metadata per record, scoped by `namespace` + `key`.
+- Track auditing details (`created_at`, `updated_at`, `created_by`, `updated_by`, `version`, optional soft deletes) for compliance and debugging.
+- Support expressive search with boolean composition, range comparisons, containment checks, and array membership across metadata fields and top-level attributes.
+- Enforce optimistic locking via the `version` column, so clients cannot overwrite concurrent updates accidentally.
+- Emit Prometheus metrics (`metastore_http_requests_total`, `metastore_http_request_duration_seconds`) and health checks (`/healthz`, `/readyz`, `/metrics`).
+
+## Data Model
+```text
+metastore_records
+  id               BIGSERIAL PRIMARY KEY
+  namespace        TEXT NOT NULL
+  record_key       TEXT NOT NULL
+  metadata         JSONB NOT NULL DEFAULT '{}'::jsonb
+  tags             TEXT[] NOT NULL DEFAULT '{}'::text[]
+  owner            TEXT
+  schema_hash      TEXT
+  version          INTEGER NOT NULL DEFAULT 1
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  deleted_at       TIMESTAMPTZ
+  created_by       TEXT
+  updated_by       TEXT
+
+metastore_record_audits
+  record_id        BIGINT
+  namespace        TEXT NOT NULL
+  record_key       TEXT NOT NULL
+  action           TEXT NOT NULL (create | update | delete | restore)
+  actor            TEXT
+  previous_version INTEGER
+  version          INTEGER
+  metadata         JSONB
+  previous_metadata JSONB
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+```
+
+GIN indexes exist on `metadata`, `tags`, and `updated_at` to keep search queries responsive without introducing Elasticsearch.
+
+## API Surface
+| Endpoint | Description | Auth Scope |
+| --- | --- | --- |
+| `POST /records` | Create a record (idempotent on key). Returns 201 on first write and 200 on no-op. | `metastore:write` |
+| `PUT /records/:namespace/:key` | Upsert or restore a record. Accepts `expectedVersion` for optimistic locking. | `metastore:write` |
+| `GET /records/:namespace/:key` | Fetch a record. Optional `includeDeleted=true` exposes soft-deleted rows. | `metastore:read` |
+| `DELETE /records/:namespace/:key` | Soft delete a record (retains metadata + audit trail). | `metastore:delete` |
+| `POST /records/search` | Execute filtered, paginated search requests. Supports boolean filter trees, sort order, and result counts. | `metastore:read` |
+| `POST /records/bulk` | Apply batched upsert/delete operations transactionally. | `metastore:write` (+ `metastore:delete` if deletes present) |
+| `GET /healthz` / `GET /readyz` | Liveness and readiness probes (readiness checks Postgres connectivity). | none |
+| `GET /metrics` | Prometheus metrics (disabled when `APPHUB_METRICS_ENABLED=0`). | none |
+
+### Search DSL
+Search payloads accept a filter tree composed of condition, group, and not nodes. Example:
+
+```json
+{
+  "namespace": "analytics",
+  "filter": {
+    "type": "group",
+    "operator": "and",
+    "filters": [
+      {
+        "field": "metadata.status",
+        "operator": "eq",
+        "value": "active"
+      },
+      {
+        "type": "group",
+        "operator": "or",
+        "filters": [
+          {
+            "field": "metadata.metrics.latency_ms",
+            "operator": "lt",
+            "value": 200
+          },
+          {
+            "field": "tags",
+            "operator": "array_contains",
+            "value": ["priority"]
+          }
+        ]
+      }
+    ]
+  },
+  "sort": [{ "field": "updatedAt", "direction": "desc" }],
+  "limit": 25,
+  "offset": 0
+}
+```
+
+Supported comparison operators:
+- `eq`, `neq`
+- `lt`, `lte`, `gt`, `gte`, `between`
+- `contains` (JSON containment)
+- `has_key` (object key existence)
+- `array_contains` (array membership for metadata arrays or `tags`)
+- `exists`
+
+Boolean operators: `and`, `or`, plus `not` combinator. Filter depth is capped at 8 levels to protect query compilation.
+
+## Authentication & Namespaces
+- Bearer tokens are loaded from `APPHUB_METASTORE_TOKENS`, `APPHUB_METASTORE_TOKENS_PATH`, or fall back to `APPHUB_OPERATOR_TOKENS`. 
+- Tokens declare scopes (`metastore:read`, `metastore:write`, `metastore:delete`, `metastore:admin`) and optional namespace allow-lists. Admin scope implies all other scopes and namespace access.
+- Set `APPHUB_AUTH_DISABLED=1` in local development to bypass auth entirely.
+
+## Running Locally
+```bash
+npm install
+npm run dev --workspace @apphub/metastore
+```
+
+The service listens on `http://127.0.0.1:4100` by default. Update `PORT` / `HOST` / `DATABASE_URL` env vars as needed. The server automatically runs migrations on startup.
+
+## Testing
+```bash
+npm run lint --workspace @apphub/metastore
+npm run test:integration --workspace @apphub/metastore
+```
+
+Integration tests spin up an embedded Postgres instance, build the Fastify app, and exercise the CRUD/search/bulk endpoints end-to-end.

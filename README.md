@@ -13,7 +13,8 @@ apphub/
 │   ├── shared/               # Shared types + registries consumed by multiple services
 │   └── examples/             # Placeholder workspace for the consolidated example registry
 ├── services/
-│   └── catalog/              # Fastify API + background workers
+│   ├── catalog/              # Fastify API + background workers
+│   └── metastore/            # Flexible metadata storage + search service
 └── apps/
     ├── cli/                  # Workspace-aware job bundle tooling
     └── frontend/             # Vite + React search UI with tag-driven autocomplete
@@ -44,6 +45,14 @@ The API listens on `http://localhost:4000` by default and serves:
 - `GET /services` to inspect dynamically registered auxiliary services and their health status
 
 Metadata persists in PostgreSQL. By default the API connects to `postgres://apphub:apphub@127.0.0.1:5432/apphub`; set `DATABASE_URL` if you run Postgres elsewhere. Create the database before starting the service (for example, `createdb apphub && psql -d apphub -c "CREATE ROLE apphub WITH LOGIN PASSWORD 'apphub'; GRANT ALL PRIVILEGES ON DATABASE apphub TO apphub;"`).
+
+### Metastore Service
+
+```bash
+npm run dev --workspace @apphub/metastore
+```
+
+The metastore reuses the same PostgreSQL instance and exposes a dedicated REST API for storing arbitrary JSON metadata keyed by `namespace` + `key`. Endpoints cover CRUD, optimistic locking, rich search (`eq/neq`, range, containment, boolean composition), and bulk operations. Authentication honours the shared bearer token configuration (`APPHUB_METASTORE_TOKENS` or `APPHUB_OPERATOR_TOKENS`) with namespace-scoped RBAC, and `APPHUB_AUTH_DISABLED=1` bypasses auth in local development. Metrics are available at `/metrics` (Prometheus format) and standard health probes at `/healthz` / `/readyz`. See `docs/metastore.md` for payload shapes and filter DSL reference.
 
 ### Ingestion Worker
 
@@ -153,6 +162,7 @@ docker run --rm -it \
   --name apphub-dev \
   --privileged \
   -p 4000:4000 \
+  -p 4100:4100 \
   -p 4173:4173 \
   -p 6379:6379 \
   -v apphub-data:/app/data \
@@ -168,7 +178,7 @@ docker run --rm -it \
 
 > Tip: Adjust `/Users/bene/work` to the portion of your host filesystem that workflows need to access. On macOS/Linux no `/host_mnt` prefix is required; the bind mount path you specify is exactly what the container sees. Windows users should map the drive into `/host_mnt/<drive-letter>` and set `APPHUB_HOST_ROOT` accordingly.
 
-You can now hit `http://localhost:4000` (API) and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
+You can now hit `http://localhost:4000` (catalog API), `http://localhost:4100` (metastore API), and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
 
 #### Production
 
@@ -180,6 +190,7 @@ docker run -d \
   --privileged \
   --restart unless-stopped \
   -p 0.0.0.0:4000:4000 \
+  -p 0.0.0.0:4100:4100 \
   -p 0.0.0.0:4173:4173 \
   -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \

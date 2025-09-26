@@ -6,6 +6,7 @@ Build a "YouTube of web applications" where each application is sourced from a G
 ## Core Components
 - **Ingestion Service**: Validates repository metadata, clones repos, inspects `Dockerfile`, and triggers container image builds. The prototype uses a BullMQ (Redis-backed) worker that consumes ingestion jobs, verifies the declared Dockerfile (or discovers one), enriches tags from repo artifacts, and records commit SHA + elapsed time for each attempt.
 - **Registry & Metadata Store**: Persists repositories, tag associations, build status, runtime configuration, and user curation data. The catalog now runs on PostgreSQL (via the `pg` connection pool) for concurrency and cloud deployments.
+- **Metastore Service**: A Fastify API backed by the shared PostgreSQL instance that stores arbitrary JSON metadata keyed by namespace + record key. It exposes CRUD, optimistic locking, rich filtering (`eq/neq`, range, containment, boolean composition), metrics, and audit logging so downstream teams can persist configuration without schema changes.
 - **Runner Service**: Schedules containerized apps, exposes preview URLs, handles lifecycle (start/stop) with resource quotas.
 - **Search & Recommendation API**: Indexes metadata, supports tag-based search (`key:value` pairs), and powers autocomplete suggestions.
 - **Frontend Web App**: Provides a search-first experience with keyboard-centric autocomplete, surfaces app cards, and allows launching previews.
