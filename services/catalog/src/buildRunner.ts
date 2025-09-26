@@ -9,9 +9,7 @@ import {
   getBuildById,
   getRepositoryById,
   startBuild,
-  updateRepositoryLaunchEnvTemplates,
   type BuildRecord,
-  type LaunchEnvVar,
   type JsonValue
 } from './db/index';
 import { registerJobHandler, type JobRunContext, type JobResult } from './jobs/runtime';
@@ -19,8 +17,6 @@ import { registerJobHandler, type JobRunContext, type JobResult } from './jobs/r
 const BUILD_CLONE_DEPTH = process.env.BUILD_CLONE_DEPTH ?? '1';
 
 const git = simpleGit();
-
-const ENV_TEMPLATE_FILES = ['.env.template', '.env.example'];
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -34,92 +30,6 @@ async function fileExists(filePath: string) {
   } catch {
     return false;
   }
-}
-
-function stripInlineComment(value: string): string {
-  if (!value.includes('#')) {
-    return value.trim();
-  }
-  let inSingle = false;
-  let inDouble = false;
-  let result = '';
-  for (const char of value) {
-    if (char === "'" && !inDouble) {
-      inSingle = !inSingle;
-    } else if (char === '"' && !inSingle) {
-      inDouble = !inDouble;
-    }
-    if (char === '#' && !inSingle && !inDouble) {
-      break;
-    }
-    result += char;
-  }
-  return result.trim();
-}
-
-function parseEnvTemplate(contents: string): LaunchEnvVar[] {
-  const entries: LaunchEnvVar[] = [];
-  const seen = new Set<string>();
-  const lines = contents.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-    let working = trimmed;
-    if (working.startsWith('export ')) {
-      working = working.slice(7).trim();
-    }
-    const equalsIndex = working.indexOf('=');
-    if (equalsIndex === -1) {
-      continue;
-    }
-    const key = working.slice(0, equalsIndex).trim();
-    if (!key) {
-      continue;
-    }
-    let value = working.slice(equalsIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-    ) {
-      value = value.slice(1, -1);
-    } else {
-      value = stripInlineComment(value);
-    }
-    if (seen.has(key)) {
-      continue;
-    }
-    entries.push({ key, value });
-    seen.add(key);
-    if (entries.length >= 32) {
-      break;
-    }
-  }
-  return entries;
-}
-
-async function discoverEnvTemplates(workingDir: string): Promise<LaunchEnvVar[] | null> {
-  let emptyTemplate: LaunchEnvVar[] | null = null;
-  for (const fileName of ENV_TEMPLATE_FILES) {
-    const candidate = path.join(workingDir, fileName);
-    if (!(await fileExists(candidate))) {
-      continue;
-    }
-    try {
-      const raw = await fs.readFile(candidate, 'utf8');
-      const parsed = parseEnvTemplate(raw);
-      if (parsed.length > 0) {
-        return parsed;
-      }
-      emptyTemplate = parsed;
-    } catch (err) {
-      const message = (err as Error).message ?? 'failed to read env template';
-      log('Failed to read env template', { fileName, error: message });
-      return null;
-    }
-  }
-  return emptyTemplate ?? [];
 }
 
 function sanitizeImageName(source: string) {
@@ -258,11 +168,6 @@ export async function runBuildJob(
     } catch (err) {
       const message = (err as Error).message ?? 'failed to resolve HEAD commit';
       combinedLogs += `Commit resolution warning: ${message}\n`;
-    }
-
-    const envTemplates = await discoverEnvTemplates(workingDir);
-    if (envTemplates !== null) {
-      await updateRepositoryLaunchEnvTemplates(repository.id, envTemplates);
     }
 
     const dockerfilePath = path.join(workingDir, repository.dockerfilePath);

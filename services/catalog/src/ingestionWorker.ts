@@ -1086,6 +1086,7 @@ async function processRepository(
       ingestError: null,
       tags: Array.from(tagMap.values()),
       ingestAttempts: repository.ingestAttempts,
+      launchEnvTemplates: repository.launchEnvTemplates,
       metadataStrategy: metadataStrategy
     });
     await replaceRepositoryPreviews(repository.id, previewTiles);

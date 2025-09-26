@@ -158,20 +158,3 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(envMap.get('CATALOG_API_TOKEN'), 'dev-token', 'expected placeholder default token');
   assert(envMap.size >= 5, 'expected multiple env vars to be applied');
 }, { name: 'catalog-launch-manifest-env' });
-  const finalLaunch = await db.getLaunchById(launch.id);
-  assert(finalLaunch, 'launch record missing after start');
-
-  const envEntries = finalLaunch!.env;
-  assert(envEntries.length > 0, 'expected launch env array to be populated');
-
-  const envMap = new Map<string, string>((envEntries as LaunchEnvVar[]).map((entry) => [entry.key, entry.value]));
-
-  assert.equal(envMap.get('PORT'), '4310', 'expected PORT env to match manifest');
-  assert.equal(
-    envMap.get('FILE_WATCH_ROOT'),
-    'examples/environmental-observatory/data/inbox',
-    'expected FILE_WATCH_ROOT default to propagate'
-  );
-  assert.equal(envMap.get('CATALOG_API_TOKEN'), 'dev-token', 'expected placeholder default token');
-  assert(envMap.size >= 5, 'expected multiple env vars to be applied');
-}, { name: 'catalog-launch-manifest-env' });

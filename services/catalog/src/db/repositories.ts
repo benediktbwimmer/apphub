@@ -607,7 +607,15 @@ export async function addRepository(repository: RepositoryInsert): Promise<Repos
 
 export async function upsertRepository(repository: RepositoryInsert): Promise<RepositoryRecord> {
   const now = new Date().toISOString();
-  const launchEnvTemplates = JSON.stringify(normalizeLaunchEnvEntries(repository.launchEnvTemplates));
+  const hasLaunchEnvTemplates = repository.launchEnvTemplates !== undefined;
+  const normalizedLaunchEnvTemplates = hasLaunchEnvTemplates
+    ? normalizeLaunchEnvEntries(repository.launchEnvTemplates)
+    : null;
+  const serializedLaunchEnvTemplates = normalizedLaunchEnvTemplates
+    ? JSON.stringify(normalizedLaunchEnvTemplates)
+    : null;
+  const insertLaunchEnvTemplates = serializedLaunchEnvTemplates ?? '[]';
+  const updateLaunchEnvTemplates = serializedLaunchEnvTemplates;
   const preserveAttempts = repository.ingestAttempts === undefined;
   const ingestAttempts = repository.ingestAttempts ?? 0;
   const metadataStrategy = normalizeMetadataStrategyInput(repository.metadataStrategy);
@@ -628,9 +636,9 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
          ingest_status = EXCLUDED.ingest_status,
          last_ingested_at = COALESCE(EXCLUDED.last_ingested_at, repositories.last_ingested_at),
          ingest_error = EXCLUDED.ingest_error,
-         ingest_attempts = CASE WHEN $14 THEN repositories.ingest_attempts ELSE EXCLUDED.ingest_attempts END,
+         ingest_attempts = CASE WHEN $15 THEN repositories.ingest_attempts ELSE EXCLUDED.ingest_attempts END,
          metadata_strategy = EXCLUDED.metadata_strategy,
-         launch_env_templates = EXCLUDED.launch_env_templates
+         launch_env_templates = CASE WHEN $14::jsonb IS NULL THEN repositories.launch_env_templates ELSE $14::jsonb END
        `,
       [
         repository.id,
@@ -644,8 +652,9 @@ export async function upsertRepository(repository: RepositoryInsert): Promise<Re
         repository.ingestError ?? null,
         ingestAttempts,
         metadataStrategy,
-        launchEnvTemplates,
+        insertLaunchEnvTemplates,
         now,
+        updateLaunchEnvTemplates,
         preserveAttempts
       ]
     );
