@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -148,6 +149,8 @@ export class ExampleBundler {
         await this.installDependencies(workspaceDir);
       }
 
+      await populateWorkspacePackages(this.repoRoot, workspaceDir);
+
       emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'packaging'));
       const packaged = await this.buildBundle(workspaceDir, options);
 
@@ -260,6 +263,43 @@ async function createWorkspaceRoot(slug: string, fingerprint: string): Promise<s
   const prefix = `apphub-example-${sanitizedSlug}-${fingerprint.slice(0, 8)}-`;
   const base = path.join(os.tmpdir(), prefix);
   return fs.mkdtemp(base);
+}
+
+async function populateWorkspacePackages(repoRoot: string, workspaceDir: string): Promise<void> {
+  const packagesRoot = path.join(repoRoot, 'packages');
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(packagesRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const nodeModulesRoot = path.join(workspaceDir, 'node_modules');
+  const scopedRoot = path.join(nodeModulesRoot, '@apphub');
+  await ensureDir(scopedRoot);
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const sourceDir = path.join(packagesRoot, entry.name);
+    const packageJsonPath = path.join(sourceDir, 'package.json');
+    if (!(await pathExists(packageJsonPath))) {
+      continue;
+    }
+    const targetDir = path.join(scopedRoot, entry.name);
+    await removeDir(targetDir).catch(() => {});
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      dereference: false,
+      filter: (src) => !isNodeModulesPath(src)
+    });
+  }
+}
+
+function isNodeModulesPath(candidate: string): boolean {
+  const segments = candidate.split(path.sep);
+  return segments.includes('node_modules');
 }
 
 async function copyBundleSources(sourceDir: string, targetDir: string): Promise<void> {
