@@ -746,6 +746,15 @@ const migrations: Migration[] = [
       `ALTER TABLE workflow_definitions
          DROP COLUMN IF EXISTS schedule_catchup_cursor;`
     ]
+  },
+  {
+    id: '025_job_bundle_replacements',
+    statements: [
+      `ALTER TABLE job_bundle_versions
+         ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMPTZ`,
+      `ALTER TABLE job_bundle_versions
+         ADD COLUMN IF NOT EXISTS replaced_by TEXT`
+    ]
   }
 ];
 

@@ -280,6 +280,8 @@ export function serializeJobBundleVersion(
       : null,
     publishedAt: version.publishedAt,
     deprecatedAt: version.deprecatedAt,
+    replacedAt: version.replacedAt,
+    replacedBy: version.replacedBy,
     createdAt: version.createdAt,
     updatedAt: version.updatedAt,
     download: downloadInfo

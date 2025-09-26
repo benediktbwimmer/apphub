@@ -176,7 +176,10 @@ async function computeFileChecksum(filePath: string): Promise<string> {
   });
 }
 
-export async function saveJobBundleArtifact(input: BundleArtifactUpload): Promise<BundleArtifactSaveResult> {
+export async function saveJobBundleArtifact(
+  input: BundleArtifactUpload,
+  options?: { force?: boolean }
+): Promise<BundleArtifactSaveResult> {
   const backend = getBackend();
   const slugSegment = ensureSegment(input.slug, 'bundle');
   const versionSegment = ensureSegment(input.version, 'v');
@@ -186,6 +189,7 @@ export async function saveJobBundleArtifact(input: BundleArtifactUpload): Promis
   const contentType = input.contentType?.trim() && input.contentType.trim().length > 0
     ? input.contentType.trim()
     : null;
+  const force = Boolean(options?.force);
 
   if (backend === 's3') {
     const key = buildS3Key(slugSegment, versionSegment, filename);
@@ -235,9 +239,13 @@ export async function saveJobBundleArtifact(input: BundleArtifactUpload): Promis
         contentType
       } satisfies BundleArtifactSaveResult;
     }
-    throw new Error('Artifact already exists for bundle version');
+    if (!force) {
+      throw new Error('Artifact already exists for bundle version');
+    }
+    await fs.rm(absolutePath, { force: true });
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
       throw err;
     }
   }
@@ -442,4 +450,55 @@ export function getDownloadRoute(slug: string, version: string): string {
 }
 export function getLocalBundleArtifactPath(record: JobBundleVersionRecord): string {
   return resolveLocalArtifactAbsolutePath(record);
+}
+
+export async function readBundleArtifactBuffer(record: JobBundleVersionRecord): Promise<Buffer> {
+  const inlineData = await fetchBundleArtifactData(record);
+  if (inlineData) {
+    return inlineData;
+  }
+
+  if (record.artifactStorage === 'local') {
+    await ensureLocalBundleExists(record);
+    const absolute = resolveLocalArtifactAbsolutePath(record);
+    return fs.readFile(absolute);
+  }
+
+  if (record.artifactStorage === 's3') {
+    const downloaded = await downloadS3ArtifactToBuffer(record);
+    if (downloaded) {
+      return downloaded;
+    }
+  }
+
+  throw new Error(`Bundle artifact data not available for ${record.slug}@${record.version}`);
+}
+
+async function downloadS3ArtifactToBuffer(record: JobBundleVersionRecord): Promise<Buffer | null> {
+  if (!s3Bucket) {
+    return null;
+  }
+  const client = getS3Client();
+  const command = new GetObjectCommand({ Bucket: s3Bucket, Key: record.artifactPath });
+  const response = await client.send(command);
+  const body = response.Body;
+  if (!body || typeof (body as any).pipe !== 'function') {
+    return null;
+  }
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    (body as NodeJS.ReadableStream)
+      .on('data', (chunk: Buffer | string | Uint8Array) => {
+        if (typeof chunk === 'string') {
+          chunks.push(Buffer.from(chunk));
+        } else if (Buffer.isBuffer(chunk)) {
+          chunks.push(chunk);
+        } else {
+          chunks.push(Buffer.from(chunk));
+        }
+      })
+      .on('error', reject)
+      .on('end', () => resolve());
+  });
+  return Buffer.concat(chunks);
 }

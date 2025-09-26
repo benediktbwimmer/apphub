@@ -14,13 +14,12 @@ import {
 } from './statusStore';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
-const cacheDir = path.resolve(__dirname, '..', '..', 'data', 'example-bundles');
 
 let bundler: ExampleBundler | null = null;
 
 function getBundler(): ExampleBundler {
   if (!bundler) {
-    bundler = new ExampleBundler({ repoRoot, cacheDir });
+    bundler = new ExampleBundler({ repoRoot });
   }
   return bundler;
 }
@@ -62,11 +61,6 @@ export async function packageExampleBundle(
   }
 }
 
-export async function loadCachedExampleBundle(slug: string): Promise<PackagedExampleBundle | null> {
-  const instance = getBundler();
-  return instance.loadCachedExampleBySlug(slug);
-}
-
 export async function listExampleBundleStatuses(): Promise<ExampleBundleStatus[]> {
   return listStatuses();
 }
@@ -99,18 +93,6 @@ function emitProgressEvent(status: ExampleBundleStatus) {
 }
 
 async function resolveFingerprint(slug: string): Promise<string> {
-  const instance = getBundler();
-  const cached = await instance.loadCachedExampleBySlug(slug);
-  if (cached) {
-    return cached.fingerprint;
-  }
   const normalized = slug.trim().toLowerCase();
-  if (!normalized) {
-    return slug;
-  }
-  const metadata = await instance.listCachedBundles(slug);
-  if (metadata.length > 0) {
-    return metadata[0]?.fingerprint ?? normalized;
-  }
-  return normalized;
+  return normalized || slug;
 }

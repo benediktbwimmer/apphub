@@ -40,6 +40,21 @@ function normalizeDescription(value: string | null | undefined, fallback: string
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function buildReplacementActorIdentifier(subject: string | null, kind: string | null): string {
+  const normalizedSubject = typeof subject === 'string' ? subject.trim() : '';
+  const normalizedKind = typeof kind === 'string' ? kind.trim() : '';
+  if (normalizedSubject && normalizedKind) {
+    return `${normalizedKind}:${normalizedSubject}`;
+  }
+  if (normalizedSubject) {
+    return normalizedSubject;
+  }
+  if (normalizedKind) {
+    return normalizedKind;
+  }
+  return 'unknown';
+}
+
 function uniqueCapabilityFlags(flags: string[] = []): string[] {
   const seen = new Set<string>();
   for (const flag of flags) {
@@ -195,6 +210,7 @@ export async function publishJobBundleVersion(
   const immutable = Boolean(input.immutable);
   const artifactContentType = input.artifactContentType ?? null;
   const metadata = input.metadata ?? null;
+  const force = Boolean(input.force);
 
   const manifest = input.manifest ?? {};
 
@@ -247,78 +263,135 @@ export async function publishJobBundleVersion(
     }
 
     const existingVersion = await fetchBundleVersionRowById(client, bundle.id, version);
+    let versionRow: JobBundleVersionRow | null = null;
     if (existingVersion) {
-      throw new Error(`Bundle version ${slug}@${version} already exists`);
+      if (!force) {
+        throw new Error(`Bundle version ${slug}@${version} already exists`);
+      }
+      const replacementActor = buildReplacementActorIdentifier(
+        input.publishedBy ?? null,
+        input.publishedByKind ?? null
+      );
+      const updatedVersion = await client.query<JobBundleVersionRow>(
+        `UPDATE job_bundle_versions
+         SET manifest = $1::jsonb,
+             checksum = $2,
+             capability_flags = $3::jsonb,
+             artifact_storage = $4,
+             artifact_path = $5,
+             artifact_content_type = $6,
+             artifact_size = $7,
+             artifact_data = $8,
+             immutable = $9,
+             status = 'published',
+             published_by = $10,
+             published_by_kind = $11,
+             published_by_token_hash = $12,
+             published_at = NOW(),
+             deprecated_at = NULL,
+             metadata = $13::jsonb,
+             updated_at = NOW(),
+             replaced_at = NOW(),
+             replaced_by = $14
+         WHERE id = $15
+         RETURNING *`,
+        [
+          JSON.stringify(manifest),
+          checksum,
+          JSON.stringify(capabilityFlags),
+          artifactStorage,
+          artifactPath,
+          artifactContentType,
+          artifactSize,
+          artifactData,
+          immutable,
+          input.publishedBy ?? null,
+          input.publishedByKind ?? null,
+          input.publishedByTokenHash ?? null,
+          toJsonParameter(metadata),
+          replacementActor,
+          existingVersion.id
+        ]
+      );
+      if (updatedVersion.rowCount === 0) {
+        throw new Error('Failed to replace job bundle version');
+      }
+      versionRow = updatedVersion.rows[0];
+    } else {
+      const versionId = randomUUID();
+      const insertedVersion = await client.query<JobBundleVersionRow>(
+        `INSERT INTO job_bundle_versions (
+           id,
+           bundle_id,
+           slug,
+           version,
+           manifest,
+           checksum,
+           capability_flags,
+           artifact_storage,
+           artifact_path,
+           artifact_content_type,
+           artifact_size,
+           artifact_data,
+           immutable,
+           status,
+           published_by,
+           published_by_kind,
+           published_by_token_hash,
+           published_at,
+           metadata,
+           created_at,
+           updated_at
+         ) VALUES (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5::jsonb,
+           $6,
+           $7::jsonb,
+           $8,
+           $9,
+           $10,
+           $11,
+           $12,
+           $13,
+           'published',
+           $14,
+           $15,
+           $16,
+           NOW(),
+           $17::jsonb,
+           NOW(),
+           NOW()
+         )
+         RETURNING *`,
+        [
+          versionId,
+          bundle.id,
+          slug,
+          version,
+          JSON.stringify(manifest),
+          checksum,
+          JSON.stringify(capabilityFlags),
+          artifactStorage,
+          artifactPath,
+          artifactContentType,
+          artifactSize,
+          artifactData,
+          immutable,
+          input.publishedBy ?? null,
+          input.publishedByKind ?? null,
+          input.publishedByTokenHash ?? null,
+          toJsonParameter(metadata)
+        ]
+      );
+      versionRow = insertedVersion.rows[0] ?? null;
     }
 
-    const versionId = randomUUID();
-    const insertedVersion = await client.query<JobBundleVersionRow>(
-      `INSERT INTO job_bundle_versions (
-         id,
-         bundle_id,
-         slug,
-         version,
-         manifest,
-         checksum,
-         capability_flags,
-         artifact_storage,
-         artifact_path,
-         artifact_content_type,
-         artifact_size,
-         artifact_data,
-         immutable,
-         status,
-         published_by,
-         published_by_kind,
-         published_by_token_hash,
-         published_at,
-         metadata,
-         created_at,
-         updated_at
-       ) VALUES (
-         $1,
-         $2,
-         $3,
-         $4,
-         $5::jsonb,
-         $6,
-         $7::jsonb,
-         $8,
-         $9,
-         $10,
-         $11,
-         $12,
-         $13,
-         'published',
-         $14,
-         $15,
-         $16,
-         NOW(),
-         $17::jsonb,
-         NOW(),
-         NOW()
-       )
-       RETURNING *`,
-      [
-        versionId,
-        bundle.id,
-        slug,
-        version,
-        JSON.stringify(manifest),
-        checksum,
-        JSON.stringify(capabilityFlags),
-        artifactStorage,
-        artifactPath,
-        artifactContentType,
-        artifactSize,
-        artifactData,
-        immutable,
-        input.publishedBy ?? null,
-        input.publishedByKind ?? null,
-        input.publishedByTokenHash ?? null,
-        toJsonParameter(metadata)
-      ]
-    );
+    if (!versionRow) {
+      throw new Error('Failed to persist job bundle version');
+    }
 
     await client.query(
       `UPDATE job_bundles
@@ -335,7 +408,7 @@ export async function publishJobBundleVersion(
       throw new Error('Bundle record missing after publish');
     }
 
-    return { bundleRow: refreshedBundle, versionRow: insertedVersion.rows[0] };
+    return { bundleRow: refreshedBundle, versionRow };
   });
 
   return {

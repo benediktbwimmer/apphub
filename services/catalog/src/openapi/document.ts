@@ -733,6 +733,8 @@ const jobBundleVersionSchema: OpenAPIV3.SchemaObject = {
     publishedBy: nullable(jobBundlePublisherSchema),
     publishedAt: nullable(stringSchema('date-time')),
     deprecatedAt: nullable(stringSchema('date-time')),
+    replacedAt: nullable(stringSchema('date-time')),
+    replacedBy: nullable(stringSchema()),
     createdAt: stringSchema('date-time'),
     updatedAt: stringSchema('date-time'),
     download: {

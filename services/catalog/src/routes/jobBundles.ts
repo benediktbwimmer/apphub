@@ -60,7 +60,8 @@ const jobBundlePublishSchema = z
     metadata: jsonValueSchema.optional(),
     description: z.string().optional(),
     displayName: z.string().optional(),
-    artifact: jobBundleArtifactSchema
+    artifact: jobBundleArtifactSchema,
+    force: z.boolean().optional()
   })
   .strict();
 
@@ -208,6 +209,7 @@ export async function registerJobBundleRoutes(app: FastifyInstance): Promise<voi
     }
 
     const payload = parseBody.data;
+    const forcePublish = Boolean(payload.force);
 
     if (typeof payload.manifest.version === 'string' && payload.manifest.version !== payload.version) {
       reply.status(400);
@@ -261,6 +263,7 @@ export async function registerJobBundleRoutes(app: FastifyInstance): Promise<voi
           metadata: payload.metadata ?? null,
           description: payload.description ?? null,
           displayName: payload.displayName ?? null,
+          force: forcePublish,
           artifact: {
             data: artifactBuffer,
             filename: payload.artifact.filename ?? null,
@@ -276,12 +279,17 @@ export async function registerJobBundleRoutes(app: FastifyInstance): Promise<voi
       );
 
       reply.status(201);
-      await authResult.auth.log('succeeded', {
+      const auditPayload: Record<string, JsonValue> = {
         action: 'publish_bundle_version',
         slug: result.bundle.slug,
         version: result.version.version,
-        storage: result.version.artifactStorage
-      });
+        storage: result.version.artifactStorage,
+        force: forcePublish
+      } satisfies Record<string, JsonValue>;
+      if (result.version.replacedAt) {
+        auditPayload.replacedAt = result.version.replacedAt;
+      }
+      await authResult.auth.log('succeeded', auditPayload);
       return {
         data: {
           bundle: serializeJobBundle(result.bundle),

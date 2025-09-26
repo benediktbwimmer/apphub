@@ -787,6 +787,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
           description: typeof parsed.manifestObject.description === 'string' ? parsed.manifestObject.description : null,
           displayName: typeof parsed.manifestObject.name === 'string' ? parsed.manifestObject.name : null,
           metadata,
+          force: body.source === 'example',
           artifact: {
             data: parsed.buffer,
             filename: parsed.filename ?? `${parsed.slug}-${parsed.version}.tgz`,

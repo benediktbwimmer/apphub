@@ -1333,6 +1333,8 @@ export function mapJobBundleVersionRow(row: JobBundleVersionRow): JobBundleVersi
     publishedByTokenHash: row.published_by_token_hash ?? null,
     publishedAt: row.published_at,
     deprecatedAt: row.deprecated_at ?? null,
+    replacedAt: row.replaced_at ?? null,
+    replacedBy: row.replaced_by ?? null,
     metadata: toJsonObjectOrNull(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at

@@ -30,6 +30,7 @@ export type BundlePublishRequest = {
   metadata?: JsonValue | null;
   description?: string | null;
   displayName?: string | null;
+  force?: boolean;
   artifact: Omit<BundleArtifactUpload, 'slug' | 'version' | 'data'> & {
     data: Buffer;
     checksum?: string | null;
@@ -72,6 +73,8 @@ export async function publishBundleVersion(
     data: request.artifact.data,
     filename: request.artifact.filename ?? null,
     contentType: request.artifact.contentType ?? null
+  }, {
+    force: request.force
   });
 
   if (request.artifact.checksum) {
@@ -98,14 +101,16 @@ export async function publishBundleVersion(
     artifactData: request.artifact.data,
     publishedBy: actor.subject ?? null,
     publishedByKind: actor.kind ?? null,
-    publishedByTokenHash: actor.tokenHash ?? null
+    publishedByTokenHash: actor.tokenHash ?? null,
+    force: request.force ?? false
   });
 
   const download = await createBundleDownloadUrl(version, {
     filename: request.artifact.filename ?? null
   });
 
-  emitApphubEvent({ type: 'job.bundle.published', data: { bundle, version } });
+  const eventType = version.replacedAt ? 'job.bundle.updated' : 'job.bundle.published';
+  emitApphubEvent({ type: eventType, data: { bundle, version } });
 
   return { bundle, version, download } satisfies BundlePublishResult;
 }

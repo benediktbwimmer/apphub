@@ -200,6 +200,8 @@ export type JobBundleVersionRow = {
   published_by_token_hash: string | null;
   published_at: string;
   deprecated_at: string | null;
+  replaced_at: string | null;
+  replaced_by: string | null;
   metadata: unknown;
   created_at: string;
   updated_at: string;

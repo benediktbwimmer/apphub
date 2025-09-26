@@ -453,6 +453,8 @@ export type JobBundleVersionRecord = {
   publishedByTokenHash: string | null;
   publishedAt: string;
   deprecatedAt: string | null;
+  replacedAt: string | null;
+  replacedBy: string | null;
   metadata: JsonValue | null;
   createdAt: string;
   updatedAt: string;
@@ -476,6 +478,7 @@ export type JobBundlePublishInput = {
   publishedBy?: string | null;
   publishedByKind?: string | null;
   publishedByTokenHash?: string | null;
+  force?: boolean;
 };
 
 export type JobBundleVersionUpdateInput = {

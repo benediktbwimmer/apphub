@@ -1,23 +1,20 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import fg from 'fast-glob';
 import {
   getExampleJobBundle,
   isExampleJobSlug,
-  type ExampleJobBundle,
-  type ExampleJobSlug
+  type ExampleJobBundle
 } from '@apphub/examples-registry';
 import { loadBundleContext, packageBundle } from './lib/bundle';
 import { ensureDir, pathExists, removeDir } from './lib/fs';
-import { readJsonFile, writeJsonFile } from './lib/json';
 import type {
-  BundleConfig,
   JobBundleManifest,
   JsonValue,
-  NormalizedBundleConfig,
   PackageResult
 } from './types';
 
@@ -25,8 +22,8 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_INSTALL_MAX_BUFFER = 32 * 1024 * 1024;
 const DEFAULT_CONTENT_TYPE = 'application/gzip';
-const DEFAULT_CACHE_DIRNAME = path.join('services', 'catalog', 'data', 'example-bundles');
 const LOCKFILE_CANDIDATES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'package.json'];
+const EXCLUDED_COPY_DIRECTORIES = new Set(['node_modules', 'dist', 'artifacts', '.turbo', '.cache']);
 
 export type ExampleBundlerProgressStage =
   | 'queued'
@@ -47,7 +44,6 @@ export type ExampleBundlerProgressEvent = {
 
 export type ExampleBundlerOptions = {
   repoRoot?: string;
-  cacheDir?: string;
   installCommand?: string[];
   installMaxBuffer?: number;
 };
@@ -59,7 +55,7 @@ export type PackageExampleOptions = {
   onProgress?: (event: ExampleBundlerProgressEvent) => void;
 };
 
-export type ExampleBundleCacheEntry = {
+export type PackagedExampleBundle = {
   slug: string;
   fingerprint: string;
   version: string;
@@ -69,26 +65,20 @@ export type ExampleBundleCacheEntry = {
   size: number;
   manifest: JobBundleManifest;
   manifestObject: Record<string, JsonValue>;
-};
-
-export type PackagedExampleBundle = ExampleBundleCacheEntry & {
   buffer: Buffer;
-  tarballPath: string;
+  tarballPath: string | null;
   contentType: string;
   cached: boolean;
 };
 
 export class ExampleBundler {
   private readonly repoRoot: string;
-  private readonly cacheRoot: string;
   private readonly installCommand: string[];
   private readonly installMaxBuffer: number;
-  private readonly installLocks = new Map<string, Promise<void>>();
   private readonly packageLocks = new Map<string, Promise<PackagedExampleBundle>>();
 
   constructor(options: ExampleBundlerOptions = {}) {
     this.repoRoot = resolveRepoRoot(options.repoRoot);
-    this.cacheRoot = resolveCacheRoot(this.repoRoot, options.cacheDir);
     this.installCommand = Array.isArray(options.installCommand) && options.installCommand.length > 0
       ? options.installCommand
       : ['npm', 'install'];
@@ -117,7 +107,7 @@ export class ExampleBundler {
     bundle: ExampleJobBundle,
     options: PackageExampleOptions = {}
   ): Promise<PackagedExampleBundle> {
-    const key = await this.computeCacheKey(bundle);
+    const key = await this.computeBundleKey(bundle);
     const existing = this.packageLocks.get(key.cacheKey);
     if (existing) {
       return existing;
@@ -129,93 +119,24 @@ export class ExampleBundler {
     return promise;
   }
 
-  async loadCachedExampleBySlug(slug: string): Promise<PackagedExampleBundle | null> {
-    const normalizedSlug = slug.trim().toLowerCase();
-    if (!isExampleJobSlug(normalizedSlug)) {
-      return null;
-    }
-    const bundle = getExampleJobBundle(normalizedSlug);
-    if (!bundle) {
-      return null;
-    }
-    const key = await this.computeCacheKey(bundle);
-    const cached = await this.loadCache(bundle.slug, key.fingerprint);
-    if (!cached) {
-      return null;
-    }
-    const buffer = await fs.readFile(cached.tarballPath);
-    return {
-      ...cached,
-      buffer,
-      tarballPath: cached.tarballPath,
-      contentType: DEFAULT_CONTENT_TYPE,
-      cached: true
-    } satisfies PackagedExampleBundle;
-  }
-
-  async listCachedBundles(slug?: string): Promise<ExampleBundleCacheEntry[]> {
-    const root = this.cacheRoot;
-    const entries: ExampleBundleCacheEntry[] = [];
-    const slugs = slug ? [slug.trim().toLowerCase()] : await listDirectories(root);
-    for (const candidateSlug of slugs) {
-      const slugDir = path.join(root, candidateSlug);
-      if (!(await pathExists(slugDir))) {
-        continue;
-      }
-      const fingerprints = await listDirectories(slugDir);
-      for (const fingerprint of fingerprints) {
-        const entry = await this.loadCacheRecord(candidateSlug, fingerprint);
-        if (entry) {
-          entries.push(entry);
-        }
-      }
-    }
-    return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-
-  async invalidateCache(slug?: string): Promise<void> {
-    if (!slug) {
-      await removeDir(this.cacheRoot);
-      await ensureDir(this.cacheRoot);
-      return;
-    }
-    const normalized = slug.trim().toLowerCase();
-    const target = path.join(this.cacheRoot, normalized);
-    if (await pathExists(target)) {
-      await removeDir(target);
-    }
-  }
-
   private async packageExampleInternal(
     bundle: ExampleJobBundle,
-    key: CacheKey,
+    key: BundleKey,
     options: PackageExampleOptions
   ): Promise<PackagedExampleBundle> {
     const progress = options.onProgress;
     emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'queued'));
     emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'resolving'));
 
+    const bundleDir = path.resolve(this.repoRoot, bundle.directory);
+    const workspaceRoot = await createWorkspaceRoot(bundle.slug, key.fingerprint);
+    const workspaceDir = path.join(workspaceRoot, 'bundle');
+
     try {
-      if (!options.force) {
-        const cached = await this.loadCache(bundle.slug, key.fingerprint);
-        if (cached) {
-          emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'cache-hit'));
-          return {
-            ...cached,
-            buffer: await fs.readFile(cached.tarballPath),
-            tarballPath: cached.tarballPath,
-            contentType: DEFAULT_CONTENT_TYPE,
-            cached: true
-          } satisfies PackagedExampleBundle;
-        }
-      }
+      await ensureDir(workspaceDir);
+      await copyBundleSources(bundleDir, workspaceDir);
 
-      const bundleDir = path.resolve(this.repoRoot, bundle.directory);
-      await ensureDir(this.cacheRoot);
-      const cacheDir = path.join(this.cacheRoot, bundle.slug, key.fingerprint);
-      await ensureDir(cacheDir);
-
-      const skipInstall = await this.shouldSkipInstall(bundleDir, key.lockHash);
+      const skipInstall = await this.shouldSkipInstall(workspaceDir);
       const installMessage = skipInstall
         ? 'No package manifest detected; skipping dependency install.'
         : undefined;
@@ -224,109 +145,62 @@ export class ExampleBundler {
         buildProgress(bundle.slug, key.fingerprint, 'installing-dependencies', installMessage)
       );
       if (!skipInstall) {
-        await this.ensureDependencies(bundleDir, bundle.slug, key.lockHash);
+        await this.installDependencies(workspaceDir);
       }
 
       emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'packaging'));
-      const packaged = await this.buildBundle(bundleDir, cacheDir, options);
+      const packaged = await this.buildBundle(workspaceDir, options);
 
-      const metadata = await this.writeCacheMetadata({
+      const stats = await fs.stat(packaged.tarballPath);
+      const buffer = await fs.readFile(packaged.tarballPath);
+      const now = new Date().toISOString();
+
+      const result: PackagedExampleBundle = {
         slug: bundle.slug,
         fingerprint: key.fingerprint,
-        cacheDir,
-        result: packaged
-      });
-
-      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'completed'));
-
-      const buffer = await fs.readFile(metadata.tarballPath);
-      return {
-        ...metadata,
+        version: packaged.manifest.version,
+        checksum: packaged.checksum,
+        filename: path.basename(packaged.tarballPath),
+        createdAt: now,
+        size: stats.size,
+        manifest: packaged.manifest,
+        manifestObject: packaged.manifestObject,
         buffer,
-        tarballPath: metadata.tarballPath,
+        tarballPath: null,
         contentType: DEFAULT_CONTENT_TYPE,
         cached: false
       } satisfies PackagedExampleBundle;
+
+      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'completed'));
+
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'failed', message));
       throw err;
+    } finally {
+      await removeDir(workspaceRoot).catch(() => {});
     }
   }
 
-  private async ensureDependencies(bundleDir: string, slug: string, lockHash: string | null): Promise<void> {
-    const normalizedSlug = slug.trim().toLowerCase();
-    const lockKey = path.join(bundleDir, 'node_modules');
-    const existing = this.installLocks.get(lockKey);
-    if (existing) {
-      await existing;
+  private async installDependencies(workspaceDir: string): Promise<void> {
+    const command = await determineInstallCommand(workspaceDir, this.installCommand);
+    if (!command) {
       return;
     }
-
-    const installPromise = this.ensureDependenciesInternal(bundleDir, normalizedSlug, lockHash).finally(() => {
-      this.installLocks.delete(lockKey);
-    });
-    this.installLocks.set(lockKey, installPromise);
-    await installPromise;
-  }
-
-  private async ensureDependenciesInternal(
-    bundleDir: string,
-    slug: string,
-    lockHash: string | null
-  ): Promise<void> {
-    if (lockHash === null && !(await this.hasInstallManifest(bundleDir))) {
-      return;
-    }
-    const nodeModules = path.join(bundleDir, 'node_modules');
-    const installStatePath = path.join(this.cacheRoot, slug, 'install.json');
-    const installMatches = await this.installStateMatches(installStatePath, nodeModules, lockHash);
-    if (installMatches) {
-      return;
-    }
-    if (await pathExists(nodeModules)) {
-      await removeDir(nodeModules);
-    }
-    await execFileAsync(this.installCommand[0], this.installCommand.slice(1), {
-      cwd: bundleDir,
+    await execFileAsync(command[0], command.slice(1), {
+      cwd: workspaceDir,
       maxBuffer: this.installMaxBuffer
     });
-    await writeJsonFile(installStatePath, {
-      lockHash,
-      command: this.installCommand,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  private async installStateMatches(
-    installStatePath: string,
-    nodeModulesDir: string,
-    lockHash: string | null
-  ): Promise<boolean> {
-    if (!(await pathExists(nodeModulesDir))) {
-      return false;
-    }
-    if (!(await pathExists(installStatePath))) {
-      return false;
-    }
-    try {
-      const contents = await readJsonFile<{ lockHash?: string | null }>(installStatePath);
-      return contents.lockHash === lockHash;
-    } catch {
-      return false;
-    }
   }
 
   private async buildBundle(
     bundleDir: string,
-    cacheDir: string,
     options: PackageExampleOptions
   ): Promise<PackageResult & { manifestObject: Record<string, JsonValue> }>
   {
     const { context } = await loadBundleContext(bundleDir, { allowScaffold: false });
-    const relativeOutputDir = path.relative(context.bundleDir, cacheDir);
     const result = await packageBundle(context, {
-      outputDir: relativeOutputDir,
       force: true,
       skipBuild: Boolean(options.skipBuild),
       minify: Boolean(options.minify)
@@ -335,52 +209,7 @@ export class ExampleBundler {
     return { ...result, manifestObject };
   }
 
-  private async writeCacheMetadata(input: {
-    slug: string;
-    fingerprint: string;
-    cacheDir: string;
-    result: PackageResult & { manifestObject: Record<string, JsonValue> };
-  }): Promise<ExampleBundleCacheRecord> {
-    const metadataPath = path.join(input.cacheDir, 'metadata.json');
-    const tarballPath = input.result.tarballPath;
-    const stats = await fs.stat(tarballPath);
-    const record: ExampleBundleCacheRecord = {
-      slug: input.slug,
-      fingerprint: input.fingerprint,
-      version: input.result.manifest.version,
-      checksum: input.result.checksum,
-      filename: path.basename(tarballPath),
-      createdAt: new Date().toISOString(),
-      size: stats.size,
-      manifest: input.result.manifest,
-      manifestObject: input.result.manifestObject,
-      tarballPath
-    };
-    await writeJsonFile(metadataPath, record);
-    return record;
-  }
-
-  private async loadCache(slug: string, fingerprint: string): Promise<ExampleBundleCacheRecord | null> {
-    return this.loadCacheRecord(slug, fingerprint);
-  }
-
-  private async loadCacheRecord(slug: string, fingerprint: string): Promise<ExampleBundleCacheRecord | null> {
-    const metadataPath = path.join(this.cacheRoot, slug, fingerprint, 'metadata.json');
-    if (!(await pathExists(metadataPath))) {
-      return null;
-    }
-    try {
-      const record = await readJsonFile<ExampleBundleCacheRecord>(metadataPath);
-      if (!(await pathExists(record.tarballPath))) {
-        return null;
-      }
-      return record;
-    } catch {
-      return null;
-    }
-  }
-
-  private async computeCacheKey(bundle: ExampleJobBundle): Promise<CacheKey> {
+  private async computeBundleKey(bundle: ExampleJobBundle): Promise<BundleKey> {
     const bundleDir = path.resolve(this.repoRoot, bundle.directory);
     let fingerprint = await computeGitFingerprint(this.repoRoot, bundleDir);
     if (fingerprint) {
@@ -392,42 +221,27 @@ export class ExampleBundler {
     if (!fingerprint) {
       fingerprint = await hashDirectory(bundleDir);
     }
-    const lockHash = await computeLockfileHash(bundleDir);
     return {
       slug: bundle.slug,
       fingerprint,
-      lockHash,
       cacheKey: `${bundle.slug}:${fingerprint}`
-    } satisfies CacheKey;
+    } satisfies BundleKey;
   }
 
-  private async shouldSkipInstall(bundleDir: string, lockHash: string | null): Promise<boolean> {
-    if (lockHash !== null) {
-      return false;
-    }
-    return !(await this.hasInstallManifest(bundleDir));
-  }
-
-  private async hasInstallManifest(bundleDir: string): Promise<boolean> {
+  private async shouldSkipInstall(workspaceDir: string): Promise<boolean> {
     for (const candidate of LOCKFILE_CANDIDATES) {
-      const candidatePath = path.join(bundleDir, candidate);
-      if (await pathExists(candidatePath)) {
-        return true;
+      if (await pathExists(path.join(workspaceDir, candidate))) {
+        return false;
       }
     }
-    return false;
+    return !(await pathExists(path.join(workspaceDir, 'package.json')));
   }
 }
 
-type CacheKey = {
+type BundleKey = {
   slug: string;
   fingerprint: string;
-  lockHash: string | null;
   cacheKey: string;
-};
-
-type ExampleBundleCacheRecord = ExampleBundleCacheEntry & {
-  tarballPath: string;
 };
 
 function resolveRepoRoot(candidate?: string): string {
@@ -441,24 +255,61 @@ function resolveRepoRoot(candidate?: string): string {
   return path.resolve(__dirname, '..', '..', '..');
 }
 
-function resolveCacheRoot(repoRoot: string, candidate?: string): string {
-  if (candidate) {
-    return path.resolve(candidate);
-  }
-  const envDir = process.env.APPHUB_EXAMPLE_BUNDLE_CACHE_DIR;
-  if (envDir && envDir.trim().length > 0) {
-    return path.resolve(envDir.trim());
-  }
-  return path.resolve(repoRoot, DEFAULT_CACHE_DIRNAME);
+async function createWorkspaceRoot(slug: string, fingerprint: string): Promise<string> {
+  const sanitizedSlug = sanitizeTempSegment(slug);
+  const prefix = `apphub-example-${sanitizedSlug}-${fingerprint.slice(0, 8)}-`;
+  const base = path.join(os.tmpdir(), prefix);
+  return fs.mkdtemp(base);
 }
 
-async function listDirectories(root: string): Promise<string[]> {
-  try {
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch {
-    return [];
+async function copyBundleSources(sourceDir: string, targetDir: string): Promise<void> {
+  await fs.cp(sourceDir, targetDir, {
+    recursive: true,
+    dereference: false,
+    filter: (src) => {
+      const name = path.basename(src);
+      if (EXCLUDED_COPY_DIRECTORIES.has(name)) {
+        const relative = path.relative(sourceDir, src);
+        if (!relative || !relative.startsWith('..')) {
+          return false;
+        }
+      }
+      return true;
+    }
+  });
+}
+
+async function determineInstallCommand(
+  workspaceDir: string,
+  fallback: string[]
+): Promise<string[] | null> {
+  const hasPackageLock = await pathExists(path.join(workspaceDir, 'package-lock.json'));
+  const hasPnpmLock = await pathExists(path.join(workspaceDir, 'pnpm-lock.yaml'));
+  const hasYarnLock = await pathExists(path.join(workspaceDir, 'yarn.lock'));
+  const hasPackageJson = await pathExists(path.join(workspaceDir, 'package.json'));
+
+  if (hasPackageLock) {
+    return ['npm', 'ci'];
   }
+  if (hasPnpmLock) {
+    return ['pnpm', 'install', '--frozen-lockfile'];
+  }
+  if (hasYarnLock) {
+    return ['yarn', 'install', '--frozen-lockfile'];
+  }
+  if (hasPackageJson) {
+    return fallback;
+  }
+  return null;
+}
+
+function sanitizeTempSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .toLowerCase() || 'bundle';
 }
 
 function emitProgress(
@@ -535,18 +386,4 @@ async function hashDirectory(root: string): Promise<string> {
     hash.update(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
   }
   return hash.digest('hex');
-}
-
-async function computeLockfileHash(root: string): Promise<string | null> {
-  for (const candidate of LOCKFILE_CANDIDATES) {
-    const candidatePath = path.join(root, candidate);
-    if (await pathExists(candidatePath)) {
-      const contents = await fs.readFile(candidatePath);
-      const hash = createHash('sha256')
-        .update(new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength))
-        .digest('hex');
-      return `${candidate}:${hash}`;
-    }
-  }
-  return null;
 }
