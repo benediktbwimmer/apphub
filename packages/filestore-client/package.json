@@ -1,0 +1,26 @@
+{
+  "name": "@apphub/filestore-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "TypeScript SDK for interacting with the Filestore service.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist",
+    "test": "node --test --require ts-node/register src/__tests__/*.ts"
+  },
+  "dependencies": {
+    "@apphub/shared": "0.1.0",
+    "undici": "^6.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

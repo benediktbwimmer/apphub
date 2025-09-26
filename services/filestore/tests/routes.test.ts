@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import http from 'node:http';
 import EmbeddedPostgres from 'embedded-postgres';
 import { runE2E } from '../../../tests/helpers';
 
@@ -86,12 +87,14 @@ runE2E(async ({ registerCleanup }) => {
   const schemaModule = await import('../src/db/schema');
   const migrationsModule = await import('../src/db/migrations');
   const { buildApp } = await import('../src/app');
+  const eventsModule = await import('../src/events/publisher');
 
   await schemaModule.ensureSchemaExists(dbClientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrationsWithConnection();
 
   const { app } = await buildApp();
   await app.ready();
+  const baseAddress = await app.listen({ port: 0, host: '127.0.0.1' });
   registerCleanup(async () => {
     await app.close();
   });
@@ -230,4 +233,65 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(afterDeleteByPathBody.data.state, 'deleted');
   assert.ok(afterDeleteByPathBody.data.rollup);
   assert.equal(afterDeleteByPathBody.data.rollup?.state, 'invalid');
+
+  const reconcileResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/reconciliation',
+    payload: {
+      backendMountId,
+      path: 'datasets/observatory'
+    }
+  });
+  assert.equal(reconcileResponse.statusCode, 202, reconcileResponse.body);
+
+  const eventUrl = new URL('/v1/events/stream', baseAddress).toString();
+  const sseData = await new Promise<string>((resolve, reject) => {
+    const req = http.get(eventUrl, (res) => {
+      res.setEncoding('utf8');
+      let buffer = '';
+      let connected = false;
+
+      res.on('data', (chunk: string) => {
+        buffer += chunk;
+        if (!connected && buffer.includes(':connected')) {
+          connected = true;
+          void eventsModule.emitFilestoreEvent({
+            type: 'filestore.node.created',
+            data: {
+              backendMountId,
+              nodeId,
+              path: 'datasets/observatory',
+              kind: 'directory',
+              state: 'active',
+              parentId: null,
+              version: 2,
+              sizeBytes: 0,
+              checksum: null,
+              contentHash: null,
+              metadata: {},
+              journalId: 999,
+              command: 'createDirectory',
+              idempotencyKey: null,
+              principal: null,
+              observedAt: new Date().toISOString()
+            }
+          }).catch(reject);
+        }
+        if (buffer.includes('filestore.node.created')) {
+          resolve(buffer);
+          req.destroy();
+        }
+      });
+
+      res.on('end', () => {
+        resolve(buffer);
+      });
+
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+  });
+
+  assert.ok(sseData.includes('filestore.node.created'));
 });

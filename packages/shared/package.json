@@ -28,6 +28,11 @@
       "types": "./dist/postgres.d.ts",
       "require": "./dist/postgres.js",
       "default": "./dist/postgres.js"
+    },
+    "./filestoreEvents": {
+      "types": "./dist/filestoreEvents.d.ts",
+      "require": "./dist/filestoreEvents.js",
+      "default": "./dist/filestoreEvents.js"
     }
   },
   "scripts": {
@@ -35,7 +40,8 @@
   },
   "dependencies": {
     "@apphub/examples-registry": "0.1.0",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/pg": "^8.15.5"

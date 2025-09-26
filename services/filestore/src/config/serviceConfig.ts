@@ -38,6 +38,12 @@ const configSchema = z.object({
   events: z.object({
     mode: z.union([z.literal('inline'), z.literal('redis')]),
     channel: z.string().min(1)
+  }),
+  reconciliation: z.object({
+    queueName: z.string().min(1),
+    queueConcurrency: z.number().int().positive(),
+    auditIntervalMs: z.number().int().nonnegative(),
+    auditBatchSize: z.number().int().positive()
   })
 });
 
@@ -109,6 +115,10 @@ export function loadServiceConfig(): ServiceConfig {
   const rollupRecalcChildThreshold = parseNumber(env.FILESTORE_ROLLUP_RECALC_CHILD_THRESHOLD, 250);
   const rollupMaxCascadeDepth = parseNumber(env.FILESTORE_ROLLUP_MAX_CASCADE_DEPTH, 64);
   const rollupQueueConcurrency = parseNumber(env.FILESTORE_ROLLUP_QUEUE_CONCURRENCY, 1);
+  const reconcileQueueName = env.FILESTORE_RECONCILE_QUEUE_NAME || 'filestore_reconcile_queue';
+  const reconcileQueueConcurrency = parseNumber(env.FILESTORE_RECONCILE_QUEUE_CONCURRENCY, 1);
+  const reconcileAuditInterval = parseNumber(env.FILESTORE_RECONCILE_AUDIT_INTERVAL_MS, 300_000);
+  const reconcileAuditBatchSize = parseNumber(env.FILESTORE_RECONCILE_AUDIT_BATCH_SIZE, 100);
   const eventsModeEnv = (env.FILESTORE_EVENTS_MODE || '').trim().toLowerCase();
   const derivedRedisInline = redisUrl === 'inline';
   const eventsMode: 'inline' | 'redis' = eventsModeEnv === 'inline'
@@ -149,6 +159,12 @@ export function loadServiceConfig(): ServiceConfig {
     events: {
       mode: eventsMode,
       channel: eventsChannel
+    },
+    reconciliation: {
+      queueName: reconcileQueueName,
+      queueConcurrency: reconcileQueueConcurrency > 0 ? reconcileQueueConcurrency : 1,
+      auditIntervalMs: Math.max(0, reconcileAuditInterval),
+      auditBatchSize: reconcileAuditBatchSize > 0 ? reconcileAuditBatchSize : 100
     }
   };
 

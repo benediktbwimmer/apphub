@@ -1,58 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import IORedis, { type Redis } from 'ioredis';
-import type { NodeRecord, NodeState, NodeKind } from '../db/nodes';
+import type { NodeRecord } from '../db/nodes';
 import type { CommandCompletedEvent } from './bus';
 import { filestoreEvents } from './bus';
 import type { ServiceConfig } from '../config/serviceConfig';
-
-export type FilestoreNodeEventPayload = {
-  backendMountId: number;
-  nodeId: number | null;
-  path: string;
-  kind: NodeKind | 'unknown';
-  state: NodeState | 'unknown';
-  parentId: number | null;
-  version: number | null;
-  sizeBytes: number | null;
-  checksum: string | null;
-  contentHash: string | null;
-  metadata: Record<string, unknown>;
-  journalId: number;
-  command: string;
-  idempotencyKey: string | null;
-  principal: string | null;
-  observedAt: string;
-};
-
-export type FilestoreCommandCompletedPayload = {
-  journalId: number;
-  command: string;
-  backendMountId: number;
-  nodeId: number | null;
-  path: string;
-  idempotencyKey: string | null;
-  principal: string | null;
-  result: Record<string, unknown>;
-  observedAt: string;
-};
-
-export type FilestoreDriftDetectedPayload = {
-  backendMountId: number;
-  nodeId: number | null;
-  path: string;
-  detectedAt: string;
-  reason: string;
-  reporter?: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type FilestoreEvent =
-  | { type: 'filestore.node.created'; data: FilestoreNodeEventPayload }
-  | { type: 'filestore.node.updated'; data: FilestoreNodeEventPayload }
-  | { type: 'filestore.node.deleted'; data: FilestoreNodeEventPayload }
-  | { type: 'filestore.command.completed'; data: FilestoreCommandCompletedPayload }
-  | { type: 'filestore.drift.detected'; data: FilestoreDriftDetectedPayload };
+import type {
+  FilestoreEvent,
+  FilestoreNodeEventPayload,
+  FilestoreCommandCompletedPayload,
+  FilestoreDriftDetectedPayload,
+  FilestoreNodeReconciledPayload,
+  FilestoreNodeKind,
+  FilestoreNodeState
+} from '@apphub/shared/filestoreEvents';
+export type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 
 export type FilestoreEventListener = (event: FilestoreEvent) => void | Promise<void>;
 
@@ -104,10 +66,10 @@ function deriveNodePayload(
     (typeof result.path === 'string' ? (result.path as string) : payload.path);
   const kind =
     node?.kind ??
-    (typeof result.kind === 'string' ? (result.kind as NodeKind | 'unknown') : 'unknown');
+    (typeof result.kind === 'string' ? (result.kind as FilestoreNodeKind | 'unknown') : 'unknown');
   const state =
     node?.state ??
-    (typeof result.state === 'string' ? (result.state as NodeState | 'unknown') : 'unknown');
+    (typeof result.state === 'string' ? (result.state as FilestoreNodeState | 'unknown') : 'unknown');
   const version = node?.version ?? (typeof result.version === 'number' ? (result.version as number) : null);
   const sizeBytes = node?.sizeBytes ?? (typeof result.sizeBytes === 'number' ? (result.sizeBytes as number) : null);
   const checksum = node?.checksum ?? null;
@@ -322,6 +284,14 @@ export async function emitFilestoreEvent(event: FilestoreEvent): Promise<void> {
 
 export async function emitDriftDetectedEvent(payload: FilestoreDriftDetectedPayload): Promise<void> {
   await emitFilestoreEvent({ type: 'filestore.drift.detected', data: payload });
+}
+
+export async function emitNodeReconciledEvent(payload: FilestoreNodeReconciledPayload): Promise<void> {
+  await emitFilestoreEvent({ type: 'filestore.node.reconciled', data: payload });
+}
+
+export async function emitNodeMissingEvent(payload: FilestoreNodeReconciledPayload): Promise<void> {
+  await emitFilestoreEvent({ type: 'filestore.node.missing', data: payload });
 }
 
 export function getFilestoreEventsMode(): 'inline' | 'redis' {

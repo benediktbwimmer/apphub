@@ -185,6 +185,34 @@ const migrations: Migration[] = [
          FOR EACH ROW
          EXECUTE FUNCTION filestore_touch_updated_at();`
     ]
+  },
+  {
+    id: '002_filestore_reconciliation_columns',
+    statements: [
+      `ALTER TABLE nodes
+         ADD COLUMN IF NOT EXISTS consistency_state TEXT NOT NULL DEFAULT 'active';`,
+      `ALTER TABLE nodes
+         ADD COLUMN IF NOT EXISTS consistency_checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+      `ALTER TABLE nodes
+         ADD COLUMN IF NOT EXISTS last_reconciled_at TIMESTAMPTZ;`,
+      `ALTER TABLE nodes
+         ADD COLUMN IF NOT EXISTS last_drift_detected_at TIMESTAMPTZ;`,
+      `ALTER TABLE nodes
+         ADD CONSTRAINT chk_nodes_consistency_state
+           CHECK (consistency_state IN ('active', 'inconsistent', 'missing'));`,
+      `UPDATE nodes
+          SET consistency_state = CASE
+                WHEN state IN ('active', 'inconsistent', 'missing') THEN state
+                ELSE 'active'
+              END,
+              consistency_checked_at = COALESCE(consistency_checked_at, NOW()),
+              last_reconciled_at = CASE
+                WHEN state = 'active' THEN COALESCE(last_reconciled_at, NOW())
+                ELSE last_reconciled_at
+              END;`,
+      `CREATE INDEX IF NOT EXISTS idx_nodes_consistency_state
+         ON nodes(consistency_state);`
+    ]
   }
 ];
 

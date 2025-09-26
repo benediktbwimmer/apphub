@@ -17,6 +17,7 @@ import {
 
 import { createS3Executor } from '../src/executors/s3Executor';
 import { FilestoreError } from '../src/errors';
+import type { FilestoreEvent } from '../src/events/publisher';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -27,6 +28,10 @@ let migrationsModule: typeof import('../src/db/migrations');
 let configModule: typeof import('../src/config/serviceConfig');
 let orchestratorModule: typeof import('../src/commands/orchestrator');
 let rollupManagerModule: typeof import('../src/rollup/manager');
+let reconciliationManagerModule: typeof import('../src/reconciliation/manager');
+let nodesModule: typeof import('../src/db/nodes');
+let eventsModule: typeof import('../src/events/publisher');
+let serviceConfig: import('../src/config/serviceConfig').ServiceConfig;
 
 class InMemoryS3Client {
   constructor(private readonly store: Map<string, string>) {}
@@ -114,7 +119,9 @@ before(async () => {
     '../src/config/serviceConfig',
     '../src/commands/orchestrator',
     '../src/rollup/manager',
-    '../src/events/publisher'
+    '../src/reconciliation/manager',
+    '../src/events/publisher',
+    '../src/db/nodes'
   ];
 
   for (const modulePath of modulePaths) {
@@ -130,7 +137,14 @@ before(async () => {
   migrationsModule = await import('../src/db/migrations');
   orchestratorModule = await import('../src/commands/orchestrator');
   rollupManagerModule = await import('../src/rollup/manager');
+  reconciliationManagerModule = await import('../src/reconciliation/manager');
+  nodesModule = await import('../src/db/nodes');
+  eventsModule = await import('../src/events/publisher');
   rollupManagerModule.resetRollupManagerForTests();
+  reconciliationManagerModule.resetReconciliationManagerForTests();
+  eventsModule.resetFilestoreEventsForTests();
+  serviceConfig = configModule.loadServiceConfig();
+  await eventsModule.initializeFilestoreEvents({ config: serviceConfig });
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrationsWithConnection();
@@ -139,6 +153,13 @@ before(async () => {
 after(async () => {
   if (rollupManagerModule) {
     await rollupManagerModule.shutdownRollupManager();
+  }
+  if (reconciliationManagerModule) {
+    await reconciliationManagerModule.shutdownReconciliationManager();
+  }
+  if (eventsModule) {
+    await eventsModule.shutdownFilestoreEvents().catch(() => undefined);
+    eventsModule.resetFilestoreEventsForTests();
   }
   if (clientModule) {
     await clientModule.closePool();
@@ -155,6 +176,15 @@ afterEach(async () => {
   if (rollupManagerModule) {
     await rollupManagerModule.shutdownRollupManager();
     rollupManagerModule.resetRollupManagerForTests();
+  }
+  if (reconciliationManagerModule) {
+    await reconciliationManagerModule.shutdownReconciliationManager().catch(() => undefined);
+    reconciliationManagerModule.resetReconciliationManagerForTests();
+  }
+  if (eventsModule) {
+    await eventsModule.shutdownFilestoreEvents().catch(() => undefined);
+    eventsModule.resetFilestoreEventsForTests();
+    await eventsModule.initializeFilestoreEvents({ config: serviceConfig });
   }
 });
 
@@ -187,6 +217,7 @@ async function createS3BackendMount(store: Map<string, string>, prefix?: string)
 }
 
 const stores = new Map<number, Map<string, string>>();
+(globalThis as { __filestoreTestS3Stores?: Map<number, Map<string, string>> }).__filestoreTestS3Stores = stores;
 
 function createExecutorMap(store: Map<string, string>) {
   return new Map([
@@ -303,4 +334,89 @@ test('deleteNode non-recursive prevents removal when children exist', async () =
     }),
     (err: unknown) => err instanceof FilestoreError && err.code === 'CHILDREN_EXIST'
   );
+});
+
+test('reconciliation worker heals S3 drift and emits events', async () => {
+  const store = new Map<string, string>();
+  const { mountId } = await createS3BackendMount(store);
+
+  await orchestratorModule.runCommand({
+    command: {
+      type: 'createDirectory',
+      backendMountId: mountId,
+      path: 'datasets'
+    },
+    executors: createExecutorMap(store)
+  });
+
+  await orchestratorModule.runCommand({
+    command: {
+      type: 'createDirectory',
+      backendMountId: mountId,
+      path: 'datasets/reconcile'
+    },
+    executors: createExecutorMap(store)
+  });
+
+  const nodeRecord = await clientModule.withConnection((client) =>
+    nodesModule.getNodeByPath(client, mountId, 'datasets/reconcile')
+  );
+  assert.ok(nodeRecord);
+
+  const events: FilestoreEvent[] = [];
+  const unsubscribe = eventsModule.subscribeToFilestoreEvents((event) => {
+    if (event.type === 'filestore.node.missing' || event.type === 'filestore.node.reconciled') {
+      events.push(event);
+    }
+  });
+
+  store.delete('datasets/reconcile/');
+
+  await reconciliationManagerModule.initializeReconciliationManager({
+    config: serviceConfig,
+    metricsEnabled: false
+  });
+  const manager = reconciliationManagerModule.ensureReconciliationManager();
+
+  await manager.enqueue({
+    backendMountId: mountId,
+    nodeId: nodeRecord.id,
+    path: 'datasets/reconcile',
+    reason: 'audit'
+  });
+
+  const missingNode = await clientModule.withConnection((client) =>
+    nodesModule.getNodeById(client, nodeRecord.id)
+  );
+  assert.ok(missingNode);
+  assert.equal(missingNode?.state, 'missing');
+  assert.equal(missingNode?.consistencyState, 'missing');
+
+  const missingEvent = events.find(
+    (event) => event.type === 'filestore.node.missing' && event.data.nodeId === nodeRecord.id
+  );
+  assert.ok(missingEvent);
+
+  store.set('datasets/reconcile/', 'placeholder');
+
+  await manager.enqueue({
+    backendMountId: mountId,
+    nodeId: nodeRecord.id,
+    path: 'datasets/reconcile',
+    reason: 'manual'
+  });
+
+  const reconciledNode = await clientModule.withConnection((client) =>
+    nodesModule.getNodeById(client, nodeRecord.id)
+  );
+  assert.ok(reconciledNode);
+  assert.equal(reconciledNode?.state, 'active');
+  assert.equal(reconciledNode?.consistencyState, 'active');
+
+  const reconciledEvent = events.find(
+    (event) => event.type === 'filestore.node.reconciled' && event.data.nodeId === nodeRecord.id
+  );
+  assert.ok(reconciledEvent);
+
+  unsubscribe();
 });

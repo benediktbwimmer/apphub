@@ -87,6 +87,16 @@ function createTestConfig(cacheDir: string): ServiceConfig {
         enabled: false,
         serviceName: 'test'
       }
+    },
+    filestore: {
+      enabled: false,
+      redisUrl: 'inline',
+      channel: 'apphub:filestore',
+      datasetSlug: 'filestore_activity',
+      datasetName: 'Filestore Activity',
+      tableName: 'filestore_activity',
+      retryDelayMs: 3_000,
+      inline: true
     }
   } satisfies ServiceConfig;
 }

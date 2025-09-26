@@ -56,6 +56,17 @@ const sqlSchema = z.object({
   statementTimeoutMs: z.number().int().positive()
 });
 
+const filestoreSchema = z.object({
+  enabled: z.boolean(),
+  redisUrl: z.string().min(1),
+  channel: z.string().min(1),
+  datasetSlug: z.string().min(1),
+  datasetName: z.string().min(1),
+  tableName: z.string().min(1),
+  retryDelayMs: z.number().int().positive(),
+  inline: z.boolean()
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -97,7 +108,8 @@ const configSchema = z.object({
   observability: z.object({
     metrics: metricsSchema,
     tracing: tracingSchema
-  })
+  }),
+  filestore: filestoreSchema
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -191,6 +203,14 @@ export function loadServiceConfig(): ServiceConfig {
   const metricsScope = env.TIMESTORE_METRICS_SCOPE || env.TIMESTORE_ADMIN_SCOPE || env.TIMESTORE_REQUIRE_SCOPE || null;
   const tracingEnabled = parseBoolean(env.TIMESTORE_TRACING_ENABLED, false);
   const tracingServiceName = env.TIMESTORE_TRACING_SERVICE_NAME || 'timestore';
+  const filestoreEnabled = parseBoolean(env.TIMESTORE_FILESTORE_SYNC_ENABLED, true);
+  const filestoreRedisUrl = env.FILESTORE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const filestoreChannel = env.FILESTORE_EVENTS_CHANNEL || 'apphub:filestore';
+  const filestoreDatasetSlug = env.TIMESTORE_FILESTORE_DATASET_SLUG || 'filestore_activity';
+  const filestoreDatasetName = env.TIMESTORE_FILESTORE_DATASET_NAME || 'Filestore Activity';
+  const filestoreTableName = env.TIMESTORE_FILESTORE_TABLE_NAME || 'filestore_activity';
+  const filestoreRetryMs = parseNumber(env.TIMESTORE_FILESTORE_RETRY_MS, 3_000);
+  const filestoreInline = filestoreRedisUrl === 'inline';
 
   const candidateConfig = {
     host,
@@ -266,6 +286,16 @@ export function loadServiceConfig(): ServiceConfig {
         enabled: tracingEnabled,
         serviceName: tracingServiceName
       }
+    },
+    filestore: {
+      enabled: filestoreEnabled,
+      redisUrl: filestoreRedisUrl,
+      channel: filestoreChannel,
+      datasetSlug: filestoreDatasetSlug,
+      datasetName: filestoreDatasetName,
+      tableName: filestoreTableName,
+      retryDelayMs: filestoreRetryMs > 0 ? filestoreRetryMs : 3_000,
+      inline: filestoreInline
     }
   } satisfies ServiceConfig;
 

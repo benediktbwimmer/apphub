@@ -6,6 +6,9 @@ import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
 import { getRollupSummary } from '../../rollup/manager';
 import type { RollupSummary } from '../../rollup/types';
+import { subscribeToFilestoreEvents } from '../../events/publisher';
+import { ensureReconciliationManager } from '../../reconciliation/manager';
+import type { ReconciliationReason } from '../../reconciliation/types';
 
 const createDirectorySchema = z.object({
   backendMountId: z.number().int().positive(),
@@ -24,6 +27,15 @@ const deleteNodeSchema = z.object({
 const nodeByPathQuerySchema = z.object({
   backendMountId: z.coerce.number().int().positive(),
   path: z.string().min(1)
+});
+
+const reconciliationRequestSchema = z.object({
+  backendMountId: z.number().int().positive(),
+  path: z.string().min(1),
+  nodeId: z.number().int().positive().nullable().optional(),
+  reason: z.enum(['drift', 'audit', 'manual']).optional(),
+  detectChildren: z.boolean().optional(),
+  requestedHash: z.boolean().optional()
 });
 
 function serializeRollup(summary: RollupSummary | null) {
@@ -60,6 +72,10 @@ async function serializeNode(node: NodeRecord) {
     isSymlink: node.isSymlink,
     lastSeenAt: node.lastSeenAt,
     lastModifiedAt: node.lastModifiedAt,
+    consistencyState: node.consistencyState,
+    consistencyCheckedAt: node.consistencyCheckedAt,
+    lastReconciledAt: node.lastReconciledAt,
+    lastDriftDetectedAt: node.lastDriftDetectedAt,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     deletedAt: node.deletedAt,
@@ -267,5 +283,69 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.status(200).send({ data: await serializeNode(node) });
+  });
+
+  app.post('/v1/reconciliation', async (request, reply) => {
+    const parseResult = reconciliationRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid reconciliation payload',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const payload = parseResult.data;
+    const manager = ensureReconciliationManager();
+    await manager.enqueue({
+      backendMountId: payload.backendMountId,
+      path: payload.path,
+      nodeId: payload.nodeId ?? null,
+      reason: (payload.reason ?? 'manual') as ReconciliationReason,
+      detectChildren: payload.detectChildren,
+      requestedHash: payload.requestedHash
+    });
+
+    return reply.status(202).send({ data: { enqueued: true } });
+  });
+
+  app.get('/v1/events/stream', async (request, reply) => {
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    }
+
+    reply.hijack();
+    reply.raw.write(':connected\n\n');
+
+    const unsubscribe = subscribeToFilestoreEvents((event) => {
+      try {
+        const payload = JSON.stringify({ type: event.type, data: event.data });
+        reply.raw.write(`event: ${event.type}\n`);
+        reply.raw.write(`data: ${payload}\n\n`);
+      } catch (err) {
+        request.log.error({ err }, 'failed to write SSE payload');
+      }
+    });
+
+    const heartbeat = setInterval(() => {
+      try {
+        reply.raw.write(':ping\n\n');
+      } catch (err) {
+        request.log.error({ err }, 'failed to write SSE heartbeat');
+      }
+    }, 15000);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
   });
 }

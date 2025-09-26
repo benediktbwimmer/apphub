@@ -10,6 +10,7 @@ import { createLocalExecutor } from './executors/localExecutor';
 import { createS3Executor } from './executors/s3Executor';
 import { registerV1Routes } from './routes/v1/index';
 import { initializeRollupManager, shutdownRollupManager } from './rollup/manager';
+import { initializeReconciliationManager, shutdownReconciliationManager } from './reconciliation/manager';
 import { initializeFilestoreEvents, shutdownFilestoreEvents } from './events/publisher';
 
 export type BuildAppOptions = {
@@ -34,6 +35,11 @@ export async function buildApp(options?: BuildAppOptions) {
     metricsEnabled: app.metrics.enabled
   });
   await initializeFilestoreEvents({ config });
+  await initializeReconciliationManager({
+    config,
+    registry: app.metrics.enabled ? app.metrics.registry : undefined,
+    metricsEnabled: app.metrics.enabled
+  });
   await registerSystemRoutes(app);
   await registerV1Routes(app);
 
@@ -43,6 +49,7 @@ export async function buildApp(options?: BuildAppOptions) {
   });
 
   app.addHook('onClose', async () => {
+    await shutdownReconciliationManager();
     await shutdownFilestoreEvents();
     await closePool();
     await shutdownRollupManager();

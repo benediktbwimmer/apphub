@@ -26,6 +26,14 @@ export type ServiceConfig = {
     idleTimeoutMs: number;
     connectionTimeoutMs: number;
   };
+  filestoreSync: {
+    enabled: boolean;
+    redisUrl: string;
+    channel: string;
+    namespace: string;
+    retryDelayMs: number;
+    inline: boolean;
+  };
 };
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -191,6 +199,13 @@ export function loadServiceConfig(): ServiceConfig {
       process.env.PGPOOL_CONNECTION_TIMEOUT_MS,
     10_000
   );
+  const filestoreSyncEnabled = parseBoolean(process.env.METASTORE_FILESTORE_SYNC_ENABLED, true);
+  const filestoreRedisUrl = process.env.FILESTORE_REDIS_URL || process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const filestoreChannel = process.env.FILESTORE_EVENTS_CHANNEL || 'apphub:filestore';
+  const filestoreNamespace = process.env.METASTORE_FILESTORE_NAMESPACE || 'filestore';
+  const filestoreRetryDelayMs = parseInt(process.env.METASTORE_FILESTORE_RETRY_MS ?? '', 10);
+  const retryDelayMs = Number.isFinite(filestoreRetryDelayMs) && filestoreRetryDelayMs > 0 ? filestoreRetryDelayMs : 3000;
+  const inline = filestoreRedisUrl === 'inline';
 
   cachedConfig = {
     host,
@@ -204,6 +219,14 @@ export function loadServiceConfig(): ServiceConfig {
       maxConnections,
       idleTimeoutMs,
       connectionTimeoutMs
+    },
+    filestoreSync: {
+      enabled: filestoreSyncEnabled,
+      redisUrl: filestoreRedisUrl,
+      channel: filestoreChannel,
+      namespace: filestoreNamespace,
+      retryDelayMs,
+      inline
     }
   } satisfies ServiceConfig;
 

@@ -166,7 +166,7 @@ const migrations: Migration[] = [
     id: '004_timestore_dataset_access_audit',
     statements: [
       `CREATE TABLE IF NOT EXISTS dataset_access_audit (
-         id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY,
          dataset_id TEXT REFERENCES datasets(id) ON DELETE SET NULL,
          dataset_slug TEXT NOT NULL,
          actor_id TEXT,
@@ -179,7 +179,25 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_dataset
          ON dataset_access_audit(dataset_id, created_at DESC);`,
       `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_slug
-         ON dataset_access_audit(dataset_slug, created_at DESC);`
+        ON dataset_access_audit(dataset_slug, created_at DESC);`
+    ]
+  },
+  {
+    id: '005_timestore_filestore_activity_state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS filestore_node_state (
+         node_id BIGINT PRIMARY KEY,
+         backend_mount_id BIGINT,
+         path TEXT,
+         state TEXT,
+         consistency_state TEXT,
+         size_bytes BIGINT,
+         last_observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_journal_id BIGINT,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_filestore_node_state_backend
+         ON filestore_node_state(backend_mount_id);`
     ]
   }
 ];

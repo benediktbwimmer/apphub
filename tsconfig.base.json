@@ -57,6 +57,12 @@
       "@apphub/example-bundler/*": [
         "packages/example-bundler/src/*"
       ],
+      "@apphub/filestore-client": [
+        "packages/filestore-client/src/index.ts"
+      ],
+      "@apphub/filestore-client/*": [
+        "packages/filestore-client/src/*"
+      ],
       "@apphub/docker-mock": [
         "packages/docker-mock/src/index.ts"
       ],

@@ -12,6 +12,7 @@ import { ensureDefaultStorageTarget } from './service/bootstrap';
 import { closeLifecycleQueue } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
 import { setupTracing } from './observability/tracing';
+import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -40,11 +41,13 @@ async function start(): Promise<void> {
   app.addHook('onClose', async () => {
     await closePool();
     await closeLifecycleQueue();
+    await shutdownFilestoreActivity();
   });
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
   await ensureDefaultStorageTarget();
+  await initializeFilestoreActivity({ config, logger: app.log });
 
   try {
     await app.listen({ port: config.port, host: config.host });

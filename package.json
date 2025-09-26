@@ -23,6 +23,7 @@
     "dev:examples": "npm run examples --workspace @apphub/catalog",
     "dev:metastore": "npm run dev --workspace @apphub/metastore",
     "dev:filestore": "npm run dev --workspace @apphub/filestore",
+    "dev:filestore:reconcile": "npm run reconcile:watch --workspace @apphub/filestore",
     "dev:timestore": "npm run dev --workspace @apphub/timestore",
     "dev:timestore:lifecycle": "npm run lifecycle --workspace @apphub/timestore",
     "dev:timestore:ingest": "npm run ingest --workspace @apphub/timestore"

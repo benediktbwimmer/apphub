@@ -2,13 +2,14 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, test } from 'node:test';
 import EmbeddedPostgres from 'embedded-postgres';
 
 import type { CommandExecutor } from '../src/executors/types';
+import { createLocalExecutor } from '../src/executors/localExecutor';
 import { filestoreEvents } from '../src/events/bus';
 import type { FilestoreEvent } from '../src/events/publisher';
 
@@ -24,6 +25,7 @@ let nodesModule: typeof import('../src/db/nodes');
 let orchestratorModule: typeof import('../src/commands/orchestrator');
 let rollupManagerModule: typeof import('../src/rollup/manager');
 let eventsModule: typeof import('../src/events/publisher');
+let reconciliationManagerModule: typeof import('../src/reconciliation/manager');
 let serviceConfig: import('../src/config/serviceConfig').ServiceConfig;
 
 before(async () => {
@@ -63,6 +65,7 @@ before(async () => {
     '../src/db/client',
     '../src/config/serviceConfig',
     '../src/rollup/manager',
+    '../src/reconciliation/manager',
     '../src/events/publisher'
   ];
 
@@ -80,8 +83,10 @@ before(async () => {
   nodesModule = await import('../src/db/nodes');
   orchestratorModule = await import('../src/commands/orchestrator');
   rollupManagerModule = await import('../src/rollup/manager');
+  reconciliationManagerModule = await import('../src/reconciliation/manager');
   eventsModule = await import('../src/events/publisher');
   rollupManagerModule.resetRollupManagerForTests();
+  reconciliationManagerModule.resetReconciliationManagerForTests();
   eventsModule.resetFilestoreEventsForTests();
   serviceConfig = configModule.loadServiceConfig();
 
@@ -97,6 +102,9 @@ after(async () => {
   }
   if (rollupManagerModule) {
     await rollupManagerModule.shutdownRollupManager();
+  }
+  if (reconciliationManagerModule) {
+    await reconciliationManagerModule.shutdownReconciliationManager();
   }
   if (clientModule) {
     await clientModule.closePool();
@@ -116,6 +124,10 @@ afterEach(async () => {
   if (rollupManagerModule) {
     await rollupManagerModule.shutdownRollupManager();
     rollupManagerModule.resetRollupManagerForTests();
+  }
+  if (reconciliationManagerModule) {
+    await reconciliationManagerModule.shutdownReconciliationManager().catch(() => undefined);
+    reconciliationManagerModule.resetReconciliationManagerForTests();
   }
   if (eventsModule) {
     await eventsModule.shutdownFilestoreEvents().catch(() => undefined);
@@ -253,6 +265,98 @@ test('createDirectory inserts node, journal entry, and emits event', async () =>
   const finalCount = await getJournalCount();
   assert.equal(countAfterParent - countBeforeParent, 1);
   assert.equal(finalCount - countAfterParent, 1);
+});
+
+test('reconciliation worker heals local drift and emits events', async () => {
+  const backendMountId = await createBackendMount();
+  const executor: CommandExecutor = createLocalExecutor();
+  const executors = new Map<string, CommandExecutor>([['local', executor]]);
+
+  await orchestratorModule.runCommand({
+    command: {
+      type: 'createDirectory',
+      backendMountId,
+      path: 'datasets'
+    },
+    executors
+  });
+
+  await orchestratorModule.runCommand({
+    command: {
+      type: 'createDirectory',
+      backendMountId,
+      path: 'datasets/reconcile'
+    },
+    executors
+  });
+
+  const rootResult = await clientModule.withConnection(async (client) =>
+    client.query<{ root_path: string }>(
+      `SELECT root_path FROM backend_mounts WHERE id = $1`,
+      [backendMountId]
+    )
+  );
+
+  const rootPath = rootResult.rows[0].root_path;
+  const nodeRecord = await clientModule.withConnection((client) =>
+    nodesModule.getNodeByPath(client, backendMountId, 'datasets/reconcile')
+  );
+  assert.ok(nodeRecord);
+
+  const events: import('../src/events/publisher').FilestoreEvent[] = [];
+  const unsubscribe = eventsModule.subscribeToFilestoreEvents((event) => {
+    if (event.type === 'filestore.node.missing' || event.type === 'filestore.node.reconciled') {
+      events.push(event);
+    }
+  });
+
+  await rm(path.join(rootPath, 'datasets', 'reconcile'), { recursive: true, force: true });
+
+  await reconciliationManagerModule.initializeReconciliationManager({ config: serviceConfig, metricsEnabled: false });
+  const manager = reconciliationManagerModule.ensureReconciliationManager();
+
+  await manager.enqueue({
+    backendMountId,
+    nodeId: nodeRecord.id,
+    path: 'datasets/reconcile',
+    reason: 'audit'
+  });
+
+  const missingNode = await clientModule.withConnection((client) =>
+    nodesModule.getNodeById(client, nodeRecord.id)
+  );
+  assert.ok(missingNode);
+  assert.equal(missingNode?.state, 'missing');
+  assert.equal(missingNode?.consistencyState, 'missing');
+
+  const missingEvent = events.find(
+    (event) => event.type === 'filestore.node.missing' && event.data.nodeId === nodeRecord.id
+  );
+  assert.ok(missingEvent);
+
+  await mkdir(path.join(rootPath, 'datasets', 'reconcile'), { recursive: true });
+
+  await manager.enqueue({
+    backendMountId,
+    nodeId: nodeRecord.id,
+    path: 'datasets/reconcile',
+    reason: 'manual'
+  });
+
+  const reconciledNode = await clientModule.withConnection((client) =>
+    nodesModule.getNodeById(client, nodeRecord.id)
+  );
+  assert.ok(reconciledNode);
+  assert.equal(reconciledNode?.state, 'active');
+  assert.equal(reconciledNode?.consistencyState, 'active');
+  assert.ok(reconciledNode?.lastReconciledAt);
+
+  const reconciledEvent = events.find(
+    (event) => event.type === 'filestore.node.reconciled' && event.data.nodeId === nodeRecord.id
+  );
+  assert.ok(reconciledEvent);
+
+  unsubscribe();
 });
 
 test('idempotent createDirectory returns existing result', async () => {

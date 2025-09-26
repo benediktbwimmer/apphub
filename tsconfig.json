@@ -12,6 +12,9 @@
       "path": "./packages/example-bundler"
     },
     {
+      "path": "./packages/filestore-client"
+    },
+    {
       "path": "./services/catalog"
     },
     {

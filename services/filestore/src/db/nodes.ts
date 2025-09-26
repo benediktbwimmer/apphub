@@ -4,6 +4,7 @@ import { getNodeDepth, getNodeName } from '../utils/path';
 
 export type NodeKind = 'file' | 'directory';
 export type NodeState = 'active' | 'inconsistent' | 'missing' | 'deleted';
+export type ConsistencyState = 'active' | 'inconsistent' | 'missing';
 
 export type NodeRecord = {
   id: number;
@@ -22,6 +23,10 @@ export type NodeRecord = {
   isSymlink: boolean;
   lastSeenAt: Date;
   lastModifiedAt: Date | null;
+  consistencyState: ConsistencyState;
+  consistencyCheckedAt: Date;
+  lastReconciledAt: Date | null;
+  lastDriftDetectedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -45,6 +50,10 @@ function mapRow(row: any): NodeRecord {
     isSymlink: row.is_symlink,
     lastSeenAt: row.last_seen_at,
     lastModifiedAt: row.last_modified_at ?? null,
+    consistencyState: row.consistency_state,
+    consistencyCheckedAt: row.consistency_checked_at,
+    lastReconciledAt: row.last_reconciled_at ?? null,
+    lastDriftDetectedAt: row.last_drift_detected_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? null
@@ -92,9 +101,29 @@ export async function insertNode(
     isSymlink?: boolean;
     lastModifiedAt?: Date | null;
     state?: NodeState;
+    consistencyState?: ConsistencyState;
+    consistencyCheckedAt?: Date | null;
+    lastReconciledAt?: Date | null;
+    lastDriftDetectedAt?: Date | null;
   }
 ): Promise<NodeRecord> {
   const metadataJson = JSON.stringify(input.metadata ?? {});
+  const now = new Date();
+  const resolvedState = input.state ?? 'active';
+  const explicitConsistency = input.consistencyState ?? null;
+  const baseConsistency: ConsistencyState =
+    resolvedState === 'deleted'
+      ? 'missing'
+      : resolvedState === 'missing'
+        ? 'missing'
+        : resolvedState === 'inconsistent'
+          ? 'inconsistent'
+          : 'active';
+  const consistencyState = explicitConsistency ?? baseConsistency;
+  const consistencyCheckedAt = input.consistencyCheckedAt ?? now;
+  const lastReconciledAt = input.lastReconciledAt ?? (consistencyState === 'active' ? now : null);
+  const lastDriftDetectedAt = input.lastDriftDetectedAt ?? null;
+
   const result = await client.query(
     `INSERT INTO nodes (
        backend_mount_id,
@@ -109,8 +138,30 @@ export async function insertNode(
        metadata,
        state,
        is_symlink,
-       last_modified_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 0), $8, $9, $10::jsonb, COALESCE($11, 'active'), COALESCE($12, false), $13)
+       last_modified_at,
+       consistency_state,
+       consistency_checked_at,
+       last_reconciled_at,
+       last_drift_detected_at
+     ) VALUES (
+       $1,
+       $2,
+       $3,
+       $4,
+       $5,
+       $6,
+       COALESCE($7, 0),
+       $8,
+       $9,
+       $10::jsonb,
+       $11,
+       COALESCE($12, false),
+       $13,
+       $14,
+       $15,
+       $16,
+       $17
+     )
      RETURNING *
     `,
     [
@@ -124,9 +175,13 @@ export async function insertNode(
       input.checksum ?? null,
       input.contentHash ?? null,
       metadataJson,
-      input.state ?? 'active',
+      resolvedState,
       input.isSymlink ?? false,
-      input.lastModifiedAt ?? null
+      input.lastModifiedAt ?? null,
+      consistencyState,
+      consistencyCheckedAt,
+      lastReconciledAt,
+      lastDriftDetectedAt
     ]
   );
 
@@ -147,9 +202,28 @@ export async function updateNodeState(
     sizeBytes?: number | null;
     metadata?: Record<string, unknown> | null;
     lastModifiedAt?: Date | null;
+    consistencyState?: ConsistencyState;
+    consistencyCheckedAt?: Date | null;
+    lastReconciledAt?: Date | null;
+    lastDriftDetectedAt?: Date | null;
   } = {}
 ): Promise<NodeRecord> {
   const metadataJson = overrides.metadata ? JSON.stringify(overrides.metadata) : undefined;
+  const now = new Date();
+  const baseConsistency: ConsistencyState =
+    state === 'deleted'
+      ? 'missing'
+      : state === 'missing'
+        ? 'missing'
+        : state === 'inconsistent'
+          ? 'inconsistent'
+          : 'active';
+  const resolvedConsistency = overrides.consistencyState ?? baseConsistency;
+  const consistencyCheckedAt = overrides.consistencyCheckedAt ?? now;
+  const lastReconciledAt =
+    resolvedConsistency === 'active'
+      ? overrides.lastReconciledAt ?? now
+      : overrides.lastReconciledAt ?? null;
 
   const result = await client.query(
     `UPDATE nodes
@@ -159,7 +233,11 @@ export async function updateNodeState(
             size_bytes = COALESCE($5, size_bytes),
             metadata = COALESCE($6::jsonb, metadata),
             last_modified_at = COALESCE($7, last_modified_at),
-            last_seen_at = NOW()
+            last_seen_at = NOW(),
+            consistency_state = $8,
+            consistency_checked_at = $9,
+            last_reconciled_at = $10,
+            last_drift_detected_at = COALESCE($11, last_drift_detected_at)
       WHERE id = $1
       RETURNING *
     `,
@@ -170,7 +248,11 @@ export async function updateNodeState(
       overrides.contentHash ?? null,
       overrides.sizeBytes ?? null,
       metadataJson ?? null,
-      overrides.lastModifiedAt ?? null
+      overrides.lastModifiedAt ?? null,
+      resolvedConsistency,
+      consistencyCheckedAt,
+      lastReconciledAt,
+      overrides.lastDriftDetectedAt ?? null
     ]
   );
 

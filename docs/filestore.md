@@ -66,7 +66,7 @@ graph TD
 ### Persistence Layer
 - Dedicated `filestore` schema in the shared Postgres cluster housing core tables:
   - `backend_mounts`: configured roots (local path, S3 bucket/prefix, credentials hints, access policies).
-  - `nodes`: canonical record per file/directory with parent pointer, backend ID, relative path, type, size, checksum/hash, state (`ACTIVE`, `INCONSISTENT`, `MISSING`, `DELETED`), optimistic version, timestamps.
+  - `nodes`: canonical record per file/directory with parent pointer, backend ID, relative path, type, size, checksum/hash, state (`ACTIVE`, `INCONSISTENT`, `MISSING`, `DELETED`), `consistency_state`, audit timestamps (`consistency_checked_at`, `last_reconciled_at`, `last_drift_detected_at`), optimistic version, and metadata.
   - `snapshots`: immutable snapshots keyed by node + version for auditing and temporal queries.
   - `journal_entries`: append-only log of commands, executor results, idempotency keys, error context, and correlation IDs.
   - `rollups`: aggregated directory metrics (`size_bytes`, `file_count`, `dir_count`, `last_calculated_at`, `consistency_state`).
@@ -74,7 +74,7 @@ graph TD
 
 ### Workers & Watchers
 - **Rollup workers** recalculate directory aggregates using BullMQ queues (`filestore_rollup_queue`). Small trees update inline; large trees queue background jobs and publish completion events.
-- **Reconciliation workers** consume drift jobs (`filestore_reconcile_queue`) emitted by watchers or scheduled audits, re-stat nodes, sync metadata, mark missing nodes, and emit `filestore.node.reconciled` or `filestore.node.missing` events.
+- **Reconciliation workers** consume drift jobs (`filestore_reconcile_queue`) emitted by watchers or scheduled audits. Each job re-stats the physical backend (local or S3), updates `nodes.consistency_state` / `consistency_checked_at`, refreshes rollups, and publishes `filestore.node.reconciled` or `filestore.node.missing` events. Inline Redis mode processes jobs synchronously during tests; the standalone worker (`npm run reconcile --workspace @apphub/filestore`) runs the BullMQ consumer and periodic audit sweep in development.
 - **Watchers**: per-mount adapters (chokidar for local, S3 notification/listing) detect out-of-band changes, tag nodes as `INCONSISTENT`, and enqueue reconciliation work.
 
 ### Event Pipeline
@@ -121,9 +121,14 @@ stateDiagram-v2
 ```
 
 ## Integrations
-- **Metastore** subscribes to node events and stores tags, owners, and business metadata keyed by `node_id`. Mutations propagate using Redis pub/sub so clients always see aligned metadata.
-- **Timestore** ingests command journal entries into a `filestore_activity` dataset, enabling time-based analysis (growth, churn, reconciliation lag). Events include deltas to support rollup queries without scanning the entire journal.
+- **Metastore** subscribes to node events and stores tags, owners, and business metadata keyed by `node_id`. Mutations propagate using Redis pub/sub so clients always see aligned metadata. Configure the consumer with `METASTORE_FILESTORE_SYNC_ENABLED`, `METASTORE_FILESTORE_NAMESPACE`, `FILESTORE_REDIS_URL`, and `FILESTORE_EVENTS_CHANNEL` (set `FILESTORE_REDIS_URL=inline` for tests).
+- **Timestore** ingests command journal entries into a `filestore_activity` dataset, enabling time-based analysis (growth, churn, reconciliation lag). Events include deltas to support rollup queries without scanning the entire journal. Tune the sink using `TIMESTORE_FILESTORE_*` variables (`TIMESTORE_FILESTORE_DATASET_SLUG`, `TIMESTORE_FILESTORE_TABLE_NAME`, `TIMESTORE_FILESTORE_RETRY_MS`) and the same Redis channel configuration.
 - **Catalog / Frontend** consume WebSocket events to refresh dashboards and surface storage metrics alongside app/build metadata.
+
+## SDK & CLI Tooling
+- **TypeScript SDK** (`@apphub/filestore-client`) wraps the REST API with typed helpers for idempotent command execution, node lookups, reconciliation enqueueing, and Server-Sent Events streaming. Configure it with `baseUrl`, optional bearer `token`, and it will automatically set `Idempotency-Key` headers and translate HTTP failures into `FilestoreClientError` instances.
+- **CLI** (`@apphub/filestore-cli`) provides operator-friendly commands backed by the SDK: create directories, delete nodes, enqueue reconciliation jobs, and tail live events using the new `/v1/events/stream` endpoint. Point it at a local inline setup via environment variables (`FILESTORE_BASE_URL`, `FILESTORE_TOKEN`) and run `npx filestore nodes:stat <backend> <path>` to inspect metadata without touching the filesystem directly.
+- The CLI uses the same SSE stream as the SDK, so it works in both Redis and inline event modes. Use `filestore events:tail` to monitor activity during migrations or reconciliation runs.
 
 ## Security & Auth
 - Reuse existing bearer token model with scopes like `filestore:read`, `filestore:write`, `filestore:admin` plus optional namespace/path allow lists.
@@ -139,12 +144,14 @@ stateDiagram-v2
 ```bash
 npm install
 npm run dev --workspace @apphub/filestore
+npm run reconcile --workspace @apphub/filestore
 ```
 
 - Defaults to inline Redis mode (`REDIS_URL=inline`) so BullMQ queues execute synchronously.
 - Postgres connection points to the shared development database; migrations run automatically on boot.
 - Mount configuration pulled from `FILESTORE_BACKENDS_PATH` (JSON or YAML) describing local directories and mock S3 buckets (e.g., MinIO).
-- Watchers and reconciliation workers can be launched via `npm run dev:filestore:watchers` and `npm run dev:filestore:workers` to simulate drift handling end-to-end.
+- Watchers and reconciliation workers can be launched via `npm run dev:filestore:watchers` and either `npm run dev:filestore:workers` or `npm run reconcile --workspace @apphub/filestore` to simulate drift handling end-to-end.
+- Reconciliation metrics (`filestore_reconciliation_jobs_total`, `filestore_reconciliation_job_duration_seconds`, `filestore_reconciliation_queue_depth`) surface backlog, outcome, and duration insights.
 
 ## Rollout Phases
 1. **Observe-only**: register mounts, run watchers, and log drift without blocking manual changes. Validate metadata accuracy and event payloads.

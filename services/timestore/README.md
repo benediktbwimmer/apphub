@@ -37,8 +37,19 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_REQUIRE_SCOPE` | Optional scope required via `x-iam-scopes` header for query access. | _(unset)_ |
 | `TIMESTORE_ADMIN_SCOPE` | Scope required for administrative dataset routes; falls back to `TIMESTORE_REQUIRE_SCOPE` if unset. | _(unset)_ |
 | `TIMESTORE_REQUIRE_WRITE_SCOPE` | Scope required to create or ingest into datasets when dataset metadata does not specify write scopes. | _(unset)_ |
+| `TIMESTORE_FILESTORE_SYNC_ENABLED` | Toggle filestore event consumer. Set to `false` to disable. | `true` |
+| `TIMESTORE_FILESTORE_DATASET_SLUG` | Dataset slug used for filestore activity ingestion. | `filestore_activity` |
+| `TIMESTORE_FILESTORE_DATASET_NAME` | Friendly dataset name for UI/query responses. | `Filestore Activity` |
+| `TIMESTORE_FILESTORE_TABLE_NAME` | DuckDB table name that stores filestore activity rows. | `filestore_activity` |
+| `TIMESTORE_FILESTORE_RETRY_MS` | Backoff between Redis subscribe retries when consuming events. | `3000` |
+| `FILESTORE_REDIS_URL` | Redis connection shared with the filestore service (`inline` for tests). | `redis://127.0.0.1:6379` |
+| `FILESTORE_EVENTS_CHANNEL` | Pub/sub channel that carries `filestore.*` events. | `apphub:filestore` |
 
 When the service boots it ensures the configured Postgres schema exists, runs timestore-specific migrations, and reuses the catalog connection pool helpers so migrations and manifests share the managed database.
+
+### Filestore Integration
+
+With filestore sync enabled the server starts a background consumer that subscribes to `FILESTORE_EVENTS_CHANNEL`. Events are appended to the dataset identified by `TIMESTORE_FILESTORE_DATASET_SLUG` (default `filestore_activity`) using the same ingestion pipeline as the public API. Each record captures file size deltas, reconciliation results, and command completions, enabling dashboards that chart storage churn. During development you can leave `FILESTORE_REDIS_URL=inline` to avoid running Redis—events are delivered in-process when both services run inside the same Node.js VM.
 
 ## HTTP Ingestion API
 - `POST /datasets/:datasetSlug/ingest` accepts a JSON payload containing schema metadata, a partition key, records (JSON objects), and optional `idempotency-key` header. Jobs enqueue over Redis/BullMQ unless `REDIS_URL=inline` (tests/dev) in which case ingestion runs inline.

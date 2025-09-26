@@ -10,7 +10,9 @@
     "build": "npm run build:ts",
     "build:ts": "tsc -b",
     "lint": "tsc -b --pretty false",
-    "test": "node --test --test-concurrency=1 --require ts-node/register tests/**/*.test.ts"
+    "test": "node --test --test-concurrency=1 --require ts-node/register tests/**/*.test.ts",
+    "reconcile": "tsx src/reconciliation/worker.ts",
+    "reconcile:watch": "tsx watch src/reconciliation/worker.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.0",

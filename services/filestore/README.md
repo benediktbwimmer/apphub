@@ -7,6 +7,11 @@ Fastify-based service that manages canonical metadata for files and directories 
 ```bash
 npm install
 npm run dev --workspace @apphub/filestore
+# Start the reconciliation worker (inline Redis executes jobs immediately)
+npm run reconcile --workspace @apphub/filestore
+# Optional: use the CLI to exercise the API locally
+npx filestore directories:create 1 datasets/example
+npx filestore events:tail --event filestore.node.created
 ```
 
 Environment variables:
@@ -24,8 +29,13 @@ Environment variables:
 | `FILESTORE_ROLLUP_QUEUE_NAME` | `filestore_rollup_queue` | BullMQ queue name for rollup recalculation jobs. |
 | `FILESTORE_ROLLUP_CACHE_TTL_SECONDS` | `300` | TTL for cached rollup summaries in Redis. |
 | `FILESTORE_ROLLUP_CACHE_MAX_ENTRIES` | `1024` | Max in-process cache entries when Redis is enabled. |
+| `FILESTORE_RECONCILE_QUEUE_NAME` | `filestore_reconcile_queue` | BullMQ queue name for reconciliation jobs. |
+| `FILESTORE_RECONCILE_QUEUE_CONCURRENCY` | `1` | Worker concurrency for reconciliation jobs. |
+| `FILESTORE_RECONCILE_AUDIT_INTERVAL_MS` | `300000` | Interval for background audits that re-enqueue inconsistent nodes (set `0` to disable). |
+| `FILESTORE_RECONCILE_AUDIT_BATCH_SIZE` | `100` | Maximum nodes processed per audit sweep. |
 | `FILESTORE_EVENTS_MODE` | inferred | `inline` to disable Redis pub/sub for tests, `redis` to require Redis. |
 | `FILESTORE_EVENTS_CHANNEL` | `${FILESTORE_REDIS_KEY_PREFIX}:filestore` | Redis pub/sub channel for filestore events. |
+| `FILESTORE_EVENTS_MODE` | `inline` when `REDIS_URL=inline` else `redis` | Controls event delivery strategy for SDK/CLI consumers. |
 
 ## Events
 
@@ -47,6 +57,8 @@ Events follow the `filestore.*` naming scheme—for example:
 ```
 
 Downstream services can subscribe by listening to the configured Redis channel (default `apphub:filestore`).
+
+For local development without Redis, use the SSE endpoint exposed at `/v1/events/stream` or the `filestore events:tail` CLI command—both reuse the in-process event bus so you can observe activity when running inline mode.
 
 ## Endpoints
 

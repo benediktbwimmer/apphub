@@ -10,6 +10,7 @@ import { closePool, ensureSchemaReady } from './db/client';
 import { openApiDocument } from './openapi/document';
 import { registerRecordRoutes } from './routes/records';
 import { registerAdminRoutes } from './routes/admin';
+import { initializeFilestoreSync, shutdownFilestoreSync } from './filestore/consumer';
 
 export type BuildAppOptions = {
   config?: ReturnType<typeof loadServiceConfig>;
@@ -55,9 +56,11 @@ export async function buildApp(options?: BuildAppOptions) {
 
   app.addHook('onReady', async () => {
     await ensureSchemaReady();
+    await initializeFilestoreSync({ config, logger: app.log });
   });
 
   app.addHook('onClose', async () => {
+    await shutdownFilestoreSync();
     await closePool();
   });
 

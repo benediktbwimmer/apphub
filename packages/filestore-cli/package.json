@@ -1,0 +1,30 @@
+{
+  "name": "@apphub/filestore-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Command-line interface for interacting with the Filestore service using the SDK.",
+  "bin": {
+    "filestore": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist",
+    "test": "node --test --require ts-node/register src/__tests__/*.ts"
+  },
+  "dependencies": {
+    "@apphub/filestore-client": "0.1.0",
+    "@apphub/shared": "0.1.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
