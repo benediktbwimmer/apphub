@@ -18,6 +18,7 @@ import { registerServiceRoutes } from './routes/services';
 import { registerRepositoryRoutes } from './routes/repositories';
 import { registerAdminRoutes } from './routes/admin';
 import { openApiDocument } from './openapi/document';
+import { registerServiceProxyRoutes } from './routes/serviceProxy';
 
 export async function buildServer() {
   const app = Fastify();
@@ -69,6 +70,27 @@ export async function buildServer() {
   await app.register(async (instance) => registerWorkflowRoutes(instance));
   await app.register(async (instance) => registerAssetRoutes(instance));
   await app.register(async (instance) => registerServiceRoutes(instance, { registry }));
+  await app.register(async (instance) =>
+    registerServiceProxyRoutes(instance, [
+      {
+        slug: 'metastore',
+        basePath: '/metastore',
+        forwardedScopes: ['metastore:read', 'metastore:write', 'metastore:delete', 'metastore:admin']
+      },
+      {
+        slug: 'timestore',
+        basePath: '/timestore',
+        forwardedScopes: [
+          'timestore:read',
+          'timestore:write',
+          'timestore:admin',
+          'timestore:sql:read',
+          'timestore:sql:exec',
+          'timestore:metrics'
+        ]
+      }
+    ])
+  );
   await app.register(async (instance) => registerRepositoryRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));
 
