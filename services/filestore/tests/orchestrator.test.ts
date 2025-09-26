@@ -13,6 +13,7 @@ import { filestoreEvents } from '../src/events/bus';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
+const backendRoots: string[] = [];
 
 let clientModule: typeof import('../src/db/client');
 let schemaModule: typeof import('../src/db/schema');
@@ -84,15 +85,20 @@ after(async () => {
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
   }
+  for (const dir of backendRoots) {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 async function createBackendMount(): Promise<number> {
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'filestore-local-executor-'));
+  backendRoots.push(rootDir);
   const { rows } = await clientModule.withConnection(async (client) =>
     client.query<{ id: number }>(
       `INSERT INTO backend_mounts (mount_key, backend_kind, root_path)
        VALUES ($1, 'local', $2)
        RETURNING id`,
-      [`local-${randomUUID().slice(0, 8)}`, '/tmp/apphub']
+      [`local-${randomUUID().slice(0, 8)}`, rootDir]
     )
   );
   return rows[0].id;
