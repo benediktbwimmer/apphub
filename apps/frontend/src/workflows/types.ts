@@ -56,6 +56,118 @@ export type WorkflowTrigger = {
   options?: unknown;
 };
 
+export type WorkflowEventTriggerPredicate =
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'exists';
+      caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'equals' | 'notEquals';
+      value: unknown;
+      caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'in' | 'notIn';
+      values: unknown[];
+      caseSensitive?: boolean;
+    };
+
+export type WorkflowEventTriggerStatus = 'active' | 'disabled';
+
+export type WorkflowEventTrigger = {
+  id: string;
+  workflowDefinitionId: string;
+  version: number;
+  status: WorkflowEventTriggerStatus;
+  name: string | null;
+  description: string | null;
+  eventType: string;
+  eventSource: string | null;
+  predicates: WorkflowEventTriggerPredicate[];
+  parameterTemplate: unknown;
+  throttleWindowMs: number | null;
+  throttleCount: number | null;
+  maxConcurrency: number | null;
+  idempotencyKeyExpression: string | null;
+  metadata: unknown;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+};
+
+export type WorkflowTriggerDelivery = {
+  id: string;
+  triggerId: string;
+  workflowDefinitionId: string;
+  eventId: string;
+  status: 'pending' | 'matched' | 'throttled' | 'skipped' | 'launched' | 'failed';
+  attempts: number;
+  lastError: string | null;
+  workflowRunId: string | null;
+  dedupeKey: string | null;
+  nextAttemptAt: string | null;
+  throttledUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowEventSample = {
+  id: string;
+  type: string;
+  source: string;
+  occurredAt: string;
+  receivedAt: string;
+  payload: unknown;
+  correlationId: string | null;
+  ttlMs: number | null;
+  metadata: unknown;
+};
+
+export type WorkflowEventTriggerMetrics = {
+  counts: Record<'filtered' | 'matched' | 'launched' | 'throttled' | 'skipped' | 'failed' | 'paused', number>;
+  lastStatus: 'filtered' | 'matched' | 'launched' | 'throttled' | 'skipped' | 'failed' | 'paused' | null;
+  lastUpdatedAt: string | null;
+  lastError: string | null;
+};
+
+export type WorkflowEventSchedulerHealth = {
+  generatedAt: string;
+  queues: {
+    ingress: {
+      mode: 'inline' | 'queue' | 'disabled';
+      counts?: Record<string, number>;
+    };
+    triggers: {
+      mode: 'inline' | 'queue' | 'disabled';
+      counts?: Record<string, number>;
+    };
+  };
+  triggers: Record<string, WorkflowEventTriggerMetrics>;
+  sources: Record<
+    string,
+    {
+      total: number;
+      throttled: number;
+      dropped: number;
+      failures: number;
+      averageLagMs: number | null;
+      lastLagMs: number;
+      maxLagMs: number;
+      lastEventAt: string | null;
+    }
+  >;
+  pausedTriggers: Record<string, { reason: string; until?: string }>;
+  pausedSources: Array<{ source: string; reason: string; until?: string; details?: Record<string, unknown> }>;
+  rateLimits: Array<{ source: string; limit: number; intervalMs: number; pauseMs: number }>;
+};
+
 export type WorkflowSchedule = {
   id: string;
   workflowDefinitionId: string;

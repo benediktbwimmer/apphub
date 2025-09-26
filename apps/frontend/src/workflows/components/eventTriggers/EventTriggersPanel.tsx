@@ -1,0 +1,537 @@
+import { useMemo, useState } from 'react';
+import { Spinner } from '../../../components/Spinner';
+import type {
+  WorkflowDefinition,
+  WorkflowEventSample,
+  WorkflowEventSchedulerHealth,
+  WorkflowEventTrigger,
+  WorkflowTriggerDelivery
+} from '../../types';
+import type {
+  WorkflowEventSampleQuery,
+  WorkflowEventTriggerCreateInput,
+  WorkflowEventTriggerUpdateInput,
+  WorkflowTriggerDeliveriesQuery
+} from '../../api';
+import EventTriggerFormModal, { type EventTriggerPreviewSnapshot } from './EventTriggerFormModal';
+import EventSampleDrawer from './EventSampleDrawer';
+
+function formatDate(value: string | null): string {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+type EventTriggersPanelProps = {
+  workflow: WorkflowDefinition | null;
+  triggers: WorkflowEventTrigger[];
+  triggersLoading: boolean;
+  triggersError: string | null;
+  selectedTrigger: WorkflowEventTrigger | null;
+  onSelectTrigger: (triggerId: string | null) => void;
+  createTrigger: (slug: string, input: WorkflowEventTriggerCreateInput) => Promise<WorkflowEventTrigger>;
+  updateTrigger: (slug: string, triggerId: string, input: WorkflowEventTriggerUpdateInput) => Promise<WorkflowEventTrigger>;
+  deleteTrigger: (slug: string, triggerId: string) => Promise<void>;
+  deliveries: WorkflowTriggerDelivery[];
+  deliveriesLoading: boolean;
+  deliveriesError: string | null;
+  deliveriesLimit: number;
+  deliveriesQuery: WorkflowTriggerDeliveriesQuery;
+  onReloadDeliveries: (query: WorkflowTriggerDeliveriesQuery) => void;
+  eventHealth: WorkflowEventSchedulerHealth | null;
+  eventHealthLoading: boolean;
+  eventHealthError: string | null;
+  onRefreshEventHealth: () => void;
+  eventSamples: WorkflowEventSample[];
+  eventSamplesLoading: boolean;
+  eventSamplesError: string | null;
+  eventSamplesQuery: WorkflowEventSampleQuery | null;
+  loadEventSamples: (query: WorkflowEventSampleQuery) => void;
+  refreshEventSamples: () => void;
+  canEdit: boolean;
+};
+
+function getTriggerHealth(
+  eventHealth: WorkflowEventSchedulerHealth | null,
+  triggerId: string
+) {
+  if (!eventHealth) {
+    return null;
+  }
+  const metrics = eventHealth.triggers[triggerId];
+  const paused = eventHealth.pausedTriggers[triggerId];
+  return {
+    metrics,
+    paused,
+    lastError: metrics?.lastError ?? null,
+    lastStatus: metrics?.lastStatus ?? null
+  };
+}
+
+function summarizeCounts(metrics: WorkflowEventSchedulerHealth['triggers'][string] | undefined) {
+  if (!metrics) {
+    return 'No data yet';
+  }
+  const { counts } = metrics;
+  const matched = counts.matched ?? 0;
+  const launched = counts.launched ?? 0;
+  const throttled = counts.throttled ?? 0;
+  const failed = counts.failed ?? 0;
+  return `${matched} matched · ${launched} launched · ${throttled} throttled · ${failed} failed`;
+}
+
+export default function EventTriggersPanel({
+  workflow,
+  triggers,
+  triggersLoading,
+  triggersError,
+  selectedTrigger,
+  onSelectTrigger,
+  createTrigger,
+  updateTrigger,
+  deleteTrigger,
+  deliveries,
+  deliveriesLoading,
+  deliveriesError,
+  deliveriesLimit,
+  deliveriesQuery,
+  onReloadDeliveries,
+  eventHealth,
+  eventHealthLoading,
+  eventHealthError,
+  onRefreshEventHealth,
+  eventSamples,
+  eventSamplesLoading,
+  eventSamplesError,
+  eventSamplesQuery,
+  loadEventSamples,
+  refreshEventSamples,
+  canEdit
+}: EventTriggersPanelProps) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
+  const [formTrigger, setFormTrigger] = useState<WorkflowEventTrigger | null>(null);
+  const [sampleDrawerOpen, setSampleDrawerOpen] = useState(false);
+  const [samplePreview, setSamplePreview] = useState<EventTriggerPreviewSnapshot | null>(null);
+
+  const workflowSlug = workflow?.slug ?? null;
+  const triggerHealth = selectedTrigger ? getTriggerHealth(eventHealth, selectedTrigger.id) : null;
+
+  const deliveryStatusFilter = deliveriesQuery.status ?? null;
+
+  const handleOpenCreate = () => {
+    setFormMode('create');
+    setFormTrigger(null);
+    setFormOpen(true);
+  };
+
+  const handleOpenEdit = (trigger: WorkflowEventTrigger) => {
+    setFormMode('edit');
+    setFormTrigger(trigger);
+    setFormOpen(true);
+  };
+
+  const handleFormClose = () => {
+    setFormOpen(false);
+    setFormTrigger(null);
+    setSamplePreview(null);
+  };
+
+  const handleCreate = async (_slug: string, input: WorkflowEventTriggerCreateInput) => {
+    if (!workflowSlug) {
+      throw new Error('Workflow slug unavailable');
+    }
+    return createTrigger(workflowSlug, input);
+  };
+
+  const handleUpdate = async (
+    _slug: string,
+    triggerId: string,
+    input: WorkflowEventTriggerUpdateInput
+  ) => {
+    if (!workflowSlug) {
+      throw new Error('Workflow slug unavailable');
+    }
+    return updateTrigger(workflowSlug, triggerId, input);
+  };
+
+  const handleDelete = async (trigger: WorkflowEventTrigger) => {
+    if (!workflowSlug) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete trigger ${trigger.eventType}? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+    await deleteTrigger(workflowSlug, trigger.id);
+  };
+
+  const handleToggleStatus = async (trigger: WorkflowEventTrigger) => {
+    await handleUpdate(workflowSlug ?? '', trigger.id, {
+      status: trigger.status === 'active' ? 'disabled' : 'active'
+    });
+  };
+
+  const handleReloadDeliveries = (status: WorkflowTriggerDeliveriesQuery['status'] | undefined) => {
+    const next: WorkflowTriggerDeliveriesQuery = { limit: deliveriesLimit };
+    if (status) {
+      next.status = status;
+    }
+    onReloadDeliveries(next);
+  };
+
+  const handleOpenSamplesForTrigger = (trigger: WorkflowEventTrigger) => {
+    setSamplePreview(null);
+    setSampleDrawerOpen(true);
+    const query: WorkflowEventSampleQuery = {
+      type: trigger.eventType,
+      source: trigger.eventSource ?? undefined,
+      limit: eventSamplesQuery?.limit ?? 25
+    };
+    loadEventSamples(query);
+  };
+
+  const handlePreviewRequest = (snapshot: EventTriggerPreviewSnapshot) => {
+    setSamplePreview(snapshot);
+    setSampleDrawerOpen(true);
+    const query: WorkflowEventSampleQuery = {
+      type: snapshot.eventType,
+      source: snapshot.eventSource ?? undefined,
+      limit: eventSamplesQuery?.limit ?? 25
+    };
+    loadEventSamples(query);
+  };
+
+  const sortedTriggers = useMemo(() => {
+    return [...triggers].sort((a, b) => a.eventType.localeCompare(b.eventType));
+  }, [triggers]);
+
+  const deliveriesSummary = useMemo(() => {
+    if (deliveries.length === 0) {
+      return 'No deliveries yet';
+    }
+    const latest = deliveries[0];
+    return `Latest: ${latest.status} · ${formatDate(latest.updatedAt)}`;
+  }, [deliveries]);
+
+  return (
+    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Event Triggers</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Configure workflow launches based on incoming events.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefreshEventHealth}
+            className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Refresh health
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!canEdit || !workflowSlug}
+            title={canEdit ? undefined : 'Requires workflows:write scope'}
+          >
+            Create trigger
+          </button>
+        </div>
+      </div>
+
+      {triggersError && (
+        <div className="mt-4 rounded-2xl border border-rose-200/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/30 dark:text-rose-200">
+          {triggersError}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-col gap-4 lg:flex-row">
+        <aside className="w-full max-w-xs rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700/60 dark:text-slate-400">
+            <span>Triggers</span>
+            {triggersLoading && <Spinner size="xs" />}
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
+            {sortedTriggers.length === 0 ? (
+              <p className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">No triggers configured.</p>
+            ) : (
+              <ul className="divide-y divide-slate-200/70 dark:divide-slate-800/60">
+                {sortedTriggers.map((trigger) => {
+                  const selected = selectedTrigger?.id === trigger.id;
+                  const metrics = getTriggerHealth(eventHealth, trigger.id)?.metrics;
+                  return (
+                    <li
+                      key={trigger.id}
+                      className={`cursor-pointer px-4 py-3 text-xs transition hover:bg-indigo-50 dark:hover:bg-slate-800 ${selected ? 'bg-indigo-50/70 text-indigo-700 dark:bg-slate-800/60 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-300'}`}
+                      onClick={() => onSelectTrigger(trigger.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">{trigger.eventType}</span>
+                        <span
+                          className={
+                            trigger.status === 'active'
+                              ? 'rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
+                              : 'rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-600 dark:bg-amber-900/40 dark:text-amber-200'
+                          }
+                        >
+                          {trigger.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                        {trigger.eventSource ?? 'any source'}
+                      </p>
+                      {metrics && (
+                        <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
+                          {summarizeCounts(metrics)}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </aside>
+
+        <div className="flex-1 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+          {!selectedTrigger ? (
+            <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+              Select a trigger to view details.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                    {selectedTrigger.eventType}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedTrigger.eventSource ?? 'Any source'} · Version {selectedTrigger.version}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenSamplesForTrigger(selectedTrigger)}
+                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    View samples
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(selectedTrigger)}
+                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    disabled={!canEdit}
+                    title={canEdit ? undefined : 'Requires workflows:write scope'}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStatus(selectedTrigger)}
+                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    disabled={!canEdit}
+                    title={canEdit ? undefined : 'Requires workflows:write scope'}
+                  >
+                    {selectedTrigger.status === 'active' ? 'Disable' : 'Activate'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(selectedTrigger)}
+                    className="rounded-full border border-rose-200/70 px-3 py-2 text-xs font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-900/30"
+                    disabled={!canEdit}
+                    title={canEdit ? 'Remove trigger' : 'Requires workflows:write scope'}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Summary
+                  </h4>
+                  <dl className="mt-2 space-y-1">
+                    <div className="flex justify-between">
+                      <dt>Name</dt>
+                      <dd className="font-semibold text-slate-700 dark:text-slate-200">
+                        {selectedTrigger.name ?? '—'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>Throttle</dt>
+                      <dd>
+                        {selectedTrigger.throttleWindowMs && selectedTrigger.throttleCount
+                          ? `${selectedTrigger.throttleCount} in ${selectedTrigger.throttleWindowMs}ms`
+                          : 'Not configured'}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>Max concurrency</dt>
+                      <dd>{selectedTrigger.maxConcurrency ?? 'unlimited'}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>Idempotency</dt>
+                      <dd>{selectedTrigger.idempotencyKeyExpression ?? 'none'}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Health
+                  </h4>
+                  {eventHealthLoading ? (
+                    <div className="mt-2 flex items-center gap-2 text-xs">
+                      <Spinner size="xs" /> Loading snapshot…
+                    </div>
+                  ) : triggerHealth ? (
+                    <dl className="mt-2 space-y-1">
+                      <div className="flex justify-between">
+                        <dt>Last status</dt>
+                        <dd>{triggerHealth.lastStatus ?? '—'}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Counts</dt>
+                        <dd>{summarizeCounts(triggerHealth.metrics)}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Last error</dt>
+                        <dd>{triggerHealth.lastError ?? '—'}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt>Paused</dt>
+                        <dd>
+                          {triggerHealth.paused
+                            ? `${triggerHealth.paused.reason}${triggerHealth.paused.until ? ` until ${formatDate(triggerHealth.paused.until)}` : ''}`
+                            : 'No'}
+                        </dd>
+                      </div>
+                    </dl>
+                  ) : eventHealthError ? (
+                    <p className="mt-2 text-rose-600 dark:text-rose-300">{eventHealthError}</p>
+                  ) : (
+                    <p className="mt-2 text-slate-500 dark:text-slate-400">No metrics yet.</p>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Deliveries
+                  </h4>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{deliveriesSummary}</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                      Status
+                      <select
+                        value={deliveryStatusFilter ?? ''}
+                        onChange={(event) =>
+                          handleReloadDeliveries(
+                            event.target.value ? (event.target.value as WorkflowTriggerDeliveriesQuery['status']) : undefined
+                          )
+                        }
+                        className="ml-2 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-[11px] text-slate-600 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                      >
+                        <option value="">All</option>
+                        <option value="matched">matched</option>
+                        <option value="throttled">throttled</option>
+                        <option value="launched">launched</option>
+                        <option value="failed">failed</option>
+                        <option value="skipped">skipped</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => onReloadDeliveries(deliveriesQuery)}
+                      className="rounded-full border border-slate-200/70 px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+                <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700/60 dark:text-slate-400">
+                  <span>Recent deliveries</span>
+                  {deliveriesLoading && <Spinner size="xs" />}
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {deliveriesError ? (
+                    <p className="px-4 py-3 text-xs text-rose-600 dark:text-rose-300">{deliveriesError}</p>
+                  ) : deliveries.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No deliveries recorded.</p>
+                  ) : (
+                    <table className="min-w-full divide-y divide-slate-200/70 text-left text-xs dark:divide-slate-800/60">
+                      <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Event ID</th>
+                          <th className="px-3 py-2">Attempts</th>
+                          <th className="px-3 py-2">Updated</th>
+                          <th className="px-3 py-2">Run</th>
+                          <th className="px-3 py-2">Error</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200/70 text-[11px] dark:divide-slate-800/60">
+                        {deliveries.map((delivery) => (
+                          <tr key={delivery.id} className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/40">
+                            <td className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">{delivery.status}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.eventId}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.attempts}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{formatDate(delivery.updatedAt)}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.workflowRunId ?? '—'}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                              {delivery.lastError ? delivery.lastError.slice(0, 80) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <EventTriggerFormModal
+        open={formOpen}
+        mode={formMode}
+        workflowSlug={workflowSlug ?? ''}
+        workflowName={workflow?.name ?? workflowSlug ?? 'workflow'}
+        initialTrigger={formTrigger}
+        canEdit={canEdit}
+      onClose={handleFormClose}
+        onCreate={handleCreate}
+        onUpdate={handleUpdate}
+        onPreview={handlePreviewRequest}
+      />
+
+      <EventSampleDrawer
+        open={sampleDrawerOpen}
+        loading={eventSamplesLoading}
+        error={eventSamplesError}
+        samples={eventSamples}
+        query={eventSamplesQuery}
+        trigger={samplePreview ? null : selectedTrigger}
+        previewSnapshot={samplePreview}
+        onClose={() => {
+          setSampleDrawerOpen(false);
+          setSamplePreview(null);
+        }}
+        onLoad={loadEventSamples}
+        onRefresh={refreshEventSamples}
+      />
+    </section>
+  );
+}

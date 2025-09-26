@@ -87,7 +87,31 @@ export default function WorkflowsPage() {
     assetPartitionsError,
     selectAsset,
     clearSelectedAsset,
-    refreshAsset
+    refreshAsset,
+    eventTriggers,
+    eventTriggersLoading,
+    eventTriggersError,
+    selectedEventTrigger,
+    setSelectedEventTriggerId,
+    createEventTrigger,
+    updateEventTrigger,
+    deleteEventTrigger,
+    triggerDeliveries,
+    triggerDeliveriesLoading,
+    triggerDeliveriesError,
+    triggerDeliveriesLimit,
+    triggerDeliveriesQuery,
+    loadTriggerDeliveries,
+    eventSamples,
+    eventSamplesLoading,
+    eventSamplesError,
+    eventSamplesQuery,
+    loadEventSamples,
+    refreshEventSamples,
+    eventHealth,
+    eventHealthLoading,
+    eventHealthError,
+    loadEventSchedulerHealth
   } = useWorkflowsController();
 
   const [searchParams] = useSearchParams();
@@ -218,6 +242,39 @@ export default function WorkflowsPage() {
             error={detailError}
             canEdit={canEditWorkflows}
             onEdit={handleOpenEditBuilder}
+          />
+
+          <EventTriggersPanel
+            workflow={workflowDetail}
+            triggers={eventTriggers}
+            triggersLoading={eventTriggersLoading}
+            triggersError={eventTriggersError}
+            selectedTrigger={selectedEventTrigger}
+            onSelectTrigger={setSelectedEventTriggerId}
+            createTrigger={createEventTrigger}
+            updateTrigger={updateEventTrigger}
+            deleteTrigger={deleteEventTrigger}
+            deliveries={triggerDeliveries}
+            deliveriesLoading={triggerDeliveriesLoading}
+            deliveriesError={triggerDeliveriesError}
+            deliveriesLimit={triggerDeliveriesLimit}
+            deliveriesQuery={triggerDeliveriesQuery}
+            onReloadDeliveries={(query) => {
+              if (workflowDetail && selectedEventTrigger) {
+                void loadTriggerDeliveries(workflowDetail.slug, selectedEventTrigger.id, query);
+              }
+            }}
+            eventHealth={eventHealth}
+            eventHealthLoading={eventHealthLoading}
+            eventHealthError={eventHealthError}
+            onRefreshEventHealth={loadEventSchedulerHealth}
+            eventSamples={eventSamples}
+            eventSamplesLoading={eventSamplesLoading}
+            eventSamplesError={eventSamplesError}
+            eventSamplesQuery={eventSamplesQuery}
+            loadEventSamples={(query) => void loadEventSamples(query)}
+            refreshEventSamples={refreshEventSamples}
+            canEdit={canEditWorkflows}
           />
 
           <WorkflowAssetPanel

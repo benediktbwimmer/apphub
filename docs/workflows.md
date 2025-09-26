@@ -2,6 +2,18 @@
 
 The catalog service exposes authenticated REST endpoints for managing workflow event triggers. All routes require an operator token with the `workflows:write` scope (local development can set `APPHUB_AUTH_DISABLED=1`).
 
+## Admin UI
+
+The Workflows console now includes an **Event Triggers** tab alongside the definition and asset views. Operators with `workflows:write` permission can:
+
+- Inspect all triggers for the selected workflow, including status badges, throttle limits, and Liquid parameter templates.
+- Review live scheduler health (matched/throttled/failed counts, pause reasons) sourced from `/admin/event-health`.
+- Drill into recent delivery attempts with inline status filters and timestamps.
+- Create, edit, enable/disable, or delete triggers with form validation for JSONPath predicates, throttles, and JSON payloads.
+- Open the event sample drawer to evaluate predicates and render parameter templates against recent envelopes before saving changes.
+
+The UI calls the same endpoints described below and surfaces API validation messages inline, so operators can manage event-driven scheduling without leaving the browser.
+
 ## Event Trigger Endpoints
 
 | Method | Path | Description |
@@ -62,4 +74,3 @@ apphub workflows triggers disable <workflow-slug> <trigger-id> [--yes]
 - Responses and validation errors from the API surface directly in the CLI for quick iteration.
 
 See `npm run workflow-triggers -- --help` inside `apps/cli` for the full command tree once the package is built.
-

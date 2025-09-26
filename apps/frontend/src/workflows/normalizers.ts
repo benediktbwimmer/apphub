@@ -6,6 +6,13 @@ import type {
   WorkflowAssetPartitions,
   WorkflowAssetRoleDescriptor,
   WorkflowAssetSnapshot,
+  WorkflowEventTrigger,
+  WorkflowEventTriggerPredicate,
+  WorkflowEventTriggerStatus,
+  WorkflowTriggerDelivery,
+  WorkflowEventSample,
+  WorkflowEventTriggerMetrics,
+  WorkflowEventSchedulerHealth,
   WorkflowDefinition,
   WorkflowSchedule,
   WorkflowFanOutTemplateStep,
@@ -147,6 +154,392 @@ function normalizeFanOutTemplate(raw: unknown): WorkflowFanOutTemplateStep | nul
     storeResponseAs: typeof template.storeResponseAs === 'string' ? template.storeResponseAs : undefined,
     request: 'request' in template ? template.request : undefined
   } satisfies WorkflowFanOutTemplateStep;
+}
+
+function normalizeNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function normalizeEventTriggerPredicate(raw: unknown): WorkflowEventTriggerPredicate | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const type = typeof record.type === 'string' ? record.type : 'jsonPath';
+  if (type !== 'jsonPath') {
+    return null;
+  }
+  const path = typeof record.path === 'string' ? record.path.trim() : '';
+  if (!path) {
+    return null;
+  }
+  const operator = typeof record.operator === 'string' ? record.operator : null;
+  if (!operator) {
+    return null;
+  }
+  const caseSensitive = typeof record.caseSensitive === 'boolean' ? record.caseSensitive : undefined;
+  switch (operator) {
+    case 'exists':
+      return { type: 'jsonPath', path, operator: 'exists', ...(caseSensitive !== undefined ? { caseSensitive } : {}) };
+    case 'equals':
+    case 'notEquals': {
+      if (!('value' in record)) {
+        return null;
+      }
+      return {
+        type: 'jsonPath',
+        path,
+        operator,
+        value: record.value,
+        ...(caseSensitive !== undefined ? { caseSensitive } : {})
+      };
+    }
+    case 'in':
+    case 'notIn': {
+      const rawValues = Array.isArray(record.values) ? (record.values as unknown[]) : null;
+      if (!rawValues || rawValues.length === 0) {
+        return null;
+      }
+      return {
+        type: 'jsonPath',
+        path,
+        operator,
+        values: rawValues,
+        ...(caseSensitive !== undefined ? { caseSensitive } : {})
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+export function normalizeWorkflowEventTrigger(raw: unknown): WorkflowEventTrigger | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const id = typeof record.id === 'string' ? record.id : null;
+  const workflowDefinitionId = typeof record.workflowDefinitionId === 'string' ? record.workflowDefinitionId : null;
+  const eventType = typeof record.eventType === 'string' ? record.eventType : null;
+  if (!id || !workflowDefinitionId || !eventType) {
+    return null;
+  }
+
+  const rawPredicates = Array.isArray(record.predicates) ? record.predicates : [];
+  const predicates = rawPredicates
+    .map((entry) => normalizeEventTriggerPredicate(entry))
+    .filter((entry): entry is WorkflowEventTriggerPredicate => Boolean(entry));
+
+  const statusRaw = typeof record.status === 'string' ? record.status.toLowerCase() : 'active';
+  const status: WorkflowEventTriggerStatus = statusRaw === 'disabled' ? 'disabled' : 'active';
+
+  const parameterTemplate = 'parameterTemplate' in record ? record.parameterTemplate ?? null : null;
+  const metadata = 'metadata' in record ? record.metadata ?? null : null;
+  const throttleWindowMs = normalizeNullableNumber(record.throttleWindowMs);
+  const throttleCount = normalizeNullableNumber(record.throttleCount);
+  const maxConcurrency = normalizeNullableNumber(record.maxConcurrency);
+  const idempotencyKeyExpression =
+    typeof record.idempotencyKeyExpression === 'string' ? record.idempotencyKeyExpression : null;
+
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : new Date(0).toISOString();
+  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : createdAt;
+
+  return {
+    id,
+    workflowDefinitionId,
+    version: typeof record.version === 'number' ? record.version : 1,
+    status,
+    name: typeof record.name === 'string' ? record.name : null,
+    description: typeof record.description === 'string' ? record.description : null,
+    eventType,
+    eventSource: typeof record.eventSource === 'string' ? record.eventSource : null,
+    predicates,
+    parameterTemplate,
+    throttleWindowMs,
+    throttleCount,
+    maxConcurrency,
+    idempotencyKeyExpression,
+    metadata,
+    createdAt,
+    updatedAt,
+    createdBy: typeof record.createdBy === 'string' ? record.createdBy : null,
+    updatedBy: typeof record.updatedBy === 'string' ? record.updatedBy : null
+  } satisfies WorkflowEventTrigger;
+}
+
+export function normalizeWorkflowEventTriggers(raw: unknown): WorkflowEventTrigger[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry) => normalizeWorkflowEventTrigger(entry))
+    .filter((entry): entry is WorkflowEventTrigger => Boolean(entry));
+}
+
+export function normalizeWorkflowTriggerDelivery(raw: unknown): WorkflowTriggerDelivery | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const id = typeof record.id === 'string' ? record.id : null;
+  const triggerId = typeof record.triggerId === 'string' ? record.triggerId : null;
+  const workflowDefinitionId = typeof record.workflowDefinitionId === 'string' ? record.workflowDefinitionId : null;
+  const eventId = typeof record.eventId === 'string' ? record.eventId : null;
+  if (!id || !triggerId || !workflowDefinitionId || !eventId) {
+    return null;
+  }
+  const validStatuses = new Set([
+    'pending',
+    'matched',
+    'throttled',
+    'skipped',
+    'launched',
+    'failed'
+  ] as const);
+  const statusRaw = typeof record.status === 'string' ? record.status : 'pending';
+  const status = validStatuses.has(statusRaw as WorkflowTriggerDelivery['status'])
+    ? (statusRaw as WorkflowTriggerDelivery['status'])
+    : 'pending';
+
+  return {
+    id,
+    triggerId,
+    workflowDefinitionId,
+    eventId,
+    status,
+    attempts: typeof record.attempts === 'number' ? record.attempts : 0,
+    lastError: typeof record.lastError === 'string' ? record.lastError : null,
+    workflowRunId: typeof record.workflowRunId === 'string' ? record.workflowRunId : null,
+    dedupeKey: typeof record.dedupeKey === 'string' ? record.dedupeKey : null,
+    nextAttemptAt: typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null,
+    throttledUntil: typeof record.throttledUntil === 'string' ? record.throttledUntil : null,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : new Date(0).toISOString(),
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date(0).toISOString()
+  } satisfies WorkflowTriggerDelivery;
+}
+
+export function normalizeWorkflowTriggerDeliveries(raw: unknown): WorkflowTriggerDelivery[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry) => normalizeWorkflowTriggerDelivery(entry))
+    .filter((entry): entry is WorkflowTriggerDelivery => Boolean(entry));
+}
+
+export function normalizeWorkflowEventSample(raw: unknown): WorkflowEventSample | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const id = typeof record.id === 'string' ? record.id : null;
+  const type = typeof record.type === 'string' ? record.type : null;
+  const source = typeof record.source === 'string' ? record.source : null;
+  const occurredAt = typeof record.occurredAt === 'string' ? record.occurredAt : null;
+  const receivedAt = typeof record.receivedAt === 'string' ? record.receivedAt : null;
+  if (!id || !type || !source || !occurredAt || !receivedAt) {
+    return null;
+  }
+  return {
+    id,
+    type,
+    source,
+    occurredAt,
+    receivedAt,
+    payload: 'payload' in record ? record.payload : null,
+    correlationId: typeof record.correlationId === 'string' ? record.correlationId : null,
+    ttlMs: normalizeNullableNumber(record.ttlMs),
+    metadata: 'metadata' in record ? record.metadata ?? null : null
+  } satisfies WorkflowEventSample;
+}
+
+export function normalizeWorkflowEventSamples(raw: unknown): WorkflowEventSample[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry) => normalizeWorkflowEventSample(entry))
+    .filter((entry): entry is WorkflowEventSample => Boolean(entry));
+}
+
+export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedulerHealth | null {
+  const root = toRecord(raw);
+  const payload = toRecord(root?.data ?? root);
+  if (!payload) {
+    return null;
+  }
+
+  const queuesRaw = toRecord(payload.queues);
+  const ingressQueues = toRecord(queuesRaw?.ingress) ?? {};
+  const triggerQueues = toRecord(queuesRaw?.triggers) ?? {};
+
+  const metricsRaw = toRecord(payload.metrics);
+  const generatedAt = typeof metricsRaw?.generatedAt === 'string' ? metricsRaw.generatedAt : new Date().toISOString();
+
+  const triggerMetricsEntries = Array.isArray(metricsRaw?.triggers) ? metricsRaw?.triggers : [];
+  const triggers: Record<string, WorkflowEventTriggerMetrics> = {};
+  for (const entry of triggerMetricsEntries as unknown[]) {
+    const record = toRecord(entry);
+    if (!record) {
+      continue;
+    }
+    const triggerId = typeof record.triggerId === 'string' ? record.triggerId : null;
+    if (!triggerId) {
+      continue;
+    }
+    const countsRecord = toRecord(record.counts) ?? {};
+    const counts = {
+      filtered: Number(countsRecord.filtered) || 0,
+      matched: Number(countsRecord.matched) || 0,
+      launched: Number(countsRecord.launched) || 0,
+      throttled: Number(countsRecord.throttled) || 0,
+      skipped: Number(countsRecord.skipped) || 0,
+      failed: Number(countsRecord.failed) || 0,
+      paused: Number(countsRecord.paused) || 0
+    } as Record<'filtered' | 'matched' | 'launched' | 'throttled' | 'skipped' | 'failed' | 'paused', number>;
+    const lastStatus = typeof record.lastStatus === 'string' ? record.lastStatus : null;
+    triggers[triggerId] = {
+      counts,
+      lastStatus: ['filtered', 'matched', 'launched', 'throttled', 'skipped', 'failed', 'paused'].includes(
+        lastStatus ?? ''
+      )
+        ? (lastStatus as WorkflowEventTriggerMetrics['lastStatus'])
+        : null,
+      lastUpdatedAt: typeof record.lastUpdatedAt === 'string' ? record.lastUpdatedAt : null,
+      lastError: typeof record.lastError === 'string' ? record.lastError : null
+    } satisfies WorkflowEventTriggerMetrics;
+  }
+
+  const sourceMetricsEntries = Array.isArray(metricsRaw?.sources) ? metricsRaw.sources : [];
+  const sources: WorkflowEventSchedulerHealth['sources'] = {};
+  for (const entry of sourceMetricsEntries as unknown[]) {
+    const record = toRecord(entry);
+    if (!record) {
+      continue;
+    }
+    const source = typeof record.source === 'string' ? record.source : null;
+    if (!source) {
+      continue;
+    }
+    sources[source] = {
+      total: Number(record.total) || 0,
+      throttled: Number(record.throttled) || 0,
+      dropped: Number(record.dropped) || 0,
+      failures: Number(record.failures) || 0,
+      averageLagMs: normalizeNullableNumber(record.averageLagMs),
+      lastLagMs: Number(record.lastLagMs) || 0,
+      maxLagMs: Number(record.maxLagMs) || 0,
+      lastEventAt: typeof record.lastEventAt === 'string' ? record.lastEventAt : null
+    };
+  }
+
+  const pausedTriggerEntries = Array.isArray(payload.pausedTriggers) ? payload.pausedTriggers : [];
+  const pausedTriggers: Record<string, { reason: string; until?: string }> = {};
+  for (const entry of pausedTriggerEntries as unknown[]) {
+    const record = toRecord(entry);
+    if (!record) {
+      continue;
+    }
+    const triggerId = typeof record.triggerId === 'string' ? record.triggerId : null;
+    const reason = typeof record.reason === 'string' ? record.reason : null;
+    if (!triggerId || !reason) {
+      continue;
+    }
+    const until = typeof record.until === 'string' ? record.until : undefined;
+    pausedTriggers[triggerId] = { reason, ...(until ? { until } : {}) };
+  }
+
+  const pausedSourcesEntries = Array.isArray(payload.pausedSources) ? payload.pausedSources : [];
+  const pausedSources = pausedSourcesEntries
+    .map((entry) => {
+      const record = toRecord(entry);
+      if (!record) {
+        return null;
+      }
+      const source = typeof record.source === 'string' ? record.source : null;
+      const reason = typeof record.reason === 'string' ? record.reason : null;
+      if (!source || !reason) {
+        return null;
+      }
+      const until = typeof record.until === 'string' ? record.until : undefined;
+      const details = toRecord(record.details) ?? undefined;
+      return { source, reason, ...(until ? { until } : {}), ...(details ? { details } : {}) };
+    })
+    .filter((entry): entry is { source: string; reason: string; until?: string; details?: Record<string, unknown> } =>
+      Boolean(entry)
+    );
+
+  const rateLimitsEntries = Array.isArray(payload.rateLimits) ? payload.rateLimits : [];
+  const rateLimits = rateLimitsEntries
+    .map((entry) => {
+      const record = toRecord(entry);
+      if (!record) {
+        return null;
+      }
+      const source = typeof record.source === 'string' ? record.source : null;
+      if (!source) {
+        return null;
+      }
+      const limit = Number(record.limit);
+      const intervalMs = Number(record.intervalMs ?? record.windowMs);
+      const pauseMs = Number(record.pauseMs ?? intervalMs);
+      if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(intervalMs) || intervalMs <= 0) {
+        return null;
+      }
+      return {
+        source,
+        limit: Math.floor(limit),
+        intervalMs: Math.floor(intervalMs),
+        pauseMs: Number.isFinite(pauseMs) && pauseMs > 0 ? Math.floor(pauseMs) : Math.floor(intervalMs)
+      };
+    })
+    .filter(
+      (entry): entry is { source: string; limit: number; intervalMs: number; pauseMs: number } => Boolean(entry)
+    );
+
+  return {
+    generatedAt,
+    queues: {
+      ingress: {
+        mode:
+          ingressQueues.mode === 'queue' || ingressQueues.mode === 'disabled'
+            ? ingressQueues.mode
+            : 'inline',
+        counts:
+          ingressQueues.counts && typeof ingressQueues.counts === 'object'
+            ? (ingressQueues.counts as Record<string, number>)
+            : undefined
+      },
+      triggers: {
+        mode:
+          triggerQueues.mode === 'queue' || triggerQueues.mode === 'disabled'
+            ? triggerQueues.mode
+            : 'inline',
+        counts:
+          triggerQueues.counts && typeof triggerQueues.counts === 'object'
+            ? (triggerQueues.counts as Record<string, number>)
+            : undefined
+      }
+    },
+    triggers,
+    sources,
+    pausedTriggers,
+    pausedSources,
+    rateLimits
+  } satisfies WorkflowEventSchedulerHealth;
 }
 
 export function normalizeWorkflowDefinition(payload: unknown): WorkflowDefinition | null {

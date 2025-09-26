@@ -5,7 +5,12 @@ import type {
   WorkflowAssetPartitions,
   WorkflowDefinition,
   WorkflowRun,
-  WorkflowRunStep
+  WorkflowRunStep,
+  WorkflowEventTrigger,
+  WorkflowTriggerDelivery,
+  WorkflowEventSample,
+  WorkflowEventSchedulerHealth,
+  WorkflowEventTriggerStatus
 } from './types';
 import {
   normalizeWorkflowDefinition,
@@ -15,7 +20,12 @@ import {
   normalizeWorkflowRunStep,
   normalizeWorkflowAssetInventoryResponse,
   normalizeWorkflowAssetDetailResponse,
-  normalizeWorkflowAssetPartitionsResponse
+  normalizeWorkflowAssetPartitionsResponse,
+  normalizeWorkflowEventTriggers,
+  normalizeWorkflowEventTrigger,
+  normalizeWorkflowTriggerDeliveries,
+  normalizeWorkflowEventSamples,
+  normalizeWorkflowEventHealth
 } from './normalizers';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -41,6 +51,90 @@ export class ApiError extends Error {
 export type WorkflowTriggerInput = {
   type: string;
   options?: unknown;
+};
+
+export type WorkflowEventTriggerPredicateInput = {
+  path: string;
+  operator: 'exists' | 'equals' | 'notEquals' | 'in' | 'notIn';
+  value?: unknown;
+  values?: unknown[];
+  caseSensitive?: boolean;
+};
+
+export type WorkflowEventTriggerCreateInput = {
+  name?: string | null;
+  description?: string | null;
+  eventType: string;
+  eventSource?: string | null;
+  predicates?: WorkflowEventTriggerPredicateInput[];
+  parameterTemplate?: unknown;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
+  maxConcurrency?: number | null;
+  idempotencyKeyExpression?: string | null;
+  metadata?: unknown;
+  status?: WorkflowEventTriggerStatus;
+};
+
+export type WorkflowEventTriggerUpdateInput = {
+  name?: string | null;
+  description?: string | null;
+  eventType?: string;
+  eventSource?: string | null;
+  predicates?: WorkflowEventTriggerPredicateInput[];
+  parameterTemplate?: unknown;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
+  maxConcurrency?: number | null;
+  idempotencyKeyExpression?: string | null;
+  metadata?: unknown;
+  status?: WorkflowEventTriggerStatus;
+};
+
+export type WorkflowEventTriggerFilters = {
+  status?: WorkflowEventTriggerStatus;
+  eventType?: string;
+  eventSource?: string;
+};
+
+export type WorkflowEventTriggerListResponse = {
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  triggers: WorkflowEventTrigger[];
+};
+
+export type WorkflowTriggerDeliveriesQuery = {
+  limit?: number;
+  status?: WorkflowTriggerDelivery['status'];
+  eventId?: string;
+  dedupeKey?: string;
+};
+
+export type WorkflowTriggerDeliveriesResponse = {
+  deliveries: WorkflowTriggerDelivery[];
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  trigger: {
+    id: string;
+    name: string | null;
+    eventType: string;
+    status: WorkflowEventTriggerStatus;
+  };
+  limit: number;
+};
+
+export type WorkflowEventSampleQuery = {
+  type?: string;
+  source?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
 };
 
 export type WorkflowJobStepInput = {
@@ -375,6 +469,226 @@ export async function listWorkflowRunSteps(
         .filter((step): step is WorkflowRunStep => Boolean(step))
     : [];
   return { run, steps };
+}
+
+export async function listWorkflowEventTriggers(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  filters: WorkflowEventTriggerFilters = {}
+): Promise<WorkflowEventTriggerListResponse> {
+  const params = new URLSearchParams();
+  if (filters.status) {
+    params.set('status', filters.status);
+  }
+  if (filters.eventType) {
+    params.set('eventType', filters.eventType);
+  }
+  if (filters.eventSource) {
+    params.set('eventSource', filters.eventSource);
+  }
+  const query = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers${query ? `?${query}` : ''}`
+  );
+  await ensureOk(response, 'Failed to load workflow event triggers');
+  const payload = await parseJson<{
+    data?: {
+      workflow?: { id?: unknown; slug?: unknown; name?: unknown };
+      triggers?: unknown[];
+    };
+  }>(response);
+  const workflowRaw = payload.data?.workflow ?? {};
+  const workflowId = typeof workflowRaw.id === 'string' ? workflowRaw.id : null;
+  const workflowSlug = typeof workflowRaw.slug === 'string' ? workflowRaw.slug : slug;
+  const workflowName = typeof workflowRaw.name === 'string' ? workflowRaw.name : workflowSlug;
+  if (!workflowId || !workflowSlug || !workflowName) {
+    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+  }
+  const triggers = normalizeWorkflowEventTriggers(payload.data?.triggers);
+  return {
+    workflow: {
+      id: workflowId,
+      slug: workflowSlug,
+      name: workflowName
+    },
+    triggers
+  } satisfies WorkflowEventTriggerListResponse;
+}
+
+export async function getWorkflowEventTrigger(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  triggerId: string
+): Promise<WorkflowEventTrigger> {
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`
+  );
+  await ensureOk(response, 'Failed to load workflow event trigger');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const trigger = normalizeWorkflowEventTrigger(payload.data);
+  if (!trigger) {
+    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+  }
+  return trigger;
+}
+
+export async function createWorkflowEventTrigger(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  input: WorkflowEventTriggerCreateInput
+): Promise<WorkflowEventTrigger> {
+  const response = await fetcher(`${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  await ensureOk(response, 'Failed to create workflow event trigger');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const trigger = normalizeWorkflowEventTrigger(payload.data);
+  if (!trigger) {
+    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+  }
+  return trigger;
+}
+
+export async function updateWorkflowEventTrigger(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  triggerId: string,
+  input: WorkflowEventTriggerUpdateInput
+): Promise<WorkflowEventTrigger> {
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input)
+    }
+  );
+  await ensureOk(response, 'Failed to update workflow event trigger');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const trigger = normalizeWorkflowEventTrigger(payload.data);
+  if (!trigger) {
+    throw new ApiError('Invalid workflow trigger response', response.status, payload);
+  }
+  return trigger;
+}
+
+export async function deleteWorkflowEventTrigger(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  triggerId: string
+): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}`,
+    { method: 'DELETE' }
+  );
+  if (response.status === 204) {
+    return;
+  }
+  await ensureOk(response, 'Failed to delete workflow event trigger');
+}
+
+export async function listWorkflowTriggerDeliveries(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  triggerId: string,
+  query: WorkflowTriggerDeliveriesQuery = {}
+): Promise<WorkflowTriggerDeliveriesResponse> {
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) {
+    params.set('limit', String(query.limit));
+  }
+  if (query.status) {
+    params.set('status', query.status);
+  }
+  if (query.eventId) {
+    params.set('eventId', query.eventId);
+  }
+  if (query.dedupeKey) {
+    params.set('dedupeKey', query.dedupeKey);
+  }
+  const search = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/triggers/${encodeURIComponent(triggerId)}/deliveries${
+      search ? `?${search}` : ''
+    }`
+  );
+  await ensureOk(response, 'Failed to load workflow trigger deliveries');
+  const payload = await parseJson<{
+    data?: unknown[];
+    meta?: {
+      workflow?: { id?: unknown; slug?: unknown; name?: unknown };
+      trigger?: { id?: unknown; name?: unknown; eventType?: unknown; status?: unknown };
+      limit?: unknown;
+    };
+  }>(response);
+  const deliveries = normalizeWorkflowTriggerDeliveries(payload.data);
+  const workflowMeta = payload.meta?.workflow ?? {};
+  const triggerMeta = payload.meta?.trigger ?? {};
+  const workflowId = typeof workflowMeta.id === 'string' ? workflowMeta.id : null;
+  const workflowSlug = typeof workflowMeta.slug === 'string' ? workflowMeta.slug : slug;
+  const workflowName = typeof workflowMeta.name === 'string' ? workflowMeta.name : workflowSlug;
+  const triggerMetaId = typeof triggerMeta.id === 'string' ? triggerMeta.id : triggerId;
+  const triggerName = typeof triggerMeta.name === 'string' ? triggerMeta.name : null;
+  const triggerEventType = typeof triggerMeta.eventType === 'string' ? triggerMeta.eventType : 'unknown';
+  const triggerStatus =
+    typeof triggerMeta.status === 'string' && triggerMeta.status === 'disabled' ? 'disabled' : 'active';
+  const limit = Number(payload.meta?.limit ?? query.limit ?? 50);
+  if (!workflowId || !workflowSlug || !triggerMetaId) {
+    throw new ApiError('Invalid trigger deliveries response', response.status, payload);
+  }
+  return {
+    deliveries,
+    workflow: {
+      id: workflowId,
+      slug: workflowSlug,
+      name: workflowName
+    },
+    trigger: {
+      id: triggerMetaId,
+      name: triggerName,
+      eventType: triggerEventType,
+      status: triggerStatus
+    },
+    limit: Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50
+  } satisfies WorkflowTriggerDeliveriesResponse;
+}
+
+export async function listWorkflowEventSamples(
+  fetcher: AuthorizedFetch,
+  query: WorkflowEventSampleQuery = {}
+): Promise<WorkflowEventSample[]> {
+  const params = new URLSearchParams();
+  if (query.type) {
+    params.set('type', query.type);
+  }
+  if (query.source) {
+    params.set('source', query.source);
+  }
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  if (query.limit !== undefined) {
+    params.set('limit', String(query.limit));
+  }
+  const search = params.toString();
+  const response = await fetcher(`${API_BASE_URL}/admin/events${search ? `?${search}` : ''}`);
+  await ensureOk(response, 'Failed to load workflow events');
+  const payload = await parseJson<{ data?: unknown[] }>(response);
+  return normalizeWorkflowEventSamples(payload.data);
+}
+
+export async function getWorkflowEventHealth(
+  fetcher: AuthorizedFetch
+): Promise<WorkflowEventSchedulerHealth | null> {
+  const response = await fetcher(`${API_BASE_URL}/admin/event-health`);
+  await ensureOk(response, 'Failed to load workflow event health');
+  const payload = await parseJson<unknown>(response);
+  return normalizeWorkflowEventHealth(payload);
 }
 
 export async function fetchWorkflowDefinitions(

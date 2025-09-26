@@ -24,30 +24,46 @@ import {
 } from '../normalizers';
 import {
   createWorkflowDefinition,
+  createWorkflowEventTrigger,
+  deleteWorkflowEventTrigger,
+  fetchWorkflowAssets,
+  fetchWorkflowAssetHistory,
+  fetchWorkflowAssetPartitions,
   getWorkflowDetail,
+  getWorkflowEventHealth,
   getWorkflowRunMetrics,
   getWorkflowStats,
   listServices,
   listWorkflowDefinitions,
+  listWorkflowEventSamples,
+  listWorkflowEventTriggers,
   listWorkflowRunSteps,
+  listWorkflowTriggerDeliveries,
   updateWorkflowDefinition,
-  fetchWorkflowAssets,
-  fetchWorkflowAssetHistory,
-  fetchWorkflowAssetPartitions,
+  updateWorkflowEventTrigger,
   ApiError,
-  type WorkflowCreateInput
+  type WorkflowCreateInput,
+  type WorkflowEventTriggerCreateInput,
+  type WorkflowEventTriggerFilters,
+  type WorkflowEventTriggerUpdateInput,
+  type WorkflowEventSampleQuery,
+  type WorkflowTriggerDeliveriesQuery
 } from '../api';
 import type {
   WorkflowAssetDetail,
   WorkflowAssetInventoryEntry,
   WorkflowAssetPartitions,
   WorkflowDefinition,
+  WorkflowEventSample,
+  WorkflowEventSchedulerHealth,
+  WorkflowEventTrigger,
   WorkflowFiltersState,
   WorkflowRunMetricsSummary,
   WorkflowRun,
   WorkflowRunStep,
   WorkflowRuntimeSummary,
   WorkflowRunStatsSummary,
+  WorkflowTriggerDelivery,
   WorkflowAnalyticsRangeKey
 } from '../types';
 import type { WorkflowBuilderSubmitArgs } from '../builder/WorkflowBuilderDialog';
@@ -73,6 +89,31 @@ type WorkflowAnalyticsState = {
   bucketKey: string | null;
   outcomes: string[];
   lastUpdated?: string;
+};
+
+type EventTriggerListState = {
+  items: WorkflowEventTrigger[];
+  loading: boolean;
+  error: string | null;
+  filters?: WorkflowEventTriggerFilters;
+  lastFetchedAt?: string;
+};
+
+type TriggerDeliveryState = {
+  items: WorkflowTriggerDelivery[];
+  loading: boolean;
+  error: string | null;
+  limit: number;
+  query?: WorkflowTriggerDeliveriesQuery;
+  lastFetchedAt?: string;
+};
+
+type EventSamplesState = {
+  items: WorkflowEventSample[];
+  loading: boolean;
+  error: string | null;
+  query: WorkflowEventSampleQuery | null;
+  lastFetchedAt?: string;
 };
 
 const ANALYTICS_DEFAULT_RANGE: WorkflowAnalyticsRangeKey = '7d';
@@ -126,6 +167,19 @@ export function useWorkflowsController() {
   const [assetPartitionsLoading, setAssetPartitionsLoading] = useState(false);
   const [assetPartitionsError, setAssetPartitionsError] = useState<string | null>(null);
 
+  const [eventTriggerState, setEventTriggerState] = useState<Record<string, EventTriggerListState>>({});
+  const [selectedTriggerId, setSelectedTriggerId] = useState<string | null>(null);
+  const [triggerDeliveryState, setTriggerDeliveryState] = useState<Record<string, TriggerDeliveryState>>({});
+  const [eventSamplesState, setEventSamplesState] = useState<EventSamplesState>({
+    items: [],
+    loading: false,
+    error: null,
+    query: null
+  });
+  const [eventHealth, setEventHealth] = useState<WorkflowEventSchedulerHealth | null>(null);
+  const [eventHealthLoading, setEventHealthLoading] = useState(false);
+  const [eventHealthError, setEventHealthError] = useState<string | null>(null);
+
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderMode, setBuilderMode] = useState<'create' | 'edit'>('create');
   const [builderWorkflow, setBuilderWorkflow] = useState<WorkflowDefinition | null>(null);
@@ -151,6 +205,7 @@ export function useWorkflowsController() {
   const runsRef = useRef<WorkflowRun[]>([]);
   const selectedSlugRef = useRef<string | null>(null);
   const selectedRunIdRef = useRef<string | null>(null);
+  const selectedTriggerIdRef = useRef<string | null>(null);
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
 
   const authorizedFetch = useAuthorizedFetch();
@@ -183,6 +238,36 @@ export function useWorkflowsController() {
     }
     return assetPartitionsMap[`${selectedSlug}:${selectedAssetId}`] ?? null;
   }, [assetPartitionsMap, selectedAssetId, selectedSlug]);
+
+  const eventTriggersEntry = selectedSlug ? eventTriggerState[selectedSlug] : undefined;
+  const eventTriggers = useMemo(
+    () => (eventTriggersEntry ? eventTriggersEntry.items : []),
+    [eventTriggersEntry]
+  );
+  const eventTriggersLoading = eventTriggersEntry?.loading ?? false;
+  const eventTriggersError = eventTriggersEntry?.error ?? null;
+
+  const selectedEventTrigger = useMemo(() => {
+    if (!eventTriggers.length) {
+      return null;
+    }
+    if (!selectedTriggerId) {
+      return eventTriggers[0];
+    }
+    const match = eventTriggers.find((trigger) => trigger.id === selectedTriggerId);
+    return match ?? eventTriggers[0];
+  }, [eventTriggers, selectedTriggerId]);
+
+  const triggerDeliveriesEntry = selectedEventTrigger ? triggerDeliveryState[selectedEventTrigger.id] : undefined;
+  const triggerDeliveries = triggerDeliveriesEntry?.items ?? [];
+  const triggerDeliveriesLoading = triggerDeliveriesEntry?.loading ?? false;
+  const triggerDeliveriesError = triggerDeliveriesEntry?.error ?? null;
+  const triggerDeliveriesLimit = triggerDeliveriesEntry?.limit ?? 50;
+  const triggerDeliveriesQuery = triggerDeliveriesEntry?.query ?? {};
+
+  const eventSamples = eventSamplesState.items;
+  const eventSamplesLoading = eventSamplesState.loading;
+  const eventSamplesError = eventSamplesState.error;
 
   const workflowSummaries = useMemo<WorkflowSummary[]>(() => {
     return workflows.map((workflow) => {
@@ -513,6 +598,435 @@ export function useWorkflowsController() {
     [loadAssetHistory, loadAssetPartitions]
   );
 
+  const loadEventTriggers = useCallback(
+    async (slug: string, options: { filters?: WorkflowEventTriggerFilters; force?: boolean } = {}) => {
+      if (!slug) {
+        return;
+      }
+      const filters: WorkflowEventTriggerFilters = {
+        ...(eventTriggerState[slug]?.filters ?? {}),
+        ...(options.filters ?? {})
+      };
+      const nextFilters = Object.keys(filters).length > 0 ? filters : undefined;
+      if (!options.force && eventTriggerState[slug]?.loading) {
+        return;
+      }
+      setEventTriggerState((current) => ({
+        ...current,
+        [slug]: {
+          items: current[slug]?.items ?? [],
+          loading: true,
+          error: null,
+          filters: nextFilters,
+          lastFetchedAt: current[slug]?.lastFetchedAt
+        }
+      }));
+      try {
+        const response = await listWorkflowEventTriggers(authorizedFetch, slug, filters);
+        setEventTriggerState((current) => ({
+          ...current,
+          [slug]: {
+            items: response.triggers,
+            loading: false,
+            error: null,
+            filters: nextFilters,
+            lastFetchedAt: new Date().toISOString()
+          }
+        }));
+        if (selectedSlugRef.current === slug) {
+          setSelectedTriggerId((current) => {
+            if (current && response.triggers.some((trigger) => trigger.id === current)) {
+              return current;
+            }
+            return response.triggers.length > 0 ? response.triggers[0].id : null;
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load workflow event triggers';
+        setEventTriggerState((current) => ({
+          ...current,
+          [slug]: {
+            items: current[slug]?.items ?? [],
+            loading: false,
+            error: message,
+            filters: nextFilters,
+            lastFetchedAt: current[slug]?.lastFetchedAt
+          }
+        }));
+        if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
+          pushToast({
+            tone: 'error',
+            title: 'Workflow event triggers',
+            description: message
+          });
+        }
+      }
+    },
+    [authorizedFetch, eventTriggerState, pushToast]
+  );
+
+  const handleEventTriggerCreated = useCallback(
+    (slug: string, trigger: WorkflowEventTrigger) => {
+      setEventTriggerState((current) => {
+        const entry = current[slug] ?? {
+          items: [],
+          loading: false,
+          error: null
+        };
+        const nextItems = [trigger, ...entry.items.filter((existing) => existing.id !== trigger.id)];
+        return {
+          ...current,
+          [slug]: {
+            ...entry,
+            items: nextItems,
+            loading: false,
+            error: null,
+            lastFetchedAt: new Date().toISOString()
+          }
+        } satisfies Record<string, EventTriggerListState>;
+      });
+      if (selectedSlugRef.current === slug) {
+        setSelectedTriggerId(trigger.id);
+      }
+    },
+    []
+  );
+
+  const handleEventTriggerUpdated = useCallback(
+    (slug: string, trigger: WorkflowEventTrigger) => {
+      setEventTriggerState((current) => {
+        const entry = current[slug] ?? {
+          items: [],
+          loading: false,
+          error: null
+        };
+        const exists = entry.items.some((existing) => existing.id === trigger.id);
+        const nextItems = exists
+          ? entry.items.map((existing) => (existing.id === trigger.id ? trigger : existing))
+          : [trigger, ...entry.items];
+        return {
+          ...current,
+          [slug]: {
+            ...entry,
+            items: nextItems,
+            loading: false,
+            error: null,
+            lastFetchedAt: new Date().toISOString()
+          }
+        } satisfies Record<string, EventTriggerListState>;
+      });
+      if (selectedSlugRef.current === slug) {
+        setSelectedTriggerId((current) => current ?? trigger.id);
+      }
+    },
+    []
+  );
+
+  const handleEventTriggerDeleted = useCallback((slug: string, triggerId: string) => {
+    let remaining: WorkflowEventTrigger[] = [];
+    setEventTriggerState((current) => {
+      const entry = current[slug];
+      if (!entry) {
+        remaining = [];
+        return current;
+      }
+      remaining = entry.items.filter((trigger) => trigger.id !== triggerId);
+      return {
+        ...current,
+        [slug]: {
+          ...entry,
+          items: remaining,
+          loading: false,
+          error: null,
+          lastFetchedAt: new Date().toISOString()
+        }
+      } satisfies Record<string, EventTriggerListState>;
+    });
+    if (selectedSlugRef.current === slug) {
+      setSelectedTriggerId((current) => {
+        if (current && current !== triggerId) {
+          return current;
+        }
+        return remaining.length > 0 ? remaining[0].id : null;
+      });
+    }
+  }, []);
+
+  const createEventTrigger = useCallback(
+    async (slug: string, input: WorkflowEventTriggerCreateInput) => {
+      if (!slug) {
+        throw new Error('Workflow slug is required');
+      }
+      setEventTriggerState((current) => ({
+        ...current,
+        [slug]: {
+          items: current[slug]?.items ?? [],
+          loading: true,
+          error: null,
+          filters: current[slug]?.filters,
+          lastFetchedAt: current[slug]?.lastFetchedAt
+        }
+      }));
+      try {
+        const created = await createWorkflowEventTrigger(authorizedFetch, slug, input);
+        handleEventTriggerCreated(slug, created);
+        pushToast({
+          tone: 'success',
+          title: 'Event trigger created',
+          description: `${created.eventType} trigger ready for matches.`
+        });
+        return created;
+      } catch (err) {
+        setEventTriggerState((current) => ({
+          ...current,
+          [slug]: {
+            items: current[slug]?.items ?? [],
+            loading: false,
+            error: current[slug]?.error ?? null,
+            filters: current[slug]?.filters,
+            lastFetchedAt: current[slug]?.lastFetchedAt
+          }
+        }));
+        if (!(err instanceof ApiError && err.status === 400)) {
+          const message = err instanceof Error ? err.message : 'Failed to create event trigger';
+          pushToast({
+            tone: 'error',
+            title: 'Event trigger creation failed',
+            description: message
+          });
+        }
+        throw err;
+      }
+    },
+    [authorizedFetch, handleEventTriggerCreated, pushToast]
+  );
+
+  const updateEventTrigger = useCallback(
+    async (slug: string, triggerId: string, input: WorkflowEventTriggerUpdateInput) => {
+      if (!slug) {
+        throw new Error('Workflow slug is required');
+      }
+      if (!triggerId) {
+        throw new Error('Trigger id is required');
+      }
+      setEventTriggerState((current) => ({
+        ...current,
+        [slug]: {
+          items: current[slug]?.items ?? [],
+          loading: true,
+          error: null,
+          filters: current[slug]?.filters,
+          lastFetchedAt: current[slug]?.lastFetchedAt
+        }
+      }));
+      try {
+        const updated = await updateWorkflowEventTrigger(authorizedFetch, slug, triggerId, input);
+        handleEventTriggerUpdated(slug, updated);
+        pushToast({
+          tone: 'success',
+          title: 'Event trigger updated',
+          description: `${updated.eventType} trigger saved.`
+        });
+        return updated;
+      } catch (err) {
+        setEventTriggerState((current) => ({
+          ...current,
+          [slug]: {
+            items: current[slug]?.items ?? [],
+            loading: false,
+            error: current[slug]?.error ?? null,
+            filters: current[slug]?.filters,
+            lastFetchedAt: current[slug]?.lastFetchedAt
+          }
+        }));
+        if (!(err instanceof ApiError && err.status === 400)) {
+          const message = err instanceof Error ? err.message : 'Failed to update event trigger';
+          pushToast({
+            tone: 'error',
+            title: 'Event trigger update failed',
+            description: message
+          });
+        }
+        throw err;
+      }
+    },
+    [authorizedFetch, handleEventTriggerUpdated, pushToast]
+  );
+
+  const deleteEventTrigger = useCallback(
+    async (slug: string, triggerId: string) => {
+      if (!slug) {
+        throw new Error('Workflow slug is required');
+      }
+      if (!triggerId) {
+        throw new Error('Trigger id is required');
+      }
+      setEventTriggerState((current) => ({
+        ...current,
+        [slug]: {
+          items: current[slug]?.items ?? [],
+          loading: true,
+          error: null,
+          filters: current[slug]?.filters,
+          lastFetchedAt: current[slug]?.lastFetchedAt
+        }
+      }));
+      try {
+        await deleteWorkflowEventTrigger(authorizedFetch, slug, triggerId);
+        handleEventTriggerDeleted(slug, triggerId);
+        pushToast({
+          tone: 'success',
+          title: 'Event trigger deleted',
+          description: 'Trigger removed from workflow.'
+        });
+      } catch (err) {
+        setEventTriggerState((current) => ({
+          ...current,
+          [slug]: {
+            items: current[slug]?.items ?? [],
+            loading: false,
+            error: current[slug]?.error ?? null,
+            filters: current[slug]?.filters,
+            lastFetchedAt: current[slug]?.lastFetchedAt
+          }
+        }));
+        const message = err instanceof Error ? err.message : 'Failed to delete event trigger';
+        pushToast({
+          tone: 'error',
+          title: 'Event trigger delete failed',
+          description: message
+        });
+        throw err;
+      }
+    },
+    [authorizedFetch, handleEventTriggerDeleted, pushToast]
+  );
+
+  const loadTriggerDeliveries = useCallback(
+    async (slug: string, triggerId: string, query: WorkflowTriggerDeliveriesQuery = {}) => {
+      if (!slug || !triggerId) {
+        return;
+      }
+      setTriggerDeliveryState((current) => {
+        const entry = current[triggerId] ?? {
+          items: [],
+          loading: false,
+          error: null,
+          limit: query.limit ?? 50
+        };
+        return {
+          ...current,
+          [triggerId]: {
+            ...entry,
+            loading: true,
+            error: null,
+            limit: query.limit ?? entry.limit,
+            query,
+            lastFetchedAt: entry.lastFetchedAt
+          }
+        } satisfies Record<string, TriggerDeliveryState>;
+      });
+      try {
+        const response = await listWorkflowTriggerDeliveries(authorizedFetch, slug, triggerId, query);
+        setTriggerDeliveryState((current) => ({
+          ...current,
+          [triggerId]: {
+            items: response.deliveries,
+            loading: false,
+            error: null,
+            limit: response.limit,
+            query,
+            lastFetchedAt: new Date().toISOString()
+          }
+        }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load trigger deliveries';
+        setTriggerDeliveryState((current) => ({
+          ...current,
+          [triggerId]: {
+            items: current[triggerId]?.items ?? [],
+            loading: false,
+            error: message,
+            limit: current[triggerId]?.limit ?? query.limit ?? 50,
+            query,
+            lastFetchedAt: current[triggerId]?.lastFetchedAt
+          }
+        }));
+        pushToast({
+          tone: 'error',
+          title: 'Delivery history refresh failed',
+          description: message
+        });
+      }
+    },
+    [authorizedFetch, pushToast]
+  );
+
+  const loadEventSamples = useCallback(
+    async (query: WorkflowEventSampleQuery = {}) => {
+      setEventSamplesState((current) => ({
+        ...current,
+        loading: true,
+        error: null,
+        query
+      }));
+      try {
+        const samples = await listWorkflowEventSamples(authorizedFetch, query);
+        setEventSamplesState({
+          items: samples,
+          loading: false,
+          error: null,
+          query,
+          lastFetchedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load event samples';
+        setEventSamplesState((current) => ({
+          ...current,
+          loading: false,
+          error: message
+        }));
+        if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
+          pushToast({
+            tone: 'error',
+            title: 'Event samples unavailable',
+            description: message
+          });
+        }
+      }
+    },
+    [authorizedFetch, pushToast]
+  );
+
+  const refreshEventSamples = useCallback(() => {
+    if (eventSamplesState.query) {
+      void loadEventSamples(eventSamplesState.query);
+    } else {
+      void loadEventSamples({});
+    }
+  }, [eventSamplesState.query, loadEventSamples]);
+
+  const loadEventSchedulerHealth = useCallback(async () => {
+    setEventHealthLoading(true);
+    setEventHealthError(null);
+    try {
+      const health = await getWorkflowEventHealth(authorizedFetch);
+      setEventHealth(health);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load event health';
+      setEventHealthError(message);
+      if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
+        pushToast({
+          tone: 'error',
+          title: 'Event health unavailable',
+          description: message
+        });
+      }
+    } finally {
+      setEventHealthLoading(false);
+    }
+  }, [authorizedFetch, pushToast]);
+
   const handleAnalyticsSnapshot = useCallback((snapshot: unknown) => {
     if (!snapshot || typeof snapshot !== 'object') {
       return;
@@ -582,6 +1096,10 @@ export function useWorkflowsController() {
   }, [selectedRunId]);
 
   useEffect(() => {
+    selectedTriggerIdRef.current = selectedTriggerId;
+  }, [selectedTriggerId]);
+
+  useEffect(() => {
     if (!identity) {
       setCanEditWorkflows(false);
       setCanUseAiBuilder(false);
@@ -599,11 +1117,20 @@ export function useWorkflowsController() {
 
   useEffect(() => {
     if (!selectedSlug) {
+      setSelectedTriggerId(null);
       return;
     }
     void loadWorkflowDetail(selectedSlug);
     void loadWorkflowAnalytics(selectedSlug);
-  }, [selectedSlug, loadWorkflowDetail, loadWorkflowAnalytics]);
+    void loadEventTriggers(selectedSlug, { force: true });
+    void loadEventSchedulerHealth();
+  }, [
+    selectedSlug,
+    loadWorkflowDetail,
+    loadWorkflowAnalytics,
+    loadEventTriggers,
+    loadEventSchedulerHealth
+  ]);
 
   useEffect(() => {
     setSelectedAssetId(null);
@@ -659,6 +1186,31 @@ export function useWorkflowsController() {
     }
     void loadRunSteps(selectedRunId);
   }, [selectedRunId, loadRunSteps]);
+
+  useEffect(() => {
+    if (!selectedSlug) {
+      setSelectedTriggerId(null);
+      return;
+    }
+    const entry = eventTriggerState[selectedSlug];
+    if (!entry || entry.items.length === 0) {
+      setSelectedTriggerId(null);
+      return;
+    }
+    setSelectedTriggerId((current) => {
+      if (current && entry.items.some((trigger) => trigger.id === current)) {
+        return current;
+      }
+      return entry.items[0].id;
+    });
+  }, [eventTriggerState, selectedSlug]);
+
+  useEffect(() => {
+    if (!selectedSlug || !selectedEventTrigger) {
+      return;
+    }
+    void loadTriggerDeliveries(selectedSlug, selectedEventTrigger.id);
+  }, [selectedSlug, selectedEventTrigger, loadTriggerDeliveries]);
 
   const applyWorkflowDefinitionUpdate = useCallback(
     (payload: unknown) => {
@@ -828,14 +1380,28 @@ export function useWorkflowsController() {
   const handleRefresh = useCallback(() => {
     void loadWorkflows();
     void loadServices();
+    void loadEventSchedulerHealth();
     if (selectedSlugRef.current) {
       void loadWorkflowDetail(selectedSlugRef.current);
       void loadWorkflowAnalytics(selectedSlugRef.current);
+      void loadEventTriggers(selectedSlugRef.current, { force: true });
+      if (selectedTriggerIdRef.current) {
+        void loadTriggerDeliveries(selectedSlugRef.current, selectedTriggerIdRef.current);
+      }
     }
     if (selectedRunIdRef.current) {
       void loadRunSteps(selectedRunIdRef.current);
     }
-  }, [loadServices, loadWorkflowDetail, loadRunSteps, loadWorkflows, loadWorkflowAnalytics]);
+  }, [
+    loadEventSchedulerHealth,
+    loadEventTriggers,
+    loadServices,
+    loadWorkflowDetail,
+    loadWorkflowAnalytics,
+    loadRunSteps,
+    loadWorkflows,
+    loadTriggerDeliveries
+  ]);
 
   const handleOpenAiBuilder = useCallback(() => {
     if (!canUseAiBuilder) {
@@ -1040,6 +1606,32 @@ export function useWorkflowsController() {
     loadAssetHistory,
     loadAssetPartitions,
     refreshAsset,
+    eventTriggers,
+    eventTriggersLoading,
+    eventTriggersError,
+    selectedEventTrigger,
+    selectedEventTriggerId: selectedTriggerId,
+    setSelectedEventTriggerId: setSelectedTriggerId,
+    loadEventTriggers,
+    createEventTrigger,
+    updateEventTrigger,
+    deleteEventTrigger,
+    triggerDeliveries,
+    triggerDeliveriesLoading,
+    triggerDeliveriesError,
+    triggerDeliveriesLimit,
+    triggerDeliveriesQuery,
+    loadTriggerDeliveries,
+    eventSamples,
+    eventSamplesLoading,
+    eventSamplesError,
+    eventSamplesQuery: eventSamplesState.query,
+    loadEventSamples,
+    refreshEventSamples,
+    eventHealth,
+    eventHealthLoading,
+    eventHealthError,
+    loadEventSchedulerHealth,
     workflowRuntimeSummaries,
     workflowAnalytics,
     setWorkflowAnalyticsRange,
