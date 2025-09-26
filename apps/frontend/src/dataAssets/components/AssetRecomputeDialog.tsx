@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
-import { Editor, Spinner } from '../../components';
+import { Editor, Modal, Spinner } from '../../components';
 import { formatTimestamp } from '../../workflows/formatters';
 import type { WorkflowAssetPartitionSummary } from '../../workflows/types';
 
@@ -548,20 +548,19 @@ export function AssetRecomputeDialog({
 
   const resetButtonsDisabled = submitting || clearing || workflowParametersLoading;
 
+  const dialogTitleId = 'asset-recompute-title';
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4 pt-10 backdrop-blur-sm overscroll-contain sm:items-center sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      onClick={handleClose}
+    <Modal
+      open={open}
+      onClose={handleClose}
+      labelledBy={dialogTitleId}
+      className="items-start justify-center p-4 pt-10 sm:items-center sm:p-6"
+      contentClassName="flex max-w-2xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
     >
-      <div
-        className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
-        onClick={(event) => event.stopPropagation()}
-      >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
               Trigger workflow run
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -773,8 +772,7 @@ export function AssetRecomputeDialog({
             </button>
           </div>
         </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Modal } from '../../components';
 import type { ExampleScenario, ExampleScenarioType } from './types';
 import { groupScenariosByType } from './types';
 
@@ -205,14 +206,24 @@ export function ExampleScenarioPicker({
     return null;
   }
 
+  const dialogTitleId = 'example-scenario-picker-title';
+
   return (
-    <div className={PANEL_CLASSES} role="dialog" aria-modal="true">
-      <div className={DRAWER_CLASSES}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      closeOnBackdrop={false}
+      labelledBy={dialogTitleId}
+      className={PANEL_CLASSES}
+      contentClassName={`${DRAWER_CLASSES} border-0`}
+    >
         <aside className="flex flex-col gap-4 border-b border-slate-200/70 p-5 lg:border-b-0 lg:border-r dark:border-slate-700/70">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
               <span className={SECTION_HEADER_CLASSES}>Example scenarios</span>
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Jump straight into a seeded workflow</h2>
+              <h2 id={dialogTitleId} className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                Jump straight into a seeded workflow
+              </h2>
             </div>
             <button
               type="button"
@@ -253,7 +264,6 @@ export function ExampleScenarioPicker({
             ))
           )}
         </section>
-      </div>
-    </div>
+    </Modal>
   );
 }

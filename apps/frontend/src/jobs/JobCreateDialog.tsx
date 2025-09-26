@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AuthorizedFetch, JobDefinitionSummary } from '../workflows/api';
 import { createJobDefinition } from '../workflows/api';
+import { Modal } from '../components';
 import { Editor } from '../components/Editor';
 import {
   previewJobSchemas,
@@ -393,17 +394,13 @@ export default function JobCreateDialog({
   const pythonRuntimeMessage = formatRuntimeStatus(pythonStatus);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4 pt-10 backdrop-blur-sm overscroll-contain sm:items-center sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="job-create-title"
-      onClick={onClose}
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy="job-create-title"
+      className="items-start justify-center p-4 pt-10 sm:items-center sm:p-6"
+      contentClassName="flex max-w-3xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900 max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]"
     >
-      <div
-        className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900 max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]"
-        onClick={(event) => event.stopPropagation()}
-      >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
           <div>
             <h2 id="job-create-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
@@ -722,7 +719,6 @@ export default function JobCreateDialog({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

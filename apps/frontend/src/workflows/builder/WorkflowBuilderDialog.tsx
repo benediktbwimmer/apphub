@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { FormSection, FormField, FormActions, FormButton, FormFeedback } from '../../components/form';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
+import { Modal } from '../../components';
 import { useWorkflowResources } from '../WorkflowResourcesContext';
 import type { WorkflowDefinition, WorkflowDraft, WorkflowDraftStep } from '../types';
 import {
@@ -391,41 +392,48 @@ export function WorkflowBuilderDialog({
   }
 
   const lastSavedLabel = formatTimestamp(lastSavedAt);
+  const dialogTitleId = 'workflow-builder-title';
 
   return (
-    <div className="fixed inset-0 z-[999] overflow-y-auto bg-slate-950/70 px-4 py-10 backdrop-blur-sm sm:px-8">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <h2 className="text-2xl font-semibold text-white">
-              {mode === 'create' ? 'Create workflow' : `Edit workflow: ${workflow?.name ?? draft.name}`}
-            </h2>
-            <p className="text-sm text-slate-200">
-              Define workflow metadata, configure execution steps, and preview the resulting specification before saving.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-200/60 bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-          >
-            Close
-          </button>
+    <Modal
+      open={open}
+      onClose={onClose}
+      closeOnBackdrop={false}
+      labelledBy={dialogTitleId}
+      className="z-[999] items-start justify-center overflow-y-auto bg-slate-950/70 px-4 py-10 backdrop-blur-sm sm:px-8"
+      contentClassName="mx-auto flex w-full max-w-5xl flex-col gap-6 border-0 bg-transparent p-0 shadow-none"
+    >
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h2 id={dialogTitleId} className="text-2xl font-semibold text-white">
+            {mode === 'create' ? 'Create workflow' : `Edit workflow: ${workflow?.name ?? draft.name}`}
+          </h2>
+          <p className="text-sm text-slate-200">
+            Define workflow metadata, configure execution steps, and preview the resulting specification before saving.
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-slate-200/60 bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+        >
+          Close
+        </button>
+      </div>
 
-        {restoredDraft && (
-          <FormFeedback tone="info">
-            Restored your saved draft from this device. <button type="button" onClick={clearAutosave} className="underline">Discard draft</button>
-          </FormFeedback>
-        )}
-        {autosaveError && <FormFeedback tone="error">{autosaveError}</FormFeedback>}
-        {resourcesError && (
-          <FormFeedback tone="error">
-            Failed to load workflow resources. <button type="button" onClick={refresh} className="underline">Retry</button>
-          </FormFeedback>
-        )}
+      {restoredDraft && (
+        <FormFeedback tone="info">
+          Restored your saved draft from this device. <button type="button" onClick={clearAutosave} className="underline">Discard draft</button>
+        </FormFeedback>
+      )}
+      {autosaveError && <FormFeedback tone="error">{autosaveError}</FormFeedback>}
+      {resourcesError && (
+        <FormFeedback tone="error">
+          Failed to load workflow resources. <button type="button" onClick={refresh} className="underline">Retry</button>
+        </FormFeedback>
+      )}
 
-        <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
+      <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
           <FormSection>
             <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow details</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -620,9 +628,8 @@ export function WorkflowBuilderDialog({
               </FormButton>
             </div>
           </FormActions>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 import FormField from '../components/form/FormField';
 import FormButton from '../components/form/FormButton';
 import FormActions from '../components/form/FormActions';
+import { Modal } from '../components';
 import type { WorkflowScheduleSummary, ScheduleCreateInput, ScheduleUpdateInput } from './api';
 
 type WorkflowOption = {
@@ -22,10 +23,6 @@ type ScheduleFormDialogProps = {
   onUpdate: (input: ScheduleUpdateInput) => Promise<void> | void;
 };
 
-const PANEL_CLASSES =
-  'fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-6 backdrop-blur-sm sm:items-center';
-const CARD_CLASSES =
-  'relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80 max-h-[calc(100vh-3rem)] overflow-y-auto';
 
 function buildParametersText(parameters: unknown): string {
   if (!parameters || typeof parameters !== 'object') {
@@ -187,25 +184,35 @@ export default function ScheduleFormDialog({
 
   const dialogTitle = mode === 'create' ? 'Create Schedule' : 'Edit Schedule';
   const workflowLabel = mode === 'create' ? 'Workflow' : 'Workflow (read-only)';
+  const dialogTitleId = 'schedule-form-title';
 
   return (
-    <div className={PANEL_CLASSES} role="dialog" aria-modal="true">
-      <div className={CARD_CLASSES}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy={dialogTitleId}
+      closeOnBackdrop={false}
+      className="items-start justify-center px-4 py-6 sm:items-center"
+      contentClassName="relative w-full max-w-2xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80 max-h-[calc(100vh-3rem)] overflow-y-auto"
+    >
+      <>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{dialogTitle}</h2>
+            <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {dialogTitle}
+            </h2>
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Configure the schedule cadence and parameters.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-400"
-            disabled={submitting}
-          >
-            Close
-          </button>
+            Configure the schedule cadence and parameters.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-slate-300/70 px-3 py-1 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-400"
+          disabled={submitting}
+        >
+          Close
+        </button>
         </div>
 
         <div className="mt-6 flex flex-col gap-4">
@@ -362,7 +369,7 @@ export default function ScheduleFormDialog({
             </FormButton>
           </FormActions>
         </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }
