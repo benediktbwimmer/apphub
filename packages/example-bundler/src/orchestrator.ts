@@ -284,6 +284,9 @@ export class ExampleBundler {
     if (installMatches) {
       return;
     }
+    if (await pathExists(nodeModules)) {
+      await removeDir(nodeModules);
+    }
     await execFileAsync(this.installCommand[0], this.installCommand.slice(1), {
       cwd: bundleDir,
       maxBuffer: this.installMaxBuffer

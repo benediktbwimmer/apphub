@@ -254,6 +254,27 @@ function mergeEnvWithDefaults(
   overrides?: LaunchEnvVar[] | null
 ): LaunchEnvVar[] {
   const merged = new Map<string, string>();
+  const hostRootActive = Boolean(process.env.APPHUB_HOST_ROOT && process.env.APPHUB_HOST_ROOT.trim());
+
+  const rewriteLoopbackHost = (value: string): string => {
+    if (!hostRootActive) {
+      return value;
+    }
+    try {
+      const parsed = new URL(value);
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'localhost' || hostname === '::1' || hostname.startsWith('127.')) {
+        parsed.hostname = 'host.docker.internal';
+        return parsed.toString();
+      }
+      return value;
+    } catch {
+      if (value.toLowerCase().includes('localhost')) {
+        return value.replace(/localhost/gi, 'host.docker.internal');
+      }
+      return value;
+    }
+  };
 
   const push = (entries: LaunchEnvVar[]) => {
     for (const entry of entries) {
@@ -264,7 +285,8 @@ function mergeEnvWithDefaults(
       if (!key) {
         continue;
       }
-      const value = typeof entry.value === 'string' ? entry.value : '';
+      const rawValue = typeof entry.value === 'string' ? entry.value : '';
+      const value = rewriteLoopbackHost(rawValue);
       merged.set(key, value);
       if (merged.size >= 64) {
         break;
