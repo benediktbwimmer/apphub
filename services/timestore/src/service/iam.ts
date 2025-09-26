@@ -6,6 +6,10 @@ const ADMIN_SCOPE = process.env.TIMESTORE_ADMIN_SCOPE || REQUIRED_SCOPE;
 const WRITE_SCOPE_ENV = process.env.TIMESTORE_REQUIRE_WRITE_SCOPE;
 const WRITE_SCOPE = WRITE_SCOPE_ENV || ADMIN_SCOPE || REQUIRED_SCOPE || null;
 const METRICS_SCOPE = process.env.TIMESTORE_METRICS_SCOPE || ADMIN_SCOPE || REQUIRED_SCOPE || null;
+const SQL_READ_SCOPES =
+  parseScopeList(process.env.TIMESTORE_SQL_READ_SCOPE) ?? (REQUIRED_SCOPE ? [REQUIRED_SCOPE] : null);
+const SQL_EXEC_SCOPES =
+  parseScopeList(process.env.TIMESTORE_SQL_EXEC_SCOPE) ?? (ADMIN_SCOPE ? [ADMIN_SCOPE] : null);
 
 export interface RequestActor {
   id: string;
@@ -23,6 +27,14 @@ export async function authorizeAdminAccess(request: FastifyRequest): Promise<voi
     (error as Error & { statusCode?: number }).statusCode = 403;
     throw error;
   }
+}
+
+export function authorizeSqlReadAccess(request: FastifyRequest): void {
+  enforceScopes(request, SQL_READ_SCOPES, 'Missing required SQL read scope');
+}
+
+export function authorizeSqlExecAccess(request: FastifyRequest): void {
+  enforceScopes(request, SQL_EXEC_SCOPES, 'Missing required SQL exec scope');
 }
 
 export async function authorizeMetricsAccess(
@@ -171,6 +183,29 @@ function asStringArray(value: unknown): string[] | null {
   return result.length > 0 ? result : [];
 }
 
+function parseScopeList(value: string | undefined): string[] | null {
+  if (!value) {
+    return null;
+  }
+  const parts = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return parts.length > 0 ? parts : null;
+}
+
 function hasRequiredScope(scopes: string[], required: string[]): boolean {
   return required.some((scope) => scopes.includes(scope));
+}
+
+function enforceScopes(request: FastifyRequest, required: string[] | null, errorMessage: string): void {
+  if (!required || required.length === 0) {
+    return;
+  }
+  const scopes = getRequestScopes(request);
+  if (!hasRequiredScope(scopes, required)) {
+    const error = new Error(errorMessage);
+    (error as Error & { statusCode?: number }).statusCode = 403;
+    throw error;
+  }
 }

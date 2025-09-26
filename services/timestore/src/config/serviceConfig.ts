@@ -51,6 +51,11 @@ const tracingSchema = z.object({
   serviceName: z.string().min(1)
 });
 
+const sqlSchema = z.object({
+  maxQueryLength: z.number().int().positive(),
+  statementTimeoutMs: z.number().int().positive()
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -87,6 +92,7 @@ const configSchema = z.object({
   query: z.object({
     cache: cacheSchema
   }),
+  sql: sqlSchema,
   lifecycle: lifecycleSchema,
   observability: z.object({
     metrics: metricsSchema,
@@ -163,6 +169,8 @@ export function loadServiceConfig(): ServiceConfig {
   const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
   const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
   const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
+  const sqlMaxQueryLength = parseNumber(env.TIMESTORE_SQL_MAX_LENGTH, 10_000);
+  const sqlStatementTimeoutMs = parseNumber(env.TIMESTORE_SQL_TIMEOUT_MS, 30_000);
   const lifecycleEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_ENABLED, true);
   const lifecycleQueueName = env.TIMESTORE_LIFECYCLE_QUEUE_NAME || 'timestore_lifecycle_queue';
   const lifecycleIntervalSeconds = parseNumber(env.TIMESTORE_LIFECYCLE_INTERVAL_SECONDS, 300);
@@ -217,6 +225,10 @@ export function loadServiceConfig(): ServiceConfig {
         directory: queryCacheDirectory,
         maxBytes: queryCacheMaxBytes > 0 ? queryCacheMaxBytes : 1 * 1024 * 1024
       }
+    },
+    sql: {
+      maxQueryLength: sqlMaxQueryLength > 0 ? sqlMaxQueryLength : 10_000,
+      statementTimeoutMs: sqlStatementTimeoutMs > 0 ? sqlStatementTimeoutMs : 30_000
     },
     lifecycle: {
       enabled: lifecycleEnabled,

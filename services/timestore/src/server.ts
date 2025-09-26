@@ -7,6 +7,7 @@ import { registerHealthRoutes } from './routes/health';
 import { registerIngestionRoutes } from './routes/ingest';
 import { registerQueryRoutes } from './routes/query';
 import { registerAdminRoutes } from './routes/admin';
+import { registerSqlRoutes } from './routes/sql';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
 import { closeLifecycleQueue } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
@@ -34,6 +35,7 @@ async function start(): Promise<void> {
   await registerIngestionRoutes(app);
   await registerQueryRoutes(app);
   await registerAdminRoutes(app);
+  await registerSqlRoutes(app);
 
   app.addHook('onClose', async () => {
     await closePool();

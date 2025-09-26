@@ -50,6 +50,10 @@ function createTestConfig(cacheDir: string): ServiceConfig {
         maxBytes: 256 * 1024
       }
     },
+    sql: {
+      maxQueryLength: 10_000,
+      statementTimeoutMs: 30_000
+    },
     lifecycle: {
       enabled: true,
       queueName: 'queue',
