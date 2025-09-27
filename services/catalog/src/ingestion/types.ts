@@ -1,4 +1,9 @@
-import type { RepositoryPreviewInput, RepositoryRecord, TagKV } from '../db/index';
+import type {
+  RepositoryMetadataStrategy,
+  RepositoryPreviewInput,
+  RepositoryRecord,
+  TagKV
+} from '../db/index';
 import type { JobRunContext } from '../jobs/runtime';
 
 export type DiscoveredTag = TagKV & { source: string };
@@ -46,7 +51,7 @@ export interface IngestionPipelineContext {
   tagMap: Map<string, DiscoveredTag>;
   repositoryName: string;
   repositoryDescription: string | null;
-  metadataStrategy: string;
+  metadataStrategy: RepositoryMetadataStrategy;
   shouldAutofillMetadata: boolean;
   stageMetrics: StageMetrics[];
   cleanupTasks: Array<() => Promise<void>>;

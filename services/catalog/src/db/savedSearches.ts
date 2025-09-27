@@ -327,3 +327,9 @@ export async function recordSavedCatalogSearchShared(
     return row ? mapRow(row) : null;
   });
 }
+
+export type {
+  SavedCatalogSearchCreateInput,
+  SavedCatalogSearchRecord,
+  SavedCatalogSearchUpdateInput
+};
