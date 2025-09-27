@@ -290,6 +290,12 @@ export default function TimestoreDatasetsPage() {
 
   const datasetSlugForQuery = datasetDetail?.slug ?? selectedDatasetRecord?.slug ?? null;
 
+  const schemaFields = useMemo(() => manifest?.manifest.schemaVersion?.fields ?? [], [manifest]);
+  const defaultTimestampColumn = useMemo(() => {
+    const timestampField = schemaFields.find((field) => field.type && field.type.toLowerCase() === 'timestamp');
+    return timestampField?.name ?? 'timestamp';
+  }, [schemaFields]);
+
   const {
     events: historyEvents,
     loading: historyLoading,
@@ -604,7 +610,12 @@ export default function TimestoreDatasetsPage() {
                   canEdit={hasAdminScope}
                 />
 
-                <QueryConsole datasetSlug={datasetSlugForQuery} defaultTimestampColumn="timestamp" canQuery={hasReadScope} />
+                <QueryConsole
+                  datasetSlug={datasetSlugForQuery}
+                  defaultTimestampColumn={defaultTimestampColumn}
+                  schemaFields={schemaFields}
+                  canQuery={hasReadScope}
+                />
 
                 <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
                   <header className="flex items-center justify-between">

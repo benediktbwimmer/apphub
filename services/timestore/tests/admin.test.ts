@@ -608,9 +608,17 @@ test('fetches latest manifest', async () => {
   });
 
   assert.equal(response.statusCode, 200);
-  const payload = response.json() as { manifest: { datasetId: string; partitions: unknown[] } };
+  const payload = response.json() as {
+    manifest: {
+      datasetId: string;
+      partitions: unknown[];
+      schemaVersion: { id: string; version: number; fields: Array<{ name: string; type: string }> } | null;
+    };
+  };
   assert.equal(payload.manifest.datasetId, datasetA.id);
   assert.ok(Array.isArray(payload.manifest.partitions));
+  assert.ok(payload.manifest.schemaVersion);
+  assert.ok(payload.manifest.schemaVersion?.fields.some((field) => field.name === 'timestamp'));
 });
 
 test('lists storage targets', async () => {

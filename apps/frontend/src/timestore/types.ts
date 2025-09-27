@@ -94,15 +94,32 @@ export const manifestPartitionSchema = z
 
 export type ManifestPartition = z.infer<typeof manifestPartitionSchema>;
 
+const datasetSchemaFieldSchema = z.object({
+  name: z.string(),
+  type: z.string()
+});
+
+export type DatasetSchemaField = z.infer<typeof datasetSchemaFieldSchema>;
+
 export const manifestResponseSchema = z.object({
   datasetId: z.string(),
-  manifest: z.object({
-    id: z.string(),
-    version: z.number(),
-    createdAt: z.string(),
-    schemaVersion: z.string().nullable().optional(),
-    partitions: z.array(manifestPartitionSchema)
-  })
+  manifest: z
+    .object({
+      id: z.string(),
+      version: z.number(),
+      createdAt: z.string(),
+      schemaVersionId: z.string().nullable().optional(),
+      schemaVersion: z
+        .object({
+          id: z.string(),
+          version: z.number(),
+          fields: z.array(datasetSchemaFieldSchema)
+        })
+        .nullable()
+        .optional(),
+      partitions: z.array(manifestPartitionSchema)
+    })
+    .passthrough()
 });
 
 export type ManifestResponse = z.infer<typeof manifestResponseSchema>;

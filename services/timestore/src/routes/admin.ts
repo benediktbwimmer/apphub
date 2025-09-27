@@ -21,6 +21,7 @@ import {
   getDatasetById,
   getDatasetBySlug,
   getLatestPublishedManifest,
+  getSchemaVersionById,
   getRetentionPolicy,
   upsertRetentionPolicy,
   updateDatasetDefaultStorageTarget,
@@ -626,9 +627,24 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
+    const schemaVersion = manifest.schemaVersionId
+      ? await getSchemaVersionById(manifest.schemaVersionId)
+      : null;
+
+    const manifestWithSchema = {
+      ...manifest,
+      schemaVersion: schemaVersion
+        ? {
+            id: schemaVersion.id,
+            version: schemaVersion.version,
+            fields: extractSchemaFields(schemaVersion.schema)
+          }
+        : null
+    } as const;
+
     return {
       datasetId: dataset.id,
-      manifest
+      manifest: manifestWithSchema
     };
   });
 
@@ -759,6 +775,36 @@ interface AuditActor {
 interface IfMatchResolution {
   value: string | null;
   valid: boolean;
+}
+
+interface SchemaField {
+  name: string;
+  type: string;
+}
+
+function extractSchemaFields(schema: unknown): SchemaField[] {
+  if (!schema || typeof schema !== 'object') {
+    return [];
+  }
+  const fieldsValue = (schema as { fields?: unknown }).fields;
+  if (!Array.isArray(fieldsValue)) {
+    return [];
+  }
+  const fields: SchemaField[] = [];
+  for (const entry of fieldsValue) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const { name, type } = entry as { name?: unknown; type?: unknown };
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      continue;
+    }
+    if (typeof type !== 'string' || type.trim().length === 0) {
+      continue;
+    }
+    fields.push({ name: name.trim(), type: type.trim() });
+  }
+  return fields;
 }
 
 function isLifecycleOperation(value: string): value is LifecycleOperation {
