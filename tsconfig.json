@@ -6,7 +6,7 @@
       "path": "./packages/shared"
     },
     {
-      "path": "./packages/examples-registry"
+      "path": "./packages/examples"
     },
     {
       "path": "./packages/example-bundler"

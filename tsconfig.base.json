@@ -45,11 +45,11 @@
       "@apphub/shared/*": [
         "packages/shared/src/*"
       ],
-      "@apphub/examples-registry": [
-        "packages/examples-registry/src/index.ts"
+      "@apphub/examples": [
+        "packages/examples/src/index.ts"
       ],
-      "@apphub/examples-registry/*": [
-        "packages/examples-registry/src/*"
+      "@apphub/examples/*": [
+        "packages/examples/src/*"
       ],
       "@apphub/example-bundler": [
         "packages/example-bundler/src/index.ts"

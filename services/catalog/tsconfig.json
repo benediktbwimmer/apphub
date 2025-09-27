@@ -20,7 +20,7 @@
   ],
   "references": [
     {
-      "path": "../../packages/examples-registry"
+      "path": "../../packages/examples"
     },
     {
       "path": "../../packages/example-bundler"

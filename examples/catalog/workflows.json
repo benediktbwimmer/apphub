@@ -1,0 +1,1949 @@
+{
+  "workflows": [
+    {
+      "slug": "observatory-minute-data-generator",
+      "path": "examples/environmental-observatory-event-driven/workflows/observatory-minute-data-generator.json",
+      "definition": {
+        "slug": "observatory-minute-data-generator",
+        "name": "Observatory Minute Data Generator",
+        "version": 2,
+        "description": "Uploads synthetic minute-level CSV drops to Filestore to simulate instrument readings arriving in the inbox.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "minute": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+            },
+            "rowsPerInstrument": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 360
+            },
+            "intervalMinutes": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 120
+            },
+            "seed": {
+              "type": "number"
+            },
+            "filestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filestoreBackendId": {
+              "type": "number",
+              "minimum": 1
+            },
+            "filestoreToken": {
+              "type": "string"
+            },
+            "inboxPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stagingPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "archivePrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filestorePrincipal": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "minute",
+            "filestoreBaseUrl",
+            "filestoreBackendId",
+            "inboxPrefix",
+            "stagingPrefix",
+            "archivePrefix"
+          ]
+        },
+        "defaultParameters": {
+          "rowsPerInstrument": 6,
+          "intervalMinutes": 10,
+          "filestoreBaseUrl": "http://127.0.0.1:4300",
+          "filestoreBackendId": 1,
+          "inboxPrefix": "datasets/observatory/inbox",
+          "stagingPrefix": "datasets/observatory/staging",
+          "archivePrefix": "datasets/observatory/archive",
+          "filestorePrincipal": "observatory-data-generator",
+          "filestoreToken": null
+        },
+        "steps": [
+          {
+            "id": "generate-synthetic-drop",
+            "name": "Generate synthetic instrument readings",
+            "type": "job",
+            "jobSlug": "observatory-data-generator",
+            "parameters": {
+              "minute": "{{ parameters.minute }}",
+              "rowsPerInstrument": "{{ parameters.rowsPerInstrument }}",
+              "intervalMinutes": "{{ parameters.intervalMinutes }}",
+              "seed": "{{ parameters.seed }}",
+              "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+              "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+              "filestoreToken": "{{ parameters.filestoreToken }}",
+              "inboxPrefix": "{{ parameters.inboxPrefix }}",
+              "stagingPrefix": "{{ parameters.stagingPrefix }}",
+              "archivePrefix": "{{ parameters.archivePrefix }}",
+              "principal": "{{ parameters.filestorePrincipal }}"
+            },
+            "storeResultAs": "syntheticDrop",
+            "produces": [
+              {
+                "assetId": "observatory.inbox.synthetic",
+                "partitioning": {
+                  "type": "timeWindow",
+                  "granularity": "minute",
+                  "format": "YYYY-MM-DDTHH:mm",
+                  "lookbackWindows": 1440
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "filestoreInboxPrefix": {
+                      "type": "string"
+                    },
+                    "filestoreBackendId": {
+                      "type": "number"
+                    },
+                    "rowsGenerated": {
+                      "type": "number"
+                    },
+                    "instrumentCount": {
+                      "type": "number"
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "filestorePath": {
+                            "type": "string"
+                          },
+                          "instrumentId": {
+                            "type": "string"
+                          },
+                          "site": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "filestorePath",
+                          "instrumentId",
+                          "rows"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "generatedAt",
+                    "partitionKey",
+                    "filestoreInboxPrefix",
+                    "filestoreBackendId",
+                    "rowsGenerated",
+                    "instrumentCount",
+                    "files"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ],
+        "metadata": {
+          "provisioning": {
+            "schedules": [
+              {
+                "name": "Observatory minute data generator",
+                "description": "Emit synthetic instrument drops every minute so downstream ingest and visualization workflows stay in sync.",
+                "cron": "*/1 * * * *",
+                "timezone": "UTC",
+                "catchUp": false,
+                "isActive": true,
+                "parameters": {
+                  "rowsPerInstrument": "{{ defaultParameters.rowsPerInstrument }}",
+                  "intervalMinutes": "{{ defaultParameters.intervalMinutes }}",
+                  "filestoreBaseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
+                  "filestoreBackendId": "{{ defaultParameters.filestoreBackendId }}",
+                  "filestoreToken": "{{ defaultParameters.filestoreToken }}",
+                  "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
+                  "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
+                  "archivePrefix": "{{ defaultParameters.archivePrefix }}",
+                  "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "slug": "observatory-minute-ingest",
+      "path": "examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json",
+      "definition": {
+        "slug": "observatory-minute-ingest",
+        "name": "Observatory Minute Ingest",
+        "version": 1,
+        "description": "Normalizes inbox CSVs and persists minute-level readings into Timestore.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "stagingDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "archiveDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minute": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxFiles": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "filestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filestoreBackendId": {
+              "type": "number",
+              "minimum": 1
+            },
+            "filestoreToken": {
+              "type": "string"
+            },
+            "inboxPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stagingPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "archivePrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filestorePrincipal": {
+              "type": "string"
+            },
+            "commandPath": {
+              "type": "string"
+            },
+            "timestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreDatasetSlug": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreDatasetName": {
+              "type": "string"
+            },
+            "timestoreTableName": {
+              "type": "string"
+            },
+            "timestoreStorageTargetId": {
+              "type": "string"
+            },
+            "timestoreAuthToken": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "stagingDir",
+            "archiveDir",
+            "minute",
+            "filestoreBaseUrl",
+            "filestoreBackendId",
+            "inboxPrefix",
+            "stagingPrefix",
+            "archivePrefix",
+            "timestoreBaseUrl",
+            "timestoreDatasetSlug"
+          ]
+        },
+        "defaultParameters": {
+          "maxFiles": 64,
+          "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
+          "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
+          "filestoreBaseUrl": "http://127.0.0.1:4300",
+          "filestoreBackendId": 1,
+          "inboxPrefix": "datasets/observatory/inbox",
+          "stagingPrefix": "datasets/observatory/staging",
+          "archivePrefix": "datasets/observatory/archive",
+          "filestorePrincipal": "observatory-inbox-normalizer",
+          "timestoreBaseUrl": "http://127.0.0.1:4200",
+          "timestoreDatasetSlug": "observatory-timeseries",
+          "timestoreDatasetName": "Observatory Time Series",
+          "timestoreTableName": "observations",
+          "filestoreToken": null,
+          "timestoreStorageTargetId": null,
+          "timestoreAuthToken": null
+        },
+        "steps": [
+          {
+            "id": "normalize-inbox",
+            "name": "Normalize inbox files",
+            "type": "job",
+            "jobSlug": "observatory-inbox-normalizer",
+            "parameters": {
+              "stagingDir": "{{ parameters.stagingDir }}",
+              "archiveDir": "{{ parameters.archiveDir }}",
+              "minute": "{{ parameters.minute }}",
+              "maxFiles": "{{ parameters.maxFiles }}",
+              "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+              "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+              "filestoreToken": "{{ parameters.filestoreToken }}",
+              "inboxPrefix": "{{ parameters.inboxPrefix }}",
+              "stagingPrefix": "{{ parameters.stagingPrefix }}",
+              "archivePrefix": "{{ parameters.archivePrefix }}",
+              "commandPath": "{{ parameters.commandPath }}",
+              "principal": "{{ parameters.filestorePrincipal }}"
+            },
+            "storeResultAs": "normalizedOutput",
+            "produces": [
+              {
+                "assetId": "observatory.timeseries.raw",
+                "partitioning": {
+                  "type": "timeWindow",
+                  "granularity": "minute",
+                  "format": "YYYY-MM-DDTHH:mm",
+                  "lookbackWindows": 1440
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "minute": {
+                      "type": "string"
+                    },
+                    "instrumentCount": {
+                      "type": "number"
+                    },
+                    "recordCount": {
+                      "type": "number"
+                    },
+                    "sourceFiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "site": {
+                            "type": "string"
+                          },
+                          "instrumentId": {
+                            "type": "string"
+                          },
+                          "rows": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "rows"
+                        ]
+                      }
+                    },
+                    "stagingDir": {
+                      "type": "string"
+                    },
+                    "normalizedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "partitionKey",
+                    "minute",
+                    "recordCount",
+                    "sourceFiles",
+                    "normalizedAt"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "load-timestore",
+            "name": "Ingest into Timestore",
+            "type": "job",
+            "jobSlug": "observatory-timestore-loader",
+            "dependsOn": [
+              "normalize-inbox"
+            ],
+            "parameters": {
+              "datasetSlug": "{{ parameters.timestoreDatasetSlug }}",
+              "datasetName": "{{ parameters.timestoreDatasetName }}",
+              "tableName": "{{ parameters.timestoreTableName }}",
+              "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
+              "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
+              "storageTargetId": "{{ parameters.timestoreStorageTargetId }}",
+              "partitionNamespace": "observatory",
+              "minute": "{{ parameters.minute }}",
+              "idempotencyKey": "{{ parameters.minute }}",
+              "rawAsset": "{{ shared.normalizedOutput.normalized }}"
+            },
+            "storeResultAs": "timestoreIngestion",
+            "consumes": [
+              {
+                "assetId": "observatory.timeseries.raw"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "observatory.timeseries.timestore",
+                "partitioning": {
+                  "type": "timeWindow",
+                  "granularity": "minute",
+                  "format": "YYYY-MM-DDTHH:mm",
+                  "lookbackWindows": 1440
+                },
+                "freshness": {
+                  "ttlMs": 60000
+                },
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "priority": 5
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "datasetSlug": {
+                      "type": "string"
+                    },
+                    "ingestionMode": {
+                      "type": "string"
+                    },
+                    "manifestId": {
+                      "type": "string"
+                    },
+                    "datasetId": {
+                      "type": "string"
+                    },
+                    "rowCount": {
+                      "type": "number"
+                    },
+                    "storageTargetId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "partitionKey",
+                    "datasetSlug",
+                    "rowCount"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ],
+        "metadata": {
+          "provisioning": {
+            "eventTriggers": [
+              {
+                "name": "Observatory ingest on filestore upload",
+                "description": "Kick off the minute ingest workflow whenever new observatory CSV uploads land in Filestore.",
+                "eventType": "filestore.command.completed",
+                "eventSource": "filestore.service",
+                "predicates": [
+                  {
+                    "path": "$.payload.command",
+                    "operator": "equals",
+                    "value": "uploadFile"
+                  },
+                  {
+                    "path": "$.payload.backendMountId",
+                    "operator": "equals",
+                    "value": "{{ defaultParameters.filestoreBackendId }}"
+                  }
+                ],
+                "parameterTemplate": {
+                  "minute": "{{ event.payload.node.metadata.minute }}",
+                  "maxFiles": "{{ trigger.metadata.maxFiles }}",
+                  "stagingDir": "{{ trigger.metadata.paths.stagingDir }}",
+                  "archiveDir": "{{ trigger.metadata.paths.archiveDir }}",
+                  "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
+                  "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
+                  "filestoreToken": "{{ trigger.metadata.filestore.token }}",
+                  "inboxPrefix": "{{ trigger.metadata.filestore.inboxPrefix }}",
+                  "stagingPrefix": "{{ trigger.metadata.filestore.stagingPrefix }}",
+                  "archivePrefix": "{{ trigger.metadata.filestore.archivePrefix }}",
+                  "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+                  "commandPath": "{{ event.payload.path }}",
+                  "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
+                  "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
+                  "timestoreDatasetName": "{{ trigger.metadata.timestore.datasetName }}",
+                  "timestoreTableName": "{{ trigger.metadata.timestore.tableName }}",
+                  "timestoreStorageTargetId": "{{ trigger.metadata.timestore.storageTargetId }}",
+                  "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}"
+                },
+                "metadata": {
+                  "maxFiles": "{{ defaultParameters.maxFiles }}",
+                  "paths": {
+                    "stagingDir": "{{ defaultParameters.stagingDir }}",
+                    "archiveDir": "{{ defaultParameters.archiveDir }}"
+                  },
+                  "filestore": {
+                    "baseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
+                    "backendMountId": "{{ defaultParameters.filestoreBackendId }}",
+                    "token": "{{ defaultParameters.filestoreToken }}",
+                    "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
+                    "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
+                    "archivePrefix": "{{ defaultParameters.archivePrefix }}",
+                    "principal": "{{ defaultParameters.filestorePrincipal }}"
+                  },
+                  "timestore": {
+                    "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+                    "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+                    "datasetName": "{{ defaultParameters.timestoreDatasetName }}",
+                    "tableName": "{{ defaultParameters.timestoreTableName }}",
+                    "storageTargetId": "{{ defaultParameters.timestoreStorageTargetId }}",
+                    "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+                  }
+                },
+                "throttleWindowMs": 60000,
+                "throttleCount": 1,
+                "maxConcurrency": 1,
+                "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}",
+                "status": "active"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "slug": "observatory-daily-publication",
+      "path": "examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json",
+      "definition": {
+        "slug": "observatory-daily-publication",
+        "name": "Observatory Visualization & Reports",
+        "version": 1,
+        "description": "Generates plots from Timestore partitions and publishes minute-level status reports with optional Metastore upserts.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "timestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreDatasetSlug": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreAuthToken": {
+              "type": "string"
+            },
+            "plotsDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reportsDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "partitionKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lookbackMinutes": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10080
+            },
+            "siteFilter": {
+              "type": "string"
+            },
+            "reportTemplate": {
+              "type": "string"
+            },
+            "metastoreBaseUrl": {
+              "type": "string"
+            },
+            "metastoreAuthToken": {
+              "type": "string"
+            },
+            "metastoreNamespace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "timestoreBaseUrl",
+            "timestoreDatasetSlug",
+            "plotsDir",
+            "reportsDir",
+            "partitionKey"
+          ]
+        },
+        "defaultParameters": {
+          "lookbackMinutes": 180,
+          "timestoreBaseUrl": "http://127.0.0.1:4200",
+          "timestoreDatasetSlug": "observatory-timeseries",
+          "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
+          "reportsDir": "examples/environmental-observatory-event-driven/data/reports",
+          "metastoreBaseUrl": "http://127.0.0.1:4100",
+          "metastoreNamespace": "observatory.reports",
+          "timestoreAuthToken": null,
+          "metastoreAuthToken": null
+        },
+        "steps": [
+          {
+            "id": "generate-plots",
+            "name": "Generate observatory plots",
+            "type": "job",
+            "jobSlug": "observatory-visualization-runner",
+            "parameters": {
+              "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
+              "timestoreDatasetSlug": "{{ parameters.timestoreDatasetSlug }}",
+              "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
+              "plotsDir": "{{ parameters.plotsDir }}",
+              "partitionKey": "{{ parameters.partitionKey }}",
+              "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
+              "siteFilter": "{{ parameters.siteFilter }}"
+            },
+            "storeResultAs": "visualizations",
+            "consumes": [
+              {
+                "assetId": "observatory.timeseries.timestore"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "observatory.visualizations.minute",
+                "freshness": {
+                  "ttlMs": 86400000
+                },
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "priority": 6
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "plotsDir": {
+                      "type": "string"
+                    },
+                    "lookbackMinutes": {
+                      "type": "number"
+                    },
+                    "artifacts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "mediaType"
+                        ]
+                      }
+                    },
+                    "metrics": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "generatedAt",
+                    "partitionKey",
+                    "plotsDir",
+                    "artifacts"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "publish-report",
+            "name": "Publish status report",
+            "type": "job",
+            "jobSlug": "observatory-report-publisher",
+            "dependsOn": [
+              "generate-plots"
+            ],
+            "parameters": {
+              "reportsDir": "{{ parameters.reportsDir }}",
+              "plotsDir": "{{ parameters.plotsDir }}",
+              "partitionKey": "{{ parameters.partitionKey }}",
+              "reportTemplate": "{{ parameters.reportTemplate }}",
+              "visualizationAsset": "{{ shared.visualizations.visualization }}",
+              "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+              "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
+              "metastoreNamespace": "{{ parameters.metastoreNamespace }}"
+            },
+            "consumes": [
+              {
+                "assetId": "observatory.visualizations.minute"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "observatory.reports.status",
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "priority": 7
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "reportsDir": {
+                      "type": "string"
+                    },
+                    "reportFiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "mediaType"
+                        ]
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "instrumentCount": {
+                          "type": "number"
+                        },
+                        "siteCount": {
+                          "type": "number"
+                        },
+                        "alertCount": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "plotsReferenced": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "altText": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "relativePath"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "generatedAt",
+                    "reportsDir",
+                    "reportFiles"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ],
+        "metadata": {
+          "provisioning": {
+            "eventTriggers": [
+              {
+                "name": "Observatory publication on timestore partition",
+                "description": "Generate plots and publish observatory reports when new Timestore partitions are created.",
+                "eventType": "timestore.partition.created",
+                "eventSource": "timestore.ingest",
+                "predicates": [
+                  {
+                    "path": "$.payload.datasetSlug",
+                    "operator": "equals",
+                    "value": "{{ defaultParameters.timestoreDatasetSlug }}"
+                  }
+                ],
+                "parameterTemplate": {
+                  "partitionKey": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}",
+                  "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
+                  "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
+                  "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
+                  "plotsDir": "{{ trigger.metadata.paths.plotsDir }}",
+                  "reportsDir": "{{ trigger.metadata.paths.reportsDir }}",
+                  "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
+                  "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
+                  "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
+                },
+                "metadata": {
+                  "timestore": {
+                    "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+                    "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+                    "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+                  },
+                  "paths": {
+                    "plotsDir": "{{ defaultParameters.plotsDir }}",
+                    "reportsDir": "{{ defaultParameters.reportsDir }}"
+                  },
+                  "metastore": {
+                    "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+                    "namespace": "{{ defaultParameters.metastoreNamespace }}",
+                    "authToken": "{{ defaultParameters.metastoreAuthToken }}"
+                  }
+                },
+                "throttleWindowMs": 60000,
+                "throttleCount": 5,
+                "maxConcurrency": 2,
+                "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}",
+                "status": "active"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "slug": "retail-sales-daily-ingest",
+      "path": "examples/retail-sales/workflows/retail-sales-daily-ingest.json",
+      "definition": {
+        "slug": "retail-sales-daily-ingest",
+        "name": "Retail Sales Daily Ingest",
+        "version": 1,
+        "description": "Loads partitioned CSV exports and builds Parquet snapshots.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "dataRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "warehouseDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "datasetName": {
+              "type": "string"
+            },
+            "partitionKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "dataRoot",
+            "warehouseDir",
+            "partitionKey"
+          ]
+        },
+        "defaultParameters": {
+          "datasetName": "retail_sales"
+        },
+        "steps": [
+          {
+            "id": "load-partition",
+            "name": "Load partition CSV",
+            "type": "job",
+            "jobSlug": "retail-sales-csv-loader",
+            "parameters": {
+              "dataRoot": "{{ parameters.dataRoot }}",
+              "datasetName": "{{ parameters.datasetName }}",
+              "partitionKey": "{{ parameters.partitionKey }}"
+            },
+            "storeResultAs": "rawPartition",
+            "produces": [
+              {
+                "assetId": "retail.sales.raw",
+                "partitioning": {
+                  "type": "timeWindow",
+                  "granularity": "day",
+                  "format": "YYYY-MM-DD",
+                  "lookbackWindows": 30
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "sourceFile": {
+                      "type": "string"
+                    },
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "units": {
+                          "type": "number"
+                        },
+                        "revenue": {
+                          "type": "number"
+                        },
+                        "averageOrderValue": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "units",
+                        "revenue"
+                      ]
+                    },
+                    "byCategory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {
+                            "type": "string"
+                          },
+                          "units": {
+                            "type": "number"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "category",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "byRegion": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "region": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "region",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "channels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "revenue"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "partitionKey",
+                    "sourceFile",
+                    "totals"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "build-parquet",
+            "name": "Build Parquet artifacts",
+            "type": "job",
+            "jobSlug": "retail-sales-parquet-builder",
+            "dependsOn": [
+              "load-partition"
+            ],
+            "parameters": {
+              "warehouseDir": "{{ parameters.warehouseDir }}",
+              "partitionKey": "{{ shared.rawPartition.partitionKey }}",
+              "rawPartition": "{{ shared.rawPartition }}"
+            },
+            "storeResultAs": "warehousePartition",
+            "consumes": [
+              {
+                "assetId": "retail.sales.raw"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "retail.sales.parquet",
+                "partitioning": {
+                  "type": "timeWindow",
+                  "granularity": "day",
+                  "format": "YYYY-MM-DD",
+                  "lookbackWindows": 30
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "parquetFile": {
+                      "type": "string"
+                    },
+                    "summaryFile": {
+                      "type": "string"
+                    },
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "units": {
+                          "type": "number"
+                        },
+                        "revenue": {
+                          "type": "number"
+                        },
+                        "averageOrderValue": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "units",
+                        "revenue"
+                      ]
+                    },
+                    "byCategory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {
+                            "type": "string"
+                          },
+                          "units": {
+                            "type": "number"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "category",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "byRegion": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "region": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "region",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "channels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "revenue"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "partitionKey",
+                    "parquetFile",
+                    "summaryFile",
+                    "totals"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "retail-sales-insights",
+      "path": "examples/retail-sales/workflows/retail-sales-insights.json",
+      "definition": {
+        "slug": "retail-sales-insights",
+        "name": "Retail Sales Insights Publishing",
+        "version": 1,
+        "description": "Aggregates Parquet partitions, renders plots, and publishes a static dashboard.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "warehouseDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "outputDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reportTitle": {
+              "type": "string"
+            },
+            "lookback": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 90
+            }
+          },
+          "required": [
+            "warehouseDir",
+            "outputDir"
+          ]
+        },
+        "defaultParameters": {
+          "reportTitle": "Retail Sales Daily Report",
+          "lookback": 14
+        },
+        "steps": [
+          {
+            "id": "render-report",
+            "name": "Render dashboard",
+            "type": "job",
+            "jobSlug": "retail-sales-visualizer",
+            "parameters": {
+              "warehouseDir": "{{ parameters.warehouseDir }}",
+              "outputDir": "{{ parameters.outputDir }}",
+              "reportTitle": "{{ parameters.reportTitle }}",
+              "lookback": "{{ parameters.lookback }}"
+            },
+            "storeResultAs": "report",
+            "consumes": [
+              {
+                "assetId": "retail.sales.parquet"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "retail.sales.report",
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "priority": 4
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reportTitle": {
+                      "type": "string"
+                    },
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "partitions": {
+                      "type": "number"
+                    },
+                    "totalRevenue": {
+                      "type": "number"
+                    },
+                    "totalUnits": {
+                      "type": "number"
+                    },
+                    "averageOrderValue": {
+                      "type": "number"
+                    },
+                    "revenueSeries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "partitionKey": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "partitionKey",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "topCategories": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          },
+                          "share": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "category",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "topRegions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "region": {
+                            "type": "string"
+                          },
+                          "revenue": {
+                            "type": "number"
+                          },
+                          "share": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "region",
+                          "revenue"
+                        ]
+                      }
+                    },
+                    "artifacts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "mediaType"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "reportTitle",
+                    "generatedAt",
+                    "partitions",
+                    "totalRevenue",
+                    "artifacts"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "fleet-telemetry-daily-rollup",
+      "path": "examples/fleet-telemetry/workflows/fleet-telemetry-daily-rollup.json",
+      "definition": {
+        "slug": "fleet-telemetry-daily-rollup",
+        "name": "Fleet Telemetry Daily Rollup",
+        "version": 1,
+        "description": "Aggregates instrument CSV readings into partitioned telemetry assets.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "dataRoot": {
+              "type": "string",
+              "minLength": 1
+            },
+            "instrumentId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "day": {
+              "type": "string",
+              "minLength": 1
+            },
+            "temperatureLimitC": {
+              "type": "number"
+            },
+            "humidityLimitPct": {
+              "type": "number"
+            },
+            "outputDir": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "dataRoot",
+            "instrumentId",
+            "day",
+            "outputDir"
+          ]
+        },
+        "defaultParameters": {
+          "temperatureLimitC": 30,
+          "humidityLimitPct": 65,
+          "outputDir": "examples/fleet-telemetry/data/rollups"
+        },
+        "steps": [
+          {
+            "id": "compute-telemetry",
+            "name": "Compute telemetry rollup",
+            "type": "job",
+            "jobSlug": "fleet-telemetry-metrics",
+            "parameters": {
+              "dataRoot": "{{ parameters.dataRoot }}",
+              "instrumentId": "{{ parameters.instrumentId }}",
+              "day": "{{ parameters.day }}",
+              "temperatureLimitC": "{{ parameters.temperatureLimitC }}",
+              "humidityLimitPct": "{{ parameters.humidityLimitPct }}",
+              "outputDir": "{{ parameters.outputDir }}"
+            },
+            "storeResultAs": "instrumentTelemetry",
+            "produces": [
+              {
+                "assetId": "greenhouse.telemetry.instrument",
+                "partitioning": {
+                  "type": "dynamic",
+                  "maxKeys": 1000,
+                  "retentionDays": 120
+                },
+                "freshness": {
+                  "ttlMs": 86400000
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "partitionKey": {
+                      "type": "string"
+                    },
+                    "instrumentId": {
+                      "type": "string"
+                    },
+                    "day": {
+                      "type": "string"
+                    },
+                    "aggregatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "sourceFiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "samples": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath"
+                        ]
+                      }
+                    },
+                    "metrics": {
+                      "type": "object",
+                      "properties": {
+                        "samples": {
+                          "type": "number"
+                        },
+                        "temperatureC": {
+                          "type": "object",
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            },
+                            "mean": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "min",
+                            "max",
+                            "mean"
+                          ]
+                        },
+                        "humidityPct": {
+                          "type": "object",
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            },
+                            "mean": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "min",
+                            "max",
+                            "mean"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "samples",
+                        "temperatureC",
+                        "humidityPct"
+                      ]
+                    },
+                    "anomalyWindow": {
+                      "type": "object",
+                      "properties": {
+                        "flagged": {
+                          "type": "boolean"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "firstSample": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastSample": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "flagged"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "partitionKey",
+                    "instrumentId",
+                    "aggregatedAt",
+                    "metrics"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "fleet-telemetry-alerts",
+      "path": "examples/fleet-telemetry/workflows/fleet-telemetry-alerts.json",
+      "definition": {
+        "slug": "fleet-telemetry-alerts",
+        "name": "Fleet Telemetry Alerts",
+        "version": 1,
+        "description": "Evaluates telemetry partitions and raises greenhouse alerts when thresholds are breached.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "telemetryDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "windowHours": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 168
+            },
+            "temperatureLimitC": {
+              "type": "number"
+            },
+            "humidityLimitPct": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "telemetryDir",
+            "windowHours"
+          ]
+        },
+        "defaultParameters": {
+          "telemetryDir": "examples/fleet-telemetry/data/rollups",
+          "windowHours": 24,
+          "temperatureLimitC": 30,
+          "humidityLimitPct": 65
+        },
+        "steps": [
+          {
+            "id": "scan-instruments",
+            "name": "Scan instrument telemetry",
+            "type": "job",
+            "jobSlug": "greenhouse-alerts-runner",
+            "parameters": {
+              "telemetryDir": "{{ parameters.telemetryDir }}",
+              "windowHours": "{{ parameters.windowHours }}",
+              "temperatureLimitC": "{{ parameters.temperatureLimitC }}",
+              "humidityLimitPct": "{{ parameters.humidityLimitPct }}"
+            },
+            "consumes": [
+              {
+                "assetId": "greenhouse.telemetry.instrument"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "greenhouse.telemetry.alerts",
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "priority": 6,
+                  "parameterDefaults": {
+                    "windowHours": 24
+                  }
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "windowHours": {
+                      "type": "number"
+                    },
+                    "temperatureLimitC": {
+                      "type": "number"
+                    },
+                    "humidityLimitPct": {
+                      "type": "number"
+                    },
+                    "totalPartitions": {
+                      "type": "number"
+                    },
+                    "flaggedInstruments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "partitionKey": {
+                            "type": "string"
+                          },
+                          "instrumentId": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "lastReadingAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "latestMetrics": {
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "partitionKey",
+                          "instrumentId",
+                          "reason"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "generatedAt",
+                    "flaggedInstruments"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "directory-insights-report",
+      "path": "examples/directory-insights/workflows/directory-insights-report.json",
+      "definition": {
+        "slug": "directory-insights-report",
+        "name": "Directory Insights Report",
+        "version": 1,
+        "description": "Scans a filesystem tree and renders HTML/JSON/Markdown insights.",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "scanDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "outputDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxEntries": {
+              "type": "number",
+              "minimum": 1000,
+              "maximum": 200000
+            },
+            "reportTitle": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scanDir",
+            "outputDir"
+          ]
+        },
+        "defaultParameters": {
+          "maxEntries": 20000,
+          "reportTitle": "Directory Visualization Report"
+        },
+        "steps": [
+          {
+            "id": "scan",
+            "name": "Scan directory",
+            "type": "job",
+            "jobSlug": "scan-directory",
+            "parameters": {
+              "scanDir": "{{ parameters.scanDir }}",
+              "maxEntries": "{{ parameters.maxEntries }}"
+            },
+            "storeResultAs": "scanResults"
+          },
+          {
+            "id": "report",
+            "name": "Generate Visualization",
+            "type": "job",
+            "jobSlug": "generate-visualizations",
+            "dependsOn": [
+              "scan"
+            ],
+            "parameters": {
+              "scanData": "{{ shared.scanResults }}",
+              "outputDir": "{{ parameters.outputDir }}",
+              "reportTitle": "{{ parameters.reportTitle }}"
+            },
+            "storeResultAs": "visualization",
+            "produces": [
+              {
+                "assetId": "directory.insights.report",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "outputDir": {
+                      "type": "string"
+                    },
+                    "reportTitle": {
+                      "type": "string"
+                    },
+                    "rootPath": {
+                      "type": "string"
+                    },
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "summary": {
+                      "type": "object"
+                    },
+                    "artifacts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "relativePath": {
+                            "type": "string"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "relativePath",
+                          "mediaType",
+                          "sizeBytes"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "outputDir",
+                    "reportTitle",
+                    "generatedAt",
+                    "artifacts"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "slug": "directory-insights-archive",
+      "path": "examples/directory-insights/workflows/directory-insights-archive.json",
+      "definition": {
+        "slug": "directory-insights-archive",
+        "name": "Directory Insights Archive",
+        "version": 1,
+        "description": "Compresses the directory insights report artifacts into a tarball.",
+        "parametersSchema": {
+          "type": "object",
+          "required": [
+            "reportAsset",
+            "archiveDir"
+          ],
+          "properties": {
+            "reportAsset": {
+              "type": "object"
+            },
+            "archiveDir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "archiveName": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "defaultParameters": {
+          "archiveDir": "examples/directory-insights/data/archives",
+          "reportAsset": {
+            "assetId": "directory.insights.report",
+            "outputDir": "examples/directory-insights/data/output",
+            "artifacts": [
+              {
+                "relativePath": "scan-data.json"
+              },
+              {
+                "relativePath": "index.html"
+              },
+              {
+                "relativePath": "summary.md"
+              }
+            ]
+          }
+        },
+        "steps": [
+          {
+            "id": "zip-report",
+            "name": "Archive report artifacts",
+            "type": "job",
+            "jobSlug": "archive-report",
+            "parameters": {
+              "reportDir": "{{ parameters.reportAsset.outputDir }}",
+              "archiveDir": "{{ parameters.archiveDir }}",
+              "archiveName": "{{ parameters.archiveName }}",
+              "asset": "{{ parameters.reportAsset }}"
+            },
+            "consumes": [
+              {
+                "assetId": "directory.insights.report"
+              }
+            ],
+            "produces": [
+              {
+                "assetId": "directory.insights.archive",
+                "autoMaterialize": {
+                  "onUpstreamUpdate": true,
+                  "parameterDefaults": {
+                    "archiveDir": "examples/directory-insights/data/archives",
+                    "reportAsset": {
+                      "assetId": "directory.insights.report",
+                      "outputDir": "examples/directory-insights/data/output",
+                      "artifacts": [
+                        {
+                          "relativePath": "scan-data.json"
+                        },
+                        {
+                          "relativePath": "index.html"
+                        },
+                        {
+                          "relativePath": "summary.md"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "archivePath",
+                    "generatedAt",
+                    "artifactCount"
+                  ],
+                  "properties": {
+                    "archivePath": {
+                      "type": "string"
+                    },
+                    "archiveDir": {
+                      "type": "string"
+                    },
+                    "archiveName": {
+                      "type": "string"
+                    },
+                    "sourceAssetId": {
+                      "type": "string"
+                    },
+                    "sourceOutputDir": {
+                      "type": "string"
+                    },
+                    "reportTitle": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "artifactCount": {
+                      "type": "number"
+                    },
+                    "artifacts": {
+                      "type": "array"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "triggers": [
+          {
+            "type": "manual"
+          }
+        ]
+      }
+    }
+  ]
+}

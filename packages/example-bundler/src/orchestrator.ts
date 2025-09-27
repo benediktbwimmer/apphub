@@ -6,11 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import fg from 'fast-glob';
+import simpleGit from 'simple-git';
 import {
   getExampleJobBundle,
   isExampleJobSlug,
+  readExampleDescriptor,
+  resolveBundleManifests,
   type ExampleJobBundle
-} from '@apphub/examples-registry';
+} from '@apphub/examples';
 import { loadBundleContext, packageBundle } from './lib/bundle';
 import { ensureDir, pathExists, removeDir } from './lib/fs';
 import type {
@@ -72,6 +75,33 @@ export type PackagedExampleBundle = {
   cached: boolean;
 };
 
+export type ExampleDescriptorReference = {
+  module: string;
+  path?: string;
+  repo?: string;
+  ref?: string;
+  commit?: string;
+  configPath?: string;
+};
+
+export type ExampleDescriptorBundleInput = {
+  slug: string;
+  descriptor: ExampleDescriptorReference;
+};
+
+type DescriptorWorkspace = {
+  workspaceRoot: string;
+  configPath: string;
+  cleanup: () => Promise<void>;
+};
+
+type ResolvedExampleBundle = {
+  slug: string;
+  bundleDir: string;
+  workspaceRoot: string | null;
+  descriptorPath?: string;
+};
+
 export class ExampleBundler {
   private readonly repoRoot: string;
   private readonly installCommand: string[];
@@ -94,10 +124,10 @@ export class ExampleBundler {
     options: PackageExampleOptions = {}
   ): Promise<PackagedExampleBundle> {
     const normalizedSlug = slug.trim().toLowerCase();
-    if (!isExampleJobSlug(normalizedSlug)) {
+    if (!(await isExampleJobSlug(normalizedSlug))) {
       throw new Error(`Unknown example bundle slug: ${slug}`);
     }
-    const bundle = getExampleJobBundle(normalizedSlug);
+    const bundle = await getExampleJobBundle(normalizedSlug);
     if (!bundle) {
       throw new Error(`Unknown example bundle slug: ${slug}`);
     }
@@ -108,29 +138,177 @@ export class ExampleBundler {
     bundle: ExampleJobBundle,
     options: PackageExampleOptions = {}
   ): Promise<PackagedExampleBundle> {
-    const key = await this.computeBundleKey(bundle);
+    const bundleDir = path.resolve(this.repoRoot, bundle.directory);
+    const resolved: ResolvedExampleBundle = {
+      slug: bundle.slug,
+      bundleDir,
+      workspaceRoot: this.repoRoot
+    };
+    return this.packageResolvedBundle(resolved, options);
+  }
+
+  async packageExampleByDescriptor(
+    input: ExampleDescriptorBundleInput,
+    options: PackageExampleOptions = {}
+  ): Promise<PackagedExampleBundle> {
+    const slug = input.slug?.trim();
+    if (!slug) {
+      throw new Error('Descriptor bundle requires a slug');
+    }
+
+    const workspace = await this.resolveDescriptorWorkspace(input.descriptor);
+    try {
+      const descriptorFile = await readExampleDescriptor(workspace.configPath);
+      const bundleManifests = resolveBundleManifests(descriptorFile).filter((entry) => {
+        const kind = entry.kind ?? 'bundle';
+        return kind === 'bundle';
+      });
+
+      if (bundleManifests.length === 0) {
+        throw new Error('Descriptor does not declare any bundle manifests');
+      }
+
+      const targetSlug = slug.toLowerCase();
+      let bundleConfigPath: string | null = null;
+      let resolvedSlug = slug;
+
+      for (const manifest of bundleManifests) {
+        const referencedSlug = await readBundleSlug(manifest.absolutePath);
+        if (!referencedSlug) {
+          continue;
+        }
+        if (referencedSlug.trim().toLowerCase() === targetSlug) {
+          resolvedSlug = referencedSlug.trim();
+          bundleConfigPath = manifest.absolutePath;
+          break;
+        }
+      }
+
+      if (!bundleConfigPath) {
+        throw new Error(`Descriptor does not define a bundle for slug ${slug}`);
+      }
+
+      const bundleDir = path.dirname(bundleConfigPath);
+      const resolved: ResolvedExampleBundle = {
+        slug: resolvedSlug,
+        bundleDir,
+        workspaceRoot: workspace.workspaceRoot,
+        descriptorPath: descriptorFile.configPath
+      };
+      return await this.packageResolvedBundle(resolved, options);
+    } finally {
+      await workspace.cleanup();
+    }
+  }
+
+  private async packageResolvedBundle(
+    resolved: ResolvedExampleBundle,
+    options: PackageExampleOptions
+  ): Promise<PackagedExampleBundle> {
+    const key = await this.computeBundleKey(resolved);
     const existing = this.packageLocks.get(key.cacheKey);
     if (existing) {
       return existing;
     }
-    const promise = this.packageExampleInternal(bundle, key, options).finally(() => {
+    const promise = this.packageExampleInternal(resolved, key, options).finally(() => {
       this.packageLocks.delete(key.cacheKey);
     });
     this.packageLocks.set(key.cacheKey, promise);
     return promise;
   }
 
+  private async resolveDescriptorWorkspace(
+    descriptor: ExampleDescriptorReference
+  ): Promise<DescriptorWorkspace> {
+    const repo = descriptor.repo?.trim();
+    const localPath = descriptor.path?.trim();
+    const configOverride = descriptor.configPath?.trim();
+
+    if ((repo ? 1 : 0) + (localPath ? 1 : 0) !== 1) {
+      throw new Error('Descriptor reference must include exactly one of "repo" or "path"');
+    }
+
+    if (repo) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-example-descriptor-'));
+      const git = simpleGit();
+      const cloneArgs: string[] = [];
+      if (!descriptor.commit) {
+        cloneArgs.push('--depth', '1');
+      }
+      if (descriptor.ref) {
+        cloneArgs.push('--branch', descriptor.ref);
+        cloneArgs.push('--single-branch');
+      }
+      await git.clone(repo, tempDir, cloneArgs);
+
+      const repoGit = simpleGit(tempDir);
+      if (descriptor.commit) {
+        await repoGit.checkout(descriptor.commit);
+      } else if (descriptor.ref) {
+        await repoGit.checkout(descriptor.ref);
+      }
+
+      const relativeConfig = configOverride ?? 'config.json';
+      const configPath = path.resolve(tempDir, relativeConfig);
+      if (!(await pathExists(configPath))) {
+        throw new Error(`Descriptor config not found at ${relativeConfig}`);
+      }
+
+      return {
+        workspaceRoot: tempDir,
+        configPath,
+        cleanup: async () => {
+          await removeDir(tempDir).catch(() => {});
+        }
+      } satisfies DescriptorWorkspace;
+    }
+
+    const resolvedPath = path.isAbsolute(localPath!)
+      ? localPath!
+      : path.resolve(this.repoRoot, localPath!);
+    let stats;
+    try {
+      stats = await fs.stat(resolvedPath);
+    } catch (err) {
+      throw new Error(`Descriptor path not found: ${resolvedPath}`);
+    }
+
+    let configPath: string;
+    if (stats.isDirectory()) {
+      const relativeConfig = configOverride ?? 'config.json';
+      configPath = path.resolve(resolvedPath, relativeConfig);
+    } else {
+      configPath = resolvedPath;
+    }
+
+    if (!(await pathExists(configPath))) {
+      throw new Error(`Descriptor config not found at ${configPath}`);
+    }
+
+    const configDir = path.dirname(configPath);
+    const relativeToRepo = path.relative(this.repoRoot, configDir);
+    const workspaceRoot = relativeToRepo && !relativeToRepo.startsWith('..') && !path.isAbsolute(relativeToRepo)
+      ? this.repoRoot
+      : configDir;
+
+    return {
+      workspaceRoot,
+      configPath,
+      cleanup: async () => {}
+    } satisfies DescriptorWorkspace;
+  }
+
   private async packageExampleInternal(
-    bundle: ExampleJobBundle,
+    resolved: ResolvedExampleBundle,
     key: BundleKey,
     options: PackageExampleOptions
   ): Promise<PackagedExampleBundle> {
     const progress = options.onProgress;
-    emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'queued'));
-    emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'resolving'));
+    emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'queued'));
+    emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'resolving'));
 
-    const bundleDir = path.resolve(this.repoRoot, bundle.directory);
-    const workspaceRoot = await createWorkspaceRoot(bundle.slug, key.fingerprint);
+    const bundleDir = resolved.bundleDir;
+    const workspaceRoot = await createWorkspaceRoot(resolved.slug, key.fingerprint);
     const workspaceDir = path.join(workspaceRoot, 'bundle');
 
     try {
@@ -143,7 +321,7 @@ export class ExampleBundler {
         : undefined;
       emitProgress(
         progress,
-        buildProgress(bundle.slug, key.fingerprint, 'installing-dependencies', installMessage)
+        buildProgress(resolved.slug, key.fingerprint, 'installing-dependencies', installMessage)
       );
       if (!skipInstall) {
         await this.installDependencies(workspaceDir);
@@ -151,7 +329,7 @@ export class ExampleBundler {
 
       await populateWorkspacePackages(this.repoRoot, workspaceDir);
 
-      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'packaging'));
+      emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'packaging'));
       const packaged = await this.buildBundle(workspaceDir, options);
 
       const stats = await fs.stat(packaged.tarballPath);
@@ -159,7 +337,7 @@ export class ExampleBundler {
       const now = new Date().toISOString();
 
       const result: PackagedExampleBundle = {
-        slug: bundle.slug,
+        slug: resolved.slug,
         fingerprint: key.fingerprint,
         version: packaged.manifest.version,
         checksum: packaged.checksum,
@@ -174,12 +352,12 @@ export class ExampleBundler {
         cached: false
       } satisfies PackagedExampleBundle;
 
-      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'completed'));
+      emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'completed'));
 
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      emitProgress(progress, buildProgress(bundle.slug, key.fingerprint, 'failed', message));
+      emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'failed', message));
       throw err;
     } finally {
       await removeDir(workspaceRoot).catch(() => {});
@@ -212,22 +390,22 @@ export class ExampleBundler {
     return { ...result, manifestObject };
   }
 
-  private async computeBundleKey(bundle: ExampleJobBundle): Promise<BundleKey> {
-    const bundleDir = path.resolve(this.repoRoot, bundle.directory);
-    let fingerprint = await computeGitFingerprint(this.repoRoot, bundleDir);
+  private async computeBundleKey(resolved: ResolvedExampleBundle): Promise<BundleKey> {
+    const bundleDir = resolved.bundleDir;
+    let fingerprint = await computeGitFingerprint(resolved.workspaceRoot, bundleDir);
     if (fingerprint) {
-      const dirty = await hasWorkingTreeChanges(this.repoRoot, bundleDir);
+      const dirty = await hasWorkingTreeChanges(resolved.workspaceRoot, bundleDir);
       if (dirty) {
-        fingerprint = await hashDirectory(bundleDir);
+        fingerprint = null;
       }
     }
     if (!fingerprint) {
-      fingerprint = await hashDirectory(bundleDir);
+      fingerprint = await computeContentFingerprint(bundleDir, resolved.descriptorPath);
     }
     return {
-      slug: bundle.slug,
+      slug: resolved.slug,
       fingerprint,
-      cacheKey: `${bundle.slug}:${fingerprint}`
+      cacheKey: `${resolved.slug}:${fingerprint}`
     } satisfies BundleKey;
   }
 
@@ -516,7 +694,10 @@ function buildProgress(
   };
 }
 
-async function computeGitFingerprint(repoRoot: string, bundleDir: string): Promise<string | null> {
+async function computeGitFingerprint(repoRoot: string | null, bundleDir: string): Promise<string | null> {
+  if (!repoRoot) {
+    return null;
+  }
   const relative = path.relative(repoRoot, bundleDir).replace(/\\/g, '/');
   if (!relative || relative.startsWith('..')) {
     return null;
@@ -533,7 +714,10 @@ async function computeGitFingerprint(repoRoot: string, bundleDir: string): Promi
   }
 }
 
-async function hasWorkingTreeChanges(repoRoot: string, bundleDir: string): Promise<boolean> {
+async function hasWorkingTreeChanges(repoRoot: string | null, bundleDir: string): Promise<boolean> {
+  if (!repoRoot) {
+    return true;
+  }
   const relative = path.relative(repoRoot, bundleDir).replace(/\\/g, '/');
   if (!relative || relative.startsWith('..')) {
     return true;
@@ -560,9 +744,45 @@ async function hashDirectory(root: string): Promise<string> {
   entries.sort();
   for (const entry of entries) {
     const filePath = path.join(root, entry);
-    hash.update(entry);
-    const buffer = await fs.readFile(filePath);
-    hash.update(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
+    try {
+      const buffer = await fs.readFile(filePath);
+      hash.update(entry);
+      hash.update(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        continue;
+      }
+      throw err;
+    }
   }
   return hash.digest('hex');
+}
+
+async function computeContentFingerprint(bundleDir: string, descriptorPath?: string): Promise<string> {
+  const hash = createHash('sha256');
+  if (descriptorPath) {
+    try {
+      const descriptorContents = await fs.readFile(descriptorPath);
+      hash.update(descriptorContents);
+    } catch {
+      // ignore missing descriptor file; fallback to directory hash only
+    }
+  }
+  const directoryHash = await hashDirectory(bundleDir);
+  hash.update(directoryHash);
+  return hash.digest('hex');
+}
+
+async function readBundleSlug(configPath: string): Promise<string | null> {
+  try {
+    const contents = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(contents) as { slug?: unknown };
+    if (typeof parsed.slug === 'string') {
+      const slug = parsed.slug.trim();
+      return slug.length > 0 ? slug : null;
+    }
+  } catch {
+    // ignore parse errors; caller will handle missing slug
+  }
+  return null;
 }

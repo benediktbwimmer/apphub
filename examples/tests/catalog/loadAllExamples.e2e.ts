@@ -7,7 +7,7 @@ import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
-import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples';
 import { runE2E } from '@apphub/test-helpers';
 
 type JobSummary = {

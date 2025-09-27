@@ -11,7 +11,7 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@apphub/examples-registry": "0.1.0",
+    "@apphub/examples": "0.1.0",
     "@monaco-editor/react": "^4.7.0",
     "ajv": "^8.17.1",
     "dagre": "^0.8.5",

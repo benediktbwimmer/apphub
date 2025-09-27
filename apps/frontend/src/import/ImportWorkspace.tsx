@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ExampleScenarioPicker, EXAMPLE_SCENARIOS, type ExampleScenario, type ExampleScenarioType } from './examples';
+import { ExampleScenarioPicker, type ExampleScenario, type ExampleScenarioType } from './examples';
 import ServiceManifestsTab from './tabs/ServiceManifestsTab';
 import ImportAppsTab from './tabs/ImportAppsTab';
 import ImportJobBundleTab from './tabs/ImportJobBundleTab';
@@ -137,6 +137,9 @@ export default function ImportWorkspace({
     jobScenarioState,
     workflowScenarioState,
     scenarioOptions,
+    catalogLoading,
+    catalogError,
+    scenarios,
     activeScenarioIds,
     loadedScenarioCounts,
     autoImportState,
@@ -158,8 +161,8 @@ export default function ImportWorkspace({
   const [retryingSlug, setRetryingSlug] = useState<string | null>(null);
 
   const scenarioLookup = useMemo(
-    () => new Map(EXAMPLE_SCENARIOS.map((scenario) => [scenario.id, scenario])),
-    []
+    () => new Map(scenarios.map((scenario) => [scenario.id, scenario])),
+    [scenarios]
   );
 
   const activeScenario = useMemo<ExampleScenario | null>(() => {
@@ -197,6 +200,14 @@ export default function ImportWorkspace({
   );
 
   const hasDependencies = dependencyEntries.length > 0;
+
+  const hasLoadAllScenario = useMemo(
+    () =>
+      scenarios.some(
+        (entry) => entry.type === 'scenario' && entry.analyticsTag === 'bundle__all_examples'
+      ),
+    [scenarios]
+  );
 
   const isScenarioEnqueued = useCallback(
     (step: ImportWizardStep, scenarioId: string) => {
@@ -369,7 +380,7 @@ export default function ImportWorkspace({
 
       <ExampleScenarioPicker
         open={scenarioPickerOpen}
-        scenarios={EXAMPLE_SCENARIOS}
+        scenarios={scenarios}
         activeScenarioIds={activeScenarioIds}
         onClose={handleClosePicker}
         onApply={handleApplyScenario}
@@ -391,18 +402,29 @@ export default function ImportWorkspace({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-900/20 transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-100/90 dark:text-slate-900 dark:hover:bg-slate-200"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-900/20 transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100/90 dark:text-slate-900 dark:hover:bg-slate-200"
               onClick={handleOpenPicker}
+              disabled={catalogLoading || scenarios.length === 0}
             >
               Load example
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-400/60 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-violet-400 hover:text-violet-600 dark:border-slate-600 dark:text-slate-200 dark:hover:border-violet-300 dark:hover:text-violet-200"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-400/60 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-violet-400 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-200 dark:hover:border-violet-300 dark:hover:text-violet-200"
               onClick={handleLoadAllExamples}
+              disabled={catalogLoading || !hasLoadAllScenario}
             >
               Load all examples
             </button>
+            {catalogLoading ? (
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Loading examples…
+              </span>
+            ) : catalogError ? (
+              <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
+                Examples unavailable
+              </span>
+            ) : null}
             <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
               <span>Loaded</span>
               <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200">

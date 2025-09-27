@@ -1,12 +1,12 @@
 export type {
   ExampleScenarioType,
   ExampleScenarioAsset,
+  ExampleScenario,
   ServiceManifestScenario,
   AppScenario,
   JobScenario,
   WorkflowScenario,
-  ScenarioBundle,
-  ExampleScenario
-} from '@apphub/examples-registry';
+  ScenarioBundle
+} from '@apphub/examples';
 
-export { groupScenariosByType, isScenarioType } from '@apphub/examples-registry/types';
+export { groupScenariosByType, isScenarioType } from '@apphub/examples';

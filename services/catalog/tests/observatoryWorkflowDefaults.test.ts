@@ -2,7 +2,7 @@ import './setupTestEnv';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { WorkflowDefinitionTemplate } from '@apphub/examples-registry';
+import type { WorkflowDefinitionTemplate } from '@apphub/examples';
 import { bootstrapPlanSchema, executeBootstrapPlan } from '../src/bootstrap';
 
 async function loadWorkflow(slug: string): Promise<WorkflowDefinitionTemplate> {

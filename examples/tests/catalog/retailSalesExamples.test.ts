@@ -9,7 +9,7 @@ import {
   loadExampleJobDefinition,
   loadExampleWorkflowDefinition
 } from '../helpers/examples';
-import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
+import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples';
 
 const retailSalesJobSlugs: ExampleJobSlug[] = [
   'retail-sales-csv-loader',

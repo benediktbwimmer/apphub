@@ -11,6 +11,7 @@ import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { type JobRunRecord, type JsonValue } from './db/types';
 import { runWorkflowOrchestration } from './workflowOrchestrator';
+import type { ExampleDescriptorReference } from '@apphub/example-bundler';
 import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
 import { ingestWorkflowEvent } from './workflowEvents';
 import {
@@ -383,7 +384,12 @@ export type EnqueueExampleBundleResult = {
 
 export async function enqueueExampleBundleJob(
   slug: string,
-  options: { force?: boolean; skipBuild?: boolean; minify?: boolean } = {}
+  options: {
+    force?: boolean;
+    skipBuild?: boolean;
+    minify?: boolean;
+    descriptor?: ExampleDescriptorReference | null;
+  } = {}
 ): Promise<EnqueueExampleBundleResult> {
   const inlineMode = queueManager.isInlineMode();
   const trimmedSlug = slug.trim().toLowerCase();
@@ -395,7 +401,8 @@ export async function enqueueExampleBundleJob(
     slug: trimmedSlug,
     force: options.force,
     skipBuild: options.skipBuild,
-    minify: options.minify
+    minify: options.minify,
+    descriptor: options.descriptor ?? null
   };
 
   if (inlineMode) {

@@ -1,12 +1,8 @@
-export type {
-  ExampleJobBundle,
-  ExampleJobSlug
-} from '@apphub/examples-registry';
+export type { ExampleJobBundle, ExampleJobSlug } from '@apphub/examples';
 
 export {
-  EXAMPLE_JOB_BUNDLES,
-  EXAMPLE_JOB_SLUGS,
+  listExampleJobBundles,
   getExampleJobBundle,
   isExampleJobSlug,
-  listExampleJobBundles
-} from '@apphub/examples-registry';
+  loadExampleCatalog
+} from '@apphub/examples';

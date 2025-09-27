@@ -1,13 +1,24 @@
 {
   "name": "@apphub/examples",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Placeholder workspace for shared example registry utilities.",
+  "description": "Runtime loaders and shared types for AppHub example catalog metadata.",
   "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
-    "src"
+    "dist"
   ],
   "scripts": {
-    "build": "echo \"examples package does not yet emit build artifacts\""
+    "build": "tsc -b",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "fast-glob": "^3.3.2",
+    "pg": "^8.16.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
   }
 }

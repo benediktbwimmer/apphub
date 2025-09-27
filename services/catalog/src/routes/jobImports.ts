@@ -7,8 +7,12 @@ import type { FastifyInstance } from 'fastify';
 import * as tar from 'tar';
 import { createJobDefinition, getJobDefinitionBySlug } from '../db/jobs';
 import type { JobDefinitionCreateInput, JsonValue } from '../db/types';
-import { getExampleJobBundle, isExampleJobSlug, listExampleJobBundles } from '@apphub/examples-registry';
-import type { PackagedExampleBundle } from '@apphub/example-bundler';
+import {
+  getExampleJobBundle,
+  isExampleJobSlug,
+  listExampleJobBundles
+} from '@apphub/examples';
+import type { ExampleDescriptorReference, PackagedExampleBundle } from '@apphub/example-bundler';
 import {
   packageExampleBundle as orchestrateExampleBundle,
   listExampleBundleStatuses,
@@ -36,6 +40,27 @@ const uploadArchiveSchema = z.object({
   filename: z.string().optional(),
   contentType: z.string().optional()
 });
+
+const descriptorReferenceSchema = z
+  .object({
+    module: z.string().min(1),
+    path: z.string().min(1).optional(),
+    repo: z.string().min(1).optional(),
+    ref: z.string().min(1).optional(),
+    commit: z.string().min(1).optional(),
+    configPath: z.string().min(1).optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasRepo = typeof value.repo === 'string' && value.repo.trim().length > 0;
+    const hasPath = typeof value.path === 'string' && value.path.trim().length > 0;
+    if (hasRepo === hasPath) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide exactly one of "repo" or "path" for descriptor references.'
+      });
+    }
+  });
 
 
 const previewRequestSchema = z.discriminatedUnion('source', [
@@ -78,7 +103,8 @@ const enqueueExampleSchema = z
     slug: z.string().min(1),
     force: z.boolean().optional(),
     skipBuild: z.boolean().optional(),
-    minify: z.boolean().optional()
+    minify: z.boolean().optional(),
+    descriptor: descriptorReferenceSchema.optional().nullable()
   })
   .strict();
 
@@ -150,7 +176,49 @@ function normalizeExampleEntryPoint(entryPoint: string, slug: string, version: s
   return `bundle:${normalizedSlug}@${version}${exportSuffix}`;
 }
 
-function resolveExampleJobDefinition(slug: string): JobDefinitionCreateInput | null {
+function normalizeDescriptorReference(
+  descriptor: z.infer<typeof descriptorReferenceSchema> | null | undefined
+): ExampleDescriptorReference | null {
+  if (!descriptor) {
+    return null;
+  }
+  const normalized: ExampleDescriptorReference = {
+    module: descriptor.module.trim()
+  };
+  if (descriptor.path) {
+    const trimmed = descriptor.path.trim();
+    if (trimmed) {
+      normalized.path = trimmed;
+    }
+  }
+  if (descriptor.repo) {
+    const trimmed = descriptor.repo.trim();
+    if (trimmed) {
+      normalized.repo = trimmed;
+    }
+  }
+  if (descriptor.ref) {
+    const trimmed = descriptor.ref.trim();
+    if (trimmed) {
+      normalized.ref = trimmed;
+    }
+  }
+  if (descriptor.commit) {
+    const trimmed = descriptor.commit.trim();
+    if (trimmed) {
+      normalized.commit = trimmed;
+    }
+  }
+  if (descriptor.configPath) {
+    const trimmed = descriptor.configPath.trim();
+    if (trimmed) {
+      normalized.configPath = trimmed;
+    }
+  }
+  return normalized;
+}
+
+async function resolveExampleJobDefinition(slug: string): Promise<JobDefinitionCreateInput | null> {
   const normalizedSlug = slug.trim().toLowerCase();
   if (!normalizedSlug) {
     return null;
@@ -158,11 +226,11 @@ function resolveExampleJobDefinition(slug: string): JobDefinitionCreateInput | n
   if (exampleJobCache.has(normalizedSlug)) {
     return exampleJobCache.get(normalizedSlug) ?? null;
   }
-  if (!isExampleJobSlug(normalizedSlug)) {
+  if (!(await isExampleJobSlug(normalizedSlug))) {
     exampleJobCache.set(normalizedSlug, null);
     return null;
   }
-  const bundle = getExampleJobBundle(normalizedSlug);
+  const bundle = await getExampleJobBundle(normalizedSlug);
   if (!bundle) {
     exampleJobCache.set(normalizedSlug, null);
     return null;
@@ -177,7 +245,7 @@ async function ensureExampleJobDefinition(slug: string, version: string): Promis
   if (!trimmedSlug) {
     return;
   }
-  const baseDefinition = resolveExampleJobDefinition(trimmedSlug);
+  const baseDefinition = await resolveExampleJobDefinition(trimmedSlug);
   if (!baseDefinition) {
     return;
   }
@@ -555,8 +623,18 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
     }
 
     const body = bodyResult.data ?? {};
-    const available = listExampleJobBundles().map((bundle) => bundle.slug);
+    const availableBundles = await listExampleJobBundles();
+    const available = availableBundles.map((bundle) => bundle.slug);
     const availableSet = new Set(available.map((slug) => slug.toLowerCase()));
+    const descriptorBySlug = new Map<string, ExampleDescriptorReference | null>();
+    for (const bundle of availableBundles) {
+      if (bundle.descriptor) {
+        descriptorBySlug.set(bundle.slug.toLowerCase(), {
+          module: bundle.descriptor.module,
+          path: bundle.descriptor.configPath
+        });
+      }
+    }
     const requested = Array.isArray(body.slugs) && body.slugs.length > 0
       ? body.slugs.map((slug) => slug.trim().toLowerCase()).filter((slug) => availableSet.has(slug))
       : available.map((slug) => slug.toLowerCase());
@@ -568,10 +646,12 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
 
     const jobs: ExampleBundleJobResponse[] = [];
     for (const slug of requested) {
+      const descriptor = descriptorBySlug.get(slug) ?? null;
       const job = await enqueueExampleBundleJob(slug, {
         force: body.force,
         skipBuild: body.skipBuild,
-        minify: body.minify
+        minify: body.minify,
+        descriptor
       });
       const status = await getExampleBundleStatus(slug);
       jobs.push(toExampleBundleJobResponse(job, status));
@@ -622,7 +702,8 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
 
     const body = parseBody.data;
     const normalizedSlug = body.slug.trim().toLowerCase();
-    if (!isExampleJobSlug(normalizedSlug)) {
+    const descriptor = normalizeDescriptorReference(body.descriptor ?? null);
+    if (!descriptor && !(await isExampleJobSlug(normalizedSlug))) {
       reply.status(400);
       return { error: `Unknown example bundle slug: ${body.slug}` };
     }
@@ -630,7 +711,8 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
     const job = await enqueueExampleBundleJob(normalizedSlug, {
       force: body.force,
       skipBuild: body.skipBuild,
-      minify: body.minify
+      minify: body.minify,
+      descriptor
     });
     const status = await getExampleBundleStatus(normalizedSlug);
     const response = toExampleBundleJobResponse(job, status);
@@ -652,7 +734,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
     }
 
     const slugParam = String((request.params as { slug?: string }).slug ?? '').trim().toLowerCase();
-    if (!slugParam || !isExampleJobSlug(slugParam)) {
+    if (!slugParam) {
       reply.status(404);
       return { error: 'Example bundle not found' };
     }
@@ -703,7 +785,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
         }
         parsed = await prepareUploadPreview(body, buffer);
       } else {
-        const packaged = await orchestrateExampleBundle(body.slug);
+        const packaged = await orchestrateExampleBundle({ slug: body.slug });
         parsed = prepareExamplePreview(packaged, {
           expectedSlug: body.slug,
           reference: body.reference
@@ -757,7 +839,7 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
         }
         parsed = await prepareUploadPreview(body, buffer);
       } else {
-        const packaged = await orchestrateExampleBundle(body.slug);
+        const packaged = await orchestrateExampleBundle({ slug: body.slug });
         parsed = prepareExamplePreview(packaged, {
           expectedSlug: body.slug,
           reference: body.reference

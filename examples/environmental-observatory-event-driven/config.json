@@ -5,6 +5,26 @@
   "manifests": [
     {
       "path": "./service-manifests/service-manifest.json"
+    },
+    {
+      "path": "./jobs/observatory-data-generator/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-inbox-normalizer/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-timestore-loader/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-visualization-runner/apphub.bundle.json",
+      "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-report-publisher/apphub.bundle.json",
+      "kind": "bundle"
     }
   ],
   "placeholders": [

@@ -28,6 +28,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../packages/shared" },
+    { "path": "../../packages/examples" },
     { "path": "../../services/catalog" }
   ]
 }

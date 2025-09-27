@@ -17,7 +17,7 @@ COPY services/timestore/package.json services/timestore/
 COPY services/filestore/package.json services/filestore/
 COPY packages/filestore-client/package.json packages/filestore-client/
 COPY packages/example-bundler/package.json packages/example-bundler/
-COPY packages/examples-registry/package.json packages/examples-registry/
+COPY packages/examples/package.json packages/examples/
 COPY packages/shared/package.json packages/shared/
 RUN --mount=type=cache,id=npm-${TARGETPLATFORM},target=/root/.npm npm ci
 RUN set -eux; \
@@ -67,7 +67,7 @@ RUN rm -rf services/filestore/node_modules && ln -s ../../node_modules services/
 RUN rm -rf apps/frontend/node_modules && ln -s ../../node_modules apps/frontend/node_modules
 RUN rm -rf apps/cli/node_modules && ln -s ../../node_modules apps/cli/node_modules
 RUN rm -rf packages/example-bundler/node_modules && ln -s ../../node_modules packages/example-bundler/node_modules
-RUN rm -rf packages/examples-registry/node_modules && ln -s ../../node_modules packages/examples-registry/node_modules
+RUN rm -rf packages/examples/node_modules && ln -s ../../node_modules packages/examples/node_modules
 RUN rm -rf packages/shared/node_modules && ln -s ../../node_modules packages/shared/node_modules
 RUN rm -rf packages/filestore-client/node_modules && ln -s ../../node_modules packages/filestore-client/node_modules
 

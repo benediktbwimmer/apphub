@@ -1,24 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useAnalytics } from '../utils/useAnalytics';
 import { useToasts } from '../components/toast';
 import { API_BASE_URL } from '../config';
 import {
-  EXAMPLE_SCENARIOS,
   type AppScenario,
   type ExampleScenario,
   type ExampleScenarioType,
   type JobScenario,
   type ServiceManifestScenario,
-  type WorkflowScenario
+  type WorkflowScenario,
+  groupScenariosByType
 } from './examples';
 import {
   resolveWorkflowProvisioningPlan,
   type JsonValue,
   type WorkflowProvisioningEventTrigger,
   type WorkflowProvisioningSchedule
-} from '@apphub/examples-registry';
-import { groupScenariosByType } from './examples';
+} from '@apphub/examples';
 
 import type { ManifestPlaceholder } from './useImportServiceManifest';
 import type { JobImportPreviewResult } from './useJobImportWorkflow';
@@ -284,21 +283,6 @@ function buildTriggerRequest(trigger: WorkflowProvisioningEventTrigger) {
   });
 }
 
-function createInitialScenarioState<TScenario extends ExampleScenario>(
-  storedId: string | undefined,
-  type: ExampleScenarioType
-): WizardScenarioState<TScenario> {
-  if (!storedId) {
-    return { active: null, all: [] };
-  }
-  const scenario = findScenarioById<TScenario>(storedId, type);
-  if (!scenario) {
-    return { active: null, all: [] };
-  }
-  const request: WizardScenarioRequest<TScenario> = { scenario, token: Date.now() };
-  return { active: request, all: [request] };
-}
-
 function emptyScenarioState<TScenario extends ExampleScenario>(): WizardScenarioState<TScenario> {
   return { active: null, all: [] };
 }
@@ -317,21 +301,14 @@ function updateScenarioState<TScenario extends ExampleScenario>(
   return { active, all };
 }
 
-function findScenarioById<TScenario extends ExampleScenario>(
-  id: string,
-  type: ExampleScenarioType
-): TScenario | null {
-  const match = EXAMPLE_SCENARIOS.find((candidate) => candidate.id === id && candidate.type === type);
-  if (!match) {
-    return null;
-  }
-  return match as TScenario;
-}
-
 export function useImportWizardController() {
   const authorizedFetch = useAuthorizedFetch();
   const { trackEvent } = useAnalytics();
   const { pushToast } = useToasts();
+
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [scenarios, setScenarios] = useState<ExampleScenario[]>([]);
 
   const [activeStep, setActiveStep] = useState<ImportWizardStep>(() => {
     if (typeof window === 'undefined') {
@@ -347,33 +324,117 @@ export function useImportWizardController() {
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false);
   const scenarioTokenRef = useRef(0);
   const storedScenarios = useMemo(() => readStoredScenarios(), []);
+  const pendingStoredScenarioIdsRef = useRef(storedScenarios);
   const [serviceScenarioState, setServiceScenarioState] = useState<WizardScenarioState<ServiceManifestScenario>>(() =>
-    createInitialScenarioState<ServiceManifestScenario>(storedScenarios['service-manifests'], 'service-manifest')
+    emptyScenarioState()
   );
   const [appScenarioState, setAppScenarioState] = useState<WizardScenarioState<AppScenario>>(() =>
-    createInitialScenarioState<AppScenario>(storedScenarios.apps, 'app')
+    emptyScenarioState()
   );
   const [jobScenarioState, setJobScenarioState] = useState<WizardScenarioState<JobScenario>>(() =>
-    createInitialScenarioState<JobScenario>(storedScenarios.jobs, 'job')
+    emptyScenarioState()
   );
   const [workflowScenarioState, setWorkflowScenarioState] = useState<WizardScenarioState<WorkflowScenario>>(() =>
-    createInitialScenarioState<WizardScenarioState<WorkflowScenario> extends never ? never : WorkflowScenario>(
-      storedScenarios.workflows,
-      'workflow'
-    )
+    emptyScenarioState()
   );
   const [autoImportState, setAutoImportState] = useState<AutoImportWizardState>({ status: 'idle', step: null, errors: [] });
   const [servicePlaceholderModal, setServicePlaceholderModal] = useState<ServicePlaceholderModalState | null>(null);
   const [serviceModalSubmitting, setServiceModalSubmitting] = useState(false);
   const [serviceModalError, setServiceModalError] = useState<string | null>(null);
   const autoImportedScenariosRef = useRef(new Set<string>());
-  const scenarioById = useMemo(() => new Map(EXAMPLE_SCENARIOS.map((entry) => [entry.id, entry])), []);
+  const scenarioById = useMemo(() => new Map(scenarios.map((entry) => [entry.id, entry])), [scenarios]);
   const [lastScenarioBundleId, setLastScenarioBundleId] = useState<string | null>(null);
 
   const getNextScenarioToken = useCallback(() => {
     scenarioTokenRef.current += 1;
     return Date.now() + scenarioTokenRef.current;
   }, []);
+
+  useEffect(() => {
+    if (scenarios.length === 0) {
+      return;
+    }
+    const pending = pendingStoredScenarioIdsRef.current;
+    if (!pending || Object.keys(pending).length === 0) {
+      return;
+    }
+
+    const applyStoredScenario = <TScenario extends ExampleScenario>(
+      step: ImportWizardStep,
+      type: ExampleScenarioType,
+      state: WizardScenarioState<TScenario>,
+      setter: Dispatch<SetStateAction<WizardScenarioState<TScenario>>>
+    ) => {
+      const id = pending[step];
+      if (!id || state.active) {
+        return;
+      }
+      const candidate = scenarioById.get(id);
+      if (!candidate || candidate.type !== type) {
+        return;
+      }
+      setter((prev) => updateScenarioState(prev, candidate as TScenario, getNextScenarioToken(), true));
+      delete pending[step];
+    };
+
+    applyStoredScenario('service-manifests', 'service-manifest', serviceScenarioState, setServiceScenarioState);
+    applyStoredScenario('apps', 'app', appScenarioState, setAppScenarioState);
+    applyStoredScenario('jobs', 'job', jobScenarioState, setJobScenarioState);
+    applyStoredScenario('workflows', 'workflow', workflowScenarioState, setWorkflowScenarioState);
+
+    if (Object.keys(pending).length === 0) {
+      pendingStoredScenarioIdsRef.current = {};
+    }
+  }, [
+    scenarios,
+    scenarioById,
+    getNextScenarioToken,
+    serviceScenarioState,
+    appScenarioState,
+    jobScenarioState,
+    workflowScenarioState
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCatalog() {
+      setCatalogLoading(true);
+      try {
+        const response = await authorizedFetch(`${API_BASE_URL}/examples/catalog`);
+        if (!response.ok) {
+          throw new Error(`Failed to load example catalog (status ${response.status})`);
+        }
+        const payload = (await response.json()) as {
+          data?: { catalog?: { scenarios?: ExampleScenario[] } };
+        };
+        if (cancelled) {
+          return;
+        }
+        const fetched = payload.data?.catalog?.scenarios ?? [];
+        setScenarios(fetched);
+        setCatalogError(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Failed to load example catalog';
+        setCatalogError(message);
+        pushToast({
+          tone: 'error',
+          title: 'Failed to load examples',
+          description: message
+        });
+      } finally {
+        if (!cancelled) {
+          setCatalogLoading(false);
+        }
+      }
+    }
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, pushToast]);
 
   useEffect(() => {
     window.localStorage.setItem(SUBTAB_STORAGE_KEY, activeStep);
@@ -1089,8 +1150,8 @@ export function useImportWizardController() {
           setServiceScenarioState((prev) => updateScenarioState(prev, existing.scenario, token, true));
           return;
         }
-        const fallback = findScenarioById<ServiceManifestScenario>(scenarioId, 'service-manifest');
-        if (fallback) {
+        const fallback = scenarioById.get(scenarioId);
+        if (fallback && fallback.type === 'service-manifest') {
           trackEvent('import_example_switched', { subtab: step, scenarioId });
           setServiceScenarioState((prev) => updateScenarioState(prev, fallback, token, true));
         }
@@ -1103,8 +1164,8 @@ export function useImportWizardController() {
           setAppScenarioState((prev) => updateScenarioState(prev, existing.scenario, token, true));
           return;
         }
-        const fallback = findScenarioById<AppScenario>(scenarioId, 'app');
-        if (fallback) {
+        const fallback = scenarioById.get(scenarioId);
+        if (fallback && fallback.type === 'app') {
           trackEvent('import_example_switched', { subtab: step, scenarioId });
           setAppScenarioState((prev) => updateScenarioState(prev, fallback, token, true));
         }
@@ -1117,8 +1178,8 @@ export function useImportWizardController() {
           setJobScenarioState((prev) => updateScenarioState(prev, existing.scenario, token, true));
           return;
         }
-        const fallback = findScenarioById<JobScenario>(scenarioId, 'job');
-        if (fallback) {
+        const fallback = scenarioById.get(scenarioId);
+        if (fallback && fallback.type === 'job') {
           trackEvent('import_example_switched', { subtab: step, scenarioId });
           setJobScenarioState((prev) => updateScenarioState(prev, fallback, token, true));
         }
@@ -1131,8 +1192,8 @@ export function useImportWizardController() {
           setWorkflowScenarioState((prev) => updateScenarioState(prev, existing.scenario, token, true));
           return;
         }
-        const fallback = findScenarioById<WorkflowScenario>(scenarioId, 'workflow');
-        if (fallback) {
+        const fallback = scenarioById.get(scenarioId);
+        if (fallback && fallback.type === 'workflow') {
           trackEvent('import_example_switched', { subtab: step, scenarioId });
           setWorkflowScenarioState((prev) => updateScenarioState(prev, fallback, token, true));
         }
@@ -1151,13 +1212,13 @@ export function useImportWizardController() {
   }, []);
 
   const handleLoadAllExamples = useCallback(() => {
-    const loadAllScenario = EXAMPLE_SCENARIOS.find(
+    const loadAllScenario = scenarios.find(
       (entry) => entry.type === 'scenario' && entry.analyticsTag === 'bundle__all_examples'
     );
     if (loadAllScenario) {
       handleApplyScenario(loadAllScenario);
     }
-  }, [handleApplyScenario]);
+  }, [handleApplyScenario, scenarios]);
 
   const scenarioOptions = useMemo(() => {
     return {
@@ -1241,6 +1302,9 @@ export function useImportWizardController() {
   }, []);
 
   return {
+    catalogLoading,
+    catalogError,
+    scenarios,
     activeStep,
     setActiveStep,
     scenarioPickerOpen,

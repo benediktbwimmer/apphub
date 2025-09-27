@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   createEventDrivenObservatoryConfig,
   ensureObservatoryBackend
-} from '@apphub/examples-registry';
+} from '@apphub/examples';
 
 async function main(): Promise<void> {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');

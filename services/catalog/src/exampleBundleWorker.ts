@@ -1,4 +1,5 @@
 import { Worker } from 'bullmq';
+import type { ExampleDescriptorReference } from '@apphub/example-bundler';
 import { packageExampleBundle } from './exampleBundles/manager';
 import {
   EXAMPLE_BUNDLE_QUEUE_NAME,
@@ -12,6 +13,7 @@ export type ExampleBundleJobData = {
   force?: boolean;
   skipBuild?: boolean;
   minify?: boolean;
+  descriptor?: ExampleDescriptorReference | null;
 };
 
 export type ExampleBundleJobResult = {
@@ -34,12 +36,15 @@ export async function processExampleBundleJob(
   if (!data || typeof data.slug !== 'string' || data.slug.trim().length === 0) {
     throw new Error('Example bundle job requires a slug');
   }
-  const result = await packageExampleBundle(data.slug, {
-    force: data.force,
-    skipBuild: data.skipBuild,
-    minify: data.minify,
-    jobId
-  });
+  const result = await packageExampleBundle(
+    { slug: data.slug, descriptor: data.descriptor ?? null },
+    {
+      force: data.force,
+      skipBuild: data.skipBuild,
+      minify: data.minify,
+      jobId
+    }
+  );
   return {
     slug: result.slug,
     version: result.version,

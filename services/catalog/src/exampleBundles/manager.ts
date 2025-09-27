@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   ExampleBundler,
   type ExampleBundlerProgressEvent,
+  type ExampleDescriptorReference,
   type PackagedExampleBundle
 } from '@apphub/example-bundler';
 import { emitApphubEvent } from '../events';
@@ -32,19 +33,31 @@ type PackageOptions = {
 };
 
 export async function packageExampleBundle(
-  slug: string,
+  input: { slug: string; descriptor?: ExampleDescriptorReference | null },
   options: PackageOptions = {}
 ): Promise<PackagedExampleBundle> {
   const instance = getBundler();
   const jobId = options.jobId;
+  const slug = input.slug;
+  const descriptor = input.descriptor ?? null;
   const onProgress = createProgressHandler(slug, jobId);
   try {
-    const result = await instance.packageExampleBySlug(slug, {
-      force: options.force,
-      skipBuild: options.skipBuild,
-      minify: options.minify,
-      onProgress
-    });
+    const result = descriptor
+      ? await instance.packageExampleByDescriptor(
+          { slug, descriptor },
+          {
+            force: options.force,
+            skipBuild: options.skipBuild,
+            minify: options.minify,
+            onProgress
+          }
+        )
+      : await instance.packageExampleBySlug(slug, {
+          force: options.force,
+          skipBuild: options.skipBuild,
+          minify: options.minify,
+          onProgress
+        });
     const status = await recordCompletion(result, { jobId });
     emitProgressEvent(status);
     return result;

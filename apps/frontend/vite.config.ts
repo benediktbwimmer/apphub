@@ -9,9 +9,9 @@ const frontendRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(frontendRoot, '..', '..');
 const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
-const examplesRegistrySrcPath = resolve(workspaceRoot, 'packages', 'examples-registry', 'src');
-const examplesRegistryEntryPath = resolve(examplesRegistrySrcPath, 'index.browser.ts');
-const examplesRegistryTypesPath = resolve(examplesRegistrySrcPath, 'types.ts');
+const examplesSrcPath = resolve(workspaceRoot, 'packages', 'examples', 'src');
+const examplesBrowserEntryPath = resolve(examplesSrcPath, 'index.browser.ts');
+const examplesTypesPath = resolve(examplesSrcPath, 'types.ts');
 
 // https://vite.dev/config/
 const config: UserConfig & { test: VitestUserConfig['test'] } = {
@@ -21,9 +21,9 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
     alias: [
       { find: '@apphub/catalog', replacement: catalogSrcPath },
       { find: '@apphub/shared', replacement: sharedSrcPath },
-      { find: '@apphub/examples-registry/types', replacement: examplesRegistryTypesPath },
-      { find: '@apphub/examples-registry', replacement: examplesRegistryEntryPath },
-      { find: '@apphub/examples-registry/', replacement: `${examplesRegistrySrcPath}/` }
+      { find: '@apphub/examples/types', replacement: examplesTypesPath },
+      { find: '@apphub/examples', replacement: examplesBrowserEntryPath },
+      { find: '@apphub/examples/', replacement: `${examplesSrcPath}/` }
     ]
   },
   server: {

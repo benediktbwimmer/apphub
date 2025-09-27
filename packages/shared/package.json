@@ -54,7 +54,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@apphub/examples-registry": "0.1.0",
+    "@apphub/examples": "0.1.0",
     "pg": "^8.16.3",
     "zod": "^3.25.76"
   },

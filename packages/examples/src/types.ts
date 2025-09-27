@@ -67,6 +67,10 @@ export type ExampleJobBundle = {
   jobDefinitionPath: ExampleFileReference;
   manifest: JobManifestTemplate;
   definition: JobDefinitionTemplate;
+  descriptor?: {
+    module: string;
+    configPath: ExampleFileReference;
+  };
 };
 
 export type WorkflowTriggerTemplate = {

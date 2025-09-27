@@ -39,7 +39,7 @@ import {
   type WorkflowDefinitionTemplate,
   type WorkflowProvisioningEventTrigger,
   type WorkflowProvisioningSchedule
-} from '@apphub/examples-registry';
+} from '@apphub/examples';
 import { runE2E } from '@apphub/test-helpers';
 import { Pool } from 'pg';
 
