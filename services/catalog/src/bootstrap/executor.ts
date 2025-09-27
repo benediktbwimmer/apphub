@@ -10,6 +10,7 @@ import {
   renderJsonTemplates,
   renderTemplateString
 } from './template';
+import { resolvePathWithHostRoot } from './hostRoot';
 
 export type BootstrapExecutionOptions = {
   moduleId: string;
@@ -212,7 +213,8 @@ async function ensureFilestoreBackend(
     throw new Error('filestore backend schema resolved to an empty value');
   }
 
-  await mkdir(backendRoot, { recursive: true });
+  const effectiveBackendRoot = resolvePathWithHostRoot(backendRoot);
+  await mkdir(effectiveBackendRoot, { recursive: true });
 
   const pool = context.poolFactory({ connectionString });
   let backendId: number | null = null;
@@ -251,7 +253,7 @@ async function ensureFilestoreBackend(
        RETURNING id`,
       [
         mountKey,
-        backendRoot,
+        effectiveBackendRoot,
         action.accessMode ?? 'rw',
         action.state ?? 'active',
         configJson,
@@ -276,7 +278,13 @@ async function ensureFilestoreBackend(
     }
     backendId = parsedBackendId;
     context.logger?.info?.(
-      { moduleId: context.moduleId, mountKey, backendId, backendRoot },
+      {
+        moduleId: context.moduleId,
+        mountKey,
+        backendId,
+        backendRoot: effectiveBackendRoot,
+        requestedRoot: backendRoot
+      },
       'bootstrap ensured filestore backend'
     );
   } finally {

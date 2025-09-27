@@ -1,6 +1,6 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { executeBootstrapPlan, type BootstrapPlanSpec } from '../src/bootstrap';
@@ -84,8 +84,60 @@ async function run(): Promise<void> {
 
   assert.equal(bootstrapResult.placeholders.get('TEST_PLACEHOLDER'), 'computed-value');
   assert.equal(bootstrapResult.placeholders.get('NUMERIC'), '99');
-  assert(queries.length === 1, 'expected filestore backend upsert to run');
-  assert(Array.isArray(queries[0]?.params), 'expected query parameters');
+  assert(queries.length === 2, 'expected filestore backend queries to run');
+  assert(Array.isArray(queries[1]?.params), 'expected query parameters');
+  assert.equal(queries[1]?.params?.[1], path.join(workspaceRoot, 'filestore'));
+
+  const originalHostRoot = process.env.APPHUB_HOST_ROOT;
+  const hostRoot = path.join(workspaceRoot, 'host-root');
+  await mkdir(hostRoot, { recursive: true });
+  process.env.APPHUB_HOST_ROOT = hostRoot;
+
+  const hostQueries: Array<{ text: string; params: unknown[] }> = [];
+  const externalRoot = '/Users/apphub/example/observatory';
+  await executeBootstrapPlan({
+    moduleId: 'test/module',
+    plan: {
+      actions: [
+        {
+          type: 'ensureFilestoreBackend',
+          mountKey: 'host-mapped',
+          backend: {
+            kind: 'local',
+            rootPath: externalRoot
+          }
+        }
+      ]
+    },
+    placeholders: new Map(),
+    variables: {},
+    workspaceRoot,
+    poolFactory: () => ({
+      query: async (text, params) => {
+        hostQueries.push({ text, params });
+        return { rows: [{ id: 101 }] };
+      },
+      end: async () => undefined
+    })
+  });
+
+  const absoluteExternalRoot = path.resolve(externalRoot);
+  let expectedRootPath = absoluteExternalRoot;
+  const relativeFromRoot = path.relative('/', absoluteExternalRoot);
+  if (relativeFromRoot && !relativeFromRoot.startsWith('..')) {
+    expectedRootPath = path.join(hostRoot, relativeFromRoot);
+  }
+  assert(hostQueries.length === 2, 'expected host-mapped backend queries to run');
+  assert(Array.isArray(hostQueries[1]?.params), 'expected host-mapped query parameters');
+  assert.equal(hostQueries[1]?.params?.[1], expectedRootPath);
+  const mappedStats = await stat(expectedRootPath);
+  assert(mappedStats.isDirectory(), 'expected host-mapped directory to exist');
+
+  if (originalHostRoot === undefined) {
+    delete process.env.APPHUB_HOST_ROOT;
+  } else {
+    process.env.APPHUB_HOST_ROOT = originalHostRoot;
+  }
 }
 
 run().catch((err) => {

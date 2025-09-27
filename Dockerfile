@@ -295,6 +295,28 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
+[program:event-ingress-worker]
+command=node services/catalog/dist/eventIngressWorker.js
+directory=/app
+priority=48
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:event-trigger-worker]
+command=node services/catalog/dist/eventTriggerWorker.js
+directory=/app
+priority=49
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
 [program:workflow-worker]
 command=node services/catalog/dist/workflowWorker.js
 directory=/app
