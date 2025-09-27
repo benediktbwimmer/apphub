@@ -350,6 +350,8 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       filter: (src) => !isNodeModulesPath(src)
     });
 
+    await ensureWorkspacePackageEntryPoints(targetDir);
+
     try {
       const packageJsonRaw = await fs.readFile(packageJsonPath, 'utf8');
       const packageJson = JSON.parse(packageJsonRaw) as {
@@ -375,6 +377,68 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
 function isNodeModulesPath(candidate: string): boolean {
   const segments = candidate.split(path.sep);
   return segments.includes('node_modules');
+}
+
+async function ensureWorkspacePackageEntryPoints(packageDir: string): Promise<void> {
+  const packageJsonPath = path.join(packageDir, 'package.json');
+  let raw: string;
+  try {
+    raw = await fs.readFile(packageJsonPath, 'utf8');
+  } catch {
+    return;
+  }
+
+  let updated = false;
+  let parsed: {
+    main?: string;
+    types?: string;
+  };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  const mainEntry = typeof parsed.main === 'string' ? parsed.main.trim() : '';
+  if (mainEntry) {
+    const resolvedMain = path.join(packageDir, mainEntry);
+    if (!(await pathExists(resolvedMain))) {
+      const fallbackMain = resolveSourceFallback(mainEntry) ?? 'src/index.ts';
+      const fallbackPath = path.join(packageDir, fallbackMain);
+      if (await pathExists(fallbackPath)) {
+        parsed.main = fallbackMain.replace(/\\/g, '/');
+        updated = true;
+      }
+    }
+  }
+
+  const typesEntry = typeof parsed.types === 'string' ? parsed.types.trim() : '';
+  if (typesEntry) {
+    const resolvedTypes = path.join(packageDir, typesEntry);
+    if (!(await pathExists(resolvedTypes))) {
+      const fallbackTypes = resolveSourceFallback(typesEntry) ?? 'src/index.ts';
+      const fallbackTypesPath = path.join(packageDir, fallbackTypes);
+      if (await pathExists(fallbackTypesPath)) {
+        parsed.types = fallbackTypes.replace(/\\/g, '/');
+        updated = true;
+      }
+    }
+  }
+
+  if (updated) {
+    await fs.writeFile(packageJsonPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+  }
+}
+
+function resolveSourceFallback(entry: string): string | null {
+  if (!entry) {
+    return null;
+  }
+  const normalized = entry.replace(/\\/g, '/');
+  if (normalized.startsWith('dist/')) {
+    return normalized.replace(/^dist\//, 'src/').replace(/\.d\.ts$/i, '.ts').replace(/\.js$/i, '.ts');
+  }
+  return null;
 }
 
 async function copyBundleSources(sourceDir: string, targetDir: string): Promise<void> {

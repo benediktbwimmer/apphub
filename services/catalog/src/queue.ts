@@ -20,8 +20,36 @@ import {
 } from './eventSchedulerMetrics';
 import { registerSourceEvent } from './eventSchedulerState';
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
-const inlineMode = redisUrl === 'inline';
+function normalize(value: string | undefined) {
+  return value ? value.trim() : undefined;
+}
+
+function isInlineValue(value: string | undefined) {
+  return normalize(value)?.toLowerCase() === 'inline';
+}
+
+function computeInlineMode(): boolean {
+  return isInlineValue(process.env.REDIS_URL) || isInlineValue(process.env.APPHUB_EVENTS_MODE);
+}
+
+function resolveRedisUrl(): string {
+  const normalized = normalize(process.env.REDIS_URL);
+  if (isInlineValue(normalized)) {
+    throw new Error('Redis URL requested while inline queue mode is active');
+  }
+  return normalized ?? 'redis://127.0.0.1:6379';
+}
+
+let inlineMode = computeInlineMode();
+let connection: Redis | null = null;
+
+let ingestQueue: Queue | null = null;
+let buildQueue: Queue | null = null;
+let launchQueue: Queue | null = null;
+let workflowQueue: Queue | null = null;
+let exampleBundleQueue: Queue | null = null;
+let eventQueue: Queue<EventIngressJobData> | null = null;
+let eventTriggerQueue: Queue<EventTriggerJobData> | null = null;
 
 let ingestionHandlerLoaded = false;
 async function ensureIngestionJobHandler(): Promise<void> {
@@ -50,21 +78,6 @@ async function ensureExampleBundleJobHandler(): Promise<void> {
   exampleBundleHandlerLoaded = true;
 }
 
-function createConnection() {
-  if (inlineMode) {
-    return null;
-  }
-  const connection = new IORedis(redisUrl, {
-    maxRetriesPerRequest: null
-  });
-  connection.on('error', (err) => {
-    console.error('[queue] Redis connection error', err);
-  });
-  return connection;
-}
-
-const connection = createConnection();
-
 export const INGEST_QUEUE_NAME = process.env.INGEST_QUEUE_NAME ?? 'apphub_queue';
 export const BUILD_QUEUE_NAME = process.env.BUILD_QUEUE_NAME ?? 'apphub_build_queue';
 export const LAUNCH_QUEUE_NAME = process.env.LAUNCH_QUEUE_NAME ?? 'apphub_launch_queue';
@@ -76,73 +89,147 @@ export const EVENT_TRIGGER_QUEUE_NAME =
   process.env.APPHUB_EVENT_TRIGGER_QUEUE_NAME ?? 'apphub_event_trigger_queue';
 export const EVENT_TRIGGER_JOB_NAME = 'apphub.event.trigger';
 
-const queue = !inlineMode && connection
-  ? new Queue(INGEST_QUEUE_NAME, {
+export type EventTriggerJobData = {
+  envelope: EventEnvelope;
+};
+
+function createConnection(): Redis | null {
+  if (inlineMode) {
+    return null;
+  }
+  const redisUrl = resolveRedisUrl();
+  const instance = new IORedis(redisUrl, {
+    maxRetriesPerRequest: null
+  });
+  instance.on('error', (err) => {
+    console.error('[queue] Redis connection error', err);
+  });
+  return instance;
+}
+
+function disposeQueue(instance: Queue | null): void {
+  if (!instance) {
+    return;
+  }
+  void instance.close().catch(() => {});
+}
+
+function disposeEventQueue(instance: Queue<EventIngressJobData> | null): void {
+  if (!instance) {
+    return;
+  }
+  void instance.close().catch(() => {});
+}
+
+function disposeEventTriggerQueue(instance: Queue<EventTriggerJobData> | null): void {
+  if (!instance) {
+    return;
+  }
+  void instance.close().catch(() => {});
+}
+
+function disposeConnection(instance: Redis | null): void {
+  if (!instance) {
+    return;
+  }
+  void instance.quit().catch(() => {});
+}
+
+function resetQueues(): void {
+  disposeQueue(ingestQueue);
+  disposeQueue(buildQueue);
+  disposeQueue(launchQueue);
+  disposeQueue(workflowQueue);
+  disposeQueue(exampleBundleQueue);
+  disposeEventQueue(eventQueue);
+  disposeEventTriggerQueue(eventTriggerQueue);
+  ingestQueue = null;
+  buildQueue = null;
+  launchQueue = null;
+  workflowQueue = null;
+  exampleBundleQueue = null;
+  eventQueue = null;
+  eventTriggerQueue = null;
+}
+
+function initializeQueues(): void {
+  if (inlineMode) {
+    resetQueues();
+    disposeConnection(connection);
+    connection = null;
+    return;
+  }
+
+  if (!connection) {
+    connection = createConnection();
+  }
+  if (!connection) {
+    return;
+  }
+
+  if (!ingestQueue) {
+    ingestQueue = new Queue(INGEST_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 100
       }
-    })
-  : null;
+    });
+  }
 
-const buildQueue = !inlineMode && connection
-  ? new Queue(BUILD_QUEUE_NAME, {
+  if (!buildQueue) {
+    buildQueue = new Queue(BUILD_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 50,
         attempts: 1
       }
-    })
-  : null;
+    });
+  }
 
-const launchQueue = !inlineMode && connection
-  ? new Queue(LAUNCH_QUEUE_NAME, {
+  if (!launchQueue) {
+    launchQueue = new Queue(LAUNCH_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 25
       }
-    })
-  : null;
+    });
+  }
 
-const workflowQueue = !inlineMode && connection
-  ? new Queue(WORKFLOW_QUEUE_NAME, {
+  if (!workflowQueue) {
+    workflowQueue = new Queue(WORKFLOW_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 50
       }
-    })
-  : null;
+    });
+  }
 
-const exampleBundleQueue = !inlineMode && connection
-  ? new Queue(EXAMPLE_BUNDLE_QUEUE_NAME, {
+  if (!exampleBundleQueue) {
+    exampleBundleQueue = new Queue(EXAMPLE_BUNDLE_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: true,
         removeOnFail: 25
       }
-    })
-  : null;
+    });
+  }
 
-const eventQueue = !inlineMode && connection
-  ? new Queue<EventIngressJobData>(EVENT_QUEUE_NAME, {
+  if (!eventQueue) {
+    eventQueue = new Queue<EventIngressJobData>(EVENT_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: 100,
         removeOnFail: 100
       }
-    })
-  : null;
+    });
+  }
 
-export type EventTriggerJobData = {
-  envelope: EventEnvelope;
-};
-
-const eventTriggerQueue = !inlineMode && connection
-  ? new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
+  if (!eventTriggerQueue) {
+    eventTriggerQueue = new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         removeOnComplete: 100,
@@ -153,8 +240,31 @@ const eventTriggerQueue = !inlineMode && connection
           delay: Number(process.env.EVENT_TRIGGER_BACKOFF_MS ?? 5_000)
         }
       }
-    })
-  : null;
+    });
+  }
+}
+
+function synchronizeQueueMode(): void {
+  const desiredInline = computeInlineMode();
+  if (desiredInline !== inlineMode) {
+    inlineMode = desiredInline;
+    resetQueues();
+    disposeConnection(connection);
+    connection = null;
+  }
+
+  if (inlineMode) {
+    return;
+  }
+
+  if (!connection) {
+    connection = createConnection();
+  }
+
+  initializeQueues();
+}
+
+synchronizeQueueMode();
 
 export async function enqueueRepositoryIngestion(
   repositoryId: string,
@@ -163,6 +273,7 @@ export async function enqueueRepositoryIngestion(
     parameters?: JsonValue;
   } = {}
 ): Promise<JobRunRecord> {
+  synchronizeQueueMode();
   const trimmedId = repositoryId.trim();
   if (!trimmedId) {
     throw new Error('repositoryId is required');
@@ -198,11 +309,11 @@ export async function enqueueRepositoryIngestion(
     return executed ?? run;
   }
 
-  if (!queue) {
+  if (!ingestQueue) {
     throw new Error('Queue not initialised');
   }
 
-  await queue.add(
+  await ingestQueue.add(
     'repository-ingest',
     { repositoryId: trimmedId, jobRunId: run.id },
     {
@@ -220,6 +331,7 @@ export async function enqueueRepositoryIngestion(
 export async function enqueueWorkflowEvent(
   input: EventEnvelopeInput
 ): Promise<EventEnvelope> {
+  synchronizeQueueMode();
   const envelope = normalizeEventEnvelope(input);
 
   if (inlineMode) {
@@ -264,6 +376,7 @@ export async function enqueueWorkflowEvent(
 }
 
 export async function enqueueEventTriggerEvaluation(envelope: EventEnvelope): Promise<void> {
+  synchronizeQueueMode();
   if (inlineMode) {
     const { processEventTriggersForEnvelope } = await import('./eventTriggerProcessor');
     await processEventTriggersForEnvelope(envelope);
@@ -293,6 +406,7 @@ export async function getEventQueueStats(): Promise<{
   mode: 'inline' | 'queue' | 'disabled';
   counts?: Record<string, number>;
 }> {
+  synchronizeQueueMode();
   if (inlineMode) {
     return { mode: 'inline' };
   }
@@ -309,6 +423,7 @@ export async function getEventTriggerQueueStats(): Promise<{
   mode: 'inline' | 'queue' | 'disabled';
   counts?: Record<string, number>;
 }> {
+  synchronizeQueueMode();
   if (inlineMode) {
     return { mode: 'inline' };
   }
@@ -322,6 +437,7 @@ export async function getEventTriggerQueueStats(): Promise<{
 }
 
 export function getQueueConnection() {
+  synchronizeQueueMode();
   if (inlineMode || !connection) {
     throw new Error('Redis connection not initialised');
   }
@@ -329,6 +445,7 @@ export function getQueueConnection() {
 }
 
 export function isInlineQueueMode() {
+  synchronizeQueueMode();
   return inlineMode;
 }
 
@@ -355,6 +472,13 @@ export async function closeQueueConnection(instance?: Redis | null) {
     }
     throw err;
   }
+
+  if (!instance || target === connection) {
+    resetQueues();
+    if (target === connection) {
+      connection = null;
+    }
+  }
 }
 
 export async function enqueueBuildJob(
@@ -362,6 +486,7 @@ export async function enqueueBuildJob(
   repositoryId: string,
   options: { jobRunId?: string } = {}
 ): Promise<JobRunRecord> {
+  synchronizeQueueMode();
   const trimmedBuildId = buildId.trim();
   if (!trimmedBuildId) {
     throw new Error('buildId is required');
@@ -407,6 +532,7 @@ export async function enqueueBuildJob(
 }
 
 export async function enqueueLaunchStart(launchId: string) {
+  synchronizeQueueMode();
   if (inlineMode) {
     return;
   }
@@ -419,6 +545,7 @@ export async function enqueueLaunchStart(launchId: string) {
 }
 
 export async function enqueueLaunchStop(launchId: string) {
+  synchronizeQueueMode();
   if (inlineMode) {
     return;
   }
@@ -431,6 +558,7 @@ export async function enqueueLaunchStop(launchId: string) {
 }
 
 export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
+  synchronizeQueueMode();
   const trimmedId = workflowRunId.trim();
   if (!trimmedId) {
     throw new Error('workflowRunId is required');
@@ -459,6 +587,7 @@ export async function enqueueExampleBundleJob(
   slug: string,
   options: { force?: boolean; skipBuild?: boolean; minify?: boolean } = {}
 ): Promise<EnqueueExampleBundleResult> {
+  synchronizeQueueMode();
   const trimmedSlug = slug.trim().toLowerCase();
   if (!trimmedSlug) {
     throw new Error('slug is required');
@@ -485,7 +614,7 @@ export async function enqueueExampleBundleJob(
   }
 
   if (!exampleBundleQueue) {
-    throw new Error('Queue not initialised');
+    throw new Error('Example bundle queue not initialised');
   }
 
   const job = await exampleBundleQueue.add(trimmedSlug, payload, {
