@@ -57,6 +57,7 @@ RUN npm run build --workspace @apphub/metastore
 RUN npm run build --workspace @apphub/frontend
 RUN npm run build --workspace @apphub/timestore
 RUN npm run build --workspace @apphub/filestore
+RUN npm run build --workspace @apphub/filestore-client
 RUN npm prune --omit=dev
 RUN rm -rf services/catalog/node_modules && ln -s ../../node_modules services/catalog/node_modules
 RUN rm -rf services/metastore/node_modules && ln -s ../../node_modules services/metastore/node_modules

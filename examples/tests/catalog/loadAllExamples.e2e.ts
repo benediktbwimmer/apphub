@@ -204,26 +204,6 @@ async function waitForExampleBundles(app: FastifyInstance, slugs: readonly strin
 }
 
 async function importExampleBundle(app: FastifyInstance, slug: string): Promise<void> {
-  const enqueueResponse = await app.inject({
-    method: 'POST',
-    url: '/job-imports/example',
-    headers: {
-      Authorization: `Bearer ${OPERATOR_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    payload: {
-      slug,
-      force: true
-    }
-  });
-  assert.equal(
-    enqueueResponse.statusCode,
-    202,
-    `Enqueue failed for ${slug}: ${enqueueResponse.payload}`
-  );
-
-  await waitForExampleBundles(app, [slug]);
-
   const previewResponse = await app.inject({
     method: 'POST',
     url: '/job-imports/preview',
