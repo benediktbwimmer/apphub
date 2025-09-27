@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatasetHistory } from '../../hooks/useDatasetHistory';
-import type { DatasetAccessAuditEvent, DatasetAccessAuditListResponse } from '../../types';
+import type { DatasetAccessAuditEvent } from '../../types';
 
 const sampleEvent: DatasetAccessAuditEvent = {
   id: 'event-1',
@@ -17,10 +17,7 @@ const sampleEvent: DatasetAccessAuditEvent = {
 
 describe('useDatasetHistory', () => {
   const authorizedFetch = vi.fn();
-  let historyFetcher: vi.Mock<
-    Promise<DatasetAccessAuditListResponse>,
-    [ReturnType<typeof authorizedFetch>, string, Record<string, unknown> | undefined, { signal?: AbortSignal } | undefined]
-  >;
+  let historyFetcher: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     historyFetcher = vi.fn();

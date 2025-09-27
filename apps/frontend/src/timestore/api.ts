@@ -25,7 +25,6 @@ import {
   archiveDatasetRequestSchema,
   datasetAccessAuditListResponseSchema,
   createDatasetRequestSchema,
-  datasetAccessAuditListResponseSchema,
   datasetListResponseSchema,
   datasetRecordSchema,
   datasetResponseSchema,
@@ -331,16 +330,6 @@ export async function fetchDatasetManifest(
   }
   return parseJson(response, manifestResponseSchema);
 }
-
-export type DatasetAccessAuditListParams = {
-  limit?: number;
-  cursor?: string | null;
-  actions?: string[];
-  success?: boolean;
-  startTime?: string;
-  endTime?: string;
-};
-
 export async function fetchLifecycleStatus(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   params: { limit?: number; datasetId?: string } = {},
