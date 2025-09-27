@@ -10,8 +10,7 @@ import type {
   LifecycleRunResponse,
   QueryResponse,
   SqlSchemaResponse,
-  SqlQueryResult,
-  SqlSchemaTable
+  SqlQueryResult
 } from './types';
 import {
   datasetListResponseSchema,
