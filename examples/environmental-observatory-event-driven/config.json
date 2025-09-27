@@ -1,6 +1,19 @@
 {
+  "$schema": "../../docs/schemas/example-config.schema.json",
+  "configVersion": "1.0",
   "module": "github.com/apphub/examples/environmental-observatory-event-driven",
-  "manifestPath": "./service-manifest.json",
+  "manifests": [
+    {
+      "path": "./service-manifests/service-manifest.json"
+    }
+  ],
+  "placeholders": [
+    {
+      "name": "OBSERVATORY_DATA_ROOT",
+      "description": "Base directory on the host where observatory datasets and artifacts are stored.",
+      "default": "examples/environmental-observatory-event-driven/data"
+    }
+  ],
   "bootstrap": {
     "actions": [
       {

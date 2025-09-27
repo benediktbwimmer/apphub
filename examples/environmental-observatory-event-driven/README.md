@@ -15,6 +15,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - `workflows/` – minute ingest + publication definitions with new Filestore/Timestore parameters.
 - `services/` – `observatory-event-gateway` (Filestore event monitor) and the static dashboard.
 - `scripts/` – helper utilities for generating the config file and provisioning workflow triggers.
+- `config.json` – example descriptor wiring placeholders, bootstrap actions, and manifest references.
 - `service-manifests/` – minimal manifest for the two services (they now read the shared config instead of embedding prompts).
 - `shared/` – TypeScript helper for loading the config JSON from any package.
 

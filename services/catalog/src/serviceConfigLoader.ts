@@ -79,6 +79,43 @@ const serviceConfigSchema = z
 
 type ServiceConfig = z.infer<typeof serviceConfigSchema>;
 
+const placeholderDescriptorSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    default: z.string().optional()
+  })
+  .strict();
+
+const manifestReferenceSchema = z
+  .object({
+    path: z.string().min(1),
+    kind: z.enum(['services', 'networks', 'bundle']).optional(),
+    description: z.string().optional()
+  })
+  .strict();
+
+const linkedAssetSchema = z
+  .object({
+    id: z.string().min(1),
+    path: z.string().min(1),
+    description: z.string().optional(),
+    mediaType: z.string().optional()
+  })
+  .strict();
+
+export const exampleConfigDescriptorSchema = serviceConfigSchema
+  .extend({
+    $schema: z.string().optional(),
+    configVersion: z.string().optional(),
+    placeholders: z.array(placeholderDescriptorSchema).optional(),
+    manifests: z.array(manifestReferenceSchema).optional(),
+    assets: z.array(linkedAssetSchema).optional()
+  })
+  .strict();
+
+export type ExampleConfigDescriptor = z.infer<typeof exampleConfigDescriptorSchema>;
+
 export type LoadedManifestEntry = Omit<ManifestEntryInput, 'env'> & {
   env?: ResolvedManifestEnvVar[];
   sources: string[];
@@ -143,6 +180,23 @@ type PlaceholderEntry = {
 
 type PlaceholderCollector = Map<string, PlaceholderEntry>;
 
+type PlaceholderMetadataEntry = {
+  name: string;
+  description?: string;
+  defaultValue?: string;
+  sourceLabel: string;
+};
+
+type PlaceholderMetadataStore = Map<string, PlaceholderMetadataEntry>;
+
+type PlaceholderMetadataDetails = {
+  description?: string;
+  defaultValue?: string;
+  sourceLabel?: string;
+};
+
+type PlaceholderMetadataLookup = (name: string) => PlaceholderMetadataDetails | undefined;
+
 type PlaceholderMode = 'collect' | 'enforce';
 
 type PlaceholderOwner =
@@ -159,6 +213,7 @@ type ConfigLoadOptions = {
   repoRoot?: string;
   variables?: Record<string, string> | null;
   placeholderCollector: PlaceholderCollector;
+  placeholderMetadata: PlaceholderMetadataStore;
   placeholderMode: PlaceholderMode;
 };
 
@@ -171,6 +226,7 @@ type PlaceholderDetection =
         name: string;
         defaultValue?: string;
         description?: string;
+        sourceLabel?: string;
       };
     };
 
@@ -178,7 +234,73 @@ function createPlaceholderCollector(): PlaceholderCollector {
   return new Map();
 }
 
-function detectPlaceholder(value: ManifestEnvVarValue | undefined): PlaceholderDetection {
+function createPlaceholderMetadataStore(): PlaceholderMetadataStore {
+  return new Map();
+}
+
+function registerPlaceholderMetadata(
+  store: PlaceholderMetadataStore,
+  metadata: { name: string; description?: string; defaultValue?: string; sourceLabel: string },
+  errors: ManifestLoadError[]
+) {
+  const name = metadata.name.trim();
+  if (!name) {
+    return;
+  }
+  const existing = store.get(name);
+  if (!existing) {
+    store.set(name, {
+      name,
+      description: metadata.description,
+      defaultValue: metadata.defaultValue,
+      sourceLabel: metadata.sourceLabel
+    });
+    return;
+  }
+
+  if (
+    metadata.defaultValue !== undefined &&
+    existing.defaultValue !== undefined &&
+    metadata.defaultValue !== existing.defaultValue
+  ) {
+    errors.push({
+      source: metadata.sourceLabel,
+      error: new Error(
+        `placeholder ${name} default "${metadata.defaultValue}" conflicts with "${existing.defaultValue}" from ${existing.sourceLabel}`
+      )
+    });
+    return;
+  }
+
+  if (existing.defaultValue === undefined && metadata.defaultValue !== undefined) {
+    existing.defaultValue = metadata.defaultValue;
+    existing.sourceLabel = metadata.sourceLabel;
+  }
+
+  if (!existing.description && metadata.description) {
+    existing.description = metadata.description;
+  }
+}
+
+function lookupPlaceholderMetadata(
+  store: PlaceholderMetadataStore,
+  name: string
+): PlaceholderMetadataDetails | undefined {
+  const entry = store.get(name.trim());
+  if (!entry) {
+    return undefined;
+  }
+  return {
+    defaultValue: entry.defaultValue,
+    description: entry.description,
+    sourceLabel: entry.sourceLabel
+  };
+}
+
+function detectPlaceholder(
+  value: ManifestEnvVarValue | undefined,
+  options: { metadataLookup?: PlaceholderMetadataLookup } = {}
+): PlaceholderDetection {
   if (value === undefined) {
     return { type: 'none' };
   }
@@ -186,7 +308,17 @@ function detectPlaceholder(value: ManifestEnvVarValue | undefined): PlaceholderD
     const trimmed = value.trim();
     const match = trimmed.match(/^\$\{([A-Za-z0-9_]+)\}$/);
     if (match) {
-      return { type: 'placeholder', details: { name: match[1] } };
+      const placeholderName = match[1];
+      const metadata = options.metadataLookup?.(placeholderName);
+      return {
+        type: 'placeholder',
+        details: {
+          name: placeholderName,
+          defaultValue: metadata?.defaultValue,
+          description: metadata?.description,
+          sourceLabel: metadata?.sourceLabel
+        }
+      };
     }
     return { type: 'literal', value };
   }
@@ -302,13 +434,19 @@ function resolvePlaceholderValue(
     owner: PlaceholderOwner;
     envKey: string;
     sourceLabel: string;
+    metadataSourceLabel?: string;
     details: { name: string; defaultValue?: string; description?: string };
     variables?: Record<string, string> | null;
   }
 ): { value?: string; missing: boolean } {
-  const { entry, owner, envKey, sourceLabel, details, variables } = params;
+  const { entry, owner, envKey, sourceLabel, metadataSourceLabel, details, variables } = params;
   recordPlaceholderOccurrence(entry, owner, envKey, sourceLabel);
-  applyPlaceholderMetadata(entry, { description: details.description, defaultValue: details.defaultValue }, sourceLabel);
+  const metadataSource = metadataSourceLabel ?? sourceLabel;
+  applyPlaceholderMetadata(
+    entry,
+    { description: details.description, defaultValue: details.defaultValue },
+    metadataSource
+  );
 
   if (details.defaultValue === undefined) {
     entry.required = true;
@@ -404,11 +542,12 @@ function resolveEnvVars(params: {
   owner: PlaceholderOwner;
   sourceLabel: string;
   collector: PlaceholderCollector;
+  metadataLookup?: PlaceholderMetadataLookup;
   variables?: Record<string, string> | null;
   placeholderMode: PlaceholderMode;
   errors: ManifestLoadError[];
 }): ResolvedManifestEnvVar[] | undefined {
-  const { env, owner, sourceLabel, collector, variables, placeholderMode, errors } = params;
+  const { env, owner, sourceLabel, collector, metadataLookup, variables, placeholderMode, errors } = params;
   if (!env || !Array.isArray(env)) {
     return undefined;
   }
@@ -438,7 +577,9 @@ function resolveEnvVars(params: {
     }
 
     if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
-      const detection = detectPlaceholder(entry.value as ManifestEnvVarValue);
+      const detection = detectPlaceholder(entry.value as ManifestEnvVarValue, {
+        metadataLookup
+      });
       if (detection.type === 'literal') {
         clone.value = detection.value;
       } else if (detection.type === 'placeholder') {
@@ -458,6 +599,7 @@ function resolveEnvVars(params: {
             owner,
             envKey: key,
             sourceLabel,
+            metadataSourceLabel: detection.details.sourceLabel,
             details: {
               name: placeholderName,
               defaultValue: detection.details.defaultValue,
@@ -547,8 +689,26 @@ async function readManifestDescriptors(manifestPath: string): Promise<ManifestDe
   });
 }
 
-async function readServiceConfig(configPath: string): Promise<ServiceConfig> {
-  return readJsonFile(configPath, (value) => serviceConfigSchema.parse(value));
+async function readServiceConfig(configPath: string): Promise<ExampleConfigDescriptor> {
+  return readJsonFile(configPath, (value) => exampleConfigDescriptorSchema.parse(value));
+}
+
+async function resolveConfigFilePath(repoRoot: string, overridePath?: string | null) {
+  if (overridePath && overridePath.trim()) {
+    return overridePath.trim();
+  }
+  const candidates = ['config.json', 'service-config.json'];
+  for (const candidate of candidates) {
+    try {
+      await fs.access(path.resolve(repoRoot, candidate));
+      return candidate;
+    } catch (err) {
+      if (!isErrnoException(err) || err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+  }
+  return 'service-config.json';
 }
 
 function toRepoRelativePath(filePath: string, repoRoot?: string) {
@@ -566,6 +726,7 @@ function addManifestEntries(
   sourceLabel: string,
   options: {
     collector: PlaceholderCollector;
+    metadataLookup?: PlaceholderMetadataLookup;
     variables?: Record<string, string> | null;
     placeholderMode: PlaceholderMode;
     errors: ManifestLoadError[];
@@ -578,6 +739,7 @@ function addManifestEntries(
       owner: { kind: 'service', serviceSlug: slug },
       sourceLabel,
       collector: options.collector,
+      metadataLookup: options.metadataLookup,
       variables: options.variables,
       placeholderMode: options.placeholderMode,
       errors: options.errors
@@ -600,6 +762,7 @@ function addManifestNetworks(
   sourceLabel: string,
   options: {
     collector: PlaceholderCollector;
+    metadataLookup?: PlaceholderMetadataLookup;
     variables?: Record<string, string> | null;
     placeholderMode: PlaceholderMode;
     errors: ManifestLoadError[];
@@ -614,6 +777,7 @@ function addManifestNetworks(
         owner: { kind: 'network-service', networkId, serviceSlug: slug },
         sourceLabel,
         collector: options.collector,
+        metadataLookup: options.metadataLookup,
         variables: options.variables,
         placeholderMode: options.placeholderMode,
         errors: options.errors
@@ -627,6 +791,7 @@ function addManifestNetworks(
         },
         sourceLabel,
         collector: options.collector,
+        metadataLookup: options.metadataLookup,
         variables: options.variables,
         placeholderMode: options.placeholderMode,
         errors: options.errors
@@ -649,6 +814,7 @@ function addManifestNetworks(
       owner: { kind: 'network', networkId },
       sourceLabel,
       collector: options.collector,
+      metadataLookup: options.metadataLookup,
       variables: options.variables,
       placeholderMode: options.placeholderMode,
       errors: options.errors
@@ -674,11 +840,12 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     repoRoot,
     variables,
     placeholderCollector,
+    placeholderMetadata,
     placeholderMode
   } = options;
   const errors: ManifestLoadError[] = [];
 
-  let config: ServiceConfig;
+  let config: ExampleConfigDescriptor;
   try {
     config = await readServiceConfig(filePath);
   } catch (err) {
@@ -704,10 +871,61 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   const networks: LoadedServiceNetwork[] = [];
   const bootstrapActions: BootstrapActionSpec[] = [...(config.bootstrap?.actions ?? [])];
   const moduleSource = `module:${moduleId}`;
+  const metadataLookup: PlaceholderMetadataLookup = (name) =>
+    lookupPlaceholderMetadata(placeholderMetadata, name);
+
+  const configDir = path.dirname(filePath);
+  const manifestPathsLoaded = new Set<string>();
+
+  const loadManifestFile = async (manifestRelativePath: string) => {
+    const trimmed = manifestRelativePath.trim();
+    if (!trimmed) {
+      return;
+    }
+    const manifestFullPath = path.resolve(configDir, trimmed);
+    if (manifestPathsLoaded.has(manifestFullPath)) {
+      return;
+    }
+    manifestPathsLoaded.add(manifestFullPath);
+    const manifestSourceLabel = joinSourceLabel(sourceLabel, toRepoRelativePath(manifestFullPath, repoRoot));
+    try {
+      const manifestDescriptors = await readManifestDescriptors(manifestFullPath);
+      addManifestEntries(entries, manifestDescriptors.entries, moduleSource, manifestSourceLabel, {
+        collector: placeholderCollector,
+        metadataLookup,
+        variables,
+        placeholderMode,
+        errors
+      });
+      addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel, {
+        collector: placeholderCollector,
+        metadataLookup,
+        variables,
+        placeholderMode,
+        errors
+      });
+    } catch (err) {
+      errors.push({ source: manifestSourceLabel, error: err as Error });
+    }
+  };
+
+  for (const placeholder of config.placeholders ?? []) {
+    registerPlaceholderMetadata(
+      placeholderMetadata,
+      {
+        name: placeholder.name,
+        description: placeholder.description,
+        defaultValue: placeholder.default,
+        sourceLabel
+      },
+      errors
+    );
+  }
 
   if (config.services?.length) {
     addManifestEntries(entries, config.services, moduleSource, sourceLabel, {
       collector: placeholderCollector,
+      metadataLookup,
       variables,
       placeholderMode,
       errors
@@ -717,33 +935,21 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   if (config.networks?.length) {
     addManifestNetworks(networks, config.networks, moduleSource, sourceLabel, {
       collector: placeholderCollector,
+      metadataLookup,
       variables,
       placeholderMode,
       errors
     });
   }
 
-  if (config.manifestPath) {
-    const configDir = path.dirname(filePath);
-    const manifestFullPath = path.resolve(configDir, config.manifestPath);
-    const manifestSourceLabel = joinSourceLabel(sourceLabel, toRepoRelativePath(manifestFullPath, repoRoot));
-    try {
-      const manifestDescriptors = await readManifestDescriptors(manifestFullPath);
-      addManifestEntries(entries, manifestDescriptors.entries, moduleSource, manifestSourceLabel, {
-        collector: placeholderCollector,
-        variables,
-        placeholderMode,
-        errors
-      });
-      addManifestNetworks(networks, manifestDescriptors.networks, moduleSource, manifestSourceLabel, {
-        collector: placeholderCollector,
-        variables,
-        placeholderMode,
-        errors
-      });
-    } catch (err) {
-      errors.push({ source: manifestSourceLabel, error: err as Error });
+  if (config.manifests?.length) {
+    for (const manifest of config.manifests) {
+      await loadManifestFile(manifest.path);
     }
+  }
+
+  if (config.manifestPath) {
+    await loadManifestFile(config.manifestPath);
   }
 
   for (const child of config.imports ?? []) {
@@ -752,6 +958,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     }
     const childResult = await loadConfigImport(child, visitedModules, {
       placeholderCollector,
+      placeholderMetadata,
       placeholderMode,
       expectedModuleOverride: undefined
     });
@@ -774,6 +981,7 @@ async function loadConfigImport(
   options: {
     expectedModuleOverride?: string | null;
     placeholderCollector: PlaceholderCollector;
+    placeholderMetadata: PlaceholderMetadataStore;
     placeholderMode: PlaceholderMode;
   }
 ) {
@@ -827,7 +1035,7 @@ async function loadConfigImport(
       throw new Error('service import must provide either a git repository or a local path');
     }
 
-    const configPathRelative = importConfig.configPath ?? 'service-config.json';
+    const configPathRelative = await resolveConfigFilePath(repoRoot, importConfig.configPath);
     const configFilePath = path.resolve(repoRoot, configPathRelative);
     const sourceLabel = joinSourceLabel(sourceLabelBase, configPathRelative);
     const expectedModule =
@@ -840,6 +1048,7 @@ async function loadConfigImport(
       repoRoot,
       variables: importConfig.variables ?? null,
       placeholderCollector: options.placeholderCollector,
+      placeholderMetadata: options.placeholderMetadata,
       placeholderMode: options.placeholderMode
     });
     moduleId = result.moduleId;
@@ -901,9 +1110,11 @@ export async function previewServiceConfigImport(
 
   const visitedModules: VisitedModules = new Map();
   const placeholderCollector = createPlaceholderCollector();
+  const placeholderMetadata = createPlaceholderMetadataStore();
   const result = await loadConfigImport(importConfig, visitedModules, {
     expectedModuleOverride: expectedModule,
     placeholderCollector,
+    placeholderMetadata,
     placeholderMode: 'collect'
   });
   if (!result.moduleId) {

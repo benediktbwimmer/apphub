@@ -270,8 +270,7 @@ async function importServiceManifest(app: FastifyInstance): Promise<void> {
     },
     payload: {
       path: repoRoot,
-      configPath:
-        'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
+      configPath: 'examples/environmental-observatory-event-driven/config.json',
       module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {}
     }

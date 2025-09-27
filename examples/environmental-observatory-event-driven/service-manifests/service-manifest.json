@@ -16,13 +16,7 @@
         },
         {
           "key": "OBSERVATORY_DATA_ROOT",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_DATA_ROOT",
-              "default": "examples/environmental-observatory-event-driven/data",
-              "description": "Base directory on the host where observatory datasets and artifacts are stored."
-            }
-          }
+          "value": "${OBSERVATORY_DATA_ROOT}"
         }
       ]
     },

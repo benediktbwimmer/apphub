@@ -305,9 +305,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     ],
     assets: [
       {
-        label: 'Service config',
-        path: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/service-manifests/service-config.json'
+        label: 'Config descriptor',
+        path: 'examples/environmental-observatory-event-driven/config.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/config.json'
       },
       {
         label: 'Service manifest',
@@ -328,7 +328,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       repo: 'https://github.com/benediktbwimmer/apphub.git',
       ref: 'main',
-      configPath: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
+      configPath: 'examples/environmental-observatory-event-driven/config.json',
       module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {
         OBSERVATORY_DATA_ROOT: 'examples/environmental-observatory-event-driven/data'

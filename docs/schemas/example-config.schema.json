@@ -1,0 +1,699 @@
+{
+  "$ref": "#/definitions/ExampleConfigDescriptor",
+  "definitions": {
+    "ExampleConfigDescriptor": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1
+              },
+              "capabilities": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+                    }
+                  }
+                ]
+              },
+              "metadata": {
+                "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "healthEndpoint": {
+                "type": "string"
+              },
+              "openapiPath": {
+                "type": "string"
+              },
+              "devCommand": {
+                "type": "string"
+              },
+              "workingDir": {
+                "type": "string"
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "$var": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "default": {
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "$var"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "fromService": {
+                      "type": "object",
+                      "properties": {
+                        "service": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "property": {
+                          "type": "string",
+                          "enum": [
+                            "instanceUrl",
+                            "baseUrl",
+                            "host",
+                            "port"
+                          ]
+                        },
+                        "fallback": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "service",
+                        "property"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "slug",
+              "displayName",
+              "kind",
+              "baseUrl"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "networks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "repoUrl": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dockerfilePath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/tags/items"
+                }
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/env/items"
+                }
+              },
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "serviceSlug": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "repoUrl": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "dockerfilePath": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "tags": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/tags/items"
+                          }
+                        },
+                        "launchEnv": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/env/items"
+                          }
+                        },
+                        "launchCommand": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "repoUrl",
+                        "dockerfilePath"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "launchOrder": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "waitForBuild": {
+                      "type": "boolean"
+                    },
+                    "dependsOn": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "env": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/env/items"
+                      }
+                    }
+                  },
+                  "required": [
+                    "serviceSlug",
+                    "app"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1
+              },
+              "launchOrder": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "repoUrl",
+              "dockerfilePath",
+              "services"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "manifestPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "module": {
+                "type": "string",
+                "minLength": 1
+              },
+              "repo": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,40}$"
+              },
+              "configPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "variables": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "module"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "bootstrap": {
+          "type": "object",
+          "properties": {
+            "actions": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "ensureDirectories"
+                      },
+                      "directories": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "minItems": 1
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "directories"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "ensureFilestoreBackend"
+                      },
+                      "mountKey": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "backend": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "local"
+                          },
+                          "rootPath": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "rootPath"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "accessMode": {
+                        "type": "string",
+                        "enum": [
+                          "ro",
+                          "rw"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "active",
+                          "inactive"
+                        ]
+                      },
+                      "displayName": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "summary": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "contact": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "labels": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories"
+                      },
+                      "stateReason": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "config": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+                      },
+                      "connection": {
+                        "type": "object",
+                        "properties": {
+                          "connectionString": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                          },
+                          "schema": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "assign": {
+                        "type": "object",
+                        "properties": {
+                          "placeholders": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                            },
+                            "propertyNames": {
+                              "minLength": 1
+                            }
+                          },
+                          "variables": {
+                            "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/1/properties/assign/properties/placeholders"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "mountKey"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "writeJsonFile"
+                      },
+                      "path": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/0/properties/directories/items"
+                      },
+                      "content": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+                      },
+                      "createParents": {
+                        "type": "boolean"
+                      },
+                      "pretty": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "path",
+                      "content"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "applyWorkflowDefaults"
+                      },
+                      "workflows": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "slug": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "defaults": {
+                              "$ref": "#/definitions/ExampleConfigDescriptor/properties/services/items/properties/capabilities"
+                            },
+                            "strategy": {
+                              "type": "string",
+                              "enum": [
+                                "merge",
+                                "replace"
+                              ]
+                            },
+                            "description": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "slug"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "workflows"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "setEnvDefaults"
+                      },
+                      "values": {
+                        "$ref": "#/definitions/ExampleConfigDescriptor/properties/bootstrap/properties/actions/items/anyOf/1/properties/assign/properties/placeholders"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "values"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false
+        },
+        "$schema": {
+          "type": "string"
+        },
+        "configVersion": {
+          "type": "string"
+        },
+        "placeholders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "default": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "manifests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "services",
+                  "networks",
+                  "bundle"
+                ]
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "mediaType": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "module"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
