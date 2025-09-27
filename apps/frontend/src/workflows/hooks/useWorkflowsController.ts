@@ -55,6 +55,7 @@ import type {
   WorkflowAssetPartitions,
   WorkflowDefinition,
   WorkflowEventSample,
+  WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
   WorkflowEventTrigger,
   WorkflowFiltersState,
@@ -110,6 +111,7 @@ type TriggerDeliveryState = {
 
 type EventSamplesState = {
   items: WorkflowEventSample[];
+  schema: WorkflowEventSchema | null;
   loading: boolean;
   error: string | null;
   query: WorkflowEventSampleQuery | null;
@@ -172,6 +174,7 @@ export function useWorkflowsController() {
   const [triggerDeliveryState, setTriggerDeliveryState] = useState<Record<string, TriggerDeliveryState>>({});
   const [eventSamplesState, setEventSamplesState] = useState<EventSamplesState>({
     items: [],
+    schema: null,
     loading: false,
     error: null,
     query: null
@@ -267,6 +270,7 @@ export function useWorkflowsController() {
   const triggerDeliveriesQuery = triggerDeliveriesEntry?.query ?? {};
 
   const eventSamples = eventSamplesState.items;
+  const eventSchema = eventSamplesState.schema;
   const eventSamplesLoading = eventSamplesState.loading;
   const eventSamplesError = eventSamplesState.error;
 
@@ -973,9 +977,10 @@ export function useWorkflowsController() {
         query
       }));
       try {
-        const samples = await listWorkflowEventSamples(authorizedFetch, query);
+        const { samples, schema } = await listWorkflowEventSamples(authorizedFetch, query);
         setEventSamplesState({
           items: samples,
+          schema: schema ?? null,
           loading: false,
           error: null,
           query,
@@ -1629,6 +1634,7 @@ export function useWorkflowsController() {
     triggerDeliveriesQuery,
     loadTriggerDeliveries,
     eventSamples,
+    eventSchema,
     eventSamplesLoading,
     eventSamplesError,
     eventSamplesQuery: eventSamplesState.query,

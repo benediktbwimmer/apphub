@@ -1,16 +1,21 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/Modal';
 import { Spinner } from '../../../components/Spinner';
+import { useToasts } from '../../../components/toast';
 import type {
+  WorkflowEventSchema,
   WorkflowEventTrigger,
   WorkflowEventTriggerStatus
 } from '../../types';
 import {
   ApiError,
+  type WorkflowEventSampleQuery,
   type WorkflowEventTriggerCreateInput,
   type WorkflowEventTriggerPredicateInput,
   type WorkflowEventTriggerUpdateInput
 } from '../../api';
+
+import EventSchemaExplorer from './EventSchemaExplorer';
 
 export type EventTriggerPreviewSnapshot = {
   triggerId?: string | null;
@@ -133,6 +138,10 @@ type EventTriggerFormModalProps = {
   workflowName: string;
   initialTrigger?: WorkflowEventTrigger | null;
   canEdit: boolean;
+  eventSchema: WorkflowEventSchema | null;
+  eventSchemaLoading: boolean;
+  eventSchemaQuery: WorkflowEventSampleQuery | null;
+  onLoadEventSchema: (query: WorkflowEventSampleQuery) => Promise<void>;
   onClose: () => void;
   onCreate: (slug: string, input: WorkflowEventTriggerCreateInput) => Promise<WorkflowEventTrigger>;
   onUpdate: (slug: string, triggerId: string, input: WorkflowEventTriggerUpdateInput) => Promise<WorkflowEventTrigger>;
@@ -294,6 +303,10 @@ export default function EventTriggerFormModal({
   workflowName,
   initialTrigger,
   canEdit,
+  eventSchema,
+  eventSchemaLoading,
+  eventSchemaQuery,
+  onLoadEventSchema,
   onClose,
   onCreate,
   onUpdate,
@@ -302,6 +315,9 @@ export default function EventTriggerFormModal({
   const [values, setValues] = useState<FormValues>(() => mapTriggerToForm(initialTrigger));
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const { pushToast } = useToasts();
+  const parameterTemplateRef = useRef<HTMLTextAreaElement | null>(null);
+  const [schemaExplorerOpen, setSchemaExplorerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -312,7 +328,153 @@ export default function EventTriggerFormModal({
     setSubmitting(false);
   }, [open, initialTrigger]);
 
+  useEffect(() => {
+    if (!open) {
+      setSchemaExplorerOpen(false);
+    }
+  }, [open]);
+
   const isEdit = mode === 'edit';
+
+  const buildSchemaQuery = (): WorkflowEventSampleQuery | null => {
+    const type = values.eventType.trim();
+    if (!type) {
+      return null;
+    }
+    const query: WorkflowEventSampleQuery = {
+      type,
+      limit: eventSchemaQuery?.limit ?? 50
+    };
+    const sourceValue = values.eventSource.trim();
+    if (sourceValue) {
+      query.source = sourceValue;
+    }
+    return query;
+  };
+
+  const schemaQueryMatches = (current: WorkflowEventSampleQuery | null, desired: WorkflowEventSampleQuery): boolean => {
+    if (!current) {
+      return false;
+    }
+    const currentType = (current.type ?? '').trim();
+    const desiredType = (desired.type ?? '').trim();
+    if (currentType !== desiredType) {
+      return false;
+    }
+    const currentSource = (current.source ?? '').trim();
+    const desiredSource = (desired.source ?? '').trim();
+    if (currentSource !== desiredSource) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleToggleSchemaExplorer = async () => {
+    if (schemaExplorerOpen) {
+      setSchemaExplorerOpen(false);
+      return;
+    }
+    const query = buildSchemaQuery();
+    if (!query) {
+      setErrors((current) => ({ ...current, eventType: 'Set an event type to explore schema.' }));
+      pushToast({
+        tone: 'error',
+        title: 'Event type required',
+        description: 'Enter an event type before opening the schema explorer.'
+      });
+      return;
+    }
+    setErrors((current) => ({ ...current, eventType: undefined }));
+    setSchemaExplorerOpen(true);
+    if (!schemaQueryMatches(eventSchemaQuery, query)) {
+      try {
+        await onLoadEventSchema(query);
+      } catch {
+        // Errors are surfaced by the loader hook.
+      }
+    }
+  };
+
+  const handleAddPredicateFromSchema = ({
+    path,
+    operator,
+    value
+  }: {
+    path: string;
+    operator: 'exists' | 'equals';
+    value?: unknown;
+  }) => {
+    if (disableActions) {
+      pushToast({
+        tone: 'error',
+        title: 'Editing disabled',
+        description: 'You do not have permission to modify this trigger.'
+      });
+      return;
+    }
+    setValues((current) => {
+      const next = createPredicateFormValue();
+      next.path = path;
+      next.operator = operator;
+      next.caseSensitive = false;
+      next.values = '';
+      next.flags = '';
+      if (operator === 'equals') {
+        let rendered = '';
+        try {
+          rendered = JSON.stringify(value, null, 2);
+        } catch {
+          rendered = value === undefined ? '' : String(value);
+        }
+        next.value = rendered;
+      } else {
+        next.value = '';
+      }
+      return {
+        ...current,
+        predicates: [...current.predicates, next]
+      };
+    });
+    setErrors((current) => ({ ...current, predicates: undefined }));
+    pushToast({ tone: 'success', title: 'Predicate added', description: path });
+  };
+
+  const handleInsertLiquidSnippet = (snippet: string) => {
+    if (disableActions) {
+      pushToast({
+        tone: 'error',
+        title: 'Editing disabled',
+        description: 'You do not have permission to modify this trigger.'
+      });
+      return;
+    }
+    const textarea = parameterTemplateRef.current;
+    if (textarea) {
+      const { selectionStart, selectionEnd } = textarea;
+      setValues((current) => {
+        const existing = current.parameterTemplate;
+        const before = existing.slice(0, selectionStart);
+        const after = existing.slice(selectionEnd);
+        const updated = `${before}${snippet}${after}`;
+        setTimeout(() => {
+          const position = selectionStart + snippet.length;
+          textarea.focus();
+          textarea.setSelectionRange(position, position);
+        }, 0);
+        return {
+          ...current,
+          parameterTemplate: updated
+        };
+      });
+    } else {
+      setValues((current) => ({
+        ...current,
+        parameterTemplate: `${current.parameterTemplate}${snippet}`
+      }));
+    }
+    setErrors((current) => ({ ...current, parameterTemplate: undefined }));
+    pushToast({ tone: 'success', title: 'Snippet inserted', description: snippet });
+  };
 
   const handleFieldChange = (field: keyof FormValues, value: string) => {
     setValues((current) => ({
@@ -878,11 +1040,19 @@ export default function EventTriggerFormModal({
             </label>
             <button
               type="button"
-              className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              className={`rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800`}
               onClick={handlePreview}
               disabled={disableActions || !onPreview}
             >
               Preview with sample
+            </button>
+            <button
+              type="button"
+              className={`rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:hover:bg-slate-800 ${schemaExplorerOpen ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-200'}`}
+              onClick={() => void handleToggleSchemaExplorer()}
+              disabled={eventSchemaLoading}
+            >
+              {eventSchemaLoading ? 'Loading schema…' : schemaExplorerOpen ? 'Hide schema' : 'Schema explorer'}
             </button>
           </div>
         </div>
@@ -982,6 +1152,18 @@ export default function EventTriggerFormModal({
           )}
         </div>
 
+        {schemaExplorerOpen && (
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+            <EventSchemaExplorer
+              schema={eventSchema}
+              loading={eventSchemaLoading}
+              disabled={disableActions}
+              onAddPredicate={handleAddPredicateFromSchema}
+              onInsertLiquid={handleInsertLiquidSnippet}
+            />
+          </div>
+        )}
+
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
             Throttle window (ms)
@@ -1040,6 +1222,7 @@ export default function EventTriggerFormModal({
           <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
             Parameter template (JSON)
             <textarea
+              ref={parameterTemplateRef}
               value={values.parameterTemplate}
               onChange={(event) => handleFieldChange('parameterTemplate', event.target.value)}
               className="mt-1 h-40 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"

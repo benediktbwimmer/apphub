@@ -11,6 +11,7 @@ The Workflows console now includes an **Event Triggers** tab alongside the defin
 - Drill into recent delivery attempts with inline status filters and timestamps.
 - Create, edit, enable/disable, or delete triggers with form validation for JSONPath predicates, throttles, and JSON payloads.
 - Open the event sample drawer to evaluate predicates and render parameter templates against recent envelopes before saving changes.
+- Use the schema explorer to inspect sampled event fields, generate JSONPath predicates, and insert Liquid parameter snippets directly into the form.
 
 The UI calls the same endpoints described below and surfaces API validation messages inline, so operators can manage event-driven scheduling without leaving the browser.
 

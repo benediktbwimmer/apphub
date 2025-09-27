@@ -16,6 +16,8 @@ import {
   getRateLimitConfiguration
 } from '../eventSchedulerState';
 
+import { buildWorkflowEventSchema } from '../eventSchemaExplorer';
+
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/admin/event-health', async (request, reply) => {
     try {
@@ -98,8 +100,9 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         to,
         limit
       });
+      const schema = buildWorkflowEventSchema(events);
       reply.status(200);
-      return { data: events };
+      return { data: events, schema };
     } catch (err) {
       request.log.error({ err }, 'Failed to list workflow events');
       reply.status(500);

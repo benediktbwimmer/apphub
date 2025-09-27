@@ -11,6 +11,10 @@ import type {
   WorkflowEventTriggerStatus,
   WorkflowTriggerDelivery,
   WorkflowEventSample,
+  WorkflowEventSchema,
+  WorkflowEventSchemaField,
+  WorkflowEventSchemaFieldKind,
+  WorkflowEventSchemaValueType,
   WorkflowEventTriggerMetrics,
   WorkflowEventSchedulerHealth,
   WorkflowDefinition,
@@ -415,6 +419,75 @@ export function normalizeWorkflowEventSamples(raw: unknown): WorkflowEventSample
   return raw
     .map((entry) => normalizeWorkflowEventSample(entry))
     .filter((entry): entry is WorkflowEventSample => Boolean(entry));
+}
+
+const EVENT_SCHEMA_VALUE_TYPES = new Set<WorkflowEventSchemaValueType>([
+  'string',
+  'number',
+  'boolean',
+  'null',
+  'object',
+  'array',
+  'unknown'
+]);
+
+const EVENT_SCHEMA_FIELD_KINDS = new Set<WorkflowEventSchemaFieldKind>(['value', 'object', 'array']);
+
+export function normalizeWorkflowEventSchemaField(raw: unknown): WorkflowEventSchemaField | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const pathSegments = Array.isArray(record.path)
+    ? record.path.filter((segment): segment is string => typeof segment === 'string')
+    : [];
+  if (pathSegments.length === 0) {
+    return null;
+  }
+  const jsonPath = typeof record.jsonPath === 'string' ? record.jsonPath : null;
+  const liquidPath = typeof record.liquidPath === 'string' ? record.liquidPath : null;
+  if (!jsonPath || !liquidPath) {
+    return null;
+  }
+  const occurrencesValue = Number(record.occurrences);
+  const occurrences = Number.isFinite(occurrencesValue) && occurrencesValue >= 0 ? Math.floor(occurrencesValue) : 0;
+  const typesRaw = Array.isArray(record.types) ? record.types : [];
+  const types = typesRaw
+    .map((entry) => (typeof entry === 'string' ? entry : '').trim())
+    .filter((entry): entry is WorkflowEventSchemaValueType => EVENT_SCHEMA_VALUE_TYPES.has(entry as WorkflowEventSchemaValueType));
+  const kindRaw = typeof record.kind === 'string' ? record.kind : null;
+  const kind = kindRaw && EVENT_SCHEMA_FIELD_KINDS.has(kindRaw as WorkflowEventSchemaFieldKind)
+    ? (kindRaw as WorkflowEventSchemaFieldKind)
+    : 'value';
+  const examples = Array.isArray(record.examples) ? record.examples.slice(0, 5) : [];
+  return {
+    path: pathSegments,
+    jsonPath,
+    liquidPath,
+    occurrences,
+    types: types.length > 0 ? types : ['unknown'],
+    kind,
+    examples
+  } satisfies WorkflowEventSchemaField;
+}
+
+export function normalizeWorkflowEventSchema(raw: unknown): WorkflowEventSchema | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const totalSamplesValue = Number(record.totalSamples);
+  const totalSamples = Number.isFinite(totalSamplesValue) && totalSamplesValue >= 0
+    ? Math.floor(totalSamplesValue)
+    : 0;
+  const fieldsRaw = Array.isArray(record.fields) ? record.fields : [];
+  const fields = fieldsRaw
+    .map((entry) => normalizeWorkflowEventSchemaField(entry))
+    .filter((entry): entry is WorkflowEventSchemaField => Boolean(entry));
+  return {
+    totalSamples,
+    fields
+  } satisfies WorkflowEventSchema;
 }
 
 export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedulerHealth | null {

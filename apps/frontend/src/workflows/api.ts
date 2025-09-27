@@ -9,6 +9,7 @@ import type {
   WorkflowEventTrigger,
   WorkflowTriggerDelivery,
   WorkflowEventSample,
+  WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
   WorkflowEventTriggerStatus
 } from './types';
@@ -25,6 +26,7 @@ import {
   normalizeWorkflowEventTrigger,
   normalizeWorkflowTriggerDeliveries,
   normalizeWorkflowEventSamples,
+  normalizeWorkflowEventSchema,
   normalizeWorkflowEventHealth
 } from './normalizers';
 
@@ -166,6 +168,11 @@ export type WorkflowEventSampleQuery = {
   from?: string;
   to?: string;
   limit?: number;
+};
+
+export type WorkflowEventSamplesResponse = {
+  samples: WorkflowEventSample[];
+  schema: WorkflowEventSchema | null;
 };
 
 export type WorkflowJobStepInput = {
@@ -710,7 +717,7 @@ export async function listWorkflowTriggerDeliveries(
 export async function listWorkflowEventSamples(
   fetcher: AuthorizedFetch,
   query: WorkflowEventSampleQuery = {}
-): Promise<WorkflowEventSample[]> {
+): Promise<WorkflowEventSamplesResponse> {
   const params = new URLSearchParams();
   if (query.type) {
     params.set('type', query.type);
@@ -730,8 +737,10 @@ export async function listWorkflowEventSamples(
   const search = params.toString();
   const response = await fetcher(`${API_BASE_URL}/admin/events${search ? `?${search}` : ''}`);
   await ensureOk(response, 'Failed to load workflow events');
-  const payload = await parseJson<{ data?: unknown[] }>(response);
-  return normalizeWorkflowEventSamples(payload.data);
+  const payload = await parseJson<{ data?: unknown; schema?: unknown }>(response);
+  const samples = normalizeWorkflowEventSamples(payload.data);
+  const schema = normalizeWorkflowEventSchema(payload.schema);
+  return { samples, schema: schema ?? null };
 }
 
 export async function getWorkflowEventHealth(

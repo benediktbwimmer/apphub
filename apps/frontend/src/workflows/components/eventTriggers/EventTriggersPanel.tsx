@@ -3,6 +3,7 @@ import { Spinner } from '../../../components/Spinner';
 import type {
   WorkflowDefinition,
   WorkflowEventSample,
+  WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
   WorkflowEventTrigger,
   WorkflowTriggerDelivery
@@ -48,10 +49,11 @@ type EventTriggersPanelProps = {
   eventHealthError: string | null;
   onRefreshEventHealth: () => void;
   eventSamples: WorkflowEventSample[];
+  eventSchema: WorkflowEventSchema | null;
   eventSamplesLoading: boolean;
   eventSamplesError: string | null;
   eventSamplesQuery: WorkflowEventSampleQuery | null;
-  loadEventSamples: (query: WorkflowEventSampleQuery) => void;
+  loadEventSamples: (query: WorkflowEventSampleQuery) => Promise<void>;
   refreshEventSamples: () => void;
   canEdit: boolean;
 };
@@ -106,6 +108,7 @@ export default function EventTriggersPanel({
   eventHealthError,
   onRefreshEventHealth,
   eventSamples,
+  eventSchema,
   eventSamplesLoading,
   eventSamplesError,
   eventSamplesQuery,
@@ -511,7 +514,11 @@ export default function EventTriggersPanel({
         workflowName={workflow?.name ?? workflowSlug ?? 'workflow'}
         initialTrigger={formTrigger}
         canEdit={canEdit}
-      onClose={handleFormClose}
+        eventSchema={eventSchema}
+        eventSchemaLoading={eventSamplesLoading}
+        eventSchemaQuery={eventSamplesQuery}
+        onLoadEventSchema={loadEventSamples}
+        onClose={handleFormClose}
         onCreate={handleCreate}
         onUpdate={handleUpdate}
         onPreview={handlePreviewRequest}
@@ -522,6 +529,7 @@ export default function EventTriggersPanel({
         loading={eventSamplesLoading}
         error={eventSamplesError}
         samples={eventSamples}
+        schema={eventSchema}
         query={eventSamplesQuery}
         trigger={samplePreview ? null : selectedTrigger}
         previewSnapshot={samplePreview}

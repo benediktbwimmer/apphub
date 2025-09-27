@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../../../components/Modal';
 import { Spinner } from '../../../components/Spinner';
-import type { WorkflowEventSample, WorkflowEventTrigger } from '../../types';
+import EventSchemaExplorer from './EventSchemaExplorer';
+import type { WorkflowEventSample, WorkflowEventSchema, WorkflowEventTrigger } from '../../types';
 import type { WorkflowEventSampleQuery, WorkflowEventTriggerPredicateInput } from '../../api';
 import { JSONPath } from 'jsonpath-plus';
 import { Liquid } from 'liquidjs';
@@ -12,11 +13,12 @@ type EventSampleDrawerProps = {
   loading: boolean;
   error: string | null;
   samples: WorkflowEventSample[];
+  schema: WorkflowEventSchema | null;
   query: WorkflowEventSampleQuery | null;
   trigger?: WorkflowEventTrigger | null;
   previewSnapshot?: EventTriggerPreviewSnapshot | null;
   onClose: () => void;
-  onLoad: (query: WorkflowEventSampleQuery) => void;
+  onLoad: (query: WorkflowEventSampleQuery) => Promise<void>;
   onRefresh: () => void;
 };
 
@@ -380,6 +382,7 @@ export default function EventSampleDrawer({
   loading,
   error,
   samples,
+  schema,
   query,
   trigger,
   previewSnapshot,
@@ -502,7 +505,7 @@ export default function EventSampleDrawer({
     if (Number.isFinite(nextLimit) && nextLimit > 0) {
       queryPayload.limit = Math.floor(nextLimit);
     }
-    onLoad(queryPayload);
+    void onLoad(queryPayload);
   };
 
   return (
@@ -617,79 +620,84 @@ export default function EventSampleDrawer({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
-            {!selectedSample || !source ? (
-              <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
-                Select a trigger and event to evaluate predicates.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{selectedSample.type}</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {selectedSample.source ?? 'unknown'} · {new Date(selectedSample.occurredAt).toLocaleString()}
-                    </p>
-                  </div>
-                  {evaluating && <Spinner size="xs" />}
+          <div className="flex flex-1 flex-col gap-4 overflow-hidden">
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+              {!selectedSample || !source ? (
+                <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+                  Select a trigger and event to evaluate predicates.
                 </div>
-
-                {evaluation && evaluation.predicateResults.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Predicates</h4>
-                    <ul className="mt-2 space-y-2">
-                      {evaluation.predicateResults.map((result, index) => (
-                        <li key={`${result.path}-${index}`} className="flex items-start justify-between gap-3 text-xs">
-                          <div>
-                            <p className="font-semibold text-slate-700 dark:text-slate-200">
-                              {result.path} {result.operator}
-                            </p>
-                            {result.detail && (
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">{result.detail}</p>
-                            )}
-                          </div>
-                          <span
-                            className={
-                              result.matched
-                                ? 'rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-                                : 'rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-600 dark:bg-rose-900/40 dark:text-rose-300'
-                            }
-                          >
-                            {result.matched ? 'matched' : 'no match'}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{selectedSample.type}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {selectedSample.source ?? 'unknown'} · {new Date(selectedSample.occurredAt).toLocaleString()}
+                      </p>
+                    </div>
+                    {evaluating && <Spinner size="xs" />}
                   </div>
-                )}
 
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Payload
-                  </h4>
-                  <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
-                    {JSON.stringify(selectedSample.payload, null, 2)}
-                  </pre>
-                </div>
+                  {evaluation && evaluation.predicateResults.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Predicates</h4>
+                      <ul className="mt-2 space-y-2">
+                        {evaluation.predicateResults.map((result, index) => (
+                          <li key={`${result.path}-${index}`} className="flex items-start justify-between gap-3 text-xs">
+                            <div>
+                              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                {result.path} {result.operator}
+                              </p>
+                              {result.detail && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{result.detail}</p>
+                              )}
+                            </div>
+                            <span
+                              className={
+                                result.matched
+                                  ? 'rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                  : 'rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-600 dark:bg-rose-900/40 dark:text-rose-300'
+                              }
+                            >
+                              {result.matched ? 'matched' : 'no match'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
-                {evaluation?.parameterError ? (
-                  <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/40 dark:text-rose-200">
-                    {evaluation.parameterError}
-                  </div>
-                ) : (
                   <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Parameter preview
+                      Payload
                     </h4>
-                    <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
-                      {evaluation?.parameterPreview === undefined
-                        ? 'No parameter template defined.'
-                        : JSON.stringify(evaluation.parameterPreview, null, 2)}
+                    <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                      {JSON.stringify(selectedSample.payload, null, 2)}
                     </pre>
                   </div>
-                )}
-              </div>
-            )}
+
+                  {evaluation?.parameterError ? (
+                    <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/40 dark:text-rose-200">
+                      {evaluation.parameterError}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Parameter preview
+                      </h4>
+                      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                        {evaluation?.parameterPreview === undefined
+                          ? 'No parameter template defined.'
+                          : JSON.stringify(evaluation.parameterPreview, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+              <EventSchemaExplorer schema={schema} loading={loading} />
+            </div>
           </div>
         </div>
       </div>

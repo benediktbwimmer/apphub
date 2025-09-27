@@ -105,6 +105,7 @@ export default function WorkflowsPage() {
     triggerDeliveriesQuery,
     loadTriggerDeliveries: loadTriggerDeliveriesFn,
     eventSamples,
+    eventSchema,
     eventSamplesLoading,
     eventSamplesError,
     eventSamplesQuery,
@@ -271,10 +272,11 @@ export default function WorkflowsPage() {
             eventHealthError={eventHealthError}
             onRefreshEventHealth={loadEventSchedulerHealth}
             eventSamples={eventSamples}
+            eventSchema={eventSchema}
             eventSamplesLoading={eventSamplesLoading}
             eventSamplesError={eventSamplesError}
             eventSamplesQuery={eventSamplesQuery}
-            loadEventSamples={(query: WorkflowEventSampleQuery) => void loadEventSamplesFn(query)}
+            loadEventSamples={loadEventSamplesFn}
             refreshEventSamples={refreshEventSamples}
             canEdit={canEditWorkflows}
           />

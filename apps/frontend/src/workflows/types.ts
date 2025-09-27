@@ -151,6 +151,25 @@ export type WorkflowEventSample = {
   metadata: unknown;
 };
 
+export type WorkflowEventSchemaValueType = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';
+
+export type WorkflowEventSchemaFieldKind = 'value' | 'object' | 'array';
+
+export type WorkflowEventSchemaField = {
+  path: string[];
+  jsonPath: string;
+  liquidPath: string;
+  occurrences: number;
+  types: WorkflowEventSchemaValueType[];
+  kind: WorkflowEventSchemaFieldKind;
+  examples: unknown[];
+};
+
+export type WorkflowEventSchema = {
+  totalSamples: number;
+  fields: WorkflowEventSchemaField[];
+};
+
 export type WorkflowEventTriggerMetrics = {
   counts: Record<'filtered' | 'matched' | 'launched' | 'throttled' | 'skipped' | 'failed' | 'paused', number>;
   lastStatus: 'filtered' | 'matched' | 'launched' | 'throttled' | 'skipped' | 'failed' | 'paused' | null;
