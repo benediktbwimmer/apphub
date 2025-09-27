@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { useCallback } from 'react';
 import { usePollingResource } from '../usePollingResource';
 
 type MockService = { id: string };
@@ -32,15 +33,15 @@ describe('usePollingResource', () => {
   it('fetches the resource immediately and updates state', async () => {
     mockAuthorizedFetch.mockResolvedValueOnce(createResponse({ data: [{ id: 'svc-a' }] }));
 
-    const { result } = renderHook(() =>
-      usePollingResource<MockService[]>({
-        fetcher: async ({ authorizedFetch, signal }) => {
-          const response = await authorizedFetch('/services', { signal });
-          const payload = (await response.json()) as { data: MockService[] };
-          return payload.data;
-        }
-      })
-    );
+    const { result } = renderHook(() => {
+      const fetcher = useCallback(async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+        const response = await authorizedFetch('/services', { signal });
+        const payload = (await response.json()) as { data: MockService[] };
+        return payload.data;
+      }, []);
+
+      return usePollingResource<MockService[]>({ fetcher });
+    });
 
     await waitFor(() => {
       expect(result.current.data).not.toBeNull();
@@ -65,16 +66,18 @@ describe('usePollingResource', () => {
       return next;
     });
 
-    const { result } = renderHook(() =>
-      usePollingResource<MockService[]>({
+    const { result } = renderHook(() => {
+      const fetcher = useCallback(async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+        const response = await authorizedFetch('/services', { signal });
+        const payload = (await response.json()) as { data: MockService[] };
+        return payload.data;
+      }, []);
+
+      return usePollingResource<MockService[]>({
         intervalMs: 1000,
-        fetcher: async ({ authorizedFetch, signal }) => {
-          const response = await authorizedFetch('/services', { signal });
-          const payload = (await response.json()) as { data: MockService[] };
-          return payload.data;
-        }
-      })
-    );
+        fetcher
+      });
+    });
 
     await waitFor(() => {
       expect(result.current.data).toEqual([{ id: 'svc-a' }]);
@@ -95,5 +98,46 @@ describe('usePollingResource', () => {
     });
 
     timeoutSpy.mockRestore();
+  });
+
+  it('fetches immediately when the fetcher input changes', async () => {
+    mockAuthorizedFetch.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const id = url.split('/').pop() ?? 'unknown';
+      return createResponse({ data: { id } });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ resourceId }: { resourceId: string }) => {
+        const fetcher = useCallback(
+          async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+            const response = await authorizedFetch(`/services/${resourceId}`, { signal });
+            const payload = (await response.json()) as { data: MockService };
+            return payload.data;
+          },
+          [resourceId]
+        );
+
+        return usePollingResource<MockService>({
+          intervalMs: 10_000,
+          fetcher
+        });
+      },
+      { initialProps: { resourceId: 'svc-a' } }
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.id).toBe('svc-a');
+    });
+
+    expect(mockAuthorizedFetch).toHaveBeenCalledTimes(1);
+
+    rerender({ resourceId: 'svc-b' });
+
+    await waitFor(() => {
+      expect(result.current.data?.id).toBe('svc-b');
+    });
+
+    expect(mockAuthorizedFetch).toHaveBeenCalledTimes(2);
   });
 });

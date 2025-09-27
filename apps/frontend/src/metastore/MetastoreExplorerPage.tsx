@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { RecordTable } from './components/RecordTable';
@@ -52,6 +53,7 @@ export default function MetastoreExplorerPage() {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [query, setQuery] = useState('');
   const [queryInput, setQueryInput] = useState('');
+  const debouncedQueryInput = useDebouncedValue(queryInput, 300);
   const [page, setPage] = useState(0);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [recordDetail, setRecordDetail] = useState<MetastoreRecordDetail | null>(null);
@@ -219,6 +221,15 @@ export default function MetastoreExplorerPage() {
     setQuery('');
     setPage(0);
   };
+
+  useEffect(() => {
+    const trimmed = debouncedQueryInput.trim();
+    if (query === trimmed) {
+      return;
+    }
+    setQuery(trimmed);
+    setPage(0);
+  }, [debouncedQueryInput, query]);
 
   const handleRecordUpdate = async () => {
     if (!recordDetail) {

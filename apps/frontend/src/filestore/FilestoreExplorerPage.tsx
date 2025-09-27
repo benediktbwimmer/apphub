@@ -11,6 +11,7 @@ import {
 import type { AuthIdentity } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useToastHelpers } from '../components/toast';
 import {
   copyNode,
@@ -434,6 +435,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     return parsed ?? {};
   });
   const [queryDraft, setQueryDraft] = useState<string>(() => advancedFilters.query ?? '');
+  const debouncedQueryDraft = useDebouncedValue(queryDraft, 300);
   const [metadataKeyDraft, setMetadataKeyDraft] = useState('');
   const [metadataValueDraft, setMetadataValueDraft] = useState('');
   const [sizeMinDraft, setSizeMinDraft] = useState('');
@@ -2000,6 +2002,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     },
     [applyFilters]
   );
+
+  useEffect(() => {
+    handleApplyQuery(debouncedQueryDraft);
+  }, [debouncedQueryDraft, handleApplyQuery]);
 
   const mountOptions = useMemo(() => {
     const base = availableMounts.map((mount) => {

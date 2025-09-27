@@ -38,9 +38,16 @@ export function usePollingResource<T>(options: UsePollingResourceOptions<T>): Us
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const fetcherRef = useRef<PollingFetcher<T>>(fetcher);
+  const [fetcherVersion, setFetcherVersion] = useState(0);
+  const lastHandledFetcherVersionRef = useRef(0);
 
   useEffect(() => {
+    // Expect callers to memoize the fetcher with useCallback so we only react when inputs change.
+    if (fetcherRef.current === fetcher) {
+      return;
+    }
     fetcherRef.current = fetcher;
+    setFetcherVersion((previous) => previous + 1);
   }, [fetcher]);
 
   const clearTimer = useCallback(() => {
@@ -127,6 +134,24 @@ export function usePollingResource<T>(options: UsePollingResourceOptions<T>): Us
       clearTimer();
     };
   }, [abortOngoingRequest, clearTimer, enabled, immediate, intervalMs, runFetch]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    if (fetcherVersion === 0) {
+      lastHandledFetcherVersionRef.current = 0;
+      return;
+    }
+
+    if (lastHandledFetcherVersionRef.current === fetcherVersion) {
+      return;
+    }
+
+    lastHandledFetcherVersionRef.current = fetcherVersion;
+    void runFetch();
+  }, [enabled, fetcherVersion, runFetch]);
 
   const stop = useCallback(() => {
     abortOngoingRequest();
