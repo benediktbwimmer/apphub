@@ -12,7 +12,11 @@ import type {
   WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
   WorkflowEventTriggerStatus,
-  WorkflowAutoMaterializeOps
+  WorkflowAutoMaterializeOps,
+  WorkflowTimelineSnapshot,
+  WorkflowTimelineMeta,
+  WorkflowTimelineRangeKey,
+  WorkflowTimelineTriggerStatus
 } from './types';
 import {
   normalizeWorkflowDefinition,
@@ -29,7 +33,9 @@ import {
   normalizeWorkflowEventSamples,
   normalizeWorkflowEventSchema,
   normalizeWorkflowEventHealth,
-  normalizeWorkflowAutoMaterializeOps
+  normalizeWorkflowAutoMaterializeOps,
+  normalizeWorkflowTimeline,
+  normalizeWorkflowTimelineMeta
 } from './normalizers';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -175,6 +181,19 @@ export type WorkflowEventSampleQuery = {
 export type WorkflowEventSamplesResponse = {
   samples: WorkflowEventSample[];
   schema: WorkflowEventSchema | null;
+};
+
+export type WorkflowTimelineQuery = {
+  from?: string;
+  to?: string;
+  range?: WorkflowTimelineRangeKey;
+  limit?: number;
+  statuses?: WorkflowTimelineTriggerStatus[];
+};
+
+export type WorkflowTimelineResult = {
+  snapshot: WorkflowTimelineSnapshot;
+  meta: WorkflowTimelineMeta | null;
 };
 
 export type WorkflowJobStepInput = {
@@ -777,6 +796,45 @@ export async function getWorkflowEventHealth(
   await ensureOk(response, 'Failed to load workflow event health');
   const payload = await parseJson<unknown>(response);
   return normalizeWorkflowEventHealth(payload);
+}
+
+export async function getWorkflowTimeline(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  query: WorkflowTimelineQuery = {}
+): Promise<WorkflowTimelineResult> {
+  const params = new URLSearchParams();
+  if (query.from) {
+    params.set('from', query.from);
+  }
+  if (query.to) {
+    params.set('to', query.to);
+  }
+  if (query.range) {
+    params.set('range', query.range);
+  }
+  if (query.limit !== undefined) {
+    params.set('limit', String(query.limit));
+  }
+  if (Array.isArray(query.statuses)) {
+    for (const status of query.statuses) {
+      if (typeof status === 'string' && status.length > 0) {
+        params.append('status', status);
+      }
+    }
+  }
+  const search = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/timeline${search ? `?${search}` : ''}`
+  );
+  await ensureOk(response, 'Failed to load workflow timeline');
+  const payload = await parseJson<{ data?: unknown; meta?: unknown }>(response);
+  const snapshot = normalizeWorkflowTimeline(payload.data);
+  if (!snapshot) {
+    throw new ApiError('Invalid workflow timeline response', response.status, payload);
+  }
+  const meta = normalizeWorkflowTimelineMeta(payload.meta);
+  return { snapshot, meta } satisfies WorkflowTimelineResult;
 }
 
 export async function fetchWorkflowDefinitions(

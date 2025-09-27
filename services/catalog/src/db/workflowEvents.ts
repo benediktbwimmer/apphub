@@ -130,3 +130,20 @@ export async function listWorkflowEvents(
     return rows.map(mapWorkflowEventRow);
   });
 }
+
+export async function listWorkflowEventsByIds(ids: string[]): Promise<WorkflowEventRecord[]> {
+  const unique = Array.from(
+    new Set(ids.map((id) => (typeof id === 'string' ? id.trim() : '')).filter((id) => id.length > 0))
+  );
+  if (unique.length === 0) {
+    return [];
+  }
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowEventRow>(
+      'SELECT * FROM workflow_events WHERE id = ANY($1::text[]) ORDER BY occurred_at DESC',
+      [unique]
+    );
+    return rows.map(mapWorkflowEventRow);
+  });
+}

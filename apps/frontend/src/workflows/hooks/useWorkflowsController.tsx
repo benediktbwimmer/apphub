@@ -13,6 +13,7 @@ import {
   useWorkflowEventTriggers
 } from './useWorkflowEventTriggers';
 import { WorkflowBuilderProvider, useWorkflowBuilder } from './useWorkflowBuilderState';
+import { WorkflowTimelineProvider, useWorkflowTimeline } from './useWorkflowTimeline';
 
 export { INITIAL_FILTERS };
 
@@ -24,7 +25,9 @@ export function WorkflowsProviders({ children }: { children: ReactNode }) {
           <WorkflowAnalyticsProvider>
             <WorkflowAssetsProvider>
               <WorkflowEventTriggersProvider>
-                <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
+                <WorkflowTimelineProvider>
+                  <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
+                </WorkflowTimelineProvider>
               </WorkflowEventTriggersProvider>
             </WorkflowAssetsProvider>
           </WorkflowAnalyticsProvider>
@@ -42,6 +45,7 @@ export function useWorkflowsController() {
   const assets = useWorkflowAssets();
   const triggers = useWorkflowEventTriggers();
   const builder = useWorkflowBuilder();
+  const timeline = useWorkflowTimeline();
 
   const handleRefresh = useCallback(() => {
     void definitions.loadWorkflows();
@@ -53,6 +57,7 @@ export function useWorkflowsController() {
       void analytics.loadWorkflowAnalytics(definitions.selectedSlug);
       void triggers.loadEventTriggers(definitions.selectedSlug, { force: true });
       assets.refreshAutoMaterializeOps(definitions.selectedSlug);
+      timeline.refreshTimeline();
       if (triggers.selectedEventTrigger) {
         void triggers.loadTriggerDeliveries(
           definitions.selectedSlug,
@@ -70,6 +75,7 @@ export function useWorkflowsController() {
     assets,
     definitions,
     runs,
+    timeline,
     triggers
   ]);
 
@@ -80,6 +86,7 @@ export function useWorkflowsController() {
     ...analytics,
     ...assets,
     ...triggers,
+    ...timeline,
     ...builder,
     handleRefresh
   };

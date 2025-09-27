@@ -11,6 +11,7 @@ import {
   listWorkflowRunSteps,
   listWorkflowRuns,
   listWorkflowRunsForDefinition,
+  listWorkflowRunsInRange,
   listWorkflowAutoRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
@@ -28,7 +29,13 @@ import {
   deleteWorkflowSchedule,
   getWorkflowScheduleWithWorkflow,
   getWorkflowAutoRunClaim,
-  getFailureState as getAutoMaterializeFailureState
+  getFailureState as getAutoMaterializeFailureState,
+  listWorkflowEventTriggers,
+  listWorkflowTriggerDeliveriesForWorkflow,
+  listWorkflowEventsByIds,
+  listTriggerFailureEvents,
+  listTriggerPauseEvents,
+  listSourcePauseEvents
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -75,7 +82,9 @@ import {
   serializeWorkflowRun,
   serializeWorkflowRunWithDefinition,
   serializeWorkflowRunStats,
-  serializeWorkflowRunStep
+  serializeWorkflowRunStep,
+  serializeWorkflowTriggerDelivery,
+  serializeWorkflowEvent
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
@@ -85,6 +94,48 @@ import { getWorkflowDefaultParameters } from '../bootstrap';
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
 type JobDefinitionLookup = Map<string, JobDefinitionRecord>;
+
+type TimelineTriggerSummary = {
+  id: string;
+  name: string | null;
+  eventType: string;
+  eventSource: string | null;
+  status: string;
+};
+
+type WorkflowTimelineRunEntry = {
+  kind: 'run';
+  id: string;
+  timestamp: string;
+  run: ReturnType<typeof serializeWorkflowRun>;
+};
+
+type WorkflowTimelineTriggerEntry = {
+  kind: 'trigger';
+  id: string;
+  timestamp: string;
+  delivery: ReturnType<typeof serializeWorkflowTriggerDelivery>;
+  trigger: TimelineTriggerSummary | null;
+  event: ReturnType<typeof serializeWorkflowEvent> | null;
+};
+
+type WorkflowTimelineSchedulerEntry = {
+  kind: 'scheduler';
+  id: string;
+  timestamp: string;
+  category: 'trigger_failure' | 'trigger_paused' | 'source_paused';
+  trigger?: TimelineTriggerSummary;
+  source?: string;
+  reason?: string | null;
+  failures?: number;
+  until?: string | null;
+  details?: JsonValue | null;
+};
+
+type WorkflowTimelineEntry =
+  | WorkflowTimelineRunEntry
+  | WorkflowTimelineTriggerEntry
+  | WorkflowTimelineSchedulerEntry;
 
 const toEpochMillis = (value: string | Date | null | undefined): number | null => {
   if (!value) {
@@ -147,6 +198,28 @@ const isNewerAssetSnapshot = (
 
   return candidate.workflowRunId > current.workflowRunId;
 };
+
+const TRIGGER_DELIVERY_STATUSES = ['pending', 'matched', 'throttled', 'skipped', 'launched', 'failed'] as const;
+const TRIGGER_DELIVERY_STATUS_SET = new Set<string>(TRIGGER_DELIVERY_STATUSES);
+
+const TIMELINE_RANGE_ENUM_VALUES = ['1h', '3h', '6h', '12h', '24h', '3d', '7d'] as const;
+type TimelineRangePreset = (typeof TIMELINE_RANGE_ENUM_VALUES)[number];
+
+const TIMELINE_RANGE_PRESETS: Record<TimelineRangePreset, number> = {
+  '1h': 60 * 60 * 1000,
+  '3h': 3 * 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '12h': 12 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '3d': 3 * 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000
+};
+
+const DEFAULT_TIMELINE_RANGE: TimelineRangePreset = '24h';
+const DEFAULT_TIMELINE_LIMIT = 200;
+
+const coerceTimestamp = (value: string | null | undefined, fallbackIso: string): string =>
+  typeof value === 'string' && value.length > 0 ? value : fallbackIso;
 
 function normalizeAssetPartitioning(
   partitioning: WorkflowAssetDeclarationInput['partitioning']
@@ -755,6 +828,26 @@ const workflowRunListQuerySchema = z
   })
   .partial();
 
+const workflowTimelineQuerySchema = z
+  .object({
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+    range: z.enum(TIMELINE_RANGE_ENUM_VALUES).optional(),
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(500).optional()),
+    status: z
+      .preprocess((val) => {
+        if (Array.isArray(val)) {
+          return val.flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []));
+        }
+        if (typeof val === 'string') {
+          return val.split(',');
+        }
+        return undefined;
+      }, z.array(z.string()).optional())
+  })
+  .partial();
+
 const workflowSlugParamSchema = z
   .object({
     slug: z.string().min(1)
@@ -1231,6 +1324,213 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
         },
         limit,
         offset
+      }
+    };
+  });
+
+  app.get('/workflows/:slug/timeline', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowTimelineQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const now = new Date();
+    const toDate = parseQuery.data.to ? new Date(parseQuery.data.to) : now;
+    if (Number.isNaN(toDate.getTime())) {
+      reply.status(400);
+      return { error: 'Invalid `to` timestamp' };
+    }
+
+    let fromDate: Date;
+    if (parseQuery.data.from) {
+      fromDate = new Date(parseQuery.data.from);
+      if (Number.isNaN(fromDate.getTime())) {
+        reply.status(400);
+        return { error: 'Invalid `from` timestamp' };
+      }
+    } else {
+      const rangeKey = parseQuery.data.range ?? DEFAULT_TIMELINE_RANGE;
+      const rangeMs = TIMELINE_RANGE_PRESETS[rangeKey] ?? TIMELINE_RANGE_PRESETS[DEFAULT_TIMELINE_RANGE];
+      fromDate = new Date(toDate.getTime() - rangeMs);
+    }
+
+    if (fromDate > toDate) {
+      reply.status(400);
+      return { error: '`from` must be before `to`' };
+    }
+
+    const limit = parseQuery.data.limit ?? DEFAULT_TIMELINE_LIMIT;
+
+    const rawStatuses = (parseQuery.data.status ?? [])
+      .map((status) => status.trim().toLowerCase())
+      .filter((status) => status.length > 0);
+    const statuses = rawStatuses.filter((status) => TRIGGER_DELIVERY_STATUS_SET.has(status));
+    const statusesFilter = statuses.length > 0 ? statuses : undefined;
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const triggers = await listWorkflowEventTriggers({ workflowDefinitionId: workflow.id });
+    const triggerMap = new Map(triggers.map((trigger) => [trigger.id, trigger]));
+
+    const fromIso = fromDate.toISOString();
+    const toIso = toDate.toISOString();
+
+    const [runs, deliveries] = await Promise.all([
+      listWorkflowRunsInRange(workflow.id, { from: fromIso, to: toIso, limit }),
+      listWorkflowTriggerDeliveriesForWorkflow(workflow.id, {
+        from: fromIso,
+        to: toIso,
+        limit,
+        statuses: statusesFilter
+      })
+    ]);
+
+    const eventIds = deliveries
+      .map((delivery) => delivery.eventId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const events = eventIds.length > 0 ? await listWorkflowEventsByIds(eventIds) : [];
+    const eventMap = new Map(events.map((event) => [event.id, event]));
+
+    const triggerIds = Array.from(triggerMap.keys());
+    const sources = Array.from(
+      new Set(
+        triggers
+          .map((trigger) => trigger.eventSource)
+          .filter((source): source is string => typeof source === 'string' && source.length > 0)
+      )
+    );
+
+    const [triggerFailures, triggerPauses, sourcePauses] = await Promise.all([
+      triggerIds.length > 0 ? listTriggerFailureEvents(triggerIds, fromIso, toIso, limit) : Promise.resolve([]),
+      triggerIds.length > 0 ? listTriggerPauseEvents(triggerIds, fromIso, toIso, limit) : Promise.resolve([]),
+      sources.length > 0 ? listSourcePauseEvents(sources, fromIso, toIso, limit) : Promise.resolve([])
+    ]);
+
+    const summarizeTrigger = (triggerId: string): TimelineTriggerSummary => {
+      const trigger = triggerMap.get(triggerId);
+      return {
+        id: triggerId,
+        name: trigger?.name ?? null,
+        eventType: trigger?.eventType ?? 'unknown',
+        eventSource: trigger?.eventSource ?? null,
+        status: trigger?.status ?? 'active'
+      } satisfies TimelineTriggerSummary;
+    };
+
+    const entries: WorkflowTimelineEntry[] = [];
+
+    for (const run of runs) {
+      const serializedRun = serializeWorkflowRun(run);
+      const timestamp = coerceTimestamp(serializedRun.createdAt ?? run.createdAt, fromIso);
+      entries.push({
+        kind: 'run',
+        id: run.id,
+        timestamp,
+        run: serializedRun
+      });
+    }
+
+    for (const delivery of deliveries) {
+      const serializedDelivery = serializeWorkflowTriggerDelivery(delivery);
+      const timestamp = coerceTimestamp(serializedDelivery.createdAt ?? delivery.createdAt, fromIso);
+      const event = delivery.eventId ? eventMap.get(delivery.eventId) ?? null : null;
+      const serializedEvent = event ? serializeWorkflowEvent(event) : null;
+      entries.push({
+        kind: 'trigger',
+        id: delivery.id,
+        timestamp,
+        delivery: serializedDelivery,
+        trigger: summarizeTrigger(delivery.triggerId),
+        event: serializedEvent
+      });
+    }
+
+    for (const failure of triggerFailures) {
+      const timestamp = coerceTimestamp(failure.failureTime, fromIso);
+      entries.push({
+        kind: 'scheduler',
+        id: `trigger_failure:${failure.id}`,
+        timestamp,
+        category: 'trigger_failure',
+        trigger: summarizeTrigger(failure.triggerId),
+        reason: failure.reason ?? null
+      });
+    }
+
+    for (const pause of triggerPauses) {
+      const timestamp = coerceTimestamp(pause.updatedAt ?? pause.createdAt, fromIso);
+      entries.push({
+        kind: 'scheduler',
+        id: `trigger_paused:${pause.triggerId}:${timestamp}`,
+        timestamp,
+        category: 'trigger_paused',
+        trigger: summarizeTrigger(pause.triggerId),
+        reason: pause.reason,
+        failures: pause.failures,
+        until: pause.pausedUntil
+      });
+    }
+
+    for (const pause of sourcePauses) {
+      const timestamp = coerceTimestamp(pause.updatedAt ?? pause.createdAt, fromIso);
+      entries.push({
+        kind: 'scheduler',
+        id: `source_paused:${pause.source}:${timestamp}`,
+        timestamp,
+        category: 'source_paused',
+        source: pause.source,
+        reason: pause.reason,
+        until: pause.pausedUntil,
+        details: pause.details ?? null
+      });
+    }
+
+    entries.sort((a, b) => {
+      const timeA = Date.parse(a.timestamp);
+      const timeB = Date.parse(b.timestamp);
+      const normalizedA = Number.isNaN(timeA) ? 0 : timeA;
+      const normalizedB = Number.isNaN(timeB) ? 0 : timeB;
+      if (normalizedB !== normalizedA) {
+        return normalizedB - normalizedA;
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+    const limitedEntries = entries.slice(0, limit);
+
+    reply.status(200);
+    return {
+      data: {
+        workflow: {
+          id: workflow.id,
+          slug: workflow.slug,
+          name: workflow.name
+        },
+        range: {
+          from: fromIso,
+          to: toIso
+        },
+        entries: limitedEntries
+      },
+      meta: {
+        counts: {
+          runs: runs.length,
+          triggerDeliveries: deliveries.length,
+          schedulerSignals: triggerFailures.length + triggerPauses.length + sourcePauses.length
+        },
+        appliedTriggerStatuses: statusesFilter ?? [],
+        limit
       }
     };
   });

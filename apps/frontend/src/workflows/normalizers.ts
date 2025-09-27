@@ -28,7 +28,17 @@ import type {
   WorkflowRunMetricsSummary,
   WorkflowRunStatsSummary,
   WorkflowRunStep,
-  WorkflowRuntimeSummary
+  WorkflowRuntimeSummary,
+  WorkflowTimelineEntry,
+  WorkflowTimelineSnapshot,
+  WorkflowTimelineMeta,
+  WorkflowTimelineTriggerSummary,
+  WorkflowTimelineEvent,
+  WorkflowTimelineRunEntry,
+  WorkflowTimelineTriggerEntry,
+  WorkflowTimelineSchedulerEntry,
+  WorkflowTimelineTriggerStatus,
+  WORKFLOW_TIMELINE_TRIGGER_STATUSES
 } from './types';
 
 export type WorkflowSummary = {
@@ -56,6 +66,8 @@ function normalizeStringArray(value: unknown): string[] | undefined {
     .filter((entry): entry is string => entry.length > 0);
   return normalized.length > 0 ? normalized : undefined;
 }
+
+const TIMELINE_STATUS_SET = new Set<string>(WORKFLOW_TIMELINE_TRIGGER_STATUSES);
 
 export function normalizeWorkflowSchedule(raw: unknown): WorkflowSchedule | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -1565,6 +1577,231 @@ export function normalizeWorkflowAssetPartitionsResponse(payload: unknown): Work
     partitioning,
     partitions
   };
+}
+
+function normalizeTimelineTriggerSummary(raw: unknown): WorkflowTimelineTriggerSummary | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const id = typeof record.id === 'string' ? record.id : null;
+  if (!id) {
+    return null;
+  }
+  const eventType = typeof record.eventType === 'string' ? record.eventType : 'unknown';
+  const eventSource = typeof record.eventSource === 'string' ? record.eventSource : null;
+  const name = typeof record.name === 'string' ? record.name : null;
+  const statusRaw = typeof record.status === 'string' ? record.status : 'active';
+  const status: WorkflowTimelineTriggerSummary['status'] = statusRaw === 'disabled' ? 'disabled' : 'active';
+  return {
+    id,
+    name,
+    eventType,
+    eventSource,
+    status
+  } satisfies WorkflowTimelineTriggerSummary;
+}
+
+function normalizeTimelineEvent(raw: unknown): WorkflowTimelineEvent | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const id = typeof record.id === 'string' ? record.id : null;
+  const type = typeof record.type === 'string' ? record.type : null;
+  const source = typeof record.source === 'string' ? record.source : null;
+  const occurredAt = typeof record.occurredAt === 'string' ? record.occurredAt : null;
+  const receivedAt = typeof record.receivedAt === 'string' ? record.receivedAt : null;
+  if (!id || !type || !source || !occurredAt || !receivedAt) {
+    return null;
+  }
+  const correlationId = typeof record.correlationId === 'string' ? record.correlationId : null;
+  const ttlValue = Number(record.ttlMs);
+  const ttlMs = Number.isFinite(ttlValue) ? ttlValue : null;
+  const payload = 'payload' in record ? record.payload : null;
+  const metadata = 'metadata' in record ? record.metadata : null;
+  return {
+    id,
+    type,
+    source,
+    occurredAt,
+    receivedAt,
+    payload,
+    correlationId,
+    ttlMs,
+    metadata
+  } satisfies WorkflowTimelineEvent;
+}
+
+function normalizeTimelineEntry(raw: unknown): WorkflowTimelineEntry | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+  const kind = typeof record.kind === 'string' ? record.kind : null;
+  const id = typeof record.id === 'string' ? record.id : null;
+  const timestamp = typeof record.timestamp === 'string' ? record.timestamp : null;
+  if (!kind || !id || !timestamp) {
+    return null;
+  }
+
+  if (kind === 'run') {
+    const run = normalizeWorkflowRun(record.run);
+    if (!run) {
+      return null;
+    }
+    return {
+      kind: 'run',
+      id,
+      timestamp,
+      run
+    } satisfies WorkflowTimelineRunEntry;
+  }
+
+  if (kind === 'trigger') {
+    const delivery = normalizeWorkflowTriggerDelivery(record.delivery);
+    if (!delivery) {
+      return null;
+    }
+    const trigger = 'trigger' in record ? normalizeTimelineTriggerSummary(record.trigger) : null;
+    const event = 'event' in record ? normalizeTimelineEvent(record.event) : null;
+    return {
+      kind: 'trigger',
+      id,
+      timestamp,
+      delivery,
+      trigger,
+      event
+    } satisfies WorkflowTimelineTriggerEntry;
+  }
+
+  if (kind === 'scheduler') {
+    const category = typeof record.category === 'string' ? record.category : null;
+    if (
+      category !== 'trigger_failure' &&
+      category !== 'trigger_paused' &&
+      category !== 'source_paused'
+    ) {
+      return null;
+    }
+    const entry: WorkflowTimelineSchedulerEntry = {
+      kind: 'scheduler',
+      id,
+      timestamp,
+      category
+    };
+    if ('trigger' in record) {
+      const trigger = normalizeTimelineTriggerSummary(record.trigger);
+      if (trigger) {
+        entry.trigger = trigger;
+      }
+    }
+    if (category === 'source_paused' && typeof record.source === 'string') {
+      entry.source = record.source;
+    }
+    if (typeof record.reason === 'string') {
+      entry.reason = record.reason;
+    } else if (record.reason === null) {
+      entry.reason = null;
+    }
+    const failuresValue = Number(record.failures);
+    if (Number.isFinite(failuresValue)) {
+      entry.failures = failuresValue;
+    }
+    if (typeof record.until === 'string') {
+      entry.until = record.until;
+    } else if (record.until === null) {
+      entry.until = null;
+    }
+    if (record.details && typeof record.details === 'object' && !Array.isArray(record.details)) {
+      entry.details = record.details as Record<string, unknown>;
+    } else if (record.details === null) {
+      entry.details = null;
+    }
+    return entry;
+  }
+
+  return null;
+}
+
+export function normalizeWorkflowTimeline(raw: unknown): WorkflowTimelineSnapshot | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const workflowRecord = toRecord(record.workflow);
+  if (!workflowRecord) {
+    return null;
+  }
+  const workflowId = typeof workflowRecord.id === 'string' ? workflowRecord.id : null;
+  const workflowSlug = typeof workflowRecord.slug === 'string' ? workflowRecord.slug : null;
+  const workflowName = typeof workflowRecord.name === 'string' ? workflowRecord.name : null;
+  if (!workflowId || !workflowSlug || !workflowName) {
+    return null;
+  }
+
+  const rangeRecord = toRecord(record.range);
+  const rangeFrom = typeof rangeRecord?.from === 'string' ? rangeRecord.from : null;
+  const rangeTo = typeof rangeRecord?.to === 'string' ? rangeRecord.to : null;
+  if (!rangeFrom || !rangeTo) {
+    return null;
+  }
+
+  const entriesRaw = Array.isArray(record.entries) ? record.entries : [];
+  const entries = entriesRaw
+    .map((entry) => normalizeTimelineEntry(entry))
+    .filter((entry): entry is WorkflowTimelineEntry => Boolean(entry));
+
+  return {
+    workflow: {
+      id: workflowId,
+      slug: workflowSlug,
+      name: workflowName
+    },
+    range: {
+      from: rangeFrom,
+      to: rangeTo
+    },
+    entries
+  } satisfies WorkflowTimelineSnapshot;
+}
+
+export function normalizeWorkflowTimelineMeta(raw: unknown): WorkflowTimelineMeta | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const countsRecord = toRecord(record.counts);
+  const runsValue = Number(countsRecord?.runs ?? 0);
+  const triggerDeliveriesValue = Number(countsRecord?.triggerDeliveries ?? 0);
+  const schedulerSignalsValue = Number(countsRecord?.schedulerSignals ?? 0);
+
+  const statusesRaw = Array.isArray(record.appliedTriggerStatuses) ? record.appliedTriggerStatuses : [];
+  const appliedTriggerStatuses: WorkflowTimelineTriggerStatus[] = [];
+  for (const status of statusesRaw) {
+    if (typeof status !== 'string') {
+      continue;
+    }
+    const normalized = status.trim().toLowerCase();
+    if (TIMELINE_STATUS_SET.has(normalized)) {
+      appliedTriggerStatuses.push(normalized as WorkflowTimelineTriggerStatus);
+    }
+  }
+
+  const limitValue = Number(record.limit ?? 0);
+  const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 0;
+
+  return {
+    counts: {
+      runs: Number.isFinite(runsValue) ? runsValue : 0,
+      triggerDeliveries: Number.isFinite(triggerDeliveriesValue) ? triggerDeliveriesValue : 0,
+      schedulerSignals: Number.isFinite(schedulerSignalsValue) ? schedulerSignalsValue : 0
+    },
+    appliedTriggerStatuses,
+    limit
+  } satisfies WorkflowTimelineMeta;
 }
 
 export function buildFilterOptions(values: string[]): Array<{ value: string; label: string; count: number }> {

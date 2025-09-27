@@ -17,7 +17,8 @@ import {
   type WorkflowRunStats,
   type WorkflowRunStepRecord,
   type WorkflowEventTriggerRecord,
-  type WorkflowTriggerDeliveryRecord
+  type WorkflowTriggerDeliveryRecord,
+  type WorkflowEventRecord
 } from '../../db/index';
 import type { BundleDownloadInfo } from '../../jobs/bundleStorage';
 import type { WorkflowJsonValue } from '../../workflows/zodSchemas';
@@ -480,6 +481,20 @@ export function serializeWorkflowTriggerDelivery(delivery: WorkflowTriggerDelive
   };
 }
 
+export function serializeWorkflowEvent(event: WorkflowEventRecord) {
+  return {
+    id: event.id,
+    type: event.type,
+    source: event.source,
+    occurredAt: event.occurredAt,
+    receivedAt: event.receivedAt,
+    payload: event.payload,
+    correlationId: event.correlationId,
+    ttlMs: event.ttlMs,
+    metadata: event.metadata
+  };
+}
+
 export type SerializedRepository = ReturnType<typeof serializeRepository>;
 export type SerializedBuild = ReturnType<typeof serializeBuild>;
 export type SerializedLaunch = ReturnType<typeof serializeLaunch>;
@@ -493,3 +508,4 @@ export type SerializedJobBundle = ReturnType<typeof serializeJobBundle>;
 export type SerializedJobBundleVersion = ReturnType<typeof serializeJobBundleVersion>;
 export type SerializedWorkflowEventTrigger = ReturnType<typeof serializeWorkflowEventTrigger>;
 export type SerializedWorkflowTriggerDelivery = ReturnType<typeof serializeWorkflowTriggerDelivery>;
+export type SerializedWorkflowEventRecord = ReturnType<typeof serializeWorkflowEvent>;

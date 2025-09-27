@@ -2401,6 +2401,35 @@ export async function listWorkflowTriggerDeliveries(
   return rows.map(mapWorkflowTriggerDeliveryRow);
 }
 
+export async function listWorkflowTriggerDeliveriesForWorkflow(
+  workflowDefinitionId: string,
+  options: { from: string; to: string; limit?: number; statuses?: string[] }
+): Promise<WorkflowTriggerDeliveryRecord[]> {
+  const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
+  const params: unknown[] = [workflowDefinitionId, options.from, options.to];
+  let paramIndex = 4;
+  let statusClause = '';
+
+  if (options.statuses && options.statuses.length > 0) {
+    statusClause = ` AND status = ANY($${paramIndex}::text[])`;
+    params.push(options.statuses);
+    paramIndex += 1;
+  }
+
+  params.push(limit);
+
+  const query = `SELECT *
+                   FROM workflow_trigger_deliveries
+                  WHERE workflow_definition_id = $1
+                    AND created_at >= $2
+                    AND created_at <= $3${statusClause}
+                  ORDER BY created_at DESC
+                  LIMIT $${paramIndex}`;
+
+  const { rows } = await useConnection((client) => client.query<WorkflowTriggerDeliveryRow>(query, params));
+  return rows.map(mapWorkflowTriggerDeliveryRow);
+}
+
 export async function countRecentWorkflowTriggerDeliveries(
   triggerId: string,
   sinceIso: string
@@ -2645,6 +2674,27 @@ export async function listWorkflowRunsForDefinition(
        LIMIT $2
        OFFSET $3`,
       [workflowDefinitionId, limit, offset]
+    );
+    return rows.map(mapWorkflowRunRow);
+  });
+}
+
+export async function listWorkflowRunsInRange(
+  workflowDefinitionId: string,
+  options: { from: string; to: string; limit?: number }
+): Promise<WorkflowRunRecord[]> {
+  const limit = Math.min(Math.max(options.limit ?? 200, 1), 500);
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowRunRow>(
+      `SELECT *
+         FROM workflow_runs
+        WHERE workflow_definition_id = $1
+          AND created_at >= $2
+          AND created_at <= $3
+        ORDER BY created_at DESC
+        LIMIT $4`,
+      [workflowDefinitionId, options.from, options.to, limit]
     );
     return rows.map(mapWorkflowRunRow);
   });

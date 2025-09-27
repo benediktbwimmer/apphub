@@ -13,6 +13,7 @@ import WorkflowRunTrends from './components/WorkflowRunTrends';
 import WorkflowAssetPanel from './components/WorkflowAssetPanel';
 import AutoMaterializePanel from './components/AutoMaterializePanel';
 import EventTriggersPanel from './components/eventTriggers/EventTriggersPanel';
+import WorkflowEventTimeline from './components/WorkflowEventTimeline';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
@@ -127,7 +128,17 @@ function WorkflowsPageContent() {
     eventHealth,
     eventHealthLoading,
     eventHealthError,
-    loadEventSchedulerHealth
+    loadEventSchedulerHealth,
+    timeline,
+    timelineMeta,
+    timelineLoading,
+    timelineError,
+    timelineRange,
+    timelineStatuses,
+    setTimelineRange,
+    toggleTimelineStatus,
+    clearTimelineStatuses,
+    refreshTimeline: refreshTimelineView
   } = useWorkflowsController();
 
   const [searchParams] = useSearchParams();
@@ -292,6 +303,19 @@ function WorkflowsPageContent() {
             loadEventSamples={loadEventSamplesFn}
             refreshEventSamples={refreshEventSamples}
             canEdit={canEditWorkflows}
+          />
+
+          <WorkflowEventTimeline
+            snapshot={timeline}
+            meta={timelineMeta}
+            loading={timelineLoading}
+            error={timelineError}
+            range={timelineRange}
+            statuses={timelineStatuses}
+            onChangeRange={setTimelineRange}
+            onToggleStatus={toggleTimelineStatus}
+            onResetStatuses={clearTimelineStatuses}
+            onRefresh={refreshTimelineView}
           />
 
           <AutoMaterializePanel

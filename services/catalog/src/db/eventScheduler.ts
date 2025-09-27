@@ -284,3 +284,160 @@ export async function clearSourceEventWindows(): Promise<void> {
     await client.query('TRUNCATE TABLE event_scheduler_source_events');
   });
 }
+
+export type TriggerFailureEventRecord = {
+  id: string;
+  triggerId: string;
+  failureTime: string;
+  reason: string | null;
+};
+
+export type TriggerPauseEventRecord = {
+  triggerId: string;
+  pausedUntil: string;
+  reason: string;
+  failures: number;
+  updatedAt: string;
+  createdAt: string;
+};
+
+export type SourcePauseEventRecord = {
+  source: string;
+  pausedUntil: string;
+  reason: string;
+  details: JsonValue | null;
+  updatedAt: string;
+  createdAt: string;
+};
+
+export async function listTriggerFailureEvents(
+  triggerIds: string[],
+  fromIso: string,
+  toIso: string,
+  limit = 200
+): Promise<TriggerFailureEventRecord[]> {
+  const normalizedIds = Array.from(
+    new Set(triggerIds.map((id) => id.trim()).filter((id) => id.length > 0))
+  );
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+  const cappedLimit = Math.min(Math.max(limit, 1), 500);
+
+  const { rows } = await withConnection((client) =>
+    client.query<{
+      id: string | number;
+      trigger_id: string;
+      failure_time: string;
+      reason: string | null;
+    }>(
+      `SELECT id, trigger_id, failure_time, reason
+         FROM event_scheduler_trigger_failures
+        WHERE trigger_id = ANY($1::text[])
+          AND failure_time >= $2
+          AND failure_time <= $3
+        ORDER BY failure_time DESC
+        LIMIT $4`,
+      [normalizedIds, fromIso, toIso, cappedLimit]
+    )
+  );
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    triggerId: row.trigger_id,
+    failureTime: row.failure_time,
+    reason: row.reason ?? null
+  } satisfies TriggerFailureEventRecord));
+}
+
+export async function listTriggerPauseEvents(
+  triggerIds: string[],
+  fromIso: string,
+  toIso: string,
+  limit = 200
+): Promise<TriggerPauseEventRecord[]> {
+  const normalizedIds = Array.from(
+    new Set(triggerIds.map((id) => id.trim()).filter((id) => id.length > 0))
+  );
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+  const cappedLimit = Math.min(Math.max(limit, 1), 500);
+
+  const { rows } = await withConnection((client) =>
+    client.query<{
+      trigger_id: string;
+      paused_until: string;
+      reason: string;
+      failures: number;
+      updated_at: string;
+      created_at: string;
+    }>(
+      `SELECT trigger_id, paused_until, reason, failures, updated_at, created_at
+         FROM event_scheduler_trigger_pauses
+        WHERE trigger_id = ANY($1::text[])
+          AND (
+            updated_at BETWEEN $2 AND $3
+            OR paused_until >= $2
+          )
+        ORDER BY updated_at DESC
+        LIMIT $4`,
+      [normalizedIds, fromIso, toIso, cappedLimit]
+    )
+  );
+
+  return rows.map((row) => ({
+    triggerId: row.trigger_id,
+    pausedUntil: row.paused_until,
+    reason: row.reason,
+    failures: Number(row.failures ?? 0),
+    updatedAt: row.updated_at,
+    createdAt: row.created_at
+  } satisfies TriggerPauseEventRecord));
+}
+
+export async function listSourcePauseEvents(
+  sources: string[],
+  fromIso: string,
+  toIso: string,
+  limit = 200
+): Promise<SourcePauseEventRecord[]> {
+  const normalizedSources = Array.from(
+    new Set(sources.map((source) => source.trim()).filter((source) => source.length > 0))
+  );
+  if (normalizedSources.length === 0) {
+    return [];
+  }
+  const cappedLimit = Math.min(Math.max(limit, 1), 500);
+
+  const { rows } = await withConnection((client) =>
+    client.query<{
+      source: string;
+      paused_until: string;
+      reason: string;
+      details: JsonValue | null;
+      updated_at: string;
+      created_at: string;
+    }>(
+      `SELECT source, paused_until, reason, details, updated_at, created_at
+         FROM event_scheduler_source_pauses
+        WHERE source = ANY($1::text[])
+          AND (
+            updated_at BETWEEN $2 AND $3
+            OR paused_until >= $2
+          )
+        ORDER BY updated_at DESC
+        LIMIT $4`,
+      [normalizedSources, fromIso, toIso, cappedLimit]
+    )
+  );
+
+  return rows.map((row) => ({
+    source: row.source,
+    pausedUntil: row.paused_until,
+    reason: row.reason,
+    details: row.details ?? null,
+    updatedAt: row.updated_at,
+    createdAt: row.created_at
+  } satisfies SourcePauseEventRecord));
+}

@@ -208,6 +208,98 @@ export type WorkflowEventSchedulerHealth = {
   rateLimits: Array<{ source: string; limit: number; intervalMs: number; pauseMs: number }>;
 };
 
+export const WORKFLOW_TIMELINE_TRIGGER_STATUSES = [
+  'pending',
+  'matched',
+  'throttled',
+  'skipped',
+  'launched',
+  'failed'
+] as const;
+
+export type WorkflowTimelineTriggerStatus = (typeof WORKFLOW_TIMELINE_TRIGGER_STATUSES)[number];
+
+export const WORKFLOW_TIMELINE_RANGE_KEYS = ['1h', '3h', '6h', '12h', '24h', '3d', '7d'] as const;
+
+export type WorkflowTimelineRangeKey = (typeof WORKFLOW_TIMELINE_RANGE_KEYS)[number];
+
+export type WorkflowTimelineTriggerSummary = {
+  id: string;
+  name: string | null;
+  eventType: string;
+  eventSource: string | null;
+  status: WorkflowEventTriggerStatus;
+};
+
+export type WorkflowTimelineEvent = {
+  id: string;
+  type: string;
+  source: string;
+  occurredAt: string;
+  receivedAt: string;
+  payload: unknown;
+  correlationId: string | null;
+  ttlMs: number | null;
+  metadata: unknown;
+};
+
+export type WorkflowTimelineRunEntry = {
+  kind: 'run';
+  id: string;
+  timestamp: string;
+  run: WorkflowRun;
+};
+
+export type WorkflowTimelineTriggerEntry = {
+  kind: 'trigger';
+  id: string;
+  timestamp: string;
+  delivery: WorkflowTriggerDelivery;
+  trigger: WorkflowTimelineTriggerSummary | null;
+  event: WorkflowTimelineEvent | null;
+};
+
+export type WorkflowTimelineSchedulerEntry = {
+  kind: 'scheduler';
+  id: string;
+  timestamp: string;
+  category: 'trigger_failure' | 'trigger_paused' | 'source_paused';
+  trigger?: WorkflowTimelineTriggerSummary;
+  source?: string;
+  reason?: string | null;
+  failures?: number;
+  until?: string | null;
+  details?: Record<string, unknown> | null;
+};
+
+export type WorkflowTimelineEntry =
+  | WorkflowTimelineRunEntry
+  | WorkflowTimelineTriggerEntry
+  | WorkflowTimelineSchedulerEntry;
+
+export type WorkflowTimelineSnapshot = {
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  entries: WorkflowTimelineEntry[];
+};
+
+export type WorkflowTimelineMeta = {
+  counts: {
+    runs: number;
+    triggerDeliveries: number;
+    schedulerSignals: number;
+  };
+  appliedTriggerStatuses: WorkflowTimelineTriggerStatus[];
+  limit: number;
+};
+
 export type WorkflowSchedule = {
   id: string;
   workflowDefinitionId: string;
