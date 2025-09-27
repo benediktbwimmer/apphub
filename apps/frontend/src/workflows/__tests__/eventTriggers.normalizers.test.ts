@@ -18,7 +18,23 @@ describe('event trigger normalizers', () => {
       eventSource: 'metastore.api',
       predicates: [
         { type: 'jsonPath', path: '$.payload.namespace', operator: 'equals', value: 'hr' },
-        { type: 'jsonPath', path: '$.payload.status', operator: 'in', values: ['active', 'pending'] }
+        { type: 'jsonPath', path: '$.payload.status', operator: 'in', values: ['active', 'pending'] },
+        { type: 'jsonPath', path: '$.payload.version', operator: 'gte', value: 2 },
+        { type: 'jsonPath', path: '$.payload.version', operator: 'lt', value: 10 },
+        {
+          type: 'jsonPath',
+          path: '$.payload.slug',
+          operator: 'regex',
+          value: '^hr-[0-9]+$',
+          flags: 'im'
+        },
+        {
+          type: 'jsonPath',
+          path: '$.payload.description',
+          operator: 'contains',
+          value: 'critical',
+          caseSensitive: false
+        }
       ],
       parameterTemplate: { namespace: '{{ event.payload.namespace }}' },
       throttleWindowMs: '60000',
@@ -38,9 +54,13 @@ describe('event trigger normalizers', () => {
     expect(normalized?.throttleWindowMs).toBe(60000);
     expect(normalized?.throttleCount).toBe(10);
     expect(normalized?.maxConcurrency).toBe(4);
-    expect(normalized?.predicates).toHaveLength(2);
+    expect(normalized?.predicates).toHaveLength(6);
     expect(normalized?.predicates[0]).toMatchObject({ path: '$.payload.namespace', operator: 'equals' });
     expect(normalized?.predicates[1]).toMatchObject({ operator: 'in', values: ['active', 'pending'] });
+    expect(normalized?.predicates[2]).toMatchObject({ operator: 'gte', value: 2 });
+    expect(normalized?.predicates[3]).toMatchObject({ operator: 'lt', value: 10 });
+    expect(normalized?.predicates[4]).toMatchObject({ operator: 'regex', value: '^hr-[0-9]+$', flags: 'im' });
+    expect(normalized?.predicates[5]).toMatchObject({ operator: 'contains', value: 'critical' });
     expect(normalized?.parameterTemplate).toEqual({ namespace: '{{ event.payload.namespace }}' });
   });
 

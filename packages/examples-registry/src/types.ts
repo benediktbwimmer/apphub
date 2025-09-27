@@ -192,9 +192,22 @@ export type WorkflowProvisioningScheduleTemplate = {
 
 export type WorkflowProvisioningEventTriggerPredicateTemplate = {
   path: string;
-  operator: 'equals' | 'notEquals' | 'in' | 'notIn' | 'exists';
+  operator:
+    | 'exists'
+    | 'equals'
+    | 'notEquals'
+    | 'in'
+    | 'notIn'
+    | 'contains'
+    | 'regex'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte';
   value?: JsonValue;
   values?: JsonValue[];
+  caseSensitive?: boolean;
+  flags?: string;
 };
 
 export type WorkflowProvisioningEventTriggerTemplate = {

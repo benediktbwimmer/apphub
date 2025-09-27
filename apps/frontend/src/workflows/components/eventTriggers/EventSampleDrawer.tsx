@@ -79,32 +79,63 @@ function ensurePredicateInputs(
   predicates: Array<WorkflowEventTriggerPredicateInput | WorkflowEventTrigger['predicates'][number]>
 ): WorkflowEventTriggerPredicateInput[] {
   return predicates.map((predicate) => {
-    if ('type' in predicate) {
-      const typed = predicate;
-      if (typed.operator === 'exists') {
+    if (!('type' in predicate)) {
+      return predicate as WorkflowEventTriggerPredicateInput;
+    }
+    const typed = predicate as WorkflowEventTrigger['predicates'][number];
+    switch (typed.operator) {
+      case 'exists':
         return {
           path: typed.path,
           operator: 'exists',
-          caseSensitive: typed.caseSensitive || undefined
+          caseSensitive: typed.caseSensitive ?? false
         } satisfies WorkflowEventTriggerPredicateInput;
-      }
-      if (typed.operator === 'equals' || typed.operator === 'notEquals') {
+      case 'equals':
+      case 'notEquals':
         return {
           path: typed.path,
           operator: typed.operator,
           value: typed.value,
-          caseSensitive: typed.caseSensitive || undefined
+          caseSensitive: typed.caseSensitive ?? false
         } satisfies WorkflowEventTriggerPredicateInput;
-      }
-      const values = 'values' in typed && Array.isArray(typed.values) ? typed.values : [];
-      return {
-        path: typed.path,
-        operator: typed.operator,
-        values,
-        caseSensitive: typed.caseSensitive || undefined
-      } satisfies WorkflowEventTriggerPredicateInput;
+      case 'in':
+      case 'notIn':
+        return {
+          path: typed.path,
+          operator: typed.operator,
+          values: Array.isArray(typed.values) ? typed.values : [],
+          caseSensitive: typed.caseSensitive ?? false
+        } satisfies WorkflowEventTriggerPredicateInput;
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte':
+        return {
+          path: typed.path,
+          operator: typed.operator,
+          value: typed.value
+        } satisfies WorkflowEventTriggerPredicateInput;
+      case 'contains':
+        return {
+          path: typed.path,
+          operator: 'contains',
+          value: typed.value,
+          caseSensitive: typed.caseSensitive ?? false
+        } satisfies WorkflowEventTriggerPredicateInput;
+      case 'regex':
+        return {
+          path: typed.path,
+          operator: 'regex',
+          value: typed.value,
+          caseSensitive: typed.caseSensitive ?? false,
+          flags: typed.flags
+        } satisfies WorkflowEventTriggerPredicateInput;
+      default:
+        return {
+          path: typed.path,
+          operator: 'exists'
+        } satisfies WorkflowEventTriggerPredicateInput;
     }
-    return predicate;
   });
 }
 
@@ -155,6 +186,45 @@ function evaluatePredicate(
         detail: list.length > 0 ? `${list.length} values` : '[]'
       };
     }
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte': {
+      const matched = results.some((entry) =>
+        matchesNumericComparison(entry, predicate.value, predicate.operator)
+      );
+      return {
+        path: predicate.path,
+        operator: predicate.operator,
+        matched,
+        detail: `${predicate.operator} ${predicate.value}`
+      };
+    }
+    case 'contains': {
+      const matched = results.some((entry) =>
+        matchesContains(entry, predicate.value, caseSensitive)
+      );
+      return {
+        path: predicate.path,
+        operator: 'contains',
+        matched,
+        detail: JSON.stringify(predicate.value)
+      };
+    }
+    case 'regex': {
+      const regex = buildPredicateRegex(predicate);
+      const matched = Boolean(
+        regex &&
+          results.some((entry) => typeof entry === 'string' && regex.test(entry))
+      );
+      const flags = regex ? regex.flags : predicate.flags ?? '';
+      return {
+        path: predicate.path,
+        operator: 'regex',
+        matched,
+        detail: `/${predicate.value}/${flags}`
+      };
+    }
     default:
       return {
         path: predicate.path,
@@ -169,6 +239,94 @@ function compareJson(left: unknown, right: unknown, caseSensitive: boolean): boo
     return left.toLowerCase() === right.toLowerCase();
   }
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function matchesNumericComparison(
+  value: unknown,
+  expected: number,
+  operator: 'gt' | 'gte' | 'lt' | 'lte'
+): boolean {
+  const candidates = extractNumericValues(value);
+  if (candidates.length === 0) {
+    return false;
+  }
+  switch (operator) {
+    case 'gt':
+      return candidates.some((candidate) => candidate > expected);
+    case 'gte':
+      return candidates.some((candidate) => candidate >= expected);
+    case 'lt':
+      return candidates.some((candidate) => candidate < expected);
+    case 'lte':
+      return candidates.some((candidate) => candidate <= expected);
+  }
+  return false;
+}
+
+function extractNumericValues(value: unknown): number[] {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return [value];
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? [parsed] : [];
+  }
+  if (Array.isArray(value)) {
+    const collected: number[] = [];
+    for (const entry of value) {
+      collected.push(...extractNumericValues(entry));
+    }
+    return collected;
+  }
+  return [];
+}
+
+function matchesContains(value: unknown, expected: unknown, caseSensitive: boolean): boolean {
+  if (typeof value === 'string' && typeof expected === 'string') {
+    const haystack = caseSensitive ? value : value.toLowerCase();
+    const needle = caseSensitive ? expected : expected.toLowerCase();
+    if (!needle) {
+      return true;
+    }
+    return haystack.includes(needle);
+  }
+  if (Array.isArray(value)) {
+    return value.some((entry) => {
+      const candidate = entry;
+      if (matchesContains(candidate, expected, caseSensitive)) {
+        return true;
+      }
+      return compareJson(candidate, expected, caseSensitive);
+    });
+  }
+  return false;
+}
+
+function buildPredicateRegex(
+  predicate: Extract<WorkflowEventTriggerPredicateInput, { operator: 'regex' }>
+): RegExp | null {
+  const flagsSet = new Set<string>();
+  if (predicate.flags) {
+    for (const flag of predicate.flags) {
+      flagsSet.add(flag);
+    }
+  }
+  if (!predicate.caseSensitive) {
+    flagsSet.add('i');
+  }
+  if (predicate.caseSensitive) {
+    flagsSet.delete('i');
+  }
+  const flags = Array.from(flagsSet).sort().join('');
+  try {
+    return new RegExp(predicate.value, flags);
+  } catch {
+    return null;
+  }
 }
 
 async function renderJsonTemplate(

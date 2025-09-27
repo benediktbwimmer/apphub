@@ -51,6 +51,19 @@ POST /workflows/directory-sync/triggers
 
 Successful responses return the stored trigger record including computed metadata (`version`, timestamps, and actor fields). Validation errors are surfaced with detailed field messages.
 
+### Predicate Operators
+
+Predicates evaluate JSONPath expressions against the incoming event envelope. Each predicate entry accepts one of the following operators:
+
+- `exists` — matches when the JSONPath resolves to at least one value. Must not include `value`, `values`, or `flags` fields.
+- `equals` / `notEquals` — compare the JSONPath result to a single `value`. String comparisons are case-insensitive by default; set `caseSensitive: true` to require exact casing.
+- `in` / `notIn` — expect the JSONPath result to appear inside the provided `values` array (up to 100 entries). String comparisons honour `caseSensitive`.
+- `gt`, `gte`, `lt`, `lte` — perform numeric comparisons against a single `value`. The input must be a finite number; string results from JSONPath are coerced when they represent valid numbers.
+- `contains` — requires a `value` and succeeds when the JSONPath resolve is a string containing the substring or an array containing an element equal to the value. Strings default to case-insensitive matching unless `caseSensitive: true` is provided.
+- `regex` — applies a regular expression `value` to string results. Optional `flags` support the safe ECMAScript subset (`g`, `i`, `m`, `s`, `u`, `y`); duplicate characters are ignored. Setting `caseSensitive: false` automatically injects the `i` flag, while `caseSensitive: true` rejects any `i` flag.
+
+Predicates are evaluated with AND semantics. Invalid combinations—such as missing operands, non-numeric values for comparison operators, or malformed regex patterns—are rejected during trigger creation with descriptive errors.
+
 ### Delivery Inspection
 
 `GET /workflows/directory-sync/triggers/:triggerId/deliveries?status=failed&limit=20` returns the most recent delivery attempts (ordered by creation time) so operators can review failures without querying Postgres directly. Sensitive payloads are omitted; only delivery metadata (run ID, status, error text, dedupe key, timestamps) is exposed.

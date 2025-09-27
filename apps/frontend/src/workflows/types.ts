@@ -76,6 +76,27 @@ export type WorkflowEventTriggerPredicate =
       operator: 'in' | 'notIn';
       values: unknown[];
       caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'gt' | 'gte' | 'lt' | 'lte';
+      value: number;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'contains';
+      value: unknown;
+      caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'regex';
+      value: string;
+      caseSensitive?: boolean;
+      flags?: string;
     };
 
 export type WorkflowEventTriggerStatus = 'active' | 'disabled';

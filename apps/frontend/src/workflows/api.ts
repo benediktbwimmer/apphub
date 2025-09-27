@@ -53,13 +53,42 @@ export type WorkflowTriggerInput = {
   options?: unknown;
 };
 
-export type WorkflowEventTriggerPredicateInput = {
-  path: string;
-  operator: 'exists' | 'equals' | 'notEquals' | 'in' | 'notIn';
-  value?: unknown;
-  values?: unknown[];
-  caseSensitive?: boolean;
-};
+export type WorkflowEventTriggerPredicateInput =
+  | {
+      path: string;
+      operator: 'exists';
+      caseSensitive?: boolean;
+    }
+  | {
+      path: string;
+      operator: 'equals' | 'notEquals';
+      value: unknown;
+      caseSensitive?: boolean;
+    }
+  | {
+      path: string;
+      operator: 'in' | 'notIn';
+      values: unknown[];
+      caseSensitive?: boolean;
+    }
+  | {
+      path: string;
+      operator: 'gt' | 'gte' | 'lt' | 'lte';
+      value: number;
+    }
+  | {
+      path: string;
+      operator: 'contains';
+      value: unknown;
+      caseSensitive?: boolean;
+    }
+  | {
+      path: string;
+      operator: 'regex';
+      value: string;
+      caseSensitive?: boolean;
+      flags?: string;
+    };
 
 export type WorkflowEventTriggerCreateInput = {
   name?: string | null;

@@ -49,6 +49,41 @@ function evaluatePredicate(predicate: WorkflowEventTriggerPredicate, event: Even
       );
       return predicate.operator === 'in' ? isMatch : !isMatch;
     }
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte': {
+      if (results.length === 0) {
+        return false;
+      }
+      return results.some((value) =>
+        matchesNumericComparison(value, predicate.value, predicate.operator)
+      );
+    }
+    case 'contains': {
+      if (results.length === 0) {
+        return false;
+      }
+      return results.some((value) =>
+        matchesContains(value, predicate.value, predicate.caseSensitive ?? false)
+      );
+    }
+    case 'regex': {
+      if (results.length === 0) {
+        return false;
+      }
+      const regex = buildPredicateRegex(predicate);
+      if (!regex) {
+        logger.warn(
+          {
+            predicate
+          },
+          'Failed to compile regex predicate'
+        );
+        return false;
+      }
+      return results.some((value) => typeof value === 'string' && regex.test(value));
+    }
     default:
       return false;
   }
@@ -59,6 +94,111 @@ function compareJsonValues(left: JsonValue, right: JsonValue, caseSensitive: boo
     return left.toLowerCase() === right.toLowerCase();
   }
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function matchesNumericComparison(
+  value: JsonValue,
+  expected: number,
+  operator: 'gt' | 'gte' | 'lt' | 'lte'
+): boolean {
+  const candidates = extractNumericValues(value);
+  if (candidates.length === 0) {
+    return false;
+  }
+  switch (operator) {
+    case 'gt':
+      return candidates.some((candidate) => candidate > expected);
+    case 'gte':
+      return candidates.some((candidate) => candidate >= expected);
+    case 'lt':
+      return candidates.some((candidate) => candidate < expected);
+    case 'lte':
+      return candidates.some((candidate) => candidate <= expected);
+    default:
+      return false;
+  }
+}
+
+function extractNumericValues(value: JsonValue): number[] {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return [value];
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      return [parsed];
+    }
+    return [];
+  }
+  if (Array.isArray(value)) {
+    const results: number[] = [];
+    for (const entry of value) {
+      results.push(...extractNumericValues(entry as JsonValue));
+    }
+    return results;
+  }
+  return [];
+}
+
+function matchesContains(
+  value: JsonValue,
+  expected: JsonValue,
+  caseSensitive: boolean
+): boolean {
+  if (typeof value === 'string' && typeof expected === 'string') {
+    const haystack = caseSensitive ? value : value.toLowerCase();
+    const needle = caseSensitive ? expected : expected.toLowerCase();
+    if (needle.length === 0) {
+      return true;
+    }
+    return haystack.includes(needle);
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const candidate = entry as JsonValue;
+      if (matchesContains(candidate, expected, caseSensitive)) {
+        return true;
+      }
+      if (compareJsonValues(candidate, expected, caseSensitive)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return false;
+}
+
+function buildPredicateRegex(
+  predicate: Extract<WorkflowEventTriggerPredicate, { operator: 'regex' }>
+): RegExp | null {
+  const flagsSet = new Set<string>();
+  if (predicate.flags) {
+    for (const flag of predicate.flags) {
+      flagsSet.add(flag);
+    }
+  }
+  if (predicate.caseSensitive === false) {
+    flagsSet.add('i');
+  }
+  if (predicate.caseSensitive === true) {
+    flagsSet.delete('i');
+  }
+  const flags = Array.from(flagsSet).sort().join('');
+  try {
+    return new RegExp(predicate.value, flags);
+  } catch (error) {
+    logger.warn({
+      err: error,
+      predicate
+    }, 'Invalid regex predicate');
+    return null;
+  }
 }
 
 async function renderStringTemplate(template: string, context: Record<string, unknown>): Promise<string> {

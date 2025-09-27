@@ -298,6 +298,12 @@ export function resolveWorkflowProvisioningPlan(
           resolveJsonTemplates(entry as JsonValue, scope)
         ) as JsonValue[];
       }
+      if (typeof predicate.caseSensitive === 'boolean') {
+        predicateClone.caseSensitive = predicate.caseSensitive;
+      }
+      if (typeof predicate.flags === 'string') {
+        predicateClone.flags = predicate.flags;
+      }
       resolvedPredicates.push(predicateClone);
     }
 

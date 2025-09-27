@@ -1397,6 +1397,17 @@ function parseCaseSensitiveFlag(value: unknown): boolean | undefined {
   return undefined;
 }
 
+function parseRegexFlags(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 function parseTriggerPredicates(value: unknown): WorkflowEventTriggerPredicate[] {
   const parsed = parseJsonColumn(value);
   if (!parsed || !Array.isArray(parsed)) {
@@ -1462,6 +1473,57 @@ function parseTriggerPredicates(value: unknown): WorkflowEventTriggerPredicate[]
             };
             predicates.push(predicate);
           }
+        }
+        break;
+      }
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const candidate = toJsonValue(record.value);
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+          predicates.push({
+            type: 'jsonPath',
+            path,
+            operator: operator as 'gt' | 'gte' | 'lt' | 'lte',
+            value: candidate
+          });
+        }
+        break;
+      }
+      case 'contains': {
+        const candidate = toJsonValue(record.value);
+        if (candidate !== null && candidate !== undefined) {
+          const predicate: WorkflowEventTriggerPredicate = {
+            type: 'jsonPath',
+            path,
+            operator: 'contains',
+            value: candidate,
+            ...(parseCaseSensitiveFlag(record.caseSensitive) !== undefined
+              ? { caseSensitive: parseCaseSensitiveFlag(record.caseSensitive) }
+              : {})
+          };
+          predicates.push(predicate);
+        }
+        break;
+      }
+      case 'regex': {
+        const pattern = typeof record.value === 'string' ? record.value.trim() : '';
+        if (pattern.length > 0 && pattern.length <= 512) {
+          const predicate: WorkflowEventTriggerPredicate = {
+            type: 'jsonPath',
+            path,
+            operator: 'regex',
+            value: pattern,
+            ...(parseCaseSensitiveFlag(record.caseSensitive) !== undefined
+              ? { caseSensitive: parseCaseSensitiveFlag(record.caseSensitive) }
+              : {})
+          };
+          const flags = parseRegexFlags(record.flags);
+          if (flags) {
+            predicate.flags = flags;
+          }
+          predicates.push(predicate);
         }
         break;
       }

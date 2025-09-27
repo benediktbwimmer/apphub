@@ -553,6 +553,27 @@ export type WorkflowEventTriggerPredicate =
       operator: 'in' | 'notIn';
       values: JsonValue[];
       caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'gt' | 'gte' | 'lt' | 'lte';
+      value: number;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'contains';
+      value: JsonValue;
+      caseSensitive?: boolean;
+    }
+  | {
+      type: 'jsonPath';
+      path: string;
+      operator: 'regex';
+      value: string;
+      caseSensitive?: boolean;
+      flags?: string;
     };
 
 export type WorkflowEventTriggerRecord = {

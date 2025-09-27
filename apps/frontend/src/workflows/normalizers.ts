@@ -221,6 +221,48 @@ function normalizeEventTriggerPredicate(raw: unknown): WorkflowEventTriggerPredi
         ...(caseSensitive !== undefined ? { caseSensitive } : {})
       };
     }
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte': {
+      const value = Number(record.value);
+      if (!Number.isFinite(value)) {
+        return null;
+      }
+      return {
+        type: 'jsonPath',
+        path,
+        operator,
+        value
+      };
+    }
+    case 'contains': {
+      if (!('value' in record)) {
+        return null;
+      }
+      return {
+        type: 'jsonPath',
+        path,
+        operator: 'contains',
+        value: record.value,
+        ...(caseSensitive !== undefined ? { caseSensitive } : {})
+      };
+    }
+    case 'regex': {
+      const pattern = typeof record.value === 'string' ? record.value : null;
+      if (!pattern) {
+        return null;
+      }
+      const flags = typeof record.flags === 'string' ? record.flags : undefined;
+      return {
+        type: 'jsonPath',
+        path,
+        operator: 'regex',
+        value: pattern,
+        ...(caseSensitive !== undefined ? { caseSensitive } : {}),
+        ...(flags ? { flags } : {})
+      };
+    }
     default:
       return null;
   }

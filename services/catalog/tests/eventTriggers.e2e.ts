@@ -250,6 +250,120 @@ async function testEventTriggerCrud(): Promise<void> {
   assert.ok(eventRun, 'expected event-triggered workflow run');
   const runParameters = (eventRun?.parameters ?? {}) as Record<string, unknown>;
   assert.equal(runParameters.namespace, 'feature-flags');
+
+  const advancedTrigger = await db.createWorkflowEventTrigger({
+    workflowDefinitionId: workflow.id,
+    name: 'Advanced Predicates',
+    eventType: 'metastore.record.updated',
+    predicates: [
+      { type: 'jsonPath', path: '$.payload.version', operator: 'gte', value: 3 },
+      { type: 'jsonPath', path: '$.payload.version', operator: 'lt', value: 10 },
+      {
+        type: 'jsonPath',
+        path: '$.payload.description',
+        operator: 'contains',
+        value: 'critical',
+        caseSensitive: false
+      },
+      {
+        type: 'jsonPath',
+        path: '$.payload.tags',
+        operator: 'contains',
+        value: 'urgent',
+        caseSensitive: true
+      },
+      {
+        type: 'jsonPath',
+        path: '$.payload.slug',
+        operator: 'regex',
+        value: '^alert-[0-9]+$',
+        caseSensitive: false,
+        flags: 'm'
+      }
+    ],
+    parameterTemplate: {
+      slug: '{{ event.payload.slug }}'
+    },
+    status: 'active',
+    createdBy: 'event-trigger-test'
+  });
+
+  const regexPredicate = advancedTrigger.predicates.find((predicate) => predicate.operator === 'regex');
+  assert.ok(regexPredicate);
+  assert.equal(regexPredicate?.flags, 'im');
+  assert.equal(regexPredicate?.caseSensitive, false);
+
+  const matchingEnvelope = normalizeEventEnvelope({
+    type: 'metastore.record.updated',
+    source: 'metastore.worker',
+    payload: {
+      version: 5,
+      description: 'Critical alert raised',
+      tags: ['urgent', 'ops'],
+      slug: 'ALERT-123'
+    }
+  });
+
+  await processEventTriggersForEnvelope(matchingEnvelope);
+
+  const advancedDeliveries = await db.listWorkflowTriggerDeliveries({ triggerId: advancedTrigger.id });
+  assert.equal(advancedDeliveries.length, 1);
+  assert.equal(advancedDeliveries[0].status, 'launched');
+
+  const nonMatchingEnvelope = normalizeEventEnvelope({
+    type: 'metastore.record.updated',
+    source: 'metastore.worker',
+    payload: {
+      version: 2,
+      description: 'Routine maintenance',
+      tags: ['Urgent'],
+      slug: 'notice-001'
+    }
+  });
+
+  await processEventTriggersForEnvelope(nonMatchingEnvelope);
+
+  const unchangedDeliveries = await db.listWorkflowTriggerDeliveries({ triggerId: advancedTrigger.id });
+  assert.equal(unchangedDeliveries.length, 1, 'unexpected delivery generated for non-matching event');
+
+  await assert.rejects(
+    () =>
+      db.createWorkflowEventTrigger({
+        workflowDefinitionId: workflow.id,
+        name: 'Invalid numeric predicate',
+        eventType: 'metastore.record.updated',
+        predicates: [
+          {
+            type: 'jsonPath',
+            path: '$.payload.version',
+            operator: 'gt',
+            // @ts-expect-error intentional invalid value for test
+            value: 'five'
+          }
+        ],
+        status: 'active'
+      }),
+    (error: unknown) => error instanceof Error && /finite number/.test(error.message)
+  );
+
+  await assert.rejects(
+    () =>
+      db.createWorkflowEventTrigger({
+        workflowDefinitionId: workflow.id,
+        name: 'Invalid regex predicate',
+        eventType: 'metastore.record.updated',
+        predicates: [
+          {
+            type: 'jsonPath',
+            path: '$.payload.slug',
+            operator: 'regex',
+            value: '[unclosed'
+          }
+        ],
+        status: 'active'
+      }),
+    (error: unknown) => error instanceof Error && /Invalid regex/.test(error.message)
+  );
 }
 
 async function testEventTriggerApi(): Promise<void> {

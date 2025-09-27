@@ -11,6 +11,9 @@ import { jsonValueSchema } from './zodSchemas';
 
 const EVENT_IDENTIFIER_REGEX = /^[a-z0-9][a-z0-9._:-]*$/i;
 
+const ALLOWED_REGEX_FLAGS = new Set(['g', 'i', 'm', 's', 'u', 'y']);
+const MAX_REGEX_PATTERN_LENGTH = 512;
+
 const optionalActorSchema = z
   .string()
   .trim()
@@ -86,6 +89,47 @@ const maxConcurrencySchema = z
 
 const jsonValueOrNullSchema = jsonValueSchema.nullable().optional().transform((value) => value ?? null);
 
+function normalizeCaseSensitiveFlag(flag: unknown): boolean | undefined {
+  if (typeof flag === 'boolean') {
+    return flag;
+  }
+  return undefined;
+}
+
+function normalizeRegexFlags(raw: string | undefined, caseSensitive?: boolean) {
+  const normalized: string[] = [];
+  const invalid: string[] = [];
+
+  if (raw) {
+    for (const char of raw) {
+      if (!ALLOWED_REGEX_FLAGS.has(char)) {
+        invalid.push(char);
+        continue;
+      }
+      if (!normalized.includes(char)) {
+        normalized.push(char);
+      }
+    }
+  }
+
+  if (caseSensitive === false && !normalized.includes('i')) {
+    normalized.push('i');
+  }
+
+  if (caseSensitive === true) {
+    const index = normalized.indexOf('i');
+    if (index >= 0) {
+      normalized.splice(index, 1);
+    }
+  }
+
+  normalized.sort();
+  return {
+    normalized: normalized.length > 0 ? normalized.join('') : undefined,
+    invalid
+  } as const;
+}
+
 const predicateInputSchema = z
   .object({
     type: z.literal('jsonPath').optional(),
@@ -97,38 +141,185 @@ const predicateInputSchema = z
       .refine((value) => value.startsWith('$'), {
         message: 'predicate.path must start with $'
       }),
-    operator: z.enum(['exists', 'equals', 'notEquals', 'in', 'notIn']),
+    operator: z.enum([
+      'exists',
+      'equals',
+      'notEquals',
+      'in',
+      'notIn',
+      'gt',
+      'gte',
+      'lt',
+      'lte',
+      'regex',
+      'contains'
+    ]),
     value: jsonValueSchema.optional(),
     values: z.array(jsonValueSchema).max(100, 'predicate.values must include at most 100 entries').optional(),
-    caseSensitive: z.boolean().optional()
+    caseSensitive: z.boolean().optional(),
+    flags: z
+      .string()
+      .trim()
+      .max(10, 'predicate.flags must be at most 10 characters')
+      .optional()
   })
   .superRefine((value, ctx) => {
+    const caseSensitive = normalizeCaseSensitiveFlag(value.caseSensitive);
+
     if (value.operator === 'exists') {
-      if (value.value !== undefined || value.values !== undefined) {
+      if (value.value !== undefined || value.values !== undefined || value.flags !== undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: 'predicate.value and predicate.values must be omitted when operator is exists'
+          message: 'predicate.value, predicate.values, and predicate.flags must be omitted when operator is exists'
         });
       }
-    } else if (value.operator === 'equals' || value.operator === 'notEquals') {
+      return;
+    }
+
+    if (value.operator === 'equals' || value.operator === 'notEquals') {
       if (value.value === undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'predicate.value is required for equals/notEquals operators'
         });
       }
-    } else if (value.operator === 'in' || value.operator === 'notIn') {
+      if (value.values !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.values must be omitted for equals/notEquals operators'
+        });
+      }
+      if (value.flags !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.flags is only supported for regex operator'
+        });
+      }
+      return;
+    }
+
+    if (value.operator === 'in' || value.operator === 'notIn') {
       if (!value.values || value.values.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'predicate.values must include at least one entry for in/notIn operators'
         });
       }
+      if (value.value !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.value must be omitted for in/notIn operators'
+        });
+      }
+      if (value.flags !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.flags is only supported for regex operator'
+        });
+      }
+      return;
+    }
+
+    if (value.operator === 'contains') {
+      if (value.value === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.value is required for contains operator'
+        });
+      }
+      if (value.values !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.values must be omitted for contains operator'
+        });
+      }
+      if (value.flags !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.flags is only supported for regex operator'
+        });
+      }
+      return;
+    }
+
+    if (value.operator === 'gt' || value.operator === 'gte' || value.operator === 'lt' || value.operator === 'lte') {
+      if (value.value === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `predicate.value is required for ${value.operator} operator`
+        });
+      } else if (typeof value.value !== 'number' || !Number.isFinite(value.value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `predicate.value must be a finite number for ${value.operator} operator`
+        });
+      }
+      if (value.values !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.values must be omitted for numeric comparison operators'
+        });
+      }
+      if (value.flags !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.flags is only supported for regex operator'
+        });
+      }
+      return;
+    }
+
+    if (value.operator === 'regex') {
+      if (typeof value.value !== 'string' || value.value.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.value must be a non-empty string for regex operator'
+        });
+      } else if (value.value.length > MAX_REGEX_PATTERN_LENGTH) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `predicate.value must be at most ${MAX_REGEX_PATTERN_LENGTH} characters for regex operator`
+        });
+      }
+
+      if (value.values !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.values must be omitted for regex operator'
+        });
+      }
+
+      const rawFlags = typeof value.flags === 'string' && value.flags.length > 0 ? value.flags : undefined;
+      const { normalized, invalid } = normalizeRegexFlags(rawFlags, caseSensitive);
+      if (invalid.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `predicate.flags contains unsupported values: ${invalid.join(', ')}`
+        });
+      }
+      if (caseSensitive === true && rawFlags?.includes('i')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'predicate.flags must not include "i" when caseSensitive is true'
+        });
+      }
+
+      if (typeof value.value === 'string') {
+        try {
+          void new RegExp(value.value, normalized ?? undefined);
+        } catch (error) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid regex: ${(error as Error).message}`
+          });
+        }
+      }
+      return;
     }
   })
   .transform((value): WorkflowEventTriggerPredicate => {
     const path = value.path.trim();
-    const caseSensitive = value.caseSensitive === undefined ? undefined : value.caseSensitive;
+    const caseSensitive = normalizeCaseSensitiveFlag(value.caseSensitive);
     switch (value.operator) {
       case 'exists':
         return { type: 'jsonPath', path, operator: 'exists' };
@@ -164,6 +355,38 @@ const predicateInputSchema = z
           values: (value.values ?? []) as JsonValue[],
           ...(caseSensitive === undefined ? {} : { caseSensitive })
         };
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte':
+        return {
+          type: 'jsonPath',
+          path,
+          operator: value.operator,
+          value: value.value as number
+        };
+      case 'contains':
+        return {
+          type: 'jsonPath',
+          path,
+          operator: 'contains',
+          value: value.value as JsonValue,
+          ...(caseSensitive === undefined ? {} : { caseSensitive })
+        };
+      case 'regex': {
+        const { normalized } = normalizeRegexFlags(
+          typeof value.flags === 'string' && value.flags.length > 0 ? value.flags : undefined,
+          caseSensitive
+        );
+        return {
+          type: 'jsonPath',
+          path,
+          operator: 'regex',
+          value: (value.value as string).trim(),
+          ...(caseSensitive === undefined ? {} : { caseSensitive }),
+          ...(normalized ? { flags: normalized } : {})
+        };
+      }
       default:
         return { type: 'jsonPath', path, operator: 'exists' };
     }

@@ -30,7 +30,34 @@ type PredicateFormValue = {
   value: string;
   values: string;
   caseSensitive: boolean;
+  flags: string;
 };
+
+const VALUE_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['operator']>([
+  'equals',
+  'notEquals',
+  'contains',
+  'regex',
+  'gt',
+  'gte',
+  'lt',
+  'lte'
+]);
+
+const LIST_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['operator']>(['in', 'notIn']);
+
+const NUMERIC_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['operator']>(['gt', 'gte', 'lt', 'lte']);
+
+const REGEX_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['operator']>(['regex']);
+
+const CASE_SENSITIVE_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['operator']>([
+  'equals',
+  'notEquals',
+  'in',
+  'notIn',
+  'contains',
+  'regex'
+]);
 
 type FormValues = {
   name: string;
@@ -51,6 +78,7 @@ type PredicateError = {
   path?: string;
   value?: string;
   values?: string;
+  flags?: string;
 };
 
 type FormErrors = {
@@ -85,7 +113,8 @@ function createPredicateFormValue(): PredicateFormValue {
     operator: 'exists',
     value: '',
     values: '',
-    caseSensitive: false
+    caseSensitive: false,
+    flags: ''
   };
 }
 
@@ -131,12 +160,22 @@ function mapTriggerToForm(trigger: WorkflowEventTrigger | null | undefined): For
       value:
         predicate.operator === 'equals' || predicate.operator === 'notEquals'
           ? formatJson(predicate.value)
+          : predicate.operator === 'contains'
+          ? formatJson(predicate.value)
+          : predicate.operator === 'regex'
+          ? predicate.value
+          : predicate.operator === 'gt' ||
+            predicate.operator === 'gte' ||
+            predicate.operator === 'lt' ||
+            predicate.operator === 'lte'
+          ? String(predicate.value)
           : '',
       values:
         predicate.operator === 'in' || predicate.operator === 'notIn'
           ? formatJson(predicate.values)
           : '',
-      caseSensitive: predicate.caseSensitive ?? false
+      caseSensitive: predicate.caseSensitive ?? false,
+      flags: predicate.operator === 'regex' ? predicate.flags ?? '' : ''
     })),
     parameterTemplate: formatJson(trigger.parameterTemplate ?? null),
     metadata: formatJson(trigger.metadata ?? null),
@@ -175,6 +214,43 @@ function parseValues(raw: string): unknown[] {
   }
 }
 
+const ALLOWED_REGEX_FLAGS = new Set(['g', 'i', 'm', 's', 'u', 'y']);
+const MAX_REGEX_PATTERN_LENGTH = 512;
+
+function normalizeRegexFlagsInput(raw: string, caseSensitive: boolean): {
+  normalized: string;
+  error?: string;
+} {
+  const trimmed = raw.trim();
+  const seen: string[] = [];
+  for (const char of trimmed) {
+    if (!ALLOWED_REGEX_FLAGS.has(char)) {
+      return { normalized: '', error: 'Flags may only include g, i, m, s, u, or y.' };
+    }
+    if (!seen.includes(char)) {
+      seen.push(char);
+    }
+  }
+
+  if (caseSensitive && seen.includes('i')) {
+    return { normalized: '', error: 'Remove the i flag when case sensitivity is enabled.' };
+  }
+
+  if (!caseSensitive && !seen.includes('i')) {
+    seen.push('i');
+  }
+
+  if (caseSensitive) {
+    const index = seen.indexOf('i');
+    if (index >= 0) {
+      seen.splice(index, 1);
+    }
+  }
+
+  seen.sort();
+  return { normalized: seen.join('') };
+}
+
 export default function EventTriggerFormModal({
   open,
   mode,
@@ -209,17 +285,43 @@ export default function EventTriggerFormModal({
     }));
   };
 
-  const handlePredicateChange = (index: number, field: keyof PredicateFormValue, value: string | boolean) => {
+  const handlePredicateChange = (
+    index: number,
+    field: keyof PredicateFormValue,
+    value: string | boolean
+  ) => {
     setValues((current) => {
       const predicates = [...current.predicates];
       const existing = predicates[index];
       if (!existing) {
         return current;
       }
-      predicates[index] = {
-        ...existing,
-        [field]: value
-      } as PredicateFormValue;
+      if (field === 'operator') {
+        const nextOperator = value as PredicateFormValue['operator'];
+        predicates[index] = {
+          ...existing,
+          operator: nextOperator,
+          value: '',
+          values: '',
+          flags: '',
+          caseSensitive: CASE_SENSITIVE_OPERATORS.has(nextOperator) ? existing.caseSensitive : false
+        } satisfies PredicateFormValue;
+      } else if (field === 'caseSensitive') {
+        predicates[index] = {
+          ...existing,
+          caseSensitive: Boolean(value)
+        } satisfies PredicateFormValue;
+      } else if (field === 'flags') {
+        predicates[index] = {
+          ...existing,
+          flags: String(value)
+        } satisfies PredicateFormValue;
+      } else {
+        predicates[index] = {
+          ...existing,
+          [field]: typeof value === 'string' ? value : existing[field]
+        } as PredicateFormValue;
+      }
       return {
         ...current,
         predicates
@@ -257,21 +359,106 @@ export default function EventTriggerFormModal({
         predicateError.path = 'Path is required.';
       }
 
+      let built: WorkflowEventTriggerPredicateInput | null = null;
+
       switch (predicate.operator) {
-        case 'exists':
+        case 'exists': {
+          built = { path, operator: 'exists' };
           break;
+        }
         case 'equals':
         case 'notEquals': {
           if (!predicate.value.trim()) {
             predicateError.value = 'Value is required.';
+            break;
           }
+          const parsedValue = parseLiteral(predicate.value);
+          built = {
+            path,
+            operator: predicate.operator,
+            value: parsedValue,
+            caseSensitive: predicate.caseSensitive
+          };
           break;
         }
         case 'in':
         case 'notIn': {
           if (!predicate.values.trim()) {
             predicateError.values = 'Provide a list of values.';
+            break;
           }
+          const parsedValues = parseValues(predicate.values);
+          if (parsedValues.length === 0) {
+            predicateError.values = 'Provide at least one value.';
+            break;
+          }
+          built = {
+            path,
+            operator: predicate.operator,
+            values: parsedValues,
+            caseSensitive: predicate.caseSensitive
+          };
+          break;
+        }
+        case 'gt':
+        case 'gte':
+        case 'lt':
+        case 'lte': {
+          const rawValue = predicate.value.trim();
+          if (!rawValue) {
+            predicateError.value = 'Provide a numeric value.';
+            break;
+          }
+          const parsed = Number(rawValue);
+          if (!Number.isFinite(parsed)) {
+            predicateError.value = 'Value must be a valid number.';
+            break;
+          }
+          built = { path, operator: predicate.operator, value: parsed };
+          break;
+        }
+        case 'contains': {
+          if (!predicate.value.trim()) {
+            predicateError.value = 'Value is required.';
+            break;
+          }
+          const parsedValue = parseLiteral(predicate.value);
+          built = {
+            path,
+            operator: 'contains',
+            value: parsedValue,
+            caseSensitive: predicate.caseSensitive
+          };
+          break;
+        }
+        case 'regex': {
+          const pattern = predicate.value.trim();
+          if (!pattern) {
+            predicateError.value = 'Pattern is required.';
+            break;
+          }
+          if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+            predicateError.value = `Pattern must be at most ${MAX_REGEX_PATTERN_LENGTH} characters.`;
+            break;
+          }
+          const { normalized, error } = normalizeRegexFlagsInput(predicate.flags, predicate.caseSensitive);
+          if (error) {
+            predicateError.flags = error;
+            break;
+          }
+          try {
+            void new RegExp(pattern, normalized || undefined);
+          } catch (error_) {
+            predicateError.value = `Invalid regex: ${(error_ as Error).message}`;
+            break;
+          }
+          built = {
+            path,
+            operator: 'regex',
+            value: pattern,
+            caseSensitive: predicate.caseSensitive,
+            ...(normalized ? { flags: normalized } : {})
+          };
           break;
         }
         default:
@@ -280,49 +467,22 @@ export default function EventTriggerFormModal({
 
       predicateErrors[index] = predicateError;
 
-      if (predicateError.path || predicateError.value || predicateError.values) {
+      if (predicateError.path || predicateError.value || predicateError.values || predicateError.flags) {
         return;
       }
 
-      if (predicate.operator === 'exists') {
-        predicates.push({
-          path,
-          operator: 'exists',
-          caseSensitive: predicate.caseSensitive || undefined
-        });
+      if (!built) {
         return;
       }
 
-      if (predicate.operator === 'equals' || predicate.operator === 'notEquals') {
-        const parsedValue = parseLiteral(predicate.value);
-        predicates.push({
-          path,
-          operator: predicate.operator,
-          value: parsedValue,
-          caseSensitive: predicate.caseSensitive || undefined
-        });
-        return;
+      if ('caseSensitive' in built && !CASE_SENSITIVE_OPERATORS.has(built.operator)) {
+        delete (built as { caseSensitive?: boolean }).caseSensitive;
       }
 
-      if (predicate.operator === 'in' || predicate.operator === 'notIn') {
-        const parsedValues = parseValues(predicate.values);
-        if (parsedValues.length === 0) {
-          predicateErrors[index] = {
-            ...predicateErrors[index],
-            values: 'Provide at least one value.'
-          };
-          return;
-        }
-        predicates.push({
-          path,
-          operator: predicate.operator,
-          values: parsedValues,
-          caseSensitive: predicate.caseSensitive || undefined
-        });
-      }
+      predicates.push(built);
     });
 
-    if (predicateErrors.some((entry) => entry && (entry.path || entry.value || entry.values))) {
+    if (predicateErrors.some((entry) => entry && (entry.path || entry.value || entry.values || entry.flags))) {
       nextErrors.predicates = predicateErrors;
     }
 
@@ -379,7 +539,8 @@ export default function EventTriggerFormModal({
       nextErrors.throttleWindowMs ||
       nextErrors.throttleCount ||
       nextErrors.maxConcurrency ||
-      (nextErrors.predicates && nextErrors.predicates.some((entry) => entry && (entry.path || entry.value || entry.values)));
+      (nextErrors.predicates &&
+        nextErrors.predicates.some((entry) => entry && (entry.path || entry.value || entry.values || entry.flags)));
 
     if (hasErrors) {
       setErrors(nextErrors);
@@ -457,6 +618,14 @@ export default function EventTriggerFormModal({
 
   const renderPredicateInput = (predicate: PredicateFormValue, index: number) => {
     const predicateError = errors.predicates?.[index];
+    const showValue = VALUE_OPERATORS.has(predicate.operator);
+    const showNumericInput = NUMERIC_OPERATORS.has(predicate.operator);
+    const showRegexInput = REGEX_OPERATORS.has(predicate.operator);
+    const showValueTextarea = showValue && !showNumericInput && !showRegexInput;
+    const showValues = LIST_OPERATORS.has(predicate.operator);
+    const showCaseSensitive = CASE_SENSITIVE_OPERATORS.has(predicate.operator);
+    const showFlags = showRegexInput;
+    const valueLabel = predicate.operator === 'regex' ? 'Pattern' : 'Value';
     return (
       <div key={predicate.id} className="rounded-2xl border border-slate-200/70 p-4 dark:border-slate-700/60">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -490,30 +659,62 @@ export default function EventTriggerFormModal({
                 <option value="exists">exists</option>
                 <option value="equals">equals</option>
                 <option value="notEquals">notEquals</option>
+                <option value="contains">contains</option>
+                <option value="regex">regex</option>
                 <option value="in">in</option>
                 <option value="notIn">notIn</option>
+                <option value="gt">gt</option>
+                <option value="gte">gte</option>
+                <option value="lt">lt</option>
+                <option value="lte">lte</option>
               </select>
             </label>
           </div>
         </div>
-        {(predicate.operator === 'equals' || predicate.operator === 'notEquals') && (
+        {showValue && (
           <div className="mt-3">
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Value
-              <textarea
-                value={predicate.value}
-                onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
-                className="mt-1 h-16 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
-                placeholder='"pending" or {"status":"pending"}'
-                disabled={disableActions}
-              />
+              {valueLabel}
+              {showValueTextarea && (
+                <textarea
+                  value={predicate.value}
+                  onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
+                  className="mt-1 h-16 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  placeholder={
+                    predicate.operator === 'contains'
+                      ? '"warning" or ["warning"]'
+                      : '"pending" or {"status":"pending"}'
+                  }
+                  disabled={disableActions}
+                />
+              )}
+              {showNumericInput && (
+                <input
+                  type="number"
+                  value={predicate.value}
+                  onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  placeholder="Numeric value"
+                  disabled={disableActions}
+                />
+              )}
+              {showRegexInput && (
+                <input
+                  type="text"
+                  value={predicate.value}
+                  onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  placeholder="^order-(.*)$"
+                  disabled={disableActions}
+                />
+              )}
             </label>
             {predicateError?.value && (
               <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.value}</p>
             )}
           </div>
         )}
-        {(predicate.operator === 'in' || predicate.operator === 'notIn') && (
+        {showValues && (
           <div className="mt-3">
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
               Values
@@ -530,16 +731,41 @@ export default function EventTriggerFormModal({
             )}
           </div>
         )}
+        {showFlags && (
+          <div className="mt-3">
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Flags
+              <input
+                type="text"
+                value={predicate.flags}
+                onChange={(event) => handlePredicateChange(index, 'flags', event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                placeholder="gimsuy"
+                disabled={disableActions}
+              />
+            </label>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Leave blank for defaults. Allowed flags: g, i, m, s, u, y.
+            </p>
+            {predicateError?.flags && (
+              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.flags}</p>
+            )}
+          </div>
+        )}
         <div className="mt-3 flex items-center justify-between">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={predicate.caseSensitive}
-              onChange={(event) => handlePredicateChange(index, 'caseSensitive', event.target.checked)}
-              disabled={disableActions}
-            />
-            Case sensitive
-          </label>
+          {showCaseSensitive ? (
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={predicate.caseSensitive}
+                onChange={(event) => handlePredicateChange(index, 'caseSensitive', event.target.checked)}
+                disabled={disableActions}
+              />
+              Case sensitive
+            </label>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             className="text-xs font-semibold text-rose-600 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300 dark:hover:text-rose-200"
