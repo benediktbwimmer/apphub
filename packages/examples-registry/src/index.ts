@@ -15,6 +15,7 @@ export {
 } from './workflows';
 export { EXAMPLE_SCENARIOS } from './scenarios';
 export { buildExamplesCatalogIndex } from './catalogIndex';
+export { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 export {
   extractWorkflowProvisioningPlan,
   resolveWorkflowProvisioningPlan,

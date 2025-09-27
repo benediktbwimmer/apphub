@@ -1,7 +1,7 @@
 import '@apphub/catalog-tests/setupTestEnv';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
@@ -38,69 +38,6 @@ process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
 ]);
 
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
-
-async function materializeEventDrivenConfig(): Promise<() => Promise<void>> {
-  const repoRoot = path.resolve(__dirname, '..', '..', '..');
-  const exampleRoot = path.join(repoRoot, 'examples', 'environmental-observatory-event-driven');
-  const generatedDir = path.join(exampleRoot, '.generated');
-  const configPath = path.join(generatedDir, 'observatory-config.json');
-
-  const configPayload = {
-    paths: {
-      inbox: path.join(exampleRoot, 'data', 'inbox'),
-      staging: path.join(exampleRoot, 'data', 'staging'),
-      archive: path.join(exampleRoot, 'data', 'archive'),
-      plots: path.join(exampleRoot, 'data', 'plots'),
-      reports: path.join(exampleRoot, 'data', 'reports')
-    },
-    filestore: {
-      baseUrl: 'http://127.0.0.1:4200',
-      backendMountId: 1,
-      inboxPrefix: 'datasets/observatory/inbox',
-      stagingPrefix: 'datasets/observatory/staging',
-      archivePrefix: 'datasets/observatory/archive'
-    },
-    timestore: {
-      baseUrl: 'http://127.0.0.1:4100',
-      datasetSlug: 'observatory-timeseries',
-      datasetName: 'Observatory Time Series',
-      tableName: 'observations'
-    },
-    metastore: {
-      baseUrl: 'http://127.0.0.1:4100',
-      namespace: 'observatory.reports'
-    },
-    catalog: {
-      baseUrl: 'http://127.0.0.1:4000',
-      apiToken: OPERATOR_TOKEN
-    },
-    workflows: {
-      ingestSlug: 'observatory-minute-ingest',
-      publicationSlug: 'observatory-daily-publication',
-      visualizationAssetId: 'observatory.visualizations.minute'
-    }
-  } as const;
-
-  let previousContents: string | null = null;
-  try {
-    previousContents = await readFile(configPath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  await mkdir(generatedDir, { recursive: true });
-  await writeFile(configPath, `${JSON.stringify(configPayload, null, 2)}\n`, 'utf8');
-
-  return async () => {
-    if (previousContents === null) {
-      await rm(configPath, { force: true });
-      return;
-    }
-    await writeFile(configPath, previousContents, 'utf8');
-  };
-}
 
 const EXAMPLE_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'file-relocator',
@@ -191,7 +128,6 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-load-examples-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;
-  const restoreConfig = await materializeEventDrivenConfig();
   const { buildServer } = await import('@apphub/catalog/server');
   const app = await buildServer();
   await app.ready();
@@ -205,7 +141,6 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
       process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = previousStorageDir;
     }
     await rm(storageDir, { recursive: true, force: true });
-    await restoreConfig();
   }
 }
 

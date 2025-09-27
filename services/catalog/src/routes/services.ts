@@ -1,4 +1,6 @@
 import { Buffer } from 'node:buffer';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -20,8 +22,10 @@ import {
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import { mergeServiceMetadata, serviceMetadataUpdateSchema } from '../serviceMetadata';
+import { createEventDrivenObservatoryConfig } from '@apphub/examples-registry';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
+const EVENT_DRIVEN_OBSERVATORY_MODULE = 'github.com/apphub/examples/environmental-observatory-event-driven';
 
 function extractBearerToken(header: unknown): string | null {
   if (typeof header !== 'string') {
@@ -65,6 +69,14 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
     normalized[key] = value;
   }
   return normalized;
+}
+
+function resolveRepoRoot(): string {
+  const envRoot = process.env.APPHUB_REPO_ROOT;
+  if (envRoot && envRoot.trim().length > 0) {
+    return path.resolve(envRoot.trim());
+  }
+  return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
@@ -186,15 +198,41 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
         continue;
       }
       headers.set(key, String(value));
-    }
-    return headers;
+  }
+  return headers;
+}
+
+async function applyServiceImportArtifacts(
+  preview: Awaited<ReturnType<typeof previewServiceConfigImport>>,
+  variables: Record<string, string> | undefined
+): Promise<void> {
+  if (preview.moduleId !== EVENT_DRIVEN_OBSERVATORY_MODULE) {
+    return;
   }
 
-  async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
-    const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
-    if (!parseBody.success) {
-      reply.status(400);
-      return { error: parseBody.error.flatten() };
+  const resolvedVariables: Record<string, string> = { ...(variables ?? {}) };
+  for (const placeholder of preview.placeholders) {
+    if (placeholder.value === undefined) {
+      continue;
+    }
+    resolvedVariables[placeholder.name] = placeholder.value;
+  }
+
+  const repoRoot = resolveRepoRoot();
+  const { config, outputPath } = createEventDrivenObservatoryConfig({
+    repoRoot,
+    variables: resolvedVariables
+  });
+
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
+async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
+  const parseBody = serviceConfigImportSchema.safeParse(request.body ?? {});
+  if (!parseBody.success) {
+    reply.status(400);
+    return { error: parseBody.error.flatten() };
     }
 
     const payload = parseBody.data;
@@ -258,16 +296,17 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
     }
 
     try {
-      await registry.importManifestModule({
-        moduleId: preview.moduleId,
-        entries: preview.entries,
-        networks: preview.networks
-      });
-    } catch (err) {
-      request.log.error(
-        { err, module: preview.moduleId },
-        'service manifest import failed to apply'
-      );
+    await registry.importManifestModule({
+      moduleId: preview.moduleId,
+      entries: preview.entries,
+      networks: preview.networks
+    });
+    await applyServiceImportArtifacts(preview, variables);
+  } catch (err) {
+    request.log.error(
+      { err, module: preview.moduleId },
+      'service manifest import failed to apply'
+    );
       reply.status(500);
       return { error: 'failed to apply service manifest' };
     }
