@@ -284,6 +284,17 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
+[program:example-bundle-worker]
+command=node services/catalog/dist/exampleBundleWorker.js
+directory=/app
+priority=47
+autostart=true
+autorestart=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
 [program:workflow-worker]
 command=node services/catalog/dist/workflowWorker.js
 directory=/app
