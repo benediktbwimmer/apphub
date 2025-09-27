@@ -16,10 +16,18 @@ import EventTriggersPanel from './components/eventTriggers/EventTriggersPanel';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
-import { INITIAL_FILTERS, useWorkflowsController } from './hooks/useWorkflowsController';
+import { INITIAL_FILTERS, WorkflowsProviders, useWorkflowsController } from './hooks/useWorkflowsController';
 import type { WorkflowEventSampleQuery, WorkflowTriggerDeliveriesQuery } from './api';
 
 export default function WorkflowsPage() {
+  return (
+    <WorkflowsProviders>
+      <WorkflowsPageContent />
+    </WorkflowsProviders>
+  );
+}
+
+function WorkflowsPageContent() {
   const {
     workflows,
     workflowsLoading,

@@ -1,11 +1,17 @@
 # Workflows UI Modules
 
-The workflows surface is now composed from a set of focused modules that mirror the page's core responsibilities. The goal of this refactor is to provide lightweight entry points for new contributors while isolating data orchestration from presentational concerns.
+The workflows surface is now composed from a set of focused modules that mirror the page's core responsibilities. The refactor splits orchestration concerns into domain-specific providers so features can evolve independently while the page composes them.
 
-## Hooks
+## Hooks & Providers
 
-- `useWorkflowsController` (in `apps/frontend/src/workflows/hooks/`) centralizes data fetching, WebSocket subscriptions, permission checks, and action handlers (manual runs, builder triggers, refresh).
-- Consumers can optionally provide a `createWebSocket` factory (used in tests) while the hook manages reconnection, runtime summaries, and derived filter state.
+- `WorkflowsProviders` (see `apps/frontend/src/workflows/hooks/useWorkflowsController.ts`) wraps the page with ordered providers for access, definitions, runs, analytics, assets, event triggers, and builder state.
+- `useWorkflowDefinitions` handles catalog queries, filter/search state, service reachability, and runtime summaries used by the list panel.
+- `useWorkflowRuns` owns workflow details, run history, step hydration, manual-run enqueueing, and live run updates via sockets.
+- `useWorkflowAnalytics` manages stats/metrics snapshots, history buffers, and range/outcome selections while reacting to analytics socket events.
+- `useWorkflowAssets` fetches inventory, asset details, partitions, and auto-materialization activity with per-workflow caches.
+- `useWorkflowEventTriggers` coordinates trigger CRUD, delivery history, scheduler health, and event sample queries.
+- `useWorkflowBuilder` centralizes builder/AI modal state, submission flows, and permission gating derived from `useWorkflowAccess`.
+- `useWorkflowsController` is now a thin composition helper that stitches the above slices together and exposes shared actions (e.g., `handleRefresh`).
 
 ## Components
 
@@ -19,7 +25,8 @@ Existing shared components (`ManualRunPanel`, `WorkflowGraph`, `WorkflowFilters`
 
 ## Testing
 
-- `apps/frontend/src/workflows/hooks/__tests__/useWorkflowsController.test.ts` exercises loading flows, manual-run state handling, and WebSocket cleanup by providing deterministic mocks.
+- `apps/frontend/src/workflows/hooks/__tests__/useWorkflowsController.test.ts` now wraps hooks with `WorkflowsProviders` and exercises cross-slice flows.
+- Additional specs cover `useWorkflowRuns` (socket run updates) and `useWorkflowAnalytics` (range transitions) to keep extracted hooks regression-safe.
 - Page-level behaviour remains covered by `WorkflowsPage.test.tsx`.
 
 When extending the workflows experience, prefer colocating UI concerns with these primitives rather than expanding the root page component. Hooks should expose explicit, typed return values to keep call-sites ergonomic.

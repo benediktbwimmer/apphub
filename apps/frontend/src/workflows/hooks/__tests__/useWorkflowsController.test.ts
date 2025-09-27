@@ -13,7 +13,8 @@ import type { AuthorizedFetch } from '../../api';
 import {
   AppHubEventsContext,
   type AppHubEventHandler,
-  type AppHubEventsClient
+  type AppHubEventsClient,
+  type AppHubSocketEvent
 } from '../../../events/context';
 import type {
   ApiKeySummary,
@@ -209,10 +210,16 @@ const authorizedFetchMock = vi.fn(async (input: RequestInfo | URL, init?: Reques
     return new Response(JSON.stringify({ data: runResponse }), { status: 202 });
   }
   if (url.includes(`/workflows/${workflowDefinition.slug}/stats`)) {
-    return new Response(JSON.stringify({ data: analyticsStats }), { status: 200 });
+    const payload = url.includes('range=24h')
+      ? { ...analyticsStats, range: { ...analyticsStats.range, key: '24h' as const } }
+      : analyticsStats;
+    return new Response(JSON.stringify({ data: payload }), { status: 200 });
   }
   if (url.includes(`/workflows/${workflowDefinition.slug}/run-metrics`)) {
-    return new Response(JSON.stringify({ data: analyticsMetrics }), { status: 200 });
+    const payload = url.includes('range=24h')
+      ? { ...analyticsMetrics, range: { ...analyticsMetrics.range, key: '24h' as const } }
+      : analyticsMetrics;
+    return new Response(JSON.stringify({ data: payload }), { status: 200 });
   }
   return new Response(JSON.stringify({ data: [] }), { status: 200 });
 });
@@ -254,9 +261,12 @@ vi.mock('../../api', async () => {
   };
 });
 
-import { useWorkflowsController } from '../useWorkflowsController';
+import { WorkflowsProviders, useWorkflowsController } from '../useWorkflowsController';
+import { useWorkflowRuns } from '../useWorkflowRuns';
+import { useWorkflowAnalytics } from '../useWorkflowAnalytics';
 
 let appHubClient: AppHubEventsClient;
+let appHubSubscribers: Set<AppHubEventHandler>;
 let wrapper: ({ children }: { children: ReactNode }) => ReactElement;
 
 beforeEach(() => {
@@ -269,21 +279,24 @@ beforeEach(() => {
   fetchWorkflowAssetsMock.mockClear();
   fetchWorkflowAssetHistoryMock.mockClear();
   fetchWorkflowAssetPartitionsMock.mockClear();
-  const subscribers = new Set<AppHubEventHandler>();
+  appHubSubscribers = new Set<AppHubEventHandler>();
   appHubClient = {
     subscribe: (handler) => {
-      subscribers.add(handler);
+      appHubSubscribers.add(handler);
       return () => {
-        subscribers.delete(handler);
+        appHubSubscribers.delete(handler);
       };
     }
   };
   wrapper = ({ children }: { children: ReactNode }): ReactElement =>
-    createElement(AppHubEventsContext.Provider, { value: appHubClient }, children);
+    createElement(AppHubEventsContext.Provider, { value: appHubClient },
+      createElement(WorkflowsProviders, null, children)
+    );
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  appHubSubscribers.clear();
 });
 
 describe('useWorkflowsController', () => {
@@ -562,5 +575,58 @@ describe('useWorkflowsController', () => {
       description: 'inventory failure',
       tone: 'error'
     });
+  });
+});
+
+
+describe('useWorkflowRuns (extracted)', () => {
+  it('updates runs when live events arrive', async () => {
+    const { result } = renderHook(() => useWorkflowRuns(), { wrapper });
+
+    await waitFor(() => expect(result.current.runs.length).toBeGreaterThan(0));
+    expect(result.current.runs[0]?.status).toBe('pending');
+
+    const updatedRun = { ...runResponse, status: 'running' as const };
+
+    listWorkflowRunStepsMock.mockResolvedValueOnce({ run: updatedRun, steps: [] });
+
+    await act(async () => {
+      for (const handler of appHubSubscribers) {
+        handler({
+          type: 'workflow.run.running',
+          data: { run: updatedRun }
+        } as AppHubSocketEvent);
+      }
+    });
+
+    await waitFor(() => expect(result.current.runs[0]?.status).toBe('running'));
+  });
+});
+
+describe('useWorkflowAnalytics (extracted)', () => {
+  it('updates analytics when range changes', async () => {
+    const { result } = renderHook(() => useWorkflowAnalytics(), { wrapper });
+
+    await waitFor(() => expect(result.current.workflowAnalytics['demo-workflow']).toBeDefined());
+
+    authorizedFetchMock.mockClear();
+
+    await act(async () => {
+      result.current.setWorkflowAnalyticsRange('demo-workflow', '24h');
+    });
+
+    await waitFor(() => {
+      expect(
+        authorizedFetchMock.mock.calls.some(([input]) =>
+          typeof input === 'string'
+            ? input.includes('range=24h')
+            : input.toString().includes('range=24h')
+        )
+      ).toBe(true);
+    });
+
+    await waitFor(() =>
+      expect(result.current.workflowAnalytics['demo-workflow'].rangeKey).toBe('24h')
+    );
   });
 });
