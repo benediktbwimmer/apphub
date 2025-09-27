@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
-type StorageDriver = 'local' | 's3';
+type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
 
 const retentionRuleSchema = z.object({
   maxAgeHours: z.number().int().positive().optional(),
@@ -67,6 +67,25 @@ const filestoreSchema = z.object({
   inline: z.boolean()
 });
 
+const gcsSchema = z.object({
+  bucket: z.string().min(1),
+  projectId: z.string().min(1).optional(),
+  keyFilename: z.string().min(1).optional(),
+  clientEmail: z.string().min(1).optional(),
+  privateKey: z.string().min(1).optional(),
+  hmacKeyId: z.string().min(1).optional(),
+  hmacSecret: z.string().min(1).optional()
+});
+
+const azureSchema = z.object({
+  container: z.string().min(1),
+  connectionString: z.string().min(1).optional(),
+  accountName: z.string().min(1).optional(),
+  accountKey: z.string().min(1).optional(),
+  sasToken: z.string().min(1).optional(),
+  endpoint: z.string().min(1).optional()
+});
+
 const configSchema = z.object({
   host: z.string(),
   port: z.number().int().nonnegative(),
@@ -86,7 +105,7 @@ const configSchema = z.object({
     connectionTimeoutMs: z.number().int().nonnegative()
   }),
   storage: z.object({
-    driver: z.custom<StorageDriver>((value) => value === 'local' || value === 's3'),
+    driver: z.custom<StorageDriver>((value) => value === 'local' || value === 's3' || value === 'gcs' || value === 'azure_blob'),
     root: z.string().min(1),
     s3: z
       .object({
@@ -98,7 +117,9 @@ const configSchema = z.object({
         sessionToken: z.string().min(1).optional(),
         forcePathStyle: z.boolean().optional()
       })
-      .optional()
+      .optional(),
+    gcs: gcsSchema.optional(),
+    azure: azureSchema.optional()
   }),
   query: z.object({
     cache: cacheSchema
@@ -178,6 +199,19 @@ export function loadServiceConfig(): ServiceConfig {
   const s3SecretAccessKey = env.TIMESTORE_S3_SECRET_ACCESS_KEY;
   const s3SessionToken = env.TIMESTORE_S3_SESSION_TOKEN;
   const s3ForcePathStyle = parseBoolean(env.TIMESTORE_S3_FORCE_PATH_STYLE, false);
+  const gcsBucket = env.TIMESTORE_GCS_BUCKET;
+  const gcsProjectId = env.TIMESTORE_GCS_PROJECT_ID;
+  const gcsKeyFilename = env.TIMESTORE_GCS_KEY_FILENAME;
+  const gcsClientEmail = env.TIMESTORE_GCS_CLIENT_EMAIL;
+  const gcsPrivateKey = env.TIMESTORE_GCS_PRIVATE_KEY;
+  const gcsHmacKeyId = env.TIMESTORE_GCS_HMAC_KEY_ID;
+  const gcsHmacSecret = env.TIMESTORE_GCS_HMAC_SECRET;
+  const azureContainer = env.TIMESTORE_AZURE_CONTAINER;
+  const azureConnectionString = env.TIMESTORE_AZURE_CONNECTION_STRING;
+  const azureAccountName = env.TIMESTORE_AZURE_ACCOUNT_NAME;
+  const azureAccountKey = env.TIMESTORE_AZURE_ACCOUNT_KEY;
+  const azureSasToken = env.TIMESTORE_AZURE_SAS_TOKEN;
+  const azureEndpoint = env.TIMESTORE_AZURE_ENDPOINT;
   const queryCacheEnabled = parseBoolean(env.TIMESTORE_QUERY_CACHE_ENABLED, true);
   const queryCacheDirectory = resolveCacheDirectory(env.TIMESTORE_QUERY_CACHE_DIR);
   const queryCacheMaxBytes = parseNumber(env.TIMESTORE_QUERY_CACHE_MAX_BYTES, 5 * 1024 * 1024 * 1024);
@@ -236,6 +270,29 @@ export function loadServiceConfig(): ServiceConfig {
               secretAccessKey: s3SecretAccessKey,
               sessionToken: s3SessionToken,
               forcePathStyle: s3ForcePathStyle ? true : undefined
+            }
+          : undefined,
+      gcs:
+        storageDriver === 'gcs' || Boolean(gcsBucket)
+          ? {
+              bucket: gcsBucket ?? '',
+              projectId: gcsProjectId,
+              keyFilename: gcsKeyFilename,
+              clientEmail: gcsClientEmail,
+              privateKey: gcsPrivateKey,
+              hmacKeyId: gcsHmacKeyId,
+              hmacSecret: gcsHmacSecret
+            }
+          : undefined,
+      azure:
+        storageDriver === 'azure_blob' || Boolean(azureContainer)
+          ? {
+              container: azureContainer ?? '',
+              connectionString: azureConnectionString,
+              accountName: azureAccountName,
+              accountKey: azureAccountKey,
+              sasToken: azureSasToken,
+              endpoint: azureEndpoint
             }
           : undefined
     },

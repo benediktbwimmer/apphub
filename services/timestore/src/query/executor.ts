@@ -2,6 +2,14 @@ import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { mkdir } from 'node:fs/promises';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import type { QueryPlan } from './planner';
+import type { StorageTargetRecord } from '../db/metadata';
+import {
+  resolveGcsDriverOptions,
+  resolveAzureDriverOptions,
+  resolveAzureBlobHost,
+  type ResolvedGcsOptions,
+  type ResolvedAzureOptions
+} from '../storage';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -59,11 +67,46 @@ async function prepareConnectionForPlan(
   plan: QueryPlan,
   config: ServiceConfig
 ): Promise<void> {
-  if (!plan.partitions.some(isS3Partition)) {
-    return;
+  let hasS3 = false;
+  const gcsTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedGcsOptions }>();
+  const azureTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedAzureOptions }>();
+
+  for (const partition of plan.partitions) {
+    const target = partition.storageTarget;
+    switch (target.kind) {
+      case 's3':
+        hasS3 = true;
+        break;
+      case 'gcs':
+        if (!gcsTargets.has(target.id)) {
+          gcsTargets.set(target.id, {
+            target,
+            options: resolveGcsDriverOptions(config, target)
+          });
+        }
+        break;
+      case 'azure_blob':
+        if (!azureTargets.has(target.id)) {
+          azureTargets.set(target.id, {
+            target,
+            options: resolveAzureDriverOptions(config, target)
+          });
+        }
+        break;
+      default:
+        break;
+    }
   }
 
-  await configureS3Support(connection, config);
+  if (hasS3) {
+    await configureS3Support(connection, config);
+  }
+  if (gcsTargets.size > 0) {
+    await configureGcsSupport(connection, Array.from(gcsTargets.values()));
+  }
+  if (azureTargets.size > 0) {
+    await configureAzureSupport(connection, Array.from(azureTargets.values()));
+  }
 }
 
 async function attachPartitions(connection: any, plan: QueryPlan): Promise<void> {
@@ -206,18 +249,13 @@ function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {
   });
 }
 
-function isS3Partition(partition: QueryPlan['partitions'][number]): boolean {
-  return partition.location.startsWith('s3://');
-}
-
 export async function configureS3Support(connection: any, config: ServiceConfig): Promise<void> {
   const s3 = config.storage.s3;
   if (!s3 || !s3.bucket) {
     throw new Error('Remote partitions require S3 configuration but none was provided');
   }
 
-  await run(connection, 'INSTALL httpfs');
-  await run(connection, 'LOAD httpfs');
+  await ensureHttpfsLoaded(connection);
 
   if (s3.region) {
     await run(connection, `SET s3_region='${escapeSqlLiteral(s3.region)}'`);
@@ -249,6 +287,76 @@ export async function configureS3Support(connection: any, config: ServiceConfig)
     await run(connection, `SET s3_cache_directory='${escapeSqlLiteral(cacheConfig.directory)}'`);
     await run(connection, `SET s3_cache_size='${String(cacheConfig.maxBytes)}'`);
   }
+}
+
+async function ensureHttpfsLoaded(connection: any): Promise<void> {
+  await run(connection, 'INSTALL httpfs');
+  await run(connection, 'LOAD httpfs');
+}
+
+export async function configureGcsSupport(
+  connection: any,
+  targets: Array<{ target: StorageTargetRecord; options: ResolvedGcsOptions }>
+): Promise<void> {
+  if (targets.length === 0) {
+    return;
+  }
+
+  await ensureHttpfsLoaded(connection);
+
+  for (const { target, options } of targets) {
+    if (!options.hmacKeyId || !options.hmacSecret) {
+      throw new Error(`GCS storage target ${target.name} missing hmac credentials for DuckDB access`);
+    }
+
+    const secretName = buildSecretName('gcs', target.id);
+    await run(connection, `DROP SECRET IF EXISTS ${quoteIdentifier(secretName)}`);
+    const scope = `gs://${options.bucket}/`;
+    const createSecretSql = `CREATE SECRET ${quoteIdentifier(secretName)} (
+      TYPE gcs,
+      KEY_ID '${escapeSqlLiteral(options.hmacKeyId)}',
+      SECRET '${escapeSqlLiteral(options.hmacSecret)}',
+      SCOPE '${escapeSqlLiteral(scope)}'
+    )`;
+    await run(connection, createSecretSql);
+  }
+}
+
+export async function configureAzureSupport(
+  connection: any,
+  targets: Array<{ target: StorageTargetRecord; options: ResolvedAzureOptions }>
+): Promise<void> {
+  if (targets.length === 0) {
+    return;
+  }
+
+  await run(connection, 'INSTALL azure');
+  await run(connection, 'LOAD azure');
+
+  for (const { target, options } of targets) {
+    const secretName = buildSecretName('azure', target.id);
+    await run(connection, `DROP SECRET IF EXISTS ${quoteIdentifier(secretName)}`);
+
+    const host = resolveAzureBlobHost(options);
+    const scopePath = `azure://${host}/${options.container}/`;
+
+    if (options.connectionString) {
+      const createSecretSql = `CREATE SECRET ${quoteIdentifier(secretName)} (
+        TYPE azure,
+        CONNECTION_STRING '${escapeSqlLiteral(options.connectionString)}',
+        SCOPE '${escapeSqlLiteral(scopePath)}'
+      )`;
+      await run(connection, createSecretSql);
+      continue;
+    }
+
+    throw new Error(`Azure storage target ${target.name} requires a connection string for DuckDB access`);
+  }
+}
+
+function buildSecretName(prefix: string, targetId: string): string {
+  const normalized = targetId.replace(/[^a-zA-Z0-9]+/g, '_');
+  return `timestore_${prefix}_${normalized}`;
 }
 
 function escapeSqlLiteral(value: string): string {

@@ -6,7 +6,13 @@ import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { LifecycleAuditLogInput, PartitionWithTarget, StorageTargetRecord } from '../db/metadata';
 import { getManifestById, updateManifestSummaryAndMetadata } from '../db/metadata';
-import { resolvePartitionLocation } from '../storage';
+import {
+  resolvePartitionLocation,
+  resolveGcsDriverOptions,
+  resolveAzureDriverOptions,
+  createGcsBucketClient,
+  createAzureContainerClient
+} from '../storage';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
 import { publishTimestoreEvent } from '../events/publisher';
@@ -235,6 +241,33 @@ async function persistExportAsset(
         ContentType: 'application/octet-stream'
       })
     );
+    return { fileSizeBytes: fileBuffer.length };
+  }
+
+  if (target.kind === 'gcs') {
+    const options = resolveGcsDriverOptions(config, target);
+    const bucket = createGcsBucketClient(options);
+    const fileBuffer = await fs.readFile(tempFile);
+    await bucket.file(relativePath).save(fileBuffer, {
+      resumable: false,
+      contentType: 'application/octet-stream'
+    });
+    return { fileSizeBytes: fileBuffer.length };
+  }
+
+  if (target.kind === 'azure_blob') {
+    const options = resolveAzureDriverOptions(config, target);
+    if (!options.connectionString) {
+      throw new Error('Azure Blob storage target requires a connection string for exports');
+    }
+    const containerClient = createAzureContainerClient(options);
+    const fileBuffer = await fs.readFile(tempFile);
+    const blobClient = containerClient.getBlockBlobClient(relativePath);
+    await blobClient.uploadData(fileBuffer, {
+      blobHTTPHeaders: {
+        blobContentType: 'application/octet-stream'
+      }
+    });
     return { fileSizeBytes: fileBuffer.length };
   }
 

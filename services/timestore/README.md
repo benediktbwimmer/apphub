@@ -19,7 +19,7 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_PORT` | Port for HTTP traffic. | `4100` |
 | `TIMESTORE_DATABASE_URL` | Connection string; falls back to the catalog `DATABASE_URL`. | `postgres://apphub:apphub@127.0.0.1:5432/apphub` |
 | `TIMESTORE_PG_SCHEMA` | Dedicated schema within the shared Postgres instance. | `timestore` |
-| `TIMESTORE_STORAGE_DRIVER` | `local` or `s3`, toggles storage adapter. | `local` |
+| `TIMESTORE_STORAGE_DRIVER` | `local`, `s3`, `gcs`, or `azure_blob`, toggles storage adapter. | `local` |
 | `TIMESTORE_STORAGE_ROOT` | Local filesystem root for DuckDB partitions. | `<repo>/services/data/timestore` |
 | `TIMESTORE_S3_BUCKET` | Bucket for remote partition storage when `storageDriver` is `s3`. | `timestore-data` |
 | `TIMESTORE_S3_ENDPOINT` | Optional S3-compatible endpoint (e.g., MinIO). | _(unset)_ |
@@ -28,6 +28,19 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_S3_SECRET_ACCESS_KEY` | Secret key paired with the access key. | _(unset)_ |
 | `TIMESTORE_S3_SESSION_TOKEN` | Session token for temporary credentials. | _(unset)_ |
 | `TIMESTORE_S3_FORCE_PATH_STYLE` | Force path-style S3 URLs (`true`/`false`). | `false` |
+| `TIMESTORE_GCS_BUCKET` | Bucket used for Google Cloud Storage targets. | _(unset)_ |
+| `TIMESTORE_GCS_PROJECT_ID` | Optional GCP project identifier for the bucket. | _(unset)_ |
+| `TIMESTORE_GCS_KEY_FILENAME` | Path to a service account JSON file for writers. | _(unset)_ |
+| `TIMESTORE_GCS_CLIENT_EMAIL` | Service account client email used for writers. | _(unset)_ |
+| `TIMESTORE_GCS_PRIVATE_KEY` | Service account private key (`\n` escaped) used for writers. | _(unset)_ |
+| `TIMESTORE_GCS_HMAC_KEY_ID` | HMAC access key id used to authorise DuckDB `gs://` reads. | _(unset)_ |
+| `TIMESTORE_GCS_HMAC_SECRET` | HMAC secret paired with the access key id. | _(unset)_ |
+| `TIMESTORE_AZURE_CONTAINER` | Azure Blob container for timestore datasets. | _(unset)_ |
+| `TIMESTORE_AZURE_CONNECTION_STRING` | Connection string used for writer and query access. | _(unset)_ |
+| `TIMESTORE_AZURE_ACCOUNT_NAME` | Optional account name override when using emulator endpoints. | _(unset)_ |
+| `TIMESTORE_AZURE_ACCOUNT_KEY` | Optional shared key (used when deriving signed URLs or fallbacks). | _(unset)_ |
+| `TIMESTORE_AZURE_SAS_TOKEN` | Optional SAS token appended to custom endpoints. | _(unset)_ |
+| `TIMESTORE_AZURE_ENDPOINT` | Optional custom blob endpoint (e.g., Azurite). | _(unset)_ |
 | `TIMESTORE_QUERY_CACHE_ENABLED` | Enable DuckDB local cache for remote partitions. | `true` |
 | `TIMESTORE_QUERY_CACHE_DIR` | Filesystem directory for cached remote partitions. | `<repo>/services/data/timestore/cache` |
 | `TIMESTORE_QUERY_CACHE_MAX_BYTES` | Upper bound for cached partition bytes. | `5368709120` |
@@ -59,7 +72,7 @@ With filestore sync enabled the server starts a background consumer that subscri
 ## Query API
 - `POST /datasets/:datasetSlug/query` returns time-series data by scanning published partitions via DuckDB. Provide a required `timeRange` plus optional `columns`, `downsample`, and `limit` settings.
 - Downsampling is expressed via `downsample.intervalUnit`/`intervalSize` and aggregation list (e.g., `{ fn: "avg", column: "temperature_c", alias: "avg_temp" }`). Supported aggregations include `avg`, `min`, `max`, `sum`, `median`, `count`, `count_distinct`, and `percentile` (with `percentile` requiring a `percentile` value between 0 and 1).
-- Remote partitions referenced via `s3://` manifests are streamed through DuckDB's HTTPFS extension; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
+- Remote partitions referenced via `s3://`, `gs://`, or `azure://` manifests are streamed through DuckDB's HTTPFS/Azure extensions; enable caching via `TIMESTORE_QUERY_CACHE_*` to reduce repeated downloads.
 - In tests or inline mode the query executes synchronously; in production the route reads from local paths or remote object storage locations identified in the manifest.
 - Dataset-specific IAM rules can be stored under `datasets.metadata.iam` (e.g., `{ readScopes: ['observatory:read'], writeScopes: ['observatory:write'] }`). These override the global `TIMESTORE_REQUIRE_SCOPE`/`TIMESTORE_REQUIRE_WRITE_SCOPE` values.
 

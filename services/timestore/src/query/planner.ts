@@ -3,7 +3,8 @@ import {
   getDatasetBySlug,
   listPartitionsForQuery,
   type PartitionWithTarget,
-  type DatasetRecord
+  type DatasetRecord,
+  type StorageTargetRecord
 } from '../db/metadata';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { resolvePartitionLocation } from '../storage';
@@ -21,6 +22,7 @@ export interface QueryPlanPartition {
   location: string;
   startTime: Date;
   endTime: Date;
+  storageTarget: StorageTargetRecord;
 }
 
 export interface DownsampleAggregationPlan {
@@ -112,7 +114,8 @@ function buildPlanPartition(
     tableName,
     location,
     startTime: new Date(partition.startTime),
-    endTime: new Date(partition.endTime)
+    endTime: new Date(partition.endTime),
+    storageTarget: partition.storageTarget
   } satisfies QueryPlanPartition;
 }
 

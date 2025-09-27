@@ -11,8 +11,14 @@ import {
   type DatasetPartitionRecord,
   type StorageTargetRecord
 } from '../db/metadata';
-import { resolvePartitionLocation } from '../storage';
-import { configureS3Support } from '../query/executor';
+import {
+  resolvePartitionLocation,
+  resolveGcsDriverOptions,
+  resolveAzureDriverOptions,
+  type ResolvedGcsOptions,
+  type ResolvedAzureOptions
+} from '../storage';
+import { configureS3Support, configureGcsSupport, configureAzureSupport } from '../query/executor';
 
 type DuckDbConnection = any;
 
@@ -115,13 +121,7 @@ export async function createDuckDbConnection(context: SqlContext): Promise<SqlRu
   const warnings = [...context.warnings];
 
   try {
-    const hasRemotePartitions = context.datasets.some((dataset) =>
-      dataset.partitions.some((partition) => partition.location.startsWith('s3://'))
-    );
-
-    if (hasRemotePartitions) {
-      await configureS3Support(connection, context.config);
-    }
+    await prepareConnectionForRemotePartitions(connection, context);
 
     await run(connection, 'CREATE SCHEMA IF NOT EXISTS timestore');
     await run(connection, 'CREATE SCHEMA IF NOT EXISTS timestore_runtime');
@@ -152,6 +152,54 @@ export async function createDuckDbConnection(context: SqlContext): Promise<SqlRu
       ignoreCloseError(() => db.close());
     }
     throw error;
+  }
+}
+
+async function prepareConnectionForRemotePartitions(
+  connection: any,
+  context: SqlContext
+): Promise<void> {
+  let hasS3 = false;
+  const gcsTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedGcsOptions }>();
+  const azureTargets = new Map<string, { target: StorageTargetRecord; options: ResolvedAzureOptions }>();
+
+  for (const dataset of context.datasets) {
+    for (const partition of dataset.partitions) {
+      const target = partition.storageTarget;
+      switch (target.kind) {
+        case 's3':
+          hasS3 = true;
+          break;
+        case 'gcs':
+          if (!gcsTargets.has(target.id)) {
+            gcsTargets.set(target.id, {
+              target,
+              options: resolveGcsDriverOptions(context.config, target)
+            });
+          }
+          break;
+        case 'azure_blob':
+          if (!azureTargets.has(target.id)) {
+            azureTargets.set(target.id, {
+              target,
+              options: resolveAzureDriverOptions(context.config, target)
+            });
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  if (hasS3) {
+    await configureS3Support(connection, context.config);
+  }
+  if (gcsTargets.size > 0) {
+    await configureGcsSupport(connection, Array.from(gcsTargets.values()));
+  }
+  if (azureTargets.size > 0) {
+    await configureAzureSupport(connection, Array.from(azureTargets.values()));
   }
 }
 
