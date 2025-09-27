@@ -3,11 +3,30 @@ import type { Monaco } from '@monaco-editor/react';
 
 export type EditorTheme = 'vs-light' | 'vs-dark';
 
-function resolveTheme(): EditorTheme {
-  if (typeof document === 'undefined') {
-    return 'vs-light';
+function prefersDarkMode(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
   }
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs-light';
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  } catch {
+    return false;
+  }
+}
+
+function hasDarkClass(): boolean {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  const element = document.documentElement;
+  return element.classList.contains('dark') || element.classList.contains('theme-dark');
+}
+
+function resolveTheme(): EditorTheme {
+  if (hasDarkClass() || prefersDarkMode()) {
+    return 'vs-dark';
+  }
+  return 'vs-light';
 }
 
 let themesRegistered = false;
@@ -46,12 +65,44 @@ export function useMonacoTheme(): EditorTheme {
         // noop for SSR
       };
     }
+
     const element = document.documentElement;
-    const observer = new MutationObserver(() => {
+
+    const updateTheme = () => {
       setTheme(resolveTheme());
-    });
-    observer.observe(element, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
+    };
+
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(element, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+
+    let media: MediaQueryList | null = null;
+
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      try {
+        media = window.matchMedia('(prefers-color-scheme: dark)');
+        const listener = updateTheme;
+        if (typeof media.addEventListener === 'function') {
+          media.addEventListener('change', listener);
+        } else if (typeof media.addListener === 'function') {
+          media.addListener(listener);
+        }
+      } catch {
+        media = null;
+      }
+    }
+
+    updateTheme();
+
+    return () => {
+      observer.disconnect();
+      if (media) {
+        if (typeof media.removeEventListener === 'function') {
+          media.removeEventListener('change', updateTheme);
+        } else if (typeof media.removeListener === 'function') {
+          media.removeListener(updateTheme);
+        }
+      }
+    };
   }, []);
 
   return theme;
@@ -60,4 +111,3 @@ export function useMonacoTheme(): EditorTheme {
 export function getAppliedTheme(theme: EditorTheme): 'apphub-dark' | 'apphub-light' {
   return theme === 'vs-dark' ? 'apphub-dark' : 'apphub-light';
 }
-

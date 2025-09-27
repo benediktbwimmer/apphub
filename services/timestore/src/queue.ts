@@ -5,16 +5,22 @@ import { ingestionJobPayloadSchema, type IngestionJobPayload, type IngestionProc
 import { processIngestionJob } from './ingestion/processor';
 import { metricsEnabled, updateIngestionQueueDepth } from './observability/metrics';
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
-const inlineMode = redisUrl === 'inline';
-
 export const TIMESTORE_INGEST_QUEUE_NAME = process.env.TIMESTORE_INGEST_QUEUE_NAME ?? 'timestore_ingest_queue';
 
 let queueInstance: Queue<IngestionJobPayload> | null = null;
 let connection: Redis | null = null;
 
+function resolveRedisUrl(): string {
+  const raw = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
+  return raw.trim();
+}
+
+function isInlineRedis(): boolean {
+  return resolveRedisUrl() === 'inline';
+}
+
 export function isInlineQueueMode(): boolean {
-  return inlineMode;
+  return isInlineRedis();
 }
 
 export async function enqueueIngestionJob(
@@ -25,7 +31,7 @@ export async function enqueueIngestionJob(
     receivedAt: payload.receivedAt ?? new Date().toISOString()
   });
 
-  if (inlineMode) {
+  if (isInlineRedis()) {
     const result = await processIngestionJob(jobPayload);
     return {
       jobId: `inline:${Date.now()}`,
@@ -86,11 +92,12 @@ export async function closeQueueConnection(): Promise<void> {
   if (connection) {
     await connection.quit();
     connection = null;
+    connectionRedisUrl = null;
   }
 }
 
 function ensureQueue(): Queue<IngestionJobPayload> {
-  if (inlineMode) {
+  if (isInlineRedis()) {
     throw new Error('Queue not available in inline mode');
   }
 
@@ -99,6 +106,7 @@ function ensureQueue(): Queue<IngestionJobPayload> {
   }
 
   if (!connection) {
+    const redisUrl = resolveRedisUrl();
     connection = new IORedis(redisUrl, {
       maxRetriesPerRequest: null
     });

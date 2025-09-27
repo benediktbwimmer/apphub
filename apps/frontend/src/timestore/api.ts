@@ -62,36 +62,38 @@ function wrapWithLimit(statement: string, limit?: number): string {
   return `SELECT * FROM (${sanitized}) AS apphub_sql_subquery LIMIT ${Math.floor(limit)}`;
 }
 
-async function runSqlRead(
+async function callSqlRead(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   sql: string,
   options: { signal?: AbortSignal } = {}
-): Promise<Array<Record<string, unknown>>> {
+): Promise<SqlQueryResult> {
   const url = createTimestoreUrl('sql/read');
-  url.searchParams.set('format', 'json');
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql }),
     signal: options.signal
   });
-  const text = await response.text();
+
   if (!response.ok) {
-    throw new Error(extractSqlErrorMessage(text, response.status));
+    const errorText = await response.text();
+    throw new Error(extractSqlErrorMessage(errorText, response.status));
   }
-  const normalized = text.trim();
-  if (normalized.length === 0) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(normalized) as unknown;
-    if (!Array.isArray(parsed)) {
-      throw new Error('Unexpected SQL response payload');
+
+  const warningsHeader = response.headers.get('x-sql-warnings');
+  const payload = await response.json();
+  if (!payload.warnings && warningsHeader) {
+    try {
+      const parsedWarnings = JSON.parse(warningsHeader) as unknown;
+      if (Array.isArray(parsedWarnings)) {
+        payload.warnings = parsedWarnings;
+      }
+    } catch {
+      // ignore malformed warning headers
     }
-    return parsed as Array<Record<string, unknown>>;
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : 'Failed to parse SQL response');
   }
+
+  return sqlQueryResultSchema.parse(payload);
 }
 
 export async function fetchDatasets(
@@ -302,52 +304,13 @@ export async function fetchSqlSchema(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   options: { signal?: AbortSignal } = {}
 ): Promise<SqlSchemaResponse> {
-  const schemaSql = `
-    SELECT
-      table_schema,
-      table_name,
-      column_name,
-      data_type,
-      is_nullable
-    FROM information_schema.columns
-    WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-    ORDER BY table_schema, table_name, ordinal_position
-  `;
-
-  const rows = await runSqlRead(authorizedFetch, schemaSql, options);
-  const tablesMap = new Map<string, SqlSchemaTable>();
-
-  for (const row of rows) {
-    const schema = String(row.table_schema ?? 'public');
-    const tableName = String(row.table_name ?? 'unknown');
-    const columnName = String(row.column_name ?? 'column');
-    const dataType = row.data_type ? String(row.data_type) : 'unknown';
-    const nullable = row.is_nullable ? String(row.is_nullable).toUpperCase() !== 'NO' : undefined;
-    const qualifiedName = `${schema}.${tableName}`;
-
-    if (!tablesMap.has(qualifiedName)) {
-      tablesMap.set(qualifiedName, {
-        name: qualifiedName,
-        description: null,
-        partitionKeys: undefined,
-        columns: []
-      });
-    }
-
-    tablesMap.get(qualifiedName)?.columns.push({
-      name: columnName,
-      type: dataType,
-      nullable,
-      description: null
-    });
+  const url = createTimestoreUrl('sql/schema');
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  if (!response.ok) {
+    throw new Error(`Fetch SQL schema failed with status ${response.status}`);
   }
-
-  const tables = Array.from(tablesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-
-  return sqlSchemaResponseSchema.parse({
-    fetchedAt: new Date().toISOString(),
-    tables
-  });
+  const payload = await response.json();
+  return sqlSchemaResponseSchema.parse(payload);
 }
 
 export async function executeSqlQuery(
@@ -356,43 +319,5 @@ export async function executeSqlQuery(
   options: { signal?: AbortSignal } = {}
 ): Promise<SqlQueryResult> {
   const limitedStatement = wrapWithLimit(request.statement, request.maxRows);
-  const rows = await runSqlRead(authorizedFetch, limitedStatement, options);
-  const columns = rows.length > 0
-    ? Object.keys(rows[0]).map((name) => ({ name, type: inferColumnType(rows, name) }))
-    : [];
-
-  return sqlQueryResultSchema.parse({
-    columns,
-    rows,
-    statistics: {
-      rowCount: rows.length
-    }
-  });
-}
-
-function inferColumnType(rows: Array<Record<string, unknown>>, columnName: string): string | undefined {
-  for (const row of rows) {
-    const value = row[columnName];
-    if (value === null || value === undefined) {
-      continue;
-    }
-    const type = typeof value;
-    if (type === 'number') {
-      return 'numeric';
-    }
-    if (type === 'bigint') {
-      return 'bigint';
-    }
-    if (type === 'boolean') {
-      return 'boolean';
-    }
-    if (value instanceof Date) {
-      return 'timestamp';
-    }
-    if (type === 'object') {
-      return Array.isArray(value) ? 'jsonb' : 'jsonb';
-    }
-    return 'text';
-  }
-  return undefined;
+  return callSqlRead(authorizedFetch, limitedStatement, options);
 }

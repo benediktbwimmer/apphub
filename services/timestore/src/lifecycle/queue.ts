@@ -5,9 +5,6 @@ import type { ServiceConfig } from '../config/serviceConfig';
 import type { LifecycleJobPayload } from './types';
 import { metricsEnabled, updateLifecycleQueueDepth } from '../observability/metrics';
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
-const inlineMode = redisUrl === 'inline';
-
 let queueInstance: Queue<LifecycleJobPayload> | null = null;
 type QueueSchedulerLike = {
   waitUntilReady(): Promise<void>;
@@ -19,14 +16,23 @@ type QueueSchedulerConstructor = new (queueName: string, options: { connection: 
 let schedulerInstance: QueueSchedulerLike | null = null;
 let connectionInstance: Redis | null = null;
 
+function resolveRedisUrl(): string {
+  const raw = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
+  return raw.trim();
+}
+
+function isInlineRedis(): boolean {
+  return resolveRedisUrl() === 'inline';
+}
+
 export const LIFECYCLE_QUEUE_NAME_DEFAULT = 'timestore_lifecycle_queue';
 
 export function isLifecycleInlineMode(): boolean {
-  return inlineMode;
+  return isInlineRedis();
 }
 
 export function ensureLifecycleQueue(config: ServiceConfig): Queue<LifecycleJobPayload> {
-  if (inlineMode) {
+  if (isInlineRedis()) {
     throw new Error('Lifecycle queue unavailable in inline mode');
   }
   if (queueInstance) {
@@ -40,7 +46,7 @@ export function ensureLifecycleQueue(config: ServiceConfig): Queue<LifecycleJobP
 }
 
 export function ensureLifecycleScheduler(config: ServiceConfig): QueueSchedulerLike {
-  if (inlineMode) {
+  if (isInlineRedis()) {
     throw new Error('Lifecycle scheduler unavailable in inline mode');
   }
   if (schedulerInstance) {
@@ -62,7 +68,7 @@ export function createLifecycleWorker(
   processor: Processor<LifecycleJobPayload>,
   options: Omit<WorkerOptions, 'connection'> = {}
 ): Worker<LifecycleJobPayload> {
-  if (inlineMode) {
+  if (isInlineRedis()) {
     throw new Error('Lifecycle worker unavailable in inline mode');
   }
   const connection = ensureConnection();
@@ -77,7 +83,7 @@ export async function enqueueLifecycleJob(
   payload: LifecycleJobPayload,
   options?: JobsOptions
 ): Promise<void> {
-  if (inlineMode) {
+  if (isInlineRedis()) {
     throw new Error('Cannot enqueue lifecycle job when REDIS_URL=inline');
   }
   const queue = ensureLifecycleQueue(config);
@@ -120,6 +126,7 @@ function ensureConnection(): Redis {
   if (connectionInstance) {
     return connectionInstance;
   }
+  const redisUrl = resolveRedisUrl();
   connectionInstance = new IORedis(redisUrl, {
     maxRetriesPerRequest: null
   });

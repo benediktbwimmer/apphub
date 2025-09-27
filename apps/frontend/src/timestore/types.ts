@@ -197,7 +197,8 @@ export type SqlSchemaTable = z.infer<typeof sqlSchemaTableSchema>;
 export const sqlSchemaResponseSchema = z.object({
   fetchedAt: z.string().optional(),
   version: z.string().optional(),
-  tables: z.array(sqlSchemaTableSchema)
+  tables: z.array(sqlSchemaTableSchema),
+  warnings: z.array(z.string()).optional()
 });
 
 export type SqlSchemaResponse = z.infer<typeof sqlSchemaResponseSchema>;

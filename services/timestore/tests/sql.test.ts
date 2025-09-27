@@ -8,16 +8,21 @@ import { tmpdir } from 'node:os';
 import { after, before, describe, test } from 'node:test';
 import fastify from 'fastify';
 import EmbeddedPostgres from 'embedded-postgres';
-import { resetCachedServiceConfig } from '../src/config/serviceConfig';
+import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
+let storageRoot: string | null = null;
 let app: ReturnType<typeof fastify> | null = null;
 
 let clientModule: typeof import('../src/db/client');
 let schemaModule: typeof import('../src/db/schema');
 let migrationsModule: typeof import('../src/db/migrations');
+let metadataModule: typeof import('../src/db/metadata');
+let storageModule: typeof import('../src/storage');
 let sqlRoutesModule: typeof import('../src/routes/sql');
+
+let datasetSlug: string;
 
 before(async () => {
   process.env.TIMESTORE_SQL_READ_SCOPE = 'sql:read';
@@ -25,6 +30,9 @@ before(async () => {
   process.env.REDIS_URL = 'inline';
 
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-sql-pg-'));
+  storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-sql-storage-'));
+  process.env.TIMESTORE_STORAGE_ROOT = storageRoot;
+  process.env.TIMESTORE_STORAGE_DRIVER = 'local';
   const port = 59000 + Math.floor(Math.random() * 1000);
 
   const embedded = new EmbeddedPostgres({
@@ -53,11 +61,14 @@ before(async () => {
   clientModule = await import('../src/db/client');
   schemaModule = await import('../src/db/schema');
   migrationsModule = await import('../src/db/migrations');
+  metadataModule = await import('../src/db/metadata');
+  storageModule = await import('../src/storage');
   sqlRoutesModule = await import('../src/routes/sql');
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
   await seedSamples();
+  await seedDuckDbDataset();
 
   app = fastify();
   await sqlRoutesModule.registerSqlRoutes(app);
@@ -75,6 +86,9 @@ after(async () => {
   }
   if (dataDirectory) {
     await rm(dataDirectory, { recursive: true, force: true });
+  }
+  if (storageRoot) {
+    await rm(storageRoot, { recursive: true, force: true });
   }
 });
 
@@ -98,6 +112,91 @@ async function seedSamples(): Promise<void> {
   });
 }
 
+async function seedDuckDbDataset(): Promise<void> {
+  const config = loadServiceConfig();
+  const storageTarget = await metadataModule.upsertStorageTarget({
+    id: `st-${randomUUID()}`,
+    name: 'local-test-target',
+    kind: 'local',
+    description: 'local test storage',
+    config: { root: storageRoot }
+  });
+
+  const dataset = await metadataModule.createDataset({
+    id: `ds-${randomUUID()}`,
+    slug: 'observatory_timeseries',
+    name: 'Observatory Timeseries',
+    description: 'seed dataset for SQL tests',
+    defaultStorageTargetId: storageTarget.id,
+    metadata: {}
+  });
+  datasetSlug = dataset.slug;
+
+  const schemaFields = [
+    { name: 'timestamp', type: 'timestamp' },
+    { name: 'site', type: 'string' },
+    { name: 'value', type: 'double' }
+  ];
+
+  const schemaVersion = await metadataModule.createDatasetSchemaVersion({
+    id: `dsv-${randomUUID()}`,
+    datasetId: dataset.id,
+    version: 1,
+    schema: { fields: schemaFields },
+    description: 'seed schema'
+  });
+
+  const driver = storageModule.createStorageDriver(config, storageTarget);
+  const partitionId = `part-${randomUUID()}`;
+  const startTime = new Date('2024-01-01T00:00:00Z');
+  const endTime = new Date('2024-01-01T00:10:00Z');
+  const rows = [
+    { timestamp: startTime, site: 'alpha', value: 42.5 },
+    { timestamp: endTime, site: 'beta', value: 37.1 }
+  ];
+
+  const writeResult = await driver.writePartition({
+    datasetSlug: dataset.slug,
+    partitionId,
+    partitionKey: { day: '2024-01-01' },
+    tableName: 'records',
+    schema: schemaFields,
+    rows
+  });
+
+  await metadataModule.createDatasetManifest({
+    id: `dm-${randomUUID()}`,
+    datasetId: dataset.id,
+    version: 1,
+    status: 'published',
+    schemaVersionId: schemaVersion.id,
+    summary: { note: 'sql test manifest' },
+    statistics: {
+      rowCount: writeResult.rowCount,
+      fileSizeBytes: writeResult.fileSizeBytes,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString()
+    },
+    metadata: { tableName: 'records' },
+    createdBy: 'tests',
+    partitions: [
+      {
+        id: partitionId,
+        storageTargetId: storageTarget.id,
+        fileFormat: 'duckdb',
+        filePath: writeResult.relativePath,
+        fileSizeBytes: writeResult.fileSizeBytes,
+        rowCount: writeResult.rowCount,
+        startTime,
+        endTime,
+        checksum: writeResult.checksum,
+        partitionKey: { day: '2024-01-01' },
+        metadata: { tableName: 'records' }
+      }
+    ]
+  });
+}
+
 function readHeaders(): Record<string, string> {
   return {
     'x-iam-scopes': 'sql:read',
@@ -113,25 +212,42 @@ function execHeaders(): Record<string, string> {
 }
 
 describe('sql routes', () => {
-  test('streams select query as json', async () => {
+  test('returns DuckDB query as structured json', async () => {
     assert.ok(app);
     const response = await app!.inject({
       method: 'POST',
-      url: '/sql/read?format=json',
+      url: '/sql/read',
       headers: readHeaders(),
       payload: {
-        sql: 'SELECT id, name, score FROM sql_samples ORDER BY id'
+        sql: `SELECT site, value FROM timestore.${datasetSlug} ORDER BY value DESC`
       }
     });
 
     assert.equal(response.statusCode, 200);
     assert.match(response.headers['content-type'] ?? '', /application\/json/);
-    const payload = JSON.parse(response.body) as Array<{ id: number; name: string; score: number }>;
-    assert.equal(payload.length, 3);
+    assert.ok(response.headers['x-sql-execution-id']);
+    const payload = response.json() as {
+      executionId: string;
+      rows: Array<{ site: string; value: number }>;
+      columns: Array<{ name: string; type?: string }>;
+      warnings?: string[];
+      statistics?: { rowCount?: number };
+    };
+    assert.equal(payload.rows.length, 2);
     assert.deepEqual(
-      payload.map((row) => row.name),
-      ['Orion', 'Lyra', 'Cygnus']
+      payload.rows.map((row) => row.site),
+      ['alpha', 'beta']
     );
+    assert.deepEqual(
+      payload.rows.map((row) => row.value),
+      [42.5, 37.1]
+    );
+    assert.deepEqual(
+      payload.columns.map((column) => column.name),
+      ['site', 'value']
+    );
+    assert.equal(payload.statistics?.rowCount, 2);
+    assert.ok(Array.isArray(payload.warnings));
   });
 
   test('rejects non-select statements on read endpoint', async () => {
@@ -141,7 +257,7 @@ describe('sql routes', () => {
       url: '/sql/read',
       headers: readHeaders(),
       payload: {
-        sql: 'DELETE FROM sql_samples'
+        sql: `DELETE FROM timestore.${datasetSlug}`
       }
     });
 
@@ -157,14 +273,32 @@ describe('sql routes', () => {
       url: '/sql/read?format=csv',
       headers: readHeaders(),
       payload: {
-        sql: 'SELECT name, score FROM sql_samples ORDER BY id LIMIT 2'
+        sql: `SELECT site, value FROM timestore.${datasetSlug} ORDER BY value DESC`
       }
     });
 
     assert.equal(response.statusCode, 200);
     assert.match(response.headers['content-type'] ?? '', /text\/csv/);
     const lines = response.body.trim().split('\n');
-    assert.deepEqual(lines, ['name,score', 'Orion,42.5', 'Lyra,37.1']);
+    assert.deepEqual(lines, ['site,value', 'alpha,42.5', 'beta,37.1']);
+  });
+
+  test('schema endpoint lists dataset view', async () => {
+    assert.ok(app);
+    const response = await app!.inject({
+      method: 'GET',
+      url: '/sql/schema',
+      headers: readHeaders()
+    });
+
+    assert.equal(response.statusCode, 200);
+    const payload = response.json() as {
+      tables: Array<{ name: string; columns: Array<{ name: string }> }>;
+      warnings?: string[];
+    };
+    const table = payload.tables.find((entry) => entry.name === `timestore.${datasetSlug}`);
+    assert.ok(table, 'expected dataset view to be present');
+    assert.equal(table?.columns.length, 3);
   });
 
   test('exec endpoint streams result rows when present', async () => {

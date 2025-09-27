@@ -42,6 +42,15 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+function quoteQualifiedName(name: string): string {
+  return name
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map(quoteIdentifier)
+    .join('.');
+}
+
 function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): CompletionSuggestion[] {
   const keywordItems: CompletionSuggestion[] = SQL_KEYWORDS.map((keyword, index) => ({
     label: keyword,
@@ -56,17 +65,18 @@ function buildCompletionItems(monaco: Monaco, tables: SqlSchemaTable[]): Complet
 
   tables.forEach((table, tableIndex) => {
     const label = table.name;
+    const qualifiedTable = quoteQualifiedName(label);
     tableItems.push({
       label,
       kind: monaco.languages.CompletionItemKind.Class,
-      insertText: quoteIdentifier(label),
+      insertText: qualifiedTable,
       sortText: `1_${tableIndex.toString().padStart(3, '0')}`,
       detail: 'table',
       documentation: table.description ?? undefined
     });
 
     table.columns.forEach((column, columnIndex) => {
-      const insertValue = `${quoteIdentifier(label)}.${quoteIdentifier(column.name)}`;
+      const insertValue = `${qualifiedTable}.${quoteIdentifier(column.name)}`;
       columnItems.push({
         label: column.name,
         kind: monaco.languages.CompletionItemKind.Field,
@@ -117,7 +127,7 @@ function useBrowserStorage(): Storage | null {
 
 export default function TimestoreSqlEditorPage() {
   const authorizedFetch = useAuthorizedFetch();
-  const { showError, showSuccess } = useToastHelpers();
+  const { showError, showSuccess, showWarning } = useToastHelpers();
   const storage = useBrowserStorage();
 
   const [statement, setStatement] = useState<string>(DEFAULT_QUERY);
@@ -134,6 +144,7 @@ export default function TimestoreSqlEditorPage() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
   const runQueryRef = useRef<() => void>(() => {});
+  const schemaWarningsRef = useRef<string | null>(null);
 
   const schemaFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -168,6 +179,22 @@ export default function TimestoreSqlEditorPage() {
   }, [history, storage]);
 
   const schemaTables = useMemo(() => schemaData?.tables ?? [], [schemaData]);
+
+  useEffect(() => {
+    const warnings = schemaData?.warnings ?? [];
+    if (warnings.length === 0) {
+      schemaWarningsRef.current = null;
+      return;
+    }
+    const fingerprint = warnings.join('|');
+    if (schemaWarningsRef.current === fingerprint) {
+      return;
+    }
+    schemaWarningsRef.current = fingerprint;
+    warnings.forEach((warning) => {
+      showWarning('SQL schema warning', warning);
+    });
+  }, [schemaData?.warnings, showWarning]);
 
   const filteredTables = useMemo(() => {
     const query = schemaFilter.trim().toLowerCase();

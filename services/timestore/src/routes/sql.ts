@@ -13,6 +13,12 @@ import {
   resolveRequestActor,
   getRequestScopes
 } from '../service/iam';
+import {
+  createDuckDbConnection,
+  loadSqlContext,
+  type SqlSchemaColumnInfo,
+  type SqlSchemaTableInfo
+} from '../sql/runtime';
 
 const SUPPORTED_FORMATS = ['json', 'csv', 'table'] as const;
 type ResponseFormat = (typeof SUPPORTED_FORMATS)[number];
@@ -42,6 +48,23 @@ interface FormatWriter {
 type WriteChunk = (chunk: string) => Promise<void>;
 
 export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/sql/schema', async (request) => {
+    await authorizeSqlReadAccess(request as FastifyRequest);
+    const context = await loadSqlContext();
+    const tables: SqlSchemaTableInfo[] = context.datasets.map((dataset) => ({
+      name: dataset.viewName,
+      description: dataset.dataset.description ?? null,
+      partitionKeys: dataset.partitionKeys.length > 0 ? dataset.partitionKeys : undefined,
+      columns: dataset.columns
+    }));
+
+    return {
+      fetchedAt: new Date().toISOString(),
+      tables,
+      warnings: context.warnings
+    };
+  });
+
   app.post('/sql/read', async (request, reply) => {
     await authorizeSqlReadAccess(request as FastifyRequest);
     const { sql, params } = parseRequestBody(request);
@@ -56,32 +79,67 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
     const fingerprint = fingerprintSql(sql);
     const start = process.hrtime.bigint();
 
-    const client = await getClient();
+    let runtime: Awaited<ReturnType<typeof createDuckDbConnection>> | null = null;
     try {
-      await setStatementTimeout(client, config.sql.statementTimeoutMs);
+      const context = await loadSqlContext();
+      runtime = await createDuckDbConnection(context);
+      const execution = await executeDuckDbQuery(runtime.connection, sql, params ?? []);
+      const durationMs = elapsedMs(start);
+      const executionId = `duck-${randomUUID()}`;
+      const warnings = dedupeWarnings(runtime.warnings);
+      const columns = mapDuckDbColumns(execution.columns, execution.rows);
+      const summary: QueryResultSummary = {
+        command: 'SELECT',
+        rowCount: execution.rows.length,
+        fields: []
+      };
 
-      const execution = await executeSqlWithStreaming({
-        client,
-        sql,
-        params,
-        reply,
-        format,
-        requestId,
-        startMode: 'auto'
-      });
-
-      logSuccess(request, {
+      logSuccess(request as FastifyRequest, {
         event: 'timestore.sql.read',
         actorId: actor?.id ?? null,
         scopes,
         requestId,
         fingerprint,
         format,
-        summary: execution.summary,
-        durationMs: elapsedMs(start)
+        summary,
+        durationMs,
+        streamed: false
       });
+
+      const baseReply = reply
+        .header('x-sql-request-id', requestId)
+        .header('x-sql-execution-id', executionId);
+
+      if (warnings.length > 0) {
+        baseReply.header('x-sql-warnings', JSON.stringify(warnings));
+      }
+
+      if (format === 'json') {
+        const payload = {
+          executionId,
+          columns,
+          rows: execution.rows,
+          truncated: false,
+          warnings,
+          statistics: {
+            rowCount: execution.rows.length,
+            elapsedMs: durationMs
+          }
+        };
+        baseReply.type('application/json').send(payload);
+        return;
+      }
+
+      if (format === 'csv') {
+        const csv = renderCsv(columns, execution.rows);
+        baseReply.type('text/csv; charset=utf-8').send(csv);
+        return;
+      }
+
+      const textTable = renderTable(columns, execution.rows);
+      baseReply.type('text/plain; charset=utf-8').send(textTable);
     } catch (error) {
-      logFailure(request, {
+      logFailure(request as FastifyRequest, {
         event: 'timestore.sql.read_failed',
         actorId: actor?.id ?? null,
         scopes,
@@ -92,8 +150,9 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       });
       throw error;
     } finally {
-      await resetStatementTimeout(client);
-      client.release();
+      await runtime?.cleanup().catch(() => {
+        // ignore cleanup failures
+      });
     }
   });
 
@@ -547,6 +606,189 @@ async function runStreamingQuery(options: RunStreamingQueryOptions): Promise<{
   });
 
   return { summary };
+}
+
+interface DuckDbColumnMeta {
+  name: string;
+  type?: {
+    sql_type?: string;
+    alias?: string;
+    id?: string;
+  } | string | null;
+}
+
+interface DuckDbExecutionResult {
+  rows: Array<Record<string, unknown>>;
+  columns: DuckDbColumnMeta[];
+}
+
+async function executeDuckDbQuery(connection: any, sql: string, params: unknown[]): Promise<DuckDbExecutionResult> {
+  const statement = connection.prepare(sql);
+  const columnInfo: DuckDbColumnMeta[] = typeof statement.columns === 'function' ? statement.columns() ?? [] : [];
+  try {
+    const rows = await statementAll(statement, params);
+    await finalizeStatement(statement);
+    return {
+      rows,
+      columns: columnInfo
+    } satisfies DuckDbExecutionResult;
+  } catch (error) {
+    try {
+      await finalizeStatement(statement);
+    } catch {
+      // ignore finalize failures during error handling
+    }
+    throw error;
+  }
+}
+
+function statementAll(statement: any, params: unknown[]): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve, reject) => {
+    statement.all(...params, (err: Error | null, rows?: Array<Record<string, unknown>>) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows ?? []);
+      }
+    });
+  });
+}
+
+function finalizeStatement(statement: any): Promise<void> {
+  if (typeof statement.finalize !== 'function') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    statement.finalize((err: Error | null) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function mapDuckDbColumns(columns: DuckDbColumnMeta[], rows: Array<Record<string, unknown>>): SqlSchemaColumnInfo[] {
+  if (columns.length > 0) {
+    return columns.map((column) => ({
+      name: column.name,
+      type: normalizeDuckDbType(column.type),
+      nullable: undefined,
+      description: null
+    }));
+  }
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const names = Object.keys(rows[0] ?? {});
+  return names.map((name) => ({
+    name,
+    type: inferTypeFromRows(rows, name),
+    nullable: undefined,
+    description: null
+  }));
+}
+
+function normalizeDuckDbType(type: DuckDbColumnMeta['type']): string {
+  if (!type) {
+    return 'UNKNOWN';
+  }
+  if (typeof type === 'string') {
+    return type.toUpperCase();
+  }
+  const candidate = type.sql_type ?? type.alias ?? type.id;
+  return typeof candidate === 'string' ? candidate.toUpperCase() : 'UNKNOWN';
+}
+
+function inferTypeFromRows(rows: Array<Record<string, unknown>>, columnName: string): string {
+  for (const row of rows) {
+    const value = row[columnName];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (value instanceof Date) {
+      return 'TIMESTAMP';
+    }
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? 'BIGINT' : 'DOUBLE';
+    }
+    if (typeof value === 'bigint') {
+      return 'BIGINT';
+    }
+    if (typeof value === 'boolean') {
+      return 'BOOLEAN';
+    }
+    if (typeof value === 'object') {
+      return 'JSON';
+    }
+    return 'VARCHAR';
+  }
+  return 'UNKNOWN';
+}
+
+function renderCsv(columns: SqlSchemaColumnInfo[], rows: Array<Record<string, unknown>>): string {
+  const effectiveColumns = columns.length > 0
+    ? columns
+    : Object.keys(rows[0] ?? {}).map((name) => ({ name, type: undefined }));
+
+  if (effectiveColumns.length === 0) {
+    return '';
+  }
+
+  const header = effectiveColumns.map((column) => escapeCsv(column.name)).join(',');
+  const lines = rows.map((row) =>
+    effectiveColumns
+      .map((column) => escapeCsv(formatCell(row[column.name])))
+      .join(',')
+  );
+  return [header, ...lines].join('\n');
+}
+
+function renderTable(columns: SqlSchemaColumnInfo[], rows: Array<Record<string, unknown>>): string {
+  const effectiveColumns = columns.length > 0
+    ? columns
+    : Object.keys(rows[0] ?? {}).map((name) => ({ name, type: undefined }));
+
+  if (effectiveColumns.length === 0) {
+    return '(0 rows)\n';
+  }
+
+  const names = effectiveColumns.map((column) => column.name);
+  const widths = names.map((name) =>
+    Math.max(name.length, ...rows.map((row) => formatTableCell(row[name]).length))
+  );
+
+  const header = names
+    .map((name, index) => padCell(name, widths[index]))
+    .join(' | ');
+  const separator = widths
+    .map((width) => repeatChar('-', width))
+    .join('-+-');
+  const body = rows.map((row) =>
+    names.map((name, index) => padCell(formatTableCell(row[name]), widths[index])).join(' | ')
+  );
+
+  const footer = `(${rows.length} row${rows.length === 1 ? '' : 's'})`;
+  return [header, separator, ...body, footer].join('\n');
+}
+
+function padCell(value: string, width: number): string {
+  if (value.length >= width) {
+    return value;
+  }
+  return `${value}${' '.repeat(width - value.length)}`;
+}
+
+function dedupeWarnings(warnings: string[]): string[] {
+  const unique = new Set(
+    warnings
+      .map((warning) => warning?.toString().trim())
+      .filter((warning): warning is string => Boolean(warning) && warning.length > 0)
+  );
+  return Array.from(unique);
 }
 
 function createFormatWriter(format: ResponseFormat, write: WriteChunk): FormatWriter {

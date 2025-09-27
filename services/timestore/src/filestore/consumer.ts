@@ -330,8 +330,12 @@ export async function initializeFilestoreActivity(options: { config: ServiceConf
   if (consumerInstance) {
     return consumerInstance;
   }
+  const filestoreConfig = { ...options.config.filestore };
+  if (filestoreConfig.redisUrl === 'inline') {
+    filestoreConfig.inline = true;
+  }
   const consumer = new FilestoreActivityConsumer({
-    config: options.config.filestore,
+    config: filestoreConfig,
     logger: options.logger
   });
   await consumer.start();
