@@ -7,6 +7,8 @@ import type {
   WorkflowProvisioningScheduleTemplate
 } from './types';
 
+export type { WorkflowProvisioningPlanTemplate } from './types';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
