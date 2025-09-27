@@ -27,12 +27,10 @@ import {
   type FilestoreReconciliationReason,
   type FilestoreReconciliationResult,
   type FilestorePresignPayload,
-  type FilestoreReconciliationJob,
   type FilestoreReconciliationJobList,
   type FilestoreReconciliationJobDetail,
   type FilestoreReconciliationJobStatus
 } from './types';
-export type { FilestoreBackendMount, FilestoreBackendMountState } from './types';
 
 type AuthorizedFetch = ReturnType<typeof useAuthorizedFetch>;
 
@@ -767,6 +765,7 @@ export function subscribeToFilestoreEvents(
 
 export type {
   FilestoreBackendMount,
+  FilestoreBackendMountState,
   FilestoreEvent,
   FilestoreEventType,
   FilestoreNode,

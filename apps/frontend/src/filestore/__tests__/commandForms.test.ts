@@ -41,9 +41,10 @@ describe('filestore command form helpers', () => {
   it('generates idempotency keys with prefixes', () => {
     const cryptoObj = globalThis.crypto as Crypto | undefined;
     if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
-      const randomUUID = vi.spyOn(cryptoObj, 'randomUUID').mockReturnValue('1234');
+      const mockUuid = '12345678-1234-1234-1234-123456789abc';
+      const randomUUID = vi.spyOn(cryptoObj, 'randomUUID').mockReturnValue(mockUuid);
       const key = buildIdempotencyKey('filestore-test');
-      expect(key).toBe('filestore-test-1234');
+      expect(key).toBe(`filestore-test-${mockUuid}`);
       randomUUID.mockRestore();
     } else {
       const key = buildIdempotencyKey('filestore-test');

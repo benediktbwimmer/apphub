@@ -218,6 +218,27 @@ function formatTimestamp(value: string | null | undefined): string {
   }).format(date);
 }
 
+function formatDurationMs(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return 'n/a';
+  }
+  if (value < 1000) {
+    return `${Math.round(value)} ms`;
+  }
+  const seconds = value / 1000;
+  if (seconds < 60) {
+    return seconds >= 10 ? `${Math.round(seconds)} s` : `${seconds.toFixed(1)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
 function buildListParams(input: {
   backendMountId: number;
   offset: number;
@@ -1436,7 +1457,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const selectedDownloadState = selectedNode ? downloadStatusByNode[selectedNode.id] : undefined;
   const jobPagination = jobListData?.pagination ?? null;
   const jobList = jobListData?.jobs ?? [];
-  const selectedJob = jobDetailData?.job ?? null;
+  const selectedJob = jobDetailData ?? null;
   const jobPageSize = jobPagination?.limit ?? 20;
   const writeDisabled = !hasWriteScope || backendMountId === null || pendingCommand !== null;
   const nodeWriteDisabled = writeDisabled || !selectedNode;
