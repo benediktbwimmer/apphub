@@ -199,6 +199,14 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_filestore_node_state_backend
          ON filestore_node_state(backend_mount_id);`
     ]
+  },
+  {
+    id: '006_timestore_dataset_access_audit_filters',
+    statements: [
+      `DROP INDEX IF EXISTS idx_dataset_access_audit_dataset;`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_dataset_filters
+         ON dataset_access_audit(dataset_id, action, success, created_at DESC, id DESC);`
+    ]
   }
 ];
 

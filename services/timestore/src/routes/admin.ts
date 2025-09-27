@@ -8,13 +8,15 @@ import {
   type CreateDatasetRequest,
   type PatchDatasetRequest,
   type ArchiveDatasetRequest,
-  type DatasetMetadata
+  type DatasetMetadata,
+  type DatasetAccessAuditListResponse
 } from '@apphub/shared/timestoreAdmin';
 import { loadServiceConfig } from '../config/serviceConfig';
 import {
   getLifecycleJobRun,
   listRecentLifecycleJobRuns,
   listDatasets,
+  listDatasetAccessEvents,
   listStorageTargets,
   getDatasetById,
   getDatasetBySlug,
@@ -27,7 +29,8 @@ import {
   recordDatasetAccessEvent,
   createDataset,
   updateDataset,
-  DatasetConcurrentUpdateError
+  DatasetConcurrentUpdateError,
+  type DatasetAccessAuditCursor
 } from '../db/metadata';
 import type { DatasetRecord, JsonObject } from '../db/metadata';
 import { runLifecycleJob, getMaintenanceMetrics } from '../lifecycle/maintenance';
@@ -66,6 +69,16 @@ const datasetListQuerySchema = z.object({
 
 const datasetParamsSchema = z.object({
   datasetId: z.string().min(1)
+});
+
+const datasetAuditQuerySchema = z.object({
+  limit: z.coerce.number().min(1).max(200).optional(),
+  cursor: z.string().min(1).optional(),
+  action: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+  actions: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+  success: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+  startTime: z.string().min(1).optional(),
+  endTime: z.string().min(1).optional()
 });
 
 const retentionUpdateSchema = retentionPolicySchema;
@@ -492,6 +505,85 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get('/admin/datasets/:datasetId/audit', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const { datasetId } = datasetParamsSchema.parse(request.params);
+    const dataset = await resolveDataset(datasetId);
+    if (!dataset) {
+      reply.status(404);
+      return {
+        error: `dataset ${datasetId} not found`
+      };
+    }
+
+    const rawQuery = datasetAuditQuerySchema.parse(request.query ?? {});
+    const cursor = rawQuery.cursor ? decodeAuditCursor(rawQuery.cursor) : null;
+    if (rawQuery.cursor && !cursor) {
+      reply.status(400);
+      return {
+        error: 'invalid cursor'
+      };
+    }
+
+    const actions = Array.from(
+      new Set([
+        ...normalizeQueryValues(rawQuery.action),
+        ...normalizeQueryValues(rawQuery.actions)
+      ])
+    );
+    const successRaw = normalizeQuerySingle(rawQuery.success);
+    let successFilter: boolean | null = null;
+    if (successRaw !== null) {
+      const parsed = parseBooleanFlag(successRaw);
+      if (parsed === null) {
+        reply.status(400);
+        return {
+          error: 'success must be true or false'
+        };
+      }
+      successFilter = parsed;
+    }
+
+    const startTimeIso = normalizeIsoTimestamp(rawQuery.startTime);
+    if (rawQuery.startTime && !startTimeIso) {
+      reply.status(400);
+      return {
+        error: 'startTime must be an ISO-8601 timestamp'
+      };
+    }
+
+    const endTimeIso = normalizeIsoTimestamp(rawQuery.endTime);
+    if (rawQuery.endTime && !endTimeIso) {
+      reply.status(400);
+      return {
+        error: 'endTime must be an ISO-8601 timestamp'
+      };
+    }
+
+    if (startTimeIso && endTimeIso && startTimeIso > endTimeIso) {
+      reply.status(400);
+      return {
+        error: 'startTime must be before or equal to endTime'
+      };
+    }
+
+    const auditResult = await listDatasetAccessEvents(dataset.id, {
+      limit: rawQuery.limit,
+      cursor,
+      actions,
+      success: successFilter,
+      startTime: startTimeIso,
+      endTime: endTimeIso
+    });
+
+    const responseBody: DatasetAccessAuditListResponse = {
+      events: auditResult.events,
+      nextCursor: auditResult.nextCursor ? encodeAuditCursor(auditResult.nextCursor) : null
+    };
+
+    return responseBody;
+  });
+
   app.get('/admin/datasets/:datasetId', async (request, reply) => {
     await authorizeAdminAccess(request as FastifyRequest);
     const { datasetId } = datasetParamsSchema.parse(request.params);
@@ -728,6 +820,58 @@ function resolveIfMatch(request: FastifyRequest, value: string | null): IfMatchR
   };
 }
 
+function normalizeQueryValues(value: string | string[] | undefined): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  const entries = Array.isArray(value) ? value : [value];
+  const result: string[] = [];
+  for (const entry of entries) {
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (!result.includes(trimmed)) {
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+function normalizeQuerySingle(value: string | string[] | undefined): string | null {
+  const entries = normalizeQueryValues(value);
+  if (entries.length === 0) {
+    return null;
+  }
+  return entries[entries.length - 1];
+}
+
+function parseBooleanFlag(value: string): boolean | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0') {
+    return false;
+  }
+  return null;
+}
+
+function normalizeIsoTimestamp(value: string | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  return new Date(parsed).toISOString();
+}
+
 function isUniqueViolation(error: unknown, constraint?: string): boolean {
   if (!error || typeof error !== 'object') {
     return false;
@@ -925,6 +1069,29 @@ function dedupeScopes(scopes: string[]): string[] {
     }
   }
   return result;
+}
+
+function encodeAuditCursor(cursor: DatasetAccessAuditCursor): string {
+  const payload = JSON.stringify(cursor);
+  return Buffer.from(payload, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeAuditCursor(value: string): DatasetAccessAuditCursor | null {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const decoded = Buffer.from(padded, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded) as { createdAt?: unknown; id?: unknown };
+    if (typeof parsed.createdAt === 'string' && typeof parsed.id === 'string') {
+      return {
+        createdAt: parsed.createdAt,
+        id: parsed.id
+      } satisfies DatasetAccessAuditCursor;
+    }
+    return null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function encodeCursor(cursor: { updatedAt: string; id: string }): string {

@@ -220,8 +220,8 @@ test('creates dataset via admin API with metadata and idempotency', async () => 
 
   const stored = await metadataModule.getDatasetBySlug(slug);
   assert.ok(stored);
-  const auditEvents = await metadataModule.listDatasetAccessEvents(stored!.id, 10);
-  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.created'));
+  const auditLog = await metadataModule.listDatasetAccessEvents(stored!.id, { limit: 10 });
+  assert.ok(auditLog.events.some((event) => event.action === 'admin.dataset.created'));
 });
 
 test('rejects dataset creation when slug conflicts with different config', async () => {
@@ -279,8 +279,8 @@ test('updates dataset metadata with optimistic concurrency', async () => {
   assert.ok(datasetA);
   assert.equal(datasetA!.name.endsWith('Updated'), true);
 
-  const auditEvents = await metadataModule.listDatasetAccessEvents(datasetA!.id, 5);
-  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.updated'));
+  const updateAudit = await metadataModule.listDatasetAccessEvents(datasetA!.id, { limit: 5 });
+  assert.ok(updateAudit.events.some((event) => event.action === 'admin.dataset.updated'));
 });
 
 test('returns 412 when dataset update conflicts', async () => {
@@ -338,8 +338,8 @@ test('archives dataset and is idempotent', async () => {
   });
 
   assert.equal(second.statusCode, 200);
-  const auditEvents = await metadataModule.listDatasetAccessEvents(datasetB.id, 5);
-  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.archived'));
+  const archiveAudit = await metadataModule.listDatasetAccessEvents(datasetB.id, { limit: 5 });
+  assert.ok(archiveAudit.events.some((event) => event.action === 'admin.dataset.archived'));
 });
 
 test('lists datasets with pagination', async () => {
@@ -378,6 +378,176 @@ test('returns dataset details', async () => {
   const payload = response.json() as { dataset: { id: string; slug: string } };
   assert.equal(payload.dataset.id, datasetA.id);
   assert.equal(payload.dataset.slug, datasetA.slug);
+});
+
+test('lists dataset access audit events with filters and pagination', async () => {
+  assert.ok(app);
+  const auditDataset = await seedDataset(`audit-${randomUUID().slice(0, 6)}`);
+  const baseScopes = ['admin-scope', 'query-scope'];
+
+  await metadataModule.recordDatasetAccessEvent({
+    id: `da-${randomUUID()}`,
+    datasetId: auditDataset.id,
+    datasetSlug: auditDataset.slug,
+    actorId: 'robot-one',
+    actorScopes: baseScopes,
+    action: 'ingest.requested',
+    success: false,
+    metadata: {
+      stage: 'ingest',
+      error: 'missing_scope',
+      jobId: 'job-001'
+    }
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  await metadataModule.recordDatasetAccessEvent({
+    id: `da-${randomUUID()}`,
+    datasetId: auditDataset.id,
+    datasetSlug: auditDataset.slug,
+    actorId: 'robot-one',
+    actorScopes: baseScopes,
+    action: 'ingest.completed',
+    success: true,
+    metadata: {
+      stage: 'ingest',
+      jobId: 'job-001'
+    }
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  await metadataModule.recordDatasetAccessEvent({
+    id: `da-${randomUUID()}`,
+    datasetId: auditDataset.id,
+    datasetSlug: auditDataset.slug,
+    actorId: 'robot-two',
+    actorScopes: baseScopes,
+    action: 'query.executed',
+    success: true,
+    metadata: {
+      stage: 'query',
+      manifestId: 'dm-test',
+      rowCount: 42
+    }
+  });
+
+  const pageOneResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?limit=2`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(pageOneResponse.statusCode, 200);
+  const pageOneBody = pageOneResponse.json() as {
+    events: Array<{ action: string; actorScopes: string[]; metadata: Record<string, unknown>; createdAt: string; success: boolean }>;
+    nextCursor: string | null;
+  };
+  assert.equal(pageOneBody.events.length, 2);
+  assert.ok(pageOneBody.nextCursor);
+  assert.deepEqual(pageOneBody.events.map((event) => event.action), ['query.executed', 'ingest.completed']);
+  assert.equal(Array.isArray(pageOneBody.events[0].actorScopes), true);
+  assert.equal(typeof pageOneBody.events[0].metadata, 'object');
+
+  const pageTwoResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?cursor=${encodeURIComponent(pageOneBody.nextCursor ?? '')}`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(pageTwoResponse.statusCode, 200);
+  const pageTwoBody = pageTwoResponse.json() as {
+    events: Array<{ action: string; createdAt: string }>;
+    nextCursor: string | null;
+  };
+  assert.equal(pageTwoBody.events.length, 1);
+  assert.equal(pageTwoBody.events[0].action, 'ingest.requested');
+  assert.equal(pageTwoBody.nextCursor, null);
+
+  const actionFilterResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?action=${encodeURIComponent('ingest.requested')}`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(actionFilterResponse.statusCode, 200);
+  const actionFilterBody = actionFilterResponse.json() as { events: Array<{ action: string }>; nextCursor: string | null };
+  assert.equal(actionFilterBody.events.length, 1);
+  assert.equal(actionFilterBody.events[0].action, 'ingest.requested');
+
+  const multiActionResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?actions=${encodeURIComponent('ingest.requested')}&actions=${encodeURIComponent('ingest.completed')}`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(multiActionResponse.statusCode, 200);
+  const multiActionBody = multiActionResponse.json() as { events: Array<{ action: string }>; nextCursor: string | null };
+  const multiActions = multiActionBody.events.map((event) => event.action);
+  assert.equal(multiActions.includes('query.executed'), false);
+  assert.equal(multiActions.includes('ingest.completed'), true);
+
+  const successFilterResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?success=false`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(successFilterResponse.statusCode, 200);
+  const successFilterBody = successFilterResponse.json() as { events: Array<{ success: boolean }>; nextCursor: string | null };
+  assert.equal(successFilterBody.events.length, 1);
+  assert.equal(successFilterBody.events[0].success, false);
+
+  const mostRecentCreatedAt = pageOneBody.events[0].createdAt;
+  const oldestCreatedAt = pageTwoBody.events[0].createdAt;
+
+  const startTimeResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?startTime=${encodeURIComponent(mostRecentCreatedAt)}`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(startTimeResponse.statusCode, 200);
+  const startTimeBody = startTimeResponse.json() as { events: Array<{ createdAt: string }>; nextCursor: string | null };
+  assert.equal(startTimeBody.events.every((event) => event.createdAt >= mostRecentCreatedAt), true);
+
+  const endTimeResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?endTime=${encodeURIComponent(oldestCreatedAt)}`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(endTimeResponse.statusCode, 200);
+  const endTimeBody = endTimeResponse.json() as { events: Array<{ createdAt: string }>; nextCursor: string | null };
+  assert.equal(endTimeBody.events.every((event) => event.createdAt <= oldestCreatedAt), true);
+
+  const invalidSuccessResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?success=maybe`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(invalidSuccessResponse.statusCode, 400);
+
+  const invalidCursorResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${auditDataset.id}/audit?cursor=invalid`,
+    headers: adminHeaders()
+  });
+
+  assert.equal(invalidCursorResponse.statusCode, 400);
+});
+
+test('requires admin scope to fetch dataset audit history', async () => {
+  assert.ok(app);
+  const response = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${datasetA.id}/audit`,
+    headers: {}
+  });
+
+  assert.equal(response.statusCode, 403);
 });
 
 test('updates retention policy via admin API', async () => {

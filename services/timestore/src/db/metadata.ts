@@ -838,21 +838,100 @@ export async function recordDatasetAccessEvent(
   });
 }
 
+export interface DatasetAccessAuditCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface DatasetAccessAuditListOptions {
+  limit?: number;
+  cursor?: DatasetAccessAuditCursor | null;
+  actions?: string[];
+  success?: boolean | null;
+  startTime?: string | null;
+  endTime?: string | null;
+}
+
+export interface DatasetAccessAuditListResult {
+  events: DatasetAccessAuditRecord[];
+  nextCursor: DatasetAccessAuditCursor | null;
+}
+
 export async function listDatasetAccessEvents(
   datasetId: string,
-  limit = 50
-): Promise<DatasetAccessAuditRecord[]> {
-  const boundedLimit = Math.max(1, Math.min(limit, 200));
+  options: DatasetAccessAuditListOptions = {}
+): Promise<DatasetAccessAuditListResult> {
+  const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const actions = (options.actions ?? [])
+    .map((action) => action.trim())
+    .filter((action) => action.length > 0);
+  const startTime = options.startTime ?? null;
+  const endTime = options.endTime ?? null;
+  const cursor = options.cursor ?? null;
+  const enforceSuccess = typeof options.success === 'boolean' ? options.success : null;
+
   return withConnection(async (client) => {
+    const conditions: string[] = ['dataset_id = $1'];
+    const values: unknown[] = [datasetId];
+
+    if (actions.length > 0) {
+      values.push(actions);
+      conditions.push(`action = ANY($${values.length}::text[])`);
+    }
+
+    if (enforceSuccess !== null) {
+      values.push(enforceSuccess);
+      conditions.push(`success = $${values.length}`);
+    }
+
+    if (startTime) {
+      values.push(startTime);
+      conditions.push(`created_at >= $${values.length}::timestamptz`);
+    }
+
+    if (endTime) {
+      values.push(endTime);
+      conditions.push(`created_at <= $${values.length}::timestamptz`);
+    }
+
+    if (cursor) {
+      values.push(cursor.createdAt);
+      values.push(cursor.id);
+      const createdAtParam = values.length - 1;
+      const idParam = values.length;
+      conditions.push(`(created_at, id) < ($${createdAtParam}::timestamptz, $${idParam}::text)`);
+    }
+
+    values.push(limit + 1);
+    const limitParam = values.length;
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
     const { rows } = await client.query<DatasetAccessAuditRow>(
       `SELECT *
          FROM dataset_access_audit
-        WHERE dataset_id = $1
-        ORDER BY created_at DESC
-        LIMIT $2`,
-      [datasetId, boundedLimit]
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT $${limitParam}`,
+      values
     );
-    return rows.map(mapDatasetAccessAudit);
+
+    let nextCursor: DatasetAccessAuditCursor | null = null;
+    let resultRows = rows;
+
+    if (rows.length > limit) {
+      const trimmedRows = rows.slice(0, limit);
+      const cursorRow = trimmedRows[trimmedRows.length - 1];
+      nextCursor = {
+        createdAt: cursorRow.created_at,
+        id: cursorRow.id
+      };
+      resultRows = trimmedRows;
+    }
+
+    return {
+      events: resultRows.map(mapDatasetAccessAudit),
+      nextCursor
+    } satisfies DatasetAccessAuditListResult;
   });
 }
 

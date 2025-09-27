@@ -94,3 +94,40 @@ The catalog ingests the event into `workflow_events`, exposes it over `/ws`, and
 Additional events emitted:
 - `timestore.partition.created` whenever ingestion finalizes a new partition/manifest.
 - `timestore.partition.deleted` when retention removes partitions (payload includes reasons).
+
+## Dataset Access Audit API
+
+The admin surface now exposes dataset access history without direct SQL access. Call `GET /admin/datasets/:datasetId/audit` with the `timestore:admin` scope to retrieve paginated audit records, sorted from newest to oldest.
+
+- `limit` (default 50, max 200) controls page size.
+- `cursor` resumes from a previous response (`nextCursor` encodes `{ createdAt, id }`).
+- `action` or repeated `actions` narrow results to specific event names (`ingest.requested`, `query.executed`, etc.).
+- `success=true|false` filters on outcome.
+- `startTime` / `endTime` accept ISO-8601 timestamps to bound the window.
+
+Example response:
+
+```json
+{
+  "events": [
+    {
+      "id": "da-0b6c6a0f-4e8f-42ce-a9d4-f6e5688efa6d",
+      "datasetId": "ds-12345",
+      "datasetSlug": "observatory-admin-audit",
+      "actorId": "robot-two",
+      "actorScopes": ["admin-scope", "query-scope"],
+      "action": "query.executed",
+      "success": true,
+      "metadata": {
+        "stage": "query",
+        "manifestId": "dm-test",
+        "rowCount": 42
+      },
+      "createdAt": "2024-05-13T19:22:11.123Z"
+    }
+  ],
+  "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI0LTA1LTEzVDE5OjIyOjExLjEyM1oiLCJpZCI6ImRhLTBiNmM2YTBmLTRlOGYtNDJjZS1hOWQ0LWY2ZTU2ODhlZmE2ZCJ9"
+}
+```
+
+Frontends can depend on the shared typings in `@apphub/shared/timestoreAdmin` (`datasetAccessAuditEventSchema`, `datasetAccessAuditListResponseSchema`, `datasetAccessAuditListQuerySchema`) to render audit timelines and build query UIs without duplicating validation.
