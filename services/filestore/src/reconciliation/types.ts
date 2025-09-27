@@ -12,12 +12,13 @@ export interface ReconciliationJobPayload {
   detectChildren?: boolean;
   requestedHash?: boolean;
   attempt?: number;
+  jobRecordId: number;
 }
 
-export type ReconciliationJobStatus = 'reconciled' | 'missing' | 'skipped';
+export type ReconciliationJobOutcome = 'reconciled' | 'missing' | 'skipped';
 
 export interface ReconciliationJobSummary {
-  status: ReconciliationJobStatus;
+  outcome: ReconciliationJobOutcome;
   reason: ReconciliationReason;
   node?: NodeRecord | null;
   previousNode?: NodeRecord | null;

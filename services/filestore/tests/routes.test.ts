@@ -706,4 +706,86 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   assert.ok(sseData.includes('filestore.node.created'));
+
+  const unauthorizedJobsResponse = await app.inject({
+    method: 'GET',
+    url: '/v1/reconciliation/jobs'
+  });
+  assert.equal(unauthorizedJobsResponse.statusCode, 403, unauthorizedJobsResponse.body);
+
+  const jobsResponse = await app.inject({
+    method: 'GET',
+    url: '/v1/reconciliation/jobs',
+    headers: {
+      'x-iam-scopes': 'filestore:write'
+    }
+  });
+  assert.equal(jobsResponse.statusCode, 200, jobsResponse.body);
+  const jobsBody = jobsResponse.json() as {
+    data: {
+      jobs: Array<{
+        id: number;
+        backendMountId: number;
+        path: string;
+        status: string;
+        enqueuedAt: string;
+      }>;
+      filters: {
+        status: string[];
+      };
+    };
+  };
+  assert.ok(Array.isArray(jobsBody.data.jobs));
+  assert.ok(jobsBody.data.jobs.length >= 1);
+  const discoveredJob = jobsBody.data.jobs[0];
+  assert.equal(discoveredJob.backendMountId, backendMountId);
+  assert.equal(discoveredJob.path, currentPath);
+  assert.ok(discoveredJob.enqueuedAt);
+
+  const filteredJobsResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/reconciliation/jobs?status=${encodeURIComponent(discoveredJob.status)}`,
+    headers: {
+      'x-iam-scopes': 'filestore:write'
+    }
+  });
+  assert.equal(filteredJobsResponse.statusCode, 200, filteredJobsResponse.body);
+  const filteredJobsBody = filteredJobsResponse.json() as {
+    data: {
+      jobs: Array<{ id: number; status: string }>;
+      filters: { status: string[] };
+    };
+  };
+  assert.ok(filteredJobsBody.data.jobs.every((job) => job.status === discoveredJob.status));
+  assert.ok(filteredJobsBody.data.filters.status.includes(discoveredJob.status));
+
+  const jobDetailResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/reconciliation/jobs/${discoveredJob.id}`,
+    headers: {
+      'x-iam-scopes': 'filestore:write'
+    }
+  });
+  assert.equal(jobDetailResponse.statusCode, 200, jobDetailResponse.body);
+  const jobDetailBody = jobDetailResponse.json() as {
+    data: {
+      id: number;
+      status: string;
+      result: Record<string, unknown> | null;
+      error: Record<string, unknown> | null;
+    };
+  };
+  assert.equal(jobDetailBody.data.id, discoveredJob.id);
+  assert.equal(jobDetailBody.data.status, discoveredJob.status);
+  assert.ok(jobDetailBody.data.result === null || typeof jobDetailBody.data.result === 'object');
+  assert.ok(jobDetailBody.data.error === null || typeof jobDetailBody.data.error === 'object');
+
+  const missingJobResponse = await app.inject({
+    method: 'GET',
+    url: '/v1/reconciliation/jobs/9999999',
+    headers: {
+      'x-iam-scopes': 'filestore:write'
+    }
+  });
+  assert.equal(missingJobResponse.statusCode, 404, missingJobResponse.body);
 });

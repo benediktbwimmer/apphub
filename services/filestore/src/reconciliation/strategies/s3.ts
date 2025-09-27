@@ -296,7 +296,7 @@ export async function reconcileS3(
   ensureS3Backend(backend);
   const normalizedPath = job.path.trim();
   if (!normalizedPath) {
-    return { status: 'skipped', reason: job.reason };
+    return { outcome: 'skipped', reason: job.reason };
   }
 
   const node = job.nodeId
@@ -310,7 +310,7 @@ export async function reconcileS3(
 
   if (!probe.exists) {
     if (!node) {
-      return { status: 'skipped', reason: job.reason };
+      return { outcome: 'skipped', reason: job.reason };
     }
 
     const beforeContribution = computeContribution(node);
@@ -340,7 +340,7 @@ export async function reconcileS3(
     }
 
     return {
-      status: 'missing',
+      outcome: 'missing',
       reason: job.reason,
       node: updated,
       previousNode: node,
@@ -408,7 +408,7 @@ export async function reconcileS3(
     }
 
     return {
-      status: 'reconciled',
+      outcome: 'reconciled',
       reason: job.reason,
       node: inserted,
       previousNode: null,
@@ -448,7 +448,7 @@ export async function reconcileS3(
   }
 
   return {
-    status: 'reconciled',
+    outcome: 'reconciled',
     reason: job.reason,
     node: updated,
     previousNode: node,

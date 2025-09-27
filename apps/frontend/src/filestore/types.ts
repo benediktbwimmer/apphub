@@ -115,12 +115,61 @@ export const filestoreCommandResponseEnvelopeSchema = z.object({
   data: filestoreCommandResponseSchema
 });
 
+export const filestoreReconciliationJobStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'skipped',
+  'cancelled'
+]);
+export type FilestoreReconciliationJobStatus = z.infer<typeof filestoreReconciliationJobStatusSchema>;
+
+export const filestoreReconciliationReasonSchema = z.enum(['drift', 'audit', 'manual']);
+export type FilestoreReconciliationReason = z.infer<typeof filestoreReconciliationReasonSchema>;
+
+export const filestoreReconciliationJobSchema = z.object({
+  id: z.number(),
+  jobKey: z.string(),
+  backendMountId: z.number(),
+  nodeId: z.number().nullable(),
+  path: z.string(),
+  reason: filestoreReconciliationReasonSchema,
+  status: filestoreReconciliationJobStatusSchema,
+  detectChildren: z.boolean(),
+  requestedHash: z.boolean(),
+  attempt: z.number(),
+  result: z.record(z.unknown()).nullable(),
+  error: z.record(z.unknown()).nullable(),
+  enqueuedAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  updatedAt: z.string()
+});
+export type FilestoreReconciliationJob = z.infer<typeof filestoreReconciliationJobSchema>;
+
 export const filestoreReconciliationEnvelopeSchema = z.object({
   data: filestoreReconciliationResultSchema
 });
 
-export const filestoreReconciliationReasonSchema = z.enum(['drift', 'audit', 'manual']);
-export type FilestoreReconciliationReason = z.infer<typeof filestoreReconciliationReasonSchema>;
+export const filestoreReconciliationJobListEnvelopeSchema = z.object({
+  data: z.object({
+    jobs: z.array(filestoreReconciliationJobSchema),
+    pagination: filestorePaginationSchema,
+    filters: z.object({
+      backendMountId: z.number().nullable(),
+      path: z.string().nullable(),
+      status: z.array(filestoreReconciliationJobStatusSchema)
+    })
+  })
+});
+export type FilestoreReconciliationJobList = z.infer<typeof filestoreReconciliationJobListEnvelopeSchema>['data'];
+
+export const filestoreReconciliationJobDetailEnvelopeSchema = z.object({
+  data: filestoreReconciliationJobSchema
+});
+export type FilestoreReconciliationJobDetail = z.infer<typeof filestoreReconciliationJobSchema>;
 
 export const filestoreNodeListEnvelopeSchema = z.object({
   data: z.object({
@@ -244,7 +293,12 @@ export const filestoreEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('filestore.drift.detected'), data: filestoreDriftDetectedPayloadSchema }),
   z.object({ type: z.literal('filestore.node.reconciled'), data: filestoreNodeReconciledPayloadSchema }),
   z.object({ type: z.literal('filestore.node.missing'), data: filestoreNodeReconciledPayloadSchema }),
-  z.object({ type: z.literal('filestore.node.downloaded'), data: filestoreNodeDownloadedPayloadSchema })
+  z.object({ type: z.literal('filestore.node.downloaded'), data: filestoreNodeDownloadedPayloadSchema }),
+  z.object({ type: z.literal('filestore.reconciliation.job.queued'), data: filestoreReconciliationJobSchema }),
+  z.object({ type: z.literal('filestore.reconciliation.job.started'), data: filestoreReconciliationJobSchema }),
+  z.object({ type: z.literal('filestore.reconciliation.job.completed'), data: filestoreReconciliationJobSchema }),
+  z.object({ type: z.literal('filestore.reconciliation.job.failed'), data: filestoreReconciliationJobSchema }),
+  z.object({ type: z.literal('filestore.reconciliation.job.cancelled'), data: filestoreReconciliationJobSchema })
 ]);
 export type FilestoreEvent = z.infer<typeof filestoreEventSchema>;
 export type FilestoreEventType = FilestoreEvent['type'];

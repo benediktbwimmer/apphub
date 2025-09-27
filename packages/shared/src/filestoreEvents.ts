@@ -2,6 +2,14 @@ import { z } from 'zod';
 
 export type FilestoreReconciliationReason = 'drift' | 'audit' | 'manual';
 
+export type FilestoreReconciliationJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled';
+
 export type FilestoreNodeKind = 'file' | 'directory' | 'unknown';
 export type FilestoreNodeState = 'active' | 'inconsistent' | 'missing' | 'deleted' | 'unknown';
 
@@ -42,6 +50,26 @@ export type FilestoreNodeReconciledPayload = {
   previousState: FilestoreNodeState | null;
   reason: FilestoreReconciliationReason;
   observedAt: string;
+};
+
+export type FilestoreReconciliationJobEventPayload = {
+  id: number;
+  jobKey: string;
+  backendMountId: number;
+  nodeId: number | null;
+  path: string;
+  reason: FilestoreReconciliationReason;
+  status: FilestoreReconciliationJobStatus;
+  detectChildren: boolean;
+  requestedHash: boolean;
+  attempt: number;
+  result: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  enqueuedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  updatedAt: string;
 };
 
 export type FilestoreCommandCompletedPayload = {
@@ -90,7 +118,12 @@ export type FilestoreEvent =
   | { type: 'filestore.drift.detected'; data: FilestoreDriftDetectedPayload }
   | { type: 'filestore.node.reconciled'; data: FilestoreNodeReconciledPayload }
   | { type: 'filestore.node.missing'; data: FilestoreNodeReconciledPayload }
-  | { type: 'filestore.node.downloaded'; data: FilestoreNodeDownloadedPayload };
+  | { type: 'filestore.node.downloaded'; data: FilestoreNodeDownloadedPayload }
+  | { type: 'filestore.reconciliation.job.queued'; data: FilestoreReconciliationJobEventPayload }
+  | { type: 'filestore.reconciliation.job.started'; data: FilestoreReconciliationJobEventPayload }
+  | { type: 'filestore.reconciliation.job.completed'; data: FilestoreReconciliationJobEventPayload }
+  | { type: 'filestore.reconciliation.job.failed'; data: FilestoreReconciliationJobEventPayload }
+  | { type: 'filestore.reconciliation.job.cancelled'; data: FilestoreReconciliationJobEventPayload };
 
 export type FilestoreEventEnvelope = {
   origin?: string;

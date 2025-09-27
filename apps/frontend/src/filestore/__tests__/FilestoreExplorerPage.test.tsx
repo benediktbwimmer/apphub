@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => {
   const listWorkflowDefinitionsMock = vi.fn();
   const triggerWorkflowRunMock = vi.fn();
   const presignNodeDownloadMock = vi.fn();
+  const listReconciliationJobsMock = vi.fn();
+  const fetchReconciliationJobMock = vi.fn();
 
   return {
     listBackendMountsMock,
@@ -39,7 +41,9 @@ const mocks = vi.hoisted(() => {
     enqueueReconciliationMock,
     listWorkflowDefinitionsMock,
     triggerWorkflowRunMock,
-    presignNodeDownloadMock
+    presignNodeDownloadMock,
+    listReconciliationJobsMock,
+    fetchReconciliationJobMock
   };
 });
 const sampleMount: FilestoreBackendMount = {
@@ -144,9 +148,48 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
     refetch: vi.fn(async () => {}),
     stop: vi.fn()
   };
+  const sampleJob = {
+    id: 100,
+    jobKey: `reconcile:${node.backendMountId}:${node.path}`,
+    backendMountId: node.backendMountId,
+    nodeId: node.id,
+    path: node.path,
+    reason: 'manual' as const,
+    status: 'succeeded' as const,
+    detectChildren: false,
+    requestedHash: false,
+    attempt: 1,
+    result: { outcome: 'reconciled' },
+    error: null,
+    enqueuedAt: '2024-01-01T00:00:00.000Z',
+    startedAt: '2024-01-01T00:00:01.000Z',
+    completedAt: '2024-01-01T00:00:02.000Z',
+    durationMs: 2000,
+    updatedAt: '2024-01-01T00:00:02.000Z'
+  };
+  const jobsResource: UsePollingResourceResult<unknown> = {
+    data: {
+      jobs: [sampleJob],
+      pagination: { total: 1, limit: 20, offset: 0, nextOffset: null },
+      filters: { backendMountId: node.backendMountId, path: null, status: [] }
+    },
+    error: null,
+    loading: false,
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
+  };
+  const jobDetailResource: UsePollingResourceResult<unknown> = {
+    data: sampleJob,
+    error: null,
+    loading: false,
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
+  };
   let callIndex = 0;
   pollingResourceMock.mockImplementation(() => {
-    const resources = [listResource, nodeResource, childrenResource];
+    const resources = [listResource, nodeResource, childrenResource, jobsResource, jobDetailResource];
     const resource = resources[callIndex % resources.length];
     callIndex += 1;
     return resource;
@@ -179,8 +222,10 @@ vi.mock('../api', () => ({
   enqueueReconciliation: (...args: unknown[]) => mocks.enqueueReconciliationMock(...args),
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
+  fetchReconciliationJob: (...args: unknown[]) => mocks.fetchReconciliationJobMock(...args),
   listBackendMounts: (...args: unknown[]) => mocks.listBackendMountsMock(...args),
   listNodes: vi.fn(),
+  listReconciliationJobs: (...args: unknown[]) => mocks.listReconciliationJobsMock(...args),
   presignNodeDownload: (...args: unknown[]) => mocks.presignNodeDownloadMock(...args),
   subscribeToFilestoreEvents: (...args: unknown[]) => mocks.subscribeToFilestoreEventsMock(...args),
   updateNodeMetadata: vi.fn()
@@ -211,9 +256,25 @@ describe('FilestoreExplorerPage mount discovery', () => {
     mocks.listWorkflowDefinitionsMock.mockResolvedValue([]);
     mocks.triggerWorkflowRunMock.mockReset();
     mocks.triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' });
+    mocks.listReconciliationJobsMock.mockReset();
+    mocks.listReconciliationJobsMock.mockResolvedValue({
+      jobs: [],
+      pagination: { total: 0, limit: 20, offset: 0, nextOffset: null },
+      filters: { backendMountId: null, path: null, status: [] }
+    });
+    mocks.fetchReconciliationJobMock.mockReset();
+    mocks.fetchReconciliationJobMock.mockResolvedValue(null);
     mocks.trackEventMock.mockClear();
     mocks.subscribeToFilestoreEventsMock.mockClear();
-    mocks.pollingResourceMock.mockClear();
+    mocks.pollingResourceMock.mockReset();
+    mocks.pollingResourceMock.mockImplementation(() => ({
+      data: null,
+      error: null,
+      loading: false,
+      lastUpdatedAt: null,
+      refetch: vi.fn(async () => {}),
+      stop: vi.fn()
+    }));
     mocks.authorizedFetchMock.mockReset();
     mocks.presignNodeDownloadMock.mockReset();
     (URL as unknown as { createObjectURL: ReturnType<typeof vi.fn> }).createObjectURL = vi.fn(() => 'blob:mock');
@@ -414,6 +475,17 @@ describe('FilestoreExplorerPage mount discovery', () => {
     expect(window.open).toHaveBeenCalledWith('https://example.com/download', '_blank', 'noopener,noreferrer');
     expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Presigned link opened');
   });
+
+  it('renders reconciliation job history when mounts and write scope are available', async () => {
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    setupPollingResourcesForNode(buildNode());
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    await waitFor(() => expect(screen.getByText('Reconciliation jobs')).toBeInTheDocument());
+    expect(screen.getAllByText('datasets/example').length).toBeGreaterThan(0);
+    expect(screen.getByText('Job detail')).toBeInTheDocument();
+  });
 });
 
 describe('FilestoreExplorerPage playbooks', () => {
@@ -427,6 +499,14 @@ describe('FilestoreExplorerPage playbooks', () => {
     mocks.listWorkflowDefinitionsMock.mockResolvedValue([]);
     mocks.triggerWorkflowRunMock.mockReset();
     mocks.triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' } as WorkflowRun);
+    mocks.listReconciliationJobsMock.mockReset();
+    mocks.listReconciliationJobsMock.mockResolvedValue({
+      jobs: [],
+      pagination: { total: 0, limit: 20, offset: 0, nextOffset: null },
+      filters: { backendMountId: null, path: null, status: [] }
+    });
+    mocks.fetchReconciliationJobMock.mockReset();
+    mocks.fetchReconciliationJobMock.mockResolvedValue(null);
     mocks.trackEventMock.mockClear();
     mocks.subscribeToFilestoreEventsMock.mockClear();
     mocks.authorizedFetchMock.mockReset();

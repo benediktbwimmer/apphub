@@ -2,11 +2,17 @@ import type { Registry } from 'prom-client';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { withConnection, withTransaction } from '../db/client';
 import { getBackendMountById } from '../db/backendMounts';
+import { insertReconciliationJob, updateReconciliationJob } from '../db/reconciliationJobs';
 import type { ConsistencyState, NodeRecord } from '../db/nodes';
 import { FilestoreError } from '../errors';
 import {
   emitNodeMissingEvent,
   emitNodeReconciledEvent,
+  emitReconciliationJobCancelledEvent,
+  emitReconciliationJobCompletedEvent,
+  emitReconciliationJobFailedEvent,
+  emitReconciliationJobQueuedEvent,
+  emitReconciliationJobStartedEvent,
   subscribeToFilestoreEvents,
   type FilestoreEvent
 } from '../events/publisher';
@@ -17,18 +23,15 @@ import {
 import type { AppliedRollupPlan, RollupPlan } from '../rollup/types';
 import { createReconciliationMetrics, type ReconciliationMetrics } from './metrics';
 import { ReconciliationQueue } from './queue';
-import type {
-  ReconciliationJobPayload,
-  ReconciliationJobSummary,
-  ReconciliationJobStatus,
-  ReconciliationReason
-} from './types';
+import type { ReconciliationJobPayload, ReconciliationJobSummary, ReconciliationReason } from './types';
 import { reconcileLocal } from './strategies/local';
 import { reconcileS3 } from './strategies/s3';
 
 const DEFAULT_AUDIT_BATCH_SIZE = 100;
 
-function buildJobId(payload: ReconciliationJobPayload): string {
+type EnqueueJobPayload = Omit<ReconciliationJobPayload, 'jobRecordId'>;
+
+function buildJobId(payload: { backendMountId: number; path: string }): string {
   return `reconcile:${payload.backendMountId}:${payload.path}`;
 }
 
@@ -115,7 +118,7 @@ class ReconciliationManager {
     return this.config;
   }
 
-  async enqueue(payload: ReconciliationJobPayload): Promise<void> {
+  async enqueue(payload: EnqueueJobPayload): Promise<void> {
     if (this.destroyed) {
       return;
     }
@@ -123,12 +126,56 @@ class ReconciliationManager {
     if (!normalizedPath) {
       return;
     }
-    const enriched: ReconciliationJobPayload = {
+    const attempt = payload.attempt ?? 1;
+    const enriched: EnqueueJobPayload = {
       ...payload,
-      path: normalizedPath
+      path: normalizedPath,
+      attempt
     };
     const jobId = buildJobId(enriched);
-    await this.queue.enqueue(enriched, { jobId });
+
+    const jobRecord = await withConnection((client) =>
+      insertReconciliationJob(client, {
+        jobKey: jobId,
+        backendMountId: enriched.backendMountId,
+        nodeId: enriched.nodeId ?? null,
+        path: enriched.path,
+        reason: enriched.reason,
+        detectChildren: Boolean(enriched.detectChildren),
+        requestedHash: Boolean(enriched.requestedHash),
+        attempt
+      })
+    );
+
+    await emitReconciliationJobQueuedEvent(jobRecord);
+
+    const jobPayload: ReconciliationJobPayload = {
+      ...enriched,
+      jobRecordId: jobRecord.id
+    };
+
+    try {
+      await this.queue.enqueue(jobPayload, { jobId });
+    } catch (err) {
+      const cancelledAt = new Date();
+      const errorPayload = this.normalizeError(err);
+      const cancelledRecord = await withConnection((client) =>
+        updateReconciliationJob(client, jobRecord.id, {
+          status: 'cancelled',
+          error: errorPayload,
+          completedAt: cancelledAt,
+          durationMs: 0
+        })
+      );
+      if (cancelledRecord) {
+        await emitReconciliationJobCancelledEvent(cancelledRecord);
+      } else {
+        console.warn('[filestore:reconcile] failed to update cancelled job record', {
+          jobRecordId: jobRecord.id
+        });
+      }
+      throw err;
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -215,27 +262,90 @@ class ReconciliationManager {
   }
 
   private async processJob(payload: ReconciliationJobPayload): Promise<void> {
-    const started = Date.now();
+    const attempt = payload.attempt ?? 1;
+    const startedAt = new Date();
+    const startRecord = await withConnection((client) =>
+      updateReconciliationJob(client, payload.jobRecordId, {
+        status: 'running',
+        attempt,
+        startedAt,
+        completedAt: null,
+        durationMs: null,
+        error: null
+      })
+    );
+    if (startRecord) {
+      await emitReconciliationJobStartedEvent(startRecord);
+    } else {
+      console.warn('[filestore:reconcile] failed to mark job as running', {
+        jobRecordId: payload.jobRecordId
+      });
+    }
+
     try {
-      const outcome = await this.executeReconciliation(payload);
-      if (outcome.postCommit) {
-        await this.runPostCommit(outcome.postCommit);
+      const execution = await this.executeReconciliation(payload);
+      if (execution.postCommit) {
+        await this.runPostCommit(execution.postCommit);
       }
-      const durationSeconds = (Date.now() - started) / 1000;
-      const outcomeLabel = outcome.status === 'skipped' ? 'skipped' : 'success';
+
+      const completedAt = new Date();
+      const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
+      const durationSeconds = durationMs / 1000;
+      const outcomeLabel = execution.summary.outcome === 'skipped' ? 'skipped' : 'success';
       this.metrics.recordJobResult(outcomeLabel, payload.reason);
       this.metrics.observeDuration(outcomeLabel, payload.reason, durationSeconds);
+
+      const resultPayload = this.buildJobResult(execution.summary, payload);
+      const completionStatus = execution.summary.outcome === 'skipped' ? 'skipped' : 'succeeded';
+      const completedRecord = await withConnection((client) =>
+        updateReconciliationJob(client, payload.jobRecordId, {
+          status: completionStatus,
+          completedAt,
+          durationMs,
+          result: resultPayload,
+          error: null
+        })
+      );
+
+      if (completedRecord) {
+        await emitReconciliationJobCompletedEvent(completedRecord);
+      } else {
+        console.warn('[filestore:reconcile] failed to update completed job record', {
+          jobRecordId: payload.jobRecordId
+        });
+      }
     } catch (err) {
-      const durationSeconds = (Date.now() - started) / 1000;
+      const completedAt = new Date();
+      const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
+      const durationSeconds = durationMs / 1000;
       this.metrics.recordJobResult('failure', payload.reason);
       this.metrics.observeDuration('failure', payload.reason, durationSeconds);
+
+      const errorPayload = this.normalizeError(err);
+      const failedRecord = await withConnection((client) =>
+        updateReconciliationJob(client, payload.jobRecordId, {
+          status: 'failed',
+          completedAt,
+          durationMs,
+          error: errorPayload
+        })
+      );
+
+      if (failedRecord) {
+        await emitReconciliationJobFailedEvent(failedRecord);
+      } else {
+        console.warn('[filestore:reconcile] failed to update failed job record', {
+          jobRecordId: payload.jobRecordId
+        });
+      }
+
       throw err;
     }
   }
 
   private async executeReconciliation(
     payload: ReconciliationJobPayload
-  ): Promise<{ postCommit: PostCommitAction | null; status: ReconciliationJobStatus }> {
+  ): Promise<{ postCommit: PostCommitAction | null; summary: ReconciliationJobSummary }> {
     const summary = await withTransaction(async (client) => {
       const backend = await getBackendMountById(client, payload.backendMountId);
       if (!backend) {
@@ -263,7 +373,7 @@ class ReconciliationManager {
     const { result, backend } = summary;
 
     const postCommit: PostCommitAction | null =
-      result.status === 'skipped'
+      result.outcome === 'skipped'
         ? null
         : {
             plan: result.plan ?? null,
@@ -301,8 +411,59 @@ class ReconciliationManager {
 
     return {
       postCommit,
-      status: result.status
+      summary: result
     };
+  }
+
+  private buildJobResult(
+    summary: ReconciliationJobSummary,
+    payload: ReconciliationJobPayload
+  ): Record<string, unknown> {
+    const node = summary.node ?? null;
+    const previous = summary.previousNode ?? null;
+    return {
+      outcome: summary.outcome,
+      reason: summary.reason,
+      backendMountId: payload.backendMountId,
+      path: payload.path,
+      nodeId: node?.id ?? null,
+      previousNodeId: previous?.id ?? null,
+      previousState: previous?.state ?? null,
+      detectChildren: Boolean(payload.detectChildren),
+      requestedHash: Boolean(payload.requestedHash),
+      emittedEvent: summary.emittedEvent ? summary.emittedEvent.type : null
+    } satisfies Record<string, unknown>;
+  }
+
+  private normalizeError(err: unknown): Record<string, unknown> {
+    if (err instanceof FilestoreError) {
+      return {
+        message: err.message,
+        code: err.code,
+        details: err.details ?? null
+      } satisfies Record<string, unknown>;
+    }
+    if (err instanceof Error) {
+      return {
+        message: err.message,
+        name: err.name,
+        stack: err.stack ?? null
+      } satisfies Record<string, unknown>;
+    }
+    let raw: string | null = null;
+    if (err && typeof err === 'object') {
+      try {
+        raw = JSON.stringify(err);
+      } catch {
+        raw = String(err);
+      }
+    } else if (err !== undefined) {
+      raw = String(err);
+    }
+    return {
+      message: typeof err === 'string' ? err : 'Unknown reconciliation error',
+      raw
+    } satisfies Record<string, unknown>;
   }
 
   private async runPostCommit(action: PostCommitAction): Promise<void> {

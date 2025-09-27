@@ -5,7 +5,8 @@ import {
   filestoreNodeChildrenEnvelopeSchema,
   filestoreNodeListEnvelopeSchema,
   filestoreNodeSchema,
-  filestoreNodeEventPayloadSchema
+  filestoreNodeEventPayloadSchema,
+  filestoreReconciliationJobListEnvelopeSchema
 } from '../types';
 
 const iso = new Date().toISOString();
@@ -250,5 +251,69 @@ describe('filestore types', () => {
 
     expect(parsed.data.parent.path).toBe('datasets/observatory');
     expect(parsed.data.children[0].path).toBe('datasets/observatory/raw');
+  });
+
+  it('parses reconciliation job list envelopes', () => {
+    const parsed = filestoreReconciliationJobListEnvelopeSchema.parse({
+      data: {
+        jobs: [
+          {
+            id: 1,
+            jobKey: 'reconcile:2:datasets/example',
+            backendMountId: 2,
+            nodeId: 42,
+            path: 'datasets/example',
+            reason: 'manual',
+            status: 'queued',
+            detectChildren: false,
+            requestedHash: false,
+            attempt: 1,
+            result: null,
+            error: null,
+            enqueuedAt: iso,
+            startedAt: null,
+            completedAt: null,
+            durationMs: null,
+            updatedAt: iso
+          }
+        ],
+        pagination: { total: 1, limit: 20, offset: 0, nextOffset: null },
+        filters: { backendMountId: 2, path: null, status: [] }
+      }
+    });
+
+    expect(parsed.data.jobs[0].status).toBe('queued');
+    expect(parsed.data.pagination.total).toBe(1);
+  });
+
+  it('parses reconciliation job events', () => {
+    const event = filestoreEventSchema.parse({
+      type: 'filestore.reconciliation.job.completed',
+      data: {
+        id: 9,
+        jobKey: 'reconcile:2:datasets/example',
+        backendMountId: 2,
+        nodeId: 42,
+        path: 'datasets/example',
+        reason: 'manual',
+        status: 'succeeded',
+        detectChildren: false,
+        requestedHash: false,
+        attempt: 1,
+        result: { outcome: 'reconciled' },
+        error: null,
+        enqueuedAt: iso,
+        startedAt: iso,
+        completedAt: iso,
+        durationMs: 2000,
+        updatedAt: iso
+      }
+    });
+
+    expect(event.type).toBe('filestore.reconciliation.job.completed');
+    if (event.type !== 'filestore.reconciliation.job.completed') {
+      throw new Error('Expected reconciliation job event.');
+    }
+    expect(event.data.result?.outcome).toBe('reconciled');
   });
 });

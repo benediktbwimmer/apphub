@@ -24,6 +24,12 @@ export function resolveEventTimestamp(event: FilestoreEvent): string {
       return event.data.observedAt;
     case 'filestore.node.downloaded':
       return event.data.observedAt;
+    case 'filestore.reconciliation.job.queued':
+    case 'filestore.reconciliation.job.started':
+    case 'filestore.reconciliation.job.completed':
+    case 'filestore.reconciliation.job.failed':
+    case 'filestore.reconciliation.job.cancelled':
+      return event.data.updatedAt ?? event.data.enqueuedAt;
     default:
       return new Date().toISOString();
   }
@@ -77,6 +83,36 @@ export function describeFilestoreEvent(event: FilestoreEvent): ActivityEntry {
       detail = parts.join(' · ');
       break;
     }
+    case 'filestore.reconciliation.job.queued':
+      label = 'Reconciliation queued';
+      detail = `${path ?? 'unknown'} · reason ${event.data.reason}`;
+      break;
+    case 'filestore.reconciliation.job.started':
+      label = 'Reconciliation started';
+      detail = `${path ?? 'unknown'} · attempt ${event.data.attempt}`;
+      break;
+    case 'filestore.reconciliation.job.completed': {
+      const outcome =
+        event.data.result && typeof event.data.result === 'object' && 'outcome' in event.data.result
+          ? String((event.data.result as Record<string, unknown>).outcome)
+          : event.data.status;
+      label = 'Reconciliation completed';
+      detail = `${path ?? 'unknown'} · ${outcome}`;
+      break;
+    }
+    case 'filestore.reconciliation.job.failed': {
+      const message =
+        event.data.error && typeof event.data.error === 'object' && 'message' in event.data.error
+          ? String((event.data.error as Record<string, unknown>).message)
+          : 'See worker logs';
+      label = 'Reconciliation failed';
+      detail = `${path ?? 'unknown'} · ${message}`;
+      break;
+    }
+    case 'filestore.reconciliation.job.cancelled':
+      label = 'Reconciliation cancelled';
+      detail = `${path ?? 'unknown'} · job cancelled`;
+      break;
     default:
       break;
   }

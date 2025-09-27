@@ -10,6 +10,8 @@ import {
   filestoreNodeResponseSchema,
   filestorePresignEnvelopeSchema,
   filestoreReconciliationEnvelopeSchema,
+  filestoreReconciliationJobDetailEnvelopeSchema,
+  filestoreReconciliationJobListEnvelopeSchema,
   type FilestoreCommandResponse,
   type FilestoreEvent,
   type FilestoreEventType,
@@ -22,7 +24,11 @@ import {
   type FilestoreNodeState,
   type FilestoreReconciliationReason,
   type FilestoreReconciliationResult,
-  type FilestorePresignPayload
+  type FilestorePresignPayload,
+  type FilestoreReconciliationJob,
+  type FilestoreReconciliationJobList,
+  type FilestoreReconciliationJobDetail,
+  type FilestoreReconciliationJobStatus
 } from './types';
 
 type AuthorizedFetch = ReturnType<typeof useAuthorizedFetch>;
@@ -135,6 +141,14 @@ export type EnqueueReconciliationInput = {
   reason?: FilestoreReconciliationReason;
   detectChildren?: boolean;
   requestedHash?: boolean;
+};
+
+export type ListReconciliationJobsParams = {
+  backendMountId: number;
+  statuses?: FilestoreReconciliationJobStatus[];
+  path?: string | null;
+  limit?: number;
+  offset?: number;
 };
 
 export type FilestoreEventHandler = (event: FilestoreEvent) => void | Promise<void>;
@@ -501,6 +515,47 @@ export async function enqueueReconciliation(
   return payload.data;
 }
 
+export async function listReconciliationJobs(
+  authorizedFetch: AuthorizedFetch,
+  params: ListReconciliationJobsParams,
+  options: RequestOptions = {}
+): Promise<FilestoreReconciliationJobList> {
+  const url = new URL(buildFilestoreUrl('/v1/reconciliation/jobs'));
+  url.searchParams.set('backendMountId', String(params.backendMountId));
+  if (params.limit && params.limit > 0) {
+    url.searchParams.set('limit', String(params.limit));
+  }
+  if (params.offset && params.offset > 0) {
+    url.searchParams.set('offset', String(params.offset));
+  }
+  if (params.path && params.path.trim().length > 0) {
+    url.searchParams.set('path', params.path.trim());
+  }
+  appendQueryValues(url.searchParams, 'status', params.statuses);
+
+  const response = await authorizedFetch(url.toString(), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal
+  });
+  const payload = await parseJsonOrThrow(response, filestoreReconciliationJobListEnvelopeSchema);
+  return payload.data;
+}
+
+export async function fetchReconciliationJob(
+  authorizedFetch: AuthorizedFetch,
+  jobId: number,
+  options: RequestOptions = {}
+): Promise<FilestoreReconciliationJobDetail> {
+  const response = await authorizedFetch(buildFilestoreUrl(`/v1/reconciliation/jobs/${jobId}`), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal
+  });
+  const payload = await parseJsonOrThrow(response, filestoreReconciliationJobDetailEnvelopeSchema);
+  return payload.data;
+}
+
 export function parseFilestoreEventFrame(
   frame: string,
   eventTypes?: FilestoreEventType[]
@@ -673,7 +728,9 @@ export type {
   FilestoreNodeList,
   FilestorePagination,
   FilestoreNodeState,
-  FilestoreNodeKind
+  FilestoreNodeKind,
+  FilestoreReconciliationJob,
+  FilestoreReconciliationJobStatus
 } from './types';
 export type {
   FilestoreCommandCompletedPayload,
@@ -683,5 +740,7 @@ export type {
   FilestoreNodeReconciledPayload,
   FilestoreReconciliationReason,
   FilestoreReconciliationResult,
-  FilestorePresignPayload
+  FilestorePresignPayload,
+  FilestoreReconciliationJobList,
+  FilestoreReconciliationJobDetail
 } from './types';

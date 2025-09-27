@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   copyNode,
+  fetchReconciliationJob,
   listBackendMounts,
+  listReconciliationJobs,
   moveNode,
   parseFilestoreEventFrame,
   presignNodeDownload,
@@ -329,5 +331,94 @@ describe('filestore api helpers', () => {
     expect(result.url).toBe('https://presign.example/file');
     expect(result.method).toBe('GET');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists reconciliation jobs via GET request', async () => {
+    const responsePayload = {
+      data: {
+        jobs: [
+          {
+            id: 1,
+            jobKey: 'reconcile:2:datasets/example',
+            backendMountId: 2,
+            nodeId: 42,
+            path: 'datasets/example',
+            reason: 'manual',
+            status: 'running',
+            detectChildren: false,
+            requestedHash: false,
+            attempt: 1,
+            result: null,
+            error: null,
+            enqueuedAt: iso,
+            startedAt: iso,
+            completedAt: null,
+            durationMs: null,
+            updatedAt: iso
+          }
+        ],
+        pagination: { total: 1, limit: 20, offset: 0, nextOffset: null },
+        filters: { backendMountId: 2, path: null, status: [] }
+      }
+    };
+
+    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+      expect(typeof input).toBe('string');
+      expect((input as string)).toContain('/v1/reconciliation/jobs');
+      expect(init?.method).toBe('GET');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const result = await listReconciliationJobs(fetchMock, {
+      backendMountId: 2,
+      statuses: ['running'],
+      limit: 20
+    });
+
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0].status).toBe('running');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('fetches reconciliation job detail', async () => {
+    const responsePayload = {
+      data: {
+        id: 7,
+        jobKey: 'reconcile:2:datasets/example',
+        backendMountId: 2,
+        nodeId: 42,
+        path: 'datasets/example',
+        reason: 'manual',
+        status: 'succeeded',
+        detectChildren: false,
+        requestedHash: false,
+        attempt: 1,
+        result: { outcome: 'reconciled' },
+        error: null,
+        enqueuedAt: iso,
+        startedAt: iso,
+        completedAt: iso,
+        durationMs: 4200,
+        updatedAt: iso
+      }
+    };
+
+    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+      expect(typeof input).toBe('string');
+      expect((input as string)).toContain('/v1/reconciliation/jobs/7');
+      expect(init?.method).toBe('GET');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const job = await fetchReconciliationJob(fetchMock, 7);
+    expect(job.status).toBe('succeeded');
+    expect(job.result?.outcome).toBe('reconciled');
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

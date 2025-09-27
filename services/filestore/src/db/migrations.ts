@@ -213,6 +213,46 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_nodes_consistency_state
          ON nodes(consistency_state);`
     ]
+  },
+  {
+    id: '003_filestore_reconciliation_jobs',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS reconciliation_jobs (
+         id BIGSERIAL PRIMARY KEY,
+         job_key TEXT NOT NULL,
+         backend_mount_id BIGINT NOT NULL REFERENCES backend_mounts(id) ON DELETE CASCADE,
+         node_id BIGINT REFERENCES nodes(id) ON DELETE SET NULL,
+         path TEXT NOT NULL,
+         reason TEXT NOT NULL,
+         status TEXT NOT NULL,
+         detect_children BOOLEAN NOT NULL DEFAULT false,
+         requested_hash BOOLEAN NOT NULL DEFAULT false,
+         attempt INTEGER NOT NULL DEFAULT 1,
+         result JSONB,
+         error JSONB,
+         enqueued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         started_at TIMESTAMPTZ,
+         completed_at TIMESTAMPTZ,
+         duration_ms INTEGER,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')),
+         CHECK (reason IN ('drift', 'audit', 'manual')),
+         CHECK (attempt >= 1),
+         CHECK (duration_ms IS NULL OR duration_ms >= 0)
+       );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_reconciliation_jobs_job_key_enqueued_at
+         ON reconciliation_jobs(job_key, enqueued_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_reconciliation_jobs_backend_mount
+         ON reconciliation_jobs(backend_mount_id, enqueued_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_reconciliation_jobs_status_enqueued
+         ON reconciliation_jobs(status, enqueued_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_reconciliation_jobs_path
+         ON reconciliation_jobs(path);`,
+      `CREATE TRIGGER trg_reconciliation_jobs_touch_updated_at
+         BEFORE UPDATE ON reconciliation_jobs
+         FOR EACH ROW
+         EXECUTE FUNCTION filestore_touch_updated_at();`
+    ]
   }
 ];
 

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { randomUUID, createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
@@ -17,6 +17,11 @@ import {
 } from '../../db/backendMounts';
 import { resolveExecutor } from '../../executors/registry';
 import type { ExecutorFileMetadata } from '../../executors/types';
+import {
+  getReconciliationJobById,
+  listReconciliationJobs,
+  type ReconciliationJobRecord
+} from '../../db/reconciliationJobs';
 import {
   getNodeById,
   getNodeByPath,
@@ -197,6 +202,12 @@ const optionalKindFilterSchema = z
 
 const booleanQuerySchema = z.preprocess(preprocessBooleanQuery, z.boolean()).optional();
 
+const reconciliationJobStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']);
+
+const optionalJobStatusFilterSchema = z
+  .preprocess(preprocessQueryArray, z.array(reconciliationJobStatusSchema).min(1))
+  .optional();
+
 const backendMountResponseSchema = z.object({
   data: z.object({
     mounts: z.array(
@@ -233,6 +244,18 @@ const listChildrenQuerySchema = z.object({
   states: optionalStateFilterSchema,
   kinds: optionalKindFilterSchema,
   driftOnly: booleanQuerySchema
+});
+
+const listReconciliationJobsQuerySchema = z.object({
+  backendMountId: z.coerce.number().int().positive().optional(),
+  path: z.string().min(1).optional(),
+  status: optionalJobStatusFilterSchema,
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional()
+});
+
+const reconciliationJobIdParamsSchema = z.object({
+  id: z.coerce.number().int().positive()
 });
 
 function serializeRollup(summary: RollupSummary | null) {
@@ -323,6 +346,28 @@ async function serializeNode(node: NodeRecord, backendKind?: BackendMountRecord[
     deletedAt: node.deletedAt,
     rollup: serializeRollup(rollup),
     download: buildDownloadDescriptor(node, resolvedBackendKind)
+  };
+}
+
+function serializeReconciliationJobRecord(job: ReconciliationJobRecord) {
+  return {
+    id: job.id,
+    jobKey: job.jobKey,
+    backendMountId: job.backendMountId,
+    nodeId: job.nodeId,
+    path: job.path,
+    reason: job.reason,
+    status: job.status,
+    detectChildren: job.detectChildren,
+    requestedHash: job.requestedHash,
+    attempt: job.attempt,
+    result: job.result ?? null,
+    error: job.error ?? null,
+    enqueuedAt: job.enqueuedAt.toISOString(),
+    startedAt: job.startedAt ? job.startedAt.toISOString() : null,
+    completedAt: job.completedAt ? job.completedAt.toISOString() : null,
+    durationMs: job.durationMs ?? null,
+    updatedAt: job.updatedAt.toISOString()
   };
 }
 
@@ -464,6 +509,47 @@ function buildContentDisposition(filename: string | null): string {
   const sanitized = filename.replace(/"/g, "'");
   const encoded = encodeURIComponent(filename);
   return `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`;
+}
+
+function extractScopes(headers: Record<string, unknown>): Set<string> {
+  const scopes = new Set<string>();
+  const keys = ['x-iam-scopes', 'x-apphub-scopes'];
+  for (const key of keys) {
+    const value = headers[key];
+    if (typeof value === 'string') {
+      value
+        .split(',')
+        .map((scope) => scope.trim())
+        .filter((scope) => scope.length > 0)
+        .forEach((scope) => scopes.add(scope));
+    } else if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry !== 'string') {
+          continue;
+        }
+        entry
+          .split(',')
+          .map((scope) => scope.trim())
+          .filter((scope) => scope.length > 0)
+          .forEach((scope) => scopes.add(scope));
+      }
+    }
+  }
+  return scopes;
+}
+
+function requireWriteScope(request: FastifyRequest, reply: FastifyReply): boolean {
+  const scopes = extractScopes(request.headers as Record<string, unknown>);
+  if (scopes.has('filestore:write') || scopes.has('filestore:admin')) {
+    return true;
+  }
+  reply.status(403).send({
+    error: {
+      code: 'FORBIDDEN',
+      message: 'filestore:write scope required'
+    }
+  });
+  return false;
 }
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
@@ -1494,6 +1580,96 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     });
 
     return reply.status(202).send({ data: { enqueued: true } });
+  });
+
+  app.get('/v1/reconciliation/jobs', async (request, reply) => {
+    if (!requireWriteScope(request, reply)) {
+      return;
+    }
+
+    const parseResult = listReconciliationJobsQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid reconciliation job query',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    const query = parseResult.data;
+    const limit = query.limit ? Math.min(query.limit, 200) : 50;
+    const offset = query.offset ?? 0;
+    const normalizedPath = query.path ? query.path.trim() : undefined;
+
+    try {
+      const result = await withConnection((client) =>
+        listReconciliationJobs(client, {
+          backendMountId: query.backendMountId,
+          path: normalizedPath,
+          status: query.status,
+          limit,
+          offset
+        })
+      );
+
+      const jobs = result.jobs.map(serializeReconciliationJobRecord);
+      const nextOffset = offset + jobs.length < result.total ? offset + jobs.length : null;
+
+      return reply.status(200).send({
+        data: {
+          jobs,
+          pagination: {
+            total: result.total,
+            limit,
+            offset,
+            nextOffset
+          },
+          filters: {
+            backendMountId: query.backendMountId ?? null,
+            path: normalizedPath ?? null,
+            status: query.status ?? []
+          }
+        }
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get('/v1/reconciliation/jobs/:id', async (request, reply) => {
+    if (!requireWriteScope(request, reply)) {
+      return;
+    }
+
+    const parseResult = reconciliationJobIdParamsSchema.safeParse(request.params);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Invalid reconciliation job identifier',
+          details: parseResult.error.flatten()
+        }
+      });
+    }
+
+    try {
+      const job = await withConnection((client) =>
+        getReconciliationJobById(client, parseResult.data.id)
+      );
+      if (!job) {
+        return reply.status(404).send({
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Reconciliation job not found'
+          }
+        });
+      }
+      return reply.status(200).send({ data: serializeReconciliationJobRecord(job) });
+    } catch (err) {
+      return sendError(reply, err);
+    }
   });
 
   app.get('/v1/events/stream', async (request, reply) => {

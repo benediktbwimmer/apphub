@@ -13,8 +13,10 @@ import type {
   FilestoreNodeDownloadedPayload,
   FilestoreNodeReconciledPayload,
   FilestoreNodeKind,
-  FilestoreNodeState
+  FilestoreNodeState,
+  FilestoreReconciliationJobEventPayload
 } from '@apphub/shared/filestoreEvents';
+import type { ReconciliationJobRecord } from '../db/reconciliationJobs';
 import { createEventPublisher, type EventEnvelope, type JsonValue } from '@apphub/event-bus';
 export type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 
@@ -366,6 +368,66 @@ export async function emitNodeMissingEvent(payload: FilestoreNodeReconciledPaylo
 
 export async function emitNodeDownloadedEvent(payload: FilestoreNodeDownloadedPayload): Promise<void> {
   await emitFilestoreEvent({ type: 'filestore.node.downloaded', data: payload });
+}
+
+function formatDate(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function serializeReconciliationJob(
+  record: ReconciliationJobRecord
+): FilestoreReconciliationJobEventPayload {
+  return {
+    id: record.id,
+    jobKey: record.jobKey,
+    backendMountId: record.backendMountId,
+    nodeId: record.nodeId,
+    path: record.path,
+    reason: record.reason,
+    status: record.status,
+    detectChildren: record.detectChildren,
+    requestedHash: record.requestedHash,
+    attempt: record.attempt,
+    result: record.result ?? null,
+    error: record.error ?? null,
+    enqueuedAt: record.enqueuedAt.toISOString(),
+    startedAt: formatDate(record.startedAt),
+    completedAt: formatDate(record.completedAt),
+    durationMs: record.durationMs ?? null,
+    updatedAt: record.updatedAt.toISOString()
+  } satisfies FilestoreReconciliationJobEventPayload;
+}
+
+async function emitReconciliationJobEvent(
+  type:
+    | 'filestore.reconciliation.job.queued'
+    | 'filestore.reconciliation.job.started'
+    | 'filestore.reconciliation.job.completed'
+    | 'filestore.reconciliation.job.failed'
+    | 'filestore.reconciliation.job.cancelled',
+  record: ReconciliationJobRecord
+): Promise<void> {
+  await emitFilestoreEvent({ type, data: serializeReconciliationJob(record) });
+}
+
+export async function emitReconciliationJobQueuedEvent(record: ReconciliationJobRecord): Promise<void> {
+  await emitReconciliationJobEvent('filestore.reconciliation.job.queued', record);
+}
+
+export async function emitReconciliationJobStartedEvent(record: ReconciliationJobRecord): Promise<void> {
+  await emitReconciliationJobEvent('filestore.reconciliation.job.started', record);
+}
+
+export async function emitReconciliationJobCompletedEvent(record: ReconciliationJobRecord): Promise<void> {
+  await emitReconciliationJobEvent('filestore.reconciliation.job.completed', record);
+}
+
+export async function emitReconciliationJobFailedEvent(record: ReconciliationJobRecord): Promise<void> {
+  await emitReconciliationJobEvent('filestore.reconciliation.job.failed', record);
+}
+
+export async function emitReconciliationJobCancelledEvent(record: ReconciliationJobRecord): Promise<void> {
+  await emitReconciliationJobEvent('filestore.reconciliation.job.cancelled', record);
 }
 
 export function getFilestoreEventsMode(): 'inline' | 'redis' {

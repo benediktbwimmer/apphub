@@ -127,7 +127,7 @@ export async function reconcileLocal(
 
   const normalizedPath = job.path.trim();
   if (!normalizedPath) {
-    return { status: 'skipped', reason: job.reason };
+    return { outcome: 'skipped', reason: job.reason };
   }
 
   const root = path.resolve(backend.rootPath);
@@ -149,7 +149,7 @@ export async function reconcileLocal(
 
   if (!stats) {
     if (!node) {
-      return { status: 'skipped', reason: job.reason };
+      return { outcome: 'skipped', reason: job.reason };
     }
 
     const beforeContribution = computeContribution(node);
@@ -179,7 +179,7 @@ export async function reconcileLocal(
     }
 
     return {
-      status: 'missing',
+      outcome: 'missing',
       reason: job.reason,
       node: updated,
       previousNode: node,
@@ -244,7 +244,7 @@ export async function reconcileLocal(
     }
 
     return {
-      status: 'reconciled',
+      outcome: 'reconciled',
       reason: job.reason,
       node: inserted,
       previousNode: null,
@@ -284,7 +284,7 @@ export async function reconcileLocal(
   }
 
   return {
-    status: 'reconciled',
+    outcome: 'reconciled',
     reason: job.reason,
     node: updated,
     previousNode: node,

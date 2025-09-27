@@ -7,8 +7,10 @@ import {
   enqueueReconciliation,
   fetchNodeById,
   fetchNodeChildren,
+  fetchReconciliationJob,
   listBackendMounts,
   listNodes,
+  listReconciliationJobs,
   presignNodeDownload,
   updateNodeMetadata,
   subscribeToFilestoreEvents,
@@ -22,7 +24,11 @@ import {
   type FilestoreNodeState,
   type FilestorePagination,
   type FilestoreReconciliationReason,
-  type ListNodesParams
+  type FilestoreReconciliationJobDetail,
+  type FilestoreReconciliationJobList,
+  type FilestoreReconciliationJobStatus,
+  type ListNodesParams,
+  type ListReconciliationJobsParams
 } from './api';
 import { FILESTORE_BASE_URL } from '../config';
 import { formatBytes } from '../catalog/utils';
@@ -60,6 +66,30 @@ const STATE_BADGE_CLASS: Record<FilestoreNodeState, string> = {
   deleted: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
   unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
 };
+const JOB_STATUS_OPTIONS: FilestoreReconciliationJobStatus[] = [
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'skipped',
+  'cancelled'
+];
+const JOB_STATUS_LABEL: Record<FilestoreReconciliationJobStatus, string> = {
+  queued: 'Queued',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  cancelled: 'Cancelled'
+};
+const JOB_STATUS_BADGE_CLASS: Record<FilestoreReconciliationJobStatus, string> = {
+  queued: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200',
+  running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200',
+  succeeded: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
+  failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
+  skipped: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
+  cancelled: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+};
 const CONSISTENCY_LABEL: Record<string, string> = {
   active: 'Consistent',
   inconsistent: 'Drift',
@@ -76,7 +106,12 @@ const SSE_EVENT_TYPES: FilestoreEventType[] = [
   'filestore.drift.detected',
   'filestore.node.reconciled',
   'filestore.node.missing',
-  'filestore.node.downloaded'
+  'filestore.node.downloaded',
+  'filestore.reconciliation.job.queued',
+  'filestore.reconciliation.job.started',
+  'filestore.reconciliation.job.completed',
+  'filestore.reconciliation.job.failed',
+  'filestore.reconciliation.job.cancelled'
 ];
 const MOUNT_STORAGE_KEY = 'apphub.filestore.selectedMountId';
 const SHOULD_LOAD_PLAYBOOK_WORKFLOWS = playbooksRequireWorkflows(FILESTORE_DRIFT_PLAYBOOKS);
@@ -84,6 +119,8 @@ type RefreshTimers = {
   list: number | null;
   node: number | null;
   children: number | null;
+  jobs: number | null;
+  jobDetail: number | null;
 };
 
 type DownloadStatus = {
@@ -105,6 +142,28 @@ function formatTimestamp(value: string | null | undefined): string {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(date);
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  if (value < 1000) {
+    return `${Math.round(value)} ms`;
+  }
+  const seconds = value / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(2)} s`;
+  }
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return `${minutes}m ${remaining.toFixed(0)}s`;
 }
 
 function buildListParams(input: {
@@ -160,10 +219,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [driftOnly, setDriftOnly] = useState(false);
   const [offset, setOffset] = useState(0);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
+  const [jobStatusFilters, setJobStatusFilters] = useState<FilestoreReconciliationJobStatus[]>([]);
+  const [jobPathDraft, setJobPathDraft] = useState('');
+  const [jobPathFilter, setJobPathFilter] = useState<string | null>(null);
+  const [jobListOffset, setJobListOffset] = useState(0);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [downloadStatusByNode, setDownloadStatusByNode] = useState<Record<number, DownloadStatus>>({});
 
-  const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null });
+  const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null, jobs: null, jobDetail: null });
 
   const registerMountId = useCallback(
     (value: number | null | undefined) => {
@@ -255,6 +319,62 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     enabled: selectedNodeId !== null
   });
 
+  const jobsFetcher = useCallback(
+    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+      if (!hasWriteScope) {
+        throw new Error('filestore:write scope required to list reconciliation jobs');
+      }
+      if (backendMountId === null) {
+        throw new Error('Backend mount not selected');
+      }
+      const params: ListReconciliationJobsParams = {
+        backendMountId,
+        limit: 20,
+        offset: jobListOffset,
+        path: jobPathFilter,
+        statuses: jobStatusFilters.length > 0 ? jobStatusFilters : undefined
+      };
+      return listReconciliationJobs(fetchFn, params, { signal });
+    },
+    [backendMountId, hasWriteScope, jobListOffset, jobPathFilter, jobStatusFilters]
+  );
+
+  const {
+    data: jobListData,
+    error: jobListError,
+    loading: jobListLoading,
+    refetch: refetchJobs
+  } = usePollingResource<FilestoreReconciliationJobList>({
+    fetcher: jobsFetcher,
+    intervalMs: 10000,
+    enabled: backendMountId !== null && hasWriteScope
+  });
+
+  const jobDetailFetcher = useCallback(
+    async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+      if (!hasWriteScope) {
+        throw new Error('filestore:write scope required to inspect reconciliation jobs');
+      }
+      if (selectedJobId === null) {
+        throw new Error('Job not selected');
+      }
+      return fetchReconciliationJob(fetchFn, selectedJobId, { signal });
+    },
+    [hasWriteScope, selectedJobId]
+  );
+
+  const {
+    data: jobDetailData,
+    error: jobDetailError,
+    loading: jobDetailLoading,
+    refetch: refetchJobDetail
+  } = usePollingResource<FilestoreReconciliationJobDetail>({
+    fetcher: jobDetailFetcher,
+    intervalMs: 15000,
+    enabled: selectedJobId !== null && hasWriteScope,
+    immediate: selectedJobId !== null
+  });
+
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -338,6 +458,24 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   useEffect(() => {
     registerMountId(backendMountId);
   }, [backendMountId, registerMountId]);
+
+  useEffect(() => {
+    if (!hasWriteScope) {
+      setSelectedJobId(null);
+      return;
+    }
+    setJobListOffset(0);
+  }, [backendMountId, hasWriteScope, jobStatusFilters, jobPathFilter]);
+
+  useEffect(() => {
+    if (!jobListData || jobListData.jobs.length === 0) {
+      setSelectedJobId(null);
+      return;
+    }
+    if (selectedJobId === null || !jobListData.jobs.some((job) => job.id === selectedJobId)) {
+      setSelectedJobId(jobListData.jobs[0].id);
+    }
+  }, [jobListData, selectedJobId]);
 
   useEffect(() => {
     if (selectedNode) {
@@ -451,6 +589,19 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             scheduleRefresh('children', refetchChildren);
           }
         }
+
+        if (
+          event.type.startsWith('filestore.reconciliation.job') &&
+          hasWriteScope &&
+          backendMountId !== null &&
+          'backendMountId' in event.data &&
+          event.data.backendMountId === backendMountId
+        ) {
+          scheduleRefresh('jobs', refetchJobs);
+          if (selectedJobId !== null && 'id' in event.data && event.data.id === selectedJobId) {
+            scheduleRefresh('jobDetail', refetchJobDetail);
+          }
+        }
       },
       {
         eventTypes: SSE_EVENT_TYPES,
@@ -468,15 +619,20 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     backendMountId,
     refetchChildren,
     refetchList,
+    refetchJobDetail,
+    refetchJobs,
     refetchNode,
     registerMountId,
     scheduleRefresh,
+    hasWriteScope,
     selectedNode?.path,
     selectedNodeId,
+    selectedJobId,
     showInfo
   ]);
 
   const stateFilterSet = useMemo(() => new Set(stateFilters), [stateFilters]);
+  const jobStatusFilterSet = useMemo(() => new Set(jobStatusFilters), [jobStatusFilters]);
 
   const handleToggleState = useCallback(
     (state: FilestoreNodeState) => {
@@ -491,11 +647,30 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     []
   );
 
+  const handleToggleJobStatus = useCallback((status: FilestoreReconciliationJobStatus) => {
+    setJobStatusFilters((prev) => {
+      if (prev.includes(status)) {
+        return prev.filter((value) => value !== status);
+      }
+      return [...prev, status];
+    });
+    setJobListOffset(0);
+  }, []);
+
   const handleApplyPath = useCallback(
     (value: string) => {
       const trimmed = value.trim();
       setActivePath(trimmed.length > 0 ? trimmed : null);
       setOffset(0);
+    },
+    []
+  );
+
+  const handleApplyJobPath = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      setJobPathFilter(trimmed.length > 0 ? trimmed : null);
+      setJobListOffset(0);
     },
     []
   );
@@ -984,9 +1159,28 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     []
   );
 
+  const handleJobPaginationChange = useCallback(
+    (nextOffset: number | null) => {
+      if (nextOffset === null) {
+        return;
+      }
+      setJobListOffset(nextOffset);
+    },
+    []
+  );
+
   const listErrorMessage = listError instanceof Error ? listError.message : null;
   const nodeErrorMessage = nodeError instanceof Error ? nodeError.message : null;
   const childrenErrorMessage = childrenError instanceof Error ? childrenError.message : null;
+  const jobListErrorMessage =
+    jobListError instanceof Error ? jobListError.message : jobListError ? String(jobListError) : null;
+  const jobDetailErrorMessage =
+    jobDetailError instanceof Error ? jobDetailError.message : jobDetailError ? String(jobDetailError) : null;
+  const jobList = jobListData?.jobs ?? [];
+  const jobPagination = jobListData?.pagination ?? null;
+  const selectedJob = selectedJobId
+    ? jobDetailData ?? jobList.find((job) => job.id === selectedJobId) ?? null
+    : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -1789,30 +1983,300 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           ) : null}
         </section>
 
-        <section className="flex h-full flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Activity feed</h3>
-            <span className="text-xs text-slate-400 dark:text-slate-500">Live SSE updates</span>
-          </div>
-          <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
-            {activity.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Awaiting incoming events…</div>
+        <div className="flex h-full flex-col gap-4">
+          <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Reconciliation jobs</h3>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Monitor queue progress and inspect individual runs.</p>
+              </div>
+              <span className="text-xs text-slate-400 dark:text-slate-500">Live SSE updates</span>
+            </div>
+            {!hasWriteScope ? (
+              <p className="rounded-lg border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
+                Provide a token with the filestore:write scope to review reconciliation jobs.
+              </p>
             ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {activity.map((entry) => (
-                  <li key={entry.id} className="px-4 py-3 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{entry.label}</span>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500">Mount {entry.backendMountId ?? '–'}</span>
+              <div className="flex flex-col gap-4">
+                <form
+                  className="space-y-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleApplyJobPath(jobPathDraft);
+                  }}
+                >
+                  <label htmlFor="filestore-job-path" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Filter by path prefix
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="filestore-job-path"
+                      value={jobPathDraft}
+                      onChange={(event) => setJobPathDraft(event.target.value)}
+                      placeholder="datasets/observatory"
+                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  {jobPathFilter ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobPathFilter(null);
+                        setJobPathDraft('');
+                        setJobListOffset(0);
+                      }}
+                      className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                    >
+                      Clear path filter
+                    </button>
+                  ) : null}
+                </form>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Statuses</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobStatusFilters([]);
+                        setJobListOffset(0);
+                      }}
+                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {JOB_STATUS_OPTIONS.map((status) => (
+                      <button
+                        key={`job-status-${status}`}
+                        type="button"
+                        onClick={() => handleToggleJobStatus(status)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          jobStatusFilterSet.has(status)
+                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {JOB_STATUS_LABEL[status]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/60">
+                  <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                    <span>Recent jobs</span>
+                    <span>
+                      {jobListLoading && jobList.length === 0
+                        ? 'Loading…'
+                        : jobPagination
+                          ? `${jobPagination.total} total`
+                          : `${jobList.length} loaded`}
+                    </span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {jobListLoading && jobList.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Loading reconciliation jobs…</div>
+                    ) : jobList.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">No jobs matched the current filters.</div>
+                    ) : (
+                      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {jobList.map((job) => {
+                          const isSelected = selectedJobId === job.id;
+                          const outcome =
+                            job.result && typeof job.result === 'object' && 'outcome' in job.result
+                              ? String((job.result as Record<string, unknown>).outcome)
+                              : null;
+                          return (
+                            <li key={`job-${job.id}`}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedJobId(job.id)}
+                                className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left transition ${
+                                  isSelected
+                                    ? 'bg-slate-900/5 hover:bg-slate-900/10 dark:bg-slate-100/10 dark:hover:bg-slate-100/15'
+                                    : 'hover:bg-slate-900/5 dark:hover:bg-slate-100/10'
+                                }`}
+                              >
+                                <div className="flex w-full items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    {job.status === 'running' ? (
+                                      <span className="h-2 w-2 animate-ping rounded-full bg-blue-500/80" aria-hidden="true" />
+                                    ) : null}
+                                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                                      {job.path}
+                                    </span>
+                                  </div>
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${JOB_STATUS_BADGE_CLASS[job.status]}`}>
+                                    {JOB_STATUS_LABEL[job.status]}
+                                  </span>
+                                </div>
+                                <div className="flex w-full flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                  <span>{job.reason}</span>
+                                  <span aria-hidden="true">•</span>
+                                  <span>{formatTimestamp(job.updatedAt)}</span>
+                                  {outcome ? (
+                                    <>
+                                      <span aria-hidden="true">•</span>
+                                      <span className="text-slate-400">Outcome {outcome}</span>
+                                    </>
+                                  ) : null}
+                                  {job.error ? (
+                                    <>
+                                      <span aria-hidden="true">•</span>
+                                      <span className="text-rose-500">Error</span>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                  {jobPagination ? (
+                    <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2 text-xs dark:border-slate-800 dark:bg-slate-900">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleJobPaginationChange(Math.max(jobPagination.offset - jobPagination.limit, 0))
+                        }
+                        disabled={jobPagination.offset === 0}
+                        className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Page {Math.floor(jobPagination.offset / jobPagination.limit) + 1}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleJobPaginationChange(jobPagination.nextOffset)}
+                        disabled={jobPagination.nextOffset == null}
+                        className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
+                      >
+                        Next
+                      </button>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{entry.detail}</p>
-                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{formatTimestamp(entry.timestamp)}</p>
-                  </li>
-                ))}
-              </ul>
+                  ) : null}
+                </div>
+
+                {jobListErrorMessage ? (
+                  <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
+                    {jobListErrorMessage}
+                  </p>
+                ) : null}
+
+                <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Job detail
+                  </h4>
+                  {jobDetailLoading && selectedJobId !== null ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-300">Loading job details…</p>
+                  ) : jobDetailErrorMessage ? (
+                    <p className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
+                      {jobDetailErrorMessage}
+                    </p>
+                  ) : !selectedJob ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-300">Select a reconciliation job to inspect details.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{selectedJob.path}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Mount {selectedJob.backendMountId} · Reason {selectedJob.reason}
+                          </p>
+                        </div>
+                        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase ${JOB_STATUS_BADGE_CLASS[selectedJob.status]}`}>
+                          {JOB_STATUS_LABEL[selectedJob.status]}
+                        </span>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-3 text-xs text-slate-500 dark:text-slate-400">
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Node</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{selectedJob.nodeId ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Attempt</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{selectedJob.attempt}</dd>
+                        </div>
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Enqueued</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.enqueuedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Started</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.startedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Completed</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatTimestamp(selectedJob.completedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt className="uppercase tracking-wide text-[10px]">Duration</dt>
+                          <dd className="mt-1 text-slate-700 dark:text-slate-300">{formatDurationMs(selectedJob.durationMs)}</dd>
+                        </div>
+                      </dl>
+                      {selectedJob.result &&
+                      typeof selectedJob.result === 'object' &&
+                      'outcome' in selectedJob.result &&
+                      (selectedJob.result as Record<string, unknown>).outcome ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Outcome {(selectedJob.result as Record<string, unknown>).outcome as string}
+                        </p>
+                      ) : null}
+                      {selectedJob.error && typeof selectedJob.error === 'object' ? (
+                        <div className="rounded-lg border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/40 dark:text-rose-200">
+                          <p className="font-semibold">{String((selectedJob.error as Record<string, unknown>).message ?? 'Reconciliation failed')}</p>
+                          <p className="mt-1">
+                            Review reconciliation worker logs or retry the job after addressing the underlying issue.
+                          </p>
+                        </div>
+                      ) : null}
+                      {selectedJob.status === 'running' ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Job is currently running. Updates will appear automatically.</p>
+                      ) : null}
+                    </div>
+                  )}
+                </article>
+              </div>
             )}
-          </div>
-        </section>
+          </section>
+
+          <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Activity feed</h3>
+              <span className="text-xs text-slate-400 dark:text-slate-500">Live SSE updates</span>
+            </div>
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
+              {activity.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Awaiting incoming events…</div>
+              ) : (
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {activity.map((entry) => (
+                    <li key={entry.id} className="px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-slate-700 dark:text-slate-200">{entry.label}</span>
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500">Mount {entry.backendMountId ?? '–'}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{entry.detail}</p>
+                      <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{formatTimestamp(entry.timestamp)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
