@@ -853,7 +853,6 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     for (const workflow of workflowDefinitions) {
       const defaults = (workflow.defaultParameters ??= {} as Record<string, unknown>);
       if (workflow.slug === config.workflows.generatorSlug) {
-        defaults.inboxDir = paths.inbox;
         defaults.filestoreBaseUrl = config.filestore.baseUrl;
         defaults.filestoreBackendId = config.filestore.backendMountId;
         defaults.inboxPrefix = config.filestore.inboxPrefix;
@@ -892,7 +891,6 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     const archiveMinuteFilename = minuteIsoMatch ? `${minuteIsoMatch[3]}.csv` : `${minuteKey}.csv`;
 
     await runWorkflow(app, config.workflows.generatorSlug, minute, {
-      inboxDir: paths.inbox,
       minute,
       rowsPerInstrument: OBSERVATORY_ROWS_PER_INSTRUMENT,
       intervalMinutes: OBSERVATORY_INTERVAL_MINUTES,

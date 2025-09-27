@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
@@ -15,6 +16,50 @@ const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-minute-ingest',
   'observatory-daily-publication'
 ]);
+
+function resolveHostRootMount(): string | null {
+  const raw = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH;
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const resolved = path.resolve(trimmed);
+  if (!path.isAbsolute(resolved)) {
+    return null;
+  }
+  return resolved;
+}
+
+const HOST_ROOT_MOUNT = resolveHostRootMount();
+
+function resolveContainerPath(targetPath: string): string {
+  const absolute = path.resolve(targetPath);
+  if (!HOST_ROOT_MOUNT) {
+    return absolute;
+  }
+  if (existsSync(absolute)) {
+    return absolute;
+  }
+  if (
+    absolute === HOST_ROOT_MOUNT ||
+    absolute.startsWith(`${HOST_ROOT_MOUNT}${path.sep}`)
+  ) {
+    return absolute;
+  }
+  const relativeFromRoot = path.relative('/', absolute);
+  if (!relativeFromRoot || relativeFromRoot.startsWith('..')) {
+    return absolute;
+  }
+  return path.join(HOST_ROOT_MOUNT, relativeFromRoot);
+}
+
+function isWithinDirectory(base: string, target: string): boolean {
+  const relative = path.relative(base, target);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
 
 function ensureJsonObject(value: JsonValue | undefined): JsonObject {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -68,7 +113,6 @@ export function applyObservatoryWorkflowDefaults(
 
   switch (definition.slug) {
     case 'observatory-minute-data-generator':
-      defaults.inboxDir = config.paths.inbox;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
       defaults.filestoreBackendId = config.filestore.backendMountId;
       defaults.inboxPrefix = config.filestore.inboxPrefix;
@@ -114,20 +158,28 @@ function quoteIdentifier(identifier: string): string {
 }
 
 function resolveBackendRoot(config: EventDrivenObservatoryConfig): string {
-  const parents = new Set<string>();
-  const candidates = [config.paths.inbox, config.paths.staging, config.paths.archive]
+  const directories = [config.paths.inbox, config.paths.staging, config.paths.archive]
     .filter(Boolean)
-    .map((entry) => path.dirname(path.resolve(entry)));
+    .map((entry) => resolveContainerPath(entry));
 
-  for (const parent of candidates) {
-    parents.add(parent);
+  if (directories.length === 0) {
+    throw new Error('Observatory configuration is missing directories for filestore backend root resolution');
   }
 
-  if (parents.size === 1) {
-    return parents.values().next().value as string;
+  let candidate = directories[0];
+  while (candidate) {
+    const normalized = resolveContainerPath(candidate);
+    if (directories.every((dir) => isWithinDirectory(normalized, dir))) {
+      return normalized;
+    }
+    const parent = path.dirname(normalized);
+    if (parent === normalized) {
+      return normalized;
+    }
+    candidate = parent;
   }
 
-  return candidates[0] ?? path.dirname(path.resolve(config.paths.inbox));
+  return directories[0];
 }
 
 async function ensurePaths(config: EventDrivenObservatoryConfig): Promise<void> {
@@ -143,7 +195,8 @@ async function ensurePaths(config: EventDrivenObservatoryConfig): Promise<void> 
     if (!entry) {
       continue;
     }
-    await mkdir(path.resolve(entry), { recursive: true });
+    const containerPath = resolveContainerPath(entry);
+    await mkdir(containerPath, { recursive: true });
   }
 }
 
@@ -192,7 +245,15 @@ export async function ensureObservatoryBackend(
       ]
     );
 
-    const backendId = result.rows[0]?.id;
+    options?.logger?.debug?.({ rows: result.rows }, 'Ensured observatory filestore backend');
+
+    const rawBackendId = result.rows[0]?.id;
+    const backendId =
+      typeof rawBackendId === 'string'
+        ? Number.parseInt(rawBackendId, 10)
+        : typeof rawBackendId === 'number'
+          ? rawBackendId
+          : null;
     if (typeof backendId !== 'number' || !Number.isFinite(backendId)) {
       throw new Error('Failed to resolve filestore backend id after insert');
     }

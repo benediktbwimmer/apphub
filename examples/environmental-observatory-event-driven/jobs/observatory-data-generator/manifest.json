@@ -1,8 +1,8 @@
 {
   "name": "Observatory Data Generator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "dist/index.js",
   "runtime": "node18",
-  "description": "Produces synthetic minute-level instrument CSVs for the observatory inbox.",
+  "description": "Produces synthetic minute-level instrument CSVs and uploads them to Filestore.",
   "capabilities": ["fs"]
 }

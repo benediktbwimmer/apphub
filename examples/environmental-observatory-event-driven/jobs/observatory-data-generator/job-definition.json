@@ -3,7 +3,7 @@
   "name": "Observatory Inbox Data Generator",
   "type": "batch",
   "runtime": "node",
-  "entryPoint": "bundle:observatory-data-generator@0.1.0#handler",
+  "entryPoint": "bundle:observatory-data-generator@0.2.0#handler",
   "timeoutMs": 120000,
   "retryPolicy": {
     "maxAttempts": 3,
@@ -13,7 +13,6 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "inboxDir": { "type": "string", "minLength": 1 },
       "minute": {
         "type": "string",
         "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -46,7 +45,6 @@
       }
     },
     "required": [
-      "inboxDir",
       "minute",
       "filestoreBaseUrl",
       "filestoreBackendId",
@@ -56,7 +54,6 @@
     ]
   },
   "defaultParameters": {
-    "inboxDir": "examples/environmental-observatory-event-driven/data/inbox",
     "rowsPerInstrument": 6,
     "intervalMinutes": 10,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -70,46 +67,43 @@
     "type": "object",
     "properties": {
       "partitionKey": { "type": "string" },
-          "generated": {
-            "type": "object",
-            "properties": {
-              "generatedAt": { "type": "string", "format": "date-time" },
-              "partitionKey": { "type": "string" },
-              "inboxDir": { "type": "string" },
-              "filestoreInboxPrefix": { "type": "string" },
-              "filestoreBackendId": { "type": "number" },
-              "seed": { "type": "number" },
-              "rowsGenerated": { "type": "number" },
-              "instrumentCount": { "type": "number" },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "instrumentId": { "type": "string" },
-                    "site": { "type": "string" },
-                    "relativePath": { "type": "string" },
-                    "absolutePath": { "type": "string" },
-                    "filestorePath": { "type": "string" },
-                    "rows": { "type": "number" },
-                    "firstTimestamp": { "type": "string", "format": "date-time" },
-                    "lastTimestamp": { "type": "string", "format": "date-time" }
-                  },
-                  "required": ["instrumentId", "relativePath", "filestorePath", "rows"]
-                }
-              }
-            },
-            "required": [
-              "generatedAt",
-              "partitionKey",
-              "inboxDir",
-              "filestoreInboxPrefix",
-              "filestoreBackendId",
-              "seed",
-              "rowsGenerated",
-              "instrumentCount",
-              "files"
-            ]
+      "generated": {
+        "type": "object",
+        "properties": {
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "partitionKey": { "type": "string" },
+          "filestoreInboxPrefix": { "type": "string" },
+          "filestoreBackendId": { "type": "number" },
+          "seed": { "type": "number" },
+          "rowsGenerated": { "type": "number" },
+          "instrumentCount": { "type": "number" },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "instrumentId": { "type": "string" },
+                "site": { "type": "string" },
+                "relativePath": { "type": "string" },
+                "filestorePath": { "type": "string" },
+                "rows": { "type": "number" },
+                "firstTimestamp": { "type": "string", "format": "date-time" },
+                "lastTimestamp": { "type": "string", "format": "date-time" }
+              },
+              "required": ["instrumentId", "relativePath", "filestorePath", "rows"]
+            }
+          }
+        },
+        "required": [
+          "generatedAt",
+          "partitionKey",
+          "filestoreInboxPrefix",
+          "filestoreBackendId",
+          "seed",
+          "rowsGenerated",
+          "instrumentCount",
+          "files"
+        ]
       },
       "assets": {
         "type": "array",

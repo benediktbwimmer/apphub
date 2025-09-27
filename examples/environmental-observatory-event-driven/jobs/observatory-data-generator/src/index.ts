@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -25,7 +24,6 @@ type InstrumentProfile = {
 };
 
 type ObservatoryGeneratorParameters = {
-  inboxDir: string;
   minute: string;
   rowsPerInstrument: number;
   intervalMinutes: number;
@@ -44,7 +42,6 @@ type GeneratedFileSummary = {
   instrumentId: string;
   site: string;
   relativePath: string;
-  absolutePath: string;
   filestorePath: string;
   rows: number;
   firstTimestamp: string;
@@ -54,7 +51,6 @@ type GeneratedFileSummary = {
 type GeneratorAssetPayload = {
   generatedAt: string;
   partitionKey: string;
-  inboxDir: string;
   seed: number;
   files: GeneratedFileSummary[];
   rowsGenerated: number;
@@ -225,15 +221,6 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     throw new Error('Parameters must be an object');
   }
 
-  const defaultInboxDir = ensureString(
-    process.env.OBSERVATORY_INBOX_PATH ?? process.env.FILE_WATCH_ROOT,
-    path.resolve(process.cwd(), 'data', 'inbox')
-  );
-  const inboxDir = ensureString(raw.inboxDir ?? raw.inbox_dir, defaultInboxDir);
-  if (!inboxDir) {
-    throw new Error('inboxDir parameter is required');
-  }
-
   const scheduledFor = ensureString(
     raw.scheduledFor ?? raw.scheduled_for ?? raw.scheduledAt ?? raw.scheduled_at
   );
@@ -323,7 +310,6 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
   );
 
   return {
-    inboxDir,
     minute,
     rowsPerInstrument,
     intervalMinutes,
@@ -457,13 +443,11 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   let seedOffset = parameters.seed;
 
   const normalizedInboxPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
-  const localInboxDir = parameters.inboxDir;
 
   for (const profile of parameters.instrumentProfiles) {
     seedOffset += 1;
     const rng = createRng(seedOffset);
     const fileName = `${profile.instrumentId}_${stamp}.csv`;
-    const absolutePath = path.resolve(localInboxDir, fileName);
     const firstSampleDate = new Date(
       startDate.getTime() - (parameters.rowsPerInstrument - 1) * parameters.intervalMinutes * 60_000
     );
@@ -496,7 +480,6 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       instrumentId: profile.instrumentId,
       site: profile.site,
       relativePath: fileName,
-      absolutePath,
       filestorePath,
       rows: metrics.rows,
       firstTimestamp: metrics.firstTimestamp,
@@ -515,7 +498,6 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const payload: GeneratorAssetPayload = {
     generatedAt,
     partitionKey: parameters.minute,
-    inboxDir: parameters.inboxDir,
     seed: parameters.seed,
     files: summaries,
     rowsGenerated: totalRows,

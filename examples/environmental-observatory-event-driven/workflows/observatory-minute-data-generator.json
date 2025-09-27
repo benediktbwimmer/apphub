@@ -1,15 +1,11 @@
 {
   "slug": "observatory-minute-data-generator",
   "name": "Observatory Minute Data Generator",
-  "version": 1,
-  "description": "Produces synthetic minute-level CSV drops to simulate instrument readings arriving in the inbox.",
+  "version": 2,
+  "description": "Uploads synthetic minute-level CSV drops to Filestore to simulate instrument readings arriving in the inbox.",
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "inboxDir": {
-        "type": "string",
-        "minLength": 1
-      },
       "minute": {
         "type": "string",
         "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -55,7 +51,6 @@
       }
     },
     "required": [
-      "inboxDir",
       "minute",
       "filestoreBaseUrl",
       "filestoreBackendId",
@@ -65,7 +60,6 @@
     ]
   },
   "defaultParameters": {
-    "inboxDir": "examples/environmental-observatory-event-driven/data/inbox",
     "rowsPerInstrument": 6,
     "intervalMinutes": 10,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -83,7 +77,6 @@
       "type": "job",
       "jobSlug": "observatory-data-generator",
       "parameters": {
-        "inboxDir": "{{ parameters.inboxDir }}",
         "minute": "{{ parameters.minute }}",
         "rowsPerInstrument": "{{ parameters.rowsPerInstrument }}",
         "intervalMinutes": "{{ parameters.intervalMinutes }}",
@@ -114,9 +107,6 @@
                 "format": "date-time"
               },
               "partitionKey": {
-                "type": "string"
-              },
-              "inboxDir": {
                 "type": "string"
               },
               "filestoreInboxPrefix": {
@@ -164,7 +154,6 @@
             "required": [
               "generatedAt",
               "partitionKey",
-              "inboxDir",
               "filestoreInboxPrefix",
               "filestoreBackendId",
               "rowsGenerated",
@@ -192,7 +181,6 @@
           "catchUp": false,
           "isActive": true,
           "parameters": {
-            "inboxDir": "{{ defaultParameters.inboxDir }}",
             "rowsPerInstrument": "{{ defaultParameters.rowsPerInstrument }}",
             "intervalMinutes": "{{ defaultParameters.intervalMinutes }}",
             "filestoreBaseUrl": "{{ defaultParameters.filestoreBaseUrl }}",

@@ -55,7 +55,7 @@ async function run(): Promise<void> {
   } as const;
 
   const placeholderValues = new Map<string, string>([
-    ['OBSERVATORY_INBOX_PATH', config.paths.inbox],
+    ['OBSERVATORY_DATA_ROOT', path.dirname(config.paths.staging)],
     ['OBSERVATORY_STAGING_PATH', config.paths.staging],
     ['OBSERVATORY_ARCHIVE_PATH', config.paths.archive],
     ['OBSERVATORY_PLOTS_PATH', config.paths.plots],
@@ -113,7 +113,7 @@ async function run(): Promise<void> {
   assert(generatorDefaults, 'generator defaults should be registered');
   const generator = await loadWorkflow('observatory-minute-data-generator');
   mergeDefaultParameters(generator, generatorDefaults);
-  assert.equal(generator.defaultParameters?.inboxDir, config.paths.inbox);
+  assert(!('inboxDir' in (generator.defaultParameters ?? {})));
   assert.equal(generator.defaultParameters?.filestoreBaseUrl, config.filestore.baseUrl);
   assert.equal(generator.defaultParameters?.filestoreBackendId, config.filestore.backendMountId);
   assert.equal(generator.defaultParameters?.filestoreToken, config.filestore.token);

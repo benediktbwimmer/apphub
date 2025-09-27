@@ -102,45 +102,19 @@ export function createEventDrivenObservatoryConfig(
       : path.join(exampleRoot, '.generated', 'observatory-config.json')
   );
 
-  const config: ObservatoryConfig = {
-    paths: {
-      inbox: resolvePathValue(
-        repoRoot,
-        getVar('OBSERVATORY_INBOX_PATH'),
-        path.join(defaultDataDir, 'inbox'),
-        'paths.inbox'
-      ),
-      staging: resolvePathValue(
-        repoRoot,
-        getVar('OBSERVATORY_STAGING_PATH'),
-        path.join(defaultDataDir, 'staging'),
-        'paths.staging'
-      ),
-      archive: resolvePathValue(
-        repoRoot,
-        getVar('OBSERVATORY_ARCHIVE_PATH'),
-        path.join(defaultDataDir, 'archive'),
-        'paths.archive'
-      ),
-      plots: resolvePathValue(
-        repoRoot,
-        getVar('OBSERVATORY_PLOTS_PATH'),
-        path.join(defaultDataDir, 'plots'),
-        'paths.plots'
-      ),
-      reports: resolvePathValue(
-        repoRoot,
-        getVar('OBSERVATORY_REPORTS_PATH'),
-        path.join(defaultDataDir, 'reports'),
-        'paths.reports'
-      )
-    },
-    filestore: {
-      baseUrl: resolveString(
-        getVar('OBSERVATORY_FILESTORE_BASE_URL'),
-        'http://127.0.0.1:4300',
-        'filestore.baseUrl'
-      ),
+  const dataRoot = resolvePathValue(
+    repoRoot,
+    getVar('OBSERVATORY_DATA_ROOT'),
+    defaultDataDir,
+    'paths.dataRoot'
+  );
+
+  const filestore = {
+    baseUrl: resolveString(
+      getVar('OBSERVATORY_FILESTORE_BASE_URL'),
+      'http://127.0.0.1:4300',
+      'filestore.baseUrl'
+    ),
       backendMountId: coerceNumber(
         getVar('OBSERVATORY_FILESTORE_BACKEND_ID'),
         1,
@@ -158,11 +132,53 @@ export function createEventDrivenObservatoryConfig(
         'filestore.stagingPrefix'
       ),
       archivePrefix: resolveString(
-        getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
-        'datasets/observatory/archive',
-        'filestore.archivePrefix'
+      getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
+      'datasets/observatory/archive',
+      'filestore.archivePrefix'
       )
-    },
+    } as const;
+
+  const derivedInboxDefault = path.join(
+    dataRoot,
+    filestore.inboxPrefix.split('/').join(path.sep)
+  );
+
+  const paths = {
+    inbox: resolvePathValue(
+      repoRoot,
+      getVar('OBSERVATORY_INBOX_PATH'),
+      derivedInboxDefault,
+      'paths.inbox'
+    ),
+    staging: resolvePathValue(
+      repoRoot,
+      getVar('OBSERVATORY_STAGING_PATH'),
+      path.join(dataRoot, 'staging'),
+      'paths.staging'
+    ),
+    archive: resolvePathValue(
+      repoRoot,
+      getVar('OBSERVATORY_ARCHIVE_PATH'),
+      path.join(dataRoot, 'archive'),
+      'paths.archive'
+    ),
+    plots: resolvePathValue(
+      repoRoot,
+      getVar('OBSERVATORY_PLOTS_PATH'),
+      path.join(dataRoot, 'plots'),
+      'paths.plots'
+    ),
+    reports: resolvePathValue(
+      repoRoot,
+      getVar('OBSERVATORY_REPORTS_PATH'),
+      path.join(dataRoot, 'reports'),
+      'paths.reports'
+    )
+  } as const;
+
+  const config: ObservatoryConfig = {
+    paths,
+    filestore,
     timestore: {
       baseUrl: resolveString(
         getVar('OBSERVATORY_TIMESTORE_BASE_URL'),

@@ -331,7 +331,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       configPath: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
       module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {
-        OBSERVATORY_INBOX_PATH: 'examples/environmental-observatory-event-driven/data/inbox',
+        OBSERVATORY_DATA_ROOT: 'examples/environmental-observatory-event-driven/data',
         OBSERVATORY_STAGING_PATH: 'examples/environmental-observatory-event-driven/data/staging',
         OBSERVATORY_ARCHIVE_PATH: 'examples/environmental-observatory-event-driven/data/archive',
         OBSERVATORY_PLOTS_PATH: 'examples/environmental-observatory-event-driven/data/plots',
@@ -803,7 +803,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       source: 'upload',
       reference: jobReference('observatory-data-generator'),
-      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-data-generator. Point inboxDir at the directory you want synthetic drops to land.'
+      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-data-generator. Files upload to Filestore; adjust the backend root or inbox prefix if you need a different host destination.'
     },
     exampleSlug: 'observatory-data-generator',
     analyticsTag: 'job__observatory_data_generator'

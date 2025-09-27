@@ -7,7 +7,7 @@
         "type": "ensureDirectories",
         "description": "Create local directories required by the observatory example",
         "directories": [
-          "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/datasets/observatory/inbox",
           "{{ placeholders.OBSERVATORY_STAGING_PATH }}",
           "{{ placeholders.OBSERVATORY_ARCHIVE_PATH }}",
           "{{ placeholders.OBSERVATORY_PLOTS_PATH }}",
@@ -20,7 +20,7 @@
         "mountKey": "observatory-event-driven-local",
         "backend": {
           "kind": "local",
-          "rootPath": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/data"
+          "rootPath": "{{ placeholders.OBSERVATORY_DATA_ROOT }}"
         },
         "config": {
           "provisionedBy": "observatory-import"
@@ -37,7 +37,7 @@
         "path": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/.generated/observatory-config.json",
         "content": {
           "paths": {
-            "inbox": "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
+            "inbox": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/datasets/observatory/inbox",
             "staging": "{{ placeholders.OBSERVATORY_STAGING_PATH }}",
             "archive": "{{ placeholders.OBSERVATORY_ARCHIVE_PATH }}",
             "plots": "{{ placeholders.OBSERVATORY_PLOTS_PATH }}",
@@ -82,7 +82,6 @@
           {
             "slug": "observatory-minute-data-generator",
             "defaults": {
-              "inboxDir": "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
               "filestoreBaseUrl": "{{ placeholders.OBSERVATORY_FILESTORE_BASE_URL }}",
               "filestoreBackendId": "{{ placeholders.OBSERVATORY_FILESTORE_BACKEND_ID | number }}",
               "inboxPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_INBOX_PREFIX }}",
