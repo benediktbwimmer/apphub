@@ -7,11 +7,6 @@ import { useToastHelpers } from '../components/toast';
 import {
   createDataset,
   fetchDatasets,
-  fetchDatasetById,
-  fetchDatasetManifest,
-  fetchLifecycleStatus,
-  fetchRetentionPolicy,
-  fetchMetrics,
   fetchDatasetAccessAudit
 } from './api';
 import type {
@@ -19,10 +14,8 @@ import type {
   DatasetListResponse,
   DatasetRecord,
   LifecycleJobSummary,
-  LifecycleStatusResponse,
   ManifestPartition,
   ManifestResponse,
-  RetentionResponse,
   LifecycleMetricsSnapshot,
   DatasetAccessAuditEvent,
   DatasetAccessAuditListResponse
@@ -39,10 +32,11 @@ import { MetricsSummary } from './components/MetricsSummary';
 import DatasetHistoryPanel from './components/DatasetHistoryPanel';
 import { formatInstant } from './utils';
 import { ROUTE_PATHS } from '../routes/paths';
+import { useDatasetDetails } from './hooks/useDatasetDetails';
 import { useDatasetHistory } from './hooks/useDatasetHistory';
 
 const DATASET_POLL_INTERVAL = 30000;
-const LIFECYCLE_POLL_INTERVAL = 60000;
+const AUDIT_POLL_INTERVAL = 60000;
 const AUDIT_PAGE_SIZE = 10;
 
 function formatBytes(value: number | null | undefined): string {
@@ -111,26 +105,46 @@ export default function TimestoreDatasetsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
-  const [datasetDetail, setDatasetDetail] = useState<DatasetRecord | null>(null);
   const [datasetOverrides, setDatasetOverrides] = useState<Record<string, DatasetRecord>>({});
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [manifest, setManifest] = useState<ManifestResponse | null>(null);
-  const [manifestLoading, setManifestLoading] = useState(false);
-  const [manifestError, setManifestError] = useState<string | null>(null);
-  const [retention, setRetention] = useState<RetentionResponse | null>(null);
-  const [retentionLoading, setRetentionLoading] = useState(false);
-  const [retentionError, setRetentionError] = useState<string | null>(null);
-  const [retentionVersion, setRetentionVersion] = useState(0);
-  const [metricsText, setMetricsText] = useState<string | null>(null);
-  const [metricsLoading, setMetricsLoading] = useState(false);
-  const [metricsError, setMetricsError] = useState<string | null>(null);
-  const [metricsVersion, setMetricsVersion] = useState(0);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [auditEvents, setAuditEvents] = useState<DatasetAccessAuditEvent[]>([]);
   const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
   const [auditLoadMoreLoading, setAuditLoadMoreLoading] = useState(false);
   const [auditLoadMoreError, setAuditLoadMoreError] = useState<string | null>(null);
+
+  const {
+    dataset: datasetResource,
+    manifest: manifestResource,
+    retention: retentionResource,
+    lifecycle: lifecycleResource,
+    metrics: metricsResource,
+    refreshLifecycle,
+    refreshRetention,
+    refreshMetrics,
+    refreshDataset,
+    refreshManifest,
+    applyDatasetUpdate
+  } = useDatasetDetails(selectedDatasetId);
+
+  const datasetDetail = datasetResource.data;
+  const detailLoading = datasetResource.loading;
+  const detailError = datasetResource.error;
+
+  const manifest = manifestResource.data;
+  const manifestLoading = manifestResource.loading;
+  const manifestError = manifestResource.error;
+
+  const retention = retentionResource.data;
+  const retentionLoading = retentionResource.loading;
+  const retentionError = retentionResource.error;
+
+  const lifecycleData = lifecycleResource.data;
+  const lifecycleLoading = lifecycleResource.loading;
+  const lifecycleErrorMessage = lifecycleResource.error;
+
+  const metricsText = metricsResource.data;
+  const metricsLoading = metricsResource.loading;
+  const metricsErrorMessage = metricsResource.error;
 
   const datasetFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -220,150 +234,11 @@ export default function TimestoreDatasetsPage() {
   }, [datasetsPayload]);
 
   useEffect(() => {
-    if (!selectedDatasetId) {
-      setDatasetDetail(null);
-      setDetailError(null);
-      setManifest(null);
-      setManifestError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setDetailLoading(true);
-    setDetailError(null);
-
-    fetchDatasetById(authorizedFetch, selectedDatasetId, { signal: controller.signal })
-      .then((record) => {
-        setDatasetDetail(record);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        showError('Failed to load dataset', err);
-        setDetailError(err instanceof Error ? err.message : 'Failed to load dataset');
-        setDatasetDetail(null);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setDetailLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [authorizedFetch, selectedDatasetId, showError]);
-
-  useEffect(() => {
-    if (!selectedDatasetId) {
-      setManifest(null);
-      setManifestError(null);
-      return;
-    }
-    const controller = new AbortController();
-    setManifestLoading(true);
-    setManifestError(null);
-
-    fetchDatasetManifest(authorizedFetch, selectedDatasetId, { signal: controller.signal })
-      .then((response) => {
-        setManifest(response);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setManifest(null);
-        setManifestError(err instanceof Error ? err.message : 'Failed to load manifest');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setManifestLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [authorizedFetch, selectedDatasetId]);
-
-  useEffect(() => {
-    if (!selectedDatasetId) {
-      setRetention(null);
-      setRetentionError(null);
-      setRetentionLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setRetentionLoading(true);
-    setRetentionError(null);
-    fetchRetentionPolicy(authorizedFetch, selectedDatasetId, { signal: controller.signal })
-      .then((response) => {
-        setRetention(response);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setRetentionError(err instanceof Error ? err.message : 'Failed to load retention policy');
-        setRetention(null);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setRetentionLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [authorizedFetch, selectedDatasetId, retentionVersion]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setMetricsLoading(true);
-    setMetricsError(null);
-    fetchMetrics(authorizedFetch, { signal: controller.signal })
-      .then((text) => {
-        setMetricsText(text);
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setMetricsError(err instanceof Error ? err.message : 'Failed to load metrics');
-        setMetricsText(null);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setMetricsLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [authorizedFetch, metricsVersion, selectedDatasetId]);
-
-  useEffect(() => {
     setAuditEvents([]);
     setAuditNextCursor(null);
     setAuditLoadMoreError(null);
     setAuditLoadMoreLoading(false);
   }, [selectedDatasetId, hasAdminScope]);
-
-  useEffect(() => {
-    if (!auditData || !hasAdminScope) {
-      return;
-    }
-    setAuditEvents((prev) => {
-      const latestIds = new Set(auditData.events.map((event) => event.id));
-      const preserved = prev.filter((event) => !latestIds.has(event.id));
-      return [...auditData.events, ...preserved];
-    });
-    setAuditNextCursor(auditData.nextCursor ?? null);
-    setAuditLoadMoreError(null);
-  }, [auditData, hasAdminScope]);
 
   const auditFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -381,94 +256,32 @@ export default function TimestoreDatasetsPage() {
     [selectedDatasetId, hasAdminScope]
   );
 
-  const lifecycleFetcher = useCallback(
-    async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
-      if (!selectedDatasetId) {
-        return null;
-      }
-      const response = await fetchLifecycleStatus(
-        authorizedFetch,
-        { limit: 10, datasetId: selectedDatasetId },
-        { signal }
-      );
-      return response;
-    },
-    [selectedDatasetId]
-  );
-
   const {
     data: auditData,
     loading: auditLoading,
     error: auditError,
     refetch: refetchAudit
   } = usePollingResource<DatasetAccessAuditListResponse | null>({
-    intervalMs: LIFECYCLE_POLL_INTERVAL,
+    intervalMs: AUDIT_POLL_INTERVAL,
     fetcher: auditFetcher,
     enabled: Boolean(selectedDatasetId) && hasAdminScope
   });
 
-  const {
-    data: lifecycleData,
-    loading: lifecycleLoading,
-    error: lifecycleError,
-    refetch: refetchLifecycle
-  } = usePollingResource<LifecycleStatusResponse | null>({
-    intervalMs: LIFECYCLE_POLL_INTERVAL,
-    fetcher: lifecycleFetcher,
-    enabled: Boolean(selectedDatasetId)
-  });
+  useEffect(() => {
+    if (!auditData || !hasAdminScope) {
+      return;
+    }
+    setAuditEvents((prev) => {
+      const latestIds = new Set(auditData.events.map((event) => event.id));
+      const preserved = prev.filter((event) => !latestIds.has(event.id));
+      return [...auditData.events, ...preserved];
+    });
+    setAuditNextCursor(auditData.nextCursor ?? null);
+    setAuditLoadMoreError(null);
+  }, [auditData, hasAdminScope]);
 
   const lifecycleJobs: LifecycleJobSummary[] = lifecycleData?.jobs ?? [];
   const lifecycleMetrics: LifecycleMetricsSnapshot | null = lifecycleData?.metrics ?? null;
-
-  useEffect(() => {
-    if (selectedDatasetId) {
-      void refetchLifecycle();
-    }
-  }, [selectedDatasetId, refetchLifecycle]);
-
-  const refreshRetention = useCallback(() => {
-    setRetentionVersion((prev) => prev + 1);
-  }, []);
-
-  const refreshMetrics = useCallback(() => {
-    setMetricsVersion((prev) => prev + 1);
-  }, []);
-
-  const handleLoadMoreAudit = useCallback(async () => {
-    if (!selectedDatasetId || !hasAdminScope || !auditNextCursor || auditLoadMoreLoading) {
-      return;
-    }
-    setAuditLoadMoreLoading(true);
-    setAuditLoadMoreError(null);
-    try {
-      const response = await fetchDatasetAccessAudit(
-        authorizedFetch,
-        selectedDatasetId,
-        { cursor: auditNextCursor, limit: AUDIT_PAGE_SIZE }
-      );
-      setAuditEvents((prev) => {
-        const existingIds = new Set(prev.map((event) => event.id));
-        const appended = response.events.filter((event) => !existingIds.has(event.id));
-        const combined = [...prev, ...appended];
-        combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        return combined;
-      });
-      setAuditNextCursor(response.nextCursor ?? null);
-    } catch (err) {
-      setAuditLoadMoreError(
-        err instanceof Error ? err.message : 'Failed to load additional audit events'
-      );
-    } finally {
-      setAuditLoadMoreLoading(false);
-    }
-  }, [
-    authorizedFetch,
-    selectedDatasetId,
-    hasAdminScope,
-    auditNextCursor,
-    auditLoadMoreLoading
-  ]);
 
   const selectedDatasetRecord = useMemo(
     () => datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null,
@@ -514,36 +327,82 @@ export default function TimestoreDatasetsPage() {
   const handleDatasetCreated = useCallback(
     async (request: CreateDatasetRequest) => {
       const response = await createDataset(authorizedFetch, request);
+      const created = response.dataset;
       setCursor(null);
       setCursorStack([]);
-      setSelectedDatasetId(response.dataset.id);
-      setDatasetDetail(response.dataset);
-      setDetailError(null);
-      setManifest(null);
-      setManifestError(null);
-      setRetention(null);
-      setRetentionError(null);
-      setDatasetOverrides((prev) => ({ ...prev, [response.dataset.id]: response.dataset }));
+      setSelectedDatasetId(created.id);
+      applyDatasetUpdate(created);
+      setDatasetOverrides((prev) => ({ ...prev, [created.id]: created }));
       await refetchDatasets();
+      await refreshDataset();
     },
-    [authorizedFetch, refetchDatasets]
+    [applyDatasetUpdate, authorizedFetch, refetchDatasets, refreshDataset]
   );
 
-  const handleDatasetChange = useCallback((updated: DatasetRecord) => {
-    setDatasetDetail(updated);
-    setSelectedDatasetId(updated.id);
-    setDetailError(null);
-    setDatasetOverrides((prev) => ({ ...prev, [updated.id]: updated }));
-  }, []);
+  const handleDatasetChange = useCallback(
+    (updated: DatasetRecord) => {
+      setSelectedDatasetId(updated.id);
+      applyDatasetUpdate(updated);
+      setDatasetOverrides((prev) => ({ ...prev, [updated.id]: updated }));
+      void refreshDataset();
+    },
+    [applyDatasetUpdate, refreshDataset]
+  );
 
   const handleDatasetListRefresh = useCallback(() => {
     void refetchDatasets();
-  }, [refetchDatasets]);
+    void refreshDataset();
+  }, [refetchDatasets, refreshDataset]);
 
-  const datasetErrorMessage = datasetsError instanceof Error ? datasetsError.message : datasetsError ? String(datasetsError) : null;
-  const lifecycleErrorMessage = lifecycleError instanceof Error ? lifecycleError.message : lifecycleError ? String(lifecycleError) : null;
-  const metricsErrorMessage = metricsError;
-  const auditErrorMessage = auditError instanceof Error ? auditError.message : auditError ? String(auditError) : null;
+  const datasetErrorMessage =
+    datasetsError instanceof Error
+      ? datasetsError.message
+      : datasetsError
+        ? String(datasetsError)
+        : null;
+  const auditErrorMessage =
+    auditError instanceof Error ? auditError.message : auditError ? String(auditError) : null;
+
+  useEffect(() => {
+    if (detailError) {
+      showError('Failed to load dataset', detailError);
+    }
+  }, [detailError, showError]);
+
+  const handleLoadMoreAudit = useCallback(async () => {
+    if (!selectedDatasetId || !hasAdminScope || !auditNextCursor || auditLoadMoreLoading) {
+      return;
+    }
+    setAuditLoadMoreLoading(true);
+    setAuditLoadMoreError(null);
+    try {
+      const response = await fetchDatasetAccessAudit(
+        authorizedFetch,
+        selectedDatasetId,
+        { cursor: auditNextCursor, limit: AUDIT_PAGE_SIZE }
+      );
+      setAuditEvents((prev) => {
+        const existingIds = new Set(prev.map((event) => event.id));
+        const appended = response.events.filter((event) => !existingIds.has(event.id));
+        const combined = [...prev, ...appended];
+        combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return combined;
+      });
+      setAuditNextCursor(response.nextCursor ?? null);
+    } catch (err) {
+      setAuditLoadMoreError(
+        err instanceof Error ? err.message : 'Failed to load additional audit events'
+      );
+    } finally {
+      setAuditLoadMoreLoading(false);
+    }
+  }, [
+    authorizedFetch,
+    selectedDatasetId,
+    hasAdminScope,
+    auditNextCursor,
+    auditLoadMoreLoading
+  ]);
 
   const handleNextPage = () => {
     if (nextCursor) {
@@ -567,252 +426,244 @@ export default function TimestoreDatasetsPage() {
   return (
     <>
       <section className="flex flex-col gap-6">
-      <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Timestore Datasets</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to={ROUTE_PATHS.servicesTimestoreSql}
-                className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
-              >
-                Open SQL editor
-              </Link>
-              {hasAdminScope && (
+        <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Timestore Datasets</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to={ROUTE_PATHS.servicesTimestoreSql}
+                  className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
+                >
+                  Open SQL editor
+                </Link>
+                {hasAdminScope && (
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateDialog}
+                    className="self-start rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                  >
+                    Create dataset
+                  </button>
+                )}
+              </div>
+            </div>
+            <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
+              <div className="flex items-center gap-2">
+                <label htmlFor="timestore-status" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Status
+                </label>
+                <select
+                  id="timestore-status"
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                  className="rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                >
+                  {(['active', 'inactive', 'all'] as const).map((value) => (
+                    <option key={value} value={value}>
+                      {STATUS_LABELS[value]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="timestore-search" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                  Search
+                </label>
+                <div className="flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 shadow-sm focus-within:border-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80">
+                  <input
+                    id="timestore-search"
+                    type="search"
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    placeholder="Search by slug or display name"
+                    className="w-56 bg-transparent text-sm text-slate-700 outline-none dark:text-slate-100"
+                  />
+                  {searchInput && (
+                    <button
+                      type="button"
+                      onClick={handleClearSearch}
+                      className="rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                >
+                  Apply
+                </button>
+              </div>
+            </form>
+          </div>
+        </header>
+
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
+          <div className="flex flex-col gap-3">
+            <DatasetList
+              datasets={datasets}
+              selectedId={selectedDatasetId}
+              onSelect={setSelectedDatasetId}
+              loading={datasetsLoading}
+              error={datasetErrorMessage}
+              onRetry={refetchDatasets}
+            />
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>
+                Showing {datasets.length} {datasets.length === 1 ? 'dataset' : 'datasets'}
+              </span>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleOpenCreateDialog}
-                  className="self-start rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                  onClick={handlePreviousPage}
+                  disabled={cursorStack.length === 0}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
                 >
-                  Create dataset
+                  Previous
                 </button>
-              )}
-            </div>
-          </div>
-          <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
-            <div className="flex items-center gap-2">
-              <label htmlFor="timestore-status" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Status
-              </label>
-              <select
-                id="timestore-status"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
-                className="rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-              >
-                {(['active', 'inactive', 'all'] as const).map((value) => (
-                  <option key={value} value={value}>
-                    {STATUS_LABELS[value]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label htmlFor="timestore-search" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Search
-              </label>
-              <div className="flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 shadow-sm focus-within:border-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80">
-                <input
-                  id="timestore-search"
-                  type="search"
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Search by slug or display name"
-                  className="w-56 bg-transparent text-sm text-slate-700 outline-none dark:text-slate-100"
-                />
-                {searchInput && (
-                  <button
-                    type="button"
-                    onClick={handleClearSearch}
-                    className="rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                  >
-                    Clear
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleNextPage}
+                  disabled={!nextCursor}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                >
+                  Next
+                </button>
               </div>
-              <button
-                type="submit"
-                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-              >
-                Apply
-              </button>
-            </div>
-          </form>
-        </div>
-      </header>
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
-        <div className="flex flex-col gap-3">
-          <DatasetList
-            datasets={datasets}
-            selectedId={selectedDatasetId}
-            onSelect={setSelectedDatasetId}
-            loading={datasetsLoading}
-            error={datasetErrorMessage}
-            onRetry={refetchDatasets}
-          />
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>
-              Showing {datasets.length} {datasets.length === 1 ? 'dataset' : 'datasets'}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handlePreviousPage}
-                disabled={cursorStack.length === 0}
-                className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={handleNextPage}
-                disabled={!nextCursor}
-                className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
-              >
-                Next
-              </button>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-6">
-          {selectedDatasetId ? (
-            <>
-              <div
-                id="timestore-manifest"
-                className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
-              >
-                {detailLoading ? (
-                  <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
-                    <Spinner label="Loading dataset details" />
-                  </div>
-                ) : detailError ? (
-                  <div className="text-sm text-rose-600 dark:text-rose-300">{detailError}</div>
-                ) : datasetDetail ? (
-                  <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6">
+            {selectedDatasetId ? (
+              <>
+                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+                  {detailLoading ? (
+                    <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
+                      <Spinner label="Loading dataset details" />
+                    </div>
+                  ) : detailError ? (
+                    <div className="text-sm text-rose-600 dark:text-rose-300">{detailError}</div>
+                  ) : datasetDetail ? (
+                    <div className="flex flex-col gap-6">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
+                          Dataset
+                        </span>
+                        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          {datasetDetail.displayName ?? datasetDetail.name ?? datasetDetail.slug}
+                        </h3>
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                          {datasetDetail.slug} • {datasetDetail.status}
+                        </p>
+                      </div>
+                      <dl className="grid gap-4 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1">
+                          <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Created</dt>
+                          <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.createdAt)}</dd>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Updated</dt>
+                          <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.updatedAt)}</dd>
+                        </div>
+                      </dl>
+                      <DatasetAdminPanel
+                        dataset={datasetDetail}
+                        canEdit={hasAdminScope}
+                        onDatasetChange={handleDatasetChange}
+                        onRequireListRefresh={handleDatasetListRefresh}
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-600 dark:text-slate-300">Select a dataset to view details.</div>
+                  )}
+                </div>
+
+                <DatasetAuditTimeline
+                  events={auditEvents}
+                  loading={auditLoading}
+                  error={auditErrorMessage}
+                  loadMoreError={auditLoadMoreError}
+                  onRetry={() => void refetchAudit()}
+                  onLoadMore={() => void handleLoadMoreAudit()}
+                  canView={hasAdminScope}
+                  loadMoreAvailable={Boolean(auditNextCursor)}
+                  loadMoreLoading={auditLoadMoreLoading}
+                />
+
+                <RetentionPanel
+                  datasetId={selectedDatasetId}
+                  retention={retention}
+                  loading={retentionLoading}
+                  error={retentionError}
+                  onRefresh={refreshRetention}
+                  canEdit={hasAdminScope}
+                />
+
+                <QueryConsole datasetSlug={datasetSlugForQuery} defaultTimestampColumn="timestamp" canQuery={hasReadScope} />
+
+                <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+                  <header className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
-                        Dataset
+                        Manifest
                       </span>
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                        {datasetDetail.displayName ?? datasetDetail.name ?? datasetDetail.slug}
-                      </h3>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                        {datasetDetail.slug} • {datasetDetail.status}
-                      </p>
+                      <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Latest published manifest</h4>
                     </div>
-                    <dl className="grid gap-4 sm:grid-cols-2">
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Created</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.createdAt)}</dd>
+                    <button
+                      type="button"
+                      disabled={manifestLoading}
+                      onClick={() => {
+                        if (selectedDatasetId) {
+                          void refreshManifest();
+                        }
+                      }}
+                      className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/70 dark:text-slate-300"
+                    >
+                      Refresh
+                    </button>
+                  </header>
+                  {manifestLoading ? (
+                    <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
+                      <Spinner label="Loading manifest" />
+                    </div>
+                  ) : manifestError ? (
+                    <div className="text-sm text-rose-600 dark:text-rose-300">{manifestError}</div>
+                  ) : manifest ? (
+                    <div className="flex flex-col gap-6">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Version</span>
+                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                            {manifest.manifest.version}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Partitions</span>
+                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                            {manifest.manifest.partitions.length}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Published</span>
+                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                            {formatInstant(manifest.manifest.createdAt)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Approximate size</span>
+                          <span className="text-sm text-slate-800 dark:text-slate-200">
+                            {summarizeSize(manifest.manifest.partitions)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Updated</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.updatedAt)}</dd>
-                      </div>
-                    </dl>
-                    <DatasetAdminPanel
-                      dataset={datasetDetail}
-                      canEdit={hasAdminScope}
-                      onDatasetChange={handleDatasetChange}
-                      onRequireListRefresh={handleDatasetListRefresh}
-                    />
-                  </div>
-                ) : (
-                  <div className="text-sm text-slate-600 dark:text-slate-300">Select a dataset to view details.</div>
-                )}
-              </div>
-
-              <DatasetAuditTimeline
-                events={auditEvents}
-                loading={auditLoading}
-                error={auditErrorMessage}
-                loadMoreError={auditLoadMoreError}
-                onRetry={() => void refetchAudit()}
-                onLoadMore={() => void handleLoadMoreAudit()}
-                canView={hasAdminScope}
-                loadMoreAvailable={Boolean(auditNextCursor)}
-                loadMoreLoading={auditLoadMoreLoading}
-              />
-
-              <RetentionPanel
-                datasetId={selectedDatasetId}
-                retention={retention}
-                loading={retentionLoading}
-                error={retentionError}
-                onRefresh={refreshRetention}
-                canEdit={hasAdminScope}
-              />
-
-              <QueryConsole datasetSlug={datasetSlugForQuery} defaultTimestampColumn="timestamp" canQuery={hasReadScope} />
-
-              <div
-                id="timestore-manifest"
-                className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
-              >
-                <header className="flex items-center justify-between">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
-                      Manifest
-                    </span>
-                    <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">Latest published manifest</h4>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedDatasetId) {
-                        setManifestLoading(true);
-                        fetchDatasetManifest(authorizedFetch, selectedDatasetId)
-                          .then((response) => {
-                            setManifest(response);
-                          })
-                          .catch((err) => {
-                            showError('Failed to refresh manifest', err);
-                          })
-                          .finally(() => {
-                            setManifestLoading(false);
-                          });
-                      }
-                    }}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-                  >
-                    Refresh
-                  </button>
-                </header>
-                {manifestLoading ? (
-                  <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
-                    <Spinner label="Loading manifest" />
-                  </div>
-                ) : manifestError ? (
-                  <div className="text-sm text-rose-600 dark:text-rose-300">{manifestError}</div>
-                ) : manifest ? (
-                  <div className="mt-4 flex flex-col gap-4">
-                    <dl className="grid gap-4 sm:grid-cols-3">
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Version</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{manifest.manifest.version}</dd>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Published</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(manifest.manifest.createdAt)}</dd>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Partitions</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{manifest.manifest.partitions.length}</dd>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Approximate size</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">{summarizeSize(manifest.manifest.partitions)}</dd>
-                      </div>
-                    </dl>
-                    {manifest.manifest.partitions.length > 0 ? (
                       <div className="overflow-hidden rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-                        <table className="min-w-full text-left text-sm">
-                          <thead className="bg-slate-100/80 text-xs uppercase tracking-[0.2em] text-slate-500 dark:bg-slate-800/70 dark:text-slate-300">
+                        <table className="min-w-full divide-y divide-slate-200/60 text-left text-sm text-slate-600 dark:divide-slate-700/60 dark:text-slate-300">
+                          <thead className="bg-slate-50/80 text-xs uppercase tracking-[0.2em] text-slate-500 dark:bg-slate-800/80 dark:text-slate-400">
                             <tr>
                               <th className="px-4 py-2">Partition</th>
                               <th className="px-4 py-2">Path</th>
@@ -839,13 +690,10 @@ export default function TimestoreDatasetsPage() {
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <p className="text-sm text-slate-600 dark:text-slate-300">No partitions published yet.</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-600 dark:text-slate-300">No manifest available.</p>
-                )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600 dark:text-slate-300">No manifest available.</p>
+                  )}
               </div>
 
               <DatasetHistoryPanel
@@ -867,7 +715,7 @@ export default function TimestoreDatasetsPage() {
                   jobs={lifecycleJobs}
                   loading={lifecycleLoading}
                   error={lifecycleErrorMessage}
-                  onRefresh={refetchLifecycle}
+                  onRefresh={refreshLifecycle}
                   canRun={hasAdminScope}
                   panelId="timestore-lifecycle"
                 />
@@ -884,14 +732,14 @@ export default function TimestoreDatasetsPage() {
                 error={metricsErrorMessage}
                 onRefresh={refreshMetrics}
               />
-            </>
-          ) : (
-            <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
-              Select a dataset from the list to view its manifest and lifecycle history.
-            </div>
-          )}
+              </>
+            ) : (
+              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+                Select a dataset from the list to view its manifest and lifecycle history.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       </section>
 
       <DatasetCreateDialog
