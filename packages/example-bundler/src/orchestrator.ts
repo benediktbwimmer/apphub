@@ -267,6 +267,7 @@ async function createWorkspaceRoot(slug: string, fingerprint: string): Promise<s
 
 async function populateWorkspacePackages(repoRoot: string, workspaceDir: string): Promise<void> {
   const packagesRoot = path.join(repoRoot, 'packages');
+  const rootNodeModules = path.join(repoRoot, 'node_modules');
   let entries: Dirent[];
   try {
     entries = await fs.readdir(packagesRoot, { withFileTypes: true });
@@ -277,6 +278,33 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
   const nodeModulesRoot = path.join(workspaceDir, 'node_modules');
   const scopedRoot = path.join(nodeModulesRoot, '@apphub');
   await ensureDir(scopedRoot);
+
+  const copiedThirdPartyDeps = new Set<string>();
+
+  const copyThirdPartyDependency = async (moduleName: string) => {
+    if (!moduleName || copiedThirdPartyDeps.has(moduleName)) {
+      return;
+    }
+    const segments = moduleName.startsWith('@') ? moduleName.split('/') : [moduleName];
+    const sourceDir = path.join(rootNodeModules, ...segments);
+    try {
+      const stats = await fs.stat(sourceDir);
+      if (!stats.isDirectory()) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    const targetDir = path.join(nodeModulesRoot, ...segments);
+    await ensureDir(path.dirname(targetDir));
+    await removeDir(targetDir).catch(() => {});
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      dereference: false
+    });
+    copiedThirdPartyDeps.add(moduleName);
+  };
 
   for (const entry of entries) {
     if (!entry.isDirectory()) {
@@ -294,6 +322,26 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       dereference: false,
       filter: (src) => !isNodeModulesPath(src)
     });
+
+    try {
+      const packageJsonRaw = await fs.readFile(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonRaw) as {
+        dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      const dependencyNames = new Set<string>([
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.peerDependencies ?? {})
+      ]);
+      for (const depName of dependencyNames) {
+        if (!depName || depName.startsWith('@apphub/')) {
+          continue;
+        }
+        await copyThirdPartyDependency(depName);
+      }
+    } catch {
+      // Ignore dependency resolution errors; missing packages will surface during build.
+    }
   }
 }
 

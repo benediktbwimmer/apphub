@@ -13,7 +13,7 @@ runE2E(async ({ registerCleanup }) => {
   const previousRedisUrl = process.env.REDIS_URL;
 
   process.env.CATALOG_DB_PATH = path.join(tempRoot, 'catalog.db');
-  process.env.REDIS_URL = 'inline';
+  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 
   registerCleanup(() => {
     if (previousCatalogDbPath === undefined) {

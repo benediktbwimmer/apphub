@@ -1,0 +1,25 @@
+{
+  "jobSlug": "observatory-data-generator",
+  "parameters": {
+    "inboxDir": "examples/environmental-observatory-event-driven/data/inbox",
+    "minute": "2025-08-01T12:00",
+    "rowsPerInstrument": 4,
+    "intervalMinutes": 15,
+    "seed": 99,
+    "filestoreBaseUrl": "http://127.0.0.1:4200",
+    "filestoreBackendId": 1,
+    "inboxPrefix": "datasets/observatory/inbox",
+    "stagingPrefix": "datasets/observatory/staging",
+    "archivePrefix": "datasets/observatory/archive",
+    "instrumentProfiles": [
+      {
+        "instrumentId": "instrument_alpha",
+        "site": "west-basin"
+      },
+      {
+        "instrumentId": "instrument_bravo",
+        "site": "east-ridge"
+      }
+    ]
+  }
+}

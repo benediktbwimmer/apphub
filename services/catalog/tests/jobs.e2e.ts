@@ -82,7 +82,7 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
 
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
-  process.env.REDIS_URL = 'inline';
+  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-job-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;

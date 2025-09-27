@@ -2,6 +2,10 @@
 
 The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
 
+> **Event-driven variant**
+>
+> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, workflow triggers react to `filestore.command.completed` and `timestore.partition.created` events, and a shared config file keeps jobs, services, and triggers in sync. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the new services).
+
 ## Architecture overview
 
 ```mermaid

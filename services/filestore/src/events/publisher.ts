@@ -57,6 +57,45 @@ function sanitizeMetadata(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function toJsonValue(value: unknown): JsonValue | undefined {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    const normalized: JsonValue[] = [];
+    for (const entry of value) {
+      const child = toJsonValue(entry);
+      if (child !== undefined) {
+        normalized.push(child);
+      }
+    }
+    return normalized;
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      const child = toJsonValue(entry);
+      if (child !== undefined) {
+        result[key] = child;
+      }
+    }
+    return result;
+  }
+  return undefined;
+}
+
 function deriveNodePayload(
   payload: CommandCompletedEvent
 ): FilestoreNodeEventPayload {
@@ -352,10 +391,15 @@ export async function publishFilestoreEvent(
   source: string = DEFAULT_SOURCE
 ): Promise<EventEnvelope> {
   const publisher = getPublisher();
+  const normalizedPayload = toJsonValue(payload);
+  const payloadObject =
+    normalizedPayload && typeof normalizedPayload === 'object' && !Array.isArray(normalizedPayload)
+      ? (normalizedPayload as Record<string, JsonValue>)
+      : {};
   return publisher.publish({
     type,
     source,
-    payload: payload as Record<string, JsonValue>
+    payload: payloadObject
   });
 }
 

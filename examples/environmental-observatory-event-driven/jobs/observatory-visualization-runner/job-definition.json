@@ -1,0 +1,56 @@
+{
+  "slug": "observatory-visualization-runner",
+  "name": "Observatory Visualization Runner",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:observatory-visualization-runner@0.1.0#handler",
+  "timeoutMs": 150000,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "strategy": "fixed",
+    "initialDelayMs": 10000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+      "timestoreAuthToken": { "type": "string" },
+      "plotsDir": { "type": "string", "minLength": 1 },
+      "partitionKey": { "type": "string", "minLength": 1 },
+      "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
+      "siteFilter": { "type": "string" }
+    },
+    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "partitionKey"]
+  },
+  "defaultParameters": {
+    "lookbackMinutes": 180
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "generatedAt": { "type": "string", "format": "date-time" },
+      "partitionKey": { "type": "string" },
+      "plotsDir": { "type": "string" },
+      "lookbackMinutes": { "type": "number" },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "relativePath": { "type": "string" },
+            "mediaType": { "type": "string" },
+            "description": { "type": "string" },
+            "sizeBytes": { "type": "number" }
+          },
+          "required": ["relativePath", "mediaType"]
+        }
+      },
+      "metrics": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "required": ["generatedAt", "partitionKey", "plotsDir", "artifacts"]
+  }
+}

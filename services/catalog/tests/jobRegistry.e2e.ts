@@ -93,7 +93,7 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageRoot;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_BACKEND = 'local';
   process.env.APPHUB_JOB_BUNDLE_SIGNING_SECRET = 'job-registry-e2e-secret';
-  process.env.REDIS_URL = 'inline';
+  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 
   const { buildServer } = await import('../src/server');
   const app = await buildServer();

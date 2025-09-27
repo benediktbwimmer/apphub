@@ -66,7 +66,7 @@ export type EventPublisher = (
 export type EventPublisherHandle = {
   publish: EventPublisher;
   close: () => Promise<void>;
-  queue: Queue<EventIngressJobData>;
+  queue: Queue<EventIngressJobData> | null;
 };
 
 export type EventPublisherOptions = {
@@ -105,10 +105,38 @@ export function validateEventEnvelope(envelope: unknown): EventEnvelope {
 export function createEventPublisher(options: EventPublisherOptions = {}): EventPublisherHandle {
   const queueName =
     options.queueName ?? process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_EVENT_QUEUE_NAME;
+  const isInlineMode = (() => {
+    const mode = (process.env.APPHUB_EVENTS_MODE ?? '').trim().toLowerCase();
+    if (mode === 'inline') {
+      return true;
+    }
+    if (mode === 'redis') {
+      return false;
+    }
+    const redisUrl = (process.env.REDIS_URL ?? '').trim().toLowerCase();
+    return redisUrl === 'inline';
+  })();
+
+  let closed = false;
+
+  if (isInlineMode) {
+    const publish: EventPublisher = async (event) => {
+      if (closed) {
+        throw new Error('Event publisher is closed');
+      }
+      return normalizeEventEnvelope(event);
+    };
+
+    const close = async () => {
+      closed = true;
+    };
+
+    return { publish, close, queue: null };
+  }
+
   const queue =
     options.queue ?? new Queue<EventIngressJobData>(queueName, options.queueOptions);
   const jobName = options.jobName ?? DEFAULT_EVENT_JOB_NAME;
-  let closed = false;
 
   const publish: EventPublisher = async (event, overrides) => {
     if (closed) {

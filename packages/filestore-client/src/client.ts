@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { fetch, Headers } from 'undici';
+import { fetch, Headers, FormData } from 'undici';
 import type { RequestInit, Response } from 'undici';
+import { Blob, Buffer } from 'node:buffer';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { FilestoreClientError, FilestoreStreamClosedError } from './errors';
 import type {
@@ -13,7 +14,12 @@ import type {
   FilestoreEventEnvelope,
   FilestoreNodeResponse,
   GetNodeByPathInput,
-  ListEventsOptions
+  ListEventsOptions,
+  ListNodesInput,
+  ListNodesResult,
+  CopyNodeInput,
+  MoveNodeInput,
+  UploadFileInput
 } from './types';
 
 interface RequestOptions {
@@ -93,6 +99,46 @@ export class FilestoreClient {
     return envelope.data;
   }
 
+  async uploadFile<T = Record<string, unknown>>(
+    input: UploadFileInput
+  ): Promise<CommandResponse<T>> {
+    const idempotencyKey = input.idempotencyKey ?? randomUUID();
+    const form = new FormData();
+    form.set('backendMountId', String(input.backendMountId));
+    form.set('path', input.path);
+    if (input.metadata) {
+      form.set('metadata', JSON.stringify(input.metadata));
+    }
+    if (input.overwrite !== undefined) {
+      form.set('overwrite', input.overwrite ? 'true' : 'false');
+    }
+    form.set('idempotencyKey', idempotencyKey);
+
+    const contentBuffer =
+      typeof input.content === 'string' ? Buffer.from(input.content) : Buffer.from(input.content);
+    const blob = new Blob([contentBuffer], {
+      type: input.contentType ?? 'application/octet-stream'
+    });
+    const filename = input.filename ?? input.path.split('/').pop() ?? 'upload.bin';
+    form.append('file', blob, filename);
+
+    const headers = this.buildHeaders(input.principal);
+    headers.set('Idempotency-Key', idempotencyKey);
+
+    const response = await this.fetchRaw(this.buildUrl('/v1/files'), {
+      method: 'POST',
+      headers,
+      body: form
+    });
+
+    if (!response.ok) {
+      await this.handleErrorResponse(response);
+    }
+
+    const envelope = (await response.json()) as ApiEnvelope<CommandResponse<T>>;
+    return envelope.data;
+  }
+
   async deleteNode<T = Record<string, unknown>>(
     input: DeleteNodeInput
   ): Promise<CommandResponse<T>> {
@@ -114,6 +160,59 @@ export class FilestoreClient {
     return envelope.data;
   }
 
+  async moveNode<T = Record<string, unknown>>(
+    input: MoveNodeInput
+  ): Promise<CommandResponse<T>> {
+    const idempotencyKey = input.idempotencyKey ?? randomUUID();
+    const body: Record<string, unknown> = {
+      backendMountId: input.backendMountId,
+      path: input.path,
+      targetPath: input.targetPath,
+      overwrite: input.overwrite ?? false,
+      idempotencyKey
+    };
+    if (input.targetBackendMountId !== undefined) {
+      body.targetBackendMountId = input.targetBackendMountId;
+    }
+    const envelope = await this.request<ApiEnvelope<CommandResponse<T>>>(
+      'POST',
+      '/v1/nodes/move',
+      {
+        body,
+        idempotencyKey,
+        principal: input.principal
+      }
+    );
+    return envelope.data;
+  }
+
+  async copyNode<T = Record<string, unknown>>(
+    input: CopyNodeInput
+  ): Promise<CommandResponse<T>> {
+    const idempotencyKey = input.idempotencyKey ?? randomUUID();
+    const body: Record<string, unknown> = {
+      backendMountId: input.backendMountId,
+      path: input.path,
+      targetPath: input.targetPath,
+      overwrite: input.overwrite ?? false,
+      idempotencyKey
+    };
+    if (input.targetBackendMountId !== undefined) {
+      body.targetBackendMountId = input.targetBackendMountId;
+    }
+
+    const envelope = await this.request<ApiEnvelope<CommandResponse<T>>>(
+      'POST',
+      '/v1/nodes/copy',
+      {
+        body,
+        idempotencyKey,
+        principal: input.principal
+      }
+    );
+    return envelope.data;
+  }
+
   async getNodeByPath(input: GetNodeByPathInput): Promise<FilestoreNodeResponse> {
     const envelope = await this.request<ApiEnvelope<FilestoreNodeResponse>>(
       'GET',
@@ -126,6 +225,41 @@ export class FilestoreClient {
       }
     );
     return envelope.data;
+  }
+
+  async listNodes(input: ListNodesInput): Promise<ListNodesResult> {
+    const query: Record<string, string | number | boolean | undefined> = {
+      backendMountId: input.backendMountId,
+      limit: input.limit,
+      offset: input.offset,
+      path: input.path,
+      depth: input.depth,
+      driftOnly: input.driftOnly,
+      search: input.search
+    };
+    if (input.states?.length) {
+      query.states = input.states.join(',');
+    }
+    if (input.kinds?.length) {
+      query.kinds = input.kinds.join(',');
+    }
+
+    const envelope = await this.request<
+      ApiEnvelope<{
+        nodes: FilestoreNodeResponse[];
+        pagination: { total: number; limit: number; offset: number; nextOffset: number | null };
+      }>
+    >('GET', '/v1/nodes', {
+      query
+    });
+
+    return {
+      nodes: envelope.data.nodes,
+      total: envelope.data.pagination.total,
+      limit: envelope.data.pagination.limit,
+      offset: envelope.data.pagination.offset,
+      nextOffset: envelope.data.pagination.nextOffset
+    } satisfies ListNodesResult;
   }
 
   async getNodeById(id: number): Promise<FilestoreNodeResponse> {

@@ -1,0 +1,9 @@
+{
+  "parameters": {
+    "timestoreBaseUrl": "http://127.0.0.1:4100",
+    "timestoreDatasetSlug": "observatory-timeseries",
+    "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
+    "partitionKey": "2025-08-01T09:00",
+    "lookbackMinutes": 90
+  }
+}

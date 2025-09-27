@@ -17,16 +17,16 @@ import fleetTelemetryMetricsManifestJson from '../../../examples/fleet-telemetry
 import fleetTelemetryMetricsDefinitionJson from '../../../examples/fleet-telemetry/jobs/fleet-telemetry-metrics/job-definition.json';
 import greenhouseAlertsRunnerManifestJson from '../../../examples/fleet-telemetry/jobs/greenhouse-alerts-runner/manifest.json';
 import greenhouseAlertsRunnerDefinitionJson from '../../../examples/fleet-telemetry/jobs/greenhouse-alerts-runner/job-definition.json';
-import observatoryDataGeneratorManifestJson from '../../../examples/environmental-observatory/jobs/observatory-data-generator/manifest.json';
-import observatoryDataGeneratorDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-data-generator/job-definition.json';
-import observatoryInboxNormalizerManifestJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json';
-import observatoryInboxNormalizerDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-inbox-normalizer/job-definition.json';
-import observatoryTimestoreLoaderManifestJson from '../../../examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json';
-import observatoryTimestoreLoaderDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-timestore-loader/job-definition.json';
-import observatoryVisualizationRunnerManifestJson from '../../../examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json';
-import observatoryVisualizationRunnerDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-visualization-runner/job-definition.json';
-import observatoryReportPublisherManifestJson from '../../../examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json';
-import observatoryReportPublisherDefinitionJson from '../../../examples/environmental-observatory/jobs/observatory-report-publisher/job-definition.json';
+import observatoryDataGeneratorManifestJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-data-generator/manifest.json';
+import observatoryDataGeneratorDefinitionJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-data-generator/job-definition.json';
+import observatoryInboxNormalizerManifestJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer/manifest.json';
+import observatoryInboxNormalizerDefinitionJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer/job-definition.json';
+import observatoryTimestoreLoaderManifestJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/manifest.json';
+import observatoryTimestoreLoaderDefinitionJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/job-definition.json';
+import observatoryVisualizationRunnerManifestJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/manifest.json';
+import observatoryVisualizationRunnerDefinitionJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/job-definition.json';
+import observatoryReportPublisherManifestJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-report-publisher/manifest.json';
+import observatoryReportPublisherDefinitionJson from '../../../examples/environmental-observatory-event-driven/jobs/observatory-report-publisher/job-definition.json';
 import scanDirectoryManifestJson from '../../../examples/directory-insights/jobs/scan-directory/manifest.json';
 import scanDirectoryDefinitionJson from '../../../examples/directory-insights/jobs/scan-directory/job-definition.json';
 import generateVisualizationsManifestJson from '../../../examples/directory-insights/jobs/generate-visualizations/manifest.json';
@@ -99,31 +99,31 @@ export const EXAMPLE_JOB_BUNDLES: ReadonlyArray<ExampleJobBundle> = [
   }),
   createJobBundle({
     slug: 'observatory-data-generator',
-    directory: 'examples/environmental-observatory/jobs/observatory-data-generator',
+    directory: 'examples/environmental-observatory-event-driven/jobs/observatory-data-generator',
     manifestJson: observatoryDataGeneratorManifestJson,
     definitionJson: observatoryDataGeneratorDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-inbox-normalizer',
-    directory: 'examples/environmental-observatory/jobs/observatory-inbox-normalizer',
+    directory: 'examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer',
     manifestJson: observatoryInboxNormalizerManifestJson,
     definitionJson: observatoryInboxNormalizerDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-timestore-loader',
-    directory: 'examples/environmental-observatory/jobs/observatory-timestore-loader',
+    directory: 'examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader',
     manifestJson: observatoryTimestoreLoaderManifestJson,
     definitionJson: observatoryTimestoreLoaderDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-visualization-runner',
-    directory: 'examples/environmental-observatory/jobs/observatory-visualization-runner',
+    directory: 'examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner',
     manifestJson: observatoryVisualizationRunnerManifestJson,
     definitionJson: observatoryVisualizationRunnerDefinitionJson
   }),
   createJobBundle({
     slug: 'observatory-report-publisher',
-    directory: 'examples/environmental-observatory/jobs/observatory-report-publisher',
+    directory: 'examples/environmental-observatory-event-driven/jobs/observatory-report-publisher',
     manifestJson: observatoryReportPublisherManifestJson,
     definitionJson: observatoryReportPublisherDefinitionJson
   }),

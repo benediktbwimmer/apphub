@@ -71,9 +71,12 @@ export async function startTimestoreTestServer(options: {
     : () => {};
 
   try {
-    const { resetCachedServiceConfig, loadServiceConfig } = await import('../../../services/timestore/src/config/serviceConfig');
-    resetCachedServiceConfig();
-    const config = loadServiceConfig();
+    const [dbClientModule, serviceConfigModule] = await Promise.all([
+      import('../../../services/timestore/src/db/client'),
+      import('../../../services/timestore/src/config/serviceConfig')
+    ]);
+    await dbClientModule.resetPool();
+    const config = dbClientModule.getActiveConfig();
     const { default: fastify } = await import('fastify');
     const app: FastifyInstance = fastify({ logger: false });
 
@@ -90,7 +93,7 @@ export async function startTimestoreTestServer(options: {
       import('../../../services/timestore/src/service/bootstrap')
     ]);
 
-    const [{ closePool }] = await Promise.all([import('../../../services/timestore/src/db/client')]);
+    const { closePool } = dbClientModule;
     const { closeLifecycleQueue } = await import('../../../services/timestore/src/lifecycle/queue');
 
     await registerHealthRoutes(app);
@@ -116,7 +119,7 @@ export async function startTimestoreTestServer(options: {
         try {
           await app.close();
         } finally {
-          resetCachedServiceConfig();
+          serviceConfigModule.resetCachedServiceConfig();
           if (!options.keepStorageRoot) {
             await rm(storageRoot, { recursive: true, force: true });
           }

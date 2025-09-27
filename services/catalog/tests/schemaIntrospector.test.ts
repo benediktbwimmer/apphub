@@ -1,5 +1,5 @@
-process.env.APPHUB_EVENTS_MODE = 'inline';
-process.env.REDIS_URL = 'inline';
+process.env.APPHUB_EVENTS_MODE = process.env.APPHUB_EVENTS_MODE ?? 'redis';
+process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
 process.env.APPHUB_ANALYTICS_INTERVAL_MS = '0';
 
 import assert from 'node:assert/strict';

@@ -225,7 +225,7 @@ async function setTestServiceStatus(app: FastifyInstance, status: 'healthy' | 'd
 
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
-  process.env.REDIS_URL = 'inline';
+  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
   const { buildServer } = await import('../src/server');
   const app = await buildServer();
   await app.ready();

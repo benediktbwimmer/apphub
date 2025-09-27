@@ -30,3 +30,6 @@ apps/frontend/public/examples/job-bundles/*.tgz
 apps/frontend/public/examples/job-bundles/*.tgz.sha256
 job-bundles/**/artifacts/*.tgz
 job-bundles/**/artifacts/*.tgz.sha256
+
+# Event-driven observatory generated config
+examples/environmental-observatory-event-driven/.generated/

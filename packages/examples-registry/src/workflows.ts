@@ -4,9 +4,9 @@ import type {
   WorkflowDefinitionTemplate
 } from './types';
 
-import observatoryMinuteDataGeneratorWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-minute-data-generator.json';
-import observatoryMinuteIngestWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-minute-ingest.json';
-import observatoryDailyPublicationWorkflowJson from '../../../examples/environmental-observatory/workflows/observatory-daily-publication.json';
+import observatoryMinuteDataGeneratorWorkflowJson from '../../../examples/environmental-observatory-event-driven/workflows/observatory-minute-data-generator.json';
+import observatoryMinuteIngestWorkflowJson from '../../../examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json';
+import observatoryDailyPublicationWorkflowJson from '../../../examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json';
 import retailSalesDailyIngestWorkflowJson from '../../../examples/retail-sales/workflows/retail-sales-daily-ingest.json';
 import retailSalesInsightsWorkflowJson from '../../../examples/retail-sales/workflows/retail-sales-insights.json';
 import fleetTelemetryDailyRollupWorkflowJson from '../../../examples/fleet-telemetry/workflows/fleet-telemetry-daily-rollup.json';
@@ -29,17 +29,17 @@ function createWorkflow(params: { slug: ExampleWorkflowSlug; path: string; json:
 export const EXAMPLE_WORKFLOWS: ReadonlyArray<ExampleWorkflow> = [
   createWorkflow({
     slug: 'observatory-minute-data-generator',
-    path: 'examples/environmental-observatory/workflows/observatory-minute-data-generator.json',
+    path: 'examples/environmental-observatory-event-driven/workflows/observatory-minute-data-generator.json',
     json: observatoryMinuteDataGeneratorWorkflowJson
   }),
   createWorkflow({
     slug: 'observatory-minute-ingest',
-    path: 'examples/environmental-observatory/workflows/observatory-minute-ingest.json',
+    path: 'examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json',
     json: observatoryMinuteIngestWorkflowJson
   }),
   createWorkflow({
     slug: 'observatory-daily-publication',
-    path: 'examples/environmental-observatory/workflows/observatory-daily-publication.json',
+    path: 'examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json',
     json: observatoryDailyPublicationWorkflowJson
   }),
   createWorkflow({

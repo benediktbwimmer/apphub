@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Visualization Runner",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Queries Timestore for aggregates, builds SVG plots, and emits observatory visualization assets.",
+  "capabilities": ["fs", "network"]
+}

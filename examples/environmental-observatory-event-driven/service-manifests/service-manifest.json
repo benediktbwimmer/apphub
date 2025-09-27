@@ -1,0 +1,38 @@
+{
+  "services": [
+    {
+      "slug": "observatory-event-gateway",
+      "displayName": "Observatory Event Gateway",
+      "kind": "workflow-watcher",
+      "baseUrl": "http://127.0.0.1:4310",
+      "healthEndpoint": "/healthz",
+      "devCommand": "npm run dev",
+      "workingDir": "examples/environmental-observatory-event-driven/services/observatory-file-watcher",
+      "env": [
+        { "key": "PORT", "value": "4310" },
+        {
+          "key": "OBSERVATORY_CONFIG_PATH",
+          "value": "examples/environmental-observatory-event-driven/.generated/observatory-config.json"
+        }
+      ]
+    },
+    {
+      "slug": "observatory-dashboard",
+      "displayName": "Observatory Dashboard",
+      "kind": "dashboard",
+      "baseUrl": "http://127.0.0.1:4311",
+      "healthEndpoint": "/healthz",
+      "devCommand": "npm run dev",
+      "workingDir": "examples/environmental-observatory-event-driven/services/observatory-dashboard",
+      "env": [
+        { "key": "HOST", "value": "0.0.0.0" },
+        { "key": "PORT", "value": "4311" },
+        {
+          "key": "OBSERVATORY_CONFIG_PATH",
+          "value": "examples/environmental-observatory-event-driven/.generated/observatory-config.json"
+        },
+        { "key": "DASHBOARD_REFRESH_MS", "value": "10000" }
+      ]
+    }
+  ]
+}

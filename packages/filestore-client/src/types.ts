@@ -45,9 +45,61 @@ export interface EnqueueReconciliationInput {
   requestedHash?: boolean;
 }
 
+export interface UploadFileInput {
+  backendMountId: number;
+  path: string;
+  content: string | Uint8Array;
+  contentType?: string;
+  metadata?: Record<string, unknown>;
+  overwrite?: boolean;
+  idempotencyKey?: string;
+  principal?: string;
+  filename?: string;
+}
+
+export interface MoveNodeInput {
+  backendMountId: number;
+  path: string;
+  targetPath: string;
+  targetBackendMountId?: number;
+  overwrite?: boolean;
+  idempotencyKey?: string;
+  principal?: string;
+}
+
+export interface CopyNodeInput {
+  backendMountId: number;
+  path: string;
+  targetPath: string;
+  targetBackendMountId?: number;
+  overwrite?: boolean;
+  idempotencyKey?: string;
+  principal?: string;
+}
+
 export interface ListEventsOptions {
   signal?: AbortSignal;
   eventTypes?: FilestoreEvent['type'][];
+}
+
+export interface ListNodesInput {
+  backendMountId: number;
+  path?: string;
+  limit?: number;
+  offset?: number;
+  depth?: number;
+  states?: ('active' | 'inconsistent' | 'missing' | 'deleted')[];
+  kinds?: ('file' | 'directory')[];
+  driftOnly?: boolean;
+  search?: string;
+}
+
+export interface ListNodesResult {
+  nodes: FilestoreNodeResponse[];
+  total: number;
+  nextOffset: number | null;
+  limit: number;
+  offset: number;
 }
 
 export interface FilestoreNodeResponse {

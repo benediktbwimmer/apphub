@@ -6,10 +6,34 @@ import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { startTimestoreTestServer, type TimestoreTestServer } from '../helpers/timestore';
+import { startFilestoreTestServer, type FilestoreTestServer } from '../helpers/filestore';
 import { listExampleWorkflowDefinitions } from '../helpers/examples';
 import type { WorkflowDefinitionCreateInput } from '../../../services/catalog/src/workflows/zodSchemas';
+import { runWorkflowOrchestration } from '../../../services/catalog/src/workflowOrchestrator';
+import { resetDatabasePool } from '../../../services/catalog/src/db/client';
+import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
+import {
+  validateEventEnvelope,
+  type EventIngressJobData,
+  type EventEnvelope
+} from '@apphub/event-bus';
+import {
+  EVENT_QUEUE_NAME,
+  EVENT_TRIGGER_QUEUE_NAME,
+  WORKFLOW_QUEUE_NAME,
+  getQueueConnection,
+  type EventTriggerJobData
+} from '../../../services/catalog/src/queue';
+import { registerSourceEvent } from '../../../services/catalog/src/eventSchedulerState';
+import { ingestWorkflowEvent } from '../../../services/catalog/src/workflowEvents';
+import { processEventTriggersForEnvelope } from '../../../services/catalog/src/eventTriggerProcessor';
+import { TIMESTORE_INGEST_QUEUE_NAME } from '../../../services/timestore/src/queue';
+import { processIngestionJob } from '../../../services/timestore/src/ingestion/processor';
+import type { IngestionJobPayload } from '../../../services/timestore/src/ingestion/types';
 import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
 import { runE2E } from '@apphub/test-helpers';
+import { Pool } from 'pg';
 
 type WorkflowRunResponse = {
   data: {
@@ -34,8 +58,10 @@ process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
     ]
   }
 ]);
-process.env.APPHUB_EVENTS_MODE = 'inline';
+process.env.APPHUB_EVENTS_MODE = 'redis';
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
+
+let activeRedisUrl: string | null = null;
 
 const OBSERVATORY_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'observatory-data-generator',
@@ -56,13 +82,18 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
 
 type ServerContext = {
   timestore: TimestoreTestServer;
+  filestore: FilestoreTestServer;
 };
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
+let embeddedDatabaseUrl: string | null = null;
 
 async function ensureEmbeddedPostgres(): Promise<void> {
   if (embeddedPostgres) {
+    if (embeddedDatabaseUrl) {
+      process.env.DATABASE_URL = embeddedDatabaseUrl;
+    }
     return;
   }
 
@@ -81,7 +112,8 @@ async function ensureEmbeddedPostgres(): Promise<void> {
   await postgres.start();
   await postgres.createDatabase('apphub');
 
-  process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
+  embeddedDatabaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
+  process.env.DATABASE_URL = embeddedDatabaseUrl;
   process.env.PGPOOL_MAX = '8';
 
   embeddedPostgresCleanup = async () => {
@@ -98,6 +130,7 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
   const cleanup = embeddedPostgresCleanup;
   embeddedPostgres = null;
   embeddedPostgresCleanup = null;
+  embeddedDatabaseUrl = null;
   if (cleanup) {
     await cleanup();
   }
@@ -124,12 +157,21 @@ async function findAvailablePort(): Promise<number> {
 async function withServer(fn: (app: FastifyInstance, context: ServerContext) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
   const previousRedisUrl = process.env.REDIS_URL;
-  process.env.REDIS_URL = 'inline';
+  const redisUrl = previousRedisUrl ?? 'redis://127.0.0.1:6379';
+  process.env.REDIS_URL = redisUrl;
+  activeRedisUrl = redisUrl;
+  await resetDatabasePool();
 
   const timestore = await startTimestoreTestServer({
-    databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
-    redisUrl: process.env.REDIS_URL,
+    databaseUrl:
+      embeddedDatabaseUrl ?? process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
+    redisUrl,
     keepStorageRoot: process.env.OBSERVATORY_KEEP_STORAGE === '1'
+  });
+
+  const filestore = await startFilestoreTestServer({
+    databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
+    redisUrl
   });
 
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-observatory-bundles-'));
@@ -148,14 +190,17 @@ async function withServer(fn: (app: FastifyInstance, context: ServerContext) => 
   await app.ready();
 
   try {
-    await fn(app, { timestore });
+    await fn(app, { timestore, filestore });
   } finally {
     await app.close();
     await timestore.close();
+    await filestore.close();
     if (previousRedisUrl === undefined) {
       delete process.env.REDIS_URL;
+      activeRedisUrl = null;
     } else {
       process.env.REDIS_URL = previousRedisUrl;
+      activeRedisUrl = previousRedisUrl;
     }
     if (previousServiceConfig === undefined) {
       delete process.env.SERVICE_CONFIG_PATH;
@@ -299,12 +344,149 @@ async function runWorkflow(
   });
   assert.equal(response.statusCode, 202, `Workflow ${slug} run failed: ${response.payload}`);
   const body = JSON.parse(response.payload) as WorkflowRunResponse;
-  if (body.data.status !== 'succeeded') {
-    const runDetails = await fetchWorkflowRun(app, body.data.id);
-    const detailSnippet = runDetails ? JSON.stringify(runDetails.data, null, 2) : 'unavailable';
-    assert.fail(`Workflow ${slug} did not succeed (status=${body.data.status}). Details: ${detailSnippet}`);
+  if (body.data.status === 'succeeded') {
+    return body.data.id;
   }
-  return body.data.id;
+
+  const runId = body.data.id;
+  await runWorkflowOrchestration(runId).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    assert.fail(`Workflow ${slug} orchestration failed: ${message}`);
+  });
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    await drainBackgroundQueues();
+    const runDetails = await fetchWorkflowRun(app, runId);
+    if (!runDetails) {
+      await delay(100);
+      continue;
+    }
+    const status = runDetails.data.status;
+    if (status === 'succeeded') {
+      return runId;
+    }
+    if (status === 'pending' || status === 'running') {
+      await delay(200);
+      continue;
+    }
+    if (status === 'failed' || status === 'canceled' || status === 'expired') {
+      const detailSnippet = JSON.stringify(runDetails.data, null, 2);
+      assert.fail(`Workflow ${slug} did not succeed (status=${status}). Details: ${detailSnippet}`);
+    }
+    await delay(200);
+  }
+
+  const finalDetails = await fetchWorkflowRun(app, runId);
+  const finalSnippet = finalDetails ? JSON.stringify(finalDetails.data, null, 2) : 'unavailable';
+  assert.fail(`Workflow ${slug} did not complete within timeout. Last details: ${finalSnippet}`);
+}
+
+async function drainBackgroundQueues(): Promise<void> {
+  let connection;
+  try {
+    connection = getQueueConnection();
+  } catch {
+    return;
+  }
+
+  const eventQueue = new Queue<EventIngressJobData>(EVENT_QUEUE_NAME, { connection });
+  const eventTriggerQueue = new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, { connection });
+  const workflowQueue = new Queue<{ workflowRunId?: string }>(WORKFLOW_QUEUE_NAME, { connection });
+
+  try {
+    for (let iteration = 0; iteration < 25; iteration += 1) {
+      const processedEvents = await flushEventQueue(eventQueue);
+      const processedTriggers = await flushEventTriggerQueue(eventTriggerQueue);
+      const processedWorkflows = await flushWorkflowQueue(workflowQueue);
+      const processedTimestore = await flushTimestoreIngestionQueue();
+      if (!processedEvents && !processedTriggers && !processedWorkflows && !processedTimestore) {
+        break;
+      }
+    }
+  } finally {
+    await Promise.all([eventQueue.close(), eventTriggerQueue.close(), workflowQueue.close()]);
+  }
+}
+
+async function flushEventQueue(queue: Queue<EventIngressJobData>): Promise<boolean> {
+  const jobs = await queue.getJobs(['waiting', 'delayed']);
+  if (jobs.length === 0) {
+    return false;
+  }
+
+  for (const job of jobs) {
+    const envelope = validateEventEnvelope(job.data.envelope);
+    await ingestWorkflowEvent(envelope);
+    const evaluation = registerSourceEvent(envelope.source ?? 'unknown');
+    if (evaluation.allowed) {
+      await processEventTriggersForEnvelope(envelope);
+    }
+    await job.remove();
+  }
+
+  return true;
+}
+
+async function flushEventTriggerQueue(queue: Queue<EventTriggerJobData>): Promise<boolean> {
+  const jobs = await queue.getJobs(['waiting', 'delayed']);
+  if (jobs.length === 0) {
+    return false;
+  }
+
+  for (const job of jobs) {
+    const envelope = job.data.envelope as EventEnvelope | undefined;
+    if (envelope) {
+      await processEventTriggersForEnvelope(envelope);
+    }
+    await job.remove();
+  }
+
+  return true;
+}
+
+async function flushWorkflowQueue(queue: Queue<{ workflowRunId?: string }>): Promise<boolean> {
+  const jobs = await queue.getJobs(['waiting', 'delayed']);
+  if (jobs.length === 0) {
+    return false;
+  }
+
+  for (const job of jobs) {
+    const { workflowRunId } = job.data ?? {};
+    if (typeof workflowRunId === 'string' && workflowRunId.trim()) {
+      await runWorkflowOrchestration(workflowRunId);
+    }
+    await job.remove();
+  }
+
+  return true;
+}
+
+async function flushTimestoreIngestionQueue(): Promise<boolean> {
+  const redisUrl = activeRedisUrl;
+  if (!redisUrl) {
+    return false;
+  }
+
+  const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+  const queue = new Queue<IngestionJobPayload>(TIMESTORE_INGEST_QUEUE_NAME, { connection });
+
+  try {
+    const jobs = await queue.getJobs(['waiting', 'delayed']);
+    if (jobs.length === 0) {
+      return false;
+    }
+
+    for (const job of jobs) {
+      const payload = job.data as IngestionJobPayload;
+      await processIngestionJob(payload);
+      await job.remove();
+    }
+
+    return true;
+  } finally {
+    await queue.close();
+    await connection.quit();
+  }
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T> {
@@ -333,32 +515,69 @@ async function queryTimestoreRowCount(url: string, datasetSlug: string, startIso
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
 }
 
-async function waitForWorkflowAsset(
+type WorkflowRunSummary = {
+  id: string;
+  status: string;
+  triggeredBy?: string | null;
+  partitionKey?: string | null;
+  errorMessage?: string | null;
+  parameters?: Record<string, unknown> | null;
+};
+
+function getRunParameter(run: WorkflowRunSummary, key: string): string | null {
+  const parameters = run.parameters;
+  if (!parameters || typeof parameters !== 'object') {
+    return null;
+  }
+  const value = (parameters as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : null;
+}
+
+async function waitForWorkflowRunMatching(
   app: FastifyInstance,
   slug: string,
-  assetId: string,
-  partitionKey: string,
-  timeoutMs = 10_000
-): Promise<string> {
+  predicate: (run: WorkflowRunSummary) => boolean,
+  options: { description: string; timeoutMs?: number }
+): Promise<WorkflowRunSummary> {
+  const timeoutMs = options.timeoutMs ?? 10_000;
   const deadline = Date.now() + timeoutMs;
+  let lastRuns: WorkflowRunSummary[] = [];
   while (Date.now() < deadline) {
-    const assetsResponse = await app.inject({ method: 'GET', url: `/workflows/${slug}/assets` });
-    assert.equal(assetsResponse.statusCode, 200, `Failed to fetch assets for ${slug}`);
-    const body = JSON.parse(assetsResponse.payload) as {
-      data: {
-        assets: Array<{
-          assetId: string;
-          latest: { partitionKey: string | null; runId?: string | null } | null;
-        }>;
-      };
+    await drainBackgroundQueues();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/workflows/${slug}/runs?limit=25`,
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
+    });
+    assert.equal(response.statusCode, 200, `Failed to list runs for ${slug}`);
+    const body = JSON.parse(response.payload) as {
+      data: { runs: WorkflowRunSummary[] };
     };
-    const entry = body.data.assets.find((candidate) => candidate.assetId === assetId);
-    if (entry?.latest?.partitionKey === partitionKey) {
-      return entry.latest.runId ?? '';
+    lastRuns = body.data.runs;
+    const match = lastRuns.find(predicate);
+    if (match) {
+      if (match.status === 'succeeded') {
+        return match;
+      }
+      if (match.status === 'failed' || match.status === 'canceled' || match.status === 'expired') {
+        const detail = match.errorMessage ?? 'no error message provided';
+        assert.fail(
+          `Workflow ${slug} run did not succeed (status=${match.status}): ${detail}`
+        );
+      }
     }
-    await delay(50);
+    await delay(100);
   }
-  throw new Error(`Timed out waiting for asset ${assetId} partition ${partitionKey} on workflow ${slug}`);
+  const observed = lastRuns.map((run) => ({
+    id: run.id,
+    status: run.status,
+    partitionKey: run.partitionKey ?? null,
+    minute: getRunParameter(run, 'minute'),
+    reportedPartition: getRunParameter(run, 'partitionKey')
+  }));
+  throw new Error(
+    `Timed out waiting for workflow ${slug} run (${options.description}). Observed runs: ${JSON.stringify(observed)}`
+  );
 }
 
 async function runObservatoryScenario(app: FastifyInstance, context: ServerContext): Promise<void> {
@@ -367,91 +586,144 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
   for (const slug of OBSERVATORY_BUNDLE_SLUGS) {
     await importExampleBundle(app, slug);
   }
-  const tempRoot = await mkdtemp(path.join(tmpdir(), 'observatory-e2e-'));
-  const inboxDir = path.join(tempRoot, 'inbox');
-  const stagingDir = path.join(tempRoot, 'staging');
-  const archiveDir = path.join(tempRoot, 'archive');
-  const plotsDir = path.join(tempRoot, 'plots');
-  const reportsDir = path.join(tempRoot, 'reports');
-  const minute = '2030-01-01T03:30';
-  const minuteKey = minute.replace(':', '-');
-  const minuteIsoMatch = minute.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/);
-  const hourSegment = minuteIsoMatch ? `${minuteIsoMatch[1]}T${minuteIsoMatch[2]}` : minuteKey;
-  const archiveMinuteFilename = minuteIsoMatch ? `${minuteIsoMatch[3]}.csv` : `${minuteKey}.csv`;
-  const timestoreUrl = context.timestore.url;
 
-  await Promise.all(
-    [inboxDir, stagingDir, archiveDir, plotsDir, reportsDir].map((dir) =>
-      mkdir(dir, { recursive: true })
-    )
-  );
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'observatory-event-e2e-'));
+  const paths = {
+    inbox: path.join(tempRoot, 'inbox'),
+    staging: path.join(tempRoot, 'staging'),
+    archive: path.join(tempRoot, 'archive'),
+    plots: path.join(tempRoot, 'plots'),
+    reports: path.join(tempRoot, 'reports')
+  } as const;
 
-  const workflowDefinitions = listExampleWorkflowDefinitions(OBSERVATORY_WORKFLOW_SLUGS);
-  for (const workflow of workflowDefinitions) {
-    if (workflow.slug === 'observatory-daily-publication') {
-      const defaults = (workflow.defaultParameters ??= {} as Record<string, unknown>);
-      defaults.plotsDir = plotsDir;
-      defaults.reportsDir = reportsDir;
-      defaults.timestoreBaseUrl = timestoreUrl;
-      defaults.timestoreDatasetSlug = 'observatory-timeseries';
-      defaults.metastoreBaseUrl = '';
-      defaults.metastoreNamespace = 'observatory.reports';
-    }
-  }
-
-  await importExampleWorkflows(app, workflowDefinitions);
-
-  const { AssetMaterializer } = await import('../../../services/catalog/src/assetMaterializerWorker');
-  const materializer = new AssetMaterializer();
-  await materializer.start();
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {
-    await runWorkflow(app, 'observatory-minute-data-generator', minute, {
-      inboxDir,
+    await Promise.all(
+      Object.values(paths).map((dir) => resetDirectory(dir))
+    );
+
+    const backendMountId = await ensureFilestoreBackendMount(pool, context.filestore.schema, tempRoot);
+
+    const config = {
+      paths,
+      filestore: {
+        baseUrl: context.filestore.url,
+        backendMountId,
+        inboxPrefix: 'inbox',
+        stagingPrefix: 'staging',
+        archivePrefix: 'archive',
+        token: null,
+        principal: 'observatory-inbox-normalizer'
+      },
+      timestore: {
+        baseUrl: context.timestore.url,
+        datasetSlug: 'observatory-timeseries',
+        datasetName: 'Observatory Time Series',
+        tableName: 'observations',
+        storageTargetId: null,
+        authToken: null
+      },
+      metastore: {
+        baseUrl: '',
+        namespace: 'observatory.reports',
+        authToken: null
+      },
+      workflows: {
+        generatorSlug: 'observatory-minute-data-generator',
+        ingestSlug: 'observatory-minute-ingest',
+        publicationSlug: 'observatory-daily-publication'
+      }
+    } as const;
+
+    const workflowDefinitions = listExampleWorkflowDefinitions(OBSERVATORY_WORKFLOW_SLUGS);
+    for (const workflow of workflowDefinitions) {
+      const defaults = (workflow.defaultParameters ??= {} as Record<string, unknown>);
+      if (workflow.slug === config.workflows.generatorSlug) {
+        defaults.inboxDir = paths.inbox;
+        defaults.filestoreBaseUrl = config.filestore.baseUrl;
+        defaults.filestoreBackendId = config.filestore.backendMountId;
+        defaults.inboxPrefix = config.filestore.inboxPrefix;
+        defaults.stagingPrefix = config.filestore.stagingPrefix;
+        defaults.archivePrefix = config.filestore.archivePrefix;
+        defaults.filestorePrincipal = 'observatory-data-generator';
+      } else if (workflow.slug === config.workflows.ingestSlug) {
+        defaults.stagingDir = paths.staging;
+        defaults.archiveDir = paths.archive;
+        defaults.filestoreBaseUrl = config.filestore.baseUrl;
+        defaults.filestoreBackendId = config.filestore.backendMountId;
+        defaults.inboxPrefix = config.filestore.inboxPrefix;
+        defaults.stagingPrefix = config.filestore.stagingPrefix;
+        defaults.archivePrefix = config.filestore.archivePrefix;
+        defaults.filestorePrincipal = config.filestore.principal;
+        defaults.timestoreBaseUrl = config.timestore.baseUrl;
+        defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
+        defaults.timestoreDatasetName = config.timestore.datasetName;
+        defaults.timestoreTableName = config.timestore.tableName;
+      } else if (workflow.slug === config.workflows.publicationSlug) {
+        defaults.plotsDir = paths.plots;
+        defaults.reportsDir = paths.reports;
+        defaults.timestoreBaseUrl = config.timestore.baseUrl;
+        defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
+        defaults.metastoreBaseUrl = config.metastore.baseUrl;
+        defaults.metastoreNamespace = config.metastore.namespace;
+      }
+    }
+
+    await importExampleWorkflows(app, workflowDefinitions);
+    await ensureObservatoryEventTriggers(app, config);
+
+    const minute = '2030-01-01T03:30';
+    const minuteKey = minute.replace(':', '-');
+    const minuteIsoMatch = minute.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/);
+    const hourSegment = minuteIsoMatch ? `${minuteIsoMatch[1]}T${minuteIsoMatch[2]}` : minuteKey;
+    const archiveMinuteFilename = minuteIsoMatch ? `${minuteIsoMatch[3]}.csv` : `${minuteKey}.csv`;
+
+    await runWorkflow(app, config.workflows.generatorSlug, minute, {
+      inboxDir: paths.inbox,
       minute,
       rowsPerInstrument: OBSERVATORY_ROWS_PER_INSTRUMENT,
       intervalMinutes: OBSERVATORY_INTERVAL_MINUTES,
-      seed: 42
+      filestoreBaseUrl: config.filestore.baseUrl,
+      filestoreBackendId: config.filestore.backendMountId,
+      inboxPrefix: config.filestore.inboxPrefix,
+      stagingPrefix: config.filestore.stagingPrefix,
+      archivePrefix: config.filestore.archivePrefix,
+      filestorePrincipal: 'observatory-data-generator'
     });
 
-    const inboxEntries = await readdir(inboxDir);
-    assert.equal(inboxEntries.length, 3, 'Synthetic generator should create one CSV per instrument');
+    const ingestRun = await waitForWorkflowRunMatching(
+      app,
+      config.workflows.ingestSlug,
+      (run) => getRunParameter(run, 'minute') === minute,
+      { description: `parameters.minute === ${minute}`, timeoutMs: 20_000 }
+    );
+    assert.equal(ingestRun.status, 'succeeded', 'Ingest workflow should succeed');
+    assert.equal(ingestRun.triggeredBy, 'event-trigger');
+    const inboxEntries = await readdir(paths.inbox);
+    assert.equal(inboxEntries.length, 0, 'Inbox should be empty once files are archived');
 
-    await runWorkflow(app, 'observatory-minute-ingest', minute, {
-      inboxDir,
-      stagingDir,
-      archiveDir,
-      minute,
-      maxFiles: 64,
-      timestoreBaseUrl: timestoreUrl,
-      timestoreDatasetSlug: 'observatory-timeseries',
-      timestoreDatasetName: 'Observatory Time Series',
-      timestoreTableName: 'observations'
-    });
-
-    const stagingMinuteDir = path.join(stagingDir, minuteKey);
+    const stagingMinuteDir = path.join(paths.staging, minuteKey);
     const stagingEntries = await readdir(stagingMinuteDir);
     assert.equal(stagingEntries.length, 3, 'Normalizer should copy all CSVs into staging');
 
-    const inboxEntriesAfterIngest = await readdir(inboxDir);
-    assert.equal(inboxEntriesAfterIngest.length, 0, 'Inbox should be empty once files are archived');
-
-    const archiveInstrumentDirs = (await readdir(archiveDir)).sort();
+    const archiveInstrumentDirs = (await readdir(paths.archive)).sort();
     assert.deepEqual(
       archiveInstrumentDirs,
-      ['alpha', 'bravo', 'charlie'],
+      ['instrument_alpha', 'instrument_bravo', 'instrument_charlie'],
       'Archived files should be organized by instrument'
     );
 
-    for (const instrumentId of archiveInstrumentDirs) {
-      const instrumentArchiveDir = path.join(archiveDir, instrumentId, hourSegment);
+    for (const archiveDirName of archiveInstrumentDirs) {
+      const instrumentSlug = archiveDirName.replace(/^instrument_/, '');
+      const instrumentArchiveDir = path.join(paths.archive, archiveDirName, hourSegment);
       const archivedEntries = (await readdir(instrumentArchiveDir)).sort();
       assert.deepEqual(archivedEntries, [archiveMinuteFilename]);
 
       const stagingFilename = stagingEntries.find((entry) =>
-        entry.startsWith(`instrument_${instrumentId}_`)
+        entry.startsWith(`instrument_${instrumentSlug}_`)
       );
-      assert.ok(stagingFilename, `Expected staging file for ${instrumentId}`);
+      assert.ok(stagingFilename, `Expected staging file for ${archiveDirName}`);
 
       const archivedContents = await readFile(
         path.join(instrumentArchiveDir, archiveMinuteFilename),
@@ -461,7 +733,7 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       assert.equal(
         archivedContents,
         stagingContents,
-        `Archived CSV for ${instrumentId} should match staging copy`
+        `Archived CSV for ${archiveDirName} should match staging copy`
       );
     }
 
@@ -474,8 +746,8 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     const windowStartDate = new Date(startDate.getTime() - (OBSERVATORY_ROWS_PER_INSTRUMENT - 1) * OBSERVATORY_INTERVAL_MINUTES * 60 * 1000);
     const partitionRangeStart = windowStartDate.toISOString();
     const rowCount = await queryTimestoreRowCount(
-      timestoreUrl,
-      'observatory-timeseries',
+      config.timestore.baseUrl,
+      config.timestore.datasetSlug,
       partitionRangeStart,
       partitionEnd
     );
@@ -485,19 +757,21 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       `Timestore loader should append 18 rows (3 instruments × 6 rows) but received ${rowCount}`
     );
 
-    const ingestRunId = await waitForWorkflowAsset(
+    const publicationRun = await waitForWorkflowRunMatching(
       app,
-      'observatory-minute-ingest',
-      'observatory.timeseries.timestore',
-      minute
+      config.workflows.publicationSlug,
+      (run) =>
+        getRunParameter(run, 'partitionKey') === minute || getRunParameter(run, 'minute') === minute,
+      { description: `publication minute ${minute}`, timeoutMs: 20_000 }
     );
-    assert.ok(ingestRunId, 'Ingest asset should provide a producing run id');
+    assert.equal(publicationRun.status, 'succeeded');
+    assert.equal(publicationRun.triggeredBy, 'event-trigger');
 
-    const plotsMinuteDir = path.join(plotsDir, minuteKey);
+    const plotsMinuteDir = path.join(paths.plots, minuteKey);
     const plotEntries = await readdir(plotsMinuteDir);
     assert.equal(plotEntries.sort().join(','), 'metrics.json,pm25_trend.svg,temperature_trend.svg');
 
-    const reportsMinuteDir = path.join(reportsDir, minuteKey);
+    const reportsMinuteDir = path.join(paths.reports, minuteKey);
     const reportEntries = await readdir(reportsMinuteDir);
     assert.equal(reportEntries.sort().join(','), 'status.html,status.json,status.md');
     for (const entry of reportEntries) {
@@ -505,28 +779,9 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       assert(statsResult.size > 0, `Report artifact ${entry} should not be empty`);
     }
 
-    const publicationRunId = await waitForWorkflowAsset(
-      app,
-      'observatory-daily-publication',
-      'observatory.reports.status',
-      minute
-    );
-    assert.ok(publicationRunId, 'Publication asset should provide a producing run id');
-
-    const publicationRunResponse = await app.inject({ method: 'GET', url: `/workflow-runs/${publicationRunId}` });
-    assert.equal(publicationRunResponse.statusCode, 200, 'Failed to fetch auto-materialized run detail');
-    const publicationRunBody = JSON.parse(publicationRunResponse.payload) as {
-      data: {
-        status: string;
-        triggeredBy?: string | null;
-        parameters?: Record<string, unknown> | null;
-      };
-    };
-    assert.equal(publicationRunBody.data.status, 'succeeded');
-    assert.equal(publicationRunBody.data.triggeredBy, 'asset-materializer');
-    const publicationParameters = (publicationRunBody.data.parameters ?? {}) as Record<string, unknown>;
-    assert.equal(publicationParameters.plotsDir, plotsDir);
-    assert.equal(publicationParameters.reportsDir, reportsDir);
+    const publicationParameters = (publicationRun.parameters ?? {}) as Record<string, unknown>;
+    assert.equal(publicationParameters.plotsDir, paths.plots);
+    assert.equal(publicationParameters.reportsDir, paths.reports);
 
     const reportJson = await readJsonFile<{
       summary?: { instrumentCount?: number };
@@ -536,13 +791,269 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       ?? reportJson.visualization?.metrics?.instrumentCount;
     assert.equal(reportedInstrumentCount, 3);
   } finally {
-    await materializer.stop();
+    await pool.end();
     if (process.env.OBSERVATORY_KEEP_TEMP === '1') {
       // preserve temp directory for debugging
     } else {
       await rm(tempRoot, { recursive: true, force: true });
     }
   }
+}
+
+async function resetDirectory(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true });
+  await mkdir(dir, { recursive: true });
+}
+
+async function ensureFilestoreBackendMount(
+  pool: Pool,
+  schema: string,
+  rootPath: string
+): Promise<number> {
+  const mountKey = 'observatory-local';
+  const result = await pool.query<{ id: number }>(
+    `INSERT INTO ${schema}.backend_mounts (mount_key, backend_kind, root_path, access_mode, state)
+       VALUES ($1, 'local', $2, 'rw', 'active')
+       ON CONFLICT (mount_key)
+       DO UPDATE SET root_path = EXCLUDED.root_path, state = 'active'
+     RETURNING id`,
+    [mountKey, rootPath]
+  );
+  return result.rows[0].id;
+}
+
+type EventTriggerPredicateTemplate = {
+  path: string;
+  operator: 'equals' | 'notEquals' | 'in' | 'notIn' | 'exists';
+  value?: unknown;
+  values?: unknown[];
+};
+
+type EventTriggerTemplate = {
+  name: string;
+  description: string;
+  eventType: string;
+  eventSource?: string | null;
+  predicates?: EventTriggerPredicateTemplate[];
+  parameterTemplate: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  throttleWindowMs?: number;
+  throttleCount?: number;
+  maxConcurrency?: number;
+  idempotencyKeyExpression?: string;
+};
+
+async function ensureObservatoryEventTriggers(
+  app: FastifyInstance,
+  config: {
+    filestore: {
+      baseUrl: string;
+      backendMountId: number;
+      inboxPrefix: string;
+      stagingPrefix: string;
+      archivePrefix: string;
+      token: string | null;
+      principal: string;
+    };
+    timestore: {
+      baseUrl: string;
+      datasetSlug: string;
+      datasetName: string;
+      tableName: string;
+      storageTargetId: string | null;
+      authToken: string | null;
+    };
+    metastore: {
+      baseUrl: string;
+      namespace: string;
+      authToken: string | null;
+    };
+    paths: {
+      staging: string;
+      archive: string;
+      plots: string;
+      reports: string;
+    };
+    workflows: {
+      ingestSlug: string;
+      publicationSlug: string;
+    };
+  }
+): Promise<void> {
+  const ingestMetadata = {
+    maxFiles: 64,
+    paths: {
+      stagingDir: config.paths.staging,
+      archiveDir: config.paths.archive
+    },
+    filestore: {
+      baseUrl: config.filestore.baseUrl,
+      backendMountId: config.filestore.backendMountId,
+      token: config.filestore.token,
+      inboxPrefix: config.filestore.inboxPrefix,
+      stagingPrefix: config.filestore.stagingPrefix,
+      archivePrefix: config.filestore.archivePrefix,
+      principal: config.filestore.principal
+    },
+    timestore: {
+      baseUrl: config.timestore.baseUrl,
+      datasetSlug: config.timestore.datasetSlug,
+      datasetName: config.timestore.datasetName,
+      tableName: config.timestore.tableName,
+      storageTargetId: config.timestore.storageTargetId,
+      authToken: config.timestore.authToken
+    }
+  };
+
+  const ingestParameters: Record<string, unknown> = {
+    minute: '{{ event.payload.node.metadata.minute }}',
+    maxFiles: '{{ trigger.metadata.maxFiles }}',
+    stagingDir: '{{ trigger.metadata.paths.stagingDir }}',
+    archiveDir: '{{ trigger.metadata.paths.archiveDir }}',
+    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+    inboxPrefix: '{{ trigger.metadata.filestore.inboxPrefix }}',
+    stagingPrefix: '{{ trigger.metadata.filestore.stagingPrefix }}',
+    archivePrefix: '{{ trigger.metadata.filestore.archivePrefix }}',
+    filestorePrincipal: '{{ trigger.metadata.filestore.principal }}',
+    commandPath: '{{ event.payload.path }}',
+    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
+    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
+    timestoreDatasetName: '{{ trigger.metadata.timestore.datasetName }}',
+    timestoreTableName: '{{ trigger.metadata.timestore.tableName }}'
+  };
+  if (config.filestore.token) {
+    ingestParameters.filestoreToken = '{{ trigger.metadata.filestore.token }}';
+  }
+  if (config.timestore.storageTargetId) {
+    ingestParameters.timestoreStorageTargetId = '{{ trigger.metadata.timestore.storageTargetId }}';
+  }
+  if (config.timestore.authToken) {
+    ingestParameters.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+
+  const publicationMetadata = {
+    timestore: {
+      baseUrl: config.timestore.baseUrl,
+      datasetSlug: config.timestore.datasetSlug,
+      authToken: config.timestore.authToken
+    },
+    paths: {
+      plotsDir: config.paths.plots,
+      reportsDir: config.paths.reports
+    },
+    metastore: {
+      baseUrl: config.metastore.baseUrl,
+      namespace: config.metastore.namespace,
+      authToken: config.metastore.authToken
+    }
+  };
+
+  const publicationParameters: Record<string, unknown> = {
+    partitionKey: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}',
+    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
+    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
+    plotsDir: '{{ trigger.metadata.paths.plotsDir }}',
+    reportsDir: '{{ trigger.metadata.paths.reportsDir }}'
+  };
+  if (config.timestore.authToken) {
+    publicationParameters.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+  if (config.metastore.baseUrl) {
+    publicationParameters.metastoreBaseUrl = '{{ trigger.metadata.metastore.baseUrl }}';
+  }
+  if (config.metastore.authToken) {
+    publicationParameters.metastoreAuthToken = '{{ trigger.metadata.metastore.authToken }}';
+  }
+  if (config.metastore.namespace) {
+    publicationParameters.metastoreNamespace = '{{ trigger.metadata.metastore.namespace }}';
+  }
+
+  const ingestTrigger: EventTriggerTemplate = {
+    name: 'Observatory ingest (filestore upload)',
+    description: 'Launch minute ingest when Filestore records a new observatory upload.',
+    eventType: 'filestore.command.completed',
+    eventSource: 'filestore.service',
+    predicates: [
+      { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
+      { path: '$.payload.backendMountId', operator: 'equals', value: config.filestore.backendMountId }
+    ],
+    parameterTemplate: ingestParameters,
+    metadata: ingestMetadata,
+    throttleWindowMs: 60_000,
+    throttleCount: 1,
+    maxConcurrency: 1,
+    idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}'
+  };
+
+  const publicationTrigger: EventTriggerTemplate = {
+    name: 'Observatory publication (timestore partition)',
+    description: 'Render plots and reports when a new observatory partition is ingested.',
+    eventType: 'timestore.partition.created',
+    eventSource: 'timestore.ingest',
+    predicates: [
+      { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
+    ],
+    parameterTemplate: publicationParameters,
+    metadata: publicationMetadata,
+    throttleWindowMs: 60_000,
+    throttleCount: 5,
+    maxConcurrency: 2,
+    idempotencyKeyExpression: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}'
+  };
+
+  await upsertWorkflowEventTrigger(app, config.workflows.ingestSlug, ingestTrigger);
+  await upsertWorkflowEventTrigger(app, config.workflows.publicationSlug, publicationTrigger);
+}
+
+async function upsertWorkflowEventTrigger(
+  app: FastifyInstance,
+  workflowSlug: string,
+  trigger: EventTriggerTemplate
+): Promise<void> {
+  const listResponse = await app.inject({
+    method: 'GET',
+    url: `/workflows/${workflowSlug}/triggers`,
+    headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
+  });
+  assert.equal(listResponse.statusCode, 200, `Failed to list triggers for ${workflowSlug}`);
+  const listPayload = JSON.parse(listResponse.payload) as {
+    data: { triggers: Array<{ id: string; name: string | null }> };
+  };
+  const existing = listPayload.data.triggers.find((entry) => entry.name === trigger.name);
+
+  const body = {
+    name: trigger.name,
+    description: trigger.description,
+    eventType: trigger.eventType,
+    eventSource: trigger.eventSource ?? undefined,
+    predicates: trigger.predicates ?? [],
+    parameterTemplate: trigger.parameterTemplate,
+    metadata: trigger.metadata ?? undefined,
+    throttleWindowMs: trigger.throttleWindowMs ?? undefined,
+    throttleCount: trigger.throttleCount ?? undefined,
+    maxConcurrency: trigger.maxConcurrency ?? undefined,
+    idempotencyKeyExpression: trigger.idempotencyKeyExpression ?? undefined
+  };
+
+  if (existing) {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/workflows/${workflowSlug}/triggers/${existing.id}`,
+      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}`, 'Content-Type': 'application/json' },
+      payload: JSON.stringify(body)
+    });
+    assert.equal(response.statusCode, 200, `Failed to update trigger ${trigger.name}`);
+    return;
+  }
+
+  const createResponse = await app.inject({
+    method: 'POST',
+    url: `/workflows/${workflowSlug}/triggers`,
+    headers: { Authorization: `Bearer ${OPERATOR_TOKEN}`, 'Content-Type': 'application/json' },
+    payload: JSON.stringify(body)
+  });
+  assert.equal(createResponse.statusCode, 201, `Failed to create trigger ${trigger.name}`);
 }
 
 runE2E(async ({ registerCleanup }) => {

@@ -12,8 +12,12 @@ try {
   // best effort
 }
 
-process.env.APPHUB_EVENTS_MODE = 'inline';
-process.env.REDIS_URL = 'inline';
+if (!process.env.APPHUB_EVENTS_MODE) {
+  process.env.APPHUB_EVENTS_MODE = 'redis';
+}
+if (!process.env.REDIS_URL) {
+  process.env.REDIS_URL = 'redis://127.0.0.1:6379';
+}
 process.env.TSX_UNSAFE_HOOKS = '1';
 process.env.TSX_IPC_HOOK_PATH = path.join(ipcDir, `ipc-${randomUUID()}.sock`);
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
