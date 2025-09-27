@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import type {
+  NumberPartitionKeyPredicate,
+  PartitionFilters,
+  PartitionKeyPredicate,
+  StringPartitionKeyPredicate,
+  TimestampPartitionKeyPredicate
+} from '../types/partitionFilters';
 
 const commonAggregations = z.object({
   fn: z.enum(['avg', 'min', 'max', 'sum', 'median']),
@@ -40,9 +47,72 @@ export const downsampleSchema = z.object({
   aggregations: z.array(aggregationSchema).min(1)
 });
 
-export const partitionFilterSchema = z.object({
-  partitionKey: z.record(z.array(z.string().min(1))).optional()
+const timestampLiteralSchema = z.string().min(1).refine(isValidIsoTimestamp, {
+  message: 'partition timestamp filters must use ISO-8601 strings'
 });
+
+const stringPartitionPredicateSchema = z
+  .object({
+    type: z.literal('string').default('string'),
+    eq: z.string().min(1).optional(),
+    in: z.array(z.string().min(1)).min(1).optional()
+  })
+  .refine(hasStringComparator, {
+    message: 'string partition filters require eq or in predicates'
+  });
+
+const numberPartitionPredicateSchema = z
+  .object({
+    type: z.literal('number'),
+    eq: z.number().optional(),
+    in: z.array(z.number()).min(1).optional(),
+    gt: z.number().optional(),
+    gte: z.number().optional(),
+    lt: z.number().optional(),
+    lte: z.number().optional()
+  })
+  .refine(hasNumericOrRangeComparator, {
+    message: 'number partition filters require at least one predicate'
+  });
+
+const timestampPartitionPredicateSchema = z
+  .object({
+    type: z.literal('timestamp'),
+    eq: timestampLiteralSchema.optional(),
+    in: z.array(timestampLiteralSchema).min(1).optional(),
+    gt: timestampLiteralSchema.optional(),
+    gte: timestampLiteralSchema.optional(),
+    lt: timestampLiteralSchema.optional(),
+    lte: timestampLiteralSchema.optional()
+  })
+  .refine(hasTimestampComparator, {
+    message: 'timestamp partition filters require at least one predicate'
+  });
+
+type RawPartitionKeyFilterValue =
+  | z.infer<typeof stringPartitionPredicateSchema>
+  | z.infer<typeof numberPartitionPredicateSchema>
+  | z.infer<typeof timestampPartitionPredicateSchema>
+  | string[];
+
+const partitionKeyFiltersSchema = z
+  .record(
+    z.union([
+      stringPartitionPredicateSchema,
+      numberPartitionPredicateSchema,
+      timestampPartitionPredicateSchema,
+      z.array(z.string().min(1)).min(1)
+    ])
+  )
+  .transform(normalizePartitionKeyFilters);
+
+export const partitionFilterSchema = z
+  .object({
+    partitionKey: partitionKeyFiltersSchema.optional()
+  })
+  .transform<PartitionFilters>((value) => (
+    value.partitionKey ? { partitionKey: value.partitionKey } : {}
+  ));
 
 export const queryRequestSchema = z.object({
   timeRange: z.object({
@@ -67,3 +137,85 @@ export const queryResponseSchema = z.object({
 });
 
 export type QueryResponse = z.infer<typeof queryResponseSchema>;
+
+function hasStringComparator(predicate: StringPartitionKeyPredicate): boolean {
+  return typeof predicate.eq === 'string' || hasValues(predicate.in);
+}
+
+function hasNumericOrRangeComparator(predicate: NumberPartitionKeyPredicate): boolean {
+  return (
+    predicate.eq !== undefined ||
+    hasValues(predicate.in) ||
+    predicate.gt !== undefined ||
+    predicate.gte !== undefined ||
+    predicate.lt !== undefined ||
+    predicate.lte !== undefined
+  );
+}
+
+function hasTimestampComparator(predicate: TimestampPartitionKeyPredicate): boolean {
+  return (
+    typeof predicate.eq === 'string' ||
+    hasValues(predicate.in) ||
+    typeof predicate.gt === 'string' ||
+    typeof predicate.gte === 'string' ||
+    typeof predicate.lt === 'string' ||
+    typeof predicate.lte === 'string'
+  );
+}
+
+function hasValues<T>(values: readonly T[] | undefined): values is readonly T[] {
+  return Array.isArray(values) && values.length > 0;
+}
+
+function isValidIsoTimestamp(value: string): boolean {
+  return !Number.isNaN(Date.parse(value));
+}
+
+function normalizePartitionKeyFilters(
+  filters: Record<string, RawPartitionKeyFilterValue>
+): Record<string, PartitionKeyPredicate> {
+  const normalized: Record<string, PartitionKeyPredicate> = {};
+  for (const [key, rawValue] of Object.entries(filters)) {
+    if (Array.isArray(rawValue)) {
+      normalized[key] = {
+        type: 'string',
+        in: [...rawValue]
+      } satisfies PartitionKeyPredicate;
+      continue;
+    }
+
+    if (rawValue.type === 'string') {
+      normalized[key] = {
+        type: 'string',
+        ...(typeof rawValue.eq === 'string' ? { eq: rawValue.eq } : {}),
+        ...(hasValues(rawValue.in) ? { in: [...rawValue.in] } : {})
+      } satisfies PartitionKeyPredicate;
+      continue;
+    }
+
+    if (rawValue.type === 'number') {
+      normalized[key] = {
+        type: 'number',
+        ...(rawValue.eq !== undefined ? { eq: rawValue.eq } : {}),
+        ...(hasValues(rawValue.in) ? { in: [...rawValue.in] } : {}),
+        ...(rawValue.gt !== undefined ? { gt: rawValue.gt } : {}),
+        ...(rawValue.gte !== undefined ? { gte: rawValue.gte } : {}),
+        ...(rawValue.lt !== undefined ? { lt: rawValue.lt } : {}),
+        ...(rawValue.lte !== undefined ? { lte: rawValue.lte } : {})
+      } satisfies PartitionKeyPredicate;
+      continue;
+    }
+
+    normalized[key] = {
+      type: 'timestamp',
+      ...(typeof rawValue.eq === 'string' ? { eq: rawValue.eq } : {}),
+      ...(hasValues(rawValue.in) ? { in: [...rawValue.in] } : {}),
+      ...(typeof rawValue.gt === 'string' ? { gt: rawValue.gt } : {}),
+      ...(typeof rawValue.gte === 'string' ? { gte: rawValue.gte } : {}),
+      ...(typeof rawValue.lt === 'string' ? { lt: rawValue.lt } : {}),
+      ...(typeof rawValue.lte === 'string' ? { lte: rawValue.lte } : {})
+    } satisfies PartitionKeyPredicate;
+  }
+  return normalized;
+}

@@ -184,3 +184,132 @@ test('timestore metadata lifecycle', async () => {
   assert.ok(fetchedDataset);
   assert.equal(fetchedDataset?.id, datasetId);
 });
+
+test('listPartitionsForQuery applies typed partition filters', async () => {
+  const storageTarget = await metadata.upsertStorageTarget({
+    id: `st-${randomUUID()}`,
+    name: `local-${randomUUID().slice(0, 8)}`,
+    kind: 'local',
+    description: 'Local target for filter testing',
+    config: { root: '/tmp/timestore-filters' }
+  });
+
+  const datasetId = `ds-${randomUUID()}`;
+  const datasetSlug = `partitioned-${randomUUID().slice(0, 8)}`;
+  await metadata.createDataset({
+    id: datasetId,
+    slug: datasetSlug,
+    name: 'Partitioned Series',
+    defaultStorageTargetId: storageTarget.id
+  });
+
+  const baseTime = Date.parse('2024-02-01T00:00:00.000Z');
+  const manifestId = `dm-${randomUUID()}`;
+  await metadata.createDatasetManifest({
+    id: manifestId,
+    datasetId,
+    version: 1,
+    status: 'published',
+    summary: {},
+    statistics: {},
+    metadata: {},
+    partitions: [
+      {
+        id: `part-${randomUUID()}`,
+        storageTargetId: storageTarget.id,
+        fileFormat: 'duckdb',
+        filePath: `datasets/${datasetSlug}/a.duckdb`,
+        partitionKey: {
+          region: 'east',
+          shard: 1,
+          captured_at: '2024-02-01T00:00:00.000Z'
+        },
+        startTime: new Date(baseTime),
+        endTime: new Date(baseTime + 3_600_000),
+        fileSizeBytes: 512,
+        rowCount: 100,
+        metadata: {}
+      },
+      {
+        id: `part-${randomUUID()}`,
+        storageTargetId: storageTarget.id,
+        fileFormat: 'duckdb',
+        filePath: `datasets/${datasetSlug}/b.duckdb`,
+        partitionKey: {
+          region: 'east',
+          shard: 3,
+          captured_at: '2024-02-01T02:00:00.000Z'
+        },
+        startTime: new Date(baseTime + 2 * 3_600_000),
+        endTime: new Date(baseTime + 3 * 3_600_000),
+        fileSizeBytes: 512,
+        rowCount: 120,
+        metadata: {}
+      },
+      {
+        id: `part-${randomUUID()}`,
+        storageTargetId: storageTarget.id,
+        fileFormat: 'duckdb',
+        filePath: `datasets/${datasetSlug}/c.duckdb`,
+        partitionKey: {
+          region: 'west',
+          shard: 2,
+          captured_at: '2024-02-01T04:00:00.000Z'
+        },
+        startTime: new Date(baseTime + 4 * 3_600_000),
+        endTime: new Date(baseTime + 5 * 3_600_000),
+        fileSizeBytes: 512,
+        rowCount: 110,
+        metadata: {}
+      }
+    ]
+  });
+
+  const rangeStart = new Date(baseTime);
+  const rangeEnd = new Date(baseTime + 6 * 3_600_000);
+
+  const allPartitions = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd);
+  assert.equal(allPartitions.length, 3);
+
+  const eastPartitions = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd, {
+    partitionKey: {
+      region: { type: 'string', eq: 'east' }
+    }
+  });
+  assert.equal(eastPartitions.length, 2);
+
+  const numericFiltered = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd, {
+    partitionKey: {
+      region: { type: 'string', eq: 'east' },
+      shard: { type: 'number', gt: 2 }
+    }
+  });
+  assert.equal(numericFiltered.length, 1);
+  assert.equal(numericFiltered[0]?.partitionKey.shard, 3);
+
+  const numericSetFiltered = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd, {
+    partitionKey: {
+      shard: { type: 'number', in: [2, 3] }
+    }
+  });
+  assert.equal(numericSetFiltered.length, 2);
+
+  const timestampFiltered = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd, {
+    partitionKey: {
+      captured_at: {
+        type: 'timestamp',
+        gte: '2024-02-01T01:00:00.000Z',
+        lt: '2024-02-01T03:00:00.000Z'
+      }
+    }
+  });
+  assert.equal(timestampFiltered.length, 1);
+  assert.equal(timestampFiltered[0]?.partitionKey.captured_at, '2024-02-01T02:00:00.000Z');
+
+  const unmatched = await metadata.listPartitionsForQuery(datasetId, rangeStart, rangeEnd, {
+    partitionKey: {
+      shard: { type: 'number', gt: 10 }
+    }
+  });
+  assert.equal(unmatched.length, 0);
+});

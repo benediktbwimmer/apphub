@@ -1,4 +1,11 @@
 import type { PoolClient } from 'pg';
+import {
+  type NumberPartitionKeyPredicate,
+  type PartitionFilters,
+  type PartitionKeyPredicate,
+  type StringPartitionKeyPredicate,
+  type TimestampPartitionKeyPredicate
+} from '../types/partitionFilters';
 import { withConnection, withTransaction } from './client';
 
 export type StorageTargetKind = 'local' | 's3' | 'gcs' | 'azure_blob';
@@ -1091,10 +1098,6 @@ export async function recordIngestionBatch(
   });
 }
 
-export interface PartitionFilters {
-  partitionKey?: Record<string, string[]>;
-}
-
 export async function listPartitionsForQuery(
   datasetId: string,
   rangeStart: Date,
@@ -1102,8 +1105,23 @@ export async function listPartitionsForQuery(
   filters: PartitionFilters = {}
 ): Promise<PartitionWithTarget[]> {
   return withConnection(async (client) => {
-    const { rows } = await client.query<PartitionWithTargetRow>(
-      `SELECT
+    const params: unknown[] = [
+      datasetId,
+      rangeStart.toISOString(),
+      rangeEnd.toISOString()
+    ];
+
+    const pushParam = (value: unknown): string => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    const partitionClauses = buildPartitionFilterClauses(filters.partitionKey ?? {}, pushParam);
+    const partitionWhere = partitionClauses.length > 0
+      ? `\n         AND ${partitionClauses.join('\n         AND ')}`
+      : '';
+
+    const query = `SELECT
          p.*,
          t.id AS storage_target_id,
          t.name AS storage_target_name,
@@ -1118,16 +1136,11 @@ export async function listPartitionsForQuery(
        WHERE p.dataset_id = $1
          AND m.status = 'published'
          AND p.end_time >= $2
-         AND p.start_time <= $3
-       ORDER BY p.start_time ASC`,
-      [datasetId, rangeStart.toISOString(), rangeEnd.toISOString()]
-    );
+         AND p.start_time <= $3${partitionWhere}
+       ORDER BY p.start_time ASC`;
 
-    const partitionFilters = filters.partitionKey ?? {};
-
-    return rows
-      .filter((row) => partitionMatchesFilters(row.partition_key, partitionFilters))
-      .map(mapPartitionWithTarget);
+    const { rows } = await client.query<PartitionWithTargetRow>(query, params);
+    return rows.map(mapPartitionWithTarget);
   });
 }
 
@@ -1554,25 +1567,119 @@ function mapDatasetAccessAudit(row: DatasetAccessAuditRow): DatasetAccessAuditRe
   };
 }
 
-function partitionMatchesFilters(
-  partitionKey: JsonObject,
-  filters: Record<string, string[]>
-): boolean {
-  const entries = Object.entries(filters);
-  if (entries.length === 0) {
-    return true;
-  }
-  for (const [key, values] of entries) {
-    if (!Array.isArray(values) || values.length === 0) {
+function buildPartitionFilterClauses(
+  filters: Record<string, PartitionKeyPredicate>,
+  pushParam: (value: unknown) => string
+): string[] {
+  const clauses: string[] = [];
+  for (const [key, predicate] of Object.entries(filters)) {
+    if (!predicate) {
       continue;
     }
-    const actual = partitionKey[key];
-    if (typeof actual !== 'string') {
-      return false;
-    }
-    if (!values.includes(actual)) {
-      return false;
+    const keyParam = pushParam(key);
+    const keyExpression = `jsonb_extract_path_text(p.partition_key, ${keyParam})`;
+    switch (predicate.type) {
+      case 'string':
+        clauses.push(...buildStringPartitionClauses(keyExpression, predicate, pushParam));
+        break;
+      case 'number':
+        clauses.push(...buildNumberPartitionClauses(keyExpression, predicate, pushParam));
+        break;
+      case 'timestamp':
+        clauses.push(...buildTimestampPartitionClauses(keyExpression, predicate, pushParam));
+        break;
+      default:
+        break;
     }
   }
-  return true;
+  return clauses;
+}
+
+function buildStringPartitionClauses(
+  keyExpression: string,
+  predicate: StringPartitionKeyPredicate,
+  pushParam: (value: unknown) => string
+): string[] {
+  const clauses: string[] = [];
+  if (typeof predicate.eq === 'string') {
+    const valueParam = pushParam(predicate.eq);
+    clauses.push(`${keyExpression} = ${valueParam}`);
+  }
+  if (hasItems(predicate.in)) {
+    const valueParam = pushParam(predicate.in);
+    clauses.push(`${keyExpression} = ANY(${valueParam}::text[])`);
+  }
+  return clauses;
+}
+
+function buildNumberPartitionClauses(
+  keyExpression: string,
+  predicate: NumberPartitionKeyPredicate,
+  pushParam: (value: unknown) => string
+): string[] {
+  const clauses: string[] = [];
+  const numericExpression = `(${keyExpression})::numeric`;
+  if (predicate.eq !== undefined) {
+    const valueParam = pushParam(predicate.eq);
+    clauses.push(`${numericExpression} = ${valueParam}::numeric`);
+  }
+  if (hasItems(predicate.in)) {
+    const valueParam = pushParam(predicate.in);
+    clauses.push(`${numericExpression} = ANY(${valueParam}::numeric[])`);
+  }
+  if (predicate.gt !== undefined) {
+    const valueParam = pushParam(predicate.gt);
+    clauses.push(`${numericExpression} > ${valueParam}::numeric`);
+  }
+  if (predicate.gte !== undefined) {
+    const valueParam = pushParam(predicate.gte);
+    clauses.push(`${numericExpression} >= ${valueParam}::numeric`);
+  }
+  if (predicate.lt !== undefined) {
+    const valueParam = pushParam(predicate.lt);
+    clauses.push(`${numericExpression} < ${valueParam}::numeric`);
+  }
+  if (predicate.lte !== undefined) {
+    const valueParam = pushParam(predicate.lte);
+    clauses.push(`${numericExpression} <= ${valueParam}::numeric`);
+  }
+  return clauses;
+}
+
+function buildTimestampPartitionClauses(
+  keyExpression: string,
+  predicate: TimestampPartitionKeyPredicate,
+  pushParam: (value: unknown) => string
+): string[] {
+  const clauses: string[] = [];
+  const timestampExpression = `(${keyExpression})::timestamptz`;
+  if (typeof predicate.eq === 'string') {
+    const valueParam = pushParam(predicate.eq);
+    clauses.push(`${timestampExpression} = ${valueParam}::timestamptz`);
+  }
+  if (hasItems(predicate.in)) {
+    const valueParam = pushParam(predicate.in);
+    clauses.push(`${timestampExpression} = ANY(${valueParam}::timestamptz[])`);
+  }
+  if (typeof predicate.gt === 'string') {
+    const valueParam = pushParam(predicate.gt);
+    clauses.push(`${timestampExpression} > ${valueParam}::timestamptz`);
+  }
+  if (typeof predicate.gte === 'string') {
+    const valueParam = pushParam(predicate.gte);
+    clauses.push(`${timestampExpression} >= ${valueParam}::timestamptz`);
+  }
+  if (typeof predicate.lt === 'string') {
+    const valueParam = pushParam(predicate.lt);
+    clauses.push(`${timestampExpression} < ${valueParam}::timestamptz`);
+  }
+  if (typeof predicate.lte === 'string') {
+    const valueParam = pushParam(predicate.lte);
+    clauses.push(`${timestampExpression} <= ${valueParam}::timestamptz`);
+  }
+  return clauses;
+}
+
+function hasItems<T>(values: readonly T[] | undefined): values is readonly T[] {
+  return Array.isArray(values) && values.length > 0;
 }
