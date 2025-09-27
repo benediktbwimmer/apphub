@@ -51,6 +51,25 @@ export interface CreateDatasetInput {
   metadata?: JsonObject;
 }
 
+export interface UpdateDatasetInput {
+  id: string;
+  name?: string;
+  description?: string | null;
+  status?: DatasetStatus;
+  defaultStorageTargetId?: string | null;
+  metadata?: JsonObject;
+  ifMatch?: string | null;
+}
+
+export class DatasetConcurrentUpdateError extends Error {
+  readonly code = 'DATASET_CONCURRENT_UPDATE';
+
+  constructor(message = 'Dataset was modified by another process') {
+    super(message);
+    this.name = 'DatasetConcurrentUpdateError';
+  }
+}
+
 export interface DatasetSchemaVersionRecord {
   id: string;
   datasetId: string;
@@ -290,6 +309,87 @@ export async function createDataset(input: CreateDatasetInput): Promise<DatasetR
         JSON.stringify(input.metadata ?? {})
       ]
     );
+    return mapDataset(rows[0]);
+  });
+}
+
+export async function updateDataset(input: UpdateDatasetInput): Promise<DatasetRecord> {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (input.name !== undefined) {
+    values.push(input.name);
+    fields.push(`name = $${values.length}`);
+  }
+
+  if (input.description !== undefined) {
+    values.push(input.description);
+    fields.push(`description = $${values.length}`);
+  }
+
+  if (input.status !== undefined) {
+    values.push(input.status);
+    fields.push(`status = $${values.length}`);
+  }
+
+  if (input.defaultStorageTargetId !== undefined) {
+    values.push(input.defaultStorageTargetId ?? null);
+    fields.push(`default_storage_target_id = $${values.length}`);
+  }
+
+  if (input.metadata !== undefined) {
+    values.push(JSON.stringify(input.metadata));
+    fields.push(`metadata = $${values.length}::jsonb`);
+  }
+
+  if (fields.length === 0) {
+    const existing = await getDatasetById(input.id);
+    if (!existing) {
+      throw new Error(`Dataset ${input.id} not found`);
+    }
+    if (input.ifMatch) {
+      const expectedMs = Date.parse(input.ifMatch);
+      const currentMs = Date.parse(existing.updatedAt);
+      if (Number.isNaN(expectedMs) || Number.isNaN(currentMs) || currentMs !== expectedMs) {
+        throw new DatasetConcurrentUpdateError();
+      }
+    }
+    return existing;
+  }
+
+  const whereParts: string[] = [];
+
+  values.push(input.id);
+  whereParts.push(`id = $${values.length}`);
+
+  if (input.ifMatch) {
+    values.push(input.ifMatch);
+    const parameter = values.length;
+    whereParts.push(
+      `date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $${parameter}::timestamptz)`
+    );
+  }
+
+  const setFragments = [...fields, 'updated_at = NOW()'];
+  const query = `UPDATE datasets
+                   SET ${setFragments.join(', ')}
+                 WHERE ${whereParts.join(' AND ')}
+               RETURNING *`;
+
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetRow>(query, values);
+    if (rows.length === 0) {
+      if (input.ifMatch) {
+        const { rows: existing } = await client.query<{ id: string }>(
+          'SELECT id FROM datasets WHERE id = $1 LIMIT 1',
+          [input.id]
+        );
+        if (existing.length > 0) {
+          throw new DatasetConcurrentUpdateError();
+        }
+      }
+      throw new Error(`Dataset ${input.id} not found`);
+    }
     return mapDataset(rows[0]);
   });
 }

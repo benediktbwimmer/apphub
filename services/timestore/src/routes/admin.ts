@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import {
+  createDatasetRequestSchema,
+  patchDatasetRequestSchema,
+  archiveDatasetRequestSchema,
+  type CreateDatasetRequest,
+  type PatchDatasetRequest,
+  type ArchiveDatasetRequest,
+  type DatasetMetadata
+} from '@apphub/shared/timestoreAdmin';
 import { loadServiceConfig } from '../config/serviceConfig';
 import {
   getLifecycleJobRun,
@@ -14,9 +23,13 @@ import {
   upsertRetentionPolicy,
   updateDatasetDefaultStorageTarget,
   getStorageTargetById,
-  recordLifecycleAuditEvent
+  recordLifecycleAuditEvent,
+  recordDatasetAccessEvent,
+  createDataset,
+  updateDataset,
+  DatasetConcurrentUpdateError
 } from '../db/metadata';
-import type { DatasetRecord } from '../db/metadata';
+import type { DatasetRecord, JsonObject } from '../db/metadata';
 import { runLifecycleJob, getMaintenanceMetrics } from '../lifecycle/maintenance';
 import { enqueueLifecycleJob, isLifecycleInlineMode } from '../lifecycle/queue';
 import {
@@ -26,7 +39,7 @@ import {
   type LifecycleJobPayload,
   type LifecycleOperation
 } from '../lifecycle/types';
-import { authorizeAdminAccess } from '../service/iam';
+import { authorizeAdminAccess, resolveRequestActor, getRequestScopes } from '../service/iam';
 
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
@@ -173,6 +186,286 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       status: 'queued',
       jobId: payload.requestId
     };
+  });
+
+  app.post('/admin/datasets', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const body = createDatasetRequestSchema.parse(request.body ?? {});
+
+    if (body.defaultStorageTargetId) {
+      const target = await getStorageTargetById(body.defaultStorageTargetId);
+      if (!target) {
+        await recordDatasetAccessEvent({
+          id: `da-${randomUUID()}`,
+          datasetId: null,
+          datasetSlug: body.slug,
+          actorId: resolveAuditActor(request)?.id ?? null,
+          actorScopes: getRequestScopes(request),
+          action: 'admin.dataset.created',
+          success: false,
+          metadata: {
+            reason: 'storage_target_not_found',
+            storageTargetId: body.defaultStorageTargetId
+          }
+        });
+        reply.status(404);
+        return {
+          error: `storage target ${body.defaultStorageTargetId} not found`
+        };
+      }
+    }
+
+    const metadata = normalizeDatasetMetadata(body.metadata);
+    const datasetId = `ds-${randomUUID()}`;
+    let dataset: DatasetRecord | null = null;
+    let created = false;
+
+    try {
+      dataset = await createDataset({
+        id: datasetId,
+        slug: body.slug,
+        name: body.name,
+        description: body.description ?? null,
+        status: body.status,
+        writeFormat: body.writeFormat,
+        defaultStorageTargetId: body.defaultStorageTargetId ?? null,
+        metadata
+      });
+      created = true;
+    } catch (error) {
+      if (isUniqueViolation(error, 'datasets_slug_key')) {
+        dataset = await getDatasetBySlug(body.slug);
+        if (!dataset || !datasetMatchesCreateRequest(dataset, body, metadata)) {
+          await recordDatasetAccessEvent({
+            id: `da-${randomUUID()}`,
+            datasetId: dataset?.id ?? null,
+            datasetSlug: body.slug,
+            actorId: resolveAuditActor(request)?.id ?? null,
+            actorScopes: getRequestScopes(request),
+            action: 'admin.dataset.created',
+            success: false,
+            metadata: {
+              reason: 'slug_conflict',
+              request: createAuditRequestSnapshot(body, metadata),
+              existing: dataset ? serializeDatasetForAudit(dataset) : null
+            }
+          });
+          reply.status(409);
+          return {
+            error: `dataset ${body.slug} already exists`
+          };
+        }
+      } else {
+        throw error;
+      }
+    }
+
+    if (!dataset) {
+      throw new Error('Dataset creation failed to return a record');
+    }
+
+    const actor = resolveAuditActor(request);
+    await recordDatasetAccessEvent({
+      id: `da-${randomUUID()}`,
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      actorId: actor?.id ?? null,
+      actorScopes: actor?.scopes ?? getRequestScopes(request),
+      action: created ? 'admin.dataset.created' : 'admin.dataset.created.idempotent',
+      success: true,
+      metadata: {
+        request: createAuditRequestSnapshot(body, metadata),
+        dataset: serializeDatasetForAudit(dataset),
+        idempotencyKey: body.idempotencyKey ?? null,
+        created
+      }
+    });
+
+    reply.header('etag', dataset.updatedAt);
+    if (created) {
+      reply.status(201);
+    }
+    return {
+      dataset,
+      etag: dataset.updatedAt
+    };
+  });
+
+  app.patch('/admin/datasets/:datasetId', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const { datasetId } = datasetParamsSchema.parse(request.params);
+    const body = patchDatasetRequestSchema.parse(request.body ?? {});
+    const dataset = await resolveDataset(datasetId);
+    if (!dataset) {
+      reply.status(404);
+      return {
+        error: `dataset ${datasetId} not found`
+      };
+    }
+
+    if (body.defaultStorageTargetId !== undefined && body.defaultStorageTargetId !== null) {
+      const target = await getStorageTargetById(body.defaultStorageTargetId);
+      if (!target) {
+        await recordDatasetAccessEvent({
+          id: `da-${randomUUID()}`,
+          datasetId: dataset.id,
+          datasetSlug: dataset.slug,
+          actorId: resolveAuditActor(request)?.id ?? null,
+          actorScopes: getRequestScopes(request),
+          action: 'admin.dataset.updated',
+          success: false,
+          metadata: {
+            reason: 'storage_target_not_found',
+            storageTargetId: body.defaultStorageTargetId
+          }
+        });
+        reply.status(404);
+        return {
+          error: `storage target ${body.defaultStorageTargetId} not found`
+        };
+      }
+    }
+
+    const ifMatchResolution = resolveIfMatch(request, body.ifMatch ?? null);
+    if (!ifMatchResolution.valid) {
+      reply.status(400);
+      return {
+        error: 'ifMatch must be an RFC 3339 timestamp'
+      };
+    }
+    const ifMatch = ifMatchResolution.value;
+    const metadataUpdate = body.metadata !== undefined ? mergeDatasetMetadata(dataset.metadata, body.metadata) : undefined;
+
+    try {
+      const updated = await updateDataset({
+        id: dataset.id,
+        name: body.name,
+        description: body.description,
+        status: body.status,
+        defaultStorageTargetId: body.defaultStorageTargetId,
+        metadata: metadataUpdate,
+        ifMatch
+      });
+
+      const actor = resolveAuditActor(request);
+      const diff = diffDatasets(dataset, updated);
+
+      await recordDatasetAccessEvent({
+        id: `da-${randomUUID()}`,
+        datasetId: updated.id,
+        datasetSlug: updated.slug,
+        actorId: actor?.id ?? null,
+        actorScopes: actor?.scopes ?? getRequestScopes(request),
+        action: 'admin.dataset.updated',
+        success: true,
+        metadata: {
+          before: serializeDatasetForAudit(dataset),
+          after: serializeDatasetForAudit(updated),
+          fieldsChanged: diff
+        }
+      });
+
+      reply.header('etag', updated.updatedAt);
+      return {
+        dataset: updated,
+        etag: updated.updatedAt
+      };
+    } catch (error) {
+      if (error instanceof DatasetConcurrentUpdateError) {
+        await recordDatasetAccessEvent({
+          id: `da-${randomUUID()}`,
+          datasetId: dataset.id,
+          datasetSlug: dataset.slug,
+          actorId: resolveAuditActor(request)?.id ?? null,
+          actorScopes: getRequestScopes(request),
+          action: 'admin.dataset.updated',
+          success: false,
+          metadata: {
+            reason: 'concurrency_conflict',
+            ifMatch
+          }
+        });
+        reply.status(412);
+        return {
+          error: 'dataset was modified since last read'
+        };
+      }
+      throw error;
+    }
+  });
+
+  app.post('/admin/datasets/:datasetId/archive', async (request, reply) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    const { datasetId } = datasetParamsSchema.parse(request.params);
+    const body = archiveDatasetRequestSchema.parse(request.body ?? {});
+    const dataset = await resolveDataset(datasetId);
+    if (!dataset) {
+      reply.status(404);
+      return {
+        error: `dataset ${datasetId} not found`
+      };
+    }
+
+    const ifMatchResolution = resolveIfMatch(request, body.ifMatch ?? null);
+    if (!ifMatchResolution.valid) {
+      reply.status(400);
+      return {
+        error: 'ifMatch must be an RFC 3339 timestamp'
+      };
+    }
+    const ifMatch = ifMatchResolution.value;
+    const actor = resolveAuditActor(request);
+
+    try {
+      const beforeSnapshot = serializeDatasetForAudit(dataset);
+      const updated =
+        dataset.status === 'inactive'
+          ? await updateDataset({ id: dataset.id, ifMatch })
+          : await updateDataset({ id: dataset.id, status: 'inactive', ifMatch });
+
+      await recordDatasetAccessEvent({
+        id: `da-${randomUUID()}`,
+        datasetId: updated.id,
+        datasetSlug: updated.slug,
+        actorId: actor?.id ?? null,
+        actorScopes: actor?.scopes ?? getRequestScopes(request),
+        action: 'admin.dataset.archived',
+        success: true,
+        metadata: {
+          before: beforeSnapshot,
+          after: serializeDatasetForAudit(updated),
+          reason: body.reason ?? null,
+          idempotent: dataset.status === 'inactive'
+        }
+      });
+
+      reply.header('etag', updated.updatedAt);
+      return {
+        dataset: updated,
+        etag: updated.updatedAt
+      };
+    } catch (error) {
+      if (error instanceof DatasetConcurrentUpdateError) {
+        await recordDatasetAccessEvent({
+          id: `da-${randomUUID()}`,
+          datasetId: dataset.id,
+          datasetSlug: dataset.slug,
+          actorId: actor?.id ?? null,
+          actorScopes: actor?.scopes ?? getRequestScopes(request),
+          action: 'admin.dataset.archived',
+          success: false,
+          metadata: {
+            reason: 'concurrency_conflict',
+            ifMatch
+          }
+        });
+        reply.status(412);
+        return {
+          error: 'dataset was modified since last read'
+        };
+      }
+      throw error;
+    }
   });
 
   app.get('/admin/datasets', async (request, reply) => {
@@ -357,6 +650,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
+interface AuditActor {
+  id: string | null;
+  scopes: string[];
+}
+
+interface IfMatchResolution {
+  value: string | null;
+  valid: boolean;
+}
+
 function isLifecycleOperation(value: string): value is LifecycleOperation {
   return value === 'compaction' || value === 'retention' || value === 'parquetExport';
 }
@@ -369,12 +672,259 @@ async function resolveDataset(identifier: string): Promise<DatasetRecord | null>
   return getDatasetBySlug(identifier);
 }
 
+function resolveAuditActor(request: FastifyRequest): AuditActor | null {
+  const actor = resolveRequestActor(request);
+  if (actor) {
+    return actor;
+  }
+  const scopes = getRequestScopes(request);
+  if (scopes.length > 0) {
+    return {
+      id: null,
+      scopes
+    };
+  }
+  return null;
+}
+
 function resolveActor(request: FastifyRequest): string | null {
   const actorHeader = request.headers['x-iam-user'] ?? request.headers['x-user-id'];
   if (typeof actorHeader === 'string' && actorHeader.trim().length > 0) {
     return actorHeader.trim();
   }
   return null;
+}
+
+function resolveIfMatch(request: FastifyRequest, value: string | null): IfMatchResolution {
+  const candidate = (() => {
+    if (value && value.trim().length > 0) {
+      return value.trim();
+    }
+    const header = request.headers['if-match'];
+    if (typeof header === 'string' && header.trim().length > 0) {
+      return header.trim();
+    }
+    return null;
+  })();
+
+  if (!candidate) {
+    return {
+      value: null,
+      valid: true
+    };
+  }
+
+  const parsed = Date.parse(candidate);
+  if (Number.isNaN(parsed)) {
+    return {
+      value: candidate,
+      valid: false
+    };
+  }
+
+  return {
+    value: new Date(parsed).toISOString(),
+    valid: true
+  };
+}
+
+function isUniqueViolation(error: unknown, constraint?: string): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: string; constraint?: string };
+  if (candidate.code !== '23505') {
+    return false;
+  }
+  if (constraint && candidate.constraint !== constraint) {
+    return false;
+  }
+  return true;
+}
+
+function normalizeDatasetMetadata(metadata?: DatasetMetadata | null): JsonObject {
+  if (!metadata) {
+    return {};
+  }
+  return mergeDatasetMetadata({}, metadata);
+}
+
+function mergeDatasetMetadata(base: JsonObject, patch: DatasetMetadata | undefined): JsonObject {
+  const result = cloneJsonObject(base);
+  if (!patch || typeof patch !== 'object') {
+    return result;
+  }
+
+  for (const [key, rawValue] of Object.entries(patch)) {
+    if (rawValue === undefined) {
+      continue;
+    }
+    if (key === 'iam') {
+      if (rawValue === null) {
+        delete result.iam;
+        continue;
+      }
+      if (typeof rawValue === 'object' && rawValue !== null) {
+        const iamValue = rawValue as Record<string, unknown>;
+        const readScopes = Array.isArray(iamValue.readScopes)
+          ? dedupeScopes(iamValue.readScopes as string[])
+          : undefined;
+        const writeScopes = Array.isArray(iamValue.writeScopes)
+          ? dedupeScopes(iamValue.writeScopes as string[])
+          : undefined;
+        const iamResult: Record<string, unknown> = {};
+        if (readScopes && readScopes.length > 0) {
+          iamResult.readScopes = readScopes;
+        }
+        if (writeScopes && writeScopes.length > 0) {
+          iamResult.writeScopes = writeScopes;
+        }
+        if (Object.keys(iamResult).length > 0) {
+          result.iam = iamResult;
+        } else {
+          delete result.iam;
+        }
+      }
+      continue;
+    }
+
+    result[key] = cloneJsonValue(rawValue);
+  }
+
+  return result;
+}
+
+function createAuditRequestSnapshot(body: CreateDatasetRequest, metadata: JsonObject): JsonObject {
+  return {
+    slug: body.slug,
+    name: body.name,
+    description: body.description ?? null,
+    status: body.status ?? 'active',
+    writeFormat: body.writeFormat ?? 'duckdb',
+    defaultStorageTargetId: body.defaultStorageTargetId ?? null,
+    metadata: cloneJsonObject(metadata)
+  } satisfies JsonObject;
+}
+
+function serializeDatasetForAudit(dataset: DatasetRecord): JsonObject {
+  return {
+    id: dataset.id,
+    slug: dataset.slug,
+    name: dataset.name,
+    description: dataset.description,
+    status: dataset.status,
+    writeFormat: dataset.writeFormat,
+    defaultStorageTargetId: dataset.defaultStorageTargetId,
+    metadata: cloneJsonObject(dataset.metadata),
+    updatedAt: dataset.updatedAt
+  } satisfies JsonObject;
+}
+
+function datasetMatchesCreateRequest(
+  dataset: DatasetRecord,
+  body: CreateDatasetRequest,
+  metadata: JsonObject
+): boolean {
+  return (
+    dataset.name === body.name &&
+    dataset.description === (body.description ?? null) &&
+    dataset.status === (body.status ?? 'active') &&
+    dataset.writeFormat === (body.writeFormat ?? 'duckdb') &&
+    dataset.defaultStorageTargetId === (body.defaultStorageTargetId ?? null) &&
+    stableJsonStringify(dataset.metadata) === stableJsonStringify(metadata)
+  );
+}
+
+function diffDatasets(before: DatasetRecord, after: DatasetRecord): string[] {
+  const fields: Array<[string, (input: DatasetRecord) => unknown]> = [
+    ['name', (input) => input.name],
+    ['description', (input) => input.description],
+    ['status', (input) => input.status],
+    ['defaultStorageTargetId', (input) => input.defaultStorageTargetId],
+    ['metadata', (input) => input.metadata]
+  ];
+
+  const changed: string[] = [];
+  for (const [key, selector] of fields) {
+    const left = selector(before);
+    const right = selector(after);
+    const diff = key === 'metadata' ? stableJsonStringify(left) !== stableJsonStringify(right) : left !== right;
+    if (diff) {
+      changed.push(key);
+    }
+  }
+  return changed;
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sortJson(entry));
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const result: Record<string, unknown> = {};
+    for (const [key, entryValue] of entries) {
+      result[key] = sortJson(entryValue);
+    }
+    return result;
+  }
+  return value;
+}
+
+function cloneJsonObject(source: JsonObject | undefined): JsonObject {
+  const result: JsonObject = {};
+  if (!source) {
+    return result;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) {
+      continue;
+    }
+    result[key] = cloneJsonValue(value);
+  }
+  return result;
+}
+
+function cloneJsonValue(value: unknown): unknown {
+  if (value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneJsonValue(entry));
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
+      if (entryValue === undefined) {
+        continue;
+      }
+      result[key] = cloneJsonValue(entryValue);
+    }
+    return result;
+  }
+  return null;
+}
+
+function dedupeScopes(scopes: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const scope of scopes) {
+    const trimmed = scope.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (!seen.has(trimmed)) {
+      result.push(trimmed);
+      seen.add(trimmed);
+    }
+  }
+  return result;
 }
 
 function encodeCursor(cursor: { updatedAt: string; id: string }): string {

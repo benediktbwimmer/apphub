@@ -166,6 +166,182 @@ function adminHeaders() {
   };
 }
 
+test('creates dataset via admin API with metadata and idempotency', async () => {
+  assert.ok(app);
+  const slug = `admin-created-${randomUUID().slice(0, 8)}`;
+  const requestBody = {
+    slug,
+    name: 'New Observability Dataset',
+    description: 'Created via admin API test',
+    defaultStorageTargetId: defaultStorageTargetId,
+    metadata: {
+      iam: {
+        readScopes: ['admin-scope', 'query-scope'],
+        writeScopes: ['admin-scope']
+      }
+    },
+    idempotencyKey: `ticket-044-${randomUUID().slice(0, 6)}`
+  };
+
+  const response = await app!.inject({
+    method: 'POST',
+    url: '/admin/datasets',
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: requestBody
+  });
+
+  assert.equal(response.statusCode, 201);
+  const createdPayload = response.json() as {
+    dataset: { id: string; slug: string; metadata: { iam?: { readScopes?: string[] } } };
+    etag: string;
+  };
+  assert.equal(createdPayload.dataset.slug, slug);
+  assert.equal(Array.isArray(createdPayload.dataset.metadata.iam?.readScopes), true);
+  assert.ok(response.headers['etag']);
+  assert.equal(createdPayload.etag.length > 0, true);
+  assert.equal(Number.isNaN(Date.parse(String(response.headers['etag']))), false);
+
+  const replay = await app!.inject({
+    method: 'POST',
+    url: '/admin/datasets',
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: requestBody
+  });
+
+  assert.equal(replay.statusCode, 200);
+  const replayPayload = replay.json() as { dataset: { id: string } };
+  assert.equal(replayPayload.dataset.id, createdPayload.dataset.id);
+
+  const stored = await metadataModule.getDatasetBySlug(slug);
+  assert.ok(stored);
+  const auditEvents = await metadataModule.listDatasetAccessEvents(stored!.id, 10);
+  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.created'));
+});
+
+test('rejects dataset creation when slug conflicts with different config', async () => {
+  assert.ok(app);
+  const response = await app!.inject({
+    method: 'POST',
+    url: '/admin/datasets',
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      slug: datasetA.slug,
+      name: 'Conflicting Dataset',
+      idempotencyKey: `conflict-${randomUUID().slice(0, 6)}`
+    }
+  });
+
+  assert.equal(response.statusCode, 409);
+});
+
+test('updates dataset metadata with optimistic concurrency', async () => {
+  assert.ok(app);
+  const before = await metadataModule.getDatasetById(datasetA.id);
+  assert.ok(before);
+
+  const response = await app!.inject({
+    method: 'PATCH',
+    url: `/admin/datasets/${datasetA.id}`,
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      name: `${before!.name} Updated`,
+      description: 'Updated by admin API test',
+      metadata: {
+        iam: {
+          readScopes: ['admin-scope', 'query-scope', 'admin-scope'],
+          writeScopes: ['admin-scope']
+        }
+      },
+      ifMatch: before!.updatedAt
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as { dataset: { name: string; metadata: { iam?: { readScopes?: string[] } } }; etag: string };
+  assert.equal(payload.dataset.name, `${before!.name} Updated`);
+  assert.ok(response.headers['etag']);
+  assert.equal(Number.isNaN(Date.parse(String(response.headers['etag']))), false);
+  assert.deepEqual(payload.dataset.metadata.iam?.readScopes, ['admin-scope', 'query-scope']);
+
+  datasetA = await metadataModule.getDatasetById(datasetA.id);
+  assert.ok(datasetA);
+  assert.equal(datasetA!.name.endsWith('Updated'), true);
+
+  const auditEvents = await metadataModule.listDatasetAccessEvents(datasetA!.id, 5);
+  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.updated'));
+});
+
+test('returns 412 when dataset update conflicts', async () => {
+  assert.ok(app);
+  const response = await app!.inject({
+    method: 'PATCH',
+    url: `/admin/datasets/${datasetB.id}`,
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      name: 'Stale Update',
+      ifMatch: '2000-01-01T00:00:00.000Z'
+    }
+  });
+
+  assert.equal(response.statusCode, 412);
+});
+
+test('archives dataset and is idempotent', async () => {
+  assert.ok(app);
+  const before = await metadataModule.getDatasetById(datasetB.id);
+  assert.ok(before);
+
+  const response = await app!.inject({
+    method: 'POST',
+    url: `/admin/datasets/${datasetB.id}/archive`,
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      reason: 'cleanup',
+      ifMatch: before!.updatedAt
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as { dataset: { status: string }; etag: string };
+  assert.equal(payload.dataset.status, 'inactive');
+  assert.ok(response.headers['etag']);
+  assert.equal(Number.isNaN(Date.parse(String(response.headers['etag']))), false);
+
+  const second = await app!.inject({
+    method: 'POST',
+    url: `/admin/datasets/${datasetB.id}/archive`,
+    headers: {
+      ...adminHeaders(),
+      'content-type': 'application/json'
+    },
+    body: {
+      reason: 'cleanup repeat'
+    }
+  });
+
+  assert.equal(second.statusCode, 200);
+  const auditEvents = await metadataModule.listDatasetAccessEvents(datasetB.id, 5);
+  assert.ok(auditEvents.some((event) => event.action === 'admin.dataset.archived'));
+});
+
 test('lists datasets with pagination', async () => {
   assert.ok(app);
   const response = await app!.inject({
