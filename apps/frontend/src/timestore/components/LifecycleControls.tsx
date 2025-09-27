@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
 import { useToastHelpers } from '../../components/toast';
 import { formatInstant } from '../utils';
 import { runLifecycleJob, rescheduleLifecycleJob } from '../api';
 import type { LifecycleJobSummary, LifecycleMaintenanceReport } from '../types';
+import { LifecycleJobTimeline } from './LifecycleJobTimeline';
 
 const DEFAULT_OPERATIONS: readonly LifecycleJobSummary['operations'][number][] = [
   'compaction',
@@ -23,31 +24,6 @@ interface LifecycleControlsProps {
   canRun: boolean;
 }
 
-function resolveDatasetSlug(job: LifecycleJobSummary, fallbackSlug: string): string {
-  const metadataSlug = typeof job.metadata?.datasetSlug === 'string' ? job.metadata.datasetSlug.trim() : '';
-  if (metadataSlug.length > 0) {
-    return metadataSlug;
-  }
-
-  const explicitSlug = typeof (job.metadata as Record<string, unknown> | undefined)?.slug === 'string'
-    ? ((job.metadata as Record<string, unknown>).slug as string).trim()
-    : '';
-  if (explicitSlug.length > 0) {
-    return explicitSlug;
-  }
-
-  const fallback = fallbackSlug.trim();
-  if (fallback.length > 0) {
-    return fallback;
-  }
-
-  if (job.datasetId && job.datasetId.trim().length > 0) {
-    return job.datasetId;
-  }
-
-  return 'unknown';
-}
-
 function resolveReportTimestamp(report: LifecycleMaintenanceReport): string | null {
   const [firstEntry] = report.auditLogEntries;
   if (firstEntry && typeof firstEntry === 'object') {
@@ -65,12 +41,6 @@ export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error
   const [selectedOperations, setSelectedOperations] = useState<LifecycleOperation[]>([...DEFAULT_OPERATIONS]);
   const [submitting, setSubmitting] = useState(false);
   const [lastReport, setLastReport] = useState<LifecycleMaintenanceReport | null>(null);
-
-  const sortedJobs = useMemo(
-    () =>
-      [...jobs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [jobs]
-  );
 
   const toggleOperation = (operation: LifecycleOperation) => {
     setSelectedOperations((current) => {
@@ -194,54 +164,14 @@ export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error
         </section>
       )}
 
-      <section className="mt-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <h5 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Recent jobs</h5>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-          >
-            Refresh
-          </button>
-        </div>
-        {loading ? (
-          <p className="text-sm text-slate-600 dark:text-slate-300">Loading lifecycle jobs…</p>
-        ) : error ? (
-          <p className="text-sm text-rose-600 dark:text-rose-300">{error}</p>
-        ) : sortedJobs.length === 0 ? (
-          <p className="text-sm text-slate-600 dark:text-slate-300">No lifecycle activity recorded yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {sortedJobs.map((job) => (
-              <li key={job.id} className="rounded-2xl border border-slate-200/60 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">{job.status}</div>
-                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">{resolveDatasetSlug(job, datasetSlug)}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleReschedule(job.id)}
-                    disabled={!canRun}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
-                  >
-                    Reschedule
-                  </button>
-                </div>
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Started {formatInstant(job.startedAt)}
-                  {job.completedAt ? ` • Completed ${formatInstant(job.completedAt)}` : ''}
-                  {job.error ? ` • Error: ${job.error}` : ''}
-                </div>
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Operations: {job.operations.join(', ')}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <LifecycleJobTimeline
+        jobs={jobs}
+        loading={loading}
+        error={error}
+        onRefresh={onRefresh}
+        onReschedule={(jobId) => void handleReschedule(jobId)}
+        canManage={canRun}
+      />
     </div>
   );
 }

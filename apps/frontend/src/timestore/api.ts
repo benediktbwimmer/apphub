@@ -3,6 +3,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type {
   ArchiveDatasetRequest,
   CreateDatasetRequest,
+  DatasetAccessAuditListResponse,
   DatasetListResponse,
   DatasetRecord,
   DatasetResponse,
@@ -19,6 +20,7 @@ import type {
 import {
   archiveDatasetRequestSchema,
   createDatasetRequestSchema,
+  datasetAccessAuditListResponseSchema,
   datasetListResponseSchema,
   datasetRecordSchema,
   datasetResponseSchema,
@@ -246,6 +248,50 @@ export async function fetchDatasetManifest(
     throw new Error(`Fetch manifest failed with status ${response.status}`);
   }
   return parseJson(response, manifestResponseSchema);
+}
+
+export type DatasetAccessAuditListParams = {
+  limit?: number;
+  cursor?: string | null;
+  actions?: string[];
+  success?: boolean;
+  startTime?: string;
+  endTime?: string;
+};
+
+export async function fetchDatasetAccessAudit(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  datasetId: string,
+  params: DatasetAccessAuditListParams = {},
+  options: { signal?: AbortSignal } = {}
+): Promise<DatasetAccessAuditListResponse> {
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/audit`);
+  if (params.limit) {
+    url.searchParams.set('limit', Math.max(1, Math.min(params.limit, 200)).toString());
+  }
+  if (params.cursor) {
+    url.searchParams.set('cursor', params.cursor);
+  }
+  if (params.actions) {
+    for (const action of params.actions) {
+      url.searchParams.append('actions', action);
+    }
+  }
+  if (typeof params.success === 'boolean') {
+    url.searchParams.set('success', String(params.success));
+  }
+  if (params.startTime) {
+    url.searchParams.set('startTime', params.startTime);
+  }
+  if (params.endTime) {
+    url.searchParams.set('endTime', params.endTime);
+  }
+
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  if (!response.ok) {
+    throw new Error(`Fetch dataset audit failed with status ${response.status}`);
+  }
+  return parseJson(response, datasetAccessAuditListResponseSchema);
 }
 
 export async function fetchLifecycleStatus(

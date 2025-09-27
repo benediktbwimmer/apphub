@@ -11,7 +11,8 @@ import {
   fetchDatasetManifest,
   fetchLifecycleStatus,
   fetchRetentionPolicy,
-  fetchMetrics
+  fetchMetrics,
+  fetchDatasetAccessAudit
 } from './api';
 import type {
   CreateDatasetRequest,
@@ -22,8 +23,11 @@ import type {
   ManifestPartition,
   ManifestResponse,
   RetentionResponse,
-  LifecycleMetricsSnapshot
+  LifecycleMetricsSnapshot,
+  DatasetAccessAuditEvent,
+  DatasetAccessAuditListResponse
 } from './types';
+import { DatasetAuditTimeline } from './components/DatasetAuditTimeline';
 import { DatasetList } from './components/DatasetList';
 import DatasetAdminPanel from './components/DatasetAdminPanel';
 import DatasetCreateDialog from './components/DatasetCreateDialog';
@@ -37,6 +41,7 @@ import { ROUTE_PATHS } from '../routes/paths';
 
 const DATASET_POLL_INTERVAL = 30000;
 const LIFECYCLE_POLL_INTERVAL = 60000;
+const AUDIT_PAGE_SIZE = 10;
 
 function formatBytes(value: number | null | undefined): string {
   if (!value || value <= 0) {
@@ -120,6 +125,10 @@ export default function TimestoreDatasetsPage() {
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<DatasetAccessAuditEvent[]>([]);
+  const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
+  const [auditLoadMoreLoading, setAuditLoadMoreLoading] = useState(false);
+  const [auditLoadMoreError, setAuditLoadMoreError] = useState<string | null>(null);
 
   const datasetFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -334,6 +343,42 @@ export default function TimestoreDatasetsPage() {
     };
   }, [authorizedFetch, metricsVersion, selectedDatasetId]);
 
+  useEffect(() => {
+    setAuditEvents([]);
+    setAuditNextCursor(null);
+    setAuditLoadMoreError(null);
+    setAuditLoadMoreLoading(false);
+  }, [selectedDatasetId, hasAdminScope]);
+
+  useEffect(() => {
+    if (!auditData || !hasAdminScope) {
+      return;
+    }
+    setAuditEvents((prev) => {
+      const latestIds = new Set(auditData.events.map((event) => event.id));
+      const preserved = prev.filter((event) => !latestIds.has(event.id));
+      return [...auditData.events, ...preserved];
+    });
+    setAuditNextCursor(auditData.nextCursor ?? null);
+    setAuditLoadMoreError(null);
+  }, [auditData, hasAdminScope]);
+
+  const auditFetcher = useCallback(
+    async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+      if (!selectedDatasetId || !hasAdminScope) {
+        return null;
+      }
+      const response = await fetchDatasetAccessAudit(
+        authorizedFetch,
+        selectedDatasetId,
+        { limit: AUDIT_PAGE_SIZE },
+        { signal }
+      );
+      return response;
+    },
+    [selectedDatasetId, hasAdminScope]
+  );
+
   const lifecycleFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!selectedDatasetId) {
@@ -348,6 +393,17 @@ export default function TimestoreDatasetsPage() {
     },
     [selectedDatasetId]
   );
+
+  const {
+    data: auditData,
+    loading: auditLoading,
+    error: auditError,
+    refetch: refetchAudit
+  } = usePollingResource<DatasetAccessAuditListResponse | null>({
+    intervalMs: LIFECYCLE_POLL_INTERVAL,
+    fetcher: auditFetcher,
+    enabled: Boolean(selectedDatasetId) && hasAdminScope
+  });
 
   const {
     data: lifecycleData,
@@ -376,6 +432,41 @@ export default function TimestoreDatasetsPage() {
   const refreshMetrics = useCallback(() => {
     setMetricsVersion((prev) => prev + 1);
   }, []);
+
+  const handleLoadMoreAudit = useCallback(async () => {
+    if (!selectedDatasetId || !hasAdminScope || !auditNextCursor || auditLoadMoreLoading) {
+      return;
+    }
+    setAuditLoadMoreLoading(true);
+    setAuditLoadMoreError(null);
+    try {
+      const response = await fetchDatasetAccessAudit(
+        authorizedFetch,
+        selectedDatasetId,
+        { cursor: auditNextCursor, limit: AUDIT_PAGE_SIZE }
+      );
+      setAuditEvents((prev) => {
+        const existingIds = new Set(prev.map((event) => event.id));
+        const appended = response.events.filter((event) => !existingIds.has(event.id));
+        const combined = [...prev, ...appended];
+        combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return combined;
+      });
+      setAuditNextCursor(response.nextCursor ?? null);
+    } catch (err) {
+      setAuditLoadMoreError(
+        err instanceof Error ? err.message : 'Failed to load additional audit events'
+      );
+    } finally {
+      setAuditLoadMoreLoading(false);
+    }
+  }, [
+    authorizedFetch,
+    selectedDatasetId,
+    hasAdminScope,
+    auditNextCursor,
+    auditLoadMoreLoading
+  ]);
 
   const selectedDatasetRecord = useMemo(
     () => datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null,
@@ -434,6 +525,7 @@ export default function TimestoreDatasetsPage() {
   const datasetErrorMessage = datasetsError instanceof Error ? datasetsError.message : datasetsError ? String(datasetsError) : null;
   const lifecycleErrorMessage = lifecycleError instanceof Error ? lifecycleError.message : lifecycleError ? String(lifecycleError) : null;
   const metricsErrorMessage = metricsError;
+  const auditErrorMessage = auditError instanceof Error ? auditError.message : auditError ? String(auditError) : null;
 
   const handleNextPage = () => {
     if (nextCursor) {
@@ -613,6 +705,18 @@ export default function TimestoreDatasetsPage() {
                   <div className="text-sm text-slate-600 dark:text-slate-300">Select a dataset to view details.</div>
                 )}
               </div>
+
+              <DatasetAuditTimeline
+                events={auditEvents}
+                loading={auditLoading}
+                error={auditErrorMessage}
+                loadMoreError={auditLoadMoreError}
+                onRetry={() => void refetchAudit()}
+                onLoadMore={() => void handleLoadMoreAudit()}
+                canView={hasAdminScope}
+                loadMoreAvailable={Boolean(auditNextCursor)}
+                loadMoreLoading={auditLoadMoreLoading}
+              />
 
               <RetentionPanel
                 datasetId={selectedDatasetId}
