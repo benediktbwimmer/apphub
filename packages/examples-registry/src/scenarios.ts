@@ -331,27 +331,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       configPath: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
       module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {
-        OBSERVATORY_DATA_ROOT: 'examples/environmental-observatory-event-driven/data',
-        OBSERVATORY_FILESTORE_BASE_URL: 'http://127.0.0.1:4300',
-        OBSERVATORY_FILESTORE_BACKEND_ID: '1',
-        OBSERVATORY_FILESTORE_TOKEN: '',
-        OBSERVATORY_FILESTORE_INBOX_PREFIX: 'datasets/observatory/inbox',
-        OBSERVATORY_FILESTORE_STAGING_PREFIX: 'datasets/observatory/staging',
-        OBSERVATORY_FILESTORE_ARCHIVE_PREFIX: 'datasets/observatory/archive',
-        OBSERVATORY_TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
-        OBSERVATORY_TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
-        OBSERVATORY_TIMESTORE_DATASET_NAME: 'Observatory Time Series',
-        OBSERVATORY_TIMESTORE_TABLE_NAME: 'observations',
-        OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID: '',
-        OBSERVATORY_TIMESTORE_TOKEN: '',
-        OBSERVATORY_METASTORE_BASE_URL: 'http://127.0.0.1:4100',
-        OBSERVATORY_METASTORE_NAMESPACE: 'observatory.reports',
-        OBSERVATORY_METASTORE_TOKEN: '',
-        OBSERVATORY_CATALOG_BASE_URL: 'http://127.0.0.1:4000',
-        OBSERVATORY_CATALOG_TOKEN: 'dev-token',
-        OBSERVATORY_INGEST_WORKFLOW_SLUG: 'observatory-minute-ingest',
-        OBSERVATORY_PUBLICATION_WORKFLOW_SLUG: 'observatory-daily-publication',
-        OBSERVATORY_VISUALIZATION_ASSET_ID: 'observatory.visualizations.minute'
+        OBSERVATORY_DATA_ROOT: 'examples/environmental-observatory-event-driven/data'
       }
     },
     analyticsTag: 'service__observatory_services'

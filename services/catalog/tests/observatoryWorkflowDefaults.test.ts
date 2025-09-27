@@ -55,28 +55,37 @@ async function run(): Promise<void> {
   } as const;
 
   const placeholderValues = new Map<string, string>([
-    ['OBSERVATORY_DATA_ROOT', path.dirname(config.paths.staging)],
-    ['OBSERVATORY_FILESTORE_BASE_URL', config.filestore.baseUrl],
-    ['OBSERVATORY_FILESTORE_BACKEND_ID', String(config.filestore.backendMountId)],
-    ['OBSERVATORY_FILESTORE_TOKEN', config.filestore.token ?? ''],
-    ['OBSERVATORY_FILESTORE_INBOX_PREFIX', config.filestore.inboxPrefix],
-    ['OBSERVATORY_FILESTORE_STAGING_PREFIX', config.filestore.stagingPrefix],
-    ['OBSERVATORY_FILESTORE_ARCHIVE_PREFIX', config.filestore.archivePrefix],
-    ['OBSERVATORY_TIMESTORE_BASE_URL', config.timestore.baseUrl],
-    ['OBSERVATORY_TIMESTORE_DATASET_SLUG', config.timestore.datasetSlug],
-    ['OBSERVATORY_TIMESTORE_DATASET_NAME', config.timestore.datasetName ?? ''],
-    ['OBSERVATORY_TIMESTORE_TABLE_NAME', config.timestore.tableName ?? ''],
-    ['OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID', config.timestore.storageTargetId ?? ''],
-    ['OBSERVATORY_TIMESTORE_TOKEN', config.timestore.authToken ?? ''],
-    ['OBSERVATORY_METASTORE_BASE_URL', config.metastore?.baseUrl ?? ''],
-    ['OBSERVATORY_METASTORE_NAMESPACE', config.metastore?.namespace ?? ''],
-    ['OBSERVATORY_METASTORE_TOKEN', config.metastore?.authToken ?? ''],
-    ['OBSERVATORY_CATALOG_BASE_URL', config.catalog?.baseUrl ?? ''],
-    ['OBSERVATORY_CATALOG_TOKEN', config.catalog?.apiToken ?? ''],
-    ['OBSERVATORY_INGEST_WORKFLOW_SLUG', config.workflows.ingestSlug],
-    ['OBSERVATORY_PUBLICATION_WORKFLOW_SLUG', config.workflows.publicationSlug],
-    ['OBSERVATORY_VISUALIZATION_ASSET_ID', config.workflows.visualizationAssetId]
+    ['OBSERVATORY_DATA_ROOT', path.dirname(config.paths.staging)]
   ]);
+
+  const envOverrides: Record<string, string> = {
+    OBSERVATORY_FILESTORE_BASE_URL: config.filestore.baseUrl,
+    OBSERVATORY_FILESTORE_BACKEND_ID: String(config.filestore.backendMountId),
+    OBSERVATORY_FILESTORE_TOKEN: config.filestore.token ?? '',
+    OBSERVATORY_FILESTORE_INBOX_PREFIX: config.filestore.inboxPrefix,
+    OBSERVATORY_FILESTORE_STAGING_PREFIX: config.filestore.stagingPrefix,
+    OBSERVATORY_FILESTORE_ARCHIVE_PREFIX: config.filestore.archivePrefix,
+    OBSERVATORY_TIMESTORE_BASE_URL: config.timestore.baseUrl,
+    OBSERVATORY_TIMESTORE_DATASET_SLUG: config.timestore.datasetSlug,
+    OBSERVATORY_TIMESTORE_DATASET_NAME: config.timestore.datasetName ?? '',
+    OBSERVATORY_TIMESTORE_TABLE_NAME: config.timestore.tableName ?? '',
+    OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID: config.timestore.storageTargetId ?? '',
+    OBSERVATORY_TIMESTORE_TOKEN: config.timestore.authToken ?? '',
+    OBSERVATORY_METASTORE_BASE_URL: config.metastore?.baseUrl ?? '',
+    OBSERVATORY_METASTORE_NAMESPACE: config.metastore?.namespace ?? '',
+    OBSERVATORY_METASTORE_TOKEN: config.metastore?.authToken ?? '',
+    OBSERVATORY_CATALOG_BASE_URL: config.catalog?.baseUrl ?? '',
+    OBSERVATORY_CATALOG_TOKEN: config.catalog?.apiToken ?? '',
+    OBSERVATORY_INGEST_WORKFLOW_SLUG: config.workflows.ingestSlug,
+    OBSERVATORY_PUBLICATION_WORKFLOW_SLUG: config.workflows.publicationSlug,
+    OBSERVATORY_VISUALIZATION_ASSET_ID: config.workflows.visualizationAssetId
+  };
+
+  const originalEnv = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(envOverrides)) {
+    originalEnv.set(key, process.env[key]);
+    process.env[key] = value;
+  }
 
   const serviceConfigPath = path.resolve(
     process.cwd(),
@@ -95,13 +104,26 @@ async function run(): Promise<void> {
     actions: bootstrapPlan.actions.filter((action) => action.type === 'applyWorkflowDefaults')
   };
 
-  const bootstrapResult = await executeBootstrapPlan({
-    moduleId: serviceConfig.module,
-    plan: workflowPlan,
-    placeholders: placeholderValues,
-    variables: Object.fromEntries(placeholderValues),
-    workspaceRoot: process.cwd()
-  });
+  let bootstrapResult: Awaited<ReturnType<typeof executeBootstrapPlan>>;
+  try {
+    bootstrapResult = await executeBootstrapPlan({
+      moduleId: serviceConfig.module,
+      plan: workflowPlan,
+      placeholders: placeholderValues,
+      variables: { ...Object.fromEntries(placeholderValues), ...envOverrides },
+      workspaceRoot: process.cwd()
+    });
+  } finally {
+    for (const [key, value] of originalEnv.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+
+  assert(bootstrapResult, 'bootstrap execution should produce a result');
 
   const defaultsBySlug = bootstrapResult.workflowDefaults;
 
