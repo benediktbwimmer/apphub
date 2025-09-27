@@ -2,8 +2,14 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useCallback } from 'react';
 import { usePollingResource } from '../usePollingResource';
+import type { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
 
 type MockService = { id: string };
+
+type PollingContext = {
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>;
+  signal: AbortSignal;
+};
 
 const mockAuthorizedFetch = vi.fn<
   (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -34,7 +40,7 @@ describe('usePollingResource', () => {
     mockAuthorizedFetch.mockResolvedValueOnce(createResponse({ data: [{ id: 'svc-a' }] }));
 
     const { result } = renderHook(() => {
-      const fetcher = useCallback(async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+      const fetcher = useCallback(async ({ authorizedFetch, signal }: PollingContext) => {
         const response = await authorizedFetch('/services', { signal });
         const payload = (await response.json()) as { data: MockService[] };
         return payload.data;
@@ -67,7 +73,7 @@ describe('usePollingResource', () => {
     });
 
     const { result } = renderHook(() => {
-      const fetcher = useCallback(async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+      const fetcher = useCallback(async ({ authorizedFetch, signal }: PollingContext) => {
         const response = await authorizedFetch('/services', { signal });
         const payload = (await response.json()) as { data: MockService[] };
         return payload.data;
@@ -110,7 +116,7 @@ describe('usePollingResource', () => {
     const { result, rerender } = renderHook(
       ({ resourceId }: { resourceId: string }) => {
         const fetcher = useCallback(
-          async ({ authorizedFetch, signal }: { authorizedFetch: typeof mockAuthorizedFetch; signal: AbortSignal }) => {
+          async ({ authorizedFetch, signal }: PollingContext) => {
             const response = await authorizedFetch(`/services/${resourceId}`, { signal });
             const payload = (await response.json()) as { data: MockService };
             return payload.data;
