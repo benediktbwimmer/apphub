@@ -31,7 +31,15 @@ import { processEventTriggersForEnvelope } from '../../../services/catalog/src/e
 import { TIMESTORE_INGEST_QUEUE_NAME } from '../../../services/timestore/src/queue';
 import { processIngestionJob } from '../../../services/timestore/src/ingestion/processor';
 import type { IngestionJobPayload } from '../../../services/timestore/src/ingestion/types';
-import type { ExampleJobSlug, ExampleWorkflowSlug } from '@apphub/examples-registry';
+import {
+  resolveWorkflowProvisioningPlan,
+  type ExampleJobSlug,
+  type ExampleWorkflowSlug,
+  type JsonValue,
+  type WorkflowDefinitionTemplate,
+  type WorkflowProvisioningEventTrigger,
+  type WorkflowProvisioningSchedule
+} from '@apphub/examples-registry';
 import { runE2E } from '@apphub/test-helpers';
 import { Pool } from 'pg';
 
@@ -79,6 +87,212 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-ingest',
   'observatory-daily-publication'
 ];
+
+function isProvisioningObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function compactRecord<T extends Record<string, unknown>>(record: T): T {
+  for (const key of Object.keys(record)) {
+    if (record[key] === undefined) {
+      delete record[key];
+    }
+  }
+  return record;
+}
+
+function provisioningMetadataValue(metadata: JsonValue | undefined, path: string): unknown {
+  if (!isProvisioningObject(metadata)) {
+    return undefined;
+  }
+  const segments = path.split('.').map((segment) => segment.trim()).filter(Boolean);
+  let current: unknown = metadata;
+  for (const segment of segments) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isNaN(index) && index >= 0 && index < current.length) {
+        current = current[index];
+        continue;
+      }
+      return undefined;
+    }
+    if (typeof current === 'object') {
+      current = (current as Record<string, unknown>)[segment];
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+
+function buildSchedulePayload(schedule: WorkflowProvisioningSchedule) {
+  const parameters = schedule.parameters && Object.keys(schedule.parameters).length > 0
+    ? schedule.parameters
+    : undefined;
+  return compactRecord({
+    name: schedule.name,
+    description: schedule.description,
+    cron: schedule.cron,
+    timezone: schedule.timezone ?? undefined,
+    startWindow: schedule.startWindow ?? undefined,
+    endWindow: schedule.endWindow ?? undefined,
+    catchUp: schedule.catchUp ?? undefined,
+    isActive: schedule.isActive ?? undefined,
+    parameters
+  });
+}
+
+function pruneProvisioningParameterTemplate(
+  metadata: JsonValue | undefined,
+  template: Record<string, JsonValue> | undefined
+): Record<string, JsonValue> | undefined {
+  if (!template || Object.keys(template).length === 0) {
+    return undefined;
+  }
+  const result: Record<string, JsonValue> = { ...template };
+  const metadataPattern = /^{{\s*trigger\.metadata\.([^.}]+(?:\.[^.}]+)*)\s*}}$/;
+  for (const [key, value] of Object.entries(template)) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const match = metadataPattern.exec(value.trim());
+    if (!match) {
+      continue;
+    }
+    const resolved = provisioningMetadataValue(metadata, match[1]);
+    if (resolved === null || resolved === undefined || resolved === '') {
+      delete result[key];
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function buildTriggerPayload(trigger: WorkflowProvisioningEventTrigger) {
+  const parameterTemplate = pruneProvisioningParameterTemplate(trigger.metadata, trigger.parameterTemplate);
+  const predicates = trigger.predicates.length > 0 ? trigger.predicates : undefined;
+  const metadataPayload = trigger.metadata ?? undefined;
+  return compactRecord({
+    name: trigger.name,
+    description: trigger.description,
+    eventType: trigger.eventType,
+    eventSource: trigger.eventSource ?? undefined,
+    predicates,
+    parameterTemplate,
+    metadata: metadataPayload,
+    throttleWindowMs: trigger.throttleWindowMs,
+    throttleCount: trigger.throttleCount,
+    maxConcurrency: trigger.maxConcurrency,
+    idempotencyKeyExpression: trigger.idempotencyKeyExpression,
+    status: trigger.status
+  });
+}
+
+async function applyWorkflowProvisioning(
+  app: FastifyInstance,
+  workflow: WorkflowDefinitionCreateInput
+): Promise<void> {
+  const plan = resolveWorkflowProvisioningPlan(workflow as unknown as WorkflowDefinitionTemplate);
+  if (plan.schedules.length === 0 && plan.eventTriggers.length === 0) {
+    return;
+  }
+
+  const workflowSlug = workflow.slug;
+  const authHeaders = { Authorization: `Bearer ${OPERATOR_TOKEN}` };
+
+  const existingSchedules = new Map<string, { id: string }>();
+  if (plan.schedules.length > 0) {
+    const scheduleResponse = await app.inject({ method: 'GET', url: '/workflow-schedules', headers: authHeaders });
+    if (scheduleResponse.statusCode !== 200) {
+      throw new Error(`Failed to list workflow schedules (${scheduleResponse.statusCode})`);
+    }
+    const schedulePayload = JSON.parse(scheduleResponse.payload) as {
+      data?: Array<{ schedule?: { id: string; name: string | null }; workflow?: { slug?: string | null } }>;
+    };
+    for (const entry of schedulePayload.data ?? []) {
+      if (!entry.schedule || entry.workflow?.slug !== workflowSlug) {
+        continue;
+      }
+      const key = entry.schedule.name ?? '__default__';
+      existingSchedules.set(key, { id: entry.schedule.id });
+    }
+  }
+
+  const existingTriggers = new Map<string, { id: string }>();
+  if (plan.eventTriggers.length > 0) {
+    const triggerResponse = await app.inject({
+      method: 'GET',
+      url: `/workflows/${workflowSlug}/triggers`,
+      headers: authHeaders
+    });
+    if (triggerResponse.statusCode !== 200) {
+      throw new Error(`Failed to list workflow triggers (${triggerResponse.statusCode})`);
+    }
+    const triggerPayload = JSON.parse(triggerResponse.payload) as {
+      data?: { triggers?: Array<{ id: string; name: string | null }> };
+    };
+    for (const entry of triggerPayload.data?.triggers ?? []) {
+      const key = entry.name ?? '__default__';
+      existingTriggers.set(key, { id: entry.id });
+    }
+  }
+
+  for (const schedule of plan.schedules) {
+    const scheduleKey = schedule.name ?? '__default__';
+    const payload = buildSchedulePayload(schedule);
+    const existing = existingSchedules.get(scheduleKey);
+    if (existing) {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/workflow-schedules/${existing.id}`,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        payload: JSON.stringify(payload)
+      });
+      if (response.statusCode !== 200) {
+        throw new Error(`Failed to update schedule (${response.statusCode})`);
+      }
+    } else {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/workflows/${workflowSlug}/schedules`,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        payload: JSON.stringify(payload)
+      });
+      if (response.statusCode !== 201 && response.statusCode !== 409) {
+        throw new Error(`Failed to create schedule (${response.statusCode})`);
+      }
+    }
+  }
+
+  for (const trigger of plan.eventTriggers) {
+    const triggerKey = trigger.name ?? '__default__';
+    const payload = buildTriggerPayload(trigger);
+    const existing = existingTriggers.get(triggerKey);
+    if (existing) {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/workflows/${workflowSlug}/triggers/${existing.id}`,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        payload: JSON.stringify(payload)
+      });
+      if (response.statusCode !== 200) {
+        throw new Error(`Failed to update trigger (${response.statusCode})`);
+      }
+    } else {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/workflows/${workflowSlug}/triggers`,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        payload: JSON.stringify(payload)
+      });
+      if (response.statusCode !== 201 && response.statusCode !== 409) {
+        throw new Error(`Failed to create trigger (${response.statusCode})`);
+      }
+    }
+  }
+}
 
 type ServerContext = {
   timestore: TimestoreTestServer;
@@ -303,13 +517,12 @@ async function importExampleWorkflows(
         Authorization: `Bearer ${OPERATOR_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      payload: workflow
+      payload: JSON.stringify(workflow)
     });
-    assert.equal(
-      response.statusCode,
-      201,
-      `Failed to import workflow ${workflow.slug}: ${response.payload}`
-    );
+    if (response.statusCode !== 201 && response.statusCode !== 409) {
+      assert.fail(`Failed to import workflow ${workflow.slug}: ${response.payload}`);
+    }
+    await applyWorkflowProvisioning(app, workflow);
   }
 }
 
@@ -671,7 +884,6 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     }
 
     await importExampleWorkflows(app, workflowDefinitions);
-    await ensureObservatoryEventTriggers(app, config);
 
     const minute = '2030-01-01T03:30';
     const minuteKey = minute.replace(':', '-');
@@ -820,240 +1032,6 @@ async function ensureFilestoreBackendMount(
     [mountKey, rootPath]
   );
   return result.rows[0].id;
-}
-
-type EventTriggerPredicateTemplate = {
-  path: string;
-  operator: 'equals' | 'notEquals' | 'in' | 'notIn' | 'exists';
-  value?: unknown;
-  values?: unknown[];
-};
-
-type EventTriggerTemplate = {
-  name: string;
-  description: string;
-  eventType: string;
-  eventSource?: string | null;
-  predicates?: EventTriggerPredicateTemplate[];
-  parameterTemplate: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  throttleWindowMs?: number;
-  throttleCount?: number;
-  maxConcurrency?: number;
-  idempotencyKeyExpression?: string;
-};
-
-async function ensureObservatoryEventTriggers(
-  app: FastifyInstance,
-  config: {
-    filestore: {
-      baseUrl: string;
-      backendMountId: number;
-      inboxPrefix: string;
-      stagingPrefix: string;
-      archivePrefix: string;
-      token: string | null;
-      principal: string;
-    };
-    timestore: {
-      baseUrl: string;
-      datasetSlug: string;
-      datasetName: string;
-      tableName: string;
-      storageTargetId: string | null;
-      authToken: string | null;
-    };
-    metastore: {
-      baseUrl: string;
-      namespace: string;
-      authToken: string | null;
-    };
-    paths: {
-      staging: string;
-      archive: string;
-      plots: string;
-      reports: string;
-    };
-    workflows: {
-      ingestSlug: string;
-      publicationSlug: string;
-    };
-  }
-): Promise<void> {
-  const ingestMetadata = {
-    maxFiles: 64,
-    paths: {
-      stagingDir: config.paths.staging,
-      archiveDir: config.paths.archive
-    },
-    filestore: {
-      baseUrl: config.filestore.baseUrl,
-      backendMountId: config.filestore.backendMountId,
-      token: config.filestore.token,
-      inboxPrefix: config.filestore.inboxPrefix,
-      stagingPrefix: config.filestore.stagingPrefix,
-      archivePrefix: config.filestore.archivePrefix,
-      principal: config.filestore.principal
-    },
-    timestore: {
-      baseUrl: config.timestore.baseUrl,
-      datasetSlug: config.timestore.datasetSlug,
-      datasetName: config.timestore.datasetName,
-      tableName: config.timestore.tableName,
-      storageTargetId: config.timestore.storageTargetId,
-      authToken: config.timestore.authToken
-    }
-  };
-
-  const ingestParameters: Record<string, unknown> = {
-    minute: '{{ event.payload.node.metadata.minute }}',
-    maxFiles: '{{ trigger.metadata.maxFiles }}',
-    stagingDir: '{{ trigger.metadata.paths.stagingDir }}',
-    archiveDir: '{{ trigger.metadata.paths.archiveDir }}',
-    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
-    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
-    inboxPrefix: '{{ trigger.metadata.filestore.inboxPrefix }}',
-    stagingPrefix: '{{ trigger.metadata.filestore.stagingPrefix }}',
-    archivePrefix: '{{ trigger.metadata.filestore.archivePrefix }}',
-    filestorePrincipal: '{{ trigger.metadata.filestore.principal }}',
-    commandPath: '{{ event.payload.path }}',
-    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
-    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
-    timestoreDatasetName: '{{ trigger.metadata.timestore.datasetName }}',
-    timestoreTableName: '{{ trigger.metadata.timestore.tableName }}'
-  };
-  if (config.filestore.token) {
-    ingestParameters.filestoreToken = '{{ trigger.metadata.filestore.token }}';
-  }
-  if (config.timestore.storageTargetId) {
-    ingestParameters.timestoreStorageTargetId = '{{ trigger.metadata.timestore.storageTargetId }}';
-  }
-  if (config.timestore.authToken) {
-    ingestParameters.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
-  }
-
-  const publicationMetadata = {
-    timestore: {
-      baseUrl: config.timestore.baseUrl,
-      datasetSlug: config.timestore.datasetSlug,
-      authToken: config.timestore.authToken
-    },
-    paths: {
-      plotsDir: config.paths.plots,
-      reportsDir: config.paths.reports
-    },
-    metastore: {
-      baseUrl: config.metastore.baseUrl,
-      namespace: config.metastore.namespace,
-      authToken: config.metastore.authToken
-    }
-  };
-
-  const publicationParameters: Record<string, unknown> = {
-    partitionKey: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}',
-    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
-    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
-    plotsDir: '{{ trigger.metadata.paths.plotsDir }}',
-    reportsDir: '{{ trigger.metadata.paths.reportsDir }}'
-  };
-  if (config.timestore.authToken) {
-    publicationParameters.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
-  }
-  if (config.metastore.baseUrl) {
-    publicationParameters.metastoreBaseUrl = '{{ trigger.metadata.metastore.baseUrl }}';
-  }
-  if (config.metastore.authToken) {
-    publicationParameters.metastoreAuthToken = '{{ trigger.metadata.metastore.authToken }}';
-  }
-  if (config.metastore.namespace) {
-    publicationParameters.metastoreNamespace = '{{ trigger.metadata.metastore.namespace }}';
-  }
-
-  const ingestTrigger: EventTriggerTemplate = {
-    name: 'Observatory ingest (filestore upload)',
-    description: 'Launch minute ingest when Filestore records a new observatory upload.',
-    eventType: 'filestore.command.completed',
-    eventSource: 'filestore.service',
-    predicates: [
-      { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
-      { path: '$.payload.backendMountId', operator: 'equals', value: config.filestore.backendMountId }
-    ],
-    parameterTemplate: ingestParameters,
-    metadata: ingestMetadata,
-    throttleWindowMs: 60_000,
-    throttleCount: 1,
-    maxConcurrency: 1,
-    idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}'
-  };
-
-  const publicationTrigger: EventTriggerTemplate = {
-    name: 'Observatory publication (timestore partition)',
-    description: 'Render plots and reports when a new observatory partition is ingested.',
-    eventType: 'timestore.partition.created',
-    eventSource: 'timestore.ingest',
-    predicates: [
-      { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
-    ],
-    parameterTemplate: publicationParameters,
-    metadata: publicationMetadata,
-    throttleWindowMs: 60_000,
-    throttleCount: 5,
-    maxConcurrency: 2,
-    idempotencyKeyExpression: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}'
-  };
-
-  await upsertWorkflowEventTrigger(app, config.workflows.ingestSlug, ingestTrigger);
-  await upsertWorkflowEventTrigger(app, config.workflows.publicationSlug, publicationTrigger);
-}
-
-async function upsertWorkflowEventTrigger(
-  app: FastifyInstance,
-  workflowSlug: string,
-  trigger: EventTriggerTemplate
-): Promise<void> {
-  const listResponse = await app.inject({
-    method: 'GET',
-    url: `/workflows/${workflowSlug}/triggers`,
-    headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
-  });
-  assert.equal(listResponse.statusCode, 200, `Failed to list triggers for ${workflowSlug}`);
-  const listPayload = JSON.parse(listResponse.payload) as {
-    data: { triggers: Array<{ id: string; name: string | null }> };
-  };
-  const existing = listPayload.data.triggers.find((entry) => entry.name === trigger.name);
-
-  const body = {
-    name: trigger.name,
-    description: trigger.description,
-    eventType: trigger.eventType,
-    eventSource: trigger.eventSource ?? undefined,
-    predicates: trigger.predicates ?? [],
-    parameterTemplate: trigger.parameterTemplate,
-    metadata: trigger.metadata ?? undefined,
-    throttleWindowMs: trigger.throttleWindowMs ?? undefined,
-    throttleCount: trigger.throttleCount ?? undefined,
-    maxConcurrency: trigger.maxConcurrency ?? undefined,
-    idempotencyKeyExpression: trigger.idempotencyKeyExpression ?? undefined
-  };
-
-  if (existing) {
-    const response = await app.inject({
-      method: 'PATCH',
-      url: `/workflows/${workflowSlug}/triggers/${existing.id}`,
-      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}`, 'Content-Type': 'application/json' },
-      payload: JSON.stringify(body)
-    });
-    assert.equal(response.statusCode, 200, `Failed to update trigger ${trigger.name}`);
-    return;
-  }
-
-  const createResponse = await app.inject({
-    method: 'POST',
-    url: `/workflows/${workflowSlug}/triggers`,
-    headers: { Authorization: `Bearer ${OPERATOR_TOKEN}`, 'Content-Type': 'application/json' },
-    payload: JSON.stringify(body)
-  });
-  assert.equal(createResponse.statusCode, 201, `Failed to create trigger ${trigger.name}`);
 }
 
 runE2E(async ({ registerCleanup }) => {

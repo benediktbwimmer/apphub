@@ -6,21 +6,53 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "inboxDir": { "type": "string", "minLength": 1 },
+      "inboxDir": {
+        "type": "string",
+        "minLength": 1
+      },
       "minute": {
         "type": "string",
         "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
       },
-      "rowsPerInstrument": { "type": "number", "minimum": 1, "maximum": 360 },
-      "intervalMinutes": { "type": "number", "minimum": 1, "maximum": 120 },
-      "seed": { "type": "number" },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "inboxPrefix": { "type": "string", "minLength": 1 },
-      "stagingPrefix": { "type": "string", "minLength": 1 },
-      "archivePrefix": { "type": "string", "minLength": 1 },
-      "filestorePrincipal": { "type": "string" }
+      "rowsPerInstrument": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 360
+      },
+      "intervalMinutes": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 120
+      },
+      "seed": {
+        "type": "number"
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "inboxPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "stagingPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "archivePrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      }
     },
     "required": [
       "inboxDir",
@@ -41,7 +73,8 @@
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",
     "archivePrefix": "datasets/observatory/archive",
-    "filestorePrincipal": "observatory-data-generator"
+    "filestorePrincipal": "observatory-data-generator",
+    "filestoreToken": null
   },
   "steps": [
     {
@@ -76,25 +109,55 @@
           "schema": {
             "type": "object",
             "properties": {
-              "generatedAt": { "type": "string", "format": "date-time" },
-              "partitionKey": { "type": "string" },
-              "inboxDir": { "type": "string" },
-              "filestoreInboxPrefix": { "type": "string" },
-              "filestoreBackendId": { "type": "number" },
-              "rowsGenerated": { "type": "number" },
-              "instrumentCount": { "type": "number" },
+              "generatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "partitionKey": {
+                "type": "string"
+              },
+              "inboxDir": {
+                "type": "string"
+              },
+              "filestoreInboxPrefix": {
+                "type": "string"
+              },
+              "filestoreBackendId": {
+                "type": "number"
+              },
+              "rowsGenerated": {
+                "type": "number"
+              },
+              "instrumentCount": {
+                "type": "number"
+              },
               "files": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": { "type": "string" },
-                    "filestorePath": { "type": "string" },
-                    "instrumentId": { "type": "string" },
-                    "site": { "type": "string" },
-                    "rows": { "type": "number" }
+                    "relativePath": {
+                      "type": "string"
+                    },
+                    "filestorePath": {
+                      "type": "string"
+                    },
+                    "instrumentId": {
+                      "type": "string"
+                    },
+                    "site": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "type": "number"
+                    }
                   },
-                  "required": ["relativePath", "filestorePath", "instrumentId", "rows"]
+                  "required": [
+                    "relativePath",
+                    "filestorePath",
+                    "instrumentId",
+                    "rows"
+                  ]
                 }
               }
             },
@@ -114,6 +177,34 @@
     }
   ],
   "triggers": [
-    { "type": "manual" }
-  ]
+    {
+      "type": "manual"
+    }
+  ],
+  "metadata": {
+    "provisioning": {
+      "schedules": [
+        {
+          "name": "Observatory minute data generator",
+          "description": "Emit synthetic instrument drops every minute so downstream ingest and visualization workflows stay in sync.",
+          "cron": "*/1 * * * *",
+          "timezone": "UTC",
+          "catchUp": false,
+          "isActive": true,
+          "parameters": {
+            "inboxDir": "{{ defaultParameters.inboxDir }}",
+            "rowsPerInstrument": "{{ defaultParameters.rowsPerInstrument }}",
+            "intervalMinutes": "{{ defaultParameters.intervalMinutes }}",
+            "filestoreBaseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
+            "filestoreBackendId": "{{ defaultParameters.filestoreBackendId }}",
+            "filestoreToken": "{{ defaultParameters.filestoreToken }}",
+            "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
+            "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
+            "archivePrefix": "{{ defaultParameters.archivePrefix }}",
+            "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}"
+          }
+        }
+      ]
+    }
+  }
 }

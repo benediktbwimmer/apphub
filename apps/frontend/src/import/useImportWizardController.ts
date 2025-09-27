@@ -12,6 +12,12 @@ import {
   type ServiceManifestScenario,
   type WorkflowScenario
 } from './examples';
+import {
+  resolveWorkflowProvisioningPlan,
+  type JsonValue,
+  type WorkflowProvisioningEventTrigger,
+  type WorkflowProvisioningSchedule
+} from '@apphub/examples-registry';
 import { groupScenariosByType } from './examples';
 
 import type { ManifestPlaceholder } from './useImportServiceManifest';
@@ -174,6 +180,108 @@ function persistStoredScenarios(value: StoredScenarioIds) {
 
 function isImportWizardStep(value: unknown): value is ImportWizardStep {
   return value === 'service-manifests' || value === 'apps' || value === 'jobs' || value === 'workflows';
+}
+
+function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function compactRecord<T extends Record<string, unknown>>(record: T): T {
+  for (const key of Object.keys(record)) {
+    if (record[key] === undefined) {
+      delete record[key];
+    }
+  }
+  return record;
+}
+
+function buildScheduleRequest(schedule: WorkflowProvisioningSchedule) {
+  const parameters = schedule.parameters && Object.keys(schedule.parameters).length > 0
+    ? schedule.parameters
+    : undefined;
+  return compactRecord({
+    name: schedule.name,
+    description: schedule.description,
+    cron: schedule.cron,
+    timezone: schedule.timezone ?? undefined,
+    startWindow: schedule.startWindow ?? undefined,
+    endWindow: schedule.endWindow ?? undefined,
+    catchUp: schedule.catchUp ?? undefined,
+    isActive: schedule.isActive ?? undefined,
+    parameters
+  });
+}
+
+function getMetadataValue(metadata: JsonValue | undefined, path: string): unknown {
+  if (!isJsonObject(metadata)) {
+    return undefined;
+  }
+  const segments = path.split('.').map((segment) => segment.trim()).filter(Boolean);
+  let current: unknown = metadata;
+  for (const segment of segments) {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isNaN(index) && index >= 0 && index < current.length) {
+        current = current[index];
+        continue;
+      }
+      return undefined;
+    }
+    if (typeof current === 'object') {
+      current = (current as Record<string, unknown>)[segment];
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+
+function pruneTriggerParameterTemplate(
+  metadata: JsonValue | undefined,
+  template: Record<string, JsonValue> | undefined
+): Record<string, JsonValue> | undefined {
+  if (!template || Object.keys(template).length === 0) {
+    return undefined;
+  }
+  const result: Record<string, JsonValue> = { ...template };
+  const metadataPattern = /^{{\s*trigger\.metadata\.([^.}]+(?:\.[^.}]+)*)\s*}}$/;
+  for (const [key, value] of Object.entries(template)) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const match = metadataPattern.exec(value.trim());
+    if (!match) {
+      continue;
+    }
+    const resolved = getMetadataValue(metadata, match[1]);
+    if (resolved === null || resolved === undefined || resolved === '') {
+      delete result[key];
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function buildTriggerRequest(trigger: WorkflowProvisioningEventTrigger) {
+  const parameterTemplate = pruneTriggerParameterTemplate(trigger.metadata, trigger.parameterTemplate);
+  const predicates = trigger.predicates.length > 0 ? trigger.predicates : undefined;
+  const metadataPayload = trigger.metadata ?? undefined;
+  return compactRecord({
+    name: trigger.name,
+    description: trigger.description,
+    eventType: trigger.eventType,
+    eventSource: trigger.eventSource ?? undefined,
+    predicates,
+    parameterTemplate,
+    metadata: metadataPayload,
+    throttleWindowMs: trigger.throttleWindowMs,
+    throttleCount: trigger.throttleCount,
+    maxConcurrency: trigger.maxConcurrency,
+    idempotencyKeyExpression: trigger.idempotencyKeyExpression,
+    status: trigger.status
+  });
 }
 
 function createInitialScenarioState<TScenario extends ExampleScenario>(
@@ -536,6 +644,136 @@ export function useImportWizardController() {
     [authorizedFetch, fetchBundleFile]
   );
 
+  const applyWorkflowProvisioning = useCallback(
+    async (scenario: WorkflowScenario) => {
+      const plan = resolveWorkflowProvisioningPlan(scenario.form);
+      if (plan.schedules.length === 0 && plan.eventTriggers.length === 0) {
+        return;
+      }
+
+      const workflowSlug = scenario.form.slug;
+
+      const existingSchedules = new Map<string, { id: string }>();
+      if (plan.schedules.length > 0) {
+        const scheduleResponse = await authorizedFetch(`${API_BASE_URL}/workflow-schedules`, {
+          method: 'GET'
+        });
+        if (!scheduleResponse.ok) {
+          const payload = await scheduleResponse.json().catch(() => null);
+          const message = typeof payload?.error === 'string'
+            ? payload.error
+            : `Failed to list workflow schedules (${scheduleResponse.status})`;
+          throw new Error(message);
+        }
+        const schedulePayload = await scheduleResponse.json().catch(() => null);
+        if (schedulePayload && Array.isArray(schedulePayload.data)) {
+          for (const entry of schedulePayload.data as Array<{
+            schedule?: { id: string; name: string | null };
+            workflow?: { slug?: string | null };
+          }>) {
+            if (!entry?.schedule || entry?.workflow?.slug !== workflowSlug) {
+              continue;
+            }
+            const key = entry.schedule.name ?? '__default__';
+            existingSchedules.set(key, { id: entry.schedule.id });
+          }
+        }
+      }
+
+      const existingTriggers = new Map<string, { id: string }>();
+      if (plan.eventTriggers.length > 0) {
+        const triggerResponse = await authorizedFetch(`${API_BASE_URL}/workflows/${workflowSlug}/triggers`, {
+          method: 'GET'
+        });
+        if (!triggerResponse.ok) {
+          const payload = await triggerResponse.json().catch(() => null);
+          const message = typeof payload?.error === 'string'
+            ? payload.error
+            : `Failed to list workflow triggers (${triggerResponse.status})`;
+          throw new Error(message);
+        }
+        const triggerPayload = await triggerResponse.json().catch(() => null);
+        const triggerEntries = triggerPayload?.data?.triggers;
+        if (Array.isArray(triggerEntries)) {
+          for (const entry of triggerEntries as Array<{ id: string; name: string | null }>) {
+            const key = entry.name ?? '__default__';
+            existingTriggers.set(key, { id: entry.id });
+          }
+        }
+      }
+
+      for (const schedule of plan.schedules) {
+        const payload = buildScheduleRequest(schedule);
+        const key = schedule.name ?? '__default__';
+        const existing = existingSchedules.get(key);
+        if (existing) {
+          const response = await authorizedFetch(`${API_BASE_URL}/workflow-schedules/${existing.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            const message = typeof body?.error === 'string'
+              ? body.error
+              : `Failed to update schedule (${response.status})`;
+            throw new Error(message);
+          }
+        } else {
+          const response = await authorizedFetch(`${API_BASE_URL}/workflows/${workflowSlug}/schedules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok && response.status !== 409) {
+            const body = await response.json().catch(() => null);
+            const message = typeof body?.error === 'string'
+              ? body.error
+              : `Failed to create schedule (${response.status})`;
+            throw new Error(message);
+          }
+        }
+      }
+
+      for (const trigger of plan.eventTriggers) {
+        const key = trigger.name ?? '__default__';
+        const payload = buildTriggerRequest(trigger);
+        const existing = existingTriggers.get(key);
+        if (existing) {
+          const response = await authorizedFetch(
+            `${API_BASE_URL}/workflows/${workflowSlug}/triggers/${existing.id}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            }
+          );
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            const message = typeof body?.error === 'string'
+              ? body.error
+              : `Failed to update trigger (${response.status})`;
+            throw new Error(message);
+          }
+        } else {
+          const response = await authorizedFetch(`${API_BASE_URL}/workflows/${workflowSlug}/triggers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok && response.status !== 409) {
+            const body = await response.json().catch(() => null);
+            const message = typeof body?.error === 'string'
+              ? body.error
+              : `Failed to create trigger (${response.status})`;
+            throw new Error(message);
+          }
+        }
+      }
+    },
+    [authorizedFetch]
+  );
+
   const importWorkflowScenario = useCallback(
     async (scenario: WorkflowScenario) => {
       const response = await authorizedFetch(`${API_BASE_URL}/workflows`, {
@@ -544,13 +782,14 @@ export function useImportWizardController() {
         body: JSON.stringify(scenario.form)
       });
       if (response.ok || response.status === 409) {
+        await applyWorkflowProvisioning(scenario);
         return;
       }
       const payload = await response.json().catch(() => null);
       const message = typeof payload?.error === 'string' ? payload.error : `Workflow import failed (${response.status})`;
       throw new Error(message);
     },
-    [authorizedFetch]
+    [authorizedFetch, applyWorkflowProvisioning]
   );
 
   const processAutoImportQueue = useCallback(

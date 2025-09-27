@@ -15,3 +15,12 @@ export {
 } from './workflows';
 export { EXAMPLE_SCENARIOS } from './scenarios';
 export { buildExamplesCatalogIndex } from './catalogIndex';
+export {
+  extractWorkflowProvisioningPlan,
+  resolveWorkflowProvisioningPlan,
+  type WorkflowProvisioningPlan,
+  type WorkflowProvisioningPlanTemplate,
+  type WorkflowProvisioningSchedule,
+  type WorkflowProvisioningEventTrigger,
+  type WorkflowProvisioningEventTriggerPredicate
+} from './provisioning';

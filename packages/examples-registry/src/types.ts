@@ -178,6 +178,45 @@ export type WorkflowDefinitionTemplate = {
   metadata?: JsonValue;
 };
 
+export type WorkflowProvisioningScheduleTemplate = {
+  name?: string;
+  description?: string;
+  cron: string;
+  timezone?: string | null;
+  startWindow?: string | null;
+  endWindow?: string | null;
+  catchUp?: boolean;
+  isActive?: boolean;
+  parameters?: JsonValue;
+};
+
+export type WorkflowProvisioningEventTriggerPredicateTemplate = {
+  path: string;
+  operator: 'equals' | 'notEquals' | 'in' | 'notIn' | 'exists';
+  value?: JsonValue;
+  values?: JsonValue[];
+};
+
+export type WorkflowProvisioningEventTriggerTemplate = {
+  name?: string;
+  description?: string;
+  eventType: string;
+  eventSource?: string | null;
+  predicates?: WorkflowProvisioningEventTriggerPredicateTemplate[];
+  parameterTemplate?: JsonValue;
+  metadata?: JsonValue;
+  throttleWindowMs?: number;
+  throttleCount?: number;
+  maxConcurrency?: number;
+  idempotencyKeyExpression?: string;
+  status?: 'active' | 'disabled';
+};
+
+export type WorkflowProvisioningPlanTemplate = {
+  schedules?: WorkflowProvisioningScheduleTemplate[];
+  eventTriggers?: WorkflowProvisioningEventTriggerTemplate[];
+};
+
 export type ExampleWorkflowSlug =
   | 'observatory-minute-data-generator'
   | 'observatory-minute-ingest'

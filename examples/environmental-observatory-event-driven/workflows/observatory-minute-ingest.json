@@ -6,24 +6,72 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "stagingDir": { "type": "string", "minLength": 1 },
-      "archiveDir": { "type": "string", "minLength": 1 },
-      "minute": { "type": "string", "minLength": 1 },
-      "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
-      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "filestoreBackendId": { "type": "number", "minimum": 1 },
-      "filestoreToken": { "type": "string" },
-      "inboxPrefix": { "type": "string", "minLength": 1 },
-      "stagingPrefix": { "type": "string", "minLength": 1 },
-      "archivePrefix": { "type": "string", "minLength": 1 },
-      "filestorePrincipal": { "type": "string" },
-      "commandPath": { "type": "string" },
-      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
-      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
-      "timestoreDatasetName": { "type": "string" },
-      "timestoreTableName": { "type": "string" },
-      "timestoreStorageTargetId": { "type": "string" },
-      "timestoreAuthToken": { "type": "string" }
+      "stagingDir": {
+        "type": "string",
+        "minLength": 1
+      },
+      "archiveDir": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minute": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxFiles": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 200
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "inboxPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "stagingPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "archivePrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestorePrincipal": {
+        "type": "string"
+      },
+      "commandPath": {
+        "type": "string"
+      },
+      "timestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreDatasetSlug": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestoreDatasetName": {
+        "type": "string"
+      },
+      "timestoreTableName": {
+        "type": "string"
+      },
+      "timestoreStorageTargetId": {
+        "type": "string"
+      },
+      "timestoreAuthToken": {
+        "type": "string"
+      }
     },
     "required": [
       "stagingDir",
@@ -51,7 +99,10 @@
     "timestoreBaseUrl": "http://127.0.0.1:4100",
     "timestoreDatasetSlug": "observatory-timeseries",
     "timestoreDatasetName": "Observatory Time Series",
-    "timestoreTableName": "observations"
+    "timestoreTableName": "observations",
+    "filestoreToken": null,
+    "timestoreStorageTargetId": null,
+    "timestoreAuthToken": null
   },
   "steps": [
     {
@@ -86,27 +137,57 @@
           "schema": {
             "type": "object",
             "properties": {
-              "partitionKey": { "type": "string" },
-              "minute": { "type": "string" },
-              "instrumentCount": { "type": "number" },
-              "recordCount": { "type": "number" },
+              "partitionKey": {
+                "type": "string"
+              },
+              "minute": {
+                "type": "string"
+              },
+              "instrumentCount": {
+                "type": "number"
+              },
+              "recordCount": {
+                "type": "number"
+              },
               "sourceFiles": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": { "type": "string" },
-                    "site": { "type": "string" },
-                    "instrumentId": { "type": "string" },
-                    "rows": { "type": "number" }
+                    "relativePath": {
+                      "type": "string"
+                    },
+                    "site": {
+                      "type": "string"
+                    },
+                    "instrumentId": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "type": "number"
+                    }
                   },
-                  "required": ["relativePath", "rows"]
+                  "required": [
+                    "relativePath",
+                    "rows"
+                  ]
                 }
               },
-              "stagingDir": { "type": "string" },
-              "normalizedAt": { "type": "string", "format": "date-time" }
+              "stagingDir": {
+                "type": "string"
+              },
+              "normalizedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
             },
-            "required": ["partitionKey", "minute", "recordCount", "sourceFiles", "normalizedAt"]
+            "required": [
+              "partitionKey",
+              "minute",
+              "recordCount",
+              "sourceFiles",
+              "normalizedAt"
+            ]
           }
         }
       ]
@@ -116,7 +197,9 @@
       "name": "Ingest into Timestore",
       "type": "job",
       "jobSlug": "observatory-timestore-loader",
-      "dependsOn": ["normalize-inbox"],
+      "dependsOn": [
+        "normalize-inbox"
+      ],
       "parameters": {
         "datasetSlug": "{{ parameters.timestoreDatasetSlug }}",
         "datasetName": "{{ parameters.timestoreDatasetName }}",
@@ -131,7 +214,9 @@
       },
       "storeResultAs": "timestoreIngestion",
       "consumes": [
-        { "assetId": "observatory.timeseries.raw" }
+        {
+          "assetId": "observatory.timeseries.raw"
+        }
       ],
       "produces": [
         {
@@ -142,7 +227,9 @@
             "format": "YYYY-MM-DDTHH:mm",
             "lookbackWindows": 1440
           },
-          "freshness": { "ttlMs": 60000 },
+          "freshness": {
+            "ttlMs": 60000
+          },
           "autoMaterialize": {
             "onUpstreamUpdate": true,
             "priority": 5
@@ -150,21 +237,114 @@
           "schema": {
             "type": "object",
             "properties": {
-              "partitionKey": { "type": "string" },
-              "datasetSlug": { "type": "string" },
-              "ingestionMode": { "type": "string" },
-              "manifestId": { "type": "string" },
-              "datasetId": { "type": "string" },
-              "rowCount": { "type": "number" },
-              "storageTargetId": { "type": "string" }
+              "partitionKey": {
+                "type": "string"
+              },
+              "datasetSlug": {
+                "type": "string"
+              },
+              "ingestionMode": {
+                "type": "string"
+              },
+              "manifestId": {
+                "type": "string"
+              },
+              "datasetId": {
+                "type": "string"
+              },
+              "rowCount": {
+                "type": "number"
+              },
+              "storageTargetId": {
+                "type": "string"
+              }
             },
-            "required": ["partitionKey", "datasetSlug", "rowCount"]
+            "required": [
+              "partitionKey",
+              "datasetSlug",
+              "rowCount"
+            ]
           }
         }
       ]
     }
   ],
   "triggers": [
-    { "type": "manual" }
-  ]
+    {
+      "type": "manual"
+    }
+  ],
+  "metadata": {
+    "provisioning": {
+      "eventTriggers": [
+        {
+          "name": "Observatory ingest on filestore upload",
+          "description": "Kick off the minute ingest workflow whenever new observatory CSV uploads land in Filestore.",
+          "eventType": "filestore.command.completed",
+          "eventSource": "filestore.service",
+          "predicates": [
+            {
+              "path": "$.payload.command",
+              "operator": "equals",
+              "value": "uploadFile"
+            },
+            {
+              "path": "$.payload.backendMountId",
+              "operator": "equals",
+              "value": "{{ defaultParameters.filestoreBackendId }}"
+            }
+          ],
+          "parameterTemplate": {
+            "minute": "{{ event.payload.node.metadata.minute }}",
+            "maxFiles": "{{ trigger.metadata.maxFiles }}",
+            "stagingDir": "{{ trigger.metadata.paths.stagingDir }}",
+            "archiveDir": "{{ trigger.metadata.paths.archiveDir }}",
+            "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
+            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
+            "filestoreToken": "{{ trigger.metadata.filestore.token }}",
+            "inboxPrefix": "{{ trigger.metadata.filestore.inboxPrefix }}",
+            "stagingPrefix": "{{ trigger.metadata.filestore.stagingPrefix }}",
+            "archivePrefix": "{{ trigger.metadata.filestore.archivePrefix }}",
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+            "commandPath": "{{ event.payload.path }}",
+            "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
+            "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
+            "timestoreDatasetName": "{{ trigger.metadata.timestore.datasetName }}",
+            "timestoreTableName": "{{ trigger.metadata.timestore.tableName }}",
+            "timestoreStorageTargetId": "{{ trigger.metadata.timestore.storageTargetId }}",
+            "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}"
+          },
+          "metadata": {
+            "maxFiles": "{{ defaultParameters.maxFiles }}",
+            "paths": {
+              "stagingDir": "{{ defaultParameters.stagingDir }}",
+              "archiveDir": "{{ defaultParameters.archiveDir }}"
+            },
+            "filestore": {
+              "baseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
+              "backendMountId": "{{ defaultParameters.filestoreBackendId }}",
+              "token": "{{ defaultParameters.filestoreToken }}",
+              "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
+              "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
+              "archivePrefix": "{{ defaultParameters.archivePrefix }}",
+              "principal": "{{ defaultParameters.filestorePrincipal }}"
+            },
+            "timestore": {
+              "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+              "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+              "datasetName": "{{ defaultParameters.timestoreDatasetName }}",
+              "tableName": "{{ defaultParameters.timestoreTableName }}",
+              "storageTargetId": "{{ defaultParameters.timestoreStorageTargetId }}",
+              "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+            }
+          },
+          "throttleWindowMs": 60000,
+          "throttleCount": 1,
+          "maxConcurrency": 1,
+          "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}",
+          "status": "active"
+        }
+      ]
+    }
+  }
 }

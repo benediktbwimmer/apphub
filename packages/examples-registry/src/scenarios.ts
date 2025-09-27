@@ -287,12 +287,12 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
     id: 'observatory-file-watcher-service',
     type: 'service-manifest',
-    title: 'Observatory services',
-    summary: 'Registers the observatory watcher and dashboard services configured for the minute ingest loop.',
+    title: 'Observatory event-driven services',
+    summary: 'Registers the watcher and dashboard services wired for the event-driven observatory import.',
     description:
-      'Imports the service manifest that points the file watcher at the environmental observatory inbox, staging, archive, and DuckDB paths while also wiring up the dashboard to render fresh reports.',
+      'Imports the event-driven observatory service manifest so the watcher streams inbox uploads, the dashboard refreshes automatically, and downstream workflows receive the correct dataset references out of the box.',
     difficulty: 'beginner',
-    tags: ['observatory', 'automation'],
+    tags: ['observatory', 'automation', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -306,34 +306,34 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Service config',
-        path: 'examples/environmental-observatory/service-manifests/service-config.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/service-manifests/service-config.json'
+        path: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/service-manifests/service-config.json'
       },
       {
         label: 'Service manifest',
-        path: 'examples/environmental-observatory/service-manifests/service-manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/service-manifests/service-manifest.json'
+        path: 'examples/environmental-observatory-event-driven/service-manifests/service-manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/service-manifests/service-manifest.json'
       },
       {
         label: 'Watcher service',
-        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher'
       },
       {
         label: 'Dashboard service',
-        path: 'examples/environmental-observatory/services/observatory-dashboard/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-dashboard'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-dashboard/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-dashboard'
       }
     ],
     form: {
       repo: 'https://github.com/benediktbwimmer/apphub.git',
       ref: 'main',
-      configPath: 'examples/environmental-observatory/service-manifests/service-config.json',
-      module: 'github.com/apphub/examples/environmental-observatory',
+      configPath: 'examples/environmental-observatory-event-driven/service-manifests/service-config.json',
+      module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {
-        FILE_WATCH_ROOT: 'examples/environmental-observatory/data/inbox',
-        FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory/data/staging',
-        FILE_ARCHIVE_DIR: 'examples/environmental-observatory/data/archive',
+        FILE_WATCH_ROOT: 'examples/environmental-observatory-event-driven/data/inbox',
+        FILE_WATCH_STAGING_DIR: 'examples/environmental-observatory-event-driven/data/staging',
+        FILE_ARCHIVE_DIR: 'examples/environmental-observatory-event-driven/data/archive',
         TIMESTORE_BASE_URL: 'http://127.0.0.1:4200',
         TIMESTORE_DATASET_SLUG: 'observatory-timeseries',
         TIMESTORE_DATASET_NAME: 'Observatory Time Series',
@@ -352,7 +352,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     description:
       'Registers the watcher repository so AppHub can build and launch it as a container. The Dockerfile installs dependencies, builds the TypeScript project, and runs the compiled watcher entry point.',
     difficulty: 'intermediate',
-    tags: ['observatory', 'workflow watcher'],
+    tags: ['observatory', 'workflow watcher', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -362,13 +362,13 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Watcher repository',
-        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher'
       },
       {
         label: 'Dockerfile',
-        path: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/services/observatory-file-watcher/Dockerfile'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile'
       }
     ],
     form: {
@@ -376,7 +376,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       name: 'Observatory File Watcher',
       description: 'Watches the observatory inbox for minute-level CSV drops and triggers ingest workflows automatically.',
       repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
-      dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+      dockerfilePath: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/Dockerfile',
       tags: [
         { key: 'language', value: 'typescript' },
         { key: 'framework', value: 'fastify' }
@@ -395,7 +395,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     description:
       'Registers the dashboard repository so AppHub can build and launch it as a container. The service reads the latest `status.json` artefacts and refreshes the embedded HTML automatically.',
     difficulty: 'beginner',
-    tags: ['observatory', 'dashboard'],
+    tags: ['observatory', 'dashboard', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -405,13 +405,13 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Dashboard repository',
-        path: 'examples/environmental-observatory/services/observatory-dashboard/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-dashboard'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-dashboard/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-dashboard'
       },
       {
         label: 'Dockerfile',
-        path: 'examples/environmental-observatory/services/observatory-dashboard/Dockerfile',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/services/observatory-dashboard/Dockerfile'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-dashboard/Dockerfile',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/services/observatory-dashboard/Dockerfile'
       }
     ],
     form: {
@@ -419,7 +419,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       name: 'Observatory Dashboard',
       description: 'Displays the latest observatory status report with automatic refresh.',
       repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
-      dockerfilePath: 'examples/environmental-observatory/services/observatory-dashboard/Dockerfile',
+      dockerfilePath: 'examples/environmental-observatory-event-driven/services/observatory-dashboard/Dockerfile',
       tags: [
         { key: 'language', value: 'typescript' },
         { key: 'framework', value: 'fastify' }
@@ -453,8 +453,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       },
       {
         label: 'Watcher service',
-        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher'
       }
     ],
     form: {
@@ -484,8 +484,8 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Watcher service',
-        path: 'examples/environmental-observatory/services/observatory-file-watcher/',
-        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory/services/observatory-file-watcher'
+        path: 'examples/environmental-observatory-event-driven/services/observatory-file-watcher/',
+        href: 'https://github.com/benediktbwimmer/apphub/tree/main/examples/environmental-observatory-event-driven/services/observatory-file-watcher'
       },
       {
         label: 'Relocator bundle',
@@ -770,7 +770,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     description:
       'Uploads the `observatory-data-generator` bundle (0.1.0) so you can simulate instrument drops by writing synthetic CSVs into the observatory inbox.',
     difficulty: 'beginner',
-    tags: ['observatory', 'simulation'],
+    tags: ['observatory', 'simulation', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -780,14 +780,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-data-generator/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-data-generator/manifest.json'
+        path: 'examples/environmental-observatory-event-driven/jobs/observatory-data-generator/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/jobs/observatory-data-generator/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: jobReference('observatory-data-generator'),
-      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-data-generator. Point inboxDir at the directory you want synthetic drops to land.'
+      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-data-generator. Point inboxDir at the directory you want synthetic drops to land.'
     },
     exampleSlug: 'observatory-data-generator',
     analyticsTag: 'job__observatory_data_generator'
@@ -800,7 +800,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     description:
       'Uploads the `observatory-inbox-normalizer` bundle (0.1.0). Pair it with the ingest workflow to emit `observatory.timeseries.raw` assets from inbox files.',
     difficulty: 'intermediate',
-    tags: ['observatory', 'ingest'],
+    tags: ['observatory', 'ingest', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -810,14 +810,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-inbox-normalizer/manifest.json'
+        path: 'examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: jobReference('observatory-inbox-normalizer'),
-      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-inbox-normalizer. Configure inbox/staging/archive directories to match your environment.'
+      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer. Configure inbox/staging/archive directories to match your environment.'
     },
     exampleSlug: 'observatory-inbox-normalizer',
     analyticsTag: 'job__observatory_inbox_normalizer'
@@ -840,14 +840,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-timestore-loader/manifest.json'
+        path: 'examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: jobReference('observatory-timestore-loader'),
-      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-timestore-loader. Provide the Timestore base URL and dataset slug used by your ingest workflow.'
+      notes: 'Bundle packaged from examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader. Provide the Timestore base URL and dataset slug used by your ingest workflow.'
     },
     exampleSlug: 'observatory-timestore-loader',
     analyticsTag: 'job__observatory_timestore_loader'
@@ -870,14 +870,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-visualization-runner/manifest.json'
+        path: 'examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: jobReference('observatory-visualization-runner'),
-      notes: 'Bundle sourced from examples/environmental-observatory/jobs/observatory-visualization-runner. Provide timestoreBaseUrl and plotsDir when previewing.'
+      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner. Provide timestoreBaseUrl and plotsDir when previewing.'
     },
     exampleSlug: 'observatory-visualization-runner',
     analyticsTag: 'job__observatory_visualization_runner'
@@ -890,7 +890,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     description:
       'Uploads the `observatory-report-publisher` bundle (0.1.0). Combine it with visualization outputs to render Markdown, HTML, and JSON reports.',
     difficulty: 'intermediate',
-    tags: ['observatory', 'reporting'],
+    tags: ['observatory', 'reporting', 'event-driven'],
     docs: [
       {
         label: 'Environmental observatory walkthrough',
@@ -900,14 +900,14 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Bundle manifest',
-        path: 'examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/jobs/observatory-report-publisher/manifest.json'
+        path: 'examples/environmental-observatory-event-driven/jobs/observatory-report-publisher/manifest.json',
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/jobs/observatory-report-publisher/manifest.json'
       }
     ],
     form: {
       source: 'upload',
       reference: jobReference('observatory-report-publisher'),
-      notes: 'Bundle packaged from examples/environmental-observatory/jobs/observatory-report-publisher. Supply reportsDir and visualization asset metadata before running.'
+      notes: 'Bundle packaged from examples/environmental-observatory-event-driven/jobs/observatory-report-publisher. Supply reportsDir and visualization asset metadata before running.'
     },
     exampleSlug: 'observatory-report-publisher',
     analyticsTag: 'job__observatory_report_publisher'
@@ -966,9 +966,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-minute-data-generator-workflow',
     type: 'workflow',
     title: 'Observatory minute data generator',
-    summary: 'Schedules synthetic instrument data drops.',
+    summary: 'Auto-schedules synthetic instrument data drops.',
     description:
-      'Imports the `observatory-minute-data-generator` workflow definition to automate synthetic CSV drops into the observatory inbox for testing.',
+      'Imports the event-driven `observatory-minute-data-generator` workflow so AppHub provisions a ready-to-run minute cadence that continuously feeds the observatory inbox with synthetic telemetry.',
     difficulty: 'beginner',
     tags: ['observatory', 'simulation'],
     docs: [
@@ -980,7 +980,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-minute-data-generator.json'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/workflows/observatory-minute-data-generator.json'
       }
     ],
     form: observatoryMinuteDataGeneratorWorkflowForm,
@@ -991,9 +991,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-minute-ingest-workflow',
     type: 'workflow',
     title: 'Observatory minute ingest',
-    summary: 'Normalizes inbox CSV drops and appends them into DuckDB.',
+    summary: 'Normalizes inbox drops whenever Filestore records uploads.',
     description:
-      'Imports the `observatory-minute-ingest` workflow definition so you can replay the minute-level ingestion loop and emit observatory telemetry assets.',
+      'Imports the event-driven `observatory-minute-ingest` workflow definition so Filestore upload events automatically normalize CSVs and persist observatory telemetry without manual trigger setup.',
     difficulty: 'intermediate',
     tags: ['observatory', 'ingest'],
     docs: [
@@ -1005,7 +1005,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-minute-ingest.json'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json'
       }
     ],
     form: observatoryMinuteIngestWorkflowForm,
@@ -1016,9 +1016,9 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     id: 'observatory-daily-publication-workflow',
     type: 'workflow',
     title: 'Observatory daily publication',
-    summary: 'Generates observatory visualizations and publishes reports.',
+    summary: 'Generates visualizations when new Timestore partitions land.',
     description:
-      'Imports the `observatory-daily-publication` workflow definition. It renders visualizations from DuckDB snapshots and publishes minute-level status reports with linked artifacts.',
+      'Imports the event-driven `observatory-daily-publication` workflow definition so Timestore partition events automatically render plots and publish observatory status reports.',
     difficulty: 'intermediate',
     tags: ['observatory', 'reporting'],
     docs: [
@@ -1030,7 +1030,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     assets: [
       {
         label: 'Workflow definition reference',
-        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory/workflows/observatory-daily-publication.json'
+        href: 'https://github.com/benediktbwimmer/apphub/blob/main/examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json'
       }
     ],
     form: observatoryDailyPublicationWorkflowForm,
@@ -1044,11 +1044,11 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
   {
     id: 'observatory-scenario-pack',
     type: 'scenario',
-    title: 'Environmental observatory demo',
-    summary: 'Loads services, jobs, and workflows for the observatory walkthrough.',
+    title: 'Environmental observatory (event-driven)',
+    summary: 'Loads the end-to-end observatory example with schedules and triggers prewired.',
     description:
-      'Prefills the importer with the watcher + dashboard services, their container apps, supporting jobs, and both observatory workflows so you can replay the end-to-end environmental observatory demo.',
-    tags: ['observatory', 'end-to-end'],
+      'Prefills the importer with the watcher + dashboard services, supporting jobs, and the event-driven observatory workflows so you can replay the one-click demo with schedules and event triggers applied automatically.',
+    tags: ['observatory', 'end-to-end', 'event-driven'],
     includes: [
       'observatory-file-watcher-service',
       'observatory-file-watcher-app',
