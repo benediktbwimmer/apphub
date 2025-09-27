@@ -1,5 +1,17 @@
 const DEFAULT_CATALOG_URL = 'http://127.0.0.1:4000';
 
+export class CatalogError extends Error {
+  status: number;
+  details: unknown;
+
+  constructor(message: string, status: number, details?: unknown) {
+    super(message);
+    this.name = 'CatalogError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
 export type CatalogRequestConfig = {
   baseUrl: string;
   token: string;
@@ -56,15 +68,49 @@ export async function catalogRequest<T = unknown>(config: CatalogRequestConfig):
   }
 
   if (!response.ok) {
-    let detail = '';
+    let message = `Catalog API responded with ${response.status}`;
+    let details: unknown = null;
     try {
-      const parsed = await response.json();
-      detail = parsed?.error ? `: ${JSON.stringify(parsed.error)}` : `: ${JSON.stringify(parsed)}`;
-    } catch {
       const text = await response.text();
-      detail = text ? `: ${text}` : '';
+      if (text) {
+        try {
+          const parsed = JSON.parse(text) as Record<string, unknown> | null;
+          const container = parsed && typeof parsed === 'object' ? parsed : null;
+          const errorValue = container && 'error' in container ? container.error : parsed;
+          details = errorValue ?? parsed;
+          let candidate: unknown =
+            container && typeof container.error === 'string'
+              ? container.error
+              : container && typeof container.message === 'string'
+                ? container.message
+                : null;
+          if (!candidate && errorValue && typeof errorValue === 'object' && !Array.isArray(errorValue)) {
+            const record = errorValue as Record<string, unknown>;
+            const formErrors = record.formErrors;
+            if (Array.isArray(formErrors)) {
+              const first = formErrors.find(
+                (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+              );
+              if (first) {
+                candidate = first;
+              }
+            }
+          }
+          if (typeof candidate === 'string' && candidate.trim().length > 0) {
+            message = candidate.trim();
+          }
+        } catch {
+          const trimmed = text.trim();
+          details = trimmed || text;
+          if (trimmed.length > 0) {
+            message = `${message}: ${trimmed}`;
+          }
+        }
+      }
+    } catch {
+      // Ignore secondary parse errors.
     }
-    throw new Error(`Catalog API responded with ${response.status}${detail}`);
+    throw new CatalogError(message, response.status, details);
   }
 
   if (response.status === 204) {

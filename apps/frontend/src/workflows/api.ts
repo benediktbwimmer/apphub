@@ -103,6 +103,7 @@ export type WorkflowEventTriggerCreateInput = {
   idempotencyKeyExpression?: string | null;
   metadata?: unknown;
   status?: WorkflowEventTriggerStatus;
+  sampleEvent?: unknown;
 };
 
 export type WorkflowEventTriggerUpdateInput = {
@@ -118,6 +119,7 @@ export type WorkflowEventTriggerUpdateInput = {
   idempotencyKeyExpression?: string | null;
   metadata?: unknown;
   status?: WorkflowEventTriggerStatus;
+  sampleEvent?: unknown;
 };
 
 export type WorkflowEventTriggerFilters = {
@@ -364,23 +366,44 @@ export async function ensureOk(response: Response, fallbackMessage: string): Pro
   let message = fallbackMessage;
   try {
     const text = await response.text();
-    details = text;
     if (text) {
       try {
-        const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-        const extracted =
-          typeof parsed.error === 'string'
-            ? parsed.error
-            : typeof parsed.message === 'string'
-              ? parsed.message
+        const parsed = JSON.parse(text) as Record<string, unknown> | null;
+        const container = parsed && typeof parsed === 'object' ? parsed : null;
+        const errorValue = container && 'error' in container ? (container.error as unknown) : parsed;
+        details = errorValue ?? parsed;
+        let candidate: unknown =
+          container && typeof container.error === 'string'
+            ? container.error
+            : container && typeof container.message === 'string'
+              ? container.message
               : null;
-        if (extracted && extracted.trim().length > 0) {
-          message = extracted.trim();
-        } else if (!parsed || typeof parsed !== 'object') {
-          message = text;
+        if (!candidate && errorValue && typeof errorValue === 'object' && !Array.isArray(errorValue)) {
+          const record = errorValue as Record<string, unknown>;
+          const formErrors = record.formErrors;
+          if (Array.isArray(formErrors)) {
+            const first = formErrors.find(
+              (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+            );
+            if (first) {
+              candidate = first;
+            }
+          }
+        }
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+          message = candidate.trim();
+        } else {
+          const trimmed = text.trim();
+          if (trimmed.length > 0) {
+            message = trimmed;
+          }
         }
       } catch {
-        message = text;
+        const trimmed = text.trim();
+        details = trimmed || text;
+        if (trimmed.length > 0) {
+          message = trimmed;
+        }
       }
     }
   } catch {

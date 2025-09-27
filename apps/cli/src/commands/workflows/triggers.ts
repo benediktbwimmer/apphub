@@ -2,7 +2,12 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { Command } from 'commander';
 import { parse as parseYaml } from 'yaml';
-import { catalogRequest, resolveCatalogToken, resolveCatalogUrl } from '../../lib/catalog';
+import {
+  catalogRequest,
+  resolveCatalogToken,
+  resolveCatalogUrl,
+  CatalogError
+} from '../../lib/catalog';
 import { confirmPrompt } from '../../lib/prompt';
 
 type TriggerRecord = {
@@ -67,6 +72,46 @@ async function loadDefinition(filePath: string): Promise<Record<string, unknown>
       throw new Error(`Failed to parse trigger definition at ${resolved}: ${message}`);
     }
   }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function printValidationErrors(details: unknown): boolean {
+  const record = toRecord(details);
+  if (!record) {
+    return false;
+  }
+  const formErrors = Array.isArray(record.formErrors)
+    ? record.formErrors.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  const fieldErrorsRecord = toRecord(record.fieldErrors) ?? {};
+  const fieldEntries: Array<[string, string]> = [];
+  for (const [field, value] of Object.entries(fieldErrorsRecord)) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    for (const entry of value) {
+      if (typeof entry === 'string' && entry.trim().length > 0) {
+        fieldEntries.push([field, entry.trim()]);
+      }
+    }
+  }
+  if (formErrors.length === 0 && fieldEntries.length === 0) {
+    return false;
+  }
+  console.error('Validation errors:');
+  for (const message of formErrors) {
+    console.error(`  - ${message}`);
+  }
+  for (const [field, message] of fieldEntries) {
+    console.error(`  ${field}: ${message}`);
+  }
+  return true;
 }
 
 function printTriggerTable(workflow: WorkflowSummary, triggers: TriggerRecord[]): void {
@@ -261,8 +306,15 @@ export function registerTriggerCommands(workflows: Command): void {
       try {
         await createTrigger(workflow, opts);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(message);
+        if (err instanceof CatalogError && err.status === 400) {
+          const printed = printValidationErrors(err.details);
+          if (!printed) {
+            console.error(err.message);
+          }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(message);
+        }
         process.exitCode = 1;
       }
     });
@@ -279,8 +331,15 @@ export function registerTriggerCommands(workflows: Command): void {
       try {
         await updateTrigger(workflow, triggerId, opts);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(message);
+        if (err instanceof CatalogError && err.status === 400) {
+          const printed = printValidationErrors(err.details);
+          if (!printed) {
+            console.error(err.message);
+          }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(message);
+        }
         process.exitCode = 1;
       }
     });

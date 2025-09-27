@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import {
   type JsonValue,
   type WorkflowEventTriggerCreateInput,
@@ -88,6 +88,24 @@ const maxConcurrencySchema = z
   .transform((value) => (value === undefined || value === null ? null : value));
 
 const jsonValueOrNullSchema = jsonValueSchema.nullable().optional().transform((value) => value ?? null);
+
+const sampleEventSchema = z
+  .object({
+    id: z.string().trim().min(1).optional(),
+    type: z.string().trim().min(1).optional(),
+    source: z.string().trim().min(1).optional(),
+    occurredAt: z.string().trim().min(1).optional(),
+    payload: jsonValueSchema.optional(),
+    correlationId: z.string().trim().min(1).optional(),
+    ttl: z.number().int().min(1).optional(),
+    metadata: z.record(jsonValueSchema).optional()
+  })
+  .strict()
+  .transform((value) => ({
+    ...value,
+    payload: value.payload ?? {},
+    metadata: value.metadata ?? {}
+  }));
 
 function normalizeCaseSensitiveFlag(flag: unknown): boolean | undefined {
   if (typeof flag === 'boolean') {
@@ -513,6 +531,23 @@ export function serializeJsonValue(value: JsonValue | null): string | null {
     return null;
   }
   return JSON.stringify(value);
+}
+
+export type NormalizedTriggerSampleEvent = z.infer<typeof sampleEventSchema>;
+
+export function normalizeTriggerSampleEvent(input: unknown): NormalizedTriggerSampleEvent | null {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  const result = sampleEventSchema.safeParse(input);
+  if (result.success) {
+    return result.data;
+  }
+  const issues = result.error.issues.map((issue) => ({
+    ...issue,
+    path: ['sampleEvent', ...issue.path]
+  }));
+  throw new ZodError(issues);
 }
 
 export function normalizeOptionalActor(actor?: string | null): string | null {

@@ -5,10 +5,11 @@ import type {
   WorkflowEventTrigger,
   WorkflowEventTriggerStatus
 } from '../../types';
-import type {
-  WorkflowEventTriggerCreateInput,
-  WorkflowEventTriggerPredicateInput,
-  WorkflowEventTriggerUpdateInput
+import {
+  ApiError,
+  type WorkflowEventTriggerCreateInput,
+  type WorkflowEventTriggerPredicateInput,
+  type WorkflowEventTriggerUpdateInput
 } from '../../api';
 
 export type EventTriggerPreviewSnapshot = {
@@ -91,7 +92,39 @@ type FormErrors = {
   throttleWindowMs?: string;
   throttleCount?: string;
   maxConcurrency?: string;
+  idempotencyKeyExpression?: string;
 };
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseErrorDetails(
+  details: unknown
+): { formErrors: string[]; fieldErrors: Record<string, string[]> } | null {
+  const record = toRecord(details);
+  if (!record) {
+    return null;
+  }
+  const formErrors = Array.isArray(record.formErrors)
+    ? record.formErrors.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  const rawFieldErrors = toRecord(record.fieldErrors) ?? {};
+  const fieldErrors: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(rawFieldErrors)) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    const messages = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+    if (messages.length > 0) {
+      fieldErrors[key] = messages;
+    }
+  }
+  return { formErrors, fieldErrors };
+}
 
 type EventTriggerFormModalProps = {
   open: boolean;
@@ -584,6 +617,44 @@ export default function EventTriggerFormModal({
       }
       onClose();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        const parsed = parseErrorDetails(err.details);
+        if (parsed) {
+          const nextErrors: FormErrors = {};
+          if (parsed.formErrors.length > 0) {
+            nextErrors.general = parsed.formErrors[0];
+          }
+          const fieldErrors = parsed.fieldErrors;
+          if (fieldErrors.name?.length) {
+            nextErrors.name = fieldErrors.name[0];
+          }
+          if (fieldErrors.eventType?.length) {
+            nextErrors.eventType = fieldErrors.eventType[0];
+          }
+          if (fieldErrors.parameterTemplate?.length) {
+            nextErrors.parameterTemplate = fieldErrors.parameterTemplate[0];
+          }
+          if (fieldErrors.metadata?.length) {
+            nextErrors.metadata = fieldErrors.metadata[0];
+          }
+          if (fieldErrors.throttleWindowMs?.length) {
+            nextErrors.throttleWindowMs = fieldErrors.throttleWindowMs[0];
+          }
+          if (fieldErrors.throttleCount?.length) {
+            nextErrors.throttleCount = fieldErrors.throttleCount[0];
+          }
+          if (fieldErrors.maxConcurrency?.length) {
+            nextErrors.maxConcurrency = fieldErrors.maxConcurrency[0];
+          }
+          if (fieldErrors.idempotencyKeyExpression?.length) {
+            nextErrors.idempotencyKeyExpression = fieldErrors.idempotencyKeyExpression[0];
+          }
+          if (Object.keys(nextErrors).length > 0) {
+            setErrors(nextErrors);
+            return;
+          }
+        }
+      }
       const message = err instanceof Error ? err.message : 'Failed to save event trigger.';
       setErrors({ general: message });
     } finally {
@@ -877,6 +948,11 @@ export default function EventTriggerFormModal({
               placeholder="{{ event.payload.id }}"
               disabled={disableActions}
             />
+            {errors.idempotencyKeyExpression && (
+              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                {errors.idempotencyKeyExpression}
+              </span>
+            )}
           </label>
         </div>
 

@@ -22,8 +22,11 @@ import { requireOperatorScopes } from '../shared/operatorAuth';
 import { WORKFLOW_WRITE_SCOPES } from '../shared/scopes';
 import {
   normalizeWorkflowEventTriggerCreate,
-  normalizeWorkflowEventTriggerUpdate
+  normalizeWorkflowEventTriggerUpdate,
+  normalizeTriggerSampleEvent,
+  type NormalizedTriggerSampleEvent
 } from '../../workflows/eventTriggerValidation';
+import { assertNoTemplateIssues, validateTriggerTemplates } from '../../workflows/liquidTemplateValidation';
 
 const workflowSlugParamSchema = z
   .object({
@@ -68,6 +71,7 @@ function formatZodError(error: ZodError): JsonValue {
     fieldErrors
   } satisfies JsonValue;
 }
+
 
 export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/workflows/:slug/triggers', async (request, reply) => {
@@ -218,11 +222,41 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
       return { error: 'workflow not found' };
     }
 
+    const rawPayload = (request.body ?? {}) as Record<string, unknown>;
+    const { sampleEvent: rawSampleEvent, ...rawTriggerInput } = rawPayload;
+
     let normalized: ReturnType<typeof normalizeWorkflowEventTriggerCreate>;
+    let sampleEvent: NormalizedTriggerSampleEvent | null = null;
     try {
       normalized = normalizeWorkflowEventTriggerCreate(
-        (request.body ?? {}) as WorkflowEventTriggerCreateInput
+        rawTriggerInput as WorkflowEventTriggerCreateInput
       );
+      sampleEvent = normalizeTriggerSampleEvent(rawSampleEvent);
+      const templateIssues = await validateTriggerTemplates(
+        {
+          parameterTemplate: normalized.parameterTemplate,
+          idempotencyKeyExpression: normalized.idempotencyKeyExpression
+        },
+        {
+          trigger: {
+            workflowDefinitionId: workflow.id,
+            name: normalized.name,
+            description: normalized.description,
+            eventType: normalized.eventType,
+            eventSource: normalized.eventSource ?? null,
+            predicates: normalized.predicates,
+            parameterTemplate: normalized.parameterTemplate,
+            idempotencyKeyExpression: normalized.idempotencyKeyExpression,
+            metadata: normalized.metadata,
+            throttleWindowMs: normalized.throttleWindowMs,
+            throttleCount: normalized.throttleCount,
+            maxConcurrency: normalized.maxConcurrency,
+            status: normalized.status
+          },
+          sampleEvent
+        }
+      );
+      assertNoTemplateIssues(templateIssues);
     } catch (err) {
       if (err instanceof ZodError) {
         const errorPayload = formatZodError(err);
@@ -307,11 +341,48 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
       return { error: 'trigger not found' };
     }
 
+    const rawPayload = (request.body ?? {}) as Record<string, unknown>;
+    const { sampleEvent: rawSampleEvent, ...rawUpdateInput } = rawPayload;
+
     let normalized: ReturnType<typeof normalizeWorkflowEventTriggerUpdate>;
+    let sampleEvent: NormalizedTriggerSampleEvent | null = null;
     try {
       normalized = normalizeWorkflowEventTriggerUpdate(
-        (request.body ?? {}) as WorkflowEventTriggerUpdateInput
+        rawUpdateInput as WorkflowEventTriggerUpdateInput
       );
+      sampleEvent = normalizeTriggerSampleEvent(rawSampleEvent);
+
+      const nextParameterTemplate =
+        normalized.parameterTemplate !== undefined
+          ? normalized.parameterTemplate
+          : trigger.parameterTemplate;
+      const nextIdempotencyExpression =
+        normalized.idempotencyKeyExpression !== undefined
+          ? normalized.idempotencyKeyExpression
+          : trigger.idempotencyKeyExpression;
+
+      const templateIssues = await validateTriggerTemplates(
+        {
+          parameterTemplate: nextParameterTemplate ?? null,
+          idempotencyKeyExpression: nextIdempotencyExpression ?? null
+        },
+        {
+          trigger: {
+            ...trigger,
+            ...normalized,
+            predicates: normalized.predicates ?? trigger.predicates,
+            parameterTemplate: nextParameterTemplate ?? null,
+            idempotencyKeyExpression: nextIdempotencyExpression ?? null,
+            throttleWindowMs: normalized.throttleWindowMs ?? trigger.throttleWindowMs,
+            throttleCount: normalized.throttleCount ?? trigger.throttleCount,
+            maxConcurrency: normalized.maxConcurrency ?? trigger.maxConcurrency,
+            status: normalized.status ?? trigger.status,
+            metadata: normalized.metadata ?? trigger.metadata
+          },
+          sampleEvent
+        }
+      );
+      assertNoTemplateIssues(templateIssues);
     } catch (err) {
       if (err instanceof ZodError) {
         const errorPayload = formatZodError(err);

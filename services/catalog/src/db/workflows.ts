@@ -78,6 +78,7 @@ import {
   normalizeWorkflowEventTriggerUpdate,
   serializeTriggerPredicates
 } from '../workflows/eventTriggerValidation';
+import { assertNoTemplateIssues, validateTriggerTemplates } from '../workflows/liquidTemplateValidation';
 import { useConnection, useTransaction } from './utils';
 
 type AnalyticsTimeRange = {
@@ -1790,6 +1791,30 @@ export async function createWorkflowEventTrigger(
   input: WorkflowEventTriggerCreateInput
 ): Promise<WorkflowEventTriggerRecord> {
   const normalized = normalizeWorkflowEventTriggerCreate(input);
+  const templateIssues = await validateTriggerTemplates(
+    {
+      parameterTemplate: normalized.parameterTemplate,
+      idempotencyKeyExpression: normalized.idempotencyKeyExpression
+    },
+    {
+      trigger: {
+        workflowDefinitionId: input.workflowDefinitionId,
+        name: normalized.name,
+        description: normalized.description,
+        eventType: normalized.eventType,
+        eventSource: normalized.eventSource ?? null,
+        predicates: normalized.predicates,
+        parameterTemplate: normalized.parameterTemplate,
+        idempotencyKeyExpression: normalized.idempotencyKeyExpression,
+        metadata: normalized.metadata,
+        throttleWindowMs: normalized.throttleWindowMs,
+        throttleCount: normalized.throttleCount,
+        maxConcurrency: normalized.maxConcurrency,
+        status: normalized.status
+      }
+    }
+  );
+  assertNoTemplateIssues(templateIssues);
   const id = randomUUID();
   const predicateJson = serializeTriggerPredicates(normalized.predicates);
   const parameterTemplateJson = serializeJson(normalized.parameterTemplate);
@@ -1915,6 +1940,37 @@ export async function updateWorkflowEventTrigger(
     }
 
     const existing = mapWorkflowEventTriggerRow(rows[0]);
+
+    const nextParameterTemplate =
+      normalized.parameterTemplate !== undefined
+        ? normalized.parameterTemplate
+        : existing.parameterTemplate;
+    const nextIdempotencyExpression =
+      normalized.idempotencyKeyExpression !== undefined
+        ? normalized.idempotencyKeyExpression
+        : existing.idempotencyKeyExpression;
+
+    const templateIssues = await validateTriggerTemplates(
+      {
+        parameterTemplate: nextParameterTemplate ?? null,
+        idempotencyKeyExpression: nextIdempotencyExpression ?? null
+      },
+      {
+        trigger: {
+          ...existing,
+          ...normalized,
+          parameterTemplate: nextParameterTemplate ?? null,
+          idempotencyKeyExpression: nextIdempotencyExpression ?? null,
+          predicates: normalized.predicates ?? existing.predicates,
+          throttleWindowMs: normalized.throttleWindowMs ?? existing.throttleWindowMs,
+          throttleCount: normalized.throttleCount ?? existing.throttleCount,
+          maxConcurrency: normalized.maxConcurrency ?? existing.maxConcurrency,
+          status: normalized.status ?? existing.status,
+          metadata: normalized.metadata ?? existing.metadata
+        }
+      }
+    );
+    assertNoTemplateIssues(templateIssues);
 
     const sets: string[] = [];
     const values: unknown[] = [];
