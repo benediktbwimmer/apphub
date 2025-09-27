@@ -26,7 +26,8 @@ export async function buildServer() {
 
   await app.register(cors, {
     origin: true,
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await app.register(cookie);
