@@ -13,3 +13,4 @@ export * from './workflows';
 export * from './audit';
 export * from './workflowEvents';
 export * from './eventScheduler';
+export * from './assetMaterializer';

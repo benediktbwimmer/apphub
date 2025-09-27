@@ -906,6 +906,28 @@ const migrations: Migration[] = [
          last_error TEXT
        );`
     ]
+  },
+  {
+    id: '030_asset_materializer_distributed_state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS asset_materializer_inflight_runs (
+         workflow_definition_id TEXT PRIMARY KEY REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         workflow_run_id TEXT REFERENCES workflow_runs(id) ON DELETE CASCADE,
+         reason TEXT NOT NULL,
+         asset_id TEXT,
+         partition_key TEXT,
+         requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         context JSONB,
+         claim_owner TEXT NOT NULL,
+         claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS asset_materializer_failure_state (
+         workflow_definition_id TEXT PRIMARY KEY REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+         failures INTEGER NOT NULL DEFAULT 0,
+         next_eligible_at TIMESTAMPTZ,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`
+    ]
   }
 ];
 

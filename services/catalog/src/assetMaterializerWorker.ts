@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
 import {
@@ -11,6 +12,17 @@ import {
   createWorkflowRun,
   getWorkflowAssetPartitionParameters
 } from './db/workflows';
+import {
+  claimWorkflowAutoRun,
+  attachWorkflowRunToClaim,
+  releaseWorkflowAutoRun,
+  cleanupStaleWorkflowRunClaims,
+  getWorkflowAutoRunClaim,
+  getFailureState as getFailureStateRecord,
+  upsertFailureState,
+  clearFailureState as clearFailureStateRecord
+} from './db/assetMaterializer';
+import { normalizeMeta } from './observability/meta';
 import {
   type WorkflowDefinitionRecord,
   type WorkflowAssetDeclaration,
@@ -215,20 +227,6 @@ type AssetProductionRecord = {
   partitionKey: string | null;
 };
 
-type FailureState = {
-  failures: number;
-  nextEligibleAt: number;
-};
-
-type AutoRunInfo = {
-  workflowId: string;
-  reason: 'upstream-update' | 'expiry';
-  assetId: string;
-  requestedAt: number;
-  partitionKey: string | null;
-  context?: Record<string, string>;
-};
-
 type UpstreamTriggerPayload = {
   reason: 'upstream-update';
   assetId: string;
@@ -251,12 +249,10 @@ type ExpiryTriggerPayload = {
 type AutoTriggerPayload = UpstreamTriggerPayload | ExpiryTriggerPayload;
 
 export class AssetMaterializer {
+  private readonly instanceId = `${process.pid}:${randomUUID()}`;
   private workflowConfigs = new Map<string, WorkflowConfig>();
   private assetConsumers = new Map<string, Set<string>>();
   private latestAssets = new Map<string, Map<string, AssetProductionRecord>>();
-  private autoRuns = new Map<string, AutoRunInfo>();
-  private inFlight = new Map<string, Set<string>>();
-  private failureState = new Map<string, FailureState>();
   private currentTask: Promise<void> = Promise.resolve();
   private unsubscribe: (() => void) | null = null;
   private queueWorker: Worker<AssetExpiryJobData> | null = null;
@@ -272,6 +268,7 @@ export class AssetMaterializer {
     logger.info('Asset materializer worker starting');
     await this.rebuildGraph();
     await this.hydrateLatestAssets();
+    await cleanupStaleWorkflowRunClaims();
     this.unsubscribe = subscribeToApphubEvents((event) => {
       this.queueTask(async () => {
         await this.handleEvent(event);
@@ -358,15 +355,15 @@ export class AssetMaterializer {
         break;
       }
       case 'workflow.run.succeeded': {
-        this.handleWorkflowRunLifecycle(event.data.run, 'succeeded');
+        await this.handleWorkflowRunLifecycle(event.data.run, 'succeeded');
         break;
       }
       case 'workflow.run.failed': {
-        this.handleWorkflowRunLifecycle(event.data.run, 'failed');
+        await this.handleWorkflowRunLifecycle(event.data.run, 'failed');
         break;
       }
       case 'workflow.run.canceled': {
-        this.handleWorkflowRunLifecycle(event.data.run, 'canceled');
+        await this.handleWorkflowRunLifecycle(event.data.run, 'canceled');
         break;
       }
       default:
@@ -450,19 +447,31 @@ export class AssetMaterializer {
     });
   }
 
-  private handleWorkflowRunLifecycle(run: WorkflowRunRecord, status: 'succeeded' | 'failed' | 'canceled'): void {
-    const tracked = this.autoRuns.get(run.id);
-    const workflowId = tracked?.workflowId ?? run.workflowDefinitionId;
-    const isAutoMaterialize = tracked !== undefined || this.isAutoTrigger(run);
-    if (!isAutoMaterialize) {
+  private async handleWorkflowRunLifecycle(
+    run: WorkflowRunRecord,
+    status: 'succeeded' | 'failed' | 'canceled'
+  ): Promise<void> {
+    if (!this.isAutoTrigger(run)) {
       return;
     }
 
-    this.autoRuns.delete(run.id);
-    this.removeInFlight(workflowId, run.id);
+    const workflowId = run.workflowDefinitionId;
+
+    try {
+      await releaseWorkflowAutoRun(workflowId, { workflowRunId: run.id });
+    } catch (err) {
+      logger.warn(
+        'Failed to release auto-materialize claim',
+        normalizeMeta({
+          workflowId,
+          workflowRunId: run.id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      );
+    }
 
     if (status === 'succeeded') {
-      this.failureState.delete(workflowId);
+      await clearFailureStateRecord(workflowId);
       logger.info('Auto-materialize run succeeded', {
         workflowId,
         workflowSlug: this.workflowConfigs.get(workflowId)?.slug ?? 'unknown',
@@ -471,20 +480,20 @@ export class AssetMaterializer {
       return;
     }
 
-    const entry = this.failureState.get(workflowId) ?? { failures: 0, nextEligibleAt: 0 };
-    entry.failures = Math.min(entry.failures + 1, 32);
+    const existing = await getFailureStateRecord(workflowId);
+    const failures = Math.min((existing?.failures ?? 0) + 1, 32);
     const delay = Math.min(
       MAX_FAILURE_BACKOFF_MS,
-      BASE_FAILURE_BACKOFF_MS * Math.pow(2, Math.max(0, entry.failures - 1))
+      BASE_FAILURE_BACKOFF_MS * Math.pow(2, Math.max(0, failures - 1))
     );
-    entry.nextEligibleAt = nowMs() + delay;
-    this.failureState.set(workflowId, entry);
+    const nextEligibleAt = new Date(nowMs() + delay);
+    await upsertFailureState(workflowId, failures, nextEligibleAt);
 
     logger.warn('Auto-materialize run failed', {
       workflowId,
       workflowSlug: this.workflowConfigs.get(workflowId)?.slug ?? 'unknown',
       runId: run.id,
-      failures: entry.failures,
+      failures,
       backoffMs: delay,
       status
     });
@@ -797,13 +806,16 @@ export class AssetMaterializer {
       }
     }
 
-    if (this.hasInFlight(workflowId)) {
+    if (await this.hasInFlight(workflowId)) {
       return;
     }
 
-    const cooldown = this.failureState.get(workflowId);
-    if (cooldown && cooldown.nextEligibleAt > nowMs()) {
-      return;
+    const failureState = await getFailureStateRecord(workflowId);
+    if (failureState?.nextEligibleAt) {
+      const nextEligible = Date.parse(failureState.nextEligibleAt);
+      if (!Number.isNaN(nextEligible) && nextEligible > nowMs()) {
+        return;
+      }
     }
 
     try {
@@ -823,20 +835,43 @@ export class AssetMaterializer {
     config: WorkflowConfig,
     payload: AutoTriggerPayload
   ): Promise<void> {
-    const trigger = this.buildTriggerPayload(payload);
     const partitionKey = 'partitionKey' in payload ? payload.partitionKey ?? null : null;
     const assetConfig = this.selectParameterSourceAsset(config, payload);
     const parameters = await this.resolveRunParameters(config, assetConfig, partitionKey);
-    const run = await createWorkflowRun(workflowId, {
-      triggeredBy: 'asset-materializer',
-      parameters,
-      trigger,
-      partitionKey
+    const claimContext = this.buildClaimContext(payload, partitionKey);
+    const claimed = await claimWorkflowAutoRun(workflowId, this.instanceId, {
+      reason: payload.reason,
+      assetId: payload.assetId,
+      partitionKey,
+      context: claimContext
     });
 
-    this.trackAutoRun(workflowId, run.id, payload, partitionKey);
+    if (!claimed) {
+      return;
+    }
 
+    const trigger = this.buildTriggerPayload(payload);
+
+    let run: WorkflowRunRecord | null = null;
     try {
+      run = await createWorkflowRun(workflowId, {
+        triggeredBy: 'asset-materializer',
+        parameters,
+        trigger,
+        partitionKey
+      });
+
+      const attached = await attachWorkflowRunToClaim(workflowId, this.instanceId, run.id);
+      if (!attached) {
+        await releaseWorkflowAutoRun(workflowId, { ownerId: this.instanceId });
+        logger.warn('Failed to attach workflow run to materializer claim', {
+          workflowId,
+          workflowSlug: config.slug,
+          workflowRunId: run.id
+        });
+        return;
+      }
+
       await enqueueWorkflowRun(run.id);
       logger.info('Auto-materialize run enqueued', {
         workflowId,
@@ -846,63 +881,37 @@ export class AssetMaterializer {
         assetId: payload.assetId
       });
     } catch (err) {
-      this.untrackAutoRun(workflowId, run.id);
+      if (run) {
+        await releaseWorkflowAutoRun(workflowId, { workflowRunId: run.id });
+      } else {
+        await releaseWorkflowAutoRun(workflowId, { ownerId: this.instanceId });
+      }
       throw err;
     }
   }
 
-  private trackAutoRun(
-    workflowId: string,
-    runId: string,
-    payload: AutoTriggerPayload,
-    partitionKey: string | null
-  ): void {
-    const set = this.inFlight.get(workflowId) ?? new Set<string>();
-    set.add(runId);
-    this.inFlight.set(workflowId, set);
+  private async hasInFlight(workflowId: string): Promise<boolean> {
+    const claim = await getWorkflowAutoRunClaim(workflowId);
+    return claim !== null;
+  }
 
-    const context: Record<string, string> = {
-      reason: payload.reason
-    };
+  private buildClaimContext(payload: AutoTriggerPayload, partitionKey: string | null): JsonValue {
     if (payload.reason === 'upstream-update') {
-      context.upstreamWorkflowId = payload.upstreamWorkflowId;
-      context.upstreamRunId = payload.upstreamRunId;
-    } else {
-      context.expiryReason = payload.expiryReason;
-    }
-    if (partitionKey) {
-      context.partitionKey = partitionKey;
+      return {
+        reason: payload.reason,
+        assetId: payload.assetId,
+        upstreamWorkflowId: payload.upstreamWorkflowId,
+        upstreamRunId: payload.upstreamRunId,
+        partitionKey
+      };
     }
 
-    this.autoRuns.set(runId, {
-      workflowId,
+    return {
       reason: payload.reason,
       assetId: payload.assetId,
-      requestedAt: nowMs(),
-      partitionKey,
-      context
-    });
-  }
-
-  private untrackAutoRun(workflowId: string, runId: string): void {
-    this.autoRuns.delete(runId);
-    this.removeInFlight(workflowId, runId);
-  }
-
-  private removeInFlight(workflowId: string, runId: string): void {
-    const set = this.inFlight.get(workflowId);
-    if (!set) {
-      return;
-    }
-    set.delete(runId);
-    if (set.size === 0) {
-      this.inFlight.delete(workflowId);
-    }
-  }
-
-  private hasInFlight(workflowId: string): boolean {
-    const set = this.inFlight.get(workflowId);
-    return Boolean(set && set.size > 0);
+      expiryReason: payload.expiryReason,
+      partitionKey
+    };
   }
 
   private buildTriggerPayload(payload: AutoTriggerPayload): JsonValue {
