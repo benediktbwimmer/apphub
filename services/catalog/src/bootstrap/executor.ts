@@ -68,6 +68,36 @@ const defaultPoolFactory: PoolFactory = ({ connectionString }) => {
   };
 };
 
+function buildFilestoreBootstrapSql(quotedSchema: string): string {
+  const table = `${quotedSchema}.backend_mounts`;
+  return [
+    `CREATE SCHEMA IF NOT EXISTS ${quotedSchema};`,
+    `CREATE TABLE IF NOT EXISTS ${table} (
+       id BIGSERIAL PRIMARY KEY,
+       mount_key TEXT NOT NULL UNIQUE,
+       backend_kind TEXT NOT NULL,
+       root_path TEXT,
+       bucket TEXT,
+       prefix TEXT,
+       config JSONB NOT NULL DEFAULT '{}'::jsonb,
+       access_mode TEXT NOT NULL DEFAULT 'rw',
+       state TEXT NOT NULL DEFAULT 'active',
+       last_health_check_at TIMESTAMPTZ,
+       last_health_status TEXT,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       CHECK (backend_kind IN ('local', 's3')),
+       CHECK (access_mode IN ('rw', 'ro')),
+       CHECK (backend_kind <> 'local' OR root_path IS NOT NULL),
+       CHECK (backend_kind <> 's3' OR bucket IS NOT NULL)
+     );`,
+    `CREATE INDEX IF NOT EXISTS idx_backend_mounts_kind
+       ON ${table}(backend_kind);`,
+    `CREATE INDEX IF NOT EXISTS idx_backend_mounts_state
+       ON ${table}(state);`
+  ].join('\n');
+}
+
 function createScope(context: ExecutionContext): TemplateScope {
   return {
     env: process.env,
@@ -143,6 +173,7 @@ async function ensureFilestoreBackend(
     const quotedSchema = `"${schema.replace(/"/g, '""')}"`;
     const resolvedConfig = action.config ? renderJsonTemplates(action.config, scope) : undefined;
     const configJson = resolvedConfig !== undefined ? JSON.stringify(resolvedConfig) : JSON.stringify({});
+    await pool.query(buildFilestoreBootstrapSql(quotedSchema), []);
     const result = await pool.query<{ id: number }>(
       `INSERT INTO ${quotedSchema}.backend_mounts (mount_key, backend_kind, root_path, access_mode, state, config)
        VALUES ($1, 'local', $2, $3, $4, $5::jsonb)
