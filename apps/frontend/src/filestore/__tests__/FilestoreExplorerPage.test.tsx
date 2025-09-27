@@ -3,17 +3,25 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
 import type { FilestoreBackendMount, FilestoreNode } from '../types';
 import type { WorkflowDefinition, WorkflowRun } from '../../workflows/types';
+import type { AuthIdentity } from '../../auth/context';
+import type {
+  UsePollingResourceOptions,
+  UsePollingResourceResult
+} from '../../hooks/usePollingResource';
 
-const listBackendMountsMock = vi.fn<
-  (...args: unknown[]) => Promise<{ mounts: FilestoreBackendMount[] }>
->();
-const subscribeToFilestoreEventsMock = vi.fn(() => ({ close: vi.fn() }));
+type ListBackendMountsMock = (...args: any[]) => Promise<{ mounts: FilestoreBackendMount[] }>;
+type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePollingResourceResult<unknown>;
+
+const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
+const subscribeToFilestoreEventsMock = vi.fn((..._args: any[]) => ({ close: vi.fn() }));
 const trackEventMock = vi.fn();
-const pollingResourceMock = vi.fn(() => ({
+const pollingResourceMock = vi.fn<PollingResourceFn>(() => ({
   data: null,
   error: null,
   loading: false,
-  refetch: vi.fn()
+  lastUpdatedAt: null,
+  refetch: vi.fn(async () => {}),
+  stop: vi.fn()
 }));
 const authorizedFetchMock = vi.fn();
 const enqueueReconciliationMock = vi.fn();
@@ -29,7 +37,7 @@ const sampleMount: FilestoreBackendMount = {
   bucket: null,
   prefix: null
 };
-const writableIdentity = {
+const writableIdentity: AuthIdentity = {
   subject: 'tester',
   kind: 'user',
   scopes: ['filestore:write'],
@@ -40,7 +48,7 @@ const writableIdentity = {
   displayName: 'Tester',
   email: 'tester@example.com',
   roles: []
-} as const;
+};
 
 function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
   return {
@@ -73,7 +81,7 @@ function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
 }
 
 function setupPollingResourcesForNode(node: FilestoreNode) {
-  const listResource = {
+  const listResource: UsePollingResourceResult<unknown> = {
     data: {
       nodes: [node],
       pagination: { total: 1, limit: 25, offset: 0, nextOffset: null },
@@ -89,15 +97,19 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
     },
     error: null,
     loading: false,
-    refetch: vi.fn()
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
   };
-  const nodeResource = {
+  const nodeResource: UsePollingResourceResult<FilestoreNode> = {
     data: node,
     error: null,
     loading: false,
-    refetch: vi.fn()
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
   };
-  const childrenResource = {
+  const childrenResource: UsePollingResourceResult<unknown> = {
     data: {
       parent: node,
       children: [],
@@ -111,7 +123,9 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
     },
     error: null,
     loading: false,
-    refetch: vi.fn()
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
   };
   let callIndex = 0;
   pollingResourceMock.mockImplementation(() => {
@@ -136,7 +150,7 @@ vi.mock('../../auth/useAuthorizedFetch', () => ({
 }));
 
 vi.mock('../../hooks/usePollingResource', () => ({
-  usePollingResource: (config: unknown) => pollingResourceMock(config)
+  usePollingResource: pollingResourceMock
 }));
 
 vi.mock('../../components/toast', () => ({
@@ -145,7 +159,7 @@ vi.mock('../../components/toast', () => ({
 
 vi.mock('../api', () => ({
   __esModule: true,
-  enqueueReconciliation: (...args: unknown[]) => enqueueReconciliationMock(...(args as Parameters<typeof enqueueReconciliationMock>)),
+  enqueueReconciliation: (...args: unknown[]) => enqueueReconciliationMock(...args),
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
   listBackendMounts: (...args: unknown[]) => listBackendMountsMock(...args),
@@ -302,7 +316,9 @@ describe('FilestoreExplorerPage playbooks', () => {
       data: null,
       error: null,
       loading: false,
-      refetch: vi.fn()
+      lastUpdatedAt: null,
+      refetch: vi.fn(async () => {}),
+      stop: vi.fn()
     }));
     Object.values(toastHelpersMock).forEach((fn) => fn.mockClear?.());
   });

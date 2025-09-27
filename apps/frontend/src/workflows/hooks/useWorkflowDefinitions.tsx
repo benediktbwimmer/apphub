@@ -46,10 +46,10 @@ type WorkflowDefinitionsContextValue = {
   workflowSummaries: WorkflowSummary[];
   filteredSummaries: WorkflowSummary[];
   filteredWorkflows: WorkflowDefinition[];
-  statusOptions: Array<{ value: string; label: string }>;
-  repoOptions: Array<{ value: string; label: string }>;
-  serviceOptions: Array<{ value: string; label: string }>;
-  tagOptions: Array<{ value: string; label: string }>;
+  statusOptions: Array<{ value: string; label: string; count: number }>;
+  repoOptions: Array<{ value: string; label: string; count: number }>;
+  serviceOptions: Array<{ value: string; label: string; count: number }>;
+  tagOptions: Array<{ value: string; label: string; count: number }>;
   selectedSlug: string | null;
   setSelectedSlug: Dispatch<SetStateAction<string | null>>;
   workflowRuntimeSummaries: Record<string, WorkflowRuntimeSummary>;

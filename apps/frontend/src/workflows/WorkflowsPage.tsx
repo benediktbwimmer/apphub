@@ -180,6 +180,9 @@ function WorkflowsPageContent() {
     ? new Date(analytics.lastUpdated).toLocaleTimeString()
     : null;
 
+  const deliveriesQuery: WorkflowTriggerDeliveriesQuery =
+    triggerDeliveriesQuery ?? { limit: triggerDeliveriesLimit };
+
   const handleRangeChange = (value: '24h' | '7d' | '30d') => {
     if (!selectedSlug) {
       return;
@@ -285,7 +288,7 @@ function WorkflowsPageContent() {
             deliveriesLoading={triggerDeliveriesLoading}
             deliveriesError={triggerDeliveriesError}
             deliveriesLimit={triggerDeliveriesLimit}
-            deliveriesQuery={triggerDeliveriesQuery}
+            deliveriesQuery={deliveriesQuery}
             onReloadDeliveries={(query: WorkflowTriggerDeliveriesQuery) => {
               if (workflowDetail && selectedEventTrigger) {
                 void loadTriggerDeliveriesFn(workflowDetail.slug, selectedEventTrigger.id, query);
