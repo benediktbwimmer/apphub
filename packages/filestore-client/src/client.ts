@@ -399,10 +399,19 @@ export class FilestoreClient {
     };
   }
 
-  private async request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  private async request<T>(
+    method: string,
+    path: string,
+    options: RequestOptions & { expectJson: false }
+  ): Promise<Response>;
+  private async request<T>(method: string, path: string, options?: RequestOptions): Promise<T>;
+  private async request<T>(
+    method: string,
+    path: string,
+    options: RequestOptions = {}
+  ): Promise<T | Response> {
     const response = await this.fetchJson(method, path, options);
     if (options.expectJson === false) {
-      // @ts-expect-error -- caller opted out of JSON parsing
       return response;
     }
     return (await response.json()) as T;
