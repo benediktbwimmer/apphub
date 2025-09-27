@@ -9,6 +9,7 @@ import {
   fetchNodeChildren,
   listBackendMounts,
   listNodes,
+  presignNodeDownload,
   updateNodeMetadata,
   subscribeToFilestoreEvents,
   type FetchNodeChildrenParams,
@@ -23,6 +24,7 @@ import {
   type FilestoreReconciliationReason,
   type ListNodesParams
 } from './api';
+import { FILESTORE_BASE_URL } from '../config';
 import { formatBytes } from '../catalog/utils';
 import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
 import { useAnalytics } from '../utils/useAnalytics';
@@ -73,7 +75,8 @@ const SSE_EVENT_TYPES: FilestoreEventType[] = [
   'filestore.command.completed',
   'filestore.drift.detected',
   'filestore.node.reconciled',
-  'filestore.node.missing'
+  'filestore.node.missing',
+  'filestore.node.downloaded'
 ];
 const MOUNT_STORAGE_KEY = 'apphub.filestore.selectedMountId';
 const SHOULD_LOAD_PLAYBOOK_WORKFLOWS = playbooksRequireWorkflows(FILESTORE_DRIFT_PLAYBOOKS);
@@ -81,6 +84,13 @@ type RefreshTimers = {
   list: number | null;
   node: number | null;
   children: number | null;
+};
+
+type DownloadStatus = {
+  state: 'pending' | 'error';
+  mode: 'stream' | 'presign';
+  progress?: number;
+  error?: string;
 };
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -151,6 +161,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [offset, setOffset] = useState(0);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [downloadStatusByNode, setDownloadStatusByNode] = useState<Record<number, DownloadStatus>>({});
 
   const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null });
 
@@ -363,6 +374,55 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     }, 250);
   }, []);
 
+  const startDownload = useCallback((nodeId: number, mode: DownloadStatus['mode']) => {
+    setDownloadStatusByNode((prev) => ({
+      ...prev,
+      [nodeId]: {
+        state: 'pending',
+        mode,
+        progress: mode === 'stream' ? 0 : undefined
+      }
+    }));
+  }, []);
+
+  const updateDownloadProgress = useCallback((nodeId: number, progress: number) => {
+    setDownloadStatusByNode((prev) => {
+      const existing = prev[nodeId];
+      if (!existing || existing.mode !== 'stream') {
+        return prev;
+      }
+      return {
+        ...prev,
+        [nodeId]: {
+          ...existing,
+          progress
+        }
+      };
+    });
+  }, []);
+
+  const failDownload = useCallback((nodeId: number, mode: DownloadStatus['mode'], message: string) => {
+    setDownloadStatusByNode((prev) => ({
+      ...prev,
+      [nodeId]: {
+        state: 'error',
+        mode,
+        error: message
+      }
+    }));
+  }, []);
+
+  const finishDownload = useCallback((nodeId: number) => {
+    setDownloadStatusByNode((prev) => {
+      if (!(nodeId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[nodeId];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const subscription = subscribeToFilestoreEvents(
       authorizedFetch,
@@ -499,6 +559,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
+  const selectedDownloadState = selectedNode ? downloadStatusByNode[selectedNode.id] : undefined;
 
   const playbook = useMemo(() => {
     if (!selectedNode) {
@@ -774,6 +835,144 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     showInfo,
     showSuccess
   ]);
+
+  const handleDownload = useCallback(
+    async (node: FilestoreNode, source: 'detail' | 'child') => {
+      if (!node.download) {
+        showError('Download unavailable', new Error('Download descriptor missing'));
+        return;
+      }
+
+      if (node.download.mode === 'stream') {
+        startDownload(node.id, 'stream');
+        trackEvent('filestore.download.start', {
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          mode: 'stream',
+          source
+        });
+        try {
+          const streamUrl = new URL(node.download.streamUrl, FILESTORE_BASE_URL).toString();
+          const response = await authorizedFetch(streamUrl, { method: 'GET' });
+          if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(text || `Download failed with status ${response.status}`);
+          }
+
+          const contentLengthHeader = response.headers.get('Content-Length');
+          const expectedBytes = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : node.download.sizeBytes ?? null;
+          let received = 0;
+          let blob: Blob;
+
+          if (response.body) {
+            const reader = response.body.getReader();
+            const chunks: Uint8Array[] = [];
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) {
+                break;
+              }
+              if (value) {
+                chunks.push(value);
+                received += value.length;
+                if (expectedBytes && expectedBytes > 0) {
+                  updateDownloadProgress(node.id, Math.min(received / expectedBytes, 1));
+                }
+              }
+            }
+            blob = new Blob(chunks, {
+              type: response.headers.get('Content-Type') ?? 'application/octet-stream'
+            });
+          } else {
+            const buffer = await response.arrayBuffer();
+            received = buffer.byteLength;
+            blob = new Blob([buffer], {
+              type: response.headers.get('Content-Type') ?? 'application/octet-stream'
+            });
+            if (expectedBytes && expectedBytes > 0) {
+              updateDownloadProgress(node.id, 1);
+            }
+          }
+
+          if (typeof window !== 'undefined') {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = node.download.filename ?? node.name ?? 'download';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          }
+
+          finishDownload(node.id);
+          showSuccess('Download complete');
+          trackEvent('filestore.download.success', {
+            nodeId: node.id,
+            backendMountId: node.backendMountId,
+            mode: 'stream',
+            source,
+            bytes: received
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Download failed';
+          failDownload(node.id, 'stream', message);
+          showError('Download failed', error, message);
+          trackEvent('filestore.download.failure', {
+            nodeId: node.id,
+            backendMountId: node.backendMountId,
+            mode: 'stream',
+            source,
+            error: message
+          });
+        }
+        return;
+      }
+
+      startDownload(node.id, 'presign');
+      trackEvent('filestore.download.start', {
+        nodeId: node.id,
+        backendMountId: node.backendMountId,
+        mode: 'presign',
+        source
+      });
+      try {
+        const presign = await presignNodeDownload(authorizedFetch, node.id);
+        finishDownload(node.id);
+        if (typeof window !== 'undefined') {
+          window.open(presign.url, '_blank', 'noopener,noreferrer');
+        }
+        showSuccess('Presigned link opened');
+        trackEvent('filestore.download.success', {
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          mode: 'presign',
+          source
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Presign failed';
+        failDownload(node.id, 'presign', message);
+        showError('Presign failed', error, message);
+        trackEvent('filestore.download.failure', {
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          mode: 'presign',
+          source,
+          error: message
+        });
+      }
+    },
+    [
+      authorizedFetch,
+      failDownload,
+      finishDownload,
+      showError,
+      showSuccess,
+      startDownload,
+      trackEvent,
+      updateDownloadProgress
+    ]
+  );
 
   const handlePaginationChange = useCallback(
     (nextOffset: number | null) => {
@@ -1146,6 +1345,37 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Path</dt>
                     <dd className="mt-1 font-mono text-[13px] text-slate-800 dark:text-slate-100">{selectedNode.path}</dd>
                   </div>
+                  {selectedNode.download ? (
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Download</dt>
+                      <dd className="mt-1 flex flex-wrap items-center gap-3 text-slate-700 dark:text-slate-200">
+                        <button
+                          type="button"
+                          disabled={selectedDownloadState?.state === 'pending'}
+                          onClick={() => void handleDownload(selectedNode, 'detail')}
+                          className="rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                        >
+                          {selectedDownloadState?.state === 'pending'
+                            ? selectedDownloadState.mode === 'stream'
+                              ? 'Downloading…'
+                              : 'Opening…'
+                            : selectedNode.download.mode === 'stream'
+                              ? 'Download file'
+                              : 'Open download link'}
+                        </button>
+                        {selectedDownloadState?.mode === 'stream' &&
+                        selectedDownloadState.state === 'pending' &&
+                        typeof selectedDownloadState.progress === 'number' ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {Math.round(selectedDownloadState.progress * 100)}%
+                          </span>
+                        ) : null}
+                      </dd>
+                      {selectedDownloadState?.state === 'error' ? (
+                        <dd className="mt-1 text-xs text-rose-600 dark:text-rose-400">{selectedDownloadState.error}</dd>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
                     <div>
                       <dt className="uppercase tracking-wide text-slate-400 dark:text-slate-500">Backend</dt>
@@ -1418,23 +1648,54 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                   <p className="text-sm text-slate-500 dark:text-slate-300">Loading children…</p>
                 ) : childrenData && childrenData.children.length > 0 ? (
                   <ul className="divide-y divide-slate-100 border border-slate-100 dark:divide-slate-800 dark:border-slate-800">
-                    {childrenData.children.map((child) => (
-                      <li key={`child-${child.id}`} className="px-3 py-2 text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-slate-700 dark:text-slate-200">{child.path}</span>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATE_BADGE_CLASS[child.state]}`}>
-                            {STATE_LABEL[child.state]}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          <span>{KIND_LABEL[child.kind]}</span>
-                          <span aria-hidden="true">•</span>
-                          <span>{formatBytes(child.rollup?.sizeBytes ?? child.sizeBytes ?? 0)}</span>
-                          <span aria-hidden="true">•</span>
-                          <span>Seen {formatTimestamp(child.lastSeenAt)}</span>
-                        </div>
-                      </li>
-                    ))}
+                    {childrenData.children.map((child) => {
+                      const childDownloadState = downloadStatusByNode[child.id];
+                      return (
+                        <li key={`child-${child.id}`} className="px-3 py-2 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-1 items-center gap-2">
+                              <span className="truncate text-slate-700 dark:text-slate-200">{child.path}</span>
+                              {child.download ? (
+                                <button
+                                  type="button"
+                                  disabled={childDownloadState?.state === 'pending'}
+                                  onClick={() => void handleDownload(child, 'child')}
+                                  className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500"
+                                >
+                                  {childDownloadState?.state === 'pending'
+                                    ? childDownloadState.mode === 'stream'
+                                      ? 'Downloading…'
+                                      : 'Opening…'
+                                    : child.download.mode === 'stream'
+                                      ? 'Download'
+                                      : 'Open link'}
+                                </button>
+                              ) : null}
+                            </div>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATE_BADGE_CLASS[child.state]}`}>
+                              {STATE_LABEL[child.state]}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <span>{KIND_LABEL[child.kind]}</span>
+                            <span aria-hidden="true">•</span>
+                            <span>{formatBytes(child.rollup?.sizeBytes ?? child.sizeBytes ?? 0)}</span>
+                            <span aria-hidden="true">•</span>
+                            <span>Seen {formatTimestamp(child.lastSeenAt)}</span>
+                          </div>
+                          {childDownloadState?.mode === 'stream' &&
+                          childDownloadState.state === 'pending' &&
+                          typeof childDownloadState.progress === 'number' ? (
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                              Progress {Math.round(childDownloadState.progress * 100)}%
+                            </div>
+                          ) : null}
+                          {childDownloadState?.state === 'error' ? (
+                            <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">{childDownloadState.error}</div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-sm text-slate-500 dark:text-slate-300">No direct children recorded.</p>

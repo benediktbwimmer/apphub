@@ -38,12 +38,16 @@ function mapBackendMountRow(row: BackendMountRow): BackendMountRecord {
   };
 }
 
-export async function getBackendMountById(client: PoolClient, id: number): Promise<BackendMountRecord | null> {
+export async function getBackendMountById(
+  client: PoolClient,
+  id: number,
+  options: { forUpdate?: boolean } = {}
+): Promise<BackendMountRecord | null> {
+  const lock = options.forUpdate === false ? '' : ' FOR UPDATE';
   const result = await client.query<BackendMountRow>(
     `SELECT id, mount_key, backend_kind, root_path, bucket, prefix, config, access_mode, state
        FROM backend_mounts
-      WHERE id = $1
-      FOR UPDATE`,
+      WHERE id = $1${lock}`,
     [id]
   );
 
@@ -62,4 +66,27 @@ export async function listBackendMounts(client: PoolClient): Promise<BackendMoun
   );
 
   return result.rows.map(mapBackendMountRow);
+}
+
+export async function getBackendMountsByIds(
+  client: PoolClient,
+  ids: readonly number[]
+): Promise<Map<number, BackendMountRecord>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const result = await client.query<BackendMountRow>(
+    `SELECT id, mount_key, backend_kind, root_path, bucket, prefix, config, access_mode, state
+       FROM backend_mounts
+      WHERE id = ANY($1::int[])`,
+    [ids]
+  );
+
+  const map = new Map<number, BackendMountRecord>();
+  for (const row of result.rows) {
+    const record = mapBackendMountRow(row);
+    map.set(record.id, record);
+  }
+  return map;
 }

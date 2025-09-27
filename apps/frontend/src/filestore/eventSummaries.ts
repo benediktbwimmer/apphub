@@ -22,6 +22,8 @@ export function resolveEventTimestamp(event: FilestoreEvent): string {
     case 'filestore.node.reconciled':
     case 'filestore.node.missing':
       return event.data.observedAt;
+    case 'filestore.node.downloaded':
+      return event.data.observedAt;
     default:
       return new Date().toISOString();
   }
@@ -63,6 +65,18 @@ export function describeFilestoreEvent(event: FilestoreEvent): ActivityEntry {
       label = 'Node missing';
       detail = `${path ?? 'unknown'} · previously ${event.data.previousState ?? 'unknown'}`;
       break;
+    case 'filestore.node.downloaded': {
+      label = event.data.mode === 'presign' ? 'Download (presigned)' : 'Download';
+      const parts = [path ?? 'unknown'];
+      if (event.data.mode === 'stream' && event.data.range) {
+        parts.push(`range ${event.data.range}`);
+      }
+      if (event.data.mode === 'presign') {
+        parts.push('presigned link');
+      }
+      detail = parts.join(' · ');
+      break;
+    }
     default:
       break;
   }

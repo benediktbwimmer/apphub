@@ -8,6 +8,7 @@ import {
   filestoreNodeChildrenEnvelopeSchema,
   filestoreNodeListEnvelopeSchema,
   filestoreNodeResponseSchema,
+  filestorePresignEnvelopeSchema,
   filestoreReconciliationEnvelopeSchema,
   type FilestoreCommandResponse,
   type FilestoreEvent,
@@ -17,9 +18,11 @@ import {
   type FilestoreNodeKind,
   type FilestoreNodeList,
   type FilestoreNode,
+  type FilestoreNodeDownload,
   type FilestoreNodeState,
   type FilestoreReconciliationReason,
-  type FilestoreReconciliationResult
+  type FilestoreReconciliationResult,
+  type FilestorePresignPayload
 } from './types';
 
 type AuthorizedFetch = ReturnType<typeof useAuthorizedFetch>;
@@ -380,6 +383,29 @@ export async function fetchNodeById(
   return payload.data;
 }
 
+export async function presignNodeDownload(
+  authorizedFetch: AuthorizedFetch,
+  nodeId: number,
+  options: { expiresInSeconds?: number } = {},
+  requestOptions: RequestOptions = {}
+): Promise<FilestorePresignPayload> {
+  const params = new URLSearchParams();
+  if (options.expiresInSeconds && options.expiresInSeconds > 0) {
+    params.set('expiresIn', String(options.expiresInSeconds));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  const response = await authorizedFetch(buildFilestoreUrl(`/v1/files/${nodeId}/presign${suffix}`), {
+    method: 'GET',
+    signal: requestOptions.signal
+  });
+  const text = await response.text().catch(() => '');
+  if (!response.ok) {
+    throw new Error(extractFilestoreErrorMessage(text, response.status));
+  }
+  const payload = filestorePresignEnvelopeSchema.parse(JSON.parse(text));
+  return payload.data;
+}
+
 export async function fetchNodeByPath(
   authorizedFetch: AuthorizedFetch,
   input: GetNodeByPathInput,
@@ -642,6 +668,7 @@ export type {
   FilestoreEvent,
   FilestoreEventType,
   FilestoreNode,
+  FilestoreNodeDownload,
   FilestoreNodeChildren,
   FilestoreNodeList,
   FilestorePagination,
@@ -655,5 +682,6 @@ export type {
   FilestoreNodeEventPayload,
   FilestoreNodeReconciledPayload,
   FilestoreReconciliationReason,
-  FilestoreReconciliationResult
+  FilestoreReconciliationResult,
+  FilestorePresignPayload
 } from './types';

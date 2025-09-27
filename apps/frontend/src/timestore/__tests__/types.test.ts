@@ -9,6 +9,7 @@ describe('timestore types', () => {
           id: 'ds-1',
           slug: 'example.dataset',
           name: 'Example',
+          description: null,
           displayName: 'Example',
           status: 'active',
           writeFormat: 'duckdb',

@@ -10,6 +10,7 @@ import type {
   FilestoreNodeEventPayload,
   FilestoreCommandCompletedPayload,
   FilestoreDriftDetectedPayload,
+  FilestoreNodeDownloadedPayload,
   FilestoreNodeReconciledPayload,
   FilestoreNodeKind,
   FilestoreNodeState
@@ -361,6 +362,10 @@ export async function emitNodeReconciledEvent(payload: FilestoreNodeReconciledPa
 
 export async function emitNodeMissingEvent(payload: FilestoreNodeReconciledPayload): Promise<void> {
   await emitFilestoreEvent({ type: 'filestore.node.missing', data: payload });
+}
+
+export async function emitNodeDownloadedEvent(payload: FilestoreNodeDownloadedPayload): Promise<void> {
+  await emitFilestoreEvent({ type: 'filestore.node.downloaded', data: payload });
 }
 
 export function getFilestoreEventsMode(): 'inline' | 'redis' {

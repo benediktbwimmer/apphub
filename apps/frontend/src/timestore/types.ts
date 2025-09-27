@@ -48,13 +48,7 @@ export const patchDatasetRequestSchema = sharedPatchDatasetRequestSchema;
 
 export const archiveDatasetRequestSchema = sharedArchiveDatasetRequestSchema;
 
-export const datasetAccessAuditEventSchema = sharedDatasetAccessAuditEventSchema;
-
 export const datasetAccessAuditListQuerySchema = sharedDatasetAccessAuditListQuerySchema;
-
-export const datasetAccessAuditListResponseSchema = sharedDatasetAccessAuditListResponseSchema.extend({
-  events: z.array(datasetAccessAuditEventSchema)
-});
 
 export type DatasetStatus = z.infer<typeof sharedDatasetStatusSchema>;
 export type DatasetIamConfig = z.infer<typeof datasetIamConfigSchema>;
@@ -65,8 +59,6 @@ export type CreateDatasetRequest = z.infer<typeof createDatasetRequestSchema>;
 export type PatchDatasetRequest = z.infer<typeof patchDatasetRequestSchema>;
 export type ArchiveDatasetRequest = z.infer<typeof archiveDatasetRequestSchema>;
 export type DatasetAccessAuditListQuery = z.infer<typeof datasetAccessAuditListQuerySchema>;
-export type DatasetAccessAuditEvent = z.infer<typeof datasetAccessAuditEventSchema>;
-export type DatasetAccessAuditListResponse = z.infer<typeof datasetAccessAuditListResponseSchema>;
 
 export const datasetListResponseSchema = z.object({
   datasets: z.array(datasetRecordSchema),

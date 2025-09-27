@@ -1,9 +1,15 @@
-import { promises as fs } from 'node:fs';
+import { createReadStream as createFsReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { FilestoreError, assertUnreachable } from '../errors';
 import type { BackendMountRecord } from '../db/backendMounts';
 import type { FilestoreCommand } from '../commands/types';
-import type { CommandExecutor, ExecutorContext, ExecutorResult } from './types';
+import type {
+  CommandExecutor,
+  ExecutorContext,
+  ExecutorFileMetadata,
+  ExecutorReadStreamResult,
+  ExecutorResult
+} from './types';
 
 function ensureLocalBackend(backend: BackendMountRecord): asserts backend is BackendMountRecord & {
   backendKind: 'local';
@@ -63,6 +69,67 @@ async function copyDirectoryRecursive(source: string, destination: string): Prom
 export function createLocalExecutor(): CommandExecutor {
   return {
     kind: 'local',
+    async head(targetPath, context) {
+      ensureLocalBackend(context.backend);
+      const root = context.backend.rootPath;
+      const resolvedRoot = path.resolve(root);
+      const resolved = path.resolve(resolvedRoot, targetPath);
+      if (!resolved.startsWith(resolvedRoot)) {
+        throw new FilestoreError('Resolved path escapes backend root', 'INVALID_PATH', {
+          root,
+          requestedPath: targetPath
+        });
+      }
+
+      const stats = await statOptional(resolved);
+      if (!stats || !stats.isFile()) {
+        return null;
+      }
+
+      return {
+        sizeBytes: stats.size,
+        lastModifiedAt: stats.mtime
+      } satisfies ExecutorFileMetadata;
+    },
+    async createReadStream(targetPath, context, options) {
+      ensureLocalBackend(context.backend);
+      const root = context.backend.rootPath;
+      const resolvedRoot = path.resolve(root);
+      const resolved = path.resolve(resolvedRoot, targetPath);
+      if (!resolved.startsWith(resolvedRoot)) {
+        throw new FilestoreError('Resolved path escapes backend root', 'INVALID_PATH', {
+          root,
+          requestedPath: targetPath
+        });
+      }
+
+      const stats = await statOptional(resolved);
+      if (!stats) {
+        throw new FilestoreError('File not found for download', 'NODE_NOT_FOUND', {
+          path: targetPath
+        });
+      }
+      if (!stats.isFile()) {
+        throw new FilestoreError('Requested node is not a file', 'NOT_A_DIRECTORY', {
+          path: targetPath
+        });
+      }
+
+      const totalSize = stats.size;
+      const range = options?.range;
+      const start = range ? range.start : 0;
+      const end = range ? range.end : Math.max(totalSize - 1, 0);
+      const length = range ? end - start + 1 : totalSize;
+      const stream = createFsReadStream(resolved, range ? { start, end } : undefined);
+
+      return {
+        stream,
+        contentLength: length,
+        totalSize,
+        lastModifiedAt: stats.mtime,
+        contentType: null
+      } satisfies ExecutorReadStreamResult;
+    },
     async execute(command: FilestoreCommand, context: ExecutorContext): Promise<ExecutorResult> {
       ensureLocalBackend(context.backend);
       const root = context.backend.rootPath;

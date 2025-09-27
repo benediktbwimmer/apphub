@@ -2,16 +2,29 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
+import { Readable } from 'node:stream';
 import { FilestoreError, assertUnreachable } from '../errors';
 import type { BackendMountRecord } from '../db/backendMounts';
 import type { FilestoreCommand } from '../commands/types';
-import type { CommandExecutor, ExecutorContext, ExecutorResult } from './types';
+import type {
+  CommandExecutor,
+  ExecutorContext,
+  ExecutorFileMetadata,
+  ExecutorPresignOptions,
+  ExecutorPresignResult,
+  ExecutorReadStreamOptions,
+  ExecutorReadStreamResult,
+  ExecutorResult
+} from './types';
 
 const defaultS3Clients = new Map<number, S3Client>();
 
@@ -22,6 +35,23 @@ interface S3BackendConfig {
   accessKeyId?: string;
   secretAccessKey?: string;
   sessionToken?: string;
+}
+
+function toNodeReadable(body: unknown, info: { bucket: string; key: string }): Readable {
+  if (!body) {
+    throw new FilestoreError('S3 object stream missing', 'NODE_NOT_FOUND', info);
+  }
+  if (body instanceof Readable) {
+    return body;
+  }
+  if (typeof (body as { pipe?: unknown }).pipe === 'function') {
+    return body as Readable;
+  }
+  const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
+  if (typeof fromWeb === 'function' && typeof (body as { getReader?: () => unknown }).getReader === 'function') {
+    return fromWeb(body);
+  }
+  throw new FilestoreError('S3 response body is not streamable', 'NOT_SUPPORTED', info);
 }
 
 function ensureS3Backend(backend: BackendMountRecord): asserts backend is BackendMountRecord & {
@@ -234,6 +264,145 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
 
   return {
     kind: 's3',
+    async head(targetPath, context) {
+      ensureS3Backend(context.backend);
+      const client = resolveClient(context.backend);
+      const bucket = context.backend.bucket;
+      const key = buildKey(context.backend, targetPath);
+      if (!key) {
+        throw new FilestoreError('Target path must not resolve to root', 'INVALID_PATH');
+      }
+
+      try {
+        const response = await client.send(
+          new HeadObjectCommand({
+            Bucket: bucket,
+            Key: key
+          })
+        );
+        const etag = response.ETag ? response.ETag.replace(/"/g, '') : null;
+        return {
+          sizeBytes: response.ContentLength ?? null,
+          checksum: response.ChecksumSHA256 ?? null,
+          contentHash: etag,
+          contentType: response.ContentType ?? null,
+          lastModifiedAt: response.LastModified ?? null,
+          etag,
+          metadata: response.Metadata ?? null
+        } satisfies ExecutorFileMetadata;
+      } catch (err) {
+        const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (status === 404) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    async createReadStream(targetPath, context, options) {
+      ensureS3Backend(context.backend);
+      const client = resolveClient(context.backend);
+      const bucket = context.backend.bucket;
+      const key = buildKey(context.backend, targetPath);
+      if (!key) {
+        throw new FilestoreError('Target path must not resolve to root', 'INVALID_PATH');
+      }
+
+      const params: Record<string, unknown> = {
+        Bucket: bucket,
+        Key: key
+      };
+      if (options?.range) {
+        params.Range = `bytes=${options.range.start}-${options.range.end}`;
+      }
+
+      try {
+        const response = await client.send(new GetObjectCommand(params));
+        const stream = toNodeReadable(response.Body, { bucket, key });
+        const etag = response.ETag ? response.ETag.replace(/"/g, '') : null;
+        const contentRange = response.ContentRange ?? null;
+        let totalSize: number | null = null;
+        if (contentRange && contentRange.includes('/')) {
+          const totalPart = contentRange.split('/')[1];
+          if (totalPart) {
+            const parsed = Number.parseInt(totalPart, 10);
+            if (Number.isFinite(parsed)) {
+              totalSize = parsed;
+            }
+          }
+        }
+        if (totalSize === null && typeof response.ContentLength === 'number') {
+          totalSize = options?.range ? null : response.ContentLength;
+        }
+
+        const chunkLength =
+          typeof response.ContentLength === 'number'
+            ? response.ContentLength
+            : options?.range
+              ? options.range.end - options.range.start + 1
+              : null;
+
+        return {
+          stream,
+          contentLength: chunkLength,
+          totalSize,
+          contentRange,
+          contentType: response.ContentType ?? null,
+          etag,
+          lastModifiedAt: response.LastModified ?? null
+        } satisfies ExecutorReadStreamResult;
+      } catch (err) {
+        const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (status === 404) {
+          throw new FilestoreError('File not found for download', 'NODE_NOT_FOUND', {
+            bucket,
+            key
+          });
+        }
+        throw err;
+      }
+    },
+    async createPresignedDownload(targetPath, context, options) {
+      ensureS3Backend(context.backend);
+      const client = resolveClient(context.backend);
+      const bucket = context.backend.bucket;
+      const key = buildKey(context.backend, targetPath);
+      if (!key) {
+        throw new FilestoreError('Target path must not resolve to root', 'INVALID_PATH');
+      }
+
+      try {
+        await client.send(
+          new HeadObjectCommand({
+            Bucket: bucket,
+            Key: key
+          })
+        );
+      } catch (err) {
+        const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (status === 404) {
+          throw new FilestoreError('File not found for presign', 'NODE_NOT_FOUND', {
+            bucket,
+            key
+          });
+        }
+        throw err;
+      }
+
+      const expiresIn = Math.max(options?.expiresInSeconds ?? 300, 1);
+      const command = new GetObjectCommand({
+        Bucket: bucket,
+        Key: key
+      });
+      const url = await getSignedUrl(client, command, { expiresIn });
+      const expiresAt = new Date(Date.now() + expiresIn * 1000);
+
+      return {
+        url,
+        expiresAt,
+        method: 'GET',
+        headers: {}
+      } satisfies ExecutorPresignResult;
+    },
     async execute(command: FilestoreCommand, context: ExecutorContext): Promise<ExecutorResult> {
       ensureS3Backend(context.backend);
       const client = resolveClient(context.backend);

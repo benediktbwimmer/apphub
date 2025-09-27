@@ -9,7 +9,14 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
 import { runCommand } from '../../commands/orchestrator';
-import { listBackendMounts } from '../../db/backendMounts';
+import {
+  getBackendMountById,
+  getBackendMountsByIds,
+  listBackendMounts,
+  type BackendMountRecord
+} from '../../db/backendMounts';
+import { resolveExecutor } from '../../executors/registry';
+import type { ExecutorFileMetadata } from '../../executors/types';
 import {
   getNodeById,
   getNodeByPath,
@@ -23,7 +30,7 @@ import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
 import { getRollupSummary } from '../../rollup/manager';
 import type { RollupSummary } from '../../rollup/types';
-import { subscribeToFilestoreEvents } from '../../events/publisher';
+import { emitNodeDownloadedEvent, subscribeToFilestoreEvents } from '../../events/publisher';
 import { ensureReconciliationManager } from '../../reconciliation/manager';
 import type { ReconciliationReason } from '../../reconciliation/types';
 import { getNodeDepth, normalizePath } from '../../utils/path';
@@ -243,7 +250,52 @@ function serializeRollup(summary: RollupSummary | null) {
   };
 }
 
-async function serializeNode(node: NodeRecord) {
+type NodeDownloadDescriptor = {
+  mode: 'stream' | 'presign';
+  streamUrl: string;
+  presignUrl: string | null;
+  supportsRange: boolean;
+  sizeBytes: number | null;
+  checksum: string | null;
+  contentHash: string | null;
+  filename: string | null;
+};
+
+function buildDownloadDescriptor(
+  node: NodeRecord,
+  backendKind: BackendMountRecord['backendKind'] | undefined
+): NodeDownloadDescriptor | null {
+  if (node.kind !== 'file') {
+    return null;
+  }
+  if (node.state === 'deleted') {
+    return null;
+  }
+
+  const mode: NodeDownloadDescriptor['mode'] = backendKind === 's3' ? 'presign' : 'stream';
+  const sizeBytes = Number.isFinite(node.sizeBytes) ? node.sizeBytes : null;
+
+  return {
+    mode,
+    streamUrl: `/v1/files/${node.id}/content`,
+    presignUrl: backendKind === 's3' ? `/v1/files/${node.id}/presign` : null,
+    supportsRange: true,
+    sizeBytes,
+    checksum: node.checksum ?? null,
+    contentHash: node.contentHash ?? null,
+    filename: node.name ?? null
+  } satisfies NodeDownloadDescriptor;
+}
+
+async function serializeNode(node: NodeRecord, backendKind?: BackendMountRecord['backendKind']) {
+  let resolvedBackendKind = backendKind;
+  if (!resolvedBackendKind) {
+    const backend = await withConnection((client) =>
+      getBackendMountById(client, node.backendMountId, { forUpdate: false })
+    );
+    resolvedBackendKind = backend?.backendKind;
+  }
+
   const rollup = await getRollupSummary(node.id);
   return {
     id: node.id,
@@ -269,7 +321,8 @@ async function serializeNode(node: NodeRecord) {
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     deletedAt: node.deletedAt,
-    rollup: serializeRollup(rollup)
+    rollup: serializeRollup(rollup),
+    download: buildDownloadDescriptor(node, resolvedBackendKind)
   };
 }
 
@@ -340,6 +393,77 @@ function resolveIdempotencyKey(
     return headerKey.trim();
   }
   return undefined;
+}
+
+type ByteRange = {
+  start: number;
+  end: number;
+};
+
+function parseRangeHeader(raw: string, totalSize: number): ByteRange | null {
+  const trimmed = raw.trim();
+  if (!trimmed.toLowerCase().startsWith('bytes=')) {
+    return null;
+  }
+  const spec = trimmed.slice(6);
+  const [startPart, endPart] = spec.split('-', 2);
+  if (!startPart && !endPart) {
+    return null;
+  }
+
+  let start: number;
+  let end: number;
+
+  if (!startPart) {
+    const suffixLength = Number.parseInt(endPart ?? '', 10);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return null;
+    }
+    if (suffixLength >= totalSize) {
+      start = 0;
+    } else {
+      start = totalSize - suffixLength;
+    }
+    end = totalSize > 0 ? totalSize - 1 : 0;
+  } else {
+    start = Number.parseInt(startPart, 10);
+    if (!Number.isFinite(start) || start < 0) {
+      return null;
+    }
+    if (start >= totalSize) {
+      return null;
+    }
+    if (endPart) {
+      end = Number.parseInt(endPart, 10);
+      if (!Number.isFinite(end) || end < start) {
+        return null;
+      }
+      if (end >= totalSize) {
+        end = totalSize > 0 ? totalSize - 1 : 0;
+      }
+    } else {
+      end = totalSize > 0 ? totalSize - 1 : 0;
+    }
+  }
+
+  return { start, end } satisfies ByteRange;
+}
+
+function rangeLength(range: ByteRange): number {
+  return range.end - range.start + 1;
+}
+
+function formatContentRange(range: ByteRange, totalSize: number): string {
+  return `bytes ${range.start}-${range.end}/${totalSize}`;
+}
+
+function buildContentDisposition(filename: string | null): string {
+  if (!filename) {
+    return 'attachment';
+  }
+  const sanitized = filename.replace(/"/g, "'");
+  const encoded = encodeURIComponent(filename);
+  return `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`;
 }
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
@@ -601,6 +725,290 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       return sendError(reply, err);
     } finally {
       await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+
+  app.get('/v1/files/:id/content', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'File id must be a positive integer'
+        }
+      });
+    }
+
+    try {
+      const { node, backend } = await withConnection(async (client) => {
+        const nodeRecord = await getNodeById(client, id);
+        if (!nodeRecord) {
+          return { node: null, backend: null } as const;
+        }
+        const backendRecord = await getBackendMountById(client, nodeRecord.backendMountId, {
+          forUpdate: false
+        });
+        return { node: nodeRecord, backend: backendRecord } as const;
+      });
+
+      if (!node) {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'File not found'
+          }
+        });
+      }
+
+      if (!backend) {
+        throw new FilestoreError('Backend mount not found', 'BACKEND_NOT_FOUND', {
+          backendMountId: node.backendMountId
+        });
+      }
+
+      if (node.kind !== 'file') {
+        return reply.status(409).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Requested node is not a file'
+          }
+        });
+      }
+
+      if (node.state === 'deleted') {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'File has been deleted'
+          }
+        });
+      }
+
+      const executor = resolveExecutor(backend.backendKind);
+      if (!executor || typeof executor.createReadStream !== 'function') {
+        throw new FilestoreError('Executor does not support downloads', 'NOT_SUPPORTED', {
+          backendKind: backend.backendKind
+        });
+      }
+
+      let metadata = null as ExecutorFileMetadata | null;
+      if (typeof executor.head === 'function') {
+        metadata = await executor.head(node.path, { backend });
+        if (metadata === null) {
+          return reply.status(404).send({
+            error: {
+              code: 'NODE_NOT_FOUND',
+              message: 'File content missing from backend'
+            }
+          });
+        }
+      }
+
+      const reportedSize = metadata?.sizeBytes;
+      const totalSize = typeof reportedSize === 'number' && reportedSize >= 0 ? reportedSize : Number.isFinite(node.sizeBytes) ? node.sizeBytes : null;
+      const rangeHeader = typeof request.headers.range === 'string' ? request.headers.range : undefined;
+      let range: ByteRange | null = null;
+      if (rangeHeader) {
+        if (totalSize === null) {
+          reply.header('Content-Range', 'bytes */*');
+          return reply.status(416).send({
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Range requests require known file size'
+            }
+          });
+        }
+        range = parseRangeHeader(rangeHeader, totalSize);
+        if (!range) {
+          reply.header('Content-Range', `bytes */${totalSize}`);
+          return reply.status(416).send({
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Invalid Range header'
+            }
+          });
+        }
+      }
+
+      const readResult = await executor.createReadStream(node.path, { backend }, range ? { range } : undefined);
+
+      const stream = readResult.stream;
+      if (!stream) {
+        throw new FilestoreError('Executor did not return a stream', 'INVALID_REQUEST', {
+          backendKind: backend.backendKind
+        });
+      }
+
+      const chunkLength =
+        typeof readResult.contentLength === 'number'
+          ? readResult.contentLength
+          : range
+            ? rangeLength(range)
+            : totalSize;
+      const resolvedTotal = readResult.totalSize ?? totalSize;
+      const contentRangeHeader =
+        readResult.contentRange ??
+        (range && resolvedTotal !== null ? formatContentRange(range, resolvedTotal) : null);
+
+      reply.header('Cache-Control', 'private, max-age=0, must-revalidate');
+      reply.header('Content-Disposition', buildContentDisposition(node.name));
+      reply.header('Content-Type', readResult.contentType ?? metadata?.contentType ?? 'application/octet-stream');
+
+      if (chunkLength !== null && chunkLength !== undefined) {
+        reply.header('Content-Length', String(chunkLength));
+      }
+      if (resolvedTotal !== null) {
+        reply.header('Accept-Ranges', 'bytes');
+      }
+      if (contentRangeHeader) {
+        reply.header('Content-Range', contentRangeHeader);
+      }
+
+      const lastModified = readResult.lastModifiedAt ?? metadata?.lastModifiedAt ?? node.lastModifiedAt;
+      if (lastModified) {
+        const lastModifiedDate = lastModified instanceof Date ? lastModified : new Date(lastModified);
+        if (!Number.isNaN(lastModifiedDate.getTime())) {
+          reply.header('Last-Modified', lastModifiedDate.toUTCString());
+        }
+      }
+
+      const checksumValue = metadata?.checksum ?? node.checksum ?? null;
+      if (checksumValue) {
+        reply.header('x-filestore-checksum', checksumValue);
+      }
+
+      const hashValue = readResult.etag ?? metadata?.contentHash ?? node.contentHash ?? null;
+      if (hashValue) {
+        const normalizedHash = hashValue.includes(':') ? hashValue.split(':', 2)[1] ?? hashValue : hashValue;
+        reply.header('ETag', `"${normalizedHash.replace(/"/g, '')}"`);
+        reply.header('x-filestore-content-hash', hashValue);
+      }
+
+      const principal = resolvePrincipal(request.headers) ?? null;
+      const observedAt = new Date().toISOString();
+      void emitNodeDownloadedEvent({
+        backendMountId: node.backendMountId,
+        nodeId: node.id,
+        path: node.path,
+        sizeBytes: chunkLength ?? resolvedTotal ?? null,
+        checksum: checksumValue ?? null,
+        contentHash: hashValue ?? null,
+        principal,
+        mode: 'stream',
+        range: range ? `${range.start}-${range.end}` : null,
+        observedAt
+      }).catch((err) => {
+        request.log.error({ err }, 'failed to publish download event');
+      });
+
+      reply.status(range ? 206 : 200);
+      return reply.send(stream);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get('/v1/files/:id/presign', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'File id must be a positive integer'
+        }
+      });
+    }
+
+    try {
+      const { node, backend } = await withConnection(async (client) => {
+        const nodeRecord = await getNodeById(client, id);
+        if (!nodeRecord) {
+          return { node: null, backend: null } as const;
+        }
+        const backendRecord = await getBackendMountById(client, nodeRecord.backendMountId, {
+          forUpdate: false
+        });
+        return { node: nodeRecord, backend: backendRecord } as const;
+      });
+
+      if (!node) {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'File not found'
+          }
+        });
+      }
+
+      if (!backend) {
+        throw new FilestoreError('Backend mount not found', 'BACKEND_NOT_FOUND', {
+          backendMountId: node.backendMountId
+        });
+      }
+
+      if (node.kind !== 'file') {
+        return reply.status(409).send({
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Requested node is not a file'
+          }
+        });
+      }
+
+      if (node.state === 'deleted') {
+        return reply.status(404).send({
+          error: {
+            code: 'NODE_NOT_FOUND',
+            message: 'File has been deleted'
+          }
+        });
+      }
+
+      const executor = resolveExecutor(backend.backendKind);
+      if (!executor || typeof executor.createPresignedDownload !== 'function') {
+        throw new FilestoreError('Backend does not support presigned downloads', 'NOT_SUPPORTED', {
+          backendKind: backend.backendKind
+        });
+      }
+
+      const expiresInSecondsParam = typeof (request.query as Record<string, unknown>).expiresIn === 'string'
+        ? Number.parseInt((request.query as Record<string, string>).expiresIn, 10)
+        : undefined;
+      const expiresInSeconds = Number.isFinite(expiresInSecondsParam) && expiresInSecondsParam! > 0
+        ? Math.min(expiresInSecondsParam!, 3600)
+        : 300;
+
+      const presign = await executor.createPresignedDownload(node.path, { backend }, {
+        expiresInSeconds
+      });
+
+      const responsePayload = {
+        url: presign.url,
+        expiresAt: presign.expiresAt.toISOString(),
+        headers: presign.headers ?? {},
+        method: presign.method ?? 'GET'
+      };
+
+      const principal = resolvePrincipal(request.headers) ?? null;
+      const observedAt = new Date().toISOString();
+      void emitNodeDownloadedEvent({
+        backendMountId: node.backendMountId,
+        nodeId: node.id,
+        path: node.path,
+        sizeBytes: Number.isFinite(node.sizeBytes) ? node.sizeBytes : null,
+        checksum: node.checksum ?? null,
+        contentHash: node.contentHash ?? null,
+        principal,
+        mode: 'presign',
+        range: null,
+        observedAt
+      }).catch((err) => {
+        request.log.error({ err }, 'failed to publish presign event');
+      });
+
+      return reply.status(200).send({ data: responsePayload });
+    } catch (err) {
+      return sendError(reply, err);
     }
   });
 
@@ -881,7 +1289,13 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         })
       );
 
-      const nodesPayload = await Promise.all(result.nodes.map((node) => serializeNode(node)));
+      const backendIds = Array.from(new Set(result.nodes.map((node) => node.backendMountId)));
+      const backendMap = await withConnection((client) => getBackendMountsByIds(client, backendIds));
+      const nodesPayload = await Promise.all(
+        result.nodes.map((node) =>
+          serializeNode(node, backendMap.get(node.backendMountId)?.backendKind)
+        )
+      );
       const nextOffset = offset + nodesPayload.length < result.total ? offset + nodesPayload.length : null;
 
       return reply.status(200).send({
@@ -967,8 +1381,17 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         })
       );
 
-      const parentPayload = await serializeNode(parent);
-      const childrenPayload = await Promise.all(result.nodes.map((node) => serializeNode(node)));
+      const backendIds = new Set<number>([parent.backendMountId, ...result.nodes.map((node) => node.backendMountId)]);
+      const backendMap = await withConnection((client) => getBackendMountsByIds(client, Array.from(backendIds)));
+      const parentPayload = await serializeNode(
+        parent,
+        backendMap.get(parent.backendMountId)?.backendKind
+      );
+      const childrenPayload = await Promise.all(
+        result.nodes.map((node) =>
+          serializeNode(node, backendMap.get(node.backendMountId)?.backendKind)
+        )
+      );
       const nextOffset = offset + childrenPayload.length < result.total ? offset + childrenPayload.length : null;
 
       return reply.status(200).send({

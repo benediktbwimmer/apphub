@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { copyNode, listBackendMounts, moveNode, parseFilestoreEventFrame, updateNodeMetadata, uploadFile } from '../api';
+import {
+  copyNode,
+  listBackendMounts,
+  moveNode,
+  parseFilestoreEventFrame,
+  presignNodeDownload,
+  updateNodeMetadata,
+  uploadFile
+} from '../api';
 import { describeFilestoreEvent } from '../eventSummaries';
 import type { FilestoreEvent } from '../api';
 
@@ -120,6 +128,29 @@ describe('filestore api helpers', () => {
     expect(entry.label).toBe('Drift detected');
     expect(entry.detail).toContain('hash_mismatch');
     expect(entry.timestamp).toBe(iso);
+  });
+
+  it('summarizes download events for the activity feed', () => {
+    const event: FilestoreEvent = {
+      type: 'filestore.node.downloaded',
+      data: {
+        backendMountId: 7,
+        nodeId: 91,
+        path: 'datasets/archive/report.csv',
+        sizeBytes: 1024,
+        checksum: null,
+        contentHash: null,
+        principal: 'tester',
+        mode: 'stream',
+        range: null,
+        observedAt: iso
+      }
+    };
+
+    const entry = describeFilestoreEvent(event);
+    expect(entry.label).toBe('Download');
+    expect(entry.detail).toContain('datasets/archive/report.csv');
+    expect(entry.backendMountId).toBe(7);
   });
 
   it('sends metadata updates via PATCH request', async () => {
@@ -270,6 +301,33 @@ describe('filestore api helpers', () => {
     });
 
     expect(result.journalEntryId).toBe(123);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests presigned download metadata', async () => {
+    const payload = {
+      data: {
+        url: 'https://presign.example/file',
+        expiresAt: iso,
+        headers: { Authorization: 'AWS4-HMAC' },
+        method: 'GET'
+      }
+    };
+
+    const fetchMock = vi.fn<FetchLike>(async (input) => {
+      if (typeof input !== 'string') {
+        throw new Error('Expected presign URL to be a string.');
+      }
+      expect(input).toContain('/v1/files/55/presign');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(payload)
+      } as Response;
+    });
+
+    const result = await presignNodeDownload(fetchMock, 55);
+    expect(result.url).toBe('https://presign.example/file');
+    expect(result.method).toBe('GET');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

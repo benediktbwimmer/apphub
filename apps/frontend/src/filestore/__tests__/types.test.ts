@@ -44,7 +44,8 @@ describe('filestore types', () => {
         childCount: 7,
         state: 'up_to_date',
         lastCalculatedAt: iso
-      }
+      },
+      download: null
     });
 
     expect(parsed.rollup).not.toBeNull();
@@ -131,7 +132,8 @@ describe('filestore types', () => {
               childCount: 2,
               state: 'up_to_date',
               lastCalculatedAt: iso
-            }
+            },
+            download: null
           }
         ],
         pagination: {
@@ -191,7 +193,8 @@ describe('filestore types', () => {
             childCount: 7,
             state: 'up_to_date',
             lastCalculatedAt: iso
-          }
+          },
+          download: null
         },
         children: [
           {
@@ -226,7 +229,8 @@ describe('filestore types', () => {
               childCount: 3,
               state: 'up_to_date',
               lastCalculatedAt: iso
-            }
+            },
+            download: null
           }
         ],
         pagination: {

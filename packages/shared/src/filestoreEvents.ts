@@ -66,6 +66,19 @@ export type FilestoreDriftDetectedPayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type FilestoreNodeDownloadedPayload = {
+  backendMountId: number;
+  nodeId: number | null;
+  path: string;
+  sizeBytes: number | null;
+  checksum: string | null;
+  contentHash: string | null;
+  principal: string | null;
+  mode: 'stream' | 'presign';
+  range: string | null;
+  observedAt: string;
+};
+
 export type FilestoreEvent =
   | { type: 'filestore.node.created'; data: FilestoreNodeEventPayload }
   | { type: 'filestore.node.updated'; data: FilestoreNodeEventPayload }
@@ -76,7 +89,8 @@ export type FilestoreEvent =
   | { type: 'filestore.command.completed'; data: FilestoreCommandCompletedPayload }
   | { type: 'filestore.drift.detected'; data: FilestoreDriftDetectedPayload }
   | { type: 'filestore.node.reconciled'; data: FilestoreNodeReconciledPayload }
-  | { type: 'filestore.node.missing'; data: FilestoreNodeReconciledPayload };
+  | { type: 'filestore.node.missing'; data: FilestoreNodeReconciledPayload }
+  | { type: 'filestore.node.downloaded'; data: FilestoreNodeDownloadedPayload };
 
 export type FilestoreEventEnvelope = {
   origin?: string;

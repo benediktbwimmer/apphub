@@ -12,21 +12,36 @@ import type {
 type ListBackendMountsMock = (...args: any[]) => Promise<{ mounts: FilestoreBackendMount[] }>;
 type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePollingResourceResult<unknown>;
 
-const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
-const subscribeToFilestoreEventsMock = vi.fn((..._args: any[]) => ({ close: vi.fn() }));
-const trackEventMock = vi.fn();
-const pollingResourceMock = vi.fn<PollingResourceFn>(() => ({
-  data: null,
-  error: null,
-  loading: false,
-  lastUpdatedAt: null,
-  refetch: vi.fn(async () => {}),
-  stop: vi.fn()
-}));
-const authorizedFetchMock = vi.fn();
-const enqueueReconciliationMock = vi.fn();
-const listWorkflowDefinitionsMock = vi.fn();
-const triggerWorkflowRunMock = vi.fn();
+const mocks = vi.hoisted(() => {
+  const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
+  const subscribeToFilestoreEventsMock = vi.fn((..._args: any[]) => ({ close: vi.fn() }));
+  const trackEventMock = vi.fn();
+  const pollingResourceMock = vi.fn<PollingResourceFn>(() => ({
+    data: null,
+    error: null,
+    loading: false,
+    lastUpdatedAt: null,
+    refetch: vi.fn(async () => {}),
+    stop: vi.fn()
+  }));
+  const authorizedFetchMock = vi.fn();
+  const enqueueReconciliationMock = vi.fn();
+  const listWorkflowDefinitionsMock = vi.fn();
+  const triggerWorkflowRunMock = vi.fn();
+  const presignNodeDownloadMock = vi.fn();
+
+  return {
+    listBackendMountsMock,
+    subscribeToFilestoreEventsMock,
+    trackEventMock,
+    pollingResourceMock,
+    authorizedFetchMock,
+    enqueueReconciliationMock,
+    listWorkflowDefinitionsMock,
+    triggerWorkflowRunMock,
+    presignNodeDownloadMock
+  };
+});
 const sampleMount: FilestoreBackendMount = {
   id: 2,
   mountKey: 'primary',
@@ -76,11 +91,13 @@ function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
     updatedAt: '2024-01-01T00:00:00.000Z',
     deletedAt: null,
     rollup: null,
+    download: null,
     ...overrides
   } satisfies FilestoreNode;
 }
 
 function setupPollingResourcesForNode(node: FilestoreNode) {
+  const { pollingResourceMock } = mocks;
   const listResource: UsePollingResourceResult<unknown> = {
     data: {
       nodes: [node],
@@ -146,11 +163,11 @@ const toastHelpersMock = {
 };
 
 vi.mock('../../auth/useAuthorizedFetch', () => ({
-  useAuthorizedFetch: () => authorizedFetchMock
+  useAuthorizedFetch: () => mocks.authorizedFetchMock
 }));
 
 vi.mock('../../hooks/usePollingResource', () => ({
-  usePollingResource: pollingResourceMock
+  usePollingResource: mocks.pollingResourceMock
 }));
 
 vi.mock('../../components/toast', () => ({
@@ -159,49 +176,54 @@ vi.mock('../../components/toast', () => ({
 
 vi.mock('../api', () => ({
   __esModule: true,
-  enqueueReconciliation: (...args: unknown[]) => enqueueReconciliationMock(...args),
+  enqueueReconciliation: (...args: unknown[]) => mocks.enqueueReconciliationMock(...args),
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
-  listBackendMounts: (...args: unknown[]) => listBackendMountsMock(...args),
+  listBackendMounts: (...args: unknown[]) => mocks.listBackendMountsMock(...args),
   listNodes: vi.fn(),
-  subscribeToFilestoreEvents: (...args: unknown[]) => subscribeToFilestoreEventsMock(...args),
+  presignNodeDownload: (...args: unknown[]) => mocks.presignNodeDownloadMock(...args),
+  subscribeToFilestoreEvents: (...args: unknown[]) => mocks.subscribeToFilestoreEventsMock(...args),
   updateNodeMetadata: vi.fn()
 }));
 
 vi.mock('../../workflows/api', () => ({
-  listWorkflowDefinitions: (...args: unknown[]) => listWorkflowDefinitionsMock(...args)
+  listWorkflowDefinitions: (...args: unknown[]) => mocks.listWorkflowDefinitionsMock(...args)
 }));
 
 vi.mock('../../dataAssets/api', () => ({
-  triggerWorkflowRun: (...args: unknown[]) => triggerWorkflowRunMock(...args)
+  triggerWorkflowRun: (...args: unknown[]) => mocks.triggerWorkflowRunMock(...args)
 }));
 
 vi.mock('../../utils/useAnalytics', () => ({
   useAnalytics: () => ({
-    trackEvent: (...args: unknown[]) => trackEventMock(...args)
+    trackEvent: (...args: unknown[]) => mocks.trackEventMock(...args)
   })
 }));
 
 describe('FilestoreExplorerPage mount discovery', () => {
   beforeEach(() => {
     localStorage.clear();
-    listBackendMountsMock.mockReset();
-    listBackendMountsMock.mockResolvedValue({ mounts: [] });
-    enqueueReconciliationMock.mockReset();
-    enqueueReconciliationMock.mockResolvedValue(undefined);
-    listWorkflowDefinitionsMock.mockReset();
-    listWorkflowDefinitionsMock.mockResolvedValue([]);
-    triggerWorkflowRunMock.mockReset();
-    triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' });
-    trackEventMock.mockClear();
-    subscribeToFilestoreEventsMock.mockClear();
-    pollingResourceMock.mockClear();
-    authorizedFetchMock.mockClear();
+    mocks.listBackendMountsMock.mockReset();
+    mocks.listBackendMountsMock.mockResolvedValue({ mounts: [] });
+    mocks.enqueueReconciliationMock.mockReset();
+    mocks.enqueueReconciliationMock.mockResolvedValue(undefined);
+    mocks.listWorkflowDefinitionsMock.mockReset();
+    mocks.listWorkflowDefinitionsMock.mockResolvedValue([]);
+    mocks.triggerWorkflowRunMock.mockReset();
+    mocks.triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' });
+    mocks.trackEventMock.mockClear();
+    mocks.subscribeToFilestoreEventsMock.mockClear();
+    mocks.pollingResourceMock.mockClear();
+    mocks.authorizedFetchMock.mockReset();
+    mocks.presignNodeDownloadMock.mockReset();
+    (URL as unknown as { createObjectURL: ReturnType<typeof vi.fn> }).createObjectURL = vi.fn(() => 'blob:mock');
+    (URL as unknown as { revokeObjectURL: ReturnType<typeof vi.fn> }).revokeObjectURL = vi.fn();
+    window.open = vi.fn();
     Object.values(toastHelpersMock).forEach((fn) => fn.mockClear?.());
   });
 
   it('loads backend mounts and persists selection changes', async () => {
-    listBackendMountsMock.mockResolvedValueOnce({
+    mocks.listBackendMountsMock.mockResolvedValueOnce({
       mounts: [
         {
           id: 2,
@@ -239,7 +261,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
     fireEvent.change(select, { target: { value: '5' } });
 
     await waitFor(() => {
-      expect(trackEventMock).toHaveBeenCalledWith('filestore.mount.changed', {
+      expect(mocks.trackEventMock).toHaveBeenCalledWith('filestore.mount.changed', {
         backendMountId: 5,
         source: 'select'
       });
@@ -249,7 +271,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
   it('restores the stored mount when still available', async () => {
     localStorage.setItem('apphub.filestore.selectedMountId', '5');
-    listBackendMountsMock.mockResolvedValueOnce({
+    mocks.listBackendMountsMock.mockResolvedValueOnce({
       mounts: [
         {
           id: 3,
@@ -286,7 +308,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   });
 
   it('shows an empty state when no mounts are returned', async () => {
-    listBackendMountsMock.mockResolvedValueOnce({ mounts: [] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [] });
 
     render(<FilestoreExplorerPage identity={null} />);
 
@@ -295,24 +317,125 @@ describe('FilestoreExplorerPage mount discovery', () => {
     });
     expect(screen.queryByLabelText('Known mounts')).not.toBeInTheDocument();
   });
+
+  it('streams file downloads via inline endpoint', async () => {
+    const fileNode = buildNode({
+      kind: 'file',
+      download: {
+        mode: 'stream',
+        streamUrl: '/v1/files/42/content',
+        presignUrl: null,
+        supportsRange: true,
+        sizeBytes: 9,
+        checksum: null,
+        contentHash: null,
+        filename: 'example.csv'
+      }
+    });
+    setupPollingResourcesForNode(fileNode);
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+
+    const chunk = new TextEncoder().encode('download');
+    const reader = {
+      read: vi
+        .fn<[], Promise<{ value: Uint8Array | undefined; done: boolean }>>()
+        .mockResolvedValueOnce({ value: chunk, done: false })
+        .mockResolvedValueOnce({ value: undefined, done: true })
+    };
+    const headers = {
+      get: (name: string) => {
+        const map: Record<string, string> = {
+          'content-type': 'text/plain',
+          'content-length': String(chunk.length)
+        };
+        return map[name.toLowerCase()] ?? null;
+      }
+    };
+    mocks.authorizedFetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers,
+      body: {
+        getReader: () => reader
+      },
+      arrayBuffer: async () => chunk.buffer
+    } as unknown as Response);
+
+    render(<FilestoreExplorerPage identity={null} />);
+
+    const downloadButton = await screen.findByRole('button', { name: 'Download file' });
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(mocks.authorizedFetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/files/42/content'),
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    await waitFor(() => {
+      expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Download complete');
+    });
+    expect((URL.createObjectURL as unknown as vi.Mock)).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens presigned download links when provided', async () => {
+    const fileNode = buildNode({
+      kind: 'file',
+      download: {
+        mode: 'presign',
+        streamUrl: '/v1/files/42/content',
+        presignUrl: '/v1/files/42/presign',
+        supportsRange: true,
+        sizeBytes: 0,
+        checksum: null,
+        contentHash: null,
+        filename: 'example.csv'
+      }
+    });
+    setupPollingResourcesForNode(fileNode);
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+
+    mocks.presignNodeDownloadMock.mockResolvedValueOnce({
+      url: 'https://example.com/download',
+      expiresAt: new Date().toISOString(),
+      headers: {},
+      method: 'GET'
+    });
+
+    render(<FilestoreExplorerPage identity={null} />);
+
+    const downloadButton = await screen.findByRole('button', { name: 'Open download link' });
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(mocks.presignNodeDownloadMock).toHaveBeenCalled();
+    });
+    expect(window.open).toHaveBeenCalledWith('https://example.com/download', '_blank', 'noopener,noreferrer');
+    expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Presigned link opened');
+  });
 });
 
 describe('FilestoreExplorerPage playbooks', () => {
   beforeEach(() => {
     localStorage.clear();
-    listBackendMountsMock.mockReset();
-    listBackendMountsMock.mockResolvedValue({ mounts: [sampleMount] });
-    enqueueReconciliationMock.mockReset();
-    enqueueReconciliationMock.mockResolvedValue(undefined);
-    listWorkflowDefinitionsMock.mockReset();
-    listWorkflowDefinitionsMock.mockResolvedValue([]);
-    triggerWorkflowRunMock.mockReset();
-    triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' } as WorkflowRun);
-    trackEventMock.mockClear();
-    subscribeToFilestoreEventsMock.mockClear();
-    authorizedFetchMock.mockClear();
-    pollingResourceMock.mockReset();
-    pollingResourceMock.mockImplementation(() => ({
+    mocks.listBackendMountsMock.mockReset();
+    mocks.listBackendMountsMock.mockResolvedValue({ mounts: [sampleMount] });
+    mocks.enqueueReconciliationMock.mockReset();
+    mocks.enqueueReconciliationMock.mockResolvedValue(undefined);
+    mocks.listWorkflowDefinitionsMock.mockReset();
+    mocks.listWorkflowDefinitionsMock.mockResolvedValue([]);
+    mocks.triggerWorkflowRunMock.mockReset();
+    mocks.triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' } as WorkflowRun);
+    mocks.trackEventMock.mockClear();
+    mocks.subscribeToFilestoreEventsMock.mockClear();
+    mocks.authorizedFetchMock.mockReset();
+    mocks.presignNodeDownloadMock.mockReset();
+    (URL as unknown as { createObjectURL: ReturnType<typeof vi.fn> }).createObjectURL = vi.fn(() => 'blob:mock');
+    (URL as unknown as { revokeObjectURL: ReturnType<typeof vi.fn> }).revokeObjectURL = vi.fn();
+    window.open = vi.fn();
+    mocks.pollingResourceMock.mockReset();
+    mocks.pollingResourceMock.mockImplementation(() => ({
       data: null,
       error: null,
       loading: false,
@@ -326,7 +449,7 @@ describe('FilestoreExplorerPage playbooks', () => {
   it('surfaces playbook actions for inconsistent nodes', async () => {
     const node = buildNode({ state: 'inconsistent' });
     setupPollingResourcesForNode(node);
-    listWorkflowDefinitionsMock.mockResolvedValueOnce([
+    mocks.listWorkflowDefinitionsMock.mockResolvedValueOnce([
       {
         id: 'wf-drift',
         slug: 'filestore-drift-audit',
@@ -341,8 +464,8 @@ describe('FilestoreExplorerPage playbooks', () => {
     const enqueueButton = await screen.findByRole('button', { name: 'Enqueue job' });
     fireEvent.click(enqueueButton);
 
-    await waitFor(() => expect(enqueueReconciliationMock).toHaveBeenCalled());
-    const reconcileArgs = enqueueReconciliationMock.mock.calls[0][1] as Record<string, unknown>;
+    await waitFor(() => expect(mocks.enqueueReconciliationMock).toHaveBeenCalled());
+    const reconcileArgs = mocks.enqueueReconciliationMock.mock.calls[0][1] as Record<string, unknown>;
     expect(reconcileArgs).toMatchObject({
       backendMountId: node.backendMountId,
       path: node.path,
@@ -354,8 +477,8 @@ describe('FilestoreExplorerPage playbooks', () => {
     const workflowButton = await screen.findByRole('button', { name: 'Trigger workflow' });
     fireEvent.click(workflowButton);
 
-    await waitFor(() => expect(triggerWorkflowRunMock).toHaveBeenCalled());
-    const workflowCall = triggerWorkflowRunMock.mock.calls[0];
+    await waitFor(() => expect(mocks.triggerWorkflowRunMock).toHaveBeenCalled());
+    const workflowCall = mocks.triggerWorkflowRunMock.mock.calls[0];
     expect(workflowCall[1]).toBe('filestore-drift-audit');
     expect(workflowCall[2]).toMatchObject({
       triggeredBy: 'filestore-playbook',
@@ -373,7 +496,7 @@ describe('FilestoreExplorerPage playbooks', () => {
     render(<FilestoreExplorerPage identity={writableIdentity} />);
 
     await screen.findByText('Drift playbook');
-    await waitFor(() => expect(listWorkflowDefinitionsMock).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.listWorkflowDefinitionsMock).toHaveBeenCalled());
 
     const workflowButton = await screen.findByRole('button', { name: 'Trigger workflow' });
     expect(workflowButton).toBeDisabled();

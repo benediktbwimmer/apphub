@@ -33,6 +33,18 @@ export const filestoreRollupSummarySchema = z.object({
 });
 export type FilestoreRollupSummary = z.infer<typeof filestoreRollupSummarySchema>;
 
+export const filestoreNodeDownloadSchema = z.object({
+  mode: z.enum(['stream', 'presign']),
+  streamUrl: z.string(),
+  presignUrl: z.string().nullable(),
+  supportsRange: z.boolean(),
+  sizeBytes: z.number().nullable(),
+  checksum: z.string().nullable(),
+  contentHash: z.string().nullable(),
+  filename: z.string().nullable()
+});
+export type FilestoreNodeDownload = z.infer<typeof filestoreNodeDownloadSchema>;
+
 export const filestoreNodeKindSchema = z.enum(['file', 'directory', 'unknown']);
 export type FilestoreNodeKind = z.infer<typeof filestoreNodeKindSchema>;
 
@@ -66,7 +78,8 @@ export const filestoreNodeSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   deletedAt: z.string().nullable(),
-  rollup: filestoreRollupSummarySchema.nullable()
+  rollup: filestoreRollupSummarySchema.nullable(),
+  download: filestoreNodeDownloadSchema.nullable()
 });
 export type FilestoreNode = z.infer<typeof filestoreNodeSchema>;
 
@@ -206,6 +219,20 @@ export const filestoreNodeReconciledPayloadSchema = z.object({
 });
 export type FilestoreNodeReconciledPayload = z.infer<typeof filestoreNodeReconciledPayloadSchema>;
 
+export const filestoreNodeDownloadedPayloadSchema = z.object({
+  backendMountId: z.number(),
+  nodeId: z.number().nullable(),
+  path: z.string(),
+  sizeBytes: z.number().nullable(),
+  checksum: z.string().nullable(),
+  contentHash: z.string().nullable(),
+  principal: z.string().nullable(),
+  mode: z.enum(['stream', 'presign']),
+  range: z.string().nullable(),
+  observedAt: z.string()
+});
+export type FilestoreNodeDownloadedPayload = z.infer<typeof filestoreNodeDownloadedPayloadSchema>;
+
 export const filestoreEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('filestore.node.created'), data: filestoreNodeEventPayloadSchema }),
   z.object({ type: z.literal('filestore.node.updated'), data: filestoreNodeEventPayloadSchema }),
@@ -216,9 +243,20 @@ export const filestoreEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('filestore.command.completed'), data: filestoreCommandCompletedPayloadSchema }),
   z.object({ type: z.literal('filestore.drift.detected'), data: filestoreDriftDetectedPayloadSchema }),
   z.object({ type: z.literal('filestore.node.reconciled'), data: filestoreNodeReconciledPayloadSchema }),
-  z.object({ type: z.literal('filestore.node.missing'), data: filestoreNodeReconciledPayloadSchema })
+  z.object({ type: z.literal('filestore.node.missing'), data: filestoreNodeReconciledPayloadSchema }),
+  z.object({ type: z.literal('filestore.node.downloaded'), data: filestoreNodeDownloadedPayloadSchema })
 ]);
 export type FilestoreEvent = z.infer<typeof filestoreEventSchema>;
 export type FilestoreEventType = FilestoreEvent['type'];
 
 export const filestoreEventEnvelopeSchema = filestoreEventSchema;
+
+export const filestorePresignEnvelopeSchema = z.object({
+  data: z.object({
+    url: z.string(),
+    expiresAt: z.string(),
+    headers: z.record(z.string()),
+    method: z.string()
+  })
+});
+export type FilestorePresignPayload = z.infer<typeof filestorePresignEnvelopeSchema>['data'];

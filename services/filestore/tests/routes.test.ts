@@ -548,7 +548,7 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(overwriteResponse.statusCode, 200, overwriteResponse.body);
   const overwriteBody = overwriteResponse.json() as {
     data: {
-      node: { sizeBytes: number; version: number } | null;
+      node: { id: number; sizeBytes: number; version: number } | null;
       result: { previousSizeBytes?: number };
     };
   };
@@ -559,6 +559,40 @@ runE2E(async ({ registerCleanup }) => {
 
   const storedOverwrite = await readFile(path.join(backendRoot, uploadPath), 'utf8');
   assert.equal(storedOverwrite, overwriteContent.toString('utf8'));
+
+  const fileNodeId = overwriteBody.data.node?.id ?? uploadBody.data.node?.id;
+  assert.ok(fileNodeId);
+
+  const downloadResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/files/${fileNodeId}/content`
+  });
+  assert.equal(downloadResponse.statusCode, 200, downloadResponse.body);
+  assert.equal(downloadResponse.headers['content-type'], 'application/octet-stream');
+  assert.equal(downloadResponse.headers['accept-ranges'], 'bytes');
+  assert.ok(downloadResponse.headers['content-disposition']?.includes('attachment'));
+  assert.equal(downloadResponse.body, overwriteContent.toString('utf8'));
+
+  const rangeResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/files/${fileNodeId}/content`,
+    headers: {
+      Range: 'bytes=0-4'
+    }
+  });
+  assert.equal(rangeResponse.statusCode, 206, rangeResponse.body);
+  assert.ok(rangeResponse.headers['content-range']);
+  assert.ok(rangeResponse.headers['content-range']?.startsWith('bytes 0-4/'));
+  assert.equal(rangeResponse.headers['content-length'], '5');
+  assert.equal(rangeResponse.body, overwriteContent.slice(0, 5).toString('utf8'));
+
+  const presignResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/files/${fileNodeId}/presign`
+  });
+  assert.equal(presignResponse.statusCode, 400, presignResponse.body);
+  const presignBody = presignResponse.json() as { error: { code: string } };
+  assert.equal(presignBody.error.code, 'NOT_SUPPORTED');
 
   const deleteResponse = await app.inject({
     method: 'DELETE',
