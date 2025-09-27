@@ -25,3 +25,15 @@ export {
   type WorkflowProvisioningEventTrigger,
   type WorkflowProvisioningEventTriggerPredicate
 } from './provisioning';
+export {
+  applyObservatoryWorkflowDefaults,
+  ensureObservatoryBackend,
+  isObservatoryModule,
+  isObservatoryWorkflowSlug,
+  loadObservatoryConfig,
+  resolveGeneratedObservatoryConfigPath,
+  resolveObservatoryRepoRoot,
+  type EnsureObservatoryBackendOptions,
+  type EventDrivenObservatoryConfig,
+  type ObservatoryBootstrapLogger
+} from './observatorySupport';

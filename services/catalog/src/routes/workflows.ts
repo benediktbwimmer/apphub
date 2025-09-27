@@ -77,6 +77,11 @@ import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import type { JsonValue } from './shared/serializers';
 import { registerWorkflowTriggerRoutes } from './workflows/triggers';
+import {
+  applyObservatoryWorkflowDefaults,
+  isObservatoryWorkflowSlug,
+  loadObservatoryConfig
+} from '@apphub/examples-registry';
 
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
@@ -897,6 +902,14 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const payload = parseBody.data;
+    if (isObservatoryWorkflowSlug(payload.slug)) {
+      try {
+        const config = await loadObservatoryConfig();
+        applyObservatoryWorkflowDefaults(payload, config);
+      } catch (err) {
+        request.log.debug({ err, slug: payload.slug }, 'Skipped observatory workflow overrides');
+      }
+    }
     const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
     const triggers = normalizeWorkflowTriggers(payload.triggers);
 

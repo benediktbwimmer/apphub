@@ -6,6 +6,9 @@ import { registerServiceRoutes } from '../src/routes/services';
 import { resolvePortFromManifestEnv } from '../src/serviceRegistry';
 
 async function run() {
+  const previousBootstrapFlag = process.env.APPHUB_DISABLE_OBSERVATORY_BOOTSTRAP;
+  process.env.APPHUB_DISABLE_OBSERVATORY_BOOTSTRAP = '1';
+
   const preview = await previewServiceConfigImport({
     path: 'examples/environmental-observatory/service-manifests',
     configPath: 'service-config.json',
@@ -110,6 +113,11 @@ async function run() {
     assert.equal(importResponse.statusCode, 201, 'import should succeed after confirmation step');
   } finally {
     await app.close();
+    if (previousBootstrapFlag === undefined) {
+      delete process.env.APPHUB_DISABLE_OBSERVATORY_BOOTSTRAP;
+    } else {
+      process.env.APPHUB_DISABLE_OBSERVATORY_BOOTSTRAP = previousBootstrapFlag;
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   getServiceBySlug,
@@ -22,10 +22,14 @@ import {
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import { mergeServiceMetadata, serviceMetadataUpdateSchema } from '../serviceMetadata';
-import { createEventDrivenObservatoryConfig } from '@apphub/examples-registry';
+import {
+  createEventDrivenObservatoryConfig,
+  ensureObservatoryBackend,
+  isObservatoryModule,
+  resolveObservatoryRepoRoot
+} from '@apphub/examples-registry';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
-const EVENT_DRIVEN_OBSERVATORY_MODULE = 'github.com/apphub/examples/environmental-observatory-event-driven';
 
 function extractBearerToken(header: unknown): string | null {
   if (typeof header !== 'string') {
@@ -69,14 +73,6 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
     normalized[key] = value;
   }
   return normalized;
-}
-
-function resolveRepoRoot(): string {
-  const envRoot = process.env.APPHUB_REPO_ROOT;
-  if (envRoot && envRoot.trim().length > 0) {
-    return path.resolve(envRoot.trim());
-  }
-  return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
@@ -204,9 +200,10 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
 
 async function applyServiceImportArtifacts(
   preview: Awaited<ReturnType<typeof previewServiceConfigImport>>,
-  variables: Record<string, string> | undefined
+  variables: Record<string, string> | undefined,
+  logger: FastifyBaseLogger
 ): Promise<void> {
-  if (preview.moduleId !== EVENT_DRIVEN_OBSERVATORY_MODULE) {
+  if (!isObservatoryModule(preview.moduleId)) {
     return;
   }
 
@@ -218,11 +215,22 @@ async function applyServiceImportArtifacts(
     resolvedVariables[placeholder.name] = placeholder.value;
   }
 
-  const repoRoot = resolveRepoRoot();
+  const repoRoot = resolveObservatoryRepoRoot();
   const { config, outputPath } = createEventDrivenObservatoryConfig({
     repoRoot,
     variables: resolvedVariables
   });
+
+  try {
+    const backendId = await ensureObservatoryBackend(config, { logger });
+    if (typeof backendId === 'number' && Number.isFinite(backendId)) {
+      config.filestore.backendMountId = backendId;
+      resolvedVariables.OBSERVATORY_FILESTORE_BACKEND_ID = String(backendId);
+    }
+  } catch (err) {
+    // ensureObservatoryBackend already logged; surface a clearer error upstream
+    throw new Error('Failed to prepare observatory filestore backend');
+  }
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -301,7 +309,7 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
       entries: preview.entries,
       networks: preview.networks
     });
-    await applyServiceImportArtifacts(preview, variables);
+    await applyServiceImportArtifacts(preview, variables, request.log);
   } catch (err) {
     request.log.error(
       { err, module: preview.moduleId },

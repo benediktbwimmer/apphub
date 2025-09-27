@@ -24,5 +24,8 @@
     "build": "tsc -b && node dist/scripts/generateCatalogIndex.js",
     "generate:catalog-index": "node dist/scripts/generateCatalogIndex.js",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }
