@@ -16,7 +16,6 @@ import type {
   RetentionResponse,
   SavedSqlQuery,
   SavedSqlQueryListResponse,
-  SavedSqlQueryResponse,
   SavedSqlQueryStats,
   SqlQueryResult,
   SqlSchemaResponse

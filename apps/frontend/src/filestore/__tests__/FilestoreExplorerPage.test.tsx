@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
 import type { FilestoreBackendMount, FilestoreBackendMountList, FilestoreNode } from '../types';
@@ -479,7 +479,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
     const chunk = new TextEncoder().encode('download');
     const reader = {
       read: vi
-        .fn<[], Promise<{ value: Uint8Array | undefined; done: boolean }>>()
+        .fn<() => Promise<{ value: Uint8Array | undefined; done: boolean }>>()
         .mockResolvedValueOnce({ value: chunk, done: false })
         .mockResolvedValueOnce({ value: undefined, done: true })
     };
@@ -517,7 +517,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
     await waitFor(() => {
       expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Download complete');
     });
-    expect((URL.createObjectURL as unknown as vi.Mock)).toHaveBeenCalledTimes(1);
+    expect((URL.createObjectURL as unknown as Mock)).toHaveBeenCalledTimes(1);
   });
 
   it('opens presigned download links when provided', async () => {

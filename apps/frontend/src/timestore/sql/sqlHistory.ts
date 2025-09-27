@@ -43,10 +43,17 @@ function clampHistory(entries: SqlHistoryEntry[], limit: number): SqlHistoryEntr
   if (entries.length <= limit) {
     return entries;
   }
-  const pinned = entries.filter((entry) => entry.pinned);
+  const pinned: SqlHistoryEntry[] = [];
+  const unpinned: SqlHistoryEntry[] = [];
+  for (const entry of entries) {
+    if (entry.pinned) {
+      pinned.push(entry);
+    } else {
+      unpinned.push(entry);
+    }
+  }
   const remainingSlots = Math.max(limit - pinned.length, 0);
-  const unpinned = entries.filter((entry) => !entry.pinned).slice(0, remainingSlots);
-  return [...pinned, ...unpinned];
+  return [...pinned, ...unpinned.slice(0, remainingSlots)];
 }
 
 export function addHistoryEntry(
@@ -55,17 +62,16 @@ export function addHistoryEntry(
   limit: number = SQL_HISTORY_LIMIT
 ): SqlHistoryEntry[] {
   const normalizedStatement = entry.statement.trim();
-  let preservedEntry: SqlHistoryEntry | null = null;
+  const existingIndex = history.findIndex(
+    (item) => item.statement.trim() === normalizedStatement
+  );
+  const preservedEntry = existingIndex >= 0 ? history[existingIndex] : null;
+  const deduped =
+    existingIndex >= 0
+      ? [...history.slice(0, existingIndex), ...history.slice(existingIndex + 1)]
+      : history;
 
-  const deduped = history.filter((item) => {
-    const matches = item.statement.trim() === normalizedStatement;
-    if (matches && !preservedEntry) {
-      preservedEntry = item;
-    }
-    return !matches;
-  });
-
-  const mergedId = preservedEntry?.pinned ? preservedEntry.id : entry.id;
+  const mergedId = preservedEntry && preservedEntry.pinned ? preservedEntry.id : entry.id;
   const mergedPinned = preservedEntry?.pinned ?? entry.pinned ?? false;
   const mergedLabel = preservedEntry?.label ?? entry.label ?? null;
   const mergedStats = entry.stats ?? preservedEntry?.stats;

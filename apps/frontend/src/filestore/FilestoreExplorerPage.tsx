@@ -1661,14 +1661,16 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
           if (response.body) {
             const reader = response.body.getReader();
-            const chunks: Uint8Array[] = [];
+            const chunks: BlobPart[] = [];
             while (true) {
               const { value, done } = await reader.read();
               if (done) {
                 break;
               }
               if (value) {
-                chunks.push(value);
+                const chunkCopy = new Uint8Array(value.byteLength);
+                chunkCopy.set(value);
+                chunks.push(chunkCopy.buffer);
                 received += value.length;
                 if (expectedBytes && expectedBytes > 0) {
                   updateDownloadProgress(node.id, Math.min(received / expectedBytes, 1));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -312,7 +312,7 @@ export default function TimestoreDatasetsPage() {
     pageSize: 30
   });
 
-  const handleSubmitSearch = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSearch(searchInput.trim());
   };
@@ -465,7 +465,9 @@ export default function TimestoreDatasetsPage() {
                 <select
                   id="timestore-status"
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                  onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                    setStatusFilter(event.target.value as typeof statusFilter)
+                  }
                   className="rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
                 >
                   {(['active', 'inactive', 'all'] as const).map((value) => (
@@ -484,7 +486,9 @@ export default function TimestoreDatasetsPage() {
                     id="timestore-search"
                     type="search"
                     value={searchInput}
-                    onChange={(event) => setSearchInput(event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setSearchInput(event.target.value)
+                    }
                     placeholder="Search by slug or display name"
                     className="w-56 bg-transparent text-sm text-slate-700 outline-none dark:text-slate-100"
                   />

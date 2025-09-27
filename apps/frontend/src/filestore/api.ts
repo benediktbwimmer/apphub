@@ -23,7 +23,6 @@ import {
   type FilestoreNodeKind,
   type FilestoreNodeList,
   type FilestoreNode,
-  type FilestoreNodeDownload,
   type FilestoreNodeState,
   type FilestoreReconciliationReason,
   type FilestoreReconciliationResult,
