@@ -212,7 +212,7 @@ export default function EventSchemaExplorer({
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(value);
         pushToast({
-          tone: 'passive',
+          tone: 'success',
           title: `${label} copied`,
           description: value
         });

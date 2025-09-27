@@ -17,7 +17,7 @@ import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
 import { INITIAL_FILTERS, WorkflowsProviders, useWorkflowsController } from './hooks/useWorkflowsController';
-import type { WorkflowEventSampleQuery, WorkflowTriggerDeliveriesQuery } from './api';
+import type { WorkflowTriggerDeliveriesQuery } from './api';
 
 export default function WorkflowsPage() {
   return (
@@ -235,13 +235,13 @@ function WorkflowsPageContent() {
         <div className="flex flex-col gap-6">
           <ManualRunPanel
             workflow={workflowDetail}
-          onSubmit={handleManualRun}
-          pending={manualRunPending}
-          error={manualRunError}
-          authorized={canRunWorkflowsScope}
-          lastRun={lastTriggeredRun}
-          unreachableServices={unreachableServiceSlugs}
-        />
+            onSubmit={handleManualRun}
+            pending={manualRunPending}
+            error={manualRunError}
+            authorized={canRunWorkflowsScope}
+            lastRun={lastTriggeredRun}
+            unreachableServices={unreachableServiceSlugs}
+          />
 
           {workflowDetail && (
             <WorkflowGraph
