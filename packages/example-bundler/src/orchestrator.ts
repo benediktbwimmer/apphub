@@ -255,7 +255,11 @@ function resolveRepoRoot(candidate?: string): string {
   if (envRoot && envRoot.trim().length > 0) {
     return path.resolve(envRoot.trim());
   }
-  return path.resolve(__dirname, '..', '..', '..');
+  const fallback = path.resolve(__dirname, '..', '..', '..');
+  if (path.basename(fallback) === 'packages') {
+    return path.resolve(fallback, '..');
+  }
+  return fallback;
 }
 
 async function createWorkspaceRoot(slug: string, fingerprint: string): Promise<string> {
