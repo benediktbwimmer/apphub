@@ -1,28 +1,36 @@
 import { TIMESTORE_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type {
-  DatasetRecord,
+  ArchiveDatasetRequest,
+  CreateDatasetRequest,
   DatasetListResponse,
-  ManifestResponse,
+  DatasetRecord,
+  DatasetResponse,
+  LifecycleRunResponse,
   LifecycleStatusResponse,
+  ManifestResponse,
+  PatchDatasetRequest,
+  QueryResponse,
   RetentionPolicy,
   RetentionResponse,
-  LifecycleRunResponse,
-  QueryResponse,
-  SqlSchemaResponse,
-  SqlQueryResult
+  SqlQueryResult,
+  SqlSchemaResponse
 } from './types';
 import {
+  archiveDatasetRequestSchema,
+  createDatasetRequestSchema,
   datasetListResponseSchema,
   datasetRecordSchema,
-  manifestResponseSchema,
-  lifecycleStatusResponseSchema,
-  retentionResponseSchema,
+  datasetResponseSchema,
   lifecycleRunCompletedSchema,
   lifecycleRunQueuedSchema,
+  lifecycleStatusResponseSchema,
+  manifestResponseSchema,
+  patchDatasetRequestSchema,
   queryResponseSchema,
-  sqlSchemaResponseSchema,
-  sqlQueryResultSchema
+  retentionResponseSchema,
+  sqlQueryResultSchema,
+  sqlSchemaResponseSchema
 } from './types';
 
 function createTimestoreUrl(path: string): URL {
@@ -47,6 +55,39 @@ export type SqlQueryRequest = {
 async function parseJson<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
   const payload = await response.json();
   return schema.parse(payload);
+}
+
+async function parseDatasetApiError(response: Response, fallback: string): Promise<never> {
+  const raw = await response.text();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown; details?: unknown };
+      const candidate = parsed.error ?? parsed.message ?? parsed.details;
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        throw new Error(candidate.trim());
+      }
+    } catch {
+      const trimmed = raw.trim();
+      if (trimmed.length > 0) {
+        throw new Error(trimmed);
+      }
+    }
+  }
+  throw new Error(fallback);
+}
+
+async function parseDatasetResponse(response: Response): Promise<DatasetResponse> {
+  const parsed = await parseJson(response, datasetResponseSchema);
+  const headerEtag = response.headers.get('etag');
+  const normalizedEtag = parsed.etag?.trim().length
+    ? parsed.etag.trim()
+    : headerEtag?.trim().length
+      ? headerEtag.trim()
+      : parsed.dataset.updatedAt;
+  return {
+    dataset: parsed.dataset,
+    etag: normalizedEtag
+  };
 }
 
 function sanitizeSqlStatement(sql: string): string {
@@ -133,6 +174,65 @@ export async function fetchDatasetById(
   }
   const payload = await response.json();
   return datasetRecordSchema.parse(payload.dataset);
+}
+
+export async function createDataset(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  body: CreateDatasetRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<DatasetResponse> {
+  const payload = createDatasetRequestSchema.parse(body);
+  const url = createTimestoreUrl('admin/datasets');
+  const response = await authorizedFetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  });
+  if (!response.ok) {
+    await parseDatasetApiError(response, `Create dataset failed with status ${response.status}`);
+  }
+  return parseDatasetResponse(response);
+}
+
+export async function updateDataset(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  datasetId: string,
+  body: PatchDatasetRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<DatasetResponse> {
+  const payload = patchDatasetRequestSchema.parse(body);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}`);
+  const response = await authorizedFetch(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  });
+  if (!response.ok) {
+    await parseDatasetApiError(response, `Update dataset failed with status ${response.status}`);
+  }
+  return parseDatasetResponse(response);
+}
+
+export async function archiveDataset(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  datasetId: string,
+  body: ArchiveDatasetRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<DatasetResponse> {
+  const payload = archiveDatasetRequestSchema.parse(body);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/archive`);
+  const response = await authorizedFetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  });
+  if (!response.ok) {
+    await parseDatasetApiError(response, `Archive dataset failed with status ${response.status}`);
+  }
+  return parseDatasetResponse(response);
 }
 
 export async function fetchDatasetManifest(

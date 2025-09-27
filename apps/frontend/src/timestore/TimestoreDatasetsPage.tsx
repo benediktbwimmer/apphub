@@ -5,6 +5,7 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useToastHelpers } from '../components/toast';
 import {
+  createDataset,
   fetchDatasets,
   fetchDatasetById,
   fetchDatasetManifest,
@@ -13,6 +14,7 @@ import {
   fetchMetrics
 } from './api';
 import type {
+  CreateDatasetRequest,
   DatasetListResponse,
   DatasetRecord,
   LifecycleJobSummary,
@@ -23,6 +25,8 @@ import type {
   LifecycleMetricsSnapshot
 } from './types';
 import { DatasetList } from './components/DatasetList';
+import DatasetAdminPanel from './components/DatasetAdminPanel';
+import DatasetCreateDialog from './components/DatasetCreateDialog';
 import { Spinner } from '../components';
 import { RetentionPanel } from './components/RetentionPanel';
 import { QueryConsole } from './components/QueryConsole';
@@ -101,6 +105,7 @@ export default function TimestoreDatasetsPage() {
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [datasetDetail, setDatasetDetail] = useState<DatasetRecord | null>(null);
+  const [datasetOverrides, setDatasetOverrides] = useState<Record<string, DatasetRecord>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [manifest, setManifest] = useState<ManifestResponse | null>(null);
@@ -114,6 +119,7 @@ export default function TimestoreDatasetsPage() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [metricsVersion, setMetricsVersion] = useState(0);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const datasetFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -142,7 +148,32 @@ export default function TimestoreDatasetsPage() {
     fetcher: datasetFetcher
   });
 
-  const datasets = datasetsPayload?.datasets ?? EMPTY_DATASETS;
+  const datasets = useMemo(() => {
+    const base = datasetsPayload?.datasets ?? EMPTY_DATASETS;
+    if (Object.keys(datasetOverrides).length === 0) {
+      return base;
+    }
+    const baseIdSet = new Set(base.map((item) => item.id));
+    let mutated = false;
+    const merged = base.map((dataset) => {
+      const override = datasetOverrides[dataset.id];
+      if (override) {
+        mutated = true;
+        return override;
+      }
+      return dataset;
+    });
+    const additions = Object.values(datasetOverrides).filter(
+      (record) => record.id === selectedDatasetId && !baseIdSet.has(record.id)
+    );
+    if (!mutated && additions.length === 0) {
+      return base;
+    }
+    if (additions.length === 0) {
+      return merged;
+    }
+    return [...additions, ...merged];
+  }, [datasetsPayload, datasetOverrides, selectedDatasetId]);
   const nextCursor = datasetsPayload?.nextCursor ?? null;
 
   useEffect(() => {
@@ -155,6 +186,27 @@ export default function TimestoreDatasetsPage() {
     setCursor(null);
     setCursorStack([]);
   }, [search, statusFilter]);
+
+  useEffect(() => {
+    if (!datasetsPayload?.datasets) {
+      return;
+    }
+    setDatasetOverrides((prev) => {
+      if (Object.keys(prev).length === 0) {
+        return prev;
+      }
+      const next = { ...prev };
+      let updated = false;
+      for (const dataset of datasetsPayload.datasets) {
+        const override = next[dataset.id];
+        if (override && override.updatedAt === dataset.updatedAt) {
+          delete next[dataset.id];
+          updated = true;
+        }
+      }
+      return updated ? next : prev;
+    });
+  }, [datasetsPayload]);
 
   useEffect(() => {
     if (!selectedDatasetId) {
@@ -311,6 +363,12 @@ export default function TimestoreDatasetsPage() {
   const lifecycleJobs: LifecycleJobSummary[] = lifecycleData?.jobs ?? [];
   const lifecycleMetrics: LifecycleMetricsSnapshot | null = lifecycleData?.metrics ?? null;
 
+  useEffect(() => {
+    if (selectedDatasetId) {
+      void refetchLifecycle();
+    }
+  }, [selectedDatasetId, refetchLifecycle]);
+
   const refreshRetention = useCallback(() => {
     setRetentionVersion((prev) => prev + 1);
   }, []);
@@ -336,6 +394,43 @@ export default function TimestoreDatasetsPage() {
     setSearch('');
   };
 
+  const handleOpenCreateDialog = () => {
+    setCreateDialogOpen(true);
+  };
+
+  const handleCloseCreateDialog = () => {
+    setCreateDialogOpen(false);
+  };
+
+  const handleDatasetCreated = useCallback(
+    async (request: CreateDatasetRequest) => {
+      const response = await createDataset(authorizedFetch, request);
+      setCursor(null);
+      setCursorStack([]);
+      setSelectedDatasetId(response.dataset.id);
+      setDatasetDetail(response.dataset);
+      setDetailError(null);
+      setManifest(null);
+      setManifestError(null);
+      setRetention(null);
+      setRetentionError(null);
+      setDatasetOverrides((prev) => ({ ...prev, [response.dataset.id]: response.dataset }));
+      await refetchDatasets();
+    },
+    [authorizedFetch, refetchDatasets]
+  );
+
+  const handleDatasetChange = useCallback((updated: DatasetRecord) => {
+    setDatasetDetail(updated);
+    setSelectedDatasetId(updated.id);
+    setDetailError(null);
+    setDatasetOverrides((prev) => ({ ...prev, [updated.id]: updated }));
+  }, []);
+
+  const handleDatasetListRefresh = useCallback(() => {
+    void refetchDatasets();
+  }, [refetchDatasets]);
+
   const datasetErrorMessage = datasetsError instanceof Error ? datasetsError.message : datasetsError ? String(datasetsError) : null;
   const lifecycleErrorMessage = lifecycleError instanceof Error ? lifecycleError.message : lifecycleError ? String(lifecycleError) : null;
   const metricsErrorMessage = metricsError;
@@ -360,7 +455,8 @@ export default function TimestoreDatasetsPage() {
   };
 
   return (
-    <section className="flex flex-col gap-6">
+    <>
+      <section className="flex flex-col gap-6">
       <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-col gap-2">
@@ -368,12 +464,23 @@ export default function TimestoreDatasetsPage() {
             <p className="text-sm text-slate-600 dark:text-slate-300">
               Browse cataloged datasets, inspect manifests, and review recent lifecycle activity.
             </p>
-            <Link
-              to={ROUTE_PATHS.servicesTimestoreSql}
-              className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
-            >
-              Open SQL editor
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={ROUTE_PATHS.servicesTimestoreSql}
+                className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-violet-400 dark:text-violet-300"
+              >
+                Open SQL editor
+              </Link>
+              {hasAdminScope && (
+                <button
+                  type="button"
+                  onClick={handleOpenCreateDialog}
+                  className="self-start rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                >
+                  Create dataset
+                </button>
+              )}
+            </div>
           </div>
           <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmitSearch}>
             <div className="flex items-center gap-2">
@@ -473,7 +580,7 @@ export default function TimestoreDatasetsPage() {
                 ) : detailError ? (
                   <div className="text-sm text-rose-600 dark:text-rose-300">{detailError}</div>
                 ) : datasetDetail ? (
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-6">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
                         Dataset
@@ -494,28 +601,13 @@ export default function TimestoreDatasetsPage() {
                         <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Updated</dt>
                         <dd className="text-sm text-slate-800 dark:text-slate-200">{formatInstant(datasetDetail.updatedAt)}</dd>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Storage Target</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">
-                          {datasetDetail.defaultStorageTargetId ?? 'default'}
-                        </dd>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <dt className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">IAM Scopes</dt>
-                        <dd className="text-sm text-slate-800 dark:text-slate-200">
-                          {datasetDetail.metadata?.iam?.readScopes?.length
-                            ? `Read: ${datasetDetail.metadata?.iam?.readScopes?.join(', ')}`
-                            : 'Read: inherits global'}
-                          <br />
-                          {datasetDetail.metadata?.iam?.writeScopes?.length
-                            ? `Write: ${datasetDetail.metadata?.iam?.writeScopes?.join(', ')}`
-                            : 'Write: inherits global'}
-                        </dd>
-                      </div>
                     </dl>
-                    {datasetDetail.description && (
-                      <p className="text-sm text-slate-700 dark:text-slate-300">{datasetDetail.description}</p>
-                    )}
+                    <DatasetAdminPanel
+                      dataset={datasetDetail}
+                      canEdit={hasAdminScope}
+                      onDatasetChange={handleDatasetChange}
+                      onRequireListRefresh={handleDatasetListRefresh}
+                    />
                   </div>
                 ) : (
                   <div className="text-sm text-slate-600 dark:text-slate-300">Select a dataset to view details.</div>
@@ -659,6 +751,13 @@ export default function TimestoreDatasetsPage() {
           )}
         </div>
       </div>
-    </section>
+      </section>
+
+      <DatasetCreateDialog
+        open={createDialogOpen}
+        onClose={handleCloseCreateDialog}
+        onCreate={handleDatasetCreated}
+      />
+    </>
   );
 }

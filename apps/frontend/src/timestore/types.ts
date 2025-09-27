@@ -1,6 +1,16 @@
 import { z } from 'zod';
+import {
+  archiveDatasetRequestSchema as sharedArchiveDatasetRequestSchema,
+  createDatasetRequestSchema as sharedCreateDatasetRequestSchema,
+  datasetIamConfigSchema as sharedDatasetIamConfigSchema,
+  datasetMetadataSchema as sharedDatasetMetadataSchema,
+  datasetRecordSchema as sharedDatasetRecordSchema,
+  datasetResponseSchema as sharedDatasetResponseSchema,
+  datasetStatusSchema as sharedDatasetStatusSchema,
+  patchDatasetRequestSchema as sharedPatchDatasetRequestSchema
+} from '@apphub/shared/timestoreAdmin';
 
-const datasetStatusSchema = z.enum(['active', 'inactive']);
+const datasetStatusSchema = sharedDatasetStatusSchema;
 const writeFormatSchema = z.enum(['duckdb', 'parquet']);
 
 const retentionRuleSchema = z.object({
@@ -20,32 +30,32 @@ export const retentionPolicySchema = z
 
 export type RetentionPolicy = z.infer<typeof retentionPolicySchema>;
 
-export const datasetRecordSchema = z.object({
-  id: z.string(),
-  slug: z.string(),
-  name: z.string(),
-  displayName: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  status: datasetStatusSchema.default('active'),
-  writeFormat: writeFormatSchema.default('duckdb'),
-  defaultStorageTargetId: z.string().nullable().optional(),
-  metadata: z
-    .object({
-      iam: z
-        .object({
-          readScopes: z.array(z.string()).optional(),
-          writeScopes: z.array(z.string()).optional()
-        })
-        .partial()
-        .optional()
-    })
-    .partial()
-    .default({}),
-  createdAt: z.string(),
-  updatedAt: z.string()
+export const datasetIamConfigSchema = sharedDatasetIamConfigSchema;
+
+export const datasetMetadataSchema = sharedDatasetMetadataSchema;
+
+export const datasetRecordSchema = sharedDatasetRecordSchema.extend({
+  displayName: z.string().nullable().optional()
 });
 
+export const datasetResponseSchema = sharedDatasetResponseSchema.extend({
+  dataset: datasetRecordSchema
+});
+
+export const createDatasetRequestSchema = sharedCreateDatasetRequestSchema;
+
+export const patchDatasetRequestSchema = sharedPatchDatasetRequestSchema;
+
+export const archiveDatasetRequestSchema = sharedArchiveDatasetRequestSchema;
+
+export type DatasetStatus = z.infer<typeof datasetStatusSchema>;
+export type DatasetIamConfig = z.infer<typeof datasetIamConfigSchema>;
+export type DatasetMetadata = z.infer<typeof datasetMetadataSchema>;
 export type DatasetRecord = z.infer<typeof datasetRecordSchema>;
+export type DatasetResponse = z.infer<typeof datasetResponseSchema>;
+export type CreateDatasetRequest = z.infer<typeof createDatasetRequestSchema>;
+export type PatchDatasetRequest = z.infer<typeof patchDatasetRequestSchema>;
+export type ArchiveDatasetRequest = z.infer<typeof archiveDatasetRequestSchema>;
 
 export const datasetListResponseSchema = z.object({
   datasets: z.array(datasetRecordSchema),
