@@ -1016,7 +1016,12 @@ export default function EventTriggerFormModal({
   };
 
   return (
-    <Modal open={open} onClose={disableActions ? undefined : onClose} contentClassName="max-w-4xl">
+    <Modal
+      open={open}
+      onClose={disableActions ? undefined : onClose}
+      className="items-start justify-center px-4 py-6 sm:items-center"
+      contentClassName="max-w-4xl max-h-[calc(100vh-4rem)] overflow-y-auto sm:max-h-[calc(100vh-6rem)]"
+    >
       <form className="flex flex-col gap-4 p-6" onSubmit={handleSubmit}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
