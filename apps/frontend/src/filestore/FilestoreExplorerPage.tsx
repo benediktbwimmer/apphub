@@ -4,7 +4,9 @@ import {
   decodeFilestoreNodeFiltersParam,
   encodeFilestoreNodeFiltersParam,
   isFilestoreNodeFiltersEmpty,
-  type FilestoreNodeFilters
+  type FilestoreNodeFilters,
+  type FilestoreRollupFilter,
+  type FilestoreMetadataFilter
 } from '@apphub/shared/filestoreFilters';
 import type { AuthIdentity } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -293,7 +295,7 @@ function parseByteSizeInput(value: string): number {
   return Math.round(parsed * multiplier);
 }
 
-function parseMetadataValueInput(value: string): unknown {
+function parseMetadataValueInput(value: string): FilestoreMetadataFilter['value'] {
   const trimmed = value.trim();
   if (!trimmed) {
     return '';
@@ -583,18 +585,18 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const handleAddMetadataFilter = useCallback(() => {
     const key = metadataKeyDraft.trim();
     if (!key) {
-      showError('Metadata key is required.');
+      showError('Metadata key is required.', undefined, 'Metadata key is required.');
       return;
     }
     if ((advancedFilters.metadata?.length ?? 0) >= 16) {
-      showError('You can only apply up to 16 metadata filters.');
+      showError('You can only apply up to 16 metadata filters.', undefined, 'You can only apply up to 16 metadata filters.');
       return;
     }
-    let parsedValue: unknown;
+    let parsedValue: FilestoreMetadataFilter['value'];
     try {
       parsedValue = parseMetadataValueInput(metadataValueDraft);
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Invalid metadata value');
+      showError('Invalid metadata value', err, 'Invalid metadata value');
       return;
     }
     applyFilters((prev) => {
@@ -668,11 +670,11 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         max = parseByteSizeInput(maxInput);
       }
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Invalid size value');
+      showError('Invalid size value', err, 'Invalid size value');
       return;
     }
     if (min !== undefined && max !== undefined && min > max) {
-      showError('Minimum size cannot exceed maximum size.');
+      showError('Minimum size cannot exceed maximum size.', undefined, 'Minimum size cannot exceed maximum size.');
       return;
     }
     applyFilters((prev) => {
@@ -729,7 +731,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     if (afterInput) {
       const parsed = new Date(afterInput);
       if (Number.isNaN(parsed.getTime())) {
-        showError('Invalid "seen after" timestamp.');
+        showError('Invalid "seen after" timestamp.', undefined, 'Invalid "seen after" timestamp.');
         return;
       }
       afterIso = parsed.toISOString();
@@ -737,13 +739,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     if (beforeInput) {
       const parsed = new Date(beforeInput);
       if (Number.isNaN(parsed.getTime())) {
-        showError('Invalid "seen before" timestamp.');
+        showError('Invalid "seen before" timestamp.', undefined, 'Invalid "seen before" timestamp.');
         return;
       }
       beforeIso = parsed.toISOString();
     }
     if (afterIso && beforeIso && new Date(afterIso) > new Date(beforeIso)) {
-      showError('"Seen after" must be earlier than "seen before".');
+      showError('"Seen after" must be earlier than "seen before".', undefined, '"Seen after" must be earlier than "seen before".');
       return;
     }
     applyFilters((prev) => {
@@ -824,12 +826,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         maxChild = parseNonNegativeInteger(maxChildRaw, 'Maximum child count');
       }
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Invalid rollup child count');
+      showError('Invalid rollup child count', err, 'Invalid rollup child count');
       return;
     }
 
     if (minChild !== undefined && maxChild !== undefined && minChild > maxChild) {
-      showError('Minimum child count cannot exceed maximum.');
+      showError('Minimum child count cannot exceed maximum.', undefined, 'Minimum child count cannot exceed maximum.');
       return;
     }
 
@@ -838,7 +840,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     if (afterRaw) {
       const parsed = new Date(afterRaw);
       if (Number.isNaN(parsed.getTime())) {
-        showError('Invalid rollup recalculated-after timestamp.');
+        showError('Invalid rollup recalculated-after timestamp.', undefined, 'Invalid rollup recalculated-after timestamp.');
         return;
       }
       afterIso = parsed.toISOString();
@@ -846,19 +848,19 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     if (beforeRaw) {
       const parsed = new Date(beforeRaw);
       if (Number.isNaN(parsed.getTime())) {
-        showError('Invalid rollup recalculated-before timestamp.');
+        showError('Invalid rollup recalculated-before timestamp.', undefined, 'Invalid rollup recalculated-before timestamp.');
         return;
       }
       beforeIso = parsed.toISOString();
     }
     if (afterIso && beforeIso && new Date(afterIso) > new Date(beforeIso)) {
-      showError('Rollup recalculated-after must be earlier than recalculated-before.');
+      showError('Rollup recalculated-after must be earlier than recalculated-before.', undefined, 'Rollup recalculated-after must be earlier than recalculated-before.');
       return;
     }
 
     applyFilters((prev) => {
       const next = { ...prev } as FilestoreNodeFilters;
-      const rollup = { ...(prev.rollup ?? {}) } as FilestoreNodeFilters['rollup'];
+      const rollup: FilestoreRollupFilter = { ...(prev.rollup ?? {}) };
 
       if (stateSelection.length > 0) {
         rollup.states = [...stateSelection];
@@ -890,10 +892,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         delete rollup.lastCalculatedBefore;
       }
 
-      if (Object.keys(rollup ?? {}).length === 0) {
+      if (Object.keys(rollup).length === 0) {
         delete next.rollup;
       } else {
-        next.rollup = rollup ?? undefined;
+        next.rollup = rollup;
       }
 
       return next;

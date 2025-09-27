@@ -18,7 +18,11 @@ type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePol
 
 const mocks = vi.hoisted(() => {
   const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
-  const subscribeToFilestoreEventsMock = vi.fn(() => ({ close: vi.fn() }));
+  const subscribeToFilestoreEventsMock = vi.fn<
+    (authorizedFetch: unknown, handler: unknown, options?: Record<string, unknown>) => {
+      close: () => void;
+    }
+  >(() => ({ close: vi.fn() }));
   const trackEventMock = vi.fn();
   const pollingResourceMock = vi.fn<PollingResourceFn>(() => ({
     data: null,
@@ -273,35 +277,35 @@ vi.mock('../../components/toast', () => ({
 
 vi.mock('../api', () => ({
   __esModule: true,
-  enqueueReconciliation: (...args: unknown[]) => mocks.enqueueReconciliationMock(...args),
+  enqueueReconciliation: mocks.enqueueReconciliationMock,
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
-  fetchReconciliationJob: (...args: unknown[]) => mocks.fetchReconciliationJobMock(...args),
-  fetchNodeByPath: (...args: unknown[]) => mocks.fetchNodeByPathMock(...args),
-  listBackendMounts: (...args: unknown[]) => mocks.listBackendMountsMock(...args),
+  fetchReconciliationJob: mocks.fetchReconciliationJobMock,
+  fetchNodeByPath: mocks.fetchNodeByPathMock,
+  listBackendMounts: mocks.listBackendMountsMock,
   listNodes: vi.fn(),
-  listReconciliationJobs: (...args: unknown[]) => mocks.listReconciliationJobsMock(...args),
-  createDirectory: (...args: unknown[]) => mocks.createDirectoryMock(...args),
-  uploadFile: (...args: unknown[]) => mocks.uploadFileMock(...args),
-  moveNode: (...args: unknown[]) => mocks.moveNodeMock(...args),
-  copyNode: (...args: unknown[]) => mocks.copyNodeMock(...args),
-  deleteNode: (...args: unknown[]) => mocks.deleteNodeMock(...args),
-  presignNodeDownload: (...args: unknown[]) => mocks.presignNodeDownloadMock(...args),
-  subscribeToFilestoreEvents: (...args: unknown[]) => mocks.subscribeToFilestoreEventsMock(...args),
+  listReconciliationJobs: mocks.listReconciliationJobsMock,
+  createDirectory: mocks.createDirectoryMock,
+  uploadFile: mocks.uploadFileMock,
+  moveNode: mocks.moveNodeMock,
+  copyNode: mocks.copyNodeMock,
+  deleteNode: mocks.deleteNodeMock,
+  presignNodeDownload: mocks.presignNodeDownloadMock,
+  subscribeToFilestoreEvents: mocks.subscribeToFilestoreEventsMock,
   updateNodeMetadata: vi.fn()
 }));
 
 vi.mock('../../workflows/api', () => ({
-  listWorkflowDefinitions: (...args: unknown[]) => mocks.listWorkflowDefinitionsMock(...args)
+  listWorkflowDefinitions: mocks.listWorkflowDefinitionsMock
 }));
 
 vi.mock('../../dataAssets/api', () => ({
-  triggerWorkflowRun: (...args: unknown[]) => mocks.triggerWorkflowRunMock(...args)
+  triggerWorkflowRun: mocks.triggerWorkflowRunMock
 }));
 
 vi.mock('../../utils/useAnalytics', () => ({
   useAnalytics: () => ({
-    trackEvent: (...args: unknown[]) => mocks.trackEventMock(...args)
+    trackEvent: mocks.trackEventMock
   })
 }));
 
@@ -464,7 +468,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   it('adds metadata filters and renders chips', async () => {
     const node = buildNode({ metadata: { owner: 'astro-ops' } });
     setupPollingResourcesForNode(node);
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
 
     renderExplorer();
 
@@ -480,7 +484,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   it('initialises filters from the URL', async () => {
     const node = buildNode();
     setupPollingResourcesForNode(node);
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
 
     const encodedFilters = encodeFilestoreNodeFiltersParam({
       query: 'galaxy',
@@ -616,10 +620,15 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
     const initialCall = mocks.subscribeToFilestoreEventsMock.mock.calls[0];
     expect(initialCall).toBeTruthy();
-    const initialOptions = initialCall[2] as Record<string, unknown>;
-    expect(initialOptions.backendMountId).toBe(sampleMount.id);
-    expect(initialOptions.pathPrefix).toBeUndefined();
-    expect(initialOptions.eventTypes).toEqual(
+    if (!initialCall) {
+      throw new Error('subscribeToFilestoreEvents should be called');
+    }
+    const [, , initialOptions] = initialCall;
+    expect(initialOptions).toBeTruthy();
+    const typedInitialOptions = initialOptions as Record<string, unknown>;
+    expect(typedInitialOptions.backendMountId).toBe(sampleMount.id);
+    expect(typedInitialOptions.pathPrefix).toBeUndefined();
+    expect(typedInitialOptions.eventTypes).toEqual(
       expect.arrayContaining([
         'filestore.node.created',
         'filestore.node.updated',
@@ -640,10 +649,18 @@ describe('FilestoreExplorerPage mount discovery', () => {
       expect(mocks.subscribeToFilestoreEventsMock.mock.calls.length).toBeGreaterThan(1);
     });
 
-    const afterPathCall = mocks.subscribeToFilestoreEventsMock.mock.calls.at(-1);
-    const afterPathOptions = afterPathCall?.[2] as Record<string, unknown>;
-    expect(afterPathOptions.backendMountId).toBe(sampleMount.id);
-    expect(afterPathOptions.pathPrefix).toBe('datasets/observatory');
+    const afterPathCall = mocks.subscribeToFilestoreEventsMock.mock.calls[
+      mocks.subscribeToFilestoreEventsMock.mock.calls.length - 1
+    ];
+    expect(afterPathCall).toBeTruthy();
+    if (!afterPathCall) {
+      throw new Error('Expected additional subscribe call after applying path filter');
+    }
+    const afterPathOptions = afterPathCall[2];
+    expect(afterPathOptions).toBeTruthy();
+    const typedAfterPathOptions = afterPathOptions as Record<string, unknown>;
+    expect(typedAfterPathOptions.backendMountId).toBe(sampleMount.id);
+    expect(typedAfterPathOptions.pathPrefix).toBe('datasets/observatory');
 
     const downloadsToggle = screen.getByRole('button', { name: 'Downloads' });
     fireEvent.click(downloadsToggle);
@@ -652,9 +669,19 @@ describe('FilestoreExplorerPage mount discovery', () => {
       expect(mocks.subscribeToFilestoreEventsMock.mock.calls.length).toBeGreaterThan(2);
     });
 
-    const afterToggleCall = mocks.subscribeToFilestoreEventsMock.mock.calls.at(-1);
-    const afterToggleOptions = afterToggleCall?.[2] as Record<string, unknown>;
-    expect(afterToggleOptions.eventTypes).toEqual(expect.not.arrayContaining(['filestore.node.downloaded']));
+    const afterToggleCall = mocks.subscribeToFilestoreEventsMock.mock.calls[
+      mocks.subscribeToFilestoreEventsMock.mock.calls.length - 1
+    ];
+    expect(afterToggleCall).toBeTruthy();
+    if (!afterToggleCall) {
+      throw new Error('Expected subscribe call after toggling category');
+    }
+    const afterToggleOptions = afterToggleCall[2];
+    expect(afterToggleOptions).toBeTruthy();
+    const typedAfterToggleOptions = afterToggleOptions as Record<string, unknown>;
+    expect(typedAfterToggleOptions.eventTypes).toEqual(
+      expect.not.arrayContaining(['filestore.node.downloaded'])
+    );
   });
 
   it('renders reconciliation job history when mounts and write scope are available', async () => {
