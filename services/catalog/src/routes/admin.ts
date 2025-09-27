@@ -19,10 +19,12 @@ import {
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get('/admin/event-health', async (request, reply) => {
     try {
-      const [ingressQueue, triggerQueue, metricsSnapshot] = await Promise.all([
+      const [ingressQueue, triggerQueue, metricsSnapshot, pausedSources, pausedTriggers] = await Promise.all([
         getEventQueueStats(),
         getEventTriggerQueueStats(),
-        Promise.resolve(getEventSchedulerMetricsSnapshot())
+        getEventSchedulerMetricsSnapshot(),
+        getSourcePauseStates(),
+        getTriggerPauseStates()
       ]);
 
       reply.status(200).send({
@@ -32,8 +34,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
             triggers: triggerQueue
           },
           metrics: metricsSnapshot,
-          pausedSources: getSourcePauseStates(),
-          pausedTriggers: getTriggerPauseStates(),
+          pausedSources,
+          pausedTriggers,
           rateLimits: getRateLimitConfiguration()
         }
       });

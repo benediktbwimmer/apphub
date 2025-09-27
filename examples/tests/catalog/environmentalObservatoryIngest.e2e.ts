@@ -630,7 +630,7 @@ async function flushEventQueue(queue: Queue<EventIngressJobData>): Promise<boole
   for (const job of jobs) {
     const envelope = validateEventEnvelope(job.data.envelope);
     await ingestWorkflowEvent(envelope);
-    const evaluation = registerSourceEvent(envelope.source ?? 'unknown');
+    const evaluation = await registerSourceEvent(envelope.source ?? 'unknown');
     if (evaluation.allowed) {
       await processEventTriggersForEnvelope(envelope);
     }

@@ -29,12 +29,12 @@ async function runQueuedWorker(): Promise<void> {
       try {
         await ingestWorkflowEvent(validated);
       } catch (err) {
-        recordEventIngressFailure(validated.source ?? 'unknown');
+        await recordEventIngressFailure(validated.source ?? 'unknown');
         throw err;
       }
 
-      const evaluation = registerSourceEvent(validated.source ?? 'unknown');
-      recordEventIngress(validated, {
+      const evaluation = await registerSourceEvent(validated.source ?? 'unknown');
+      await recordEventIngress(validated, {
         throttled: evaluation.reason === 'rate_limit' && evaluation.allowed === false,
         dropped: evaluation.allowed === false
       });
@@ -54,7 +54,7 @@ async function runQueuedWorker(): Promise<void> {
       try {
         await enqueueEventTriggerEvaluation(validated);
       } catch (err) {
-        recordEventIngressFailure(validated.source ?? 'unknown');
+        await recordEventIngressFailure(validated.source ?? 'unknown');
         throw err;
       }
     },

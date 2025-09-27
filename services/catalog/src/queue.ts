@@ -226,12 +226,12 @@ export async function enqueueWorkflowEvent(
     try {
       await ingestWorkflowEvent(envelope);
     } catch (err) {
-      recordEventIngressFailure(envelope.source ?? 'unknown');
+      await recordEventIngressFailure(envelope.source ?? 'unknown');
       throw err;
     }
 
-    const registration = registerSourceEvent(envelope.source ?? 'unknown');
-    recordEventIngress(envelope, {
+    const registration = await registerSourceEvent(envelope.source ?? 'unknown');
+    await recordEventIngress(envelope, {
       throttled: registration.reason === 'rate_limit' && registration.allowed === false,
       dropped: registration.allowed === false
     });
@@ -249,7 +249,7 @@ export async function enqueueWorkflowEvent(
     try {
       await processEventTriggersForEnvelope(envelope);
     } catch (err) {
-      recordEventIngressFailure(envelope.source ?? 'unknown');
+      await recordEventIngressFailure(envelope.source ?? 'unknown');
       throw err;
     }
     return envelope;

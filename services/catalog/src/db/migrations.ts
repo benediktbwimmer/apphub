@@ -844,6 +844,68 @@ const migrations: Migration[] = [
            ('role-admin', 'filestore:admin')
        ON CONFLICT DO NOTHING;`
     ]
+  },
+  {
+    id: '029_event_scheduler_state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS event_scheduler_source_events (
+         id BIGSERIAL PRIMARY KEY,
+         source TEXT NOT NULL,
+         event_time TIMESTAMPTZ NOT NULL
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_scheduler_source_events_source_time
+         ON event_scheduler_source_events (source, event_time);`,
+      `CREATE TABLE IF NOT EXISTS event_scheduler_source_pauses (
+         source TEXT PRIMARY KEY,
+         paused_until TIMESTAMPTZ NOT NULL,
+         reason TEXT NOT NULL,
+         details JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS event_scheduler_trigger_failures (
+         id BIGSERIAL PRIMARY KEY,
+         trigger_id TEXT NOT NULL,
+         failure_time TIMESTAMPTZ NOT NULL,
+         reason TEXT,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_scheduler_trigger_failures_trigger_time
+         ON event_scheduler_trigger_failures (trigger_id, failure_time);`,
+      `CREATE TABLE IF NOT EXISTS event_scheduler_trigger_pauses (
+         trigger_id TEXT PRIMARY KEY,
+         paused_until TIMESTAMPTZ NOT NULL,
+         reason TEXT NOT NULL,
+         failures INTEGER NOT NULL DEFAULT 0,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE TABLE IF NOT EXISTS event_scheduler_source_metrics (
+         source TEXT PRIMARY KEY,
+         total BIGINT NOT NULL DEFAULT 0,
+         throttled BIGINT NOT NULL DEFAULT 0,
+         dropped BIGINT NOT NULL DEFAULT 0,
+         failures BIGINT NOT NULL DEFAULT 0,
+         total_lag_ms BIGINT NOT NULL DEFAULT 0,
+         last_lag_ms BIGINT NOT NULL DEFAULT 0,
+         max_lag_ms BIGINT NOT NULL DEFAULT 0,
+         last_event_at TIMESTAMPTZ
+       );`,
+      `CREATE TABLE IF NOT EXISTS event_scheduler_trigger_metrics (
+         trigger_id TEXT PRIMARY KEY,
+         workflow_definition_id TEXT NOT NULL,
+         count_filtered BIGINT NOT NULL DEFAULT 0,
+         count_matched BIGINT NOT NULL DEFAULT 0,
+         count_launched BIGINT NOT NULL DEFAULT 0,
+         count_throttled BIGINT NOT NULL DEFAULT 0,
+         count_skipped BIGINT NOT NULL DEFAULT 0,
+         count_failed BIGINT NOT NULL DEFAULT 0,
+         count_paused BIGINT NOT NULL DEFAULT 0,
+         last_status TEXT,
+         last_updated_at TIMESTAMPTZ,
+         last_error TEXT
+       );`
+    ]
   }
 ];
 
