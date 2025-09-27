@@ -17,6 +17,7 @@ import type {
   DatasetRecord,
   LifecycleJobSummary,
   LifecycleStatusResponse,
+  ManifestPartition,
   ManifestResponse,
   RetentionResponse,
   LifecycleMetricsSnapshot
@@ -48,11 +49,33 @@ function formatBytes(value: number | null | undefined): string {
 }
 
 function summarizeSize(partitions: ManifestResponse['manifest']['partitions']): string {
-  const total = partitions.reduce((acc, partition) => acc + (partition.sizeBytes ?? 0), 0);
+  const total = partitions.reduce((acc, partition) => acc + (partition.fileSizeBytes ?? 0), 0);
   if (!Number.isFinite(total) || total <= 0) {
     return 'n/a';
   }
   return formatBytes(total);
+}
+
+function describePartitionKey(partitionKey: ManifestPartition['partitionKey']): string {
+  const entries = Object.entries(partitionKey ?? {});
+  if (entries.length === 0) {
+    return 'default';
+  }
+  return entries
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => {
+      if (value === null || value === undefined) {
+        return `${key}=—`;
+      }
+      if (Array.isArray(value)) {
+        return `${key}=${value.map((item) => String(item)).join(',')}`;
+      }
+      if (typeof value === 'object') {
+        return `${key}=${JSON.stringify(value)}`;
+      }
+      return `${key}=${String(value)}`;
+    })
+    .join(', ');
 }
 
 const STATUS_LABELS: Record<'active' | 'inactive' | 'all', string> = {
@@ -581,10 +604,10 @@ export default function TimestoreDatasetsPage() {
                             {manifest.manifest.partitions.slice(0, 5).map((partition) => (
                               <tr key={partition.id} className="border-t border-slate-200/50 dark:border-slate-700/60">
                                 <td className="px-4 py-2 text-slate-700 dark:text-slate-200">
-                                  {partition.partitionKey ?? 'default'}
+                                  {describePartitionKey(partition.partitionKey)}
                                 </td>
-                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{partition.storagePath}</td>
-                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{formatBytes(partition.sizeBytes)}</td>
+                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{partition.filePath}</td>
+                                <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{formatBytes(partition.fileSizeBytes)}</td>
                                 <td className="px-4 py-2 text-slate-500 dark:text-slate-300">{formatInstant(partition.createdAt)}</td>
                               </tr>
                             ))}

@@ -54,13 +54,22 @@ export const datasetListResponseSchema = z.object({
 
 export type DatasetListResponse = z.infer<typeof datasetListResponseSchema>;
 
-export const manifestPartitionSchema = z.object({
-  id: z.string(),
-  partitionKey: z.string().nullable(),
-  storagePath: z.string(),
-  sizeBytes: z.number().nullable().optional(),
-  createdAt: z.string()
-});
+export const manifestPartitionSchema = z
+  .object({
+    id: z.string(),
+    partitionKey: z.record(z.unknown()).catch({}),
+    storageTargetId: z.string(),
+    fileFormat: z.string(),
+    filePath: z.string(),
+    fileSizeBytes: z.number().nullable().optional(),
+    rowCount: z.number().nullable().optional(),
+    startTime: z.string(),
+    endTime: z.string(),
+    checksum: z.string().nullable().optional(),
+    metadata: z.record(z.unknown()).optional(),
+    createdAt: z.string()
+  })
+  .passthrough();
 
 export type ManifestPartition = z.infer<typeof manifestPartitionSchema>;
 
