@@ -78,7 +78,6 @@ import {
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
-import type { JsonValue } from './shared/serializers';
 import { registerWorkflowTriggerRoutes } from './workflows/triggers';
 import { getWorkflowDefaultParameters } from '../bootstrap';
 

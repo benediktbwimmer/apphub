@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { type JsonValue } from './db/index';
+import type { JsonValue as DbJsonValue } from './db/index';
+
+export type JsonValue = DbJsonValue;
 
 const manifestEnvReferenceSchema = z
   .object({

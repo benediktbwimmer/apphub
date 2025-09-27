@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { Pool } from 'pg';
+import { Pool, type QueryResultRow } from 'pg';
 import type { JsonValue } from '../serviceManifestTypes';
 import { bootstrapPlanSchema, type BootstrapActionSpec, type BootstrapPlanSpec } from './schema';
 import {
@@ -31,8 +31,12 @@ export type BootstrapExecutionResult = {
 
 type TemplateScope = Record<string, unknown>;
 
+type PoolQueryResult<T extends QueryResultRow = QueryResultRow> = {
+  rows: T[];
+};
+
 type PoolFactory = (options: { connectionString: string }) => {
-  query: <T>(query: string, params: unknown[]) => Promise<{ rows: T[] }>;
+  query: <T extends QueryResultRow = QueryResultRow>(query: string, params: unknown[]) => Promise<PoolQueryResult<T>>;
   end: () => Promise<void> | void;
 };
 
@@ -63,7 +67,10 @@ function determineWorkspaceRoot(explicit?: string): string {
 const defaultPoolFactory: PoolFactory = ({ connectionString }) => {
   const pool = new Pool({ connectionString, max: 1 });
   return {
-    query: (text, params) => pool.query(text, params),
+    query: async <T extends QueryResultRow = QueryResultRow>(text: string, params: unknown[]) => {
+      const result = await pool.query<T>(text, params as unknown[]);
+      return { rows: result.rows };
+    },
     end: () => pool.end()
   };
 };
