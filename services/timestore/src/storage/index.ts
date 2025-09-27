@@ -53,8 +53,9 @@ function loadGoogleStorageModule(): GoogleStorageModule {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-    cachedGoogleStorageModule = require('@google-cloud/storage');
-    return cachedGoogleStorageModule;
+    const module = require('@google-cloud/storage') as GoogleStorageModule;
+    cachedGoogleStorageModule = module;
+    return module;
   } catch (error) {
     throw new Error('Missing optional dependency "@google-cloud/storage". Install it or remove Google Cloud Storage targets.');
   }
@@ -66,8 +67,9 @@ function loadAzureBlobModule(): AzureBlobModule {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-    cachedAzureBlobModule = require('@azure/storage-blob');
-    return cachedAzureBlobModule;
+    const module = require('@azure/storage-blob') as AzureBlobModule;
+    cachedAzureBlobModule = module;
+    return module;
   } catch (error) {
     throw new Error('Missing optional dependency "@azure/storage-blob". Install it or remove Azure storage targets.');
   }
