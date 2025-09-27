@@ -17,6 +17,8 @@ Set the following variables in `.env.local` to target locally running services:
 - Point the explorer at a running Filestore instance by setting `VITE_FILESTORE_BASE_URL` in `.env.local` (defaults to `${VITE_API_BASE_URL}/filestore`).
 - The page consumes the typed helpers in `apps/frontend/src/filestore/api.ts` for listings, node detail polling, metadata updates, uploads, move/copy operations, and SSE activity feeds.
 - A write tab exposes upload, move, copy, and delete actions when the authenticated identity has `filestore:write`; these interactions surface `filestore.node.uploaded`, `filestore.node.moved`, and `filestore.node.copied` events in the activity feed.
+- Live SSE subscriptions are scoped by the selected mount, any active path filter, and the activity feed category toggles to avoid unnecessary refreshes; polling intervals back off automatically once a scoped stream is active.
+- The activity feed exposes category pills (node changes, commands, drift, reconciliation, downloads) so operators can enable or silence specific event types without leaving the page.
 
 Currently, two official plugins are available:
 

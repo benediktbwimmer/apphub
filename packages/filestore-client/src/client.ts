@@ -282,8 +282,14 @@ export class FilestoreClient {
   }
 
   streamEvents(options: ListEventsOptions = {}): AsyncIterable<FilestoreEvent> {
-    const { signal, eventTypes } = options;
+    const { signal, eventTypes, backendMountId, pathPrefix } = options;
     const self = this;
+    const normalizedEventTypes =
+      eventTypes && eventTypes.length > 0 ? Array.from(new Set(eventTypes)) : undefined;
+    const eventTypeSet = normalizedEventTypes ? new Set(normalizedEventTypes) : null;
+    const normalizedMountId =
+      typeof backendMountId === 'number' && Number.isFinite(backendMountId) ? backendMountId : null;
+    const normalizedPathPrefix = typeof pathPrefix === 'string' ? pathPrefix.trim() : '';
 
     async function* iterator(): AsyncGenerator<FilestoreEvent> {
       const controller = new AbortController();
@@ -299,7 +305,20 @@ export class FilestoreClient {
       try {
         const headers = self.buildHeaders();
         headers.set('Accept', 'text/event-stream');
-        response = await self.fetchRaw(self.buildUrl('/v1/events/stream'), {
+        const url = self.buildUrl('/v1/events/stream');
+        if (normalizedMountId !== null) {
+          url.searchParams.set('backendMountId', String(normalizedMountId));
+        }
+        if (normalizedPathPrefix) {
+          url.searchParams.set('pathPrefix', normalizedPathPrefix);
+        }
+        if (normalizedEventTypes) {
+          for (const type of normalizedEventTypes) {
+            url.searchParams.append('events', type);
+          }
+        }
+
+        response = await self.fetchRaw(url, {
           method: 'GET',
           headers,
           signal: controller.signal
@@ -351,7 +370,7 @@ export class FilestoreClient {
               continue;
             }
 
-            if (eventTypes && !eventTypes.includes(eventName as FilestoreEvent['type'])) {
+            if (eventTypeSet && !eventTypeSet.has(eventName as FilestoreEvent['type'])) {
               continue;
             }
 

@@ -46,7 +46,12 @@ import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
 import { getRollupSummary } from '../../rollup/manager';
 import type { RollupSummary } from '../../rollup/types';
-import { emitNodeDownloadedEvent, subscribeToFilestoreEvents } from '../../events/publisher';
+import {
+  emitNodeDownloadedEvent,
+  subscribeToFilestoreEvents,
+  type FilestoreEvent,
+  type FilestoreEventSubscriptionOptions
+} from '../../events/publisher';
 import { ensureReconciliationManager } from '../../reconciliation/manager';
 import type { ReconciliationReason } from '../../reconciliation/types';
 import { getNodeDepth, normalizePath } from '../../utils/path';
@@ -57,6 +62,22 @@ type ParsedChecksumHeader = {
 };
 
 const checksumAlgorithms = new Set<ParsedChecksumHeader['algorithm']>(['sha256', 'sha1', 'md5']);
+
+const SSE_RATE_LIMIT_CAPACITY = 200;
+const SSE_RATE_LIMIT_INTERVAL_MS = 1000;
+const SSE_MAX_QUEUE_SIZE = 500;
+
+type EventStreamQuery = {
+  backendMountId?: string;
+  pathPrefix?: string;
+  events?: string | string[];
+};
+
+type SseDispatcher = {
+  sendEvent: (event: FilestoreEvent) => void;
+  sendComment: (comment: string) => void;
+  close: () => void;
+};
 
 function parseChecksumHeader(value: unknown): ParsedChecksumHeader | null {
   if (typeof value !== 'string') {
@@ -77,6 +98,166 @@ function parseChecksumHeader(value: unknown): ParsedChecksumHeader | null {
     return { algorithm, value: maybeValue.trim().toLowerCase() };
   }
   return { algorithm: 'sha256', value: maybeValue.trim().toLowerCase() };
+}
+
+function parseBackendMountIdQuery(value: unknown): number | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parsePathPrefixQuery(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeEventTypesQuery(value: unknown): FilestoreEvent['type'][] {
+  if (!value) {
+    return [];
+  }
+  const rawValues = Array.isArray(value) ? value : [value];
+  const result: FilestoreEvent['type'][] = [];
+  for (const raw of rawValues) {
+    if (typeof raw !== 'string') {
+      continue;
+    }
+    const parts = raw
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    for (const part of parts) {
+      if (part.startsWith('filestore.')) {
+        result.push(part as FilestoreEvent['type']);
+      }
+    }
+  }
+  return result;
+}
+
+function buildSubscriptionOptionsFromQuery(query: EventStreamQuery): FilestoreEventSubscriptionOptions | undefined {
+  const backendMountId = parseBackendMountIdQuery(query.backendMountId);
+  const pathPrefix = parsePathPrefixQuery(query.pathPrefix);
+  const eventTypes = normalizeEventTypesQuery(query.events);
+
+  const options: FilestoreEventSubscriptionOptions = {};
+  if (backendMountId !== undefined) {
+    options.backendMountId = backendMountId;
+  }
+  if (pathPrefix !== undefined) {
+    options.pathPrefix = pathPrefix;
+  }
+  if (eventTypes.length > 0) {
+    options.eventTypes = eventTypes;
+  }
+
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
+function formatEventFrame(event: FilestoreEvent): string {
+  const payload = JSON.stringify({ type: event.type, data: event.data });
+  return `event: ${event.type}\n` + `data: ${payload}\n\n`;
+}
+
+function formatCommentFrame(comment: string): string {
+  return `:${comment}\n\n`;
+}
+
+function createSseDispatcher(stream: NodeJS.WritableStream): SseDispatcher {
+  let tokens = SSE_RATE_LIMIT_CAPACITY;
+  const queue: string[] = [];
+  let draining = false;
+  let dropped = 0;
+  let dropNoticePending = false;
+
+  const onDrain = () => {
+    draining = false;
+    flush();
+  };
+
+  const refillTimer = setInterval(() => {
+    tokens = SSE_RATE_LIMIT_CAPACITY;
+    flush();
+  }, SSE_RATE_LIMIT_INTERVAL_MS);
+  if (typeof refillTimer.unref === 'function') {
+    refillTimer.unref();
+  }
+
+  const flush = () => {
+    if (draining) {
+      return;
+    }
+
+    if (dropNoticePending && tokens > 0) {
+      const noticeFrame = formatCommentFrame(`rate_limited ${dropped} events trimmed`);
+      dropped = 0;
+      dropNoticePending = false;
+      tokens -= 1;
+      const ok = stream.write(noticeFrame);
+      if (!ok) {
+        draining = true;
+        stream.once('drain', onDrain);
+        return;
+      }
+    }
+
+    while (queue.length > 0 && tokens > 0 && !draining) {
+      const frame = queue.shift()!;
+      tokens -= 1;
+      const ok = stream.write(frame);
+      if (!ok) {
+        draining = true;
+        stream.once('drain', onDrain);
+      }
+    }
+  };
+
+  const enqueue = (frame: string) => {
+    if (!draining && tokens > 0 && queue.length === 0 && !dropNoticePending) {
+      tokens -= 1;
+      const ok = stream.write(frame);
+      if (!ok) {
+        draining = true;
+        stream.once('drain', onDrain);
+      }
+      return;
+    }
+
+    queue.push(frame);
+    if (queue.length > SSE_MAX_QUEUE_SIZE) {
+      const overflow = queue.length - SSE_MAX_QUEUE_SIZE;
+      queue.splice(0, overflow);
+      dropped += overflow;
+      dropNoticePending = true;
+    }
+    flush();
+  };
+
+  return {
+    sendEvent: (event: FilestoreEvent) => {
+      const frame = formatEventFrame(event);
+      enqueue(frame);
+    },
+    sendComment: (comment: string) => {
+      const frame = formatCommentFrame(comment);
+      enqueue(frame);
+    },
+    close: () => {
+      clearInterval(refillTimer);
+      if (typeof (stream as NodeJS.EventEmitter).removeListener === 'function') {
+        (stream as NodeJS.EventEmitter).removeListener('drain', onDrain);
+      }
+      queue.length = 0;
+    }
+  };
 }
 
 function parseBooleanFormField(value: string | undefined): boolean | undefined {
@@ -1893,26 +2074,40 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     reply.hijack();
     reply.raw.write(':connected\n\n');
 
-    const unsubscribe = subscribeToFilestoreEvents((event) => {
-      try {
-        const payload = JSON.stringify({ type: event.type, data: event.data });
-        reply.raw.write(`event: ${event.type}\n`);
-        reply.raw.write(`data: ${payload}\n\n`);
-      } catch (err) {
-        request.log.error({ err }, 'failed to write SSE payload');
-      }
-    });
+    const query = (request.query ?? {}) as EventStreamQuery;
+    const subscriptionOptions = buildSubscriptionOptionsFromQuery(query);
+    const dispatcher = createSseDispatcher(reply.raw);
+
+    const unsubscribe = subscribeToFilestoreEvents(
+      (event) => {
+        try {
+          dispatcher.sendEvent(event);
+        } catch (err) {
+          request.log.error({ err }, 'failed to write SSE payload');
+        }
+      },
+      subscriptionOptions
+    );
 
     const heartbeat = setInterval(() => {
       try {
-        reply.raw.write(':ping\n\n');
+        dispatcher.sendComment('ping');
       } catch (err) {
         request.log.error({ err }, 'failed to write SSE heartbeat');
       }
     }, 15000);
+    if (typeof heartbeat.unref === 'function') {
+      heartbeat.unref();
+    }
 
+    let cleanedUp = false;
     const cleanup = () => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
       clearInterval(heartbeat);
+      dispatcher.close();
       unsubscribe();
     };
 

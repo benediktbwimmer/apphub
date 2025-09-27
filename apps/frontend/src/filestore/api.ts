@@ -168,6 +168,8 @@ export type FilestoreEventHandler = (event: FilestoreEvent) => void | Promise<vo
 export type FilestoreEventStreamOptions = {
   signal?: AbortSignal;
   eventTypes?: FilestoreEventType[];
+  backendMountId?: number | null;
+  pathPrefix?: string | null;
   onError?: (error: Error) => void;
 };
 
@@ -637,7 +639,12 @@ export function subscribeToFilestoreEvents(
   options: FilestoreEventStreamOptions = {}
 ): FilestoreEventSubscription {
   const controller = new AbortController();
-  const { signal, eventTypes, onError } = options;
+  const { signal, eventTypes, backendMountId, pathPrefix, onError } = options;
+  const normalizedEventTypes =
+    eventTypes && eventTypes.length > 0 ? Array.from(new Set(eventTypes)) : undefined;
+  const normalizedMountId =
+    typeof backendMountId === 'number' && Number.isFinite(backendMountId) ? backendMountId : null;
+  const normalizedPathPrefix = typeof pathPrefix === 'string' ? pathPrefix.trim() : '';
 
   const notifyError = (error: unknown) => {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -674,7 +681,7 @@ export function subscribeToFilestoreEvents(
     while (separatorIndex !== -1) {
       const frame = working.slice(0, separatorIndex);
       working = working.slice(separatorIndex + 2);
-      const event = parseFilestoreEventFrame(frame, eventTypes);
+      const event = parseFilestoreEventFrame(frame, normalizedEventTypes);
       if (event) {
         try {
           await handler(event);
@@ -693,7 +700,20 @@ export function subscribeToFilestoreEvents(
         return;
       }
 
-      const response = await authorizedFetch(buildFilestoreUrl('/v1/events/stream'), {
+      const streamUrl = new URL(buildFilestoreUrl('/v1/events/stream'));
+      if (normalizedMountId !== null) {
+        streamUrl.searchParams.set('backendMountId', String(normalizedMountId));
+      }
+      if (normalizedPathPrefix) {
+        streamUrl.searchParams.set('pathPrefix', normalizedPathPrefix);
+      }
+      if (normalizedEventTypes && normalizedEventTypes.length > 0) {
+        for (const eventType of normalizedEventTypes) {
+          streamUrl.searchParams.append('events', eventType);
+        }
+      }
+
+      const response = await authorizedFetch(streamUrl.toString(), {
         method: 'GET',
         headers: { Accept: 'text/event-stream' },
         signal: controller.signal

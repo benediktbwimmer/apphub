@@ -122,7 +122,7 @@ before(async () => {
       return;
     }
 
-    if (req.url === '/v1/events/stream' && req.method === 'GET') {
+    if (req.url?.startsWith('/v1/events/stream') && req.method === 'GET') {
       recordedRequests.push({ method: req.method, url: req.url, headers: req.headers, body: null });
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -216,15 +216,24 @@ test('enqueueReconciliation posts body', async () => {
   assert.equal(request.body.reason, 'audit');
 });
 
-test('streamEvents yields SSE messages', async () => {
+test('streamEvents yields SSE messages with scoped options', async () => {
   resetRequests();
   const client = createClient();
   const events: FilestoreEvent[] = [];
-  for await (const event of client.streamEvents({ eventTypes: ['filestore.node.created'] })) {
+  for await (const event of client.streamEvents({
+    eventTypes: ['filestore.node.created'],
+    backendMountId: 12,
+    pathPrefix: 'datasets/observatory'
+  })) {
     events.push(event);
     break;
   }
   assert.equal(events.length, 1);
   assert.equal(events[0].type, 'filestore.node.created');
   assert.deepEqual(events[0].data, { nodeId: 7 });
+  const request = recordedRequests.find((entry) => entry.method === 'GET' && entry.url?.startsWith('/v1/events/stream'));
+  assert.ok(request);
+  assert.ok(request?.url?.includes('events=filestore.node.created'));
+  assert.ok(request?.url?.includes('backendMountId=12'));
+  assert.ok(request?.url?.includes('pathPrefix=datasets%2Fobservatory'));
 });

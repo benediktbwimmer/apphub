@@ -78,6 +78,10 @@ For local development without Redis, use the SSE endpoint exposed at `/v1/events
 - `POST /v1/nodes/move` – Move nodes (and their descendants) to a new path within the same backend mount.
 - `POST /v1/nodes/copy` – Copy nodes (and their descendants) to a new path within the same backend mount.
 - `POST /v1/reconciliation` – Enqueue reconciliation jobs for drift or manual inspections.
-- `GET /v1/events/stream` – Server-Sent Events stream for local observers when Redis is disabled.
+- `GET /v1/events/stream` – Server-Sent Events stream for local observers when Redis is disabled. Optional query parameters scope delivery:
+  - `backendMountId=<id>` filters to a single mount.
+  - `pathPrefix=<prefix>` limits payloads to paths starting with the provided prefix.
+  - `events=<type>` (repeatable) restricts the stream to specific `filestore.*` event types.
+  The stream applies a token-bucket rate limiter (200 frames/sec with bounded buffering) and respects Node's backpressure signals to keep chatty mounts from overwhelming clients.
 
 Migrations run automatically during startup; the service terminates if schema creation or migration fails.

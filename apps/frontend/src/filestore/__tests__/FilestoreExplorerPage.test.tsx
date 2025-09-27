@@ -556,6 +556,58 @@ describe('FilestoreExplorerPage mount discovery', () => {
     expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Presigned link opened');
   });
 
+  it('subscribes to scoped SSE with mount, path, and category filters', async () => {
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    await waitFor(() => {
+      expect(mocks.subscribeToFilestoreEventsMock).toHaveBeenCalled();
+    });
+
+    const initialCall = mocks.subscribeToFilestoreEventsMock.mock.calls[0];
+    expect(initialCall).toBeTruthy();
+    const initialOptions = initialCall[2] as Record<string, unknown>;
+    expect(initialOptions.backendMountId).toBe(sampleMount.id);
+    expect(initialOptions.pathPrefix).toBeUndefined();
+    expect(initialOptions.eventTypes).toEqual(
+      expect.arrayContaining([
+        'filestore.node.created',
+        'filestore.node.updated',
+        'filestore.node.deleted',
+        'filestore.command.completed',
+        'filestore.node.downloaded',
+        'filestore.reconciliation.job.queued'
+      ])
+    );
+
+    const pathInput = await screen.findByLabelText('Path filter');
+    fireEvent.change(pathInput, { target: { value: 'datasets/observatory' } });
+    const pathForm = pathInput.closest('form');
+    expect(pathForm).not.toBeNull();
+    fireEvent.click(within(pathForm as HTMLFormElement).getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(mocks.subscribeToFilestoreEventsMock.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    const afterPathCall = mocks.subscribeToFilestoreEventsMock.mock.calls.at(-1);
+    const afterPathOptions = afterPathCall?.[2] as Record<string, unknown>;
+    expect(afterPathOptions.backendMountId).toBe(sampleMount.id);
+    expect(afterPathOptions.pathPrefix).toBe('datasets/observatory');
+
+    const downloadsToggle = screen.getByRole('button', { name: 'Downloads' });
+    fireEvent.click(downloadsToggle);
+
+    await waitFor(() => {
+      expect(mocks.subscribeToFilestoreEventsMock.mock.calls.length).toBeGreaterThan(2);
+    });
+
+    const afterToggleCall = mocks.subscribeToFilestoreEventsMock.mock.calls.at(-1);
+    const afterToggleOptions = afterToggleCall?.[2] as Record<string, unknown>;
+    expect(afterToggleOptions.eventTypes).toEqual(expect.not.arrayContaining(['filestore.node.downloaded']));
+  });
+
   it('renders reconciliation job history when mounts and write scope are available', async () => {
     mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
     setupPollingResourcesForNode(buildNode());

@@ -22,6 +22,12 @@ export type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 
 export type FilestoreEventListener = (event: FilestoreEvent) => void | Promise<void>;
 
+export type FilestoreEventSubscriptionOptions = {
+  backendMountId?: number;
+  pathPrefix?: string;
+  eventTypes?: Iterable<FilestoreEvent['type']>;
+};
+
 const eventEmitter = new EventEmitter();
 eventEmitter.setMaxListeners(0);
 
@@ -333,10 +339,123 @@ export function resetFilestoreEventsForTests(): void {
   eventEmitter.removeAllListeners();
 }
 
-export function subscribeToFilestoreEvents(listener: FilestoreEventListener): () => void {
-  eventEmitter.on('event', listener);
+function toNormalizedPathPrefix(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed;
+}
+
+function extractBackendMountId(event: FilestoreEvent): number | null {
+  const data = event.data as Record<string, unknown> | null | undefined;
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const candidate = data.backendMountId;
+  return typeof candidate === 'number' ? candidate : null;
+}
+
+function extractPath(event: FilestoreEvent): string | null {
+  const data = event.data as Record<string, unknown> | null | undefined;
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const candidate = data.path;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
+
+function buildEventFilter(
+  options: FilestoreEventSubscriptionOptions | undefined
+):
+  | null
+  | {
+      backendMountId: number | null;
+      pathPrefix: string | null;
+      eventTypes: Set<FilestoreEvent['type']> | null;
+    } {
+  if (!options) {
+    return null;
+  }
+
+  const backendMountId =
+    typeof options.backendMountId === 'number' && Number.isFinite(options.backendMountId)
+      ? options.backendMountId
+      : null;
+  const pathPrefix = toNormalizedPathPrefix(options.pathPrefix);
+  let eventTypes: Set<FilestoreEvent['type']> | null = null;
+  if (options.eventTypes) {
+    eventTypes = new Set();
+    for (const value of options.eventTypes) {
+      if (typeof value === 'string' && value.startsWith('filestore.')) {
+        eventTypes.add(value as FilestoreEvent['type']);
+      }
+    }
+    if (eventTypes.size === 0) {
+      eventTypes = null;
+    }
+  }
+
+  if (backendMountId === null && pathPrefix === null && eventTypes === null) {
+    return null;
+  }
+
+  return { backendMountId, pathPrefix, eventTypes };
+}
+
+function shouldDeliverEvent(
+  event: FilestoreEvent,
+  filter:
+    | null
+    | {
+        backendMountId: number | null;
+        pathPrefix: string | null;
+        eventTypes: Set<FilestoreEvent['type']> | null;
+      }
+): boolean {
+  if (!filter) {
+    return true;
+  }
+
+  if (filter.eventTypes && !filter.eventTypes.has(event.type)) {
+    return false;
+  }
+
+  if (filter.backendMountId !== null) {
+    const backendMountId = extractBackendMountId(event);
+    if (backendMountId !== filter.backendMountId) {
+      return false;
+    }
+  }
+
+  if (filter.pathPrefix !== null) {
+    const path = extractPath(event);
+    if (!path || !path.startsWith(filter.pathPrefix)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function subscribeToFilestoreEvents(
+  listener: FilestoreEventListener,
+  options?: FilestoreEventSubscriptionOptions
+): () => void {
+  const filter = buildEventFilter(options);
+  const wrappedListener: FilestoreEventListener = (event) => {
+    if (!shouldDeliverEvent(event, filter)) {
+      return undefined;
+    }
+    return listener(event);
+  };
+
+  eventEmitter.on('event', wrappedListener);
   return () => {
-    eventEmitter.off('event', listener);
+    eventEmitter.off('event', wrappedListener);
   };
 }
 

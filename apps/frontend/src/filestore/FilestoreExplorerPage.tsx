@@ -123,24 +123,62 @@ const CONSISTENCY_LABEL: Record<string, string> = {
   inconsistent: 'Drift',
   missing: 'Missing'
 };
-const SSE_EVENT_TYPES: FilestoreEventType[] = [
-  'filestore.node.created',
-  'filestore.node.updated',
-  'filestore.node.deleted',
-  'filestore.node.uploaded',
-  'filestore.node.moved',
-  'filestore.node.copied',
-  'filestore.command.completed',
-  'filestore.drift.detected',
-  'filestore.node.reconciled',
-  'filestore.node.missing',
-  'filestore.node.downloaded',
-  'filestore.reconciliation.job.queued',
-  'filestore.reconciliation.job.started',
-  'filestore.reconciliation.job.completed',
-  'filestore.reconciliation.job.failed',
-  'filestore.reconciliation.job.cancelled'
-];
+type EventCategory = 'nodes' | 'commands' | 'drift' | 'reconciliation' | 'downloads';
+
+const EVENT_CATEGORY_ORDER: EventCategory[] = ['nodes', 'commands', 'drift', 'reconciliation', 'downloads'];
+
+const EVENT_CATEGORY_DEFINITIONS: Record<
+  EventCategory,
+  { label: string; description: string; types: FilestoreEventType[] }
+> = {
+  nodes: {
+    label: 'Node changes',
+    description: 'Create, update, move, copy, and upload operations.',
+    types: [
+      'filestore.node.created',
+      'filestore.node.updated',
+      'filestore.node.deleted',
+      'filestore.node.moved',
+      'filestore.node.copied',
+      'filestore.node.uploaded'
+    ]
+  },
+  commands: {
+    label: 'Commands',
+    description: 'High-level command completion notifications.',
+    types: ['filestore.command.completed']
+  },
+  drift: {
+    label: 'Drift & inconsistencies',
+    description: 'Detected drift and missing nodes.',
+    types: ['filestore.drift.detected', 'filestore.node.missing']
+  },
+  reconciliation: {
+    label: 'Reconciliation',
+    description: 'Automated reconciliation outcomes and job status.',
+    types: [
+      'filestore.node.reconciled',
+      'filestore.reconciliation.job.queued',
+      'filestore.reconciliation.job.started',
+      'filestore.reconciliation.job.completed',
+      'filestore.reconciliation.job.failed',
+      'filestore.reconciliation.job.cancelled'
+    ]
+  },
+  downloads: {
+    label: 'Downloads',
+    description: 'Observed file download activity.',
+    types: ['filestore.node.downloaded']
+  }
+};
+
+const DEFAULT_EVENT_CATEGORY_STATE: Record<EventCategory, boolean> = {
+  nodes: true,
+  commands: true,
+  drift: true,
+  reconciliation: true,
+  downloads: true
+};
 const MOUNT_STORAGE_KEY = 'apphub.filestore.selectedMountId';
 const SHOULD_LOAD_PLAYBOOK_WORKFLOWS = playbooksRequireWorkflows(FILESTORE_DRIFT_PLAYBOOKS);
 type RefreshTimers = {
@@ -241,6 +279,9 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [jobListOffset, setJobListOffset] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [eventCategoryFilters, setEventCategoryFilters] = useState<Record<EventCategory, boolean>>(() => ({
+    ...DEFAULT_EVENT_CATEGORY_STATE
+  }));
   const [downloadStatusByNode, setDownloadStatusByNode] = useState<Record<number, DownloadStatus>>({});
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -251,6 +292,35 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
   const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null, jobs: null, jobDetail: null });
   const pendingSelectionRef = useRef<{ mountId: number; path: string } | null>(null);
+
+  const enabledEventTypes = useMemo(() => {
+    const seen = new Set<FilestoreEventType>();
+    const types: FilestoreEventType[] = [];
+    for (const category of EVENT_CATEGORY_ORDER) {
+      if (!eventCategoryFilters[category]) {
+        continue;
+      }
+      for (const type of EVENT_CATEGORY_DEFINITIONS[category].types) {
+        if (!seen.has(type)) {
+          seen.add(type);
+          types.push(type);
+        }
+      }
+    }
+    return types;
+  }, [eventCategoryFilters]);
+
+  const enabledEventTypeSet = useMemo(() => new Set(enabledEventTypes), [enabledEventTypes]);
+  const visibleActivity = useMemo(
+    () => activity.filter((entry) => enabledEventTypeSet.has(entry.type)),
+    [activity, enabledEventTypeSet]
+  );
+  const sseActive = backendMountId !== null && enabledEventTypes.length > 0;
+  const listIntervalMs = sseActive ? 45000 : 20000;
+  const nodeIntervalMs = sseActive ? 40000 : 15000;
+  const childrenIntervalMs = sseActive ? 45000 : 20000;
+  const jobsIntervalMs = sseActive ? 30000 : 10000;
+  const jobDetailIntervalMs = sseActive ? 30000 : 15000;
 
   const registerMountId = useCallback(
     (value: number | null | undefined) => {
@@ -295,7 +365,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     refetch: refetchList
   } = usePollingResource<FilestoreNodeList>({
     fetcher: listFetcher,
-    intervalMs: 20000,
+    intervalMs: listIntervalMs,
     enabled: backendMountId !== null
   });
 
@@ -316,7 +386,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     refetch: refetchNode
   } = usePollingResource<FilestoreNode>({
     fetcher: detailFetcher,
-    intervalMs: 15000,
+    intervalMs: nodeIntervalMs,
     enabled: selectedNodeId !== null
   });
 
@@ -338,7 +408,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     refetch: refetchChildren
   } = usePollingResource<FilestoreNodeChildren>({
     fetcher: childrenFetcher,
-    intervalMs: 20000,
+    intervalMs: childrenIntervalMs,
     enabled: selectedNodeId !== null
   });
 
@@ -369,7 +439,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     refetch: refetchJobs
   } = usePollingResource<FilestoreReconciliationJobList>({
     fetcher: jobsFetcher,
-    intervalMs: 10000,
+    intervalMs: jobsIntervalMs,
     enabled: backendMountId !== null && hasWriteScope
   });
 
@@ -393,7 +463,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     refetch: refetchJobDetail
   } = usePollingResource<FilestoreReconciliationJobDetail>({
     fetcher: jobDetailFetcher,
-    intervalMs: 15000,
+    intervalMs: jobDetailIntervalMs,
     enabled: selectedJobId !== null && hasWriteScope,
     immediate: selectedJobId !== null
   });
@@ -1180,6 +1250,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   }, []);
 
   useEffect(() => {
+    if (backendMountId === null || enabledEventTypes.length === 0) {
+      return;
+    }
+
     const subscription = subscribeToFilestoreEvents(
       authorizedFetch,
       async (event) => {
@@ -1222,7 +1296,9 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         }
       },
       {
-        eventTypes: SSE_EVENT_TYPES,
+        backendMountId,
+        pathPrefix: activePath ?? undefined,
+        eventTypes: enabledEventTypes,
         onError: (error) => {
           showInfo(error.message ?? 'Filestore event stream closed, retrying shortly.');
         }
@@ -1233,8 +1309,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       subscription.close();
     };
   }, [
+    activePath,
     authorizedFetch,
     backendMountId,
+    enabledEventTypes,
     refetchChildren,
     refetchList,
     refetchJobDetail,
@@ -1273,6 +1351,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       return [...prev, status];
     });
     setJobListOffset(0);
+  }, []);
+
+  const toggleEventCategory = useCallback((category: EventCategory) => {
+    setEventCategoryFilters((prev) => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
   }, []);
 
   const handleApplyPath = useCallback(
@@ -3025,16 +3110,44 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           </section>
 
           <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Activity feed</h3>
-              <span className="text-xs text-slate-400 dark:text-slate-500">Live SSE updates</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                {sseActive ? 'Scoped SSE updates' : 'Polling updates'}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {EVENT_CATEGORY_ORDER.map((category) => {
+                const enabled = eventCategoryFilters[category];
+                const definition = EVENT_CATEGORY_DEFINITIONS[category];
+                return (
+                  <button
+                    key={`event-category-${category}`}
+                    type="button"
+                    aria-pressed={enabled}
+                    title={definition.description}
+                    onClick={() => toggleEventCategory(category)}
+                    className={
+                      enabled
+                        ? 'rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-900/40 dark:text-blue-100'
+                        : 'rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+                    }
+                  >
+                    {definition.label}
+                  </button>
+                );
+              })}
             </div>
             <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60">
-              {activity.length === 0 ? (
+              {enabledEventTypes.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">
+                  Enable at least one event category to receive live updates.
+                </div>
+              ) : visibleActivity.length === 0 ? (
                 <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Awaiting incoming events…</div>
               ) : (
                 <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {activity.map((entry) => (
+                  {visibleActivity.map((entry) => (
                     <li key={entry.id} className="px-4 py-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-medium text-slate-700 dark:text-slate-200">{entry.label}</span>

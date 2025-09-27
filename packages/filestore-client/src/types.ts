@@ -80,6 +80,8 @@ export interface CopyNodeInput {
 export interface ListEventsOptions {
   signal?: AbortSignal;
   eventTypes?: FilestoreEvent['type'][];
+  backendMountId?: number;
+  pathPrefix?: string;
 }
 
 export interface ListNodesInput {

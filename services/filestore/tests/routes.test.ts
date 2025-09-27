@@ -813,6 +813,123 @@ runE2E(async ({ registerCleanup }) => {
 
   assert.ok(sseData.includes('filestore.node.created'));
 
+  const scopedPrefix = `${currentPath}/scoped`;
+  const scopedUrl = new URL(
+    `/v1/events/stream?backendMountId=${backendMountId}&pathPrefix=${encodeURIComponent(scopedPrefix)}&events=filestore.node.updated`,
+    baseAddress
+  ).toString();
+
+  const scopedData = await new Promise<string>((resolve, reject) => {
+    const req = http.get(scopedUrl, (res) => {
+      res.setEncoding('utf8');
+      let buffer = '';
+      let connected = false;
+
+      res.on('data', (chunk: string) => {
+        buffer += chunk;
+        if (!connected && buffer.includes(':connected')) {
+          connected = true;
+          const emit = async () => {
+            await eventsModule.emitFilestoreEvent({
+              type: 'filestore.node.created',
+              data: {
+                backendMountId,
+                nodeId,
+                path: `${currentPath}/misc/file`,
+                kind: 'directory',
+                state: 'active',
+                parentId: null,
+                version: 1,
+                sizeBytes: 0,
+                checksum: null,
+                contentHash: null,
+                metadata: {},
+                journalId: 1001,
+                command: 'createDirectory',
+                idempotencyKey: null,
+                principal: null,
+                observedAt: new Date().toISOString()
+              }
+            });
+            await eventsModule.emitFilestoreEvent({
+              type: 'filestore.node.updated',
+              data: {
+                backendMountId: backendMountId + 1,
+                nodeId,
+                path: `${scopedPrefix}/file`,
+                kind: 'directory',
+                state: 'active',
+                parentId: null,
+                version: 2,
+                sizeBytes: 0,
+                checksum: null,
+                contentHash: null,
+                metadata: {},
+                journalId: 1002,
+                command: 'updateNodeMetadata',
+                idempotencyKey: null,
+                principal: null,
+                observedAt: new Date().toISOString()
+              }
+            });
+            await eventsModule.emitFilestoreEvent({
+              type: 'filestore.command.completed',
+              data: {
+                backendMountId,
+                nodeId,
+                path: `${scopedPrefix}/other`,
+                command: 'writeFile',
+                journalId: 1003,
+                idempotencyKey: null,
+                principal: null,
+                result: {},
+                observedAt: new Date().toISOString()
+              }
+            });
+            await eventsModule.emitFilestoreEvent({
+              type: 'filestore.node.updated',
+              data: {
+                backendMountId,
+                nodeId,
+                path: `${scopedPrefix}/final`,
+                kind: 'directory',
+                state: 'active',
+                parentId: null,
+                version: 3,
+                sizeBytes: 0,
+                checksum: null,
+                contentHash: null,
+                metadata: {},
+                journalId: 1004,
+                command: 'updateNodeMetadata',
+                idempotencyKey: null,
+                principal: null,
+                observedAt: new Date().toISOString()
+              }
+            });
+          };
+          void emit().catch(reject);
+        }
+        if (buffer.includes('filestore.node.updated')) {
+          resolve(buffer);
+          req.destroy();
+        }
+      });
+
+      res.on('end', () => {
+        resolve(buffer);
+      });
+
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+  });
+
+  assert.ok(scopedData.includes('filestore.node.updated'));
+  assert.ok(!scopedData.includes('filestore.node.created'));
+  assert.ok(!scopedData.includes('filestore.command.completed'));
+
   const unauthorizedJobsResponse = await app.inject({
     method: 'GET',
     url: '/v1/reconciliation/jobs'
