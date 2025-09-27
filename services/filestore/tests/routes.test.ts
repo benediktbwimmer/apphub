@@ -138,18 +138,124 @@ runE2E(async ({ registerCleanup }) => {
         backendKind: string;
         accessMode: string;
         state: string;
+        displayName: string | null;
+        description: string | null;
+        contact: string | null;
+        labels: string[];
         rootPath: string | null;
         bucket: string | null;
         prefix: string | null;
+        lastHealthCheckAt: string | null;
+        lastHealthStatus: string | null;
+        createdAt: string;
+        updatedAt: string;
       }>;
+      pagination: { total: number; limit: number; offset: number; nextOffset: number | null };
+      filters: { search: string | null; kinds: string[]; states: string[]; accessModes: string[] };
     };
   };
   assert.ok(Array.isArray(mountsBody.data.mounts));
+  assert.ok(mountsBody.data.pagination.total >= 1);
+  assert.equal(mountsBody.data.pagination.offset, 0);
   const discoveredMount = mountsBody.data.mounts.find((entry) => entry.id === backendMountId);
   assert.ok(discoveredMount);
   assert.equal(discoveredMount?.backendKind, 'local');
   assert.equal(discoveredMount?.rootPath, backendRoot);
+  assert.equal(discoveredMount?.state, 'active');
+  assert.equal(Array.isArray(discoveredMount?.labels), true);
   assert.equal(Object.prototype.hasOwnProperty.call(discoveredMount as Record<string, unknown>, 'config'), false);
+
+  const unauthorizedMountResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/backend-mounts',
+    payload: {
+      mountKey: 'routes-unauthorized',
+      backendKind: 'local',
+      rootPath: backendRoot,
+      accessMode: 'rw',
+      state: 'inactive'
+    }
+  });
+  assert.equal(unauthorizedMountResponse.statusCode, 403, unauthorizedMountResponse.body);
+
+  const managedRoot = await mkdtemp(path.join(tmpdir(), 'filestore-managed-mount-'));
+  mountRoots.push(managedRoot);
+
+  const createMountResponse = await app.inject({
+    method: 'POST',
+    url: '/v1/backend-mounts',
+    headers: {
+      'x-iam-scopes': 'filestore:admin'
+    },
+    payload: {
+      mountKey: 'routes-managed',
+      backendKind: 'local',
+      rootPath: managedRoot,
+      accessMode: 'ro',
+      state: 'inactive',
+      displayName: 'Routes Managed Mount',
+      description: 'Managed via integration test',
+      contact: 'ops@apphub.dev',
+      labels: ['ops', 'archive'],
+      stateReason: 'paused for tests'
+    }
+  });
+  assert.equal(createMountResponse.statusCode, 201, createMountResponse.body);
+  const createdMount = createMountResponse.json() as {
+    data: {
+      id: number;
+      mountKey: string;
+      state: string;
+      displayName: string | null;
+      labels: string[];
+      stateReason: string | null;
+    };
+  };
+  assert.equal(createdMount.data.mountKey, 'routes-managed');
+  assert.equal(createdMount.data.state, 'inactive');
+  assert.ok(createdMount.data.labels.includes('ops'));
+
+  const getManagedMount = await app.inject({
+    method: 'GET',
+    url: `/v1/backend-mounts/${createdMount.data.id}`
+  });
+  assert.equal(getManagedMount.statusCode, 200, getManagedMount.body);
+  const getManagedBody = getManagedMount.json() as { data: { id: number; rootPath: string | null } };
+  assert.equal(getManagedBody.data.id, createdMount.data.id);
+  assert.equal(getManagedBody.data.rootPath, managedRoot);
+
+  const unauthorizedPatch = await app.inject({
+    method: 'PATCH',
+    url: `/v1/backend-mounts/${createdMount.data.id}`,
+    payload: {
+      state: 'active'
+    }
+  });
+  assert.equal(unauthorizedPatch.statusCode, 403, unauthorizedPatch.body);
+
+  const updateMountResponse = await app.inject({
+    method: 'PATCH',
+    url: `/v1/backend-mounts/${createdMount.data.id}`,
+    headers: {
+      'x-iam-scopes': 'filestore:admin'
+    },
+    payload: {
+      state: 'active',
+      stateReason: null,
+      labels: ['primary']
+    }
+  });
+  assert.equal(updateMountResponse.statusCode, 200, updateMountResponse.body);
+  const updatedMount = updateMountResponse.json() as {
+    data: {
+      state: string;
+      labels: string[];
+      stateReason: string | null;
+    };
+  };
+  assert.equal(updatedMount.data.state, 'active');
+  assert.equal(updatedMount.data.stateReason, null);
+  assert.deepEqual(updatedMount.data.labels, ['primary']);
 
   const countBeforeParent = await getJournalCount(dbClientModule);
   const parentResponse = await app.inject({

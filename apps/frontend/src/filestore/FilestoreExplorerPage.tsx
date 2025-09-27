@@ -16,6 +16,7 @@ import {
   subscribeToFilestoreEvents,
   type FetchNodeChildrenParams,
   type FilestoreBackendMount,
+  type FilestoreBackendMountState,
   type FilestoreEventType,
   type FilestoreNode,
   type FilestoreNodeChildren,
@@ -64,6 +65,22 @@ const STATE_BADGE_CLASS: Record<FilestoreNodeState, string> = {
   inconsistent: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
   missing: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
   deleted: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
+  unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+};
+const MOUNT_STATE_LABEL: Record<FilestoreBackendMountState, string> = {
+  active: 'Active',
+  inactive: 'Inactive',
+  offline: 'Offline',
+  degraded: 'Degraded',
+  error: 'Error',
+  unknown: 'Unknown'
+};
+const MOUNT_STATE_BADGE_CLASS: Record<FilestoreBackendMountState, string> = {
+  active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
+  inactive: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200',
+  offline: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
+  degraded: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
+  error: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
   unknown: 'bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
 };
 const JOB_STATUS_OPTIONS: FilestoreReconciliationJobStatus[] = [
@@ -144,28 +161,6 @@ function formatTimestamp(value: string | null | undefined): string {
   }).format(date);
 }
 
-function formatDurationMs(value: number | null | undefined): string {
-  if (value === null || value === undefined) {
-    return '—';
-  }
-  if (!Number.isFinite(value)) {
-    return '—';
-  }
-  if (value < 1000) {
-    return `${Math.round(value)} ms`;
-  }
-  const seconds = value / 1000;
-  if (seconds < 10) {
-    return `${seconds.toFixed(2)} s`;
-  }
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)} s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining.toFixed(0)}s`;
-}
-
 function buildListParams(input: {
   backendMountId: number;
   offset: number;
@@ -209,6 +204,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [mountsLoading, setMountsLoading] = useState(true);
   const [mountsError, setMountsError] = useState<string | null>(null);
   const [availableMounts, setAvailableMounts] = useState<FilestoreBackendMount[]>([]);
+  const [mountSearch, setMountSearch] = useState('');
   const [extraMountIds, setExtraMountIds] = useState<number[]>([]);
   const [pathDraft, setPathDraft] = useState('');
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -375,6 +371,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     immediate: selectedJobId !== null
   });
 
+  const selectedMount = useMemo(() => {
+    if (backendMountId === null) {
+      return null;
+    }
+    return availableMounts.find((mount) => mount.id === backendMountId) ?? null;
+  }, [availableMounts, backendMountId]);
+
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -383,7 +386,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       setMountsLoading(true);
       setMountsError(null);
       try {
-        const result = await listBackendMounts(authorizedFetch, { signal: controller.signal });
+        const result = await listBackendMounts(authorizedFetch, {}, { signal: controller.signal });
         if (cancelled) {
           return;
         }
@@ -403,7 +406,8 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         if (storedId && result.mounts.some((mount) => mount.id === storedId)) {
           nextId = storedId;
         } else if (result.mounts.length > 0) {
-          nextId = result.mounts[0].id;
+          const firstActive = result.mounts.find((mount) => mount.state === 'active');
+          nextId = firstActive ? firstActive.id : result.mounts[0].id;
         } else {
           nextId = null;
         }
@@ -687,20 +691,44 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const mountOptions = useMemo(() => {
     const base = availableMounts.map((mount) => {
       const kindLabel = mount.backendKind === 'local' ? 'Local' : 'S3';
-      const stateSuffix = mount.state && mount.state !== 'active' ? ` · ${mount.state}` : '';
+      const displayName = mount.displayName ?? mount.mountKey;
+      const stateSuffix = mount.state !== 'active' ? ` · ${MOUNT_STATE_LABEL[mount.state]}` : '';
+      const searchTokens = [displayName, mount.mountKey, kindLabel, MOUNT_STATE_LABEL[mount.state]];
+      if (mount.labels?.length) {
+        searchTokens.push(...mount.labels);
+      }
       return {
         id: mount.id,
-        label: `${mount.mountKey} · ${kindLabel}${stateSuffix}`
+        label: `${displayName} · ${kindLabel}${stateSuffix}`,
+        searchValue: searchTokens.join(' ').toLowerCase(),
+        state: mount.state
       };
     });
     const extras = extraMountIds
       .filter((id) => !availableMounts.some((mount) => mount.id === id))
       .map((id) => ({
         id,
-        label: `Mount ${id}`
+        label: `Mount ${id}`,
+        searchValue: `mount ${id}`,
+        state: 'unknown' as FilestoreBackendMountState
       }));
     return [...base, ...extras].sort((a, b) => a.id - b.id);
   }, [availableMounts, extraMountIds]);
+
+  const filteredMountOptions = useMemo(() => {
+    const term = mountSearch.trim().toLowerCase();
+    if (!term) {
+      return mountOptions;
+    }
+    const filtered = mountOptions.filter((option) => option.searchValue.includes(term));
+    if (backendMountId !== null && !filtered.some((option) => option.id === backendMountId)) {
+      const selectedOption = mountOptions.find((option) => option.id === backendMountId);
+      if (selectedOption) {
+        return [selectedOption, ...filtered];
+      }
+    }
+    return filtered;
+  }, [mountOptions, mountSearch, backendMountId]);
 
   const hasMountOptions = mountOptions.length > 0;
 
@@ -735,6 +763,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
   const selectedDownloadState = selectedNode ? downloadStatusByNode[selectedNode.id] : undefined;
+  const jobPagination = jobListData?.pagination ?? null;
+  const jobList = jobListData?.jobs ?? [];
+  const selectedJob = jobDetailData?.job ?? null;
+  const jobPageSize = jobPagination?.limit ?? 20;
 
   const playbook = useMemo(() => {
     if (!selectedNode) {
@@ -1172,15 +1204,8 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const listErrorMessage = listError instanceof Error ? listError.message : null;
   const nodeErrorMessage = nodeError instanceof Error ? nodeError.message : null;
   const childrenErrorMessage = childrenError instanceof Error ? childrenError.message : null;
-  const jobListErrorMessage =
-    jobListError instanceof Error ? jobListError.message : jobListError ? String(jobListError) : null;
-  const jobDetailErrorMessage =
-    jobDetailError instanceof Error ? jobDetailError.message : jobDetailError ? String(jobDetailError) : null;
-  const jobList = jobListData?.jobs ?? [];
-  const jobPagination = jobListData?.pagination ?? null;
-  const selectedJob = selectedJobId
-    ? jobDetailData ?? jobList.find((job) => job.id === selectedJobId) ?? null
-    : null;
+  const jobListErrorMessage = jobListError instanceof Error ? jobListError.message : null;
+  const jobDetailErrorMessage = jobDetailError instanceof Error ? jobDetailError.message : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -1214,31 +1239,21 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           <div className="space-y-3">
             <div>
               <label htmlFor="filestore-mount" className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Backend mount ID
+                Backend mount
               </label>
               {mountsLoading ? (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading mounts…</p>
               ) : hasMountOptions ? (
-                <div className="mt-1 flex gap-2">
+                <div className="mt-2 space-y-2">
                   <input
-                    id="filestore-mount"
-                    type="number"
-                    min={1}
-                    value={backendMountId ?? ''}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      if (!raw) {
-                        applyBackendMountSelection(null, 'input');
-                        return;
-                      }
-                      const next = Number(raw);
-                      if (Number.isFinite(next) && next > 0) {
-                        applyBackendMountSelection(next, 'input');
-                      }
-                    }}
-                    className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    id="filestore-mount-search"
+                    value={mountSearch}
+                    onChange={(event) => setMountSearch(event.target.value)}
+                    placeholder="Search by name, key, or label"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
                   />
                   <select
+                    id="filestore-mount"
                     aria-label="Known mounts"
                     value={backendMountId ?? ''}
                     onChange={(event) => {
@@ -1252,19 +1267,24 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                         applyBackendMountSelection(next, 'select');
                       }
                     }}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
                   >
                     {backendMountId === null ? (
                       <option value="" disabled>
                         Select a mount…
                       </option>
                     ) : null}
-                    {mountOptions.map((option) => (
+                    {filteredMountOptions.map((option) => (
                       <option key={`mount-${option.id}`} value={option.id}>
                         {option.label}
                       </option>
                     ))}
                   </select>
+                  {filteredMountOptions.length === 0 ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      No mounts matched “{mountSearch.trim()}”.
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -1277,6 +1297,74 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               {mountsError ? (
                 <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{mountsError}</p>
               ) : null}
+            </div>
+            <div>
+              <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400">Mount details</h4>
+              {selectedMount ? (
+                <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                        {selectedMount.displayName ?? selectedMount.mountKey}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{selectedMount.mountKey}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${MOUNT_STATE_BADGE_CLASS[selectedMount.state]}`}
+                    >
+                      {MOUNT_STATE_LABEL[selectedMount.state]}
+                    </span>
+                  </div>
+                  <dl className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                    <div>
+                      <dt className="font-medium text-slate-500 dark:text-slate-400">Access</dt>
+                      <dd>{selectedMount.accessMode === 'rw' ? 'Read & write' : 'Read only'}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-slate-500 dark:text-slate-400">Backend</dt>
+                      <dd>{selectedMount.backendKind === 'local' ? 'Local filesystem' : 'Amazon S3'}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-slate-500 dark:text-slate-400">Location</dt>
+                      <dd>
+                        {selectedMount.backendKind === 'local'
+                          ? selectedMount.rootPath ?? '—'
+                          : selectedMount.bucket
+                            ? `${selectedMount.bucket}${selectedMount.prefix ? `/${selectedMount.prefix}` : ''}`
+                            : '—'}
+                      </dd>
+                    </div>
+                    {selectedMount.contact ? (
+                      <div>
+                        <dt className="font-medium text-slate-500 dark:text-slate-400">Contact</dt>
+                        <dd>{selectedMount.contact}</dd>
+                      </div>
+                    ) : null}
+                    {selectedMount.labels.length > 0 ? (
+                      <div>
+                        <dt className="font-medium text-slate-500 dark:text-slate-400">Labels</dt>
+                        <dd className="mt-1 flex flex-wrap gap-1">
+                          {selectedMount.labels.map((label) => (
+                            <span
+                              key={`mount-label-${label}`}
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {selectedMount.state !== 'active' ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-300">
+                      {selectedMount.stateReason ?? 'Mount is not active. Review backend health before writing data.'}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Select a mount to view metadata.</p>
+              )}
             </div>
 
             <form
@@ -2119,19 +2207,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                                   </span>
                                 </div>
                                 <div className="flex w-full flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                  <span>{job.reason}</span>
+                                  <span>Mount {job.backendMountId}</span>
                                   <span aria-hidden="true">•</span>
-                                  <span>{formatTimestamp(job.updatedAt)}</span>
+                                  <span>{formatTimestamp(job.enqueuedAt)}</span>
+                                  <span aria-hidden="true">•</span>
+                                  <span>Attempt {job.attempt}</span>
                                   {outcome ? (
                                     <>
                                       <span aria-hidden="true">•</span>
-                                      <span className="text-slate-400">Outcome {outcome}</span>
-                                    </>
-                                  ) : null}
-                                  {job.error ? (
-                                    <>
-                                      <span aria-hidden="true">•</span>
-                                      <span className="text-rose-500">Error</span>
+                                      <span>Outcome {outcome}</span>
                                     </>
                                   ) : null}
                                 </div>
@@ -2146,20 +2230,18 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                     <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2 text-xs dark:border-slate-800 dark:bg-slate-900">
                       <button
                         type="button"
-                        onClick={() =>
-                          handleJobPaginationChange(Math.max(jobPagination.offset - jobPagination.limit, 0))
-                        }
+                        onClick={() => handleJobPaginationChange(Math.max(jobPagination.offset - jobPageSize, 0))}
                         disabled={jobPagination.offset === 0}
                         className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
                       >
                         Previous
                       </button>
                       <span className="text-slate-500 dark:text-slate-400">
-                        Page {Math.floor(jobPagination.offset / jobPagination.limit) + 1}
+                        Page {Math.floor(jobPagination.offset / jobPageSize) + 1}
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleJobPaginationChange(jobPagination.nextOffset)}
+                        onClick={() => handleJobPaginationChange(jobPagination.nextOffset ?? null)}
                         disabled={jobPagination.nextOffset == null}
                         className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
                       >

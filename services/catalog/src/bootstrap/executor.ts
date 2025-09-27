@@ -89,6 +89,11 @@ function buildFilestoreBootstrapSql(quotedSchema: string): string {
        config JSONB NOT NULL DEFAULT '{}'::jsonb,
        access_mode TEXT NOT NULL DEFAULT 'rw',
        state TEXT NOT NULL DEFAULT 'active',
+       display_name TEXT,
+       description TEXT,
+       contact TEXT,
+       labels TEXT[] NOT NULL DEFAULT '{}'::text[],
+       state_reason TEXT,
        last_health_check_at TIMESTAMPTZ,
        last_health_status TEXT,
        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -119,6 +124,34 @@ function createScope(context: ExecutionContext): TemplateScope {
     },
     now: new Date().toISOString()
   } satisfies TemplateScope;
+}
+
+function renderOptionalText(template: string | undefined, scope: TemplateScope): string | null {
+  if (!template) {
+    return null;
+  }
+  const rendered = renderTemplateString(template, scope).trim();
+  return rendered.length > 0 ? rendered : null;
+}
+
+function renderLabelList(labels: string[] | undefined, scope: TemplateScope): string[] | null {
+  if (!labels) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of labels) {
+    const rendered = renderTemplateString(candidate, scope).trim();
+    if (!rendered || rendered.length > 64 || seen.has(rendered)) {
+      continue;
+    }
+    seen.add(rendered);
+    result.push(rendered);
+    if (result.length >= 32) {
+      break;
+    }
+  }
+  return result;
 }
 
 async function ensureDirectories(action: Extract<BootstrapActionSpec, { type: 'ensureDirectories' }>, context: ExecutionContext) {
@@ -156,6 +189,13 @@ async function ensureFilestoreBackend(
     ? rootPathResolved
     : path.resolve(context.workspaceRoot, rootPathResolved);
 
+  const displayName = renderOptionalText(action.displayName, scope);
+  const summary = renderOptionalText(action.summary, scope);
+  const contact = renderOptionalText(action.contact, scope);
+  const labels = renderLabelList(action.labels, scope);
+  const stateReason = renderOptionalText(action.stateReason, scope);
+  const labelsProvided = Array.isArray(action.labels);
+
   const connectionStringRaw = action.connection?.connectionString
     ? renderTemplateString(action.connection.connectionString, scope).trim()
     : (process.env.FILESTORE_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgres://apphub:apphub@127.0.0.1:5432/apphub');
@@ -182,14 +222,31 @@ async function ensureFilestoreBackend(
     const configJson = resolvedConfig !== undefined ? JSON.stringify(resolvedConfig) : JSON.stringify({});
     await pool.query(buildFilestoreBootstrapSql(quotedSchema), []);
     const result = await pool.query<{ id: number }>(
-      `INSERT INTO ${quotedSchema}.backend_mounts (mount_key, backend_kind, root_path, access_mode, state, config)
-       VALUES ($1, 'local', $2, $3, $4, $5::jsonb)
+      `INSERT INTO ${quotedSchema}.backend_mounts (
+         mount_key,
+         backend_kind,
+         root_path,
+         access_mode,
+         state,
+         config,
+         display_name,
+         description,
+         contact,
+         labels,
+         state_reason
+       )
+       VALUES ($1, 'local', $2, $3, $4, $5::jsonb, $6, $7, $8, COALESCE($9::text[], '{}'::text[]), $10)
        ON CONFLICT (mount_key)
        DO UPDATE SET
          root_path = EXCLUDED.root_path,
          access_mode = EXCLUDED.access_mode,
          state = EXCLUDED.state,
          config = ${quotedSchema}.backend_mounts.config || EXCLUDED.config,
+         display_name = COALESCE(EXCLUDED.display_name, ${quotedSchema}.backend_mounts.display_name),
+         description = COALESCE(EXCLUDED.description, ${quotedSchema}.backend_mounts.description),
+         contact = COALESCE(EXCLUDED.contact, ${quotedSchema}.backend_mounts.contact),
+         state_reason = COALESCE(EXCLUDED.state_reason, ${quotedSchema}.backend_mounts.state_reason),
+         labels = CASE WHEN $11::boolean THEN EXCLUDED.labels ELSE ${quotedSchema}.backend_mounts.labels END,
          updated_at = NOW()
        RETURNING id`,
       [
@@ -197,7 +254,13 @@ async function ensureFilestoreBackend(
         backendRoot,
         action.accessMode ?? 'rw',
         action.state ?? 'active',
-        configJson
+        configJson,
+        displayName,
+        summary,
+        contact,
+        labelsProvided ? labels ?? [] : null,
+        stateReason,
+        labelsProvided
       ]
     );
     const rawBackendId = result.rows[0]?.id;

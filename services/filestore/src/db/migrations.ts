@@ -253,6 +253,17 @@ const migrations: Migration[] = [
          FOR EACH ROW
          EXECUTE FUNCTION filestore_touch_updated_at();`
     ]
+  },
+  {
+    id: '004_filestore_backend_mount_metadata',
+    statements: [
+      `ALTER TABLE backend_mounts
+         ADD COLUMN IF NOT EXISTS display_name TEXT,
+         ADD COLUMN IF NOT EXISTS description TEXT,
+         ADD COLUMN IF NOT EXISTS contact TEXT,
+         ADD COLUMN IF NOT EXISTS labels TEXT[] NOT NULL DEFAULT '{}'::text[],
+         ADD COLUMN IF NOT EXISTS state_reason TEXT;`
+    ]
   }
 ];
 

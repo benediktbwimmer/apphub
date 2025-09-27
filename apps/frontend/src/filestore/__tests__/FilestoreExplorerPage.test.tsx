@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
-import type { FilestoreBackendMount, FilestoreNode } from '../types';
+import type { FilestoreBackendMount, FilestoreBackendMountList, FilestoreNode } from '../types';
 import type { WorkflowDefinition, WorkflowRun } from '../../workflows/types';
 import type { AuthIdentity } from '../../auth/context';
 import type {
@@ -9,7 +9,9 @@ import type {
   UsePollingResourceResult
 } from '../../hooks/usePollingResource';
 
-type ListBackendMountsMock = (...args: any[]) => Promise<{ mounts: FilestoreBackendMount[] }>;
+const iso = '2024-01-01T00:00:00.000Z';
+
+type ListBackendMountsMock = (...args: any[]) => Promise<FilestoreBackendMountList>;
 type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePollingResourceResult<unknown>;
 
 const mocks = vi.hoisted(() => {
@@ -52,9 +54,18 @@ const sampleMount: FilestoreBackendMount = {
   backendKind: 'local',
   accessMode: 'rw',
   state: 'active',
+  displayName: 'Primary mount',
+  description: 'Primary data root',
+  contact: null,
+  labels: ['core'],
+  stateReason: null,
   rootPath: '/mnt/primary',
   bucket: null,
-  prefix: null
+  prefix: null,
+  lastHealthCheckAt: null,
+  lastHealthStatus: null,
+  createdAt: iso,
+  updatedAt: iso
 };
 const writableIdentity: AuthIdentity = {
   subject: 'tester',
@@ -68,6 +79,24 @@ const writableIdentity: AuthIdentity = {
   email: 'tester@example.com',
   roles: []
 };
+
+function buildMountList(mounts: FilestoreBackendMount[]): FilestoreBackendMountList {
+  return {
+    mounts,
+    pagination: {
+      total: mounts.length,
+      limit: 25,
+      offset: 0,
+      nextOffset: null
+    },
+    filters: {
+      search: null,
+      kinds: [],
+      states: [],
+      accessModes: []
+    }
+  };
+}
 
 function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
   return {
@@ -85,14 +114,14 @@ function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
     state: 'inconsistent',
     version: 1,
     isSymlink: false,
-    lastSeenAt: '2024-01-01T00:00:00.000Z',
+    lastSeenAt: iso,
     lastModifiedAt: null,
     consistencyState: 'inconsistent',
-    consistencyCheckedAt: '2024-01-01T00:00:00.000Z',
+    consistencyCheckedAt: iso,
     lastReconciledAt: null,
-    lastDriftDetectedAt: '2024-01-01T00:00:00.000Z',
-    createdAt: '2024-01-01T00:00:00.000Z',
-    updatedAt: '2024-01-01T00:00:00.000Z',
+    lastDriftDetectedAt: iso,
+    createdAt: iso,
+    updatedAt: iso,
     deletedAt: null,
     rollup: null,
     download: null,
@@ -249,7 +278,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   beforeEach(() => {
     localStorage.clear();
     mocks.listBackendMountsMock.mockReset();
-    mocks.listBackendMountsMock.mockResolvedValue({ mounts: [] });
+    mocks.listBackendMountsMock.mockResolvedValue(buildMountList([]));
     mocks.enqueueReconciliationMock.mockReset();
     mocks.enqueueReconciliationMock.mockResolvedValue(undefined);
     mocks.listWorkflowDefinitionsMock.mockReset();
@@ -284,30 +313,30 @@ describe('FilestoreExplorerPage mount discovery', () => {
   });
 
   it('loads backend mounts and persists selection changes', async () => {
-    mocks.listBackendMountsMock.mockResolvedValueOnce({
-      mounts: [
-        {
-          id: 2,
-          mountKey: 'primary',
-          backendKind: 'local',
-          accessMode: 'rw',
-          state: 'active',
-          rootPath: '/mnt/primary',
-          bucket: null,
-          prefix: null
-        },
+    mocks.listBackendMountsMock.mockResolvedValueOnce(
+      buildMountList([
+        sampleMount,
         {
           id: 5,
           mountKey: 'archive',
           backendKind: 's3',
           accessMode: 'ro',
-          state: 'active',
+          state: 'inactive',
+          displayName: 'Archive bucket',
+          description: null,
+          contact: null,
+          labels: ['archive'],
+          stateReason: 'paused',
           rootPath: null,
           bucket: 'archive-bucket',
-          prefix: 'datasets/'
+          prefix: 'datasets/',
+          lastHealthCheckAt: null,
+          lastHealthStatus: null,
+          createdAt: iso,
+          updatedAt: iso
         }
-      ]
-    });
+      ])
+    );
 
     render(<FilestoreExplorerPage identity={null} />);
 
@@ -332,17 +361,26 @@ describe('FilestoreExplorerPage mount discovery', () => {
 
   it('restores the stored mount when still available', async () => {
     localStorage.setItem('apphub.filestore.selectedMountId', '5');
-    mocks.listBackendMountsMock.mockResolvedValueOnce({
-      mounts: [
+    mocks.listBackendMountsMock.mockResolvedValueOnce(
+      buildMountList([
         {
           id: 3,
           mountKey: 'analytics',
           backendKind: 'local',
           accessMode: 'rw',
           state: 'active',
+          displayName: 'Analytics',
+          description: null,
+          contact: null,
+          labels: ['analytics'],
+          stateReason: null,
           rootPath: '/mnt/analytics',
           bucket: null,
-          prefix: null
+          prefix: null,
+          lastHealthCheckAt: iso,
+          lastHealthStatus: 'ok',
+          createdAt: iso,
+          updatedAt: iso
         },
         {
           id: 5,
@@ -350,12 +388,21 @@ describe('FilestoreExplorerPage mount discovery', () => {
           backendKind: 's3',
           accessMode: 'ro',
           state: 'active',
+          displayName: 'Archive bucket',
+          description: null,
+          contact: null,
+          labels: ['archive'],
+          stateReason: null,
           rootPath: null,
           bucket: 'archive-bucket',
-          prefix: 'datasets/'
+          prefix: 'datasets/',
+          lastHealthCheckAt: null,
+          lastHealthStatus: null,
+          createdAt: iso,
+          updatedAt: iso
         }
-      ]
-    });
+      ])
+    );
 
     render(<FilestoreExplorerPage identity={null} />);
 
@@ -369,7 +416,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   });
 
   it('shows an empty state when no mounts are returned', async () => {
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([]));
 
     render(<FilestoreExplorerPage identity={null} />);
 
@@ -394,7 +441,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       }
     });
     setupPollingResourcesForNode(fileNode);
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
 
     const chunk = new TextEncoder().encode('download');
     const reader = {
@@ -455,7 +502,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       }
     });
     setupPollingResourcesForNode(fileNode);
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
 
     mocks.presignNodeDownloadMock.mockResolvedValueOnce({
       url: 'https://example.com/download',
@@ -492,7 +539,7 @@ describe('FilestoreExplorerPage playbooks', () => {
   beforeEach(() => {
     localStorage.clear();
     mocks.listBackendMountsMock.mockReset();
-    mocks.listBackendMountsMock.mockResolvedValue({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValue(buildMountList([sampleMount]));
     mocks.enqueueReconciliationMock.mockReset();
     mocks.enqueueReconciliationMock.mockResolvedValue(undefined);
     mocks.listWorkflowDefinitionsMock.mockReset();

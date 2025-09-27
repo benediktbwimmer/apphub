@@ -34,6 +34,11 @@
       "require": "./dist/filestoreEvents.js",
       "default": "./dist/filestoreEvents.js"
     },
+    "./filestoreMounts": {
+      "types": "./dist/filestoreMounts.d.ts",
+      "require": "./dist/filestoreMounts.js",
+      "default": "./dist/filestoreMounts.js"
+    },
     "./timestoreAdmin": {
       "types": "./dist/timestoreAdmin.d.ts",
       "require": "./dist/timestoreAdmin.js",

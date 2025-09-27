@@ -1,26 +1,30 @@
 import { z } from 'zod';
+import {
+  filestoreBackendAccessModeSchema as sharedFilestoreBackendAccessModeSchema,
+  filestoreBackendKindSchema as sharedFilestoreBackendKindSchema,
+  filestoreBackendMountEnvelopeSchema as sharedFilestoreBackendMountEnvelopeSchema,
+  filestoreBackendMountListEnvelopeSchema as sharedFilestoreBackendMountListEnvelopeSchema,
+  filestoreBackendMountSchema as sharedFilestoreBackendMountSchema,
+  filestoreBackendMountStateSchema,
+  type FilestoreBackendMount as SharedFilestoreBackendMount,
+  type FilestoreBackendMountList as SharedFilestoreBackendMountList
+} from '@apphub/shared/filestoreMounts';
 
 export const filestoreRollupStateSchema = z.enum(['up_to_date', 'pending', 'stale', 'invalid']);
 export type FilestoreRollupState = z.infer<typeof filestoreRollupStateSchema>;
 
-export const filestoreBackendMountSchema = z.object({
-  id: z.number(),
-  mountKey: z.string(),
-  backendKind: z.enum(['local', 's3']),
-  accessMode: z.enum(['rw', 'ro']),
-  state: z.string(),
-  rootPath: z.string().nullable(),
-  bucket: z.string().nullable(),
-  prefix: z.string().nullable()
-});
-export type FilestoreBackendMount = z.infer<typeof filestoreBackendMountSchema>;
+export const filestoreBackendMountSchema = sharedFilestoreBackendMountSchema;
+export type FilestoreBackendMount = SharedFilestoreBackendMount;
 
-export const filestoreBackendMountListEnvelopeSchema = z.object({
-  data: z.object({
-    mounts: z.array(filestoreBackendMountSchema)
-  })
-});
-export type FilestoreBackendMountList = z.infer<typeof filestoreBackendMountListEnvelopeSchema>['data'];
+export const filestoreBackendMountEnvelopeSchema = sharedFilestoreBackendMountEnvelopeSchema;
+
+export const filestoreBackendMountListEnvelopeSchema = sharedFilestoreBackendMountListEnvelopeSchema;
+export type FilestoreBackendMountList = SharedFilestoreBackendMountList;
+export type FilestoreBackendMountState = z.infer<typeof filestoreBackendMountStateSchema>;
+export const filestoreBackendKindSchema = sharedFilestoreBackendKindSchema;
+export const filestoreBackendAccessModeSchema = sharedFilestoreBackendAccessModeSchema;
+export type FilestoreBackendKind = z.infer<typeof filestoreBackendKindSchema>;
+export type FilestoreBackendAccessMode = z.infer<typeof filestoreBackendAccessModeSchema>;
 
 export const filestoreRollupSummarySchema = z.object({
   nodeId: z.number(),

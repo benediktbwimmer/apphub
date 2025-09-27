@@ -16,6 +16,9 @@ import {
   type FilestoreEvent,
   type FilestoreEventType,
   type FilestoreBackendMountList,
+  type FilestoreBackendMountState,
+  filestoreBackendKindSchema,
+  filestoreBackendAccessModeSchema,
   type FilestoreNodeChildren,
   type FilestoreNodeKind,
   type FilestoreNodeList,
@@ -30,6 +33,7 @@ import {
   type FilestoreReconciliationJobDetail,
   type FilestoreReconciliationJobStatus
 } from './types';
+export type { FilestoreBackendMount, FilestoreBackendMountState } from './types';
 
 type AuthorizedFetch = ReturnType<typeof useAuthorizedFetch>;
 
@@ -50,6 +54,15 @@ function appendQueryValues(params: URLSearchParams, key: string, values?: readon
     params.append(key, value);
   }
 }
+
+export type ListBackendMountsParams = {
+  limit?: number;
+  offset?: number;
+  kinds?: z.infer<typeof filestoreBackendKindSchema>[];
+  states?: FilestoreBackendMountState[];
+  accessModes?: z.infer<typeof filestoreBackendAccessModeSchema>[];
+  search?: string | null;
+};
 
 export type ListNodesParams = {
   backendMountId: number;
@@ -217,10 +230,25 @@ async function parseJsonOrThrow<T>(response: Response, schema: z.ZodSchema<T>): 
 
 export async function listBackendMounts(
   authorizedFetch: AuthorizedFetch,
+  params: ListBackendMountsParams = {},
   options: RequestOptions = {}
 ): Promise<FilestoreBackendMountList> {
-  const url = buildFilestoreUrl('/v1/backend-mounts');
-  const response = await authorizedFetch(url, {
+  const url = new URL(buildFilestoreUrl('/v1/backend-mounts'));
+  const searchParams = new URLSearchParams();
+  if (params.limit !== undefined) {
+    searchParams.set('limit', String(params.limit));
+  }
+  if (params.offset !== undefined) {
+    searchParams.set('offset', String(params.offset));
+  }
+  appendQueryValues(searchParams, 'kinds', params.kinds);
+  appendQueryValues(searchParams, 'states', params.states);
+  appendQueryValues(searchParams, 'accessModes', params.accessModes);
+  if (params.search && params.search.trim().length > 0) {
+    searchParams.set('search', params.search.trim());
+  }
+  const finalUrl = searchParams.toString().length > 0 ? `${url.toString()}?${searchParams.toString()}` : url.toString();
+  const response = await authorizedFetch(finalUrl, {
     method: 'GET',
     signal: options.signal
   });

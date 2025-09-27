@@ -32,6 +32,11 @@ export const bootstrapActionSchema = z.discriminatedUnion('type', [
         .optional(),
       accessMode: z.enum(['ro', 'rw']).optional(),
       state: z.enum(['active', 'inactive']).optional(),
+      displayName: templateStringSchema.optional(),
+      summary: templateStringSchema.optional(),
+      contact: templateStringSchema.optional(),
+      labels: templateStringArraySchema.optional(),
+      stateReason: templateStringSchema.optional(),
       config: jsonValueSchema.optional(),
       connection: z
         .object({

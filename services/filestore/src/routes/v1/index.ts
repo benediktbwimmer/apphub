@@ -8,11 +8,22 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
+import {
+  filestoreBackendAccessModeSchema,
+  filestoreBackendKindSchema,
+  filestoreBackendMountCreateSchema,
+  filestoreBackendMountEnvelopeSchema,
+  filestoreBackendMountListEnvelopeSchema,
+  filestoreBackendMountStateSchema,
+  filestoreBackendMountUpdateSchema
+} from '@apphub/shared/filestoreMounts';
 import { runCommand } from '../../commands/orchestrator';
 import {
+  createBackendMount,
   getBackendMountById,
   getBackendMountsByIds,
   listBackendMounts,
+  updateBackendMount,
   type BackendMountRecord
 } from '../../db/backendMounts';
 import { resolveExecutor } from '../../executors/registry';
@@ -95,6 +106,79 @@ function parseMetadataField(raw: string | undefined): Record<string, unknown> | 
       message: (err as Error).message
     });
   }
+}
+
+type BackendMountState = z.infer<typeof filestoreBackendMountStateSchema>;
+type BackendKind = z.infer<typeof filestoreBackendKindSchema>;
+type BackendAccessMode = z.infer<typeof filestoreBackendAccessModeSchema>;
+
+const backendMountListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).default(0),
+  kinds: z
+    .preprocess(preprocessQueryArray, z.array(filestoreBackendKindSchema).min(1))
+    .optional(),
+  states: z
+    .preprocess(preprocessQueryArray, z.array(filestoreBackendMountStateSchema).min(1))
+    .optional(),
+  accessModes: z
+    .preprocess(preprocessQueryArray, z.array(filestoreBackendAccessModeSchema).min(1))
+    .optional(),
+  search: z.string().trim().min(1).max(256).optional()
+});
+
+const backendMountParamsSchema = z.object({
+  id: z.coerce.number().int().positive()
+});
+
+const ADMIN_SCOPE = process.env.FILESTORE_ADMIN_SCOPE || 'filestore:admin';
+
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function ensureAdminScope(request: FastifyRequest): void {
+  if (!ADMIN_SCOPE) {
+    return;
+  }
+  const scopes = extractScopes(request.headers);
+  if (scopes.has(ADMIN_SCOPE)) {
+    return;
+  }
+  throw new FilestoreError('Missing required scope', 'MISSING_SCOPE', {
+    requiredScope: ADMIN_SCOPE
+  });
+}
+
+function normalizeBackendMountState(value: string): BackendMountState {
+  const parsed = filestoreBackendMountStateSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'unknown';
+}
+
+function serializeBackendMount(record: BackendMountRecord) {
+  return {
+    id: record.id,
+    mountKey: record.mountKey,
+    displayName: normalizeOptionalString(record.displayName),
+    description: normalizeOptionalString(record.description),
+    contact: normalizeOptionalString(record.contact),
+    labels: record.labels,
+    backendKind: record.backendKind as BackendKind,
+    accessMode: record.accessMode as BackendAccessMode,
+    state: normalizeBackendMountState(record.state),
+    stateReason: normalizeOptionalString(record.stateReason),
+    rootPath: record.rootPath,
+    bucket: record.bucket,
+    prefix: record.prefix,
+    lastHealthCheckAt: record.lastHealthCheckAt ? record.lastHealthCheckAt.toISOString() : null,
+    lastHealthStatus: normalizeOptionalString(record.lastHealthStatus),
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  };
 }
 
 const createDirectorySchema = z.object({
@@ -207,24 +291,6 @@ const reconciliationJobStatusSchema = z.enum(['queued', 'running', 'succeeded', 
 const optionalJobStatusFilterSchema = z
   .preprocess(preprocessQueryArray, z.array(reconciliationJobStatusSchema).min(1))
   .optional();
-
-const backendMountResponseSchema = z.object({
-  data: z.object({
-    mounts: z.array(
-      z.object({
-        id: z.number().int().positive(),
-        mountKey: z.string(),
-        backendKind: z.enum(['local', 's3']),
-        accessMode: z.enum(['rw', 'ro']),
-        state: z.string(),
-        rootPath: z.string().nullable(),
-        bucket: z.string().nullable(),
-        prefix: z.string().nullable()
-      })
-    )
-  })
-});
-
 const listNodesQuerySchema = z.object({
   backendMountId: z.coerce.number().int().positive(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -392,6 +458,8 @@ function mapFilestoreErrorToHttpStatus(err: FilestoreError): number {
       return 400;
     case 'CHECKSUM_MISMATCH':
       return 422;
+    case 'MISSING_SCOPE':
+      return 403;
     default:
       return 500;
   }
@@ -405,6 +473,16 @@ function sendError(reply: FastifyReply, err: unknown) {
         code: err.code,
         message: err.message,
         details: err.details ?? null
+      }
+    });
+  }
+
+  if (err instanceof z.ZodError) {
+    return reply.status(400).send({
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'Request validation failed',
+        details: err.flatten()
       }
     });
   }
@@ -511,11 +589,11 @@ function buildContentDisposition(filename: string | null): string {
   return `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`;
 }
 
-function extractScopes(headers: Record<string, unknown>): Set<string> {
+function extractScopes(headers: FastifyRequest['headers'] | Record<string, unknown>): Set<string> {
   const scopes = new Set<string>();
   const keys = ['x-iam-scopes', 'x-apphub-scopes'];
   for (const key of keys) {
-    const value = headers[key];
+    const value = (headers as Record<string, unknown>)[key];
     if (typeof value === 'string') {
       value
         .split(',')
@@ -539,7 +617,7 @@ function extractScopes(headers: Record<string, unknown>): Set<string> {
 }
 
 function requireWriteScope(request: FastifyRequest, reply: FastifyReply): boolean {
-  const scopes = extractScopes(request.headers as Record<string, unknown>);
+  const scopes = extractScopes(request.headers);
   if (scopes.has('filestore:write') || scopes.has('filestore:admin')) {
     return true;
   }
@@ -554,24 +632,156 @@ function requireWriteScope(request: FastifyRequest, reply: FastifyReply): boolea
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
   app.get('/v1/backend-mounts', async (request, reply) => {
-    const mounts = await withConnection((client) => listBackendMounts(client));
+    try {
+      const query = backendMountListQuerySchema.parse(request.query ?? {});
+      const result = await withConnection((client) =>
+        listBackendMounts(client, {
+          limit: query.limit,
+          offset: query.offset,
+          kinds: query.kinds,
+          states: query.states,
+          accessModes: query.accessModes,
+          search: query.search ?? null
+        })
+      );
+      const nextOffset = query.offset + result.mounts.length < result.total ? query.offset + query.limit : null;
 
-    const payload = backendMountResponseSchema.parse({
-      data: {
-        mounts: mounts.map((mount) => ({
-          id: mount.id,
-          mountKey: mount.mountKey,
-          backendKind: mount.backendKind,
-          accessMode: mount.accessMode,
-          state: mount.state,
-          rootPath: mount.rootPath,
-          bucket: mount.bucket,
-          prefix: mount.prefix
-        }))
+      const payload = filestoreBackendMountListEnvelopeSchema.parse({
+        data: {
+          mounts: result.mounts.map(serializeBackendMount),
+          pagination: {
+            total: result.total,
+            limit: query.limit,
+            offset: query.offset,
+            nextOffset
+          },
+          filters: {
+            search: query.search ?? null,
+            kinds: query.kinds ?? [],
+            states: query.states ?? [],
+            accessModes: query.accessModes ?? []
+          }
+        }
+      });
+
+      reply.send(payload);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.get('/v1/backend-mounts/:id', async (request, reply) => {
+    try {
+      const params = backendMountParamsSchema.parse(request.params ?? {});
+      const record = await withConnection((client) => getBackendMountById(client, params.id, { forUpdate: false }));
+      if (!record) {
+        return reply.status(404).send({
+          error: {
+            code: 'BACKEND_NOT_FOUND',
+            message: 'Backend mount not found'
+          }
+        });
       }
-    });
 
-    reply.send(payload);
+      const payload = filestoreBackendMountEnvelopeSchema.parse({
+        data: serializeBackendMount(record)
+      });
+      reply.send(payload);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/v1/backend-mounts', async (request, reply) => {
+    try {
+      ensureAdminScope(request);
+      const body = filestoreBackendMountCreateSchema.parse(request.body ?? {});
+      const created = await withConnection((client) =>
+        createBackendMount(client, {
+          mountKey: body.mountKey,
+          backendKind: body.backendKind,
+          rootPath: body.backendKind === 'local' ? body.rootPath ?? null : null,
+          bucket: body.backendKind === 's3' ? body.bucket ?? null : null,
+          prefix: body.prefix ?? null,
+          accessMode: body.accessMode,
+          state: body.state,
+          displayName: body.displayName ?? null,
+          description: body.description ?? null,
+          contact: body.contact ?? null,
+          labels: body.labels ?? [],
+          stateReason: body.stateReason ?? null
+        })
+      );
+
+      const payload = filestoreBackendMountEnvelopeSchema.parse({
+        data: serializeBackendMount(created)
+      });
+      reply.status(201).send(payload);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.patch('/v1/backend-mounts/:id', async (request, reply) => {
+    try {
+      ensureAdminScope(request);
+      const params = backendMountParamsSchema.parse(request.params ?? {});
+      const body = filestoreBackendMountUpdateSchema.parse(request.body ?? {});
+
+      const record = await withConnection(async (client) => {
+        const existing = await getBackendMountById(client, params.id);
+        if (!existing) {
+          return null;
+        }
+
+        const nextRootPath = body.rootPath !== undefined ? body.rootPath : existing.rootPath;
+        const nextBucket = body.bucket !== undefined ? body.bucket : existing.bucket;
+
+        if (existing.backendKind === 'local' && (!nextRootPath || nextRootPath.trim().length === 0)) {
+          throw new FilestoreError('rootPath required for local mounts', 'INVALID_REQUEST', {
+            field: 'rootPath'
+          });
+        }
+
+        if (existing.backendKind === 's3' && (!nextBucket || nextBucket.trim().length === 0)) {
+          throw new FilestoreError('bucket required for s3 mounts', 'INVALID_REQUEST', {
+            field: 'bucket'
+          });
+        }
+
+        const updated = await updateBackendMount(client, params.id, {
+          mountKey: body.mountKey,
+          rootPath: body.rootPath,
+          bucket: body.bucket,
+          prefix: body.prefix,
+          accessMode: body.accessMode,
+          state: body.state,
+          displayName: body.displayName,
+          description: body.description,
+          contact: body.contact,
+          labels: body.labels,
+          stateReason: body.stateReason
+        });
+
+        return updated;
+      });
+
+      if (!record) {
+        return reply.status(404).send({
+          error: {
+            code: 'BACKEND_NOT_FOUND',
+            message: 'Backend mount not found'
+          }
+        });
+      }
+
+      const payload = filestoreBackendMountEnvelopeSchema.parse({
+        data: serializeBackendMount(record)
+      });
+      reply.send(payload);
+    } catch (err) {
+      return sendError(reply, err);
+    }
   });
 
   app.post('/v1/files', async (request, reply) => {

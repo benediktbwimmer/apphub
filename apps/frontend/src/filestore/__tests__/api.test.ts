@@ -57,11 +57,32 @@ describe('filestore api helpers', () => {
             backendKind: 'local',
             accessMode: 'rw',
             state: 'active',
+            displayName: 'Primary mount',
+            description: 'Primary data root',
+            contact: 'ops@apphub.dev',
+            labels: ['primary'],
+            stateReason: null,
             rootPath: '/var/filestore',
             bucket: null,
-            prefix: null
+            prefix: null,
+            lastHealthCheckAt: null,
+            lastHealthStatus: null,
+            createdAt: iso,
+            updatedAt: iso
           }
-        ]
+        ],
+        pagination: {
+          total: 1,
+          limit: 25,
+          offset: 0,
+          nextOffset: null
+        },
+        filters: {
+          search: null,
+          kinds: [],
+          states: [],
+          accessModes: []
+        }
       }
     };
 
@@ -80,6 +101,7 @@ describe('filestore api helpers', () => {
     const result = await listBackendMounts(fetchMock);
     expect(result.mounts).toHaveLength(1);
     expect(result.mounts[0].mountKey).toBe('primary');
+    expect(result.pagination.total).toBe(1);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 

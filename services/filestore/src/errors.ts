@@ -11,7 +11,8 @@ export type FilestoreErrorCode =
   | 'NOT_SUPPORTED'
   | 'INVALID_REQUEST'
   | 'INVALID_CHECKSUM'
-  | 'CHECKSUM_MISMATCH';
+  | 'CHECKSUM_MISMATCH'
+  | 'MISSING_SCOPE';
 
 export class FilestoreError extends Error {
   public readonly code: FilestoreErrorCode;
