@@ -207,7 +207,10 @@ function mapTriggerToForm(trigger: WorkflowEventTrigger | null | undefined): For
         predicate.operator === 'in' || predicate.operator === 'notIn'
           ? formatJson(predicate.values)
           : '',
-      caseSensitive: predicate.caseSensitive ?? false,
+      caseSensitive:
+        'caseSensitive' in predicate && predicate.caseSensitive !== undefined
+          ? predicate.caseSensitive
+          : false,
       flags: predicate.operator === 'regex' ? predicate.flags ?? '' : ''
     })),
     parameterTemplate: formatJson(trigger.parameterTemplate ?? null),

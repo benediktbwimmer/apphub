@@ -10,7 +10,7 @@ const workspaceRoot = resolve(frontendRoot, '..', '..');
 const catalogSrcPath = resolve(workspaceRoot, 'services', 'catalog', 'src');
 const sharedSrcPath = resolve(workspaceRoot, 'packages', 'shared', 'src');
 const examplesRegistrySrcPath = resolve(workspaceRoot, 'packages', 'examples-registry', 'src');
-const examplesRegistryEntryPath = resolve(examplesRegistrySrcPath, 'index.ts');
+const examplesRegistryEntryPath = resolve(examplesRegistrySrcPath, 'index.browser.ts');
 const examplesRegistryTypesPath = resolve(examplesRegistrySrcPath, 'types.ts');
 
 // https://vite.dev/config/

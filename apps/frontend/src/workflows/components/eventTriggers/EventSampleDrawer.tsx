@@ -44,6 +44,10 @@ type EvaluationSource = {
   parameterTemplate?: unknown;
 };
 
+function assertUnreachable(_value: never, message: string): never {
+  throw new Error(message);
+}
+
 function toEvaluationSource(
   trigger?: WorkflowEventTrigger | null,
   preview?: EventTriggerPreviewSnapshot | null
@@ -83,17 +87,18 @@ function ensurePredicateInputs(
       return predicate as WorkflowEventTriggerPredicateInput;
     }
     const typed = predicate as WorkflowEventTrigger['predicates'][number];
+    const path = typed.path;
     switch (typed.operator) {
       case 'exists':
         return {
-          path: typed.path,
+          path,
           operator: 'exists',
           caseSensitive: typed.caseSensitive ?? false
         } satisfies WorkflowEventTriggerPredicateInput;
       case 'equals':
       case 'notEquals':
         return {
-          path: typed.path,
+          path,
           operator: typed.operator,
           value: typed.value,
           caseSensitive: typed.caseSensitive ?? false
@@ -101,7 +106,7 @@ function ensurePredicateInputs(
       case 'in':
       case 'notIn':
         return {
-          path: typed.path,
+          path,
           operator: typed.operator,
           values: Array.isArray(typed.values) ? typed.values : [],
           caseSensitive: typed.caseSensitive ?? false
@@ -111,31 +116,27 @@ function ensurePredicateInputs(
       case 'lt':
       case 'lte':
         return {
-          path: typed.path,
+          path,
           operator: typed.operator,
           value: typed.value
         } satisfies WorkflowEventTriggerPredicateInput;
       case 'contains':
         return {
-          path: typed.path,
+          path,
           operator: 'contains',
           value: typed.value,
           caseSensitive: typed.caseSensitive ?? false
         } satisfies WorkflowEventTriggerPredicateInput;
       case 'regex':
         return {
-          path: typed.path,
+          path,
           operator: 'regex',
           value: typed.value,
           caseSensitive: typed.caseSensitive ?? false,
           flags: typed.flags
         } satisfies WorkflowEventTriggerPredicateInput;
-      default:
-        return {
-          path: typed.path,
-          operator: 'exists'
-        } satisfies WorkflowEventTriggerPredicateInput;
     }
+    return assertUnreachable(typed, 'Unsupported workflow event trigger predicate operator.');
   });
 }
 
@@ -154,7 +155,10 @@ function evaluatePredicate(
     metadata: sample.metadata ?? null
   };
   const results = JSONPath({ path: predicate.path, json: envelope, wrap: true }) as unknown[];
-  const caseSensitive = predicate.caseSensitive ?? false;
+  const caseSensitive =
+    'caseSensitive' in predicate && predicate.caseSensitive !== undefined
+      ? predicate.caseSensitive
+      : false;
   switch (predicate.operator) {
     case 'exists':
       return { path: predicate.path, operator: 'exists', matched: results.length > 0 };
@@ -226,11 +230,7 @@ function evaluatePredicate(
       };
     }
     default:
-      return {
-        path: predicate.path,
-        operator: predicate.operator,
-        matched: false
-      };
+      return assertUnreachable(predicate, 'Unsupported workflow event trigger predicate operator.');
   }
 }
 
