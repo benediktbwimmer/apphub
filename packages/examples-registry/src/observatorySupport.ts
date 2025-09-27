@@ -2,7 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
-import type { WorkflowDefinitionTemplate } from './types';
+import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types';
 
 export type EventDrivenObservatoryConfig = ReturnType<typeof createEventDrivenObservatoryConfig>['config'];
 
@@ -15,6 +15,14 @@ const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-minute-ingest',
   'observatory-daily-publication'
 ]);
+
+function ensureJsonObject(value: JsonValue | undefined): JsonObject {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as JsonObject;
+  }
+  const empty: JsonObject = {};
+  return empty;
+}
 
 export type ObservatoryBootstrapLogger = {
   debug?: (meta: unknown, message?: string) => void;
@@ -55,7 +63,8 @@ export function applyObservatoryWorkflowDefaults(
     return;
   }
 
-  const defaults = (definition.defaultParameters ??= {} as Record<string, unknown>);
+  const defaults = ensureJsonObject(definition.defaultParameters);
+  definition.defaultParameters = defaults;
 
   switch (definition.slug) {
     case 'observatory-minute-data-generator':

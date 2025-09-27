@@ -75,10 +75,10 @@ function evaluatePredicate(predicate: WorkflowEventTriggerPredicate, event: Even
       const regex = buildPredicateRegex(predicate);
       if (!regex) {
         logger.warn(
-          {
+          'Failed to compile regex predicate',
+          normalizeMeta({
             predicate
-          },
-          'Failed to compile regex predicate'
+          })
         );
         return false;
       }
@@ -193,10 +193,13 @@ function buildPredicateRegex(
   try {
     return new RegExp(predicate.value, flags);
   } catch (error) {
-    logger.warn({
-      err: error,
-      predicate
-    }, 'Invalid regex predicate');
+    logger.warn(
+      'Invalid regex predicate',
+      normalizeMeta({
+        err: error instanceof Error ? error.message : String(error),
+        predicate
+      })
+    );
     return null;
   }
 }

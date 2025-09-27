@@ -163,7 +163,29 @@ export type WorkflowServiceStepTemplate = {
   consumes?: WorkflowAssetDeclarationTemplate[];
 };
 
-export type WorkflowStepTemplate = WorkflowJobStepTemplate | WorkflowServiceStepTemplate;
+export type WorkflowFanOutTemplateStep =
+  | (WorkflowJobStepTemplate & { type?: 'job' })
+  | WorkflowServiceStepTemplate;
+
+export type WorkflowFanOutStepTemplate = {
+  id: string;
+  name: string;
+  type: 'fanout';
+  description?: string | null;
+  dependsOn?: string[];
+  collection: JsonValue | string;
+  template: WorkflowFanOutTemplateStep;
+  maxItems?: number | null;
+  maxConcurrency?: number | null;
+  storeResultsAs?: string;
+  produces?: WorkflowAssetDeclarationTemplate[];
+  consumes?: WorkflowAssetDeclarationTemplate[];
+};
+
+export type WorkflowStepTemplate =
+  | WorkflowJobStepTemplate
+  | WorkflowServiceStepTemplate
+  | WorkflowFanOutStepTemplate;
 
 export type WorkflowDefinitionTemplate = {
   slug: string;
