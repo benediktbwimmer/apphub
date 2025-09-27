@@ -124,7 +124,7 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
 
 async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<void> {
   await ensureEmbeddedPostgres();
-  process.env.REDIS_URL = process.env.REDIS_URL ?? 'redis://127.0.0.1:6379';
+  process.env.REDIS_URL = 'redis://127.0.0.1:6379';
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-load-examples-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;
@@ -204,6 +204,26 @@ async function waitForExampleBundles(app: FastifyInstance, slugs: readonly strin
 }
 
 async function importExampleBundle(app: FastifyInstance, slug: string): Promise<void> {
+  const enqueueResponse = await app.inject({
+    method: 'POST',
+    url: '/job-imports/example',
+    headers: {
+      Authorization: `Bearer ${OPERATOR_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    payload: {
+      slug,
+      force: true
+    }
+  });
+  assert.equal(
+    enqueueResponse.statusCode,
+    202,
+    `Enqueue failed for ${slug}: ${enqueueResponse.payload}`
+  );
+
+  await waitForExampleBundles(app, [slug]);
+
   const previewResponse = await app.inject({
     method: 'POST',
     url: '/job-imports/preview',

@@ -298,7 +298,17 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       }
     } catch {
       return;
-  }
+    }
+
+    const targetDir = path.join(nodeModulesRoot, ...segments);
+    await ensureDir(path.dirname(targetDir));
+    await removeDir(targetDir).catch(() => {});
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      dereference: false
+    });
+    copiedThirdPartyDeps.add(moduleName);
+  };
 
   const rootScopedSource = path.join(rootNodeModules, '@apphub');
   try {
@@ -322,16 +332,6 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
   } catch {
     // Ignore missing scoped dependencies; workspace copies may already cover them.
   }
-
-    const targetDir = path.join(nodeModulesRoot, ...segments);
-    await ensureDir(path.dirname(targetDir));
-    await removeDir(targetDir).catch(() => {});
-    await fs.cp(sourceDir, targetDir, {
-      recursive: true,
-      dereference: false
-    });
-    copiedThirdPartyDeps.add(moduleName);
-  };
 
   for (const entry of entries) {
     if (!entry.isDirectory()) {
