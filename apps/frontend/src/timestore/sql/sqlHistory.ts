@@ -11,6 +11,7 @@ export interface SqlHistoryEntry {
     rowCount?: number;
     elapsedMs?: number;
   };
+  updatedAt?: string | null;
 }
 
 function sortHistory(entries: SqlHistoryEntry[]): SqlHistoryEntry[] {
@@ -20,8 +21,22 @@ function sortHistory(entries: SqlHistoryEntry[]): SqlHistoryEntry[] {
     if (aPinned !== bPinned) {
       return bPinned - aPinned;
     }
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return resolveEntryTimestamp(b) - resolveEntryTimestamp(a);
   });
+}
+
+function resolveEntryTimestamp(entry: SqlHistoryEntry): number {
+  const candidates = [entry.updatedAt, entry.createdAt];
+  for (const value of candidates) {
+    if (!value) {
+      continue;
+    }
+    const time = Date.parse(value);
+    if (!Number.isNaN(time)) {
+      return time;
+    }
+  }
+  return 0;
 }
 
 function clampHistory(entries: SqlHistoryEntry[], limit: number): SqlHistoryEntry[] {
@@ -40,22 +55,29 @@ export function addHistoryEntry(
   limit: number = SQL_HISTORY_LIMIT
 ): SqlHistoryEntry[] {
   const normalizedStatement = entry.statement.trim();
-  let preservedPinned: boolean | undefined;
-  let preservedLabel: string | null | undefined;
+  let preservedEntry: SqlHistoryEntry | null = null;
 
   const deduped = history.filter((item) => {
     const matches = item.statement.trim() === normalizedStatement;
-    if (matches && preservedPinned === undefined && preservedLabel === undefined) {
-      preservedPinned = item.pinned;
-      preservedLabel = item.label ?? null;
+    if (matches && !preservedEntry) {
+      preservedEntry = item;
     }
     return !matches;
   });
 
+  const mergedId = preservedEntry?.pinned ? preservedEntry.id : entry.id;
+  const mergedPinned = preservedEntry?.pinned ?? entry.pinned ?? false;
+  const mergedLabel = preservedEntry?.label ?? entry.label ?? null;
+  const mergedStats = entry.stats ?? preservedEntry?.stats;
+  const mergedUpdatedAt = entry.updatedAt ?? preservedEntry?.updatedAt ?? null;
+
   const mergedEntry: SqlHistoryEntry = {
     ...entry,
-    pinned: preservedPinned ?? entry.pinned,
-    label: preservedLabel ?? entry.label ?? null
+    id: mergedId,
+    pinned: mergedPinned,
+    label: mergedLabel,
+    stats: mergedStats,
+    updatedAt: mergedUpdatedAt
   };
 
   const next = sortHistory([mergedEntry, ...deduped]);
@@ -97,7 +119,8 @@ export function readHistoryFromStorage(storage: Storage | null): SqlHistoryEntry
       sortHistory(
         parsed.map((entry) => ({
           ...entry,
-          createdAt: entry.createdAt ?? new Date().toISOString()
+          createdAt: entry.createdAt ?? new Date().toISOString(),
+          updatedAt: entry.updatedAt ?? null
         }))
       ),
       SQL_HISTORY_LIMIT
@@ -125,8 +148,11 @@ export function createHistoryEntry(params: {
   label?: string | null;
   pinned?: boolean;
   id?: string;
+  createdAt?: string;
+  updatedAt?: string | null;
+  stats?: SqlHistoryEntry['stats'];
 }): SqlHistoryEntry {
-  const { statement, rowCount, elapsedMs, label, pinned = false, id } = params;
+  const { statement, rowCount, elapsedMs, label, pinned = false, id, createdAt, updatedAt, stats } = params;
   const generateId = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
@@ -134,18 +160,42 @@ export function createHistoryEntry(params: {
     return `sql_${Math.random().toString(36).slice(2, 10)}`;
   };
 
+  const statsPayload = buildStats(stats, rowCount, elapsedMs);
+  const createdAtIso = isValidTimestamp(createdAt) ? new Date(createdAt as string).toISOString() : new Date().toISOString();
+
   return {
     id: id ?? generateId(),
     statement,
-    createdAt: new Date().toISOString(),
+    createdAt: createdAtIso,
     label: label ?? null,
     pinned,
-    stats:
-      rowCount === undefined && elapsedMs === undefined
-        ? undefined
-        : {
-            rowCount,
-            elapsedMs
-          }
+    stats: statsPayload,
+    updatedAt: isValidTimestamp(updatedAt) ? new Date(updatedAt as string).toISOString() : null
   };
+}
+
+function buildStats(
+  stats: SqlHistoryEntry['stats'] | undefined,
+  rowCount?: number,
+  elapsedMs?: number
+): SqlHistoryEntry['stats'] {
+  if (stats && typeof stats === 'object') {
+    return stats;
+  }
+  const candidate: NonNullable<SqlHistoryEntry['stats']> = {};
+  if (typeof rowCount === 'number' && Number.isFinite(rowCount)) {
+    candidate.rowCount = rowCount;
+  }
+  if (typeof elapsedMs === 'number' && Number.isFinite(elapsedMs)) {
+    candidate.elapsedMs = elapsedMs;
+  }
+  return Object.keys(candidate).length > 0 ? candidate : undefined;
+}
+
+function isValidTimestamp(value: string | null | undefined): value is string {
+  if (!value) {
+    return false;
+  }
+  const time = Date.parse(value);
+  return !Number.isNaN(time);
 }

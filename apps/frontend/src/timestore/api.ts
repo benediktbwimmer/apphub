@@ -14,6 +14,10 @@ import type {
   QueryResponse,
   RetentionPolicy,
   RetentionResponse,
+  SavedSqlQuery,
+  SavedSqlQueryListResponse,
+  SavedSqlQueryResponse,
+  SavedSqlQueryStats,
   SqlQueryResult,
   SqlSchemaResponse
 } from './types';
@@ -32,6 +36,8 @@ import {
   patchDatasetRequestSchema,
   queryResponseSchema,
   retentionResponseSchema,
+  savedSqlQueryListResponseSchema,
+  savedSqlQueryResponseSchema,
   sqlQueryResultSchema,
   sqlSchemaResponseSchema
 } from './types';
@@ -62,6 +68,21 @@ export type SqlQueryRequest = {
   statement: string;
   maxRows?: number;
   defaultSchema?: string;
+};
+
+export type SqlResponseFormat = 'json' | 'csv' | 'table';
+
+export type SavedSqlQueryUpsertRequest = {
+  id: string;
+  statement: string;
+  label?: string | null;
+  stats?: SavedSqlQueryStats | null;
+};
+
+export type SqlQueryExport = {
+  blob: Blob;
+  contentType: string | null;
+  requestId: string | null;
 };
 
 async function parseJson<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -114,12 +135,16 @@ function wrapWithLimit(statement: string, limit?: number): string {
   return `SELECT * FROM (${sanitized}) AS apphub_sql_subquery LIMIT ${Math.floor(limit)}`;
 }
 
-async function callSqlRead(
+async function requestSqlRead(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   sql: string,
+  format: SqlResponseFormat,
   options: { signal?: AbortSignal } = {}
-): Promise<SqlQueryResult> {
+): Promise<Response> {
   const url = createTimestoreUrl('sql/read');
+  if (format !== 'json') {
+    url.searchParams.set('format', format);
+  }
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -131,6 +156,16 @@ async function callSqlRead(
     const errorText = await response.text();
     throw new Error(extractSqlErrorMessage(errorText, response.status));
   }
+
+  return response;
+}
+
+async function callSqlRead(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  sql: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<SqlQueryResult> {
+  const response = await requestSqlRead(authorizedFetch, sql, 'json', options);
 
   const warningsHeader = response.headers.get('x-sql-warnings');
   const payload = await response.json();
@@ -512,4 +547,91 @@ export async function executeSqlQuery(
 ): Promise<SqlQueryResult> {
   const limitedStatement = wrapWithLimit(request.statement, request.maxRows);
   return callSqlRead(authorizedFetch, limitedStatement, options);
+}
+
+export async function exportSqlQuery(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  request: SqlQueryRequest,
+  format: Exclude<SqlResponseFormat, 'json'>,
+  options: { signal?: AbortSignal } = {}
+): Promise<SqlQueryExport> {
+  const limitedStatement = wrapWithLimit(request.statement, request.maxRows);
+  const response = await requestSqlRead(authorizedFetch, limitedStatement, format, options);
+  const blob = await response.blob();
+  return {
+    blob,
+    contentType: response.headers.get('content-type'),
+    requestId: response.headers.get('x-sql-request-id')
+  };
+}
+
+export async function listSavedSqlQueries(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  options: { signal?: AbortSignal } = {}
+): Promise<SavedSqlQueryListResponse> {
+  const url = createTimestoreUrl('sql/saved');
+  const response = await authorizedFetch(url.toString(), {
+    signal: options.signal
+  });
+  if (!response.ok) {
+    await parseDatasetApiError(response, 'Failed to load saved SQL queries.');
+  }
+  return parseJson(response, savedSqlQueryListResponseSchema);
+}
+
+export async function fetchSavedSqlQuery(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  id: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<SavedSqlQuery> {
+  const url = createTimestoreUrl(`sql/saved/${encodeURIComponent(id)}`);
+  const response = await authorizedFetch(url.toString(), {
+    signal: options.signal
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Saved query ${id} not found.`);
+    }
+    await parseDatasetApiError(response, 'Failed to load saved SQL query.');
+  }
+  const payload = await parseJson(response, savedSqlQueryResponseSchema);
+  return payload.savedQuery;
+}
+
+export async function upsertSavedSqlQuery(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  input: SavedSqlQueryUpsertRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<SavedSqlQuery> {
+  const url = createTimestoreUrl(`sql/saved/${encodeURIComponent(input.id)}`);
+  const response = await authorizedFetch(url.toString(), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      statement: input.statement,
+      label: input.label ?? null,
+      stats: input.stats ?? undefined
+    }),
+    signal: options.signal
+  });
+  if (!response.ok) {
+    await parseDatasetApiError(response, 'Failed to save SQL query.');
+  }
+  const payload = await parseJson(response, savedSqlQueryResponseSchema);
+  return payload.savedQuery;
+}
+
+export async function deleteSavedSqlQuery(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  id: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<void> {
+  const url = createTimestoreUrl(`sql/saved/${encodeURIComponent(id)}`);
+  const response = await authorizedFetch(url.toString(), {
+    method: 'DELETE',
+    signal: options.signal
+  });
+  if (!response.ok && response.status !== 404) {
+    await parseDatasetApiError(response, 'Failed to delete saved SQL query.');
+  }
 }

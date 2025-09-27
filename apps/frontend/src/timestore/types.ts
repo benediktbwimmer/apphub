@@ -297,3 +297,34 @@ export const sqlQueryResultSchema = z.object({
 });
 
 export type SqlQueryResult = z.infer<typeof sqlQueryResultSchema>;
+
+export const savedSqlQueryStatsSchema = z.object({
+  rowCount: z.number().int().nonnegative().optional(),
+  elapsedMs: z.number().int().nonnegative().optional()
+});
+
+export type SavedSqlQueryStats = z.infer<typeof savedSqlQueryStatsSchema>;
+
+export const savedSqlQuerySchema = z.object({
+  id: z.string(),
+  statement: z.string(),
+  label: z.string().nullable().optional(),
+  stats: savedSqlQueryStatsSchema.optional(),
+  createdBy: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export type SavedSqlQuery = z.infer<typeof savedSqlQuerySchema>;
+
+export const savedSqlQueryResponseSchema = z.object({
+  savedQuery: savedSqlQuerySchema
+});
+
+export type SavedSqlQueryResponse = z.infer<typeof savedSqlQueryResponseSchema>;
+
+export const savedSqlQueryListResponseSchema = z.object({
+  savedQueries: z.array(savedSqlQuerySchema)
+});
+
+export type SavedSqlQueryListResponse = z.infer<typeof savedSqlQueryListResponseSchema>;

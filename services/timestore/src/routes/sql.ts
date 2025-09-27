@@ -19,6 +19,13 @@ import {
   type SqlSchemaColumnInfo,
   type SqlSchemaTableInfo
 } from '../sql/runtime';
+import {
+  deleteSavedSqlQuery,
+  getSavedSqlQueryById,
+  listSavedSqlQueries,
+  upsertSavedSqlQuery
+} from '../db/sqlSavedQueries';
+import type { SavedSqlQueryRecord } from '../db/sqlSavedQueries';
 
 const SUPPORTED_FORMATS = ['json', 'csv', 'table'] as const;
 type ResponseFormat = (typeof SUPPORTED_FORMATS)[number];
@@ -30,6 +37,21 @@ const requestBodySchema = z.object({
 
 const formatQuerySchema = z.object({
   format: z.string().optional()
+});
+
+const savedQueryParamsSchema = z.object({
+  id: z.string().min(1)
+});
+
+const savedQueryBodySchema = z.object({
+  statement: z.string().min(1),
+  label: z.union([z.string(), z.null()]).optional(),
+  stats: z
+    .object({
+      rowCount: z.number().int().nonnegative().optional(),
+      elapsedMs: z.number().int().nonnegative().optional()
+    })
+    .optional()
 });
 
 interface QueryResultSummary {
@@ -64,6 +86,27 @@ function mergeDescription(base: string | null, warnings: string[]): string | nul
 }
 
 export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
+  const jsonParser = (request: FastifyRequest, body: string, done: (err: Error | null, body?: unknown) => void) => {
+    if (!body || body.length === 0) {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(body));
+    } catch (error) {
+      const parseError = error instanceof Error ? error : new Error('Invalid JSON payload');
+      (parseError as Error & { statusCode?: number }).statusCode = 400;
+      done(parseError);
+    }
+  };
+
+  try {
+    app.removeContentTypeParser('application/json');
+  } catch {
+    // Ignore missing parser removal failures.
+  }
+  app.addContentTypeParser(/^application\/json($|;)/, { parseAs: 'string' }, jsonParser);
+
   app.get('/sql/schema', async (request) => {
     await authorizeSqlReadAccess(request as FastifyRequest);
     const context = await loadSqlContext();
@@ -172,6 +215,59 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.get('/sql/saved', async (request) => {
+    await authorizeSqlReadAccess(request as FastifyRequest);
+    const records = await listSavedSqlQueries();
+    return {
+      savedQueries: records.map(mapSavedSqlQuery)
+    };
+  });
+
+  app.get('/sql/saved/:id', async (request, reply) => {
+    await authorizeSqlReadAccess(request as FastifyRequest);
+    const params = savedQueryParamsSchema.parse(request.params ?? {});
+    const record = await getSavedSqlQueryById(params.id);
+    if (!record) {
+      reply.status(404);
+      return {
+        error: `Saved query ${params.id} not found`
+      };
+    }
+    return {
+      savedQuery: mapSavedSqlQuery(record)
+    };
+  });
+
+  app.put('/sql/saved/:id', async (request) => {
+    await authorizeSqlReadAccess(request as FastifyRequest);
+    const params = savedQueryParamsSchema.parse(request.params ?? {});
+    const body = savedQueryBodySchema.parse(request.body ?? {});
+    const actor = resolveRequestActor(request as FastifyRequest);
+    const saved = await upsertSavedSqlQuery({
+      id: params.id,
+      statement: body.statement,
+      label: normalizeLabel(body.label),
+      stats: body.stats,
+      createdBy: actor?.id ?? null
+    });
+    return {
+      savedQuery: mapSavedSqlQuery(saved)
+    };
+  });
+
+  app.delete('/sql/saved/:id', async (request, reply) => {
+    await authorizeSqlReadAccess(request as FastifyRequest);
+    const params = savedQueryParamsSchema.parse(request.params ?? {});
+    const removed = await deleteSavedSqlQuery(params.id);
+    if (!removed) {
+      reply.status(404);
+      return {
+        error: `Saved query ${params.id} not found`
+      };
+    }
+    return reply.status(204).send();
+  });
+
   app.post('/sql/exec', async (request, reply) => {
     await authorizeSqlExecAccess(request as FastifyRequest);
     const { sql, params } = parseRequestBody(request);
@@ -234,6 +330,26 @@ export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
       client.release();
     }
   });
+}
+
+function mapSavedSqlQuery(record: SavedSqlQueryRecord) {
+  return {
+    id: record.id,
+    statement: record.statement,
+    label: record.label,
+    stats: record.stats ?? undefined,
+    createdBy: record.createdBy,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  };
+}
+
+function normalizeLabel(label: string | null | undefined): string | null {
+  if (label === null || label === undefined) {
+    return null;
+  }
+  const trimmed = label.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function parseRequestBody(request: FastifyRequest): { sql: string; params: unknown[] } {

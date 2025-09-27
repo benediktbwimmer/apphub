@@ -294,6 +294,75 @@ describe('sql routes', () => {
     assert.deepEqual(lines, ['site,value', 'alpha,42.5', 'beta,37.1']);
   });
 
+  test('manages saved queries via REST', async () => {
+    assert.ok(app);
+    const savedId = `sq-${randomUUID().slice(0, 8)}`;
+
+    const createResponse = await app!.inject({
+      method: 'PUT',
+      url: `/sql/saved/${savedId}`,
+      headers: readHeaders(),
+      payload: {
+        statement: 'SELECT 1',
+        label: 'Smoke test',
+        stats: { rowCount: 1, elapsedMs: 12 }
+      }
+    });
+
+    assert.equal(createResponse.statusCode, 200);
+    const created = createResponse.json() as {
+      savedQuery: {
+        id: string;
+        statement: string;
+        label: string | null;
+        stats?: { rowCount?: number; elapsedMs?: number };
+        createdAt: string;
+        updatedAt: string;
+      };
+    };
+    assert.equal(created.savedQuery.id, savedId);
+    assert.equal(created.savedQuery.statement, 'SELECT 1');
+    assert.equal(created.savedQuery.label, 'Smoke test');
+    assert.deepEqual(created.savedQuery.stats, { rowCount: 1, elapsedMs: 12 });
+
+    const fetchResponse = await app!.inject({
+      method: 'GET',
+      url: `/sql/saved/${savedId}`,
+      headers: readHeaders()
+    });
+
+    assert.equal(fetchResponse.statusCode, 200);
+    const fetched = fetchResponse.json() as typeof created;
+    assert.equal(fetched.savedQuery.id, savedId);
+
+    const listResponse = await app!.inject({
+      method: 'GET',
+      url: '/sql/saved',
+      headers: readHeaders()
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    const listed = listResponse.json() as {
+      savedQueries: Array<{ id: string }>;
+    };
+    assert.ok(listed.savedQueries.some((entry) => entry.id === savedId));
+
+    const deleteResponse = await app!.inject({
+      method: 'DELETE',
+      url: `/sql/saved/${savedId}`,
+      headers: readHeaders()
+    });
+
+    assert.equal(deleteResponse.statusCode, 204);
+
+    const missingResponse = await app!.inject({
+      method: 'GET',
+      url: `/sql/saved/${savedId}`,
+      headers: readHeaders()
+    });
+    assert.equal(missingResponse.statusCode, 404);
+  });
+
   test('schema endpoint lists dataset view', async () => {
     assert.ok(app);
     const response = await app!.inject({

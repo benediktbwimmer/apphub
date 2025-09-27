@@ -26,6 +26,7 @@ describe('sqlHistory utilities', () => {
     const deduped = addHistoryEntry(updated, duplicate);
     expect(deduped).toHaveLength(2);
     expect(deduped[0]?.statement).toBe(duplicate.statement);
+    expect(deduped[0]?.id).toBe(duplicate.id);
   });
 
   it('honours pinning and limit when adding entries', () => {
@@ -38,6 +39,16 @@ describe('sqlHistory utilities', () => {
     }
     expect(history.length).toBeLessThanOrEqual(SQL_HISTORY_LIMIT);
     expect(history[0]?.pinned).toBe(true);
+  });
+
+  it('preserves ids for pinned entries when deduplicating', () => {
+    const original = createHistoryEntry({ statement: 'select now()', pinned: true, id: 'saved-id-1' });
+    const history = addHistoryEntry([], original);
+    const rerun = createHistoryEntry({ statement: 'select now()' });
+    const merged = addHistoryEntry(history, rerun);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe('saved-id-1');
+    expect(merged[0]?.pinned).toBe(true);
   });
 
   it('updates, removes, and clears entries', () => {
@@ -76,5 +87,6 @@ describe('sqlHistory utilities', () => {
     const loaded = readHistoryFromStorage(storage);
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.statement).toBe(entry.statement);
+    expect(loaded[0]?.updatedAt).toBeNull();
   });
 });

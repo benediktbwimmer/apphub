@@ -207,6 +207,22 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_dataset_filters
          ON dataset_access_audit(dataset_id, action, success, created_at DESC, id DESC);`
     ]
+  },
+  {
+    id: '007_timestore_sql_saved_queries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS sql_saved_queries (
+         id TEXT PRIMARY KEY,
+         statement TEXT NOT NULL,
+         label TEXT,
+         created_by TEXT,
+         stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_sql_saved_queries_updated
+         ON sql_saved_queries(updated_at DESC);`
+    ]
   }
 ];
 

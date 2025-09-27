@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { Monaco, OnMount } from '@monaco-editor/react';
 import type { editor, languages, IDisposable } from 'monaco-editor';
 import { Editor } from '../../components/Editor';
@@ -7,7 +8,16 @@ import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { useToastHelpers } from '../../components/toast';
 import { usePollingResource } from '../../hooks/usePollingResource';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
-import { executeSqlQuery, fetchSqlSchema, type SqlQueryRequest } from '../api';
+import {
+  deleteSavedSqlQuery,
+  executeSqlQuery,
+  exportSqlQuery,
+  fetchSavedSqlQuery,
+  fetchSqlSchema,
+  listSavedSqlQueries,
+  upsertSavedSqlQuery,
+  type SqlQueryRequest
+} from '../api';
 import type { SqlQueryResult, SqlSchemaResponse, SqlSchemaTable } from '../types';
 import {
   addHistoryEntry,
@@ -21,6 +31,7 @@ import {
 } from './sqlHistory';
 import type { SqlHistoryEntry } from './sqlHistory';
 import { SQL_KEYWORDS } from './sqlKeywords';
+import { ROUTE_PATHS } from '../../routes/paths';
 
 const DEFAULT_QUERY = 'SELECT\n  dataset_slug,\n  count(*) AS record_count\nFROM\n  timestore_runtime.datasets\nGROUP BY\n  1\nORDER BY\n  record_count DESC\nLIMIT 100;';
 
@@ -127,7 +138,8 @@ function useBrowserStorage(): Storage | null {
 
 export default function TimestoreSqlEditorPage() {
   const authorizedFetch = useAuthorizedFetch();
-  const { showError, showSuccess, showWarning } = useToastHelpers();
+  const { showError, showSuccess, showWarning, showInfo } = useToastHelpers();
+  const [searchParams] = useSearchParams();
   const storage = useBrowserStorage();
 
   const [statement, setStatement] = useState<string>(DEFAULT_QUERY);
@@ -139,12 +151,16 @@ export default function TimestoreSqlEditorPage() {
   const [schemaFilter, setSchemaFilter] = useState('');
   const [history, setHistory] = useState<SqlHistoryEntry[]>(() => readHistoryFromStorage(storage));
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
   const runQueryRef = useRef<() => void>(() => {});
   const schemaWarningsRef = useRef<string | null>(null);
+  const savedQueriesLoadedRef = useRef(false);
+  const hydratedQueryRef = useRef<string | null>(null);
+  const lastRequestRef = useRef<SqlQueryRequest | null>(null);
 
   const schemaFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
@@ -178,6 +194,99 @@ export default function TimestoreSqlEditorPage() {
     writeHistoryToStorage(storage, history);
   }, [history, storage]);
 
+  useEffect(() => {
+    if (savedQueriesLoadedRef.current) {
+      return;
+    }
+    savedQueriesLoadedRef.current = true;
+    let cancelled = false;
+
+    const loadSavedQueries = async () => {
+      try {
+        const { savedQueries } = await listSavedSqlQueries(authorizedFetch);
+        if (cancelled || !savedQueries) {
+          return;
+        }
+        setHistory((prev) => {
+          let next = prev;
+          savedQueries.forEach((saved) => {
+            const entry = createHistoryEntry({
+              id: saved.id,
+              statement: saved.statement,
+              label: saved.label ?? null,
+              pinned: true,
+              stats: saved.stats,
+              createdAt: saved.updatedAt ?? saved.createdAt,
+              updatedAt: saved.updatedAt ?? saved.createdAt
+            });
+            next = addHistoryEntry(next, entry, SQL_HISTORY_LIMIT);
+          });
+          return next;
+        });
+      } catch (error) {
+        showError('Unable to load saved queries', error);
+      }
+    };
+
+    void loadSavedQueries();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, showError, setHistory]);
+
+  useEffect(() => {
+    const queryId = searchParams.get('queryId');
+    if (!queryId) {
+      return;
+    }
+    if (hydratedQueryRef.current === queryId) {
+      return;
+    }
+
+    const existing = history.find((entry) => entry.id === queryId);
+    if (existing) {
+      setStatement(existing.statement);
+      hydratedQueryRef.current = queryId;
+      return;
+    }
+
+    let cancelled = false;
+    const hydrateQuery = async () => {
+      try {
+        const saved = await fetchSavedSqlQuery(authorizedFetch, queryId);
+        if (cancelled) {
+          return;
+        }
+        const entry = createHistoryEntry({
+          id: saved.id,
+          statement: saved.statement,
+          label: saved.label ?? null,
+          pinned: true,
+          stats: saved.stats,
+          createdAt: saved.updatedAt ?? saved.createdAt,
+          updatedAt: saved.updatedAt ?? saved.createdAt
+        });
+        setHistory((prev) => addHistoryEntry(prev, entry, SQL_HISTORY_LIMIT));
+        setStatement(saved.statement);
+        showInfo('Saved query loaded', saved.label ?? 'SQL statement ready to run.');
+        hydratedQueryRef.current = queryId;
+      } catch (error) {
+        if (!cancelled) {
+          hydratedQueryRef.current = queryId;
+          showError('Unable to load saved query', error);
+        }
+      }
+    };
+
+    hydratedQueryRef.current = queryId;
+    void hydrateQuery();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, history, searchParams, showError, showInfo, setHistory]);
+
   const schemaTables = useMemo(() => schemaData?.tables ?? [], [schemaData]);
 
   useEffect(() => {
@@ -196,6 +305,13 @@ export default function TimestoreSqlEditorPage() {
     });
   }, [schemaData?.warnings, showWarning]);
 
+  const copyToClipboard = useCallback(async (text: string) => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      throw new Error('Clipboard is not available in this environment.');
+    }
+    await navigator.clipboard.writeText(text);
+  }, []);
+
   const filteredTables = useMemo(() => {
     const query = schemaFilter.trim().toLowerCase();
     if (!query) {
@@ -206,6 +322,9 @@ export default function TimestoreSqlEditorPage() {
       return haystack.includes(query);
     });
   }, [schemaFilter, schemaTables]);
+
+  const hasResults = useMemo(() => (result ? result.rows.length > 0 : false), [result]);
+  const canExport = hasResults && !isExecuting && !isExporting;
 
   const updateCompletionProvider = useCallback(() => {
     if (!monacoRef.current) {
@@ -280,6 +399,7 @@ export default function TimestoreSqlEditorPage() {
     try {
       const response = await executeSqlQuery(authorizedFetch, request);
       setResult(response);
+      lastRequestRef.current = request;
       setResultMode((current) => (current === 'chart' ? current : 'table'));
       const rowCount = response.statistics?.rowCount ?? response.rows.length;
       const elapsedMs = response.statistics?.elapsedMs;
@@ -290,7 +410,8 @@ export default function TimestoreSqlEditorPage() {
           createHistoryEntry({
             statement: trimmed,
             rowCount,
-            elapsedMs
+            elapsedMs,
+            updatedAt: new Date().toISOString()
           }),
           SQL_HISTORY_LIMIT
         )
@@ -331,40 +452,227 @@ export default function TimestoreSqlEditorPage() {
     []
   );
 
-  const handleDeleteHistoryEntry = useCallback((id: string) => {
-    setHistory((prev) => removeHistoryEntry(prev, id));
-  }, []);
+  const handleCopyQuery = useCallback(async () => {
+    const trimmed = statement.trim();
+    if (!trimmed) {
+      showWarning('Nothing to copy', 'Enter a SQL statement first.');
+      return;
+    }
+    try {
+      await copyToClipboard(trimmed);
+      showSuccess('Query copied', 'The SQL statement is in your clipboard.');
+    } catch (error) {
+      showError('Unable to copy query', error);
+    }
+  }, [copyToClipboard, showError, showSuccess, showWarning, statement]);
+
+  const handleCopyResults = useCallback(async () => {
+    if (!result || result.rows.length === 0) {
+      showWarning('No results to copy', 'Run a query before copying results.');
+      return;
+    }
+    try {
+      const serialized = JSON.stringify(result.rows, null, 2);
+      await copyToClipboard(serialized);
+      showSuccess('Results copied', 'Current result set copied to clipboard.');
+    } catch (error) {
+      showError('Unable to copy results', error);
+    }
+  }, [copyToClipboard, result, showError, showSuccess, showWarning]);
+
+  const handleExportResults = useCallback(
+    async (format: 'csv' | 'table', action: 'download' | 'open' = 'download') => {
+      if (!lastRequestRef.current) {
+        showWarning('No query to export', 'Run a query before exporting results.');
+        return;
+      }
+      setIsExporting(true);
+      try {
+        const exported = await exportSqlQuery(authorizedFetch, lastRequestRef.current, format);
+        const extension = format === 'csv' ? 'csv' : 'txt';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `timestore-query-${timestamp}.${extension}`;
+
+        if (action === 'download') {
+          const blobUrl = URL.createObjectURL(exported.blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+          showSuccess('Export ready', `Downloaded ${filename}.`);
+        } else {
+          const blobUrl = URL.createObjectURL(exported.blob);
+          const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+          if (!opened) {
+            try {
+              const fallback = await exported.blob.text();
+              await copyToClipboard(fallback);
+              showSuccess('Results copied', 'Pop-up blocked; results copied instead.');
+            } catch (copyError) {
+              showError('Unable to open results', copyError);
+            }
+          } else {
+            showSuccess('Results opened', 'Plain text view opened in a new tab.');
+          }
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+        }
+      } catch (error) {
+        showError('Export failed', error);
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [authorizedFetch, copyToClipboard, showError, showSuccess, showWarning]
+  );
+
+  const handleShareHistoryEntry = useCallback(
+    async (entry: SqlHistoryEntry) => {
+      if (!entry.pinned) {
+        showWarning('Pin query first', 'Only pinned queries get shareable links.');
+        return;
+      }
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://apphub.local';
+      const shareUrl = new URL(ROUTE_PATHS.servicesTimestoreSql, origin);
+      shareUrl.searchParams.set('queryId', entry.id);
+      try {
+        await copyToClipboard(shareUrl.toString());
+        showSuccess('Share link copied', entry.label ?? 'Send this link to load the query.');
+      } catch (error) {
+        showError('Unable to copy share link', error);
+      }
+    },
+    [copyToClipboard, showError, showSuccess, showWarning]
+  );
+
+  const handleDeleteHistoryEntry = useCallback(
+    async (id: string) => {
+      const entry = history.find((item) => item.id === id);
+      if (!entry) {
+        return;
+      }
+      setHistory((prev) => removeHistoryEntry(prev, id));
+      if (entry.pinned) {
+        try {
+          await deleteSavedSqlQuery(authorizedFetch, id);
+          showSuccess('Saved query deleted', entry.label ?? 'Saved query removed.');
+        } catch (error) {
+          showError('Unable to delete saved query', error);
+          setHistory((prev) => addHistoryEntry(prev, entry, SQL_HISTORY_LIMIT));
+        }
+      }
+    },
+    [authorizedFetch, history, showError, showSuccess]
+  );
 
   const handleClearHistory = useCallback(() => {
     setHistory((prev) => clearUnpinnedHistory(prev));
   }, []);
 
-  const handleTogglePin = useCallback((id: string) => {
-    setHistory((prev) => {
-      const target = prev.find((entry) => entry.id === id);
-      if (!target) {
-        return prev;
+  const handleTogglePin = useCallback(
+    async (id: string) => {
+      const entry = history.find((item) => item.id === id);
+      if (!entry) {
+        return;
       }
-      return updateHistoryEntry(prev, id, { pinned: !target.pinned });
-    });
-  }, []);
+      const nextPinned = !entry.pinned;
+      const optimisticTimestamp = new Date().toISOString();
+      setHistory((prev) => updateHistoryEntry(prev, id, { pinned: nextPinned, updatedAt: optimisticTimestamp }));
 
-  const handleRenameHistoryEntry = useCallback((id: string) => {
-    setHistory((prev) => {
-      const target = prev.find((entry) => entry.id === id);
-      if (!target) {
-        return prev;
+      if (nextPinned) {
+        try {
+          const saved = await upsertSavedSqlQuery(authorizedFetch, {
+            id,
+            statement: entry.statement,
+            label: entry.label ?? null,
+            stats: entry.stats ?? null
+          });
+          setHistory((prev) =>
+            updateHistoryEntry(prev, id, {
+              pinned: true,
+              label: saved.label ?? null,
+              stats: saved.stats ?? entry.stats,
+              updatedAt: saved.updatedAt ?? saved.createdAt
+            })
+          );
+          showSuccess('Query pinned', 'Share link is ready to use.');
+        } catch (error) {
+          setHistory((prev) =>
+            updateHistoryEntry(prev, id, {
+              pinned: entry.pinned ?? false,
+              updatedAt: entry.updatedAt ?? entry.createdAt
+            })
+          );
+          showError('Unable to pin query', error);
+        }
+      } else {
+        try {
+          await deleteSavedSqlQuery(authorizedFetch, id);
+          showSuccess('Query unpinned', entry.label ? `Removed ${entry.label} from saved.` : 'Saved query removed.');
+        } catch (error) {
+          setHistory((prev) =>
+            updateHistoryEntry(prev, id, {
+              pinned: true,
+              updatedAt: entry.updatedAt ?? entry.createdAt
+            })
+          );
+          showError('Unable to unpin query', error);
+        }
+      }
+    },
+    [authorizedFetch, history, showError, showSuccess]
+  );
+
+  const handleRenameHistoryEntry = useCallback(
+    async (id: string) => {
+      const entry = history.find((item) => item.id === id);
+      if (!entry) {
+        return;
       }
       const nextLabel = typeof window !== 'undefined'
-        ? window.prompt('Set a label for this query', target.label ?? '')
+        ? window.prompt('Set a label for this query', entry.label ?? '')
         : null;
       if (nextLabel === null) {
-        return prev;
+        return;
       }
       const sanitized = nextLabel.trim();
-      return updateHistoryEntry(prev, id, { label: sanitized.length > 0 ? sanitized : null });
-    });
-  }, []);
+      const normalized = sanitized.length > 0 ? sanitized : null;
+      const optimisticTimestamp = new Date().toISOString();
+      setHistory((prev) => updateHistoryEntry(prev, id, { label: normalized, updatedAt: optimisticTimestamp }));
+
+      if (!entry.pinned) {
+        return;
+      }
+
+      try {
+        const saved = await upsertSavedSqlQuery(authorizedFetch, {
+          id,
+          statement: entry.statement,
+          label: normalized,
+          stats: entry.stats ?? null
+        });
+        setHistory((prev) =>
+          updateHistoryEntry(prev, id, {
+            label: saved.label ?? null,
+            stats: saved.stats ?? entry.stats,
+            updatedAt: saved.updatedAt ?? saved.createdAt
+          })
+        );
+        showSuccess('Saved query renamed', saved.label ?? 'Label cleared.');
+      } catch (error) {
+        setHistory((prev) =>
+          updateHistoryEntry(prev, id, {
+            label: entry.label ?? null,
+            updatedAt: entry.updatedAt ?? entry.createdAt
+          })
+        );
+        showError('Unable to rename query', error);
+      }
+    },
+    [authorizedFetch, history, showError, showSuccess]
+  );
 
   const canChart = useMemo(() => {
     if (!result || result.rows.length === 0) {
@@ -425,11 +733,7 @@ export default function TimestoreSqlEditorPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-                      void navigator.clipboard.writeText(statement).catch(() => {
-                        showError('Unable to copy query', new Error('Copy command failed.'));
-                      });
-                    }
+                    void handleCopyQuery();
                   }}
                   className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
                 >
@@ -484,6 +788,49 @@ export default function TimestoreSqlEditorPage() {
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${effectiveResultMode === 'chart' ? 'bg-violet-600 text-white dark:bg-violet-500' : 'border border-slate-300/70 text-slate-600 dark:border-slate-700/70 dark:text-slate-300'} ${!canChart ? 'opacity-40' : ''}`}
                 >
                   Chart
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleExportResults('csv', 'download');
+                  }}
+                  disabled={!canExport}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                >
+                  Download CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleExportResults('table', 'download');
+                  }}
+                  disabled={!canExport}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                >
+                  Download text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleExportResults('table', 'open');
+                  }}
+                  disabled={!canExport}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                >
+                  Open in new tab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCopyResults();
+                  }}
+                  disabled={!hasResults || isExecuting}
+                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:hover:bg-slate-800/60"
+                >
+                  Copy results
                 </button>
               </div>
             </div>
@@ -679,23 +1026,40 @@ export default function TimestoreSqlEditorPage() {
                     >
                       Load
                     </button>
+                    {entry.pinned && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleShareHistoryEntry(entry);
+                        }}
+                        className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                      >
+                        Share
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => handleRenameHistoryEntry(entry.id)}
+                      onClick={() => {
+                        void handleRenameHistoryEntry(entry.id);
+                      }}
                       className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
                     >
                       Rename
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleTogglePin(entry.id)}
+                      onClick={() => {
+                        void handleTogglePin(entry.id);
+                      }}
                       className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300 dark:hover:bg-slate-800/60"
                     >
                       {entry.pinned ? 'Unpin' : 'Pin'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleDeleteHistoryEntry(entry.id)}
+                      onClick={() => {
+                        void handleDeleteHistoryEntry(entry.id);
+                      }}
                       className="rounded-full border border-rose-400/70 px-3 py-1 font-semibold text-rose-600 hover:bg-rose-500/10 dark:border-rose-400/60 dark:text-rose-300"
                     >
                       Delete

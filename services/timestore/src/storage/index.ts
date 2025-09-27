@@ -4,8 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Storage, type StorageOptions, type Bucket } from '@google-cloud/storage';
-import { BlobServiceClient, StorageSharedKeyCredential, type ContainerClient } from '@azure/storage-blob';
+import type { Storage as GoogleStorageCtor, StorageOptions, Bucket } from '@google-cloud/storage';
+import type {
+  BlobServiceClient as AzureBlobServiceClientCtor,
+  StorageSharedKeyCredential as AzureStorageSharedKeyCredentialCtor,
+  ContainerClient
+} from '@azure/storage-blob';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { ServiceConfig } from '../config/serviceConfig';
 import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata';
@@ -35,6 +39,38 @@ export interface PartitionWriteResult {
 
 export interface StorageDriver {
   writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult>;
+}
+
+type GoogleStorageModule = typeof import('@google-cloud/storage');
+type AzureBlobModule = typeof import('@azure/storage-blob');
+
+let cachedGoogleStorageModule: GoogleStorageModule | null = null;
+let cachedAzureBlobModule: AzureBlobModule | null = null;
+
+function loadGoogleStorageModule(): GoogleStorageModule {
+  if (cachedGoogleStorageModule) {
+    return cachedGoogleStorageModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    cachedGoogleStorageModule = require('@google-cloud/storage');
+    return cachedGoogleStorageModule;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@google-cloud/storage". Install it or remove Google Cloud Storage targets.');
+  }
+}
+
+function loadAzureBlobModule(): AzureBlobModule {
+  if (cachedAzureBlobModule) {
+    return cachedAzureBlobModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    cachedAzureBlobModule = require('@azure/storage-blob');
+    return cachedAzureBlobModule;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@azure/storage-blob". Install it or remove Azure storage targets.');
+  }
 }
 
 export function createStorageDriver(
@@ -572,6 +608,7 @@ export function resolveAzureDriverOptions(config: ServiceConfig, target: Storage
 }
 
 export function createGcsBucketClient(options: GcsDriverOptions): Bucket {
+  const { Storage } = loadGoogleStorageModule() as { Storage: typeof GoogleStorageCtor };
   const storageOptions: StorageOptions = {};
   if (options.projectId) {
     storageOptions.projectId = options.projectId;
@@ -589,6 +626,13 @@ export function createGcsBucketClient(options: GcsDriverOptions): Bucket {
 }
 
 export function createAzureContainerClient(options: ResolvedAzureOptions): ContainerClient {
+  const {
+    BlobServiceClient,
+    StorageSharedKeyCredential
+  } = loadAzureBlobModule() as {
+    BlobServiceClient: typeof AzureBlobServiceClientCtor;
+    StorageSharedKeyCredential: typeof AzureStorageSharedKeyCredentialCtor;
+  };
   if (options.connectionString) {
     const client = BlobServiceClient.fromConnectionString(options.connectionString);
     return client.getContainerClient(options.container);
