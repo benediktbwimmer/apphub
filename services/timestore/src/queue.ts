@@ -92,7 +92,6 @@ export async function closeQueueConnection(): Promise<void> {
   if (connection) {
     await connection.quit();
     connection = null;
-    connectionRedisUrl = null;
   }
 }
 
