@@ -8,6 +8,7 @@ import {
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3';
+import type { GetObjectCommandInput } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
@@ -307,7 +308,7 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
         throw new FilestoreError('Target path must not resolve to root', 'INVALID_PATH');
       }
 
-      const params: Record<string, unknown> = {
+      const params: GetObjectCommandInput = {
         Bucket: bucket,
         Key: key
       };
