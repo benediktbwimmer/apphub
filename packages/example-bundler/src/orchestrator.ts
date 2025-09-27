@@ -294,7 +294,30 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       }
     } catch {
       return;
+  }
+
+  const rootScopedSource = path.join(rootNodeModules, '@apphub');
+  try {
+    const scopedEntries = await fs.readdir(rootScopedSource, { withFileTypes: true });
+    for (const entry of scopedEntries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const sourceDir = path.join(rootScopedSource, entry.name);
+      const targetDir = path.join(scopedRoot, entry.name);
+      const alreadyExists = await pathExists(targetDir);
+      if (alreadyExists) {
+        continue;
+      }
+      await ensureDir(path.dirname(targetDir));
+      await fs.cp(sourceDir, targetDir, {
+        recursive: true,
+        dereference: false
+      });
     }
+  } catch {
+    // Ignore missing scoped dependencies; workspace copies may already cover them.
+  }
 
     const targetDir = path.join(nodeModulesRoot, ...segments);
     await ensureDir(path.dirname(targetDir));
