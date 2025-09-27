@@ -6,7 +6,7 @@
     "rowsPerInstrument": 4,
     "intervalMinutes": 15,
     "seed": 99,
-    "filestoreBaseUrl": "http://127.0.0.1:4200",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",

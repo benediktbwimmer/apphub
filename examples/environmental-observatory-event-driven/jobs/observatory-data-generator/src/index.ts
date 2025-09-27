@@ -267,8 +267,8 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
         raw.filestore_base_url ??
         process.env.OBSERVATORY_FILESTORE_BASE_URL ??
         process.env.FILESTORE_BASE_URL,
-      'http://127.0.0.1:4200'
-    ) || 'http://127.0.0.1:4200';
+      'http://127.0.0.1:4300'
+    ) || 'http://127.0.0.1:4300';
 
   const backendRaw =
     raw.filestoreBackendId ??

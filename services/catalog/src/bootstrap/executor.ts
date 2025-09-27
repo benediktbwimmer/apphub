@@ -200,10 +200,18 @@ async function ensureFilestoreBackend(
         configJson
       ]
     );
-    backendId = result.rows[0]?.id ?? null;
-    if (backendId === null || !Number.isFinite(backendId)) {
+    const rawBackendId = result.rows[0]?.id;
+    const parsedBackendId =
+      typeof rawBackendId === 'number'
+        ? rawBackendId
+        : rawBackendId !== null && rawBackendId !== undefined
+          ? Number.parseInt(String(rawBackendId), 10)
+          : Number.NaN;
+
+    if (!Number.isFinite(parsedBackendId)) {
       throw new Error('failed to resolve backend id after upsert');
     }
+    backendId = parsedBackendId;
     context.logger?.info?.(
       { moduleId: context.moduleId, mountKey, backendId, backendRoot },
       'bootstrap ensured filestore backend'

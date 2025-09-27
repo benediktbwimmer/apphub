@@ -69,7 +69,7 @@
           "value": {
             "$var": {
               "name": "OBSERVATORY_FILESTORE_BASE_URL",
-              "default": "http://127.0.0.1:4200",
+              "default": "http://127.0.0.1:4300",
               "description": "Filestore API base URL for uploads and event subscriptions."
             }
           }
@@ -129,7 +129,7 @@
           "value": {
             "$var": {
               "name": "OBSERVATORY_TIMESTORE_BASE_URL",
-              "default": "http://127.0.0.1:4100",
+              "default": "http://127.0.0.1:4200",
               "description": "Timestore API base URL for dataset management."
             }
           }

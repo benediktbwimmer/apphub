@@ -3,7 +3,7 @@
     "datasetSlug": "observatory-timeseries",
     "datasetName": "Observatory Time Series",
     "tableName": "observations",
-    "timestoreBaseUrl": "http://127.0.0.1:4100",
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
     "minute": "2025-08-01T09:00",
     "partitionNamespace": "observatory",
     "idempotencyKey": "observatory-2025-08-01T09:00",

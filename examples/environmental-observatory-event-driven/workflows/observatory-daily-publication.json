@@ -60,7 +60,7 @@
   },
   "defaultParameters": {
     "lookbackMinutes": 180,
-    "timestoreBaseUrl": "http://127.0.0.1:4100",
+    "timestoreBaseUrl": "http://127.0.0.1:4200",
     "timestoreDatasetSlug": "observatory-timeseries",
     "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
     "reportsDir": "examples/environmental-observatory-event-driven/data/reports",

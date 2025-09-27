@@ -40,7 +40,7 @@
     "maxFiles": 64,
     "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
     "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
-    "filestoreBaseUrl": "http://127.0.0.1:4200",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",

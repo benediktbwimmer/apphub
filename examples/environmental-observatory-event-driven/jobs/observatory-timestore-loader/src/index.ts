@@ -65,7 +65,7 @@ const DEFAULT_SCHEMA_FIELDS = [
 
 const DEFAULT_PARTITION_NAMESPACE = 'observatory';
 const DEFAULT_TABLE_NAME = 'observations';
-const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4100';
+const DEFAULT_TIMESTORE_BASE_URL = 'http://127.0.0.1:4200';
 const DEFAULT_DATASET_SLUG = 'observatory-timeseries';
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -138,7 +138,7 @@ export function createEventDrivenObservatoryConfig(
     filestore: {
       baseUrl: resolveString(
         getVar('OBSERVATORY_FILESTORE_BASE_URL'),
-        'http://127.0.0.1:4200',
+        'http://127.0.0.1:4300',
         'filestore.baseUrl'
       ),
       backendMountId: coerceNumber(
@@ -166,7 +166,7 @@ export function createEventDrivenObservatoryConfig(
     timestore: {
       baseUrl: resolveString(
         getVar('OBSERVATORY_TIMESTORE_BASE_URL'),
-        'http://127.0.0.1:4100',
+        'http://127.0.0.1:4200',
         'timestore.baseUrl'
       ),
       datasetSlug: resolveString(

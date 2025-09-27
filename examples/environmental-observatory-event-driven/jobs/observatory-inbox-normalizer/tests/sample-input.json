@@ -4,7 +4,7 @@
     "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
     "minute": "2025-08-01T09:00",
     "maxFiles": 10,
-    "filestoreBaseUrl": "http://127.0.0.1:4200",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",
