@@ -20,6 +20,7 @@ import { registerRepositoryRoutes } from './routes/repositories';
 import { registerAdminRoutes } from './routes/admin';
 import { openApiDocument } from './openapi/document';
 import { registerServiceProxyRoutes } from './routes/serviceProxy';
+import { registerSavedSearchRoutes } from './routes/savedSearches';
 
 export async function buildServer() {
   const app = Fastify();
@@ -101,6 +102,7 @@ export async function buildServer() {
     ])
   );
   await app.register(async (instance) => registerRepositoryRoutes(instance));
+  await app.register(async (instance) => registerSavedSearchRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));
 
   return app;

@@ -173,6 +173,31 @@ export type SearchMeta = {
   };
 };
 
+export type SavedCatalogSearch = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  searchInput: string;
+  statusFilters: IngestStatus[];
+  sort: SearchSort;
+  visibility: 'private';
+  appliedCount: number;
+  sharedCount: number;
+  lastAppliedAt: string | null;
+  lastSharedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SavedCatalogSearchCreateInput = {
+  name: string;
+  description?: string | null;
+  searchInput: string;
+  statusFilters: IngestStatus[];
+  sort: SearchSort;
+};
+
 export type IngestionEvent = {
   id: number;
   repositoryId: string;

@@ -275,6 +275,107 @@ const repositoryResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const savedCatalogSearchSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'slug',
+    'name',
+    'searchInput',
+    'statusFilters',
+    'sort',
+    'visibility',
+    'appliedCount',
+    'sharedCount',
+    'createdAt',
+    'updatedAt'
+  ],
+  properties: {
+    id: { type: 'string', description: 'Saved search identifier.' },
+    slug: { type: 'string', description: 'Shareable slug referencing the saved search.' },
+    name: { type: 'string', description: 'Human friendly label for the saved query.' },
+    description: nullable(stringSchema()),
+    searchInput: {
+      type: 'string',
+      description: 'Raw catalog search input as entered by the operator.'
+    },
+    statusFilters: {
+      type: 'array',
+      items: { type: 'string', enum: ['seed', 'pending', 'processing', 'ready', 'failed'] },
+      description: 'Selected ingest status filters applied when executing the saved search.'
+    },
+    sort: {
+      type: 'string',
+      enum: ['relevance', 'updated', 'name'],
+      description: 'Preferred sort mode.'
+    },
+    visibility: {
+      type: 'string',
+      enum: ['private'],
+      description: 'Visibility of the saved search. Currently limited to private entries.'
+    },
+    appliedCount: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Number of times the saved search has been applied.'
+    },
+    sharedCount: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Number of share actions recorded for the saved search.'
+    },
+    lastAppliedAt: nullable(stringSchema('date-time')),
+    lastSharedAt: nullable(stringSchema('date-time')),
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time')
+  }
+};
+
+const savedCatalogSearchResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: savedCatalogSearchSchema
+  }
+};
+
+const savedCatalogSearchListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: savedCatalogSearchSchema
+    }
+  }
+};
+
+const savedCatalogSearchCreateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['name', 'searchInput'],
+  properties: {
+    name: { type: 'string', maxLength: 100 },
+    description: nullable(stringSchema()),
+    searchInput: { type: 'string', maxLength: 500 },
+    statusFilters: {
+      type: 'array',
+      maxItems: 5,
+      items: { type: 'string', enum: ['seed', 'pending', 'processing', 'ready', 'failed'] }
+    },
+    sort: { type: 'string', enum: ['relevance', 'updated', 'name'] }
+  }
+};
+
+const savedCatalogSearchUpdateRequestSchema: OpenAPIV3.SchemaObject = {
+  allOf: [
+    {
+      type: 'object',
+      properties: savedCatalogSearchCreateRequestSchema.properties ?? {},
+      additionalProperties: false
+    }
+  ]
+};
+
 const operatorIdentitySchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['subject', 'kind', 'scopes'],
@@ -1348,6 +1449,11 @@ const components: OpenAPIV3.ComponentsObject = {
     Repository: repositorySchema,
     RepositoryListResponse: repositoryListResponseSchema,
     RepositoryResponse: repositoryResponseSchema,
+    SavedCatalogSearch: savedCatalogSearchSchema,
+    SavedCatalogSearchResponse: savedCatalogSearchResponseSchema,
+    SavedCatalogSearchListResponse: savedCatalogSearchListResponseSchema,
+    SavedCatalogSearchCreateRequest: savedCatalogSearchCreateRequestSchema,
+    SavedCatalogSearchUpdateRequest: savedCatalogSearchUpdateRequestSchema,
     OperatorIdentity: operatorIdentitySchema,
     IdentityResponse: identityResponseSchema,
     RepositoryCreateRequest: createRepositoryRequestSchema,
@@ -1434,7 +1540,8 @@ export const openApiDocument: OpenAPIV3.Document = {
     { name: 'Apps', description: 'Search and management of ingested repositories.' },
     { name: 'Services', description: 'Runtime services discovered and managed by Apphub.' },
     { name: 'Jobs', description: 'Reusable job definitions executed by the platform.' },
-    { name: 'Workflows', description: 'Multi-step workflow orchestration definitions.' }
+    { name: 'Workflows', description: 'Multi-step workflow orchestration definitions.' },
+    { name: 'Saved Searches', description: 'Manage reusable catalog search definitions.' }
   ],
   components,
   paths: {
@@ -1810,6 +1917,307 @@ export const openApiDocument: OpenAPIV3.Document = {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' }
               }
+            }
+          }
+        }
+      }
+    },
+    '/saved-searches': {
+      get: {
+        tags: ['Saved Searches'],
+        summary: 'List saved catalog searches',
+        description: 'Returns saved catalog searches owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '200': {
+            description: 'Saved searches available to the caller.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchListResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to access saved searches.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      post: {
+        tags: ['Saved Searches'],
+        summary: 'Create a saved catalog search',
+        description: 'Persists a reusable catalog search definition for the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SavedCatalogSearchCreateRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Saved search created successfully.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The saved search payload failed validation.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to create saved searches.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '500': {
+            description: 'An unexpected error occurred while creating the saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/saved-searches/{slug}': {
+      get: {
+        tags: ['Saved Searches'],
+        summary: 'Get a saved catalog search',
+        description: 'Retrieves a saved search owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Saved search details.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to inspect the requested saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'No saved search matches the supplied slug for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      patch: {
+        tags: ['Saved Searches'],
+        summary: 'Update a saved catalog search',
+        description: 'Updates attributes of an existing saved search owned by the caller.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SavedCatalogSearchUpdateRequest' }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Saved search updated.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The update payload was invalid.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to modify the saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      delete: {
+        tags: ['Saved Searches'],
+        summary: 'Delete a saved catalog search',
+        description: 'Removes a saved search owned by the authenticated operator.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '204': { description: 'Saved search deleted.' },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to delete the saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/saved-searches/{slug}/apply': {
+      post: {
+        tags: ['Saved Searches'],
+        summary: 'Record saved search application',
+        description: 'Increments usage metrics after applying a saved search.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Updated saved search metrics.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to update the saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/saved-searches/{slug}/share': {
+      post: {
+        tags: ['Saved Searches'],
+        summary: 'Record saved search share action',
+        description: 'Increments share metrics for a saved search.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Updated saved search metadata.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SavedCatalogSearchResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to update the saved search.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
             }
           }
         }

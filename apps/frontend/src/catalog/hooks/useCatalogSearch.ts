@@ -28,6 +28,7 @@ export type CatalogSearchHandlers = {
   applySuggestion: (suggestion: TagSuggestion) => void;
   toggleStatus: (status: AppRecord['ingestStatus']) => void;
   clearStatusFilters: () => void;
+  setStatusFilters: (statuses: AppRecord['ingestStatus'][]) => void;
   applyTagFacet: (facet: TagFacet) => void;
   setSortMode: (sort: SearchSort) => void;
   toggleHighlights: (enabled: boolean) => void;
@@ -274,6 +275,10 @@ export function useCatalogSearch(): UseCatalogSearchResult {
     setStatusFilters([]);
   }, []);
 
+  const setStatusFiltersExplicit = useCallback((statuses: AppRecord['ingestStatus'][]) => {
+    setStatusFilters(Array.from(new Set(statuses)));
+  }, []);
+
   const setSortMode = useCallback((next: SearchSort) => {
     setSortModeInternal(next);
     setSortManuallySet(true);
@@ -370,6 +375,7 @@ export function useCatalogSearch(): UseCatalogSearchResult {
       applySuggestion,
       toggleStatus,
       clearStatusFilters,
+      setStatusFilters: setStatusFiltersExplicit,
       applyTagFacet,
       setSortMode,
       toggleHighlights

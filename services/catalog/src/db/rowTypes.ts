@@ -457,6 +457,28 @@ export type WorkflowEventTriggerRow = {
   updated_by: string | null;
 };
 
+export type SavedCatalogSearchRow = {
+  id: string;
+  slug: string;
+  owner_key: string;
+  owner_user_id: string | null;
+  owner_subject: string;
+  owner_kind: string;
+  owner_token_hash: string | null;
+  name: string;
+  description: string | null;
+  search_input: string;
+  status_filters: string[];
+  sort: string;
+  visibility: string;
+  applied_count: string | number;
+  shared_count: string | number;
+  last_applied_at: string | null;
+  last_shared_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkflowTriggerDeliveryRow = {
   id: string;
   trigger_id: string;

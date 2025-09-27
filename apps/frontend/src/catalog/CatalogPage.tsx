@@ -1,19 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useCatalogSearch } from './hooks/useCatalogSearch';
 import { useCatalogHistory } from './hooks/useCatalogHistory';
 import { useCatalogBuilds } from './hooks/useCatalogBuilds';
 import { useCatalogLaunches } from './hooks/useCatalogLaunches';
+import { useSavedCatalogSearches } from './hooks/useSavedCatalogSearches';
 import SearchSection from './components/SearchSection';
 import AppList from './components/AppList';
 import { Spinner } from '../components';
+import { useToastHelpers } from '../components/toast';
+import type { SavedCatalogSearch } from './types';
 
 type CatalogPageProps = {
   searchSeed?: string;
   onSeedApplied?: () => void;
+  savedSearchSlug?: string;
+  onSavedSearchApplied?: () => void;
 };
 
-function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
+function CatalogPage({ searchSeed, onSeedApplied, savedSearchSlug, onSavedSearchApplied }: CatalogPageProps) {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const { showSuccess, showError, showInfo } = useToastHelpers();
 
   const {
     inputValue,
@@ -23,6 +29,7 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
     error,
     suggestions,
     highlightIndex,
+    statusFilters,
     sortMode,
     showHighlights,
     activeTokens,
@@ -32,6 +39,7 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
     repositories,
     setGlobalError
   } = useCatalogSearch();
+  const savedSearches = useSavedCatalogSearches();
   const history = useCatalogHistory({ repositories, setGlobalError });
   const builds = useCatalogBuilds({ repositories });
   const launches = useCatalogLaunches({ repositories });
@@ -42,6 +50,119 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
       onSeedApplied?.();
     }
   }, [searchSeed, inputValue, setInputValue, onSeedApplied]);
+
+  const applySavedSearch = useCallback(
+    async (search: SavedCatalogSearch, notifyApplied = false) => {
+      setInputValue(search.searchInput);
+      handlers.setStatusFilters(search.statusFilters);
+      handlers.setSortMode(search.sort);
+
+      try {
+        await savedSearches.recordSavedSearchApplied(search.slug);
+      } catch (err) {
+        showError('Failed to record saved search usage', err, 'Unable to track saved search usage.');
+      } finally {
+        if (notifyApplied) {
+          onSavedSearchApplied?.();
+        }
+      }
+    },
+    [handlers, onSavedSearchApplied, savedSearches, setInputValue, showError]
+  );
+
+  useEffect(() => {
+    if (!savedSearchSlug) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadAndApply = async () => {
+      try {
+        const record = await savedSearches.getSavedSearch(savedSearchSlug);
+        if (cancelled) {
+          return;
+        }
+        if (!record) {
+          showError('Saved search unavailable', 'The saved search could not be found.');
+          onSavedSearchApplied?.();
+          return;
+        }
+        await applySavedSearch(record, true);
+      } catch (err) {
+        if (!cancelled) {
+          showError('Saved search unavailable', err, 'Failed to load saved search.');
+          onSavedSearchApplied?.();
+        }
+      }
+    };
+
+    void loadAndApply();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applySavedSearch, onSavedSearchApplied, savedSearchSlug, savedSearches, showError]);
+
+  const handleCreateSavedSearch = useCallback(
+    async (name: string) => {
+      try {
+        await savedSearches.createSavedSearch({
+          name,
+          description: null,
+          searchInput: inputValue,
+          statusFilters,
+          sort: sortMode
+        });
+        showSuccess('Saved search created');
+      } catch (err) {
+        showError('Failed to save search', err, 'Unable to save this search right now.');
+      }
+    },
+    [inputValue, savedSearches, showError, showSuccess, sortMode, statusFilters]
+  );
+
+  const handleRenameSavedSearch = useCallback(
+    async (search: SavedCatalogSearch, nextName: string) => {
+      try {
+        await savedSearches.updateSavedSearch(search.slug, { name: nextName });
+        showSuccess('Saved search renamed');
+      } catch (err) {
+        showError('Failed to rename saved search', err, 'Unable to rename this saved search.');
+      }
+    },
+    [savedSearches, showError, showSuccess]
+  );
+
+  const handleDeleteSavedSearch = useCallback(
+    async (search: SavedCatalogSearch) => {
+      try {
+        await savedSearches.deleteSavedSearch(search.slug);
+        showInfo('Saved search deleted');
+      } catch (err) {
+        showError('Failed to delete saved search', err, 'Unable to delete this saved search.');
+      }
+    },
+    [savedSearches, showError, showInfo]
+  );
+
+  const handleShareSavedSearch = useCallback(
+    async (search: SavedCatalogSearch) => {
+      const shareUrl = `${window.location.origin}/catalog?saved=${encodeURIComponent(search.slug)}`;
+      try {
+        await savedSearches.recordSavedSearchShared(search.slug);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(shareUrl);
+          showSuccess('Share link copied to clipboard');
+        } else {
+          showInfo('Share link ready', shareUrl);
+        }
+      } catch (err) {
+        showError('Failed to share saved search', err, 'Unable to share this saved search right now.');
+      }
+    },
+    [savedSearches, showError, showInfo, showSuccess]
+  );
 
   useEffect(() => {
     if (!searchSeed) {
@@ -82,6 +203,15 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
         onToggleHighlights={handlers.toggleHighlights}
         activeTokens={activeTokens}
         searchMeta={searchMeta}
+        savedSearches={savedSearches.savedSearches}
+        savedSearchesLoading={savedSearches.loading}
+        savedSearchError={savedSearches.error}
+        savedSearchMutation={savedSearches.mutationState}
+        onCreateSavedSearch={handleCreateSavedSearch}
+        onApplySavedSearch={applySavedSearch}
+        onRenameSavedSearch={handleRenameSavedSearch}
+        onDeleteSavedSearch={handleDeleteSavedSearch}
+        onShareSavedSearch={handleShareSavedSearch}
       />
       <section className="flex flex-col gap-6">
         {loading && (

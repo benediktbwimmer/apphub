@@ -58,7 +58,9 @@ import {
   type WorkflowEventTriggerPredicate,
   type WorkflowEventTriggerStatus,
   type WorkflowTriggerDeliveryRecord,
-  type WorkflowTriggerDeliveryStatus
+  type WorkflowTriggerDeliveryStatus,
+  type SavedCatalogSearchRecord,
+  type RepositorySort
 } from './types';
 import type {
   BuildRow,
@@ -87,7 +89,8 @@ import type {
   WorkflowAssetPartitionParametersRow,
   WorkflowEventRow,
   WorkflowEventTriggerRow,
-  WorkflowTriggerDeliveryRow
+  WorkflowTriggerDeliveryRow,
+  SavedCatalogSearchRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1828,4 +1831,73 @@ export function mapWorkflowAssetPartitionParametersRow(
     capturedAt: row.captured_at,
     updatedAt: row.updated_at
   } satisfies WorkflowAssetPartitionParametersRecord;
+}
+
+const SAVED_SEARCH_VISIBILITY_PRIVATE = 'private' as const;
+
+function normalizeSavedSearchStatuses(raw: string[] | null | undefined): IngestStatus[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const seen = new Set<IngestStatus>();
+  for (const value of raw) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const normalized = value.trim().toLowerCase();
+    switch (normalized) {
+      case 'seed':
+      case 'pending':
+      case 'processing':
+      case 'ready':
+      case 'failed':
+        seen.add(normalized as IngestStatus);
+        break;
+      default:
+        break;
+    }
+  }
+  return Array.from(seen);
+}
+
+function normalizeSavedSearchSort(sort: string | null | undefined): RepositorySort {
+  if (sort === 'name' || sort === 'updated' || sort === 'relevance') {
+    return sort;
+  }
+  return 'relevance';
+}
+
+function toSafeCount(value: string | number | null | undefined): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+export function mapSavedCatalogSearchRow(row: SavedCatalogSearchRow): SavedCatalogSearchRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description ?? null,
+    searchInput: row.search_input,
+    statusFilters: normalizeSavedSearchStatuses(row.status_filters ?? []),
+    sort: normalizeSavedSearchSort(row.sort),
+    visibility: SAVED_SEARCH_VISIBILITY_PRIVATE,
+    appliedCount: toSafeCount(row.applied_count),
+    sharedCount: toSafeCount(row.shared_count),
+    lastAppliedAt: row.last_applied_at ?? null,
+    lastSharedAt: row.last_shared_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ownerKey: row.owner_key,
+    ownerSubject: row.owner_subject,
+    ownerKind: row.owner_kind === 'service' ? 'service' : 'user',
+    ownerUserId: row.owner_user_id ?? null
+  } satisfies SavedCatalogSearchRecord;
 }

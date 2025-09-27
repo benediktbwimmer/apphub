@@ -928,6 +928,37 @@ const migrations: Migration[] = [
          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        );`
     ]
+  },
+  {
+    id: '031_saved_catalog_searches',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS saved_catalog_searches (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         owner_key TEXT NOT NULL,
+         owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+         owner_subject TEXT NOT NULL,
+         owner_kind TEXT NOT NULL,
+         owner_token_hash TEXT,
+         name TEXT NOT NULL,
+         description TEXT,
+         search_input TEXT NOT NULL,
+         status_filters TEXT[] NOT NULL DEFAULT '{}',
+         sort TEXT NOT NULL DEFAULT 'relevance',
+         visibility TEXT NOT NULL DEFAULT 'private',
+         applied_count BIGINT NOT NULL DEFAULT 0,
+         shared_count BIGINT NOT NULL DEFAULT 0,
+         last_applied_at TIMESTAMPTZ,
+         last_shared_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_saved_catalog_searches_owner_key
+         ON saved_catalog_searches(owner_key);`,
+      `CREATE INDEX IF NOT EXISTS idx_saved_catalog_searches_owner_user
+         ON saved_catalog_searches(owner_user_id)
+         WHERE owner_user_id IS NOT NULL;`
+    ]
   }
 ];
 

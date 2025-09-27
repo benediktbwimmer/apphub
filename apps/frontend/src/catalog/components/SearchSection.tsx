@@ -1,6 +1,8 @@
 import type { KeyboardEventHandler } from 'react';
-import type { SearchMeta, SearchSort, TagSuggestion } from '../types';
+import type { SavedCatalogSearch, SearchMeta, SearchSort, TagSuggestion } from '../types';
+import type { SavedSearchMutationState } from '../hooks/useSavedCatalogSearches';
 import { formatWeight } from '../utils';
+import SavedSearchManager from './SavedSearchManager';
 
 const SORT_OPTIONS: { key: SearchSort; label: string }[] = [
   { key: 'relevance', label: 'Relevance' },
@@ -21,6 +23,15 @@ type SearchSectionProps = {
   onToggleHighlights: (enabled: boolean) => void;
   activeTokens: string[];
   searchMeta: SearchMeta | null;
+  savedSearches: SavedCatalogSearch[];
+  savedSearchesLoading: boolean;
+  savedSearchError: string | null;
+  savedSearchMutation: SavedSearchMutationState;
+  onCreateSavedSearch: (name: string) => Promise<void>;
+  onApplySavedSearch: (search: SavedCatalogSearch) => Promise<void>;
+  onRenameSavedSearch: (search: SavedCatalogSearch, name: string) => Promise<void>;
+  onDeleteSavedSearch: (search: SavedCatalogSearch) => Promise<void>;
+  onShareSavedSearch: (search: SavedCatalogSearch) => Promise<void>;
 };
 
 function SearchSection({
@@ -35,7 +46,16 @@ function SearchSection({
   showHighlights,
   onToggleHighlights,
   activeTokens,
-  searchMeta
+  searchMeta,
+  savedSearches,
+  savedSearchesLoading,
+  savedSearchError,
+  savedSearchMutation,
+  onCreateSavedSearch,
+  onApplySavedSearch,
+  onRenameSavedSearch,
+  onDeleteSavedSearch,
+  onShareSavedSearch
 }: SearchSectionProps) {
   const highlightToggleDisabled = activeTokens.length === 0;
 
@@ -115,6 +135,17 @@ function SearchSection({
           Highlight matches
         </label>
       </div>
+      <SavedSearchManager
+        savedSearches={savedSearches}
+        loading={savedSearchesLoading}
+        error={savedSearchError}
+        mutationState={savedSearchMutation}
+        onCreate={onCreateSavedSearch}
+        onApply={onApplySavedSearch}
+        onRename={onRenameSavedSearch}
+        onDelete={onDeleteSavedSearch}
+        onShare={onShareSavedSearch}
+      />
       {activeTokens.length > 0 && (
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/60 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
           <div className="flex flex-wrap gap-2">

@@ -184,6 +184,45 @@ export type RepositorySearchParams = {
   relevanceWeights?: Partial<RelevanceWeights>;
 };
 
+export type SavedCatalogSearchVisibility = 'private';
+
+export type SavedCatalogSearchRecord = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  searchInput: string;
+  statusFilters: IngestStatus[];
+  sort: RepositorySort;
+  visibility: SavedCatalogSearchVisibility;
+  appliedCount: number;
+  sharedCount: number;
+  lastAppliedAt: string | null;
+  lastSharedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  ownerKey: string;
+  ownerSubject: string;
+  ownerKind: 'user' | 'service';
+  ownerUserId: string | null;
+};
+
+export type SavedCatalogSearchCreateInput = {
+  name: string;
+  description?: string | null;
+  searchInput: string;
+  statusFilters?: IngestStatus[];
+  sort?: RepositorySort;
+};
+
+export type SavedCatalogSearchUpdateInput = {
+  name?: string;
+  description?: string | null;
+  searchInput?: string;
+  statusFilters?: IngestStatus[];
+  sort?: RepositorySort;
+};
+
 export type TagFacet = {
   key: string;
   value: string;
