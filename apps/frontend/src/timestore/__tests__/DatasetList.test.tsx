@@ -8,23 +8,27 @@ const DATASET_FIXTURES: DatasetRecord[] = [
   {
     id: 'ds-1',
     slug: 'observatory.timeseries',
+    name: 'Observatory Timeseries',
     displayName: 'Observatory Timeseries',
     description: null,
     status: 'active',
+    writeFormat: 'duckdb',
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T12:00:00.000Z',
-    storageTargetId: null,
+    defaultStorageTargetId: null,
     metadata: {}
   },
   {
     id: 'ds-2',
     slug: 'observatory.aggregate',
+    name: 'Observatory Aggregate',
     displayName: null,
     description: null,
     status: 'inactive',
+    writeFormat: 'duckdb',
     createdAt: '2024-01-02T00:00:00.000Z',
     updatedAt: '2024-01-02T12:00:00.000Z',
-    storageTargetId: null,
+    defaultStorageTargetId: null,
     metadata: {}
   }
 ];

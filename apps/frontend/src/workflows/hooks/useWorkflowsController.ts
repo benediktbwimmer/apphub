@@ -207,6 +207,7 @@ export function useWorkflowsController() {
   const selectedRunIdRef = useRef<string | null>(null);
   const selectedTriggerIdRef = useRef<string | null>(null);
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
+  const eventTriggerStateRef = useRef<Record<string, EventTriggerListState>>({});
 
   const authorizedFetch = useAuthorizedFetch();
   const { identity } = useAuth();
@@ -603,12 +604,13 @@ export function useWorkflowsController() {
       if (!slug) {
         return;
       }
+      const currentState = eventTriggerStateRef.current;
       const filters: WorkflowEventTriggerFilters = {
-        ...(eventTriggerState[slug]?.filters ?? {}),
+        ...(currentState[slug]?.filters ?? {}),
         ...(options.filters ?? {})
       };
       const nextFilters = Object.keys(filters).length > 0 ? filters : undefined;
-      if (!options.force && eventTriggerState[slug]?.loading) {
+      if (!options.force && currentState[slug]?.loading) {
         return;
       }
       setEventTriggerState((current) => ({
@@ -662,7 +664,7 @@ export function useWorkflowsController() {
         }
       }
     },
-    [authorizedFetch, eventTriggerState, pushToast]
+    [authorizedFetch, pushToast]
   );
 
   const handleEventTriggerCreated = useCallback(
@@ -1082,6 +1084,10 @@ export function useWorkflowsController() {
   useEffect(() => {
     workflowAnalyticsRef.current = workflowAnalytics;
   }, [workflowAnalytics]);
+
+  useEffect(() => {
+    eventTriggerStateRef.current = eventTriggerState;
+  }, [eventTriggerState]);
 
   useEffect(() => {
     void loadServices();

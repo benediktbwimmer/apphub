@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const datasetStatusSchema = z.enum(['active', 'inactive']);
+const writeFormatSchema = z.enum(['duckdb', 'parquet']);
+
 const retentionRuleSchema = z.object({
   maxAgeHours: z.number().int().positive().optional(),
   maxTotalBytes: z.number().int().positive().optional()
@@ -20,12 +23,12 @@ export type RetentionPolicy = z.infer<typeof retentionPolicySchema>;
 export const datasetRecordSchema = z.object({
   id: z.string(),
   slug: z.string(),
+  name: z.string(),
   displayName: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
-  status: z.enum(['active', 'inactive']).default('active'),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  storageTargetId: z.string().nullable().optional(),
+  status: datasetStatusSchema.default('active'),
+  writeFormat: writeFormatSchema.default('duckdb'),
+  defaultStorageTargetId: z.string().nullable().optional(),
   metadata: z
     .object({
       iam: z
@@ -37,7 +40,9 @@ export const datasetRecordSchema = z.object({
         .optional()
     })
     .partial()
-    .optional()
+    .default({}),
+  createdAt: z.string(),
+  updatedAt: z.string()
 });
 
 export type DatasetRecord = z.infer<typeof datasetRecordSchema>;

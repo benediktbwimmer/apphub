@@ -53,7 +53,7 @@ export function DatasetList({ datasets, selectedId, onSelect, loading, error, on
                     }`}
                   >
                     <span className="text-sm font-semibold">
-                      {dataset.displayName ?? dataset.slug}
+                      {dataset.displayName ?? dataset.name ?? dataset.slug}
                     </span>
                     <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
                       {dataset.slug}
