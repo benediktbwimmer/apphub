@@ -1064,6 +1064,91 @@ const workflowDefinitionResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const workflowRunSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'workflowDefinitionId', 'status', 'createdAt', 'updatedAt'],
+  properties: {
+    id: { type: 'string' },
+    workflowDefinitionId: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['pending', 'running', 'succeeded', 'failed', 'canceled']
+    },
+    parameters: jsonValueSchema,
+    context: jsonValueSchema,
+    output: jsonValueSchema,
+    errorMessage: nullable(stringSchema()),
+    currentStepId: nullable(stringSchema()),
+    currentStepIndex: nullable(integerSchema()),
+    metrics: nullable(jsonValueSchema),
+    triggeredBy: nullable(stringSchema()),
+    trigger: jsonValueSchema,
+    partitionKey: nullable(stringSchema()),
+    startedAt: nullable(stringSchema('date-time')),
+    completedAt: nullable(stringSchema('date-time')),
+    durationMs: nullable(integerSchema()),
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time')
+  }
+};
+
+const workflowAutoMaterializeInFlightSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['reason', 'requestedAt', 'claimedAt', 'claimOwner'],
+  properties: {
+    workflowRunId: nullable(stringSchema()),
+    reason: { type: 'string' },
+    assetId: nullable(stringSchema()),
+    partitionKey: nullable(stringSchema()),
+    requestedAt: stringSchema('date-time'),
+    claimedAt: stringSchema('date-time'),
+    claimOwner: { type: 'string' },
+    context: nullable(jsonValueSchema)
+  }
+};
+
+const workflowAutoMaterializeCooldownSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['failures'],
+  properties: {
+    failures: { type: 'integer', minimum: 0 },
+    nextEligibleAt: nullable(stringSchema('date-time'))
+  }
+};
+
+const workflowAutoMaterializeOpsResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'object',
+      required: ['runs', 'inFlight', 'cooldown', 'updatedAt'],
+      properties: {
+        runs: { type: 'array', items: { $ref: '#/components/schemas/WorkflowRun' } },
+        inFlight: nullableRef('#/components/schemas/WorkflowAutoMaterializeInFlight'),
+        cooldown: nullableRef('#/components/schemas/WorkflowAutoMaterializeCooldown'),
+        updatedAt: stringSchema('date-time')
+      }
+    },
+    meta: {
+      type: 'object',
+      properties: {
+        workflow: {
+          type: 'object',
+          required: ['id', 'slug', 'name'],
+          properties: {
+            id: { type: 'string' },
+            slug: { type: 'string' },
+            name: { type: 'string' }
+          }
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+        offset: { type: 'integer', minimum: 0 }
+      }
+    }
+  }
+};
+
 const assetGraphProducerSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: [
@@ -1293,6 +1378,10 @@ const components: OpenAPIV3.ComponentsObject = {
     WorkflowDefinitionCreateRequest: workflowDefinitionCreateRequestSchema,
     WorkflowDefinitionResponse: workflowDefinitionResponseSchema,
     WorkflowDefinitionListResponse: workflowDefinitionListResponseSchema,
+    WorkflowRun: workflowRunSchema,
+    WorkflowAutoMaterializeInFlight: workflowAutoMaterializeInFlightSchema,
+    WorkflowAutoMaterializeCooldown: workflowAutoMaterializeCooldownSchema,
+    WorkflowAutoMaterializeOpsResponse: workflowAutoMaterializeOpsResponseSchema,
     ApiKey: apiKeySchema,
     ApiKeyListResponse: apiKeyListResponseSchema,
     ApiKeyCreateResponse: apiKeyCreateResponseSchema,
@@ -2149,6 +2238,65 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '404': {
             description: 'The workflow or asset was not found.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/workflows/{slug}/auto-materialize': {
+      get: {
+        tags: ['Workflows'],
+        summary: 'Inspect auto-materialization operations',
+        description:
+          'Returns recent auto-materialize runs, the current in-flight claim, and cooldown state for the specified workflow.',
+        parameters: [
+          { name: 'slug', in: 'path', required: true, schema: { type: 'string' } },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 50 },
+            description: 'Maximum number of auto-materialize runs to return. Defaults to 20.'
+          },
+          {
+            name: 'offset',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 0 },
+            description: 'Number of runs to skip before returning results.'
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Auto-materialization operations for the requested workflow.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WorkflowAutoMaterializeOpsResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The provided parameters were invalid.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '404': {
+            description: 'No workflow was found for the provided slug.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '500': {
+            description: 'The server failed to load auto-materialization activity.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' }

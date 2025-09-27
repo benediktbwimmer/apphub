@@ -274,6 +274,29 @@ export type WorkflowRun = {
   updatedAt: string;
 };
 
+export type WorkflowAutoMaterializeClaim = {
+  workflowRunId: string | null;
+  reason: string;
+  assetId: string | null;
+  partitionKey: string | null;
+  requestedAt: string;
+  claimedAt: string;
+  claimOwner: string;
+  context: unknown;
+};
+
+export type WorkflowAutoMaterializeCooldown = {
+  failures: number;
+  nextEligibleAt: string | null;
+};
+
+export type WorkflowAutoMaterializeOps = {
+  runs: WorkflowRun[];
+  inFlight: WorkflowAutoMaterializeClaim | null;
+  cooldown: WorkflowAutoMaterializeCooldown | null;
+  updatedAt: string;
+};
+
 export type WorkflowRunStep = {
   id: string;
   workflowRunId: string;

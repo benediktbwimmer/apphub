@@ -11,6 +11,7 @@ import {
   listWorkflowRunSteps,
   listWorkflowRuns,
   listWorkflowRunsForDefinition,
+  listWorkflowAutoRunsForDefinition,
   updateWorkflowDefinition,
   updateWorkflowRun,
   getJobDefinitionsBySlugs,
@@ -26,7 +27,8 @@ import {
   updateWorkflowSchedule,
   deleteWorkflowSchedule,
   getWorkflowScheduleWithWorkflow,
-  type JsonValue
+  getWorkflowAutoRunClaim,
+  getFailureState as getAutoMaterializeFailureState
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -1220,6 +1222,70 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     return {
       data: {
         runs: runs.map((run) => serializeWorkflowRun(run))
+      },
+      meta: {
+        workflow: {
+          id: workflow.id,
+          slug: workflow.slug,
+          name: workflow.name
+        },
+        limit,
+        offset
+      }
+    };
+  });
+
+  app.get('/workflows/:slug/auto-materialize', async (request, reply) => {
+    const parseParams = workflowSlugParamSchema.safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const parseQuery = workflowRunListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const workflow = await getWorkflowDefinitionBySlug(parseParams.data.slug);
+    if (!workflow) {
+      reply.status(404);
+      return { error: 'workflow not found' };
+    }
+
+    const limit = Math.max(1, Math.min(parseQuery.data.limit ?? 20, 50));
+    const offset = Math.max(0, parseQuery.data.offset ?? 0);
+
+    const [runs, claim, failureState] = await Promise.all([
+      listWorkflowAutoRunsForDefinition(workflow.id, { limit, offset }),
+      getWorkflowAutoRunClaim(workflow.id),
+      getAutoMaterializeFailureState(workflow.id)
+    ]);
+
+    reply.status(200);
+    return {
+      data: {
+        runs: runs.map((run) => serializeWorkflowRun(run)),
+        inFlight: claim
+          ? {
+              workflowRunId: claim.workflowRunId,
+              reason: claim.reason,
+              assetId: claim.assetId,
+              partitionKey: claim.partitionKey,
+              requestedAt: claim.requestedAt,
+              claimedAt: claim.claimedAt,
+              claimOwner: claim.claimOwner,
+              context: claim.context ?? null
+            }
+          : null,
+        cooldown: failureState
+          ? {
+              failures: failureState.failures,
+              nextEligibleAt: failureState.nextEligibleAt
+            }
+          : null,
+        updatedAt: new Date().toISOString()
       },
       meta: {
         workflow: {

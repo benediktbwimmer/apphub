@@ -110,6 +110,8 @@ Both events flow through Redis (or inline during tests) and are consumed by the 
 
 The worker also processes the `apphub_asset_event_queue` BullMQ queue to fire delayed `asset.expired` events scheduled when assets provide a TTL or cadence.
 
+Operators can now inspect auto-materialization activity without reaching for SQL. The catalog API exposes `/workflows/:slug/auto-materialize`, returning recent auto-runs, any active materializer claim, and the current failure backoff window. The Workflows UI surfaces the same data in the **Auto-Materialization Activity** panel on the workflow detail page, alongside quick filters and freshness indicators for auto-managed assets.
+
 ## Inspecting Assets via API
 The catalog exposes inventory and history endpoints:
 

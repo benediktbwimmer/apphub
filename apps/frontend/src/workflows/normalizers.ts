@@ -21,6 +21,9 @@ import type {
   WorkflowSchedule,
   WorkflowFanOutTemplateStep,
   WorkflowFiltersState,
+  WorkflowAutoMaterializeOps,
+  WorkflowAutoMaterializeClaim,
+  WorkflowAutoMaterializeCooldown,
   WorkflowRun,
   WorkflowRunMetricsSummary,
   WorkflowRunStatsSummary,
@@ -1068,6 +1071,84 @@ export function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | nu
         : raw.templateStepId === null
           ? null
           : null
+  };
+}
+
+function normalizeAutoMaterializeClaim(payload: unknown): WorkflowAutoMaterializeClaim | null {
+  const record = toRecord(payload);
+  if (!record) {
+    return null;
+  }
+  const reason = typeof record.reason === 'string' ? record.reason : null;
+  const requestedAt = typeof record.requestedAt === 'string' ? record.requestedAt : null;
+  const claimedAt = typeof record.claimedAt === 'string' ? record.claimedAt : null;
+  const claimOwner = typeof record.claimOwner === 'string' ? record.claimOwner : null;
+  if (!reason || !requestedAt || !claimedAt || !claimOwner) {
+    return null;
+  }
+  return {
+    workflowRunId:
+      typeof record.workflowRunId === 'string' && record.workflowRunId.trim().length > 0
+        ? record.workflowRunId
+        : null,
+    reason,
+    assetId:
+      typeof record.assetId === 'string' && record.assetId.trim().length > 0 ? record.assetId : null,
+    partitionKey:
+      typeof record.partitionKey === 'string' && record.partitionKey.trim().length > 0
+        ? record.partitionKey
+        : null,
+    requestedAt,
+    claimedAt,
+    claimOwner,
+    context: 'context' in record ? (record.context as unknown) : null
+  };
+}
+
+function normalizeAutoMaterializeCooldown(payload: unknown): WorkflowAutoMaterializeCooldown | null {
+  const record = toRecord(payload);
+  if (!record) {
+    return null;
+  }
+  const failures = typeof record.failures === 'number' && Number.isFinite(record.failures)
+    ? Math.max(0, Math.floor(record.failures))
+    : null;
+  if (failures === null) {
+    return null;
+  }
+  const nextEligibleAt =
+    typeof record.nextEligibleAt === 'string' && record.nextEligibleAt.trim().length > 0
+      ? record.nextEligibleAt
+      : null;
+  return {
+    failures,
+    nextEligibleAt
+  };
+}
+
+export function normalizeWorkflowAutoMaterializeOps(payload: unknown): WorkflowAutoMaterializeOps | null {
+  const root = toRecord(payload);
+  if (!root) {
+    return null;
+  }
+  const data = toRecord(root.data);
+  if (!data) {
+    return null;
+  }
+  const runs = Array.isArray(data.runs)
+    ? data.runs
+        .map((entry) => normalizeWorkflowRun(entry))
+        .filter((run): run is WorkflowRun => Boolean(run))
+    : [];
+  const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString();
+  const inFlight = 'inFlight' in data ? normalizeAutoMaterializeClaim(data.inFlight) : null;
+  const cooldown = 'cooldown' in data ? normalizeAutoMaterializeCooldown(data.cooldown) : null;
+
+  return {
+    runs,
+    inFlight,
+    cooldown,
+    updatedAt
   };
 }
 

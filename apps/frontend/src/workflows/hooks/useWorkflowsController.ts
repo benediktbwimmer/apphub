@@ -33,6 +33,7 @@ import {
   getWorkflowEventHealth,
   getWorkflowRunMetrics,
   getWorkflowStats,
+  getWorkflowAutoMaterializeOps,
   listServices,
   listWorkflowDefinitions,
   listWorkflowEventSamples,
@@ -59,6 +60,7 @@ import type {
   WorkflowEventSchedulerHealth,
   WorkflowEventTrigger,
   WorkflowFiltersState,
+  WorkflowAutoMaterializeOps,
   WorkflowRunMetricsSummary,
   WorkflowRun,
   WorkflowRunStep,
@@ -169,6 +171,10 @@ export function useWorkflowsController() {
   const [assetPartitionsLoading, setAssetPartitionsLoading] = useState(false);
   const [assetPartitionsError, setAssetPartitionsError] = useState<string | null>(null);
 
+  const [autoMaterializeState, setAutoMaterializeState] = useState<
+    Record<string, { data: WorkflowAutoMaterializeOps | null; loading: boolean; error: string | null }>
+  >({});
+
   const [eventTriggerState, setEventTriggerState] = useState<Record<string, EventTriggerListState>>({});
   const [selectedTriggerId, setSelectedTriggerId] = useState<string | null>(null);
   const [triggerDeliveryState, setTriggerDeliveryState] = useState<Record<string, TriggerDeliveryState>>({});
@@ -211,6 +217,9 @@ export function useWorkflowsController() {
   const selectedTriggerIdRef = useRef<string | null>(null);
   const workflowAnalyticsRef = useRef<Record<string, WorkflowAnalyticsState>>({});
   const eventTriggerStateRef = useRef<Record<string, EventTriggerListState>>({});
+  const autoMaterializeStateRef = useRef(
+    autoMaterializeState as Record<string, { data: WorkflowAutoMaterializeOps | null; loading: boolean; error: string | null }>
+  );
 
   const authorizedFetch = useAuthorizedFetch();
   const { identity } = useAuth();
@@ -250,6 +259,11 @@ export function useWorkflowsController() {
   );
   const eventTriggersLoading = eventTriggersEntry?.loading ?? false;
   const eventTriggersError = eventTriggersEntry?.error ?? null;
+
+  const autoMaterializeEntry = selectedSlug ? autoMaterializeState[selectedSlug] : undefined;
+  const autoMaterializeOps = autoMaterializeEntry?.data ?? null;
+  const autoMaterializeLoading = autoMaterializeEntry?.loading ?? false;
+  const autoMaterializeError = autoMaterializeEntry?.error ?? null;
 
   const selectedEventTrigger = useMemo(() => {
     if (!eventTriggers.length) {
@@ -603,6 +617,61 @@ export function useWorkflowsController() {
     [loadAssetHistory, loadAssetPartitions]
   );
 
+  const loadAutoMaterializeOps = useCallback(
+    async (slug: string, options: { force?: boolean } = {}) => {
+      if (!slug) {
+        return;
+      }
+      const currentEntry = autoMaterializeStateRef.current[slug];
+      if (!options.force && currentEntry?.loading) {
+        return;
+      }
+      if (!options.force && currentEntry && currentEntry.data) {
+        return;
+      }
+      setAutoMaterializeState((current) => ({
+        ...current,
+        [slug]: {
+          data: current[slug]?.data ?? null,
+          loading: true,
+          error: null
+        }
+      }));
+      try {
+        const ops = await getWorkflowAutoMaterializeOps(authorizedFetch, slug, { limit: 20 });
+        setAutoMaterializeState((current) => ({
+          ...current,
+          [slug]: {
+            data: ops,
+            loading: false,
+            error: null
+          }
+        }));
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Failed to load auto-materialization activity';
+        setAutoMaterializeState((current) => ({
+          ...current,
+          [slug]: {
+            data: current[slug]?.data ?? null,
+            loading: false,
+            error: message
+          }
+        }));
+        pushToast({
+          tone: 'error',
+          title: 'Auto-materialization activity',
+          description: message
+        });
+      }
+    },
+    [authorizedFetch, pushToast]
+  );
+
   const loadEventTriggers = useCallback(
     async (slug: string, options: { filters?: WorkflowEventTriggerFilters; force?: boolean } = {}) => {
       if (!slug) {
@@ -669,6 +738,13 @@ export function useWorkflowsController() {
       }
     },
     [authorizedFetch, pushToast]
+  );
+
+  const refreshAutoMaterializeOps = useCallback(
+    (slug: string) => {
+      void loadAutoMaterializeOps(slug, { force: true });
+    },
+    [loadAutoMaterializeOps]
   );
 
   const handleEventTriggerCreated = useCallback(
@@ -1095,6 +1171,10 @@ export function useWorkflowsController() {
   }, [eventTriggerState]);
 
   useEffect(() => {
+    autoMaterializeStateRef.current = autoMaterializeState;
+  }, [autoMaterializeState]);
+
+  useEffect(() => {
     void loadServices();
   }, [loadServices]);
 
@@ -1135,12 +1215,14 @@ export function useWorkflowsController() {
     void loadWorkflowAnalytics(selectedSlug);
     void loadEventTriggers(selectedSlug, { force: true });
     void loadEventSchedulerHealth();
+    void loadAutoMaterializeOps(selectedSlug, { force: true });
   }, [
     selectedSlug,
     loadWorkflowDetail,
     loadWorkflowAnalytics,
     loadEventTriggers,
-    loadEventSchedulerHealth
+    loadEventSchedulerHealth,
+    loadAutoMaterializeOps
   ]);
 
   useEffect(() => {
@@ -1298,8 +1380,18 @@ export function useWorkflowsController() {
       ) {
         void loadRunSteps(run.id);
       }
+
+      if (workflow) {
+        const triggerCandidate = run.trigger;
+        if (triggerCandidate && typeof triggerCandidate === 'object' && !Array.isArray(triggerCandidate)) {
+          const triggerType = (triggerCandidate as { type?: unknown }).type;
+          if (typeof triggerType === 'string' && triggerType === 'auto-materialize') {
+            void loadAutoMaterializeOps(workflow.slug, { force: true });
+          }
+        }
+      }
     },
-    [loadRunSteps, setRuns, setSelectedRunId, updateRuntimeSummary]
+    [loadRunSteps, loadAutoMaterializeOps, setRuns, setSelectedRunId, updateRuntimeSummary]
   );
 
   const handleWorkflowDefinitionEvent = useCallback(
@@ -1399,6 +1491,7 @@ export function useWorkflowsController() {
       if (selectedTriggerIdRef.current) {
         void loadTriggerDeliveries(selectedSlugRef.current, selectedTriggerIdRef.current);
       }
+      void loadAutoMaterializeOps(selectedSlugRef.current, { force: true });
     }
     if (selectedRunIdRef.current) {
       void loadRunSteps(selectedRunIdRef.current);
@@ -1409,6 +1502,7 @@ export function useWorkflowsController() {
     loadServices,
     loadWorkflowDetail,
     loadWorkflowAnalytics,
+    loadAutoMaterializeOps,
     loadRunSteps,
     loadWorkflows,
     loadTriggerDeliveries
@@ -1617,6 +1711,11 @@ export function useWorkflowsController() {
     loadAssetHistory,
     loadAssetPartitions,
     refreshAsset,
+    autoMaterializeOps,
+    autoMaterializeLoading,
+    autoMaterializeError,
+    loadAutoMaterializeOps,
+    refreshAutoMaterializeOps,
     eventTriggers,
     eventTriggersLoading,
     eventTriggersError,

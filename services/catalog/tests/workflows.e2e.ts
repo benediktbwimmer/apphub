@@ -411,6 +411,16 @@ async function testWorkflowEndpoints(): Promise<void> {
   await ensureEmbeddedPostgres();
   await registerWorkflowTestHandlers();
 
+  const [{ getWorkflowDefinitionBySlug }, materializerDb] = await Promise.all([
+    import('../src/db/workflows'),
+    import('../src/db/assetMaterializer')
+  ]);
+  const {
+    claimWorkflowAutoRun,
+    releaseWorkflowAutoRun,
+    upsertFailureState
+  } = materializerDb;
+
   await withServer(async (app) => {
     await createJobDefinition(app, { slug: 'workflow-step-one', name: 'Workflow Step One' });
     await createJobDefinition(app, { slug: 'workflow-step-two', name: 'Workflow Step Two' });
@@ -616,6 +626,58 @@ async function testWorkflowEndpoints(): Promise<void> {
       assert.deepEqual(stepOneDefinition?.dependents ?? [], ['service-call']);
       assert.deepEqual((serviceStep?.dependents ?? []) as string[], ['step-two']);
       assert.equal(fetchWorkflowBody.data.runs.length, 0);
+
+      const autoRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-demo/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          parameters: { tenant: 'auto' },
+          triggeredBy: 'asset-materializer',
+          trigger: { type: 'auto-materialize', reason: 'upstream-update', assetId: 'asset.auto.demo' },
+          partitionKey: '2025-01-01'
+        }
+      });
+      assert.equal(autoRunResponse.statusCode, 202);
+      const autoRunPayload = JSON.parse(autoRunResponse.payload) as { data: { id: string } };
+
+      const workflowRecord = await getWorkflowDefinitionBySlug('wf-demo');
+      assert(workflowRecord, 'expected workflow record for auto-materialize ops test');
+
+      try {
+        const claimCreated = await claimWorkflowAutoRun(workflowRecord.id, 'ops-test', {
+          reason: 'upstream-update',
+          assetId: 'asset.auto.demo',
+          partitionKey: '2025-01-01'
+        });
+        assert.equal(claimCreated, true);
+
+        await upsertFailureState(workflowRecord.id, 3, new Date(Date.now() + 60_000));
+
+        const autoOpsResponse = await app.inject({ method: 'GET', url: '/workflows/wf-demo/auto-materialize' });
+        assert.equal(autoOpsResponse.statusCode, 200);
+        const autoOpsBody = JSON.parse(autoOpsResponse.payload) as {
+          data: {
+            runs: Array<{ id: string; trigger?: { type?: string; assetId?: string } }>;
+            inFlight: { assetId: string | null; partitionKey: string | null } | null;
+            cooldown: { failures: number; nextEligibleAt: string | null } | null;
+          };
+        };
+        assert(autoOpsBody.data.runs.some((run) => run.id === autoRunPayload.data.id));
+        const [opsFirstRun] = autoOpsBody.data.runs;
+        assert(opsFirstRun);
+        assert.equal(opsFirstRun.trigger?.type, 'auto-materialize');
+        assert.equal(opsFirstRun.trigger?.assetId, 'asset.auto.demo');
+        assert(autoOpsBody.data.inFlight);
+        assert.equal(autoOpsBody.data.inFlight?.assetId, 'asset.auto.demo');
+        assert.equal(autoOpsBody.data.inFlight?.partitionKey, '2025-01-01');
+        assert(autoOpsBody.data.cooldown);
+        assert.equal(autoOpsBody.data.cooldown?.failures, 3);
+      } finally {
+        await releaseWorkflowAutoRun(workflowRecord.id);
+      }
 
       const missingDependencyResponse = await app.inject({
         method: 'POST',

@@ -155,6 +155,24 @@ const completedRun: WorkflowRun = {
   updatedAt: fourMinutesAgoIso
 };
 
+const autoRun: WorkflowRun = {
+  ...completedRun,
+  id: 'auto-run-1',
+  status: 'failed',
+  triggeredBy: 'asset-materializer',
+  trigger: {
+    type: 'auto-materialize',
+    reason: 'upstream-update',
+    assetId: 'asset.auto.demo',
+    partitionKey: '2025-01-01'
+  },
+  startedAt: fourMinutesAgoIso,
+  completedAt: nowIso,
+  durationMs: 90_000,
+  createdAt: fourMinutesAgoIso,
+  updatedAt: nowIso
+};
+
 const runStepsResponse: WorkflowRunStep[] = [
   {
     id: 'run-step-1',
@@ -194,6 +212,12 @@ type FetchMockOptions = {
   runSteps?: WorkflowRunStep[];
   detailRuns?: WorkflowRun[];
   runStepsById?: Record<string, WorkflowRunStep[]>;
+  autoOps?: {
+    runs?: WorkflowRun[];
+    inFlight?: Record<string, unknown> | null;
+    cooldown?: Record<string, unknown> | null;
+    updatedAt?: string;
+  };
 };
 
 function createFetchMock(options?: FetchMockOptions) {
@@ -207,6 +231,13 @@ function createFetchMock(options?: FetchMockOptions) {
     ...(options?.runStepsById ?? {})
   };
   const now = new Date().toISOString();
+  const autoOps = options?.autoOps ?? {};
+  const autoOpsPayload = {
+    runs: autoOps.runs ?? [autoRun],
+    inFlight: autoOps.inFlight ?? null,
+    cooldown: autoOps.cooldown ?? null,
+    updatedAt: autoOps.updatedAt ?? now
+  };
   const statsPayload = {
     workflowId: workflow.id,
     slug: workflow.slug,
@@ -254,6 +285,20 @@ function createFetchMock(options?: FetchMockOptions) {
     if (url.endsWith(`/workflows/${workflow.slug}`) && (!init || init.method === undefined)) {
       return new Response(
         JSON.stringify({ data: { workflow, runs: detailRuns } }),
+        { status: 200 }
+      );
+    }
+
+    if (url.includes(`/workflows/${workflow.slug}/auto-materialize`)) {
+      return new Response(
+        JSON.stringify({
+          data: autoOpsPayload,
+          meta: {
+            workflow: { id: workflow.id, slug: workflow.slug, name: workflow.name },
+            limit: 20,
+            offset: 0
+          }
+        }),
         { status: 200 }
       );
     }
@@ -449,5 +494,67 @@ describe('WorkflowsPage manual run flow', () => {
     });
 
     expect(await screen.findByText(/Run ID: run-2/i)).toBeVisible();
+  });
+
+  it('renders auto-materialization activity and supports filtering', async () => {
+    const secondAutoRun: WorkflowRun = {
+      ...autoRun,
+      id: 'auto-run-2',
+      status: 'succeeded',
+      trigger: {
+        type: 'auto-materialize',
+        reason: 'expiry',
+        assetId: 'asset.auto.secondary',
+        partitionKey: '2025-01-02'
+      }
+    };
+
+    const fetchMock = createFetchMock({
+      autoOps: {
+        runs: [autoRun, secondAutoRun],
+        inFlight: {
+          workflowRunId: autoRun.id,
+          reason: 'upstream-update',
+          assetId: 'asset.auto.demo',
+          partitionKey: '2025-01-01',
+          requestedAt: nowIso,
+          claimedAt: nowIso,
+          claimOwner: 'materializer-1',
+          context: null
+        },
+        cooldown: {
+          failures: 2,
+          nextEligibleAt: new Date(nowTimestamp + 60 * 1000).toISOString()
+        }
+      }
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchMock as unknown as typeof fetch);
+
+    renderWorkflowsPage();
+
+    await screen.findByText('Auto-Materialization Activity');
+
+    await screen.findByText(/In-flight claim/i);
+    expect(screen.getAllByText('asset.auto.demo').length).toBeGreaterThan(0);
+
+    const tableRun = await screen.findByText('auto-run-1');
+    expect(tableRun).toBeVisible();
+    expect(screen.getByText('auto-run-2')).toBeVisible();
+
+    const assetSelect = await screen.findByLabelText(/Filter by asset/i);
+    await userEvent.selectOptions(assetSelect, ['asset.auto.secondary']);
+
+    await waitFor(() => {
+      expect(screen.queryByText('auto-run-1')).toBeNull();
+    });
+    expect(screen.getByText('auto-run-2')).toBeVisible();
+
+    const statusSelect = await screen.findByLabelText(/Filter by status/i);
+    await userEvent.selectOptions(statusSelect, ['failed']);
+
+    await waitFor(() => {
+      expect(screen.getByText('No runs match the selected filters.')).toBeVisible();
+    });
   });
 });

@@ -2650,6 +2650,28 @@ export async function listWorkflowRunsForDefinition(
   });
 }
 
+export async function listWorkflowAutoRunsForDefinition(
+  workflowDefinitionId: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<WorkflowRunRecord[]> {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
+  const offset = Math.max(options.offset ?? 0, 0);
+
+  return useConnection(async (client) => {
+    const { rows } = await client.query<WorkflowRunRow>(
+      `SELECT *
+       FROM workflow_runs
+       WHERE workflow_definition_id = $1
+         AND trigger ->> 'type' = 'auto-materialize'
+       ORDER BY created_at DESC
+       LIMIT $2
+       OFFSET $3`,
+      [workflowDefinitionId, limit, offset]
+    );
+    return rows.map(mapWorkflowRunRow);
+  });
+}
+
 type WorkflowRunWithDefinitionRow = WorkflowRunRow & {
   workflow_slug: string;
   workflow_name: string;

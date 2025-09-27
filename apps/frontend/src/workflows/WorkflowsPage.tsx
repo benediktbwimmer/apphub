@@ -11,6 +11,7 @@ import WorkflowFilters from './components/WorkflowFilters';
 import RunOutcomeChart from './components/RunOutcomeChart';
 import WorkflowRunTrends from './components/WorkflowRunTrends';
 import WorkflowAssetPanel from './components/WorkflowAssetPanel';
+import AutoMaterializePanel from './components/AutoMaterializePanel';
 import EventTriggersPanel from './components/eventTriggers/EventTriggersPanel';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
@@ -90,6 +91,10 @@ export default function WorkflowsPage() {
     selectAsset,
     clearSelectedAsset,
     refreshAsset,
+    autoMaterializeOps,
+    autoMaterializeLoading,
+    autoMaterializeError,
+    refreshAutoMaterializeOps,
     eventTriggers,
     eventTriggersLoading,
     eventTriggersError,
@@ -279,6 +284,18 @@ export default function WorkflowsPage() {
             loadEventSamples={loadEventSamplesFn}
             refreshEventSamples={refreshEventSamples}
             canEdit={canEditWorkflows}
+          />
+
+          <AutoMaterializePanel
+            ops={autoMaterializeOps}
+            loading={autoMaterializeLoading}
+            error={autoMaterializeError}
+            onRefresh={() => {
+              if (selectedSlug) {
+                refreshAutoMaterializeOps(selectedSlug);
+              }
+            }}
+            assetInventory={assetInventory}
           />
 
           <WorkflowAssetPanel

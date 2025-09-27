@@ -11,7 +11,8 @@ import type {
   WorkflowEventSample,
   WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
-  WorkflowEventTriggerStatus
+  WorkflowEventTriggerStatus,
+  WorkflowAutoMaterializeOps
 } from './types';
 import {
   normalizeWorkflowDefinition,
@@ -27,7 +28,8 @@ import {
   normalizeWorkflowTriggerDeliveries,
   normalizeWorkflowEventSamples,
   normalizeWorkflowEventSchema,
-  normalizeWorkflowEventHealth
+  normalizeWorkflowEventHealth,
+  normalizeWorkflowAutoMaterializeOps
 } from './normalizers';
 
 type FetchArgs = Parameters<typeof fetch>;
@@ -490,6 +492,31 @@ export async function getWorkflowRunMetrics(
     throw new ApiError('Failed to parse workflow run metrics', 500, payload);
   }
   return metrics;
+}
+
+export async function getWorkflowAutoMaterializeOps(
+  fetcher: AuthorizedFetch,
+  slug: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<WorkflowAutoMaterializeOps> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set('limit', String(options.limit));
+  }
+  if (options.offset !== undefined) {
+    params.set('offset', String(options.offset));
+  }
+  const query = params.toString();
+  const response = await fetcher(
+    `${API_BASE_URL}/workflows/${encodeURIComponent(slug)}/auto-materialize${query ? `?${query}` : ''}`
+  );
+  await ensureOk(response, 'Failed to load auto-materialization activity');
+  const payload = await parseJson<{ data?: unknown }>(response);
+  const ops = normalizeWorkflowAutoMaterializeOps(payload);
+  if (!ops) {
+    throw new ApiError('Failed to parse auto-materialization response', response.status, payload);
+  }
+  return ops;
 }
 
 export async function getWorkflowDetail(
