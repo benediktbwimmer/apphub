@@ -26,6 +26,15 @@ import {
 import { formatBytes } from '../catalog/utils';
 import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
 import { useAnalytics } from '../utils/useAnalytics';
+import { triggerWorkflowRun } from '../dataAssets/api';
+import { listWorkflowDefinitions } from '../workflows/api';
+import type { WorkflowDefinition } from '../workflows/types';
+import {
+  FILESTORE_DRIFT_PLAYBOOKS,
+  getPlaybookForState,
+  playbooksRequireWorkflows,
+  type PlaybookWorkflowAction
+} from './playbooks';
 
 const LIST_PAGE_SIZE = 25;
 const ACTIVITY_LIMIT = 50;
@@ -67,6 +76,7 @@ const SSE_EVENT_TYPES: FilestoreEventType[] = [
   'filestore.node.missing'
 ];
 const MOUNT_STORAGE_KEY = 'apphub.filestore.selectedMountId';
+const SHOULD_LOAD_PLAYBOOK_WORKFLOWS = playbooksRequireWorkflows(FILESTORE_DRIFT_PLAYBOOKS);
 type RefreshTimers = {
   list: number | null;
   node: number | null;
@@ -490,36 +500,105 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
 
+  const playbook = useMemo(() => {
+    if (!selectedNode) {
+      return null;
+    }
+    return getPlaybookForState(selectedNode.state);
+  }, [selectedNode]);
+
+  const playbookContext = selectedNode ? { node: selectedNode } : null;
+
+  const fallbackPlaybookMessage = useMemo(() => {
+    if (!selectedNode) {
+      return null;
+    }
+    switch (selectedNode.state) {
+      case 'active':
+        return 'Node is consistent—no remediation required.';
+      case 'deleted':
+        return 'Node is deleted. Use restore workflows if content should return.';
+      default:
+        return 'No automated playbook configured for this state yet.';
+    }
+  }, [selectedNode]);
+
   const [reconcileReason, setReconcileReason] = useState<FilestoreReconciliationReason>('manual');
   const [reconcileDetectChildren, setReconcileDetectChildren] = useState(false);
   const [reconcileRequestHash, setReconcileRequestHash] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
+  const [pendingReconcileActionId, setPendingReconcileActionId] = useState<string | null>(null);
+  const [pendingWorkflowActionId, setPendingWorkflowActionId] = useState<string | null>(null);
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<Record<string, WorkflowDefinition>>({});
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [workflowsError, setWorkflowsError] = useState<string | null>(null);
   const [metadataEditing, setMetadataEditing] = useState(false);
   const [metadataDraft, setMetadataDraft] = useState('');
   const [metadataPending, setMetadataPending] = useState(false);
   const [metadataErrorMessage, setMetadataErrorMessage] = useState<string | null>(null);
 
-  const handleReconcile = useCallback(
-    async (node: FilestoreNode | null) => {
+  const enqueueReconcile = useCallback(
+    async (
+      node: FilestoreNode | null,
+      options: {
+        reason?: FilestoreReconciliationReason;
+        detectChildren?: boolean;
+        requestHash?: boolean;
+        actionId?: string;
+        source?: string;
+        playbookId?: string | null;
+      } = {}
+    ) => {
       if (!node) {
         return;
       }
-      setReconciling(true);
+
+      const reasonValue = options.reason ?? reconcileReason;
+      const detectChildrenValue = options.detectChildren ?? reconcileDetectChildren;
+      const requestHashValue = options.requestHash ?? reconcileRequestHash;
+      const actionId = options.actionId ?? 'manual-controls';
+      const source = options.source ?? 'manual-controls';
+      const playbookId = options.playbookId ?? null;
+
+      setPendingReconcileActionId(actionId);
       try {
         await enqueueReconciliation(authorizedFetch, {
           backendMountId: node.backendMountId,
           path: node.path,
           nodeId: node.id,
-          reason: reconcileReason,
-          detectChildren: reconcileDetectChildren,
-          requestedHash: reconcileRequestHash
+          reason: reasonValue,
+          detectChildren: detectChildrenValue,
+          requestedHash: requestHashValue
         });
         showSuccess('Reconciliation job enqueued');
+        trackEvent('filestore.reconciliation.enqueued', {
+          source,
+          actionId,
+          playbookId,
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          state: node.state,
+          reason: reasonValue,
+          detectChildren: detectChildrenValue,
+          requestHash: requestHashValue
+        });
         scheduleRefresh('node', refetchNode);
       } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to enqueue reconciliation job';
         showError('Failed to enqueue reconciliation job', err);
+        trackEvent('filestore.reconciliation.failed', {
+          source,
+          actionId,
+          playbookId,
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          state: node.state,
+          reason: reasonValue,
+          detectChildren: detectChildrenValue,
+          requestHash: requestHashValue,
+          error: message
+        });
       } finally {
-        setReconciling(false);
+        setPendingReconcileActionId(null);
       }
     },
     [
@@ -530,8 +609,84 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       refetchNode,
       scheduleRefresh,
       showError,
-      showSuccess
+      showSuccess,
+      trackEvent
     ]
+  );
+
+  useEffect(() => {
+    if (!SHOULD_LOAD_PLAYBOOK_WORKFLOWS) {
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setWorkflowsLoading(true);
+      setWorkflowsError(null);
+      try {
+        const definitions = await listWorkflowDefinitions(authorizedFetch);
+        if (cancelled) {
+          return;
+        }
+        const map: Record<string, WorkflowDefinition> = {};
+        for (const definition of definitions) {
+          map[definition.slug] = definition;
+        }
+        setWorkflowDefinitions(map);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Failed to load workflows';
+        setWorkflowsError(message);
+        setWorkflowDefinitions({});
+      } finally {
+        if (!cancelled) {
+          setWorkflowsLoading(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch]);
+
+  const runPlaybookWorkflow = useCallback(
+    async (action: PlaybookWorkflowAction, playbookId: string, node: FilestoreNode) => {
+      setPendingWorkflowActionId(action.id);
+      try {
+        const parameters = action.buildParameters ? action.buildParameters({ node }) : undefined;
+        const run = await triggerWorkflowRun(authorizedFetch, action.workflowSlug, {
+          triggeredBy: action.triggeredBy ?? 'filestore-playbook',
+          parameters
+        });
+        showSuccess('Workflow run triggered', `Run ${run.id} enqueued.`);
+        trackEvent('filestore.playbook.workflow_triggered', {
+          playbookId,
+          actionId: action.id,
+          workflowSlug: action.workflowSlug,
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          state: node.state,
+          runId: run.id
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to trigger workflow run';
+        showError('Failed to trigger workflow run', err);
+        trackEvent('filestore.playbook.workflow_failed', {
+          playbookId,
+          actionId: action.id,
+          workflowSlug: action.workflowSlug,
+          nodeId: node.id,
+          backendMountId: node.backendMountId,
+          state: node.state,
+          error: message
+        });
+      } finally {
+        setPendingWorkflowActionId(null);
+      }
+    },
+    [authorizedFetch, showError, showSuccess, trackEvent]
   );
 
   const handleMetadataSave = useCallback(async () => {
@@ -1090,6 +1245,136 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 </dl>
               </article>
 
+              {playbookContext ? (
+                playbook ? (
+                  <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        Drift playbook
+                      </h4>
+                      <span className="text-[11px] font-semibold uppercase text-slate-400 dark:text-slate-500">
+                        {STATE_LABEL[playbookContext.node.state]}
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-600 dark:text-slate-300">{playbook.summary}</p>
+                    <div className="mt-3 space-y-3">
+                      {playbook.actions.map((action) => {
+                        if (action.type === 'reconcile') {
+                          const actionKey = `playbook:${action.id}`;
+                          const pending = pendingReconcileActionId === actionKey;
+                          return (
+                            <div
+                              key={action.id}
+                              className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                            >
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
+                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={!hasWriteScope || pendingReconcileActionId !== null}
+                                  onClick={() =>
+                                    void enqueueReconcile(selectedNode, {
+                                      reason: action.reason,
+                                      detectChildren: action.detectChildren,
+                                      requestHash: action.requestHash,
+                                      actionId: actionKey,
+                                      source: 'playbook',
+                                      playbookId: playbook.id
+                                    })
+                                  }
+                                  className="self-start rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                                >
+                                  {pending ? 'Enqueuing…' : 'Enqueue job'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (action.type === 'workflow') {
+                          const workflowDefinition = workflowDefinitions[action.workflowSlug];
+                          const pending = pendingWorkflowActionId === action.id;
+                          const disabled =
+                            !hasWriteScope || pendingWorkflowActionId !== null || !workflowDefinition;
+                          const helperText = workflowsLoading
+                            ? 'Loading workflows…'
+                            : workflowDefinition
+                              ? `Workflow: ${workflowDefinition.name}`
+                              : workflowsError
+                                ? workflowsError
+                                : action.fallbackText ?? 'Workflow not available yet.';
+                          return (
+                            <div
+                              key={action.id}
+                              className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                            >
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
+                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
+                                  <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{helperText}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={disabled}
+                                  onClick={() => void runPlaybookWorkflow(action, playbook.id, selectedNode)}
+                                  className="self-start rounded-lg border border-slate-300 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                                >
+                                  {pending ? 'Triggering…' : 'Trigger workflow'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        const href = action.href(playbookContext);
+                        return (
+                          <div
+                            key={action.id}
+                            className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="font-medium text-slate-700 dark:text-slate-200">{action.label}</p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{action.description}</p>
+                              </div>
+                              <a
+                                href={href}
+                                target={action.external ? '_blank' : undefined}
+                                rel={action.external ? 'noreferrer' : undefined}
+                                onClick={() =>
+                                  trackEvent('filestore.playbook.link_clicked', {
+                                    playbookId: playbook.id,
+                                    actionId: action.id,
+                                    nodeId: selectedNode.id,
+                                    backendMountId: selectedNode.backendMountId,
+                                    state: selectedNode.state
+                                  })
+                                }
+                                className="self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100"
+                              >
+                                Open
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {playbook.note ? (
+                      <p className="mt-4 text-[11px] text-slate-400 dark:text-slate-500">{playbook.note}</p>
+                    ) : null}
+                  </article>
+                ) : fallbackPlaybookMessage ? (
+                  <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      Drift playbook
+                    </h4>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{fallbackPlaybookMessage}</p>
+                  </article>
+                ) : null
+              ) : null}
+
               <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
                 <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Rollup summary
@@ -1222,11 +1507,16 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 </div>
                 <button
                   type="button"
-                  disabled={!hasWriteScope || reconciling}
-                  onClick={() => void handleReconcile(selectedNode ?? null)}
+                  disabled={!hasWriteScope || pendingReconcileActionId !== null}
+                  onClick={() =>
+                    void enqueueReconcile(selectedNode ?? null, {
+                      actionId: 'manual-controls',
+                      source: 'manual-controls'
+                    })
+                  }
                   className="mt-3 w-full rounded-lg border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900"
                 >
-                  {reconciling ? 'Enqueuing…' : 'Enqueue reconciliation'}
+                  {pendingReconcileActionId !== null ? 'Enqueuing…' : 'Enqueue reconciliation'}
                 </button>
               </article>
             </div>

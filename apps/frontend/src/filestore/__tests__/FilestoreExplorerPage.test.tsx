@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
-import type { FilestoreBackendMount } from '../types';
+import type { FilestoreBackendMount, FilestoreNode } from '../types';
+import type { WorkflowDefinition, WorkflowRun } from '../../workflows/types';
 
 const listBackendMountsMock = vi.fn<
   (...args: unknown[]) => Promise<{ mounts: FilestoreBackendMount[] }>
@@ -15,6 +16,111 @@ const pollingResourceMock = vi.fn(() => ({
   refetch: vi.fn()
 }));
 const authorizedFetchMock = vi.fn();
+const enqueueReconciliationMock = vi.fn();
+const listWorkflowDefinitionsMock = vi.fn();
+const triggerWorkflowRunMock = vi.fn();
+const sampleMount: FilestoreBackendMount = {
+  id: 2,
+  mountKey: 'primary',
+  backendKind: 'local',
+  accessMode: 'rw',
+  state: 'active',
+  rootPath: '/mnt/primary',
+  bucket: null,
+  prefix: null
+};
+const writableIdentity = {
+  subject: 'tester',
+  kind: 'user',
+  scopes: ['filestore:write'],
+  authDisabled: false,
+  userId: 'tester',
+  sessionId: 'session',
+  apiKeyId: null,
+  displayName: 'Tester',
+  email: 'tester@example.com',
+  roles: []
+} as const;
+
+function buildNode(overrides: Partial<FilestoreNode> = {}): FilestoreNode {
+  return {
+    id: 42,
+    backendMountId: sampleMount.id,
+    parentId: null,
+    path: 'datasets/example',
+    name: 'example',
+    depth: 1,
+    kind: 'directory',
+    sizeBytes: 0,
+    checksum: null,
+    contentHash: null,
+    metadata: {},
+    state: 'inconsistent',
+    version: 1,
+    isSymlink: false,
+    lastSeenAt: '2024-01-01T00:00:00.000Z',
+    lastModifiedAt: null,
+    consistencyState: 'inconsistent',
+    consistencyCheckedAt: '2024-01-01T00:00:00.000Z',
+    lastReconciledAt: null,
+    lastDriftDetectedAt: '2024-01-01T00:00:00.000Z',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    deletedAt: null,
+    rollup: null,
+    ...overrides
+  } satisfies FilestoreNode;
+}
+
+function setupPollingResourcesForNode(node: FilestoreNode) {
+  const listResource = {
+    data: {
+      nodes: [node],
+      pagination: { total: 1, limit: 25, offset: 0, nextOffset: null },
+      filters: {
+        backendMountId: node.backendMountId,
+        path: null,
+        depth: null,
+        states: [],
+        kinds: [],
+        search: null,
+        driftOnly: false
+      }
+    },
+    error: null,
+    loading: false,
+    refetch: vi.fn()
+  };
+  const nodeResource = {
+    data: node,
+    error: null,
+    loading: false,
+    refetch: vi.fn()
+  };
+  const childrenResource = {
+    data: {
+      parent: node,
+      children: [],
+      pagination: { total: 0, limit: 50, offset: 0, nextOffset: null },
+      filters: {
+        states: [],
+        kinds: [],
+        search: null,
+        driftOnly: false
+      }
+    },
+    error: null,
+    loading: false,
+    refetch: vi.fn()
+  };
+  let callIndex = 0;
+  pollingResourceMock.mockImplementation(() => {
+    const resources = [listResource, nodeResource, childrenResource];
+    const resource = resources[callIndex % resources.length];
+    callIndex += 1;
+    return resource;
+  });
+}
 const toastHelpersMock = {
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -39,13 +145,21 @@ vi.mock('../../components/toast', () => ({
 
 vi.mock('../api', () => ({
   __esModule: true,
-  enqueueReconciliation: vi.fn(),
+  enqueueReconciliation: (...args: unknown[]) => enqueueReconciliationMock(...(args as Parameters<typeof enqueueReconciliationMock>)),
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
   listBackendMounts: (...args: unknown[]) => listBackendMountsMock(...args),
   listNodes: vi.fn(),
   subscribeToFilestoreEvents: (...args: unknown[]) => subscribeToFilestoreEventsMock(...args),
   updateNodeMetadata: vi.fn()
+}));
+
+vi.mock('../../workflows/api', () => ({
+  listWorkflowDefinitions: (...args: unknown[]) => listWorkflowDefinitionsMock(...args)
+}));
+
+vi.mock('../../dataAssets/api', () => ({
+  triggerWorkflowRun: (...args: unknown[]) => triggerWorkflowRunMock(...args)
 }));
 
 vi.mock('../../utils/useAnalytics', () => ({
@@ -59,6 +173,12 @@ describe('FilestoreExplorerPage mount discovery', () => {
     localStorage.clear();
     listBackendMountsMock.mockReset();
     listBackendMountsMock.mockResolvedValue({ mounts: [] });
+    enqueueReconciliationMock.mockReset();
+    enqueueReconciliationMock.mockResolvedValue(undefined);
+    listWorkflowDefinitionsMock.mockReset();
+    listWorkflowDefinitionsMock.mockResolvedValue([]);
+    triggerWorkflowRunMock.mockReset();
+    triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' });
     trackEventMock.mockClear();
     subscribeToFilestoreEventsMock.mockClear();
     pollingResourceMock.mockClear();
@@ -160,5 +280,87 @@ describe('FilestoreExplorerPage mount discovery', () => {
       expect(screen.getByText('No backend mounts detected.')).toBeInTheDocument();
     });
     expect(screen.queryByLabelText('Known mounts')).not.toBeInTheDocument();
+  });
+});
+
+describe('FilestoreExplorerPage playbooks', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    listBackendMountsMock.mockReset();
+    listBackendMountsMock.mockResolvedValue({ mounts: [sampleMount] });
+    enqueueReconciliationMock.mockReset();
+    enqueueReconciliationMock.mockResolvedValue(undefined);
+    listWorkflowDefinitionsMock.mockReset();
+    listWorkflowDefinitionsMock.mockResolvedValue([]);
+    triggerWorkflowRunMock.mockReset();
+    triggerWorkflowRunMock.mockResolvedValue({ id: 'run-123' } as WorkflowRun);
+    trackEventMock.mockClear();
+    subscribeToFilestoreEventsMock.mockClear();
+    authorizedFetchMock.mockClear();
+    pollingResourceMock.mockReset();
+    pollingResourceMock.mockImplementation(() => ({
+      data: null,
+      error: null,
+      loading: false,
+      refetch: vi.fn()
+    }));
+    Object.values(toastHelpersMock).forEach((fn) => fn.mockClear?.());
+  });
+
+  it('surfaces playbook actions for inconsistent nodes', async () => {
+    const node = buildNode({ state: 'inconsistent' });
+    setupPollingResourcesForNode(node);
+    listWorkflowDefinitionsMock.mockResolvedValueOnce([
+      {
+        id: 'wf-drift',
+        slug: 'filestore-drift-audit',
+        name: 'Filestore Drift Audit'
+      } as WorkflowDefinition
+    ]);
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    await screen.findByText('Drift playbook');
+
+    const enqueueButton = await screen.findByRole('button', { name: 'Enqueue job' });
+    fireEvent.click(enqueueButton);
+
+    await waitFor(() => expect(enqueueReconciliationMock).toHaveBeenCalled());
+    const reconcileArgs = enqueueReconciliationMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(reconcileArgs).toMatchObject({
+      backendMountId: node.backendMountId,
+      path: node.path,
+      nodeId: node.id,
+      reason: 'drift',
+      requestedHash: true
+    });
+
+    const workflowButton = await screen.findByRole('button', { name: 'Trigger workflow' });
+    fireEvent.click(workflowButton);
+
+    await waitFor(() => expect(triggerWorkflowRunMock).toHaveBeenCalled());
+    const workflowCall = triggerWorkflowRunMock.mock.calls[0];
+    expect(workflowCall[1]).toBe('filestore-drift-audit');
+    expect(workflowCall[2]).toMatchObject({
+      triggeredBy: 'filestore-playbook',
+      parameters: {
+        backendMountId: node.backendMountId,
+        path: node.path
+      }
+    });
+  });
+
+  it('disables workflow action when remediation workflow is missing', async () => {
+    const node = buildNode({ state: 'missing' });
+    setupPollingResourcesForNode(node);
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    await screen.findByText('Drift playbook');
+    await waitFor(() => expect(listWorkflowDefinitionsMock).toHaveBeenCalled());
+
+    const workflowButton = await screen.findByRole('button', { name: 'Trigger workflow' });
+    expect(workflowButton).toBeDisabled();
+    await waitFor(() => expect(screen.getByText(/filestore-restore-missing-node workflow/i)).toBeInTheDocument());
   });
 });
