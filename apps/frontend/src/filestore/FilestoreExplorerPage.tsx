@@ -4,16 +4,22 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
 import { useToastHelpers } from '../components/toast';
 import {
+  copyNode,
+  createDirectory,
+  deleteNode,
   enqueueReconciliation,
   fetchNodeById,
+  fetchNodeByPath,
   fetchNodeChildren,
   fetchReconciliationJob,
   listBackendMounts,
   listNodes,
   listReconciliationJobs,
+  moveNode,
   presignNodeDownload,
-  updateNodeMetadata,
   subscribeToFilestoreEvents,
+  updateNodeMetadata,
+  uploadFile,
   type FetchNodeChildrenParams,
   type FilestoreBackendMount,
   type FilestoreBackendMountState,
@@ -44,6 +50,11 @@ import {
   playbooksRequireWorkflows,
   type PlaybookWorkflowAction
 } from './playbooks';
+import { buildIdempotencyKey, normalizeRelativePath } from './commandForms';
+import CreateDirectoryDialog from './components/CreateDirectoryDialog';
+import UploadFileDialog from './components/UploadFileDialog';
+import MoveCopyDialog from './components/MoveCopyDialog';
+import DeleteNodeDialog from './components/DeleteNodeDialog';
 
 const LIST_PAGE_SIZE = 25;
 const ACTIVITY_LIMIT = 50;
@@ -147,6 +158,14 @@ type DownloadStatus = {
   error?: string;
 };
 
+type PendingCommand = {
+  type: 'create' | 'upload' | 'move' | 'copy' | 'delete';
+  key: string;
+  path: string;
+  mountId: number;
+  description: string;
+};
+
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return '—';
@@ -199,6 +218,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const authDisabled = identity?.authDisabled ?? false;
   const hasWriteScope =
     authDisabled || (identity?.scopes ? identity.scopes.includes('filestore:write') || identity.scopes.includes('filestore:admin') : false);
+  const principal = identity?.subject ?? identity?.apiKeyId ?? identity?.userId ?? undefined;
 
   const [backendMountId, setBackendMountId] = useState<number | null>(null);
   const [mountsLoading, setMountsLoading] = useState(true);
@@ -222,8 +242,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [downloadStatusByNode, setDownloadStatusByNode] = useState<Record<number, DownloadStatus>>({});
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null, jobs: null, jobDetail: null });
+  const pendingSelectionRef = useRef<{ mountId: number; path: string } | null>(null);
 
   const registerMountId = useCallback(
     (value: number | null | undefined) => {
@@ -482,6 +509,24 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   }, [jobListData, selectedJobId]);
 
   useEffect(() => {
+    if (!listData) {
+      return;
+    }
+    const pending = pendingSelectionRef.current;
+    if (!pending) {
+      return;
+    }
+    if (listData.filters.backendMountId !== pending.mountId) {
+      return;
+    }
+    const match = listData.nodes.find((node) => node.path === pending.path);
+    if (match) {
+      setSelectedNodeId(match.id);
+      pendingSelectionRef.current = null;
+    }
+  }, [listData]);
+
+  useEffect(() => {
     if (selectedNode) {
       setMetadataDraft(JSON.stringify(selectedNode.metadata ?? {}, null, 2));
     } else {
@@ -515,6 +560,575 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       action();
     }, 250);
   }, []);
+
+  const requestNodeSelection = useCallback(
+    async (mountId: number, path: string, fallbackNode?: FilestoreNode | null) => {
+      const normalizedPath = normalizeRelativePath(path);
+      if (!normalizedPath) {
+        pendingSelectionRef.current = null;
+        return;
+      }
+      if (fallbackNode?.id) {
+        setSelectedNodeId(fallbackNode.id);
+        pendingSelectionRef.current = null;
+        return;
+      }
+      try {
+        const node = await fetchNodeByPath(authorizedFetch, {
+          backendMountId: mountId,
+          path: normalizedPath
+        });
+        setSelectedNodeId(node.id);
+        pendingSelectionRef.current = null;
+      } catch {
+        pendingSelectionRef.current = { mountId, path: normalizedPath };
+      }
+    },
+    [authorizedFetch]
+  );
+
+  const getParentPath = useCallback((path: string): string | null => {
+    const normalized = normalizeRelativePath(path);
+    if (!normalized) {
+      return null;
+    }
+    const segments = normalized.split('/');
+    segments.pop();
+    if (segments.length === 0) {
+      return null;
+    }
+    return segments.join('/');
+  }, []);
+
+  const applyBackendMountSelection = useCallback(
+    (value: number | null, source: 'input' | 'select' | 'command') => {
+      setBackendMountId(value);
+      if (backendMountId === value) {
+        return;
+      }
+      setOffset(0);
+      setSelectedNodeId(null);
+      if (typeof window !== 'undefined') {
+        if (value !== null) {
+          window.localStorage.setItem(MOUNT_STORAGE_KEY, String(value));
+        } else {
+          window.localStorage.removeItem(MOUNT_STORAGE_KEY);
+        }
+      }
+      if (value !== null) {
+        registerMountId(value);
+        trackEvent('filestore.mount.changed', {
+          backendMountId: value,
+          source
+        });
+      } else {
+        trackEvent('filestore.mount.cleared', { source });
+      }
+    },
+    [backendMountId, registerMountId, trackEvent]
+  );
+
+  const handleCreateDirectoryCommand = useCallback(
+    async (input: { path: string; metadata?: Record<string, unknown> }) => {
+      if (backendMountId === null) {
+        const error = new Error('Select a backend mount before creating directories.');
+        showError('Failed to create directory', error);
+        throw error;
+      }
+      if (!hasWriteScope) {
+        const error = new Error('Filestore write scope required for this action.');
+        showError('Failed to create directory', error);
+        throw error;
+      }
+
+      const normalizedPath = normalizeRelativePath(input.path);
+      if (!normalizedPath) {
+        const error = new Error('Provide a directory path.');
+        showError('Failed to create directory', error);
+        throw error;
+      }
+
+      registerMountId(backendMountId);
+      const key = buildIdempotencyKey('filestore-create');
+      setPendingCommand({
+        type: 'create',
+        key,
+        path: normalizedPath,
+        mountId: backendMountId,
+        description: `Creating ${normalizedPath}`
+      });
+      pendingSelectionRef.current = { mountId: backendMountId, path: normalizedPath };
+
+      try {
+        const response = await createDirectory(authorizedFetch, {
+          backendMountId,
+          path: normalizedPath,
+          metadata: input.metadata,
+          idempotencyKey: key,
+          principal
+        });
+
+        const parentPath = getParentPath(normalizedPath);
+        if (activePath !== parentPath) {
+          setActivePath(parentPath);
+          setPathDraft(parentPath ?? '');
+        }
+
+        showSuccess('Directory creation requested');
+        trackEvent('filestore.command.create_directory.success', {
+          backendMountId,
+          path: normalizedPath,
+          idempotencyKey: key
+        });
+
+        await requestNodeSelection(backendMountId, normalizedPath, response.node ?? null);
+        scheduleRefresh('list', refetchList);
+        scheduleRefresh('node', refetchNode);
+        scheduleRefresh('children', refetchChildren);
+      } catch (error) {
+        pendingSelectionRef.current = null;
+        const message = error instanceof Error ? error.message : 'Failed to create directory';
+        showError('Failed to create directory', error, message);
+        trackEvent('filestore.command.create_directory.failure', {
+          backendMountId,
+          path: normalizedPath,
+          idempotencyKey: key,
+          error: message
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPendingCommand(null);
+      }
+    },
+    [
+      activePath,
+      authorizedFetch,
+      backendMountId,
+      getParentPath,
+      hasWriteScope,
+      principal,
+      refetchChildren,
+      refetchList,
+      refetchNode,
+      registerMountId,
+      requestNodeSelection,
+      scheduleRefresh,
+      showError,
+      showSuccess,
+      trackEvent
+    ]
+  );
+
+  const handleUploadFileCommand = useCallback(
+    async (input: {
+      path: string;
+      file: File;
+      overwrite: boolean;
+      metadata?: Record<string, unknown>;
+      checksum?: string;
+    }) => {
+      if (backendMountId === null) {
+        const error = new Error('Select a backend mount before uploading files.');
+        showError('Upload failed', error);
+        throw error;
+      }
+      if (!hasWriteScope) {
+        const error = new Error('Filestore write scope required for uploads.');
+        showError('Upload failed', error);
+        throw error;
+      }
+
+      const normalizedPath = normalizeRelativePath(input.path);
+      if (!normalizedPath) {
+        const error = new Error('Provide a destination path for the file.');
+        showError('Upload failed', error);
+        throw error;
+      }
+
+      registerMountId(backendMountId);
+      const key = buildIdempotencyKey('filestore-upload');
+      setPendingCommand({
+        type: 'upload',
+        key,
+        path: normalizedPath,
+        mountId: backendMountId,
+        description: `Uploading ${normalizedPath}`
+      });
+      pendingSelectionRef.current = { mountId: backendMountId, path: normalizedPath };
+
+      try {
+        const response = await uploadFile(authorizedFetch, {
+          backendMountId,
+          path: normalizedPath,
+          file: input.file,
+          overwrite: input.overwrite,
+          metadata: input.metadata,
+          checksum: input.checksum,
+          idempotencyKey: key,
+          principal
+        });
+
+        const parentPath = getParentPath(normalizedPath);
+        if (activePath !== parentPath) {
+          setActivePath(parentPath);
+          setPathDraft(parentPath ?? '');
+        }
+
+        showSuccess('Upload queued');
+        trackEvent('filestore.command.upload.success', {
+          backendMountId,
+          path: normalizedPath,
+          idempotencyKey: key,
+          size: input.file.size
+        });
+
+        await requestNodeSelection(backendMountId, normalizedPath, response.node ?? null);
+        scheduleRefresh('list', refetchList);
+        scheduleRefresh('node', refetchNode);
+        scheduleRefresh('children', refetchChildren);
+      } catch (error) {
+        pendingSelectionRef.current = null;
+        const message = error instanceof Error ? error.message : 'Upload failed';
+        showError('Upload failed', error, message);
+        trackEvent('filestore.command.upload.failure', {
+          backendMountId,
+          path: normalizedPath,
+          idempotencyKey: key,
+          error: message
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPendingCommand(null);
+      }
+    },
+    [
+      activePath,
+      authorizedFetch,
+      backendMountId,
+      getParentPath,
+      hasWriteScope,
+      principal,
+      refetchChildren,
+      refetchList,
+      refetchNode,
+      registerMountId,
+      requestNodeSelection,
+      scheduleRefresh,
+      showError,
+      showSuccess,
+      trackEvent
+    ]
+  );
+
+  const handleMoveNodeCommand = useCallback(
+    async (input: { targetPath: string; targetMountId: number | null; overwrite: boolean }) => {
+      if (!selectedNode) {
+        const error = new Error('Select a node to move.');
+        showError('Move failed', error);
+        throw error;
+      }
+      if (!hasWriteScope) {
+        const error = new Error('Filestore write scope required for this action.');
+        showError('Move failed', error);
+        throw error;
+      }
+
+      const sourceMountId = selectedNode.backendMountId;
+      const targetMountId = input.targetMountId ?? sourceMountId;
+      const normalizedPath = normalizeRelativePath(input.targetPath);
+      if (!normalizedPath) {
+        const error = new Error('Provide a destination path.');
+        showError('Move failed', error);
+        throw error;
+      }
+
+      registerMountId(sourceMountId);
+      registerMountId(targetMountId);
+
+      const key = buildIdempotencyKey('filestore-move');
+      setPendingCommand({
+        type: 'move',
+        key,
+        path: normalizedPath,
+        mountId: targetMountId,
+        description: `Moving to ${normalizedPath}`
+      });
+      pendingSelectionRef.current = { mountId: targetMountId, path: normalizedPath };
+
+      try {
+        const response = await moveNode(authorizedFetch, {
+          backendMountId: sourceMountId,
+          path: selectedNode.path,
+          targetBackendMountId: targetMountId === sourceMountId ? undefined : targetMountId,
+          targetPath: normalizedPath,
+          overwrite: input.overwrite,
+          idempotencyKey: key,
+          principal
+        });
+
+        showSuccess('Move enqueued');
+        trackEvent('filestore.command.move.success', {
+          sourceMountId,
+          targetMountId,
+          sourcePath: selectedNode.path,
+          targetPath: normalizedPath,
+          idempotencyKey: key
+        });
+
+        if (targetMountId !== backendMountId) {
+          applyBackendMountSelection(targetMountId, 'command');
+        } else {
+          const parentPath = getParentPath(normalizedPath);
+          if (activePath !== parentPath) {
+            setActivePath(parentPath);
+            setPathDraft(parentPath ?? '');
+          }
+        }
+
+        await requestNodeSelection(targetMountId, normalizedPath, response.node ?? null);
+        scheduleRefresh('list', refetchList);
+        scheduleRefresh('node', refetchNode);
+        scheduleRefresh('children', refetchChildren);
+      } catch (error) {
+        pendingSelectionRef.current = null;
+        const message = error instanceof Error ? error.message : 'Move failed';
+        showError('Move failed', error, message);
+        trackEvent('filestore.command.move.failure', {
+          sourceMountId,
+          targetMountId,
+          sourcePath: selectedNode.path,
+          targetPath: normalizedPath,
+          idempotencyKey: key,
+          error: message
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPendingCommand(null);
+      }
+    },
+    [
+      activePath,
+      applyBackendMountSelection,
+      authorizedFetch,
+      backendMountId,
+      getParentPath,
+      hasWriteScope,
+      principal,
+      refetchChildren,
+      refetchList,
+      refetchNode,
+      registerMountId,
+      requestNodeSelection,
+      scheduleRefresh,
+      selectedNode,
+      showError,
+      showSuccess,
+      trackEvent
+    ]
+  );
+
+  const handleCopyNodeCommand = useCallback(
+    async (input: { targetPath: string; targetMountId: number | null; overwrite: boolean }) => {
+      if (!selectedNode) {
+        const error = new Error('Select a node to copy.');
+        showError('Copy failed', error);
+        throw error;
+      }
+      if (!hasWriteScope) {
+        const error = new Error('Filestore write scope required for this action.');
+        showError('Copy failed', error);
+        throw error;
+      }
+
+      const sourceMountId = selectedNode.backendMountId;
+      const targetMountId = input.targetMountId ?? sourceMountId;
+      const normalizedPath = normalizeRelativePath(input.targetPath);
+      if (!normalizedPath) {
+        const error = new Error('Provide a destination path.');
+        showError('Copy failed', error);
+        throw error;
+      }
+
+      registerMountId(sourceMountId);
+      registerMountId(targetMountId);
+
+      const key = buildIdempotencyKey('filestore-copy');
+      setPendingCommand({
+        type: 'copy',
+        key,
+        path: normalizedPath,
+        mountId: targetMountId,
+        description: `Copying to ${normalizedPath}`
+      });
+      pendingSelectionRef.current = { mountId: targetMountId, path: normalizedPath };
+
+      try {
+        const response = await copyNode(authorizedFetch, {
+          backendMountId: sourceMountId,
+          path: selectedNode.path,
+          targetBackendMountId: targetMountId === sourceMountId ? undefined : targetMountId,
+          targetPath: normalizedPath,
+          overwrite: input.overwrite,
+          idempotencyKey: key,
+          principal
+        });
+
+        showSuccess('Copy enqueued');
+        trackEvent('filestore.command.copy.success', {
+          sourceMountId,
+          targetMountId,
+          sourcePath: selectedNode.path,
+          targetPath: normalizedPath,
+          idempotencyKey: key
+        });
+
+        if (targetMountId !== backendMountId) {
+          applyBackendMountSelection(targetMountId, 'command');
+        } else {
+          const parentPath = getParentPath(normalizedPath);
+          if (activePath !== parentPath) {
+            setActivePath(parentPath);
+            setPathDraft(parentPath ?? '');
+          }
+        }
+
+        await requestNodeSelection(targetMountId, normalizedPath, response.node ?? null);
+        scheduleRefresh('list', refetchList);
+        scheduleRefresh('node', refetchNode);
+        scheduleRefresh('children', refetchChildren);
+      } catch (error) {
+        pendingSelectionRef.current = null;
+        const message = error instanceof Error ? error.message : 'Copy failed';
+        showError('Copy failed', error, message);
+        trackEvent('filestore.command.copy.failure', {
+          sourceMountId,
+          targetMountId,
+          sourcePath: selectedNode.path,
+          targetPath: normalizedPath,
+          idempotencyKey: key,
+          error: message
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPendingCommand(null);
+      }
+    },
+    [
+      activePath,
+      applyBackendMountSelection,
+      authorizedFetch,
+      backendMountId,
+      getParentPath,
+      hasWriteScope,
+      principal,
+      refetchChildren,
+      refetchList,
+      refetchNode,
+      registerMountId,
+      requestNodeSelection,
+      scheduleRefresh,
+      selectedNode,
+      showError,
+      showSuccess,
+      trackEvent
+    ]
+  );
+
+  const handleDeleteNodeCommand = useCallback(
+    async (input: { path: string; recursive: boolean }) => {
+      if (!selectedNode) {
+        const error = new Error('Select a node to delete.');
+        showError('Delete failed', error);
+        throw error;
+      }
+      if (!hasWriteScope) {
+        const error = new Error('Filestore write scope required for this action.');
+        showError('Delete failed', error);
+        throw error;
+      }
+
+      const normalizedPath = normalizeRelativePath(input.path);
+      if (!normalizedPath) {
+        const error = new Error('Delete path unavailable.');
+        showError('Delete failed', error);
+        throw error;
+      }
+
+      const mountId = selectedNode.backendMountId;
+      const key = buildIdempotencyKey('filestore-delete');
+      setPendingCommand({
+        type: 'delete',
+        key,
+        path: normalizedPath,
+        mountId,
+        description: `Deleting ${normalizedPath}`
+      });
+
+      try {
+        await deleteNode(authorizedFetch, {
+          backendMountId: mountId,
+          path: normalizedPath,
+          recursive: input.recursive,
+          idempotencyKey: key,
+          principal
+        });
+
+        const parentPath = getParentPath(normalizedPath);
+        showSuccess('Delete enqueued');
+        trackEvent('filestore.command.delete.success', {
+          backendMountId: mountId,
+          path: normalizedPath,
+          idempotencyKey: key,
+          recursive: input.recursive
+        });
+
+        if (parentPath) {
+          if (activePath !== parentPath) {
+            setActivePath(parentPath);
+            setPathDraft(parentPath ?? '');
+          }
+          pendingSelectionRef.current = { mountId, path: parentPath };
+          await requestNodeSelection(mountId, parentPath);
+        } else {
+          setSelectedNodeId(null);
+        }
+
+        scheduleRefresh('list', refetchList);
+        scheduleRefresh('node', refetchNode);
+        scheduleRefresh('children', refetchChildren);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Delete failed';
+        showError('Delete failed', error, message);
+        trackEvent('filestore.command.delete.failure', {
+          backendMountId: mountId,
+          path: normalizedPath,
+          idempotencyKey: key,
+          recursive: input.recursive,
+          error: message
+        });
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPendingCommand(null);
+      }
+    },
+    [
+      activePath,
+      authorizedFetch,
+      getParentPath,
+      hasWriteScope,
+      principal,
+      refetchChildren,
+      refetchList,
+      refetchNode,
+      requestNodeSelection,
+      scheduleRefresh,
+      selectedNode,
+      setSelectedNodeId,
+      showError,
+      showSuccess,
+      trackEvent
+    ]
+  );
 
   const startDownload = useCallback((nodeId: number, mode: DownloadStatus['mode']) => {
     setDownloadStatusByNode((prev) => ({
@@ -732,34 +1346,6 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
   const hasMountOptions = mountOptions.length > 0;
 
-  const applyBackendMountSelection = useCallback(
-    (value: number | null, source: 'input' | 'select') => {
-      setBackendMountId(value);
-      if (backendMountId === value) {
-        return;
-      }
-      setOffset(0);
-      setSelectedNodeId(null);
-      if (typeof window !== 'undefined') {
-        if (value !== null) {
-          window.localStorage.setItem(MOUNT_STORAGE_KEY, String(value));
-        } else {
-          window.localStorage.removeItem(MOUNT_STORAGE_KEY);
-        }
-      }
-      if (value !== null) {
-        registerMountId(value);
-        trackEvent('filestore.mount.changed', {
-          backendMountId: value,
-          source
-        });
-      } else {
-        trackEvent('filestore.mount.cleared', { source });
-      }
-    },
-    [backendMountId, registerMountId, trackEvent]
-  );
-
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
   const selectedDownloadState = selectedNode ? downloadStatusByNode[selectedNode.id] : undefined;
@@ -767,6 +1353,8 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const jobList = jobListData?.jobs ?? [];
   const selectedJob = jobDetailData?.job ?? null;
   const jobPageSize = jobPagination?.limit ?? 20;
+  const writeDisabled = !hasWriteScope || backendMountId === null || pendingCommand !== null;
+  const nodeWriteDisabled = writeDisabled || !selectedNode;
 
   const playbook = useMemo(() => {
     if (!selectedNode) {
@@ -1206,6 +1794,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const childrenErrorMessage = childrenError instanceof Error ? childrenError.message : null;
   const jobListErrorMessage = jobListError instanceof Error ? jobListError.message : null;
   const jobDetailErrorMessage = jobDetailError instanceof Error ? jobDetailError.message : null;
+  const selectedNodePath = selectedNode?.path ?? null;
+  const selectedNodeMountId = selectedNode?.backendMountId ?? null;
+  const defaultDirectoryBasePath = selectedNode
+    ? selectedNode.kind === 'directory'
+      ? selectedNode.path
+      : getParentPath(selectedNode.path)
+    : activePath;
+  const uploadBasePath = defaultDirectoryBasePath ?? activePath;
+  const moveCopySourcePath = selectedNodePath;
 
   return (
     <div className="flex flex-col gap-6">
@@ -1233,8 +1830,24 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         </div>
       </header>
 
+      {pendingCommand ? (
+        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-semibold text-slate-700 dark:text-slate-100">Running filestore command…</span>
+            <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{pendingCommand.key.slice(-12)}</span>
+          </div>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{pendingCommand.description}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">List and detail panes are read-only while the command completes.</p>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,320px)]">
-        <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+        <section
+          className={`flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm transition dark:border-slate-700/70 dark:bg-slate-900/70 ${
+            pendingCommand ? 'pointer-events-none opacity-75' : ''
+          }`}
+          aria-busy={pendingCommand ? true : undefined}
+        >
           <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Mount & Filters</h3>
           <div className="space-y-3">
             <div>
@@ -1366,6 +1979,38 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Select a mount to view metadata.</p>
               )}
             </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateDialog(true)}
+                disabled={writeDisabled}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  writeDisabled
+                    ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
+                    : 'border-slate-300 bg-slate-900 text-white hover:border-slate-400 hover:bg-slate-800 dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200'
+                }`}
+              >
+                New directory
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUploadDialog(true)}
+                disabled={writeDisabled}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  writeDisabled
+                    ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
+                    : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
+                }`}
+              >
+                Upload file
+              </button>
+            </div>
+            {!hasWriteScope ? (
+              <p className="text-xs text-rose-600 dark:text-rose-300">Filestore write scope is required for mutations.</p>
+            ) : backendMountId === null ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">Select a backend mount to enable write actions.</p>
+            ) : null}
 
             <form
               className="space-y-2"
@@ -1596,7 +2241,12 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           ) : null}
         </section>
 
-        <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+        <section
+          className={`flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-sm transition dark:border-slate-700/70 dark:bg-slate-900/70 ${
+            pendingCommand ? 'pointer-events-none opacity-75' : ''
+          }`}
+          aria-busy={pendingCommand ? true : undefined}
+        >
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">Node detail</h3>
@@ -1621,6 +2271,44 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMoveDialog(true)}
+                  disabled={nodeWriteDisabled}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    nodeWriteDisabled
+                      ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
+                      : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
+                  }`}
+                >
+                  Move node
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCopyDialog(true)}
+                  disabled={nodeWriteDisabled}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    nodeWriteDisabled
+                      ? 'cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-600'
+                      : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100'
+                  }`}
+                >
+                  Copy node
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteDialog(true)}
+                  disabled={nodeWriteDisabled}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    nodeWriteDisabled
+                      ? 'cursor-not-allowed border-rose-200 text-rose-300/70 dark:border-rose-800 dark:text-rose-500/70'
+                      : 'border-rose-300 text-rose-600 hover:border-rose-400 hover:text-rose-700 dark:border-rose-600 dark:text-rose-300 dark:hover:border-rose-500 dark:hover:text-rose-200'
+                  }`}
+                >
+                  Soft-delete
+                </button>
+              </div>
               <article className="rounded-2xl border border-slate-100 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
                 <dl className="grid gap-3 text-sm text-slate-600 dark:text-slate-300">
                   <div>
@@ -2360,6 +3048,48 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
           </section>
         </div>
       </div>
+
+      <CreateDirectoryDialog
+        open={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        basePath={defaultDirectoryBasePath ?? null}
+        disabled={pendingCommand !== null}
+        onSubmit={handleCreateDirectoryCommand}
+      />
+      <UploadFileDialog
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        basePath={uploadBasePath ?? null}
+        disabled={pendingCommand !== null}
+        onSubmit={handleUploadFileCommand}
+      />
+      <MoveCopyDialog
+        mode="move"
+        open={showMoveDialog}
+        onClose={() => setShowMoveDialog(false)}
+        sourcePath={moveCopySourcePath}
+        sourceMountId={selectedNodeMountId}
+        availableMounts={availableMounts}
+        disabled={pendingCommand !== null}
+        onSubmit={handleMoveNodeCommand}
+      />
+      <MoveCopyDialog
+        mode="copy"
+        open={showCopyDialog}
+        onClose={() => setShowCopyDialog(false)}
+        sourcePath={moveCopySourcePath}
+        sourceMountId={selectedNodeMountId}
+        availableMounts={availableMounts}
+        disabled={pendingCommand !== null}
+        onSubmit={handleCopyNodeCommand}
+      />
+      <DeleteNodeDialog
+        open={showDeleteDialog}
+        onClose={() => setShowDeleteDialog(false)}
+        path={selectedNodePath}
+        disabled={pendingCommand !== null}
+        onSubmit={handleDeleteNodeCommand}
+      />
     </div>
   );
 }

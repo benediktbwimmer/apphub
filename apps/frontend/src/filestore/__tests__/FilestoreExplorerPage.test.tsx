@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
 import type { FilestoreBackendMount, FilestoreBackendMountList, FilestoreNode } from '../types';
 import type { WorkflowDefinition, WorkflowRun } from '../../workflows/types';
@@ -33,6 +33,12 @@ const mocks = vi.hoisted(() => {
   const presignNodeDownloadMock = vi.fn();
   const listReconciliationJobsMock = vi.fn();
   const fetchReconciliationJobMock = vi.fn();
+  const createDirectoryMock = vi.fn();
+  const uploadFileMock = vi.fn();
+  const moveNodeMock = vi.fn();
+  const copyNodeMock = vi.fn();
+  const deleteNodeMock = vi.fn();
+  const fetchNodeByPathMock = vi.fn();
 
   return {
     listBackendMountsMock,
@@ -45,7 +51,13 @@ const mocks = vi.hoisted(() => {
     triggerWorkflowRunMock,
     presignNodeDownloadMock,
     listReconciliationJobsMock,
-    fetchReconciliationJobMock
+    fetchReconciliationJobMock,
+    createDirectoryMock,
+    uploadFileMock,
+    moveNodeMock,
+    copyNodeMock,
+    deleteNodeMock,
+    fetchNodeByPathMock
   };
 });
 const sampleMount: FilestoreBackendMount = {
@@ -252,9 +264,15 @@ vi.mock('../api', () => ({
   fetchNodeById: vi.fn(),
   fetchNodeChildren: vi.fn(),
   fetchReconciliationJob: (...args: unknown[]) => mocks.fetchReconciliationJobMock(...args),
+  fetchNodeByPath: (...args: unknown[]) => mocks.fetchNodeByPathMock(...args),
   listBackendMounts: (...args: unknown[]) => mocks.listBackendMountsMock(...args),
   listNodes: vi.fn(),
   listReconciliationJobs: (...args: unknown[]) => mocks.listReconciliationJobsMock(...args),
+  createDirectory: (...args: unknown[]) => mocks.createDirectoryMock(...args),
+  uploadFile: (...args: unknown[]) => mocks.uploadFileMock(...args),
+  moveNode: (...args: unknown[]) => mocks.moveNodeMock(...args),
+  copyNode: (...args: unknown[]) => mocks.copyNodeMock(...args),
+  deleteNode: (...args: unknown[]) => mocks.deleteNodeMock(...args),
   presignNodeDownload: (...args: unknown[]) => mocks.presignNodeDownloadMock(...args),
   subscribeToFilestoreEvents: (...args: unknown[]) => mocks.subscribeToFilestoreEventsMock(...args),
   updateNodeMetadata: vi.fn()
@@ -306,6 +324,21 @@ describe('FilestoreExplorerPage mount discovery', () => {
     }));
     mocks.authorizedFetchMock.mockReset();
     mocks.presignNodeDownloadMock.mockReset();
+    mocks.createDirectoryMock.mockReset();
+    mocks.createDirectoryMock.mockResolvedValue({ idempotent: false, journalEntryId: 1, node: null, result: {} });
+    mocks.uploadFileMock.mockReset();
+    mocks.uploadFileMock.mockResolvedValue({ idempotent: false, journalEntryId: 2, node: null, result: {} });
+    mocks.moveNodeMock.mockReset();
+    mocks.moveNodeMock.mockResolvedValue({ idempotent: false, journalEntryId: 3, node: null, result: {} });
+    mocks.copyNodeMock.mockReset();
+    mocks.copyNodeMock.mockResolvedValue({ idempotent: false, journalEntryId: 4, node: null, result: {} });
+    mocks.deleteNodeMock.mockReset();
+    mocks.deleteNodeMock.mockResolvedValue({ idempotent: false, journalEntryId: 5, node: null, result: {} });
+    let nextFetchId = 1000;
+    mocks.fetchNodeByPathMock.mockReset();
+    mocks.fetchNodeByPathMock.mockImplementation(async (_fetch, params) =>
+      buildNode({ id: nextFetchId++, path: params.path, backendMountId: params.backendMountId })
+    );
     (URL as unknown as { createObjectURL: ReturnType<typeof vi.fn> }).createObjectURL = vi.fn(() => 'blob:mock');
     (URL as unknown as { revokeObjectURL: ReturnType<typeof vi.fn> }).revokeObjectURL = vi.fn();
     window.open = vi.fn();
@@ -524,7 +557,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   });
 
   it('renders reconciliation job history when mounts and write scope are available', async () => {
-    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
     setupPollingResourcesForNode(buildNode());
 
     render(<FilestoreExplorerPage identity={writableIdentity} />);
@@ -532,6 +565,109 @@ describe('FilestoreExplorerPage mount discovery', () => {
     await waitFor(() => expect(screen.getByText('Reconciliation jobs')).toBeInTheDocument());
     expect(screen.getAllByText('datasets/example').length).toBeGreaterThan(0);
     expect(screen.getByText('Job detail')).toBeInTheDocument();
+  });
+
+  it('creates directories via the dialog and calls the API', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+    const createdNode = buildNode({ id: 99, path: 'datasets/new-dir', backendMountId: sampleMount.id });
+    mocks.createDirectoryMock.mockResolvedValueOnce({
+      idempotent: false,
+      journalEntryId: 11,
+      node: createdNode,
+      result: { path: createdNode.path }
+    });
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    const createButton = await screen.findByRole('button', { name: 'New directory' });
+    fireEvent.click(createButton);
+
+    const pathInput = await screen.findByLabelText('Directory path');
+    fireEvent.change(pathInput, { target: { value: 'datasets/new-dir' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create directory' }));
+
+    await waitFor(() => {
+      expect(mocks.createDirectoryMock).toHaveBeenCalledTimes(1);
+    });
+    const [, payload] = mocks.createDirectoryMock.mock.calls[0];
+    expect((payload as { path: string }).path).toBe('datasets/new-dir');
+    expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Directory creation requested');
+    await waitFor(() => {
+      expect(screen.queryByText('Create directory')).not.toBeInTheDocument();
+    });
+  });
+
+  it('uploads files and forwards metadata to the API', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+    const uploadedNode = buildNode({ id: 77, path: `${node.path}/upload.txt`, backendMountId: sampleMount.id, kind: 'file' });
+    mocks.uploadFileMock.mockResolvedValueOnce({
+      idempotent: false,
+      journalEntryId: 21,
+      node: uploadedNode,
+      result: { path: uploadedNode.path }
+    });
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    const [openUploadButton] = await screen.findAllByRole('button', { name: 'Upload file' });
+    fireEvent.click(openUploadButton);
+
+    const uploadDialog = await screen.findByRole('dialog', { name: 'Upload file' });
+
+    const fileInput = within(uploadDialog).getByLabelText('Browse…');
+    const file = new File(['content'], 'upload.txt', { type: 'text/plain' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    const pathField = within(uploadDialog).getByLabelText('File path');
+    expect((pathField as HTMLInputElement).value).toBe(`${node.path}/upload.txt`);
+
+    const submitUploadButton = within(uploadDialog).getByRole('button', { name: 'Upload file' });
+    fireEvent.click(submitUploadButton);
+
+    await waitFor(() => {
+      expect(mocks.uploadFileMock).toHaveBeenCalledTimes(1);
+    });
+    const [, uploadPayload] = mocks.uploadFileMock.mock.calls[0];
+    expect((uploadPayload as { path: string }).path).toBe(`${node.path}/upload.txt`);
+    expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Upload queued');
+  });
+
+  it('soft-deletes nodes after confirmation', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
+    mocks.deleteNodeMock.mockResolvedValueOnce({
+      idempotent: false,
+      journalEntryId: 31,
+      node: null,
+      result: { path: node.path }
+    });
+
+    render(<FilestoreExplorerPage identity={writableIdentity} />);
+
+    const [openDeleteButton] = await screen.findAllByRole('button', { name: 'Soft-delete' });
+    fireEvent.click(openDeleteButton);
+
+    const deleteDialog = await screen.findByRole('alertdialog', { name: 'Soft-delete node' });
+
+    const confirmationInput = within(deleteDialog).getByLabelText(/Type/);
+    const nodeName = node.path.split('/').pop() ?? node.path;
+    fireEvent.change(confirmationInput, { target: { value: nodeName } });
+
+    const confirmDeleteButton = within(deleteDialog).getByRole('button', { name: 'Soft-delete' });
+    fireEvent.click(confirmDeleteButton);
+
+    await waitFor(() => {
+      expect(mocks.deleteNodeMock).toHaveBeenCalledTimes(1);
+    });
+    const [, deletePayload] = mocks.deleteNodeMock.mock.calls[0];
+    expect((deletePayload as { path: string }).path).toBe(node.path);
+    expect(toastHelpersMock.showSuccess).toHaveBeenCalledWith('Delete enqueued');
   });
 });
 
