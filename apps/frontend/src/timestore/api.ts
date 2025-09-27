@@ -26,6 +26,12 @@ import {
   sqlQueryResultSchema
 } from './types';
 
+function createTimestoreUrl(path: string): URL {
+  const normalizedPath = path.replace(/^\/+/, '');
+  const base = TIMESTORE_BASE_URL.endsWith('/') ? TIMESTORE_BASE_URL : `${TIMESTORE_BASE_URL}/`;
+  return new URL(normalizedPath, base);
+}
+
 export type DatasetListParams = {
   cursor?: string | null;
   limit?: number;
@@ -61,7 +67,7 @@ async function runSqlRead(
   sql: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<Array<Record<string, unknown>>> {
-  const url = new URL('/sql/read', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('sql/read');
   url.searchParams.set('format', 'json');
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
@@ -93,7 +99,7 @@ export async function fetchDatasets(
   params: DatasetListParams = {},
   options: { signal?: AbortSignal } = {}
 ): Promise<DatasetListResponse> {
-  const url = new URL('/admin/datasets', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('admin/datasets');
   if (params.cursor) {
     url.searchParams.set('cursor', params.cursor);
   }
@@ -119,7 +125,7 @@ export async function fetchDatasetById(
   datasetId: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<DatasetRecord> {
-  const url = new URL(`/admin/datasets/${encodeURIComponent(datasetId)}`, TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}`);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   if (!response.ok) {
     throw new Error(`Fetch dataset failed with status ${response.status}`);
@@ -133,7 +139,7 @@ export async function fetchDatasetManifest(
   datasetId: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<ManifestResponse> {
-  const url = new URL(`/admin/datasets/${encodeURIComponent(datasetId)}/manifest`, TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/manifest`);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   if (!response.ok) {
     throw new Error(`Fetch manifest failed with status ${response.status}`);
@@ -146,7 +152,7 @@ export async function fetchLifecycleStatus(
   params: { limit?: number; datasetId?: string } = {},
   options: { signal?: AbortSignal } = {}
 ): Promise<LifecycleStatusResponse> {
-  const url = new URL('/admin/lifecycle/status', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('admin/lifecycle/status');
   if (params.limit) {
     url.searchParams.set('limit', params.limit.toString());
   }
@@ -165,7 +171,7 @@ export async function fetchRetentionPolicy(
   datasetId: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<RetentionResponse> {
-  const url = new URL(`/admin/datasets/${encodeURIComponent(datasetId)}/retention`, TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/retention`);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   if (!response.ok) {
     throw new Error(`Fetch retention failed with status ${response.status}`);
@@ -179,7 +185,7 @@ export async function updateRetentionPolicy(
   policy: RetentionPolicy,
   options: { signal?: AbortSignal } = {}
 ): Promise<RetentionResponse> {
-  const url = new URL(`/admin/datasets/${encodeURIComponent(datasetId)}/retention`, TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/retention`);
   const response = await authorizedFetch(url.toString(), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -208,7 +214,7 @@ export async function runLifecycleJob(
     mode: 'inline' | 'queue';
   }
 ): Promise<LifecycleRunResponse> {
-  const url = new URL('/admin/lifecycle/run', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('admin/lifecycle/run');
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -230,7 +236,7 @@ export async function rescheduleLifecycleJob(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   jobId: string
 ): Promise<LifecycleRunResponse> {
-  const url = new URL('/admin/lifecycle/reschedule', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('admin/lifecycle/reschedule');
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -248,7 +254,7 @@ export async function runDatasetQuery(
   datasetSlug: string,
   body: unknown
 ): Promise<QueryResponse> {
-  const url = new URL(`/datasets/${encodeURIComponent(datasetSlug)}/query`, TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl(`datasets/${encodeURIComponent(datasetSlug)}/query`);
   const response = await authorizedFetch(url.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -265,7 +271,7 @@ export async function fetchMetrics(
   authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
   options: { signal?: AbortSignal } = {}
 ): Promise<string> {
-  const url = new URL('/metrics', TIMESTORE_BASE_URL);
+  const url = createTimestoreUrl('metrics');
   const response = await authorizedFetch(url.toString(), {
     signal: options.signal,
     headers: { Accept: 'text/plain' }

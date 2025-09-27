@@ -145,7 +145,9 @@ export type FilestoreEventSubscription = {
 };
 
 function buildFilestoreUrl(path: string): string {
-  return new URL(path, FILESTORE_BASE_URL).toString();
+  const normalizedPath = path.replace(/^\/+/, '');
+  const base = FILESTORE_BASE_URL.endsWith('/') ? FILESTORE_BASE_URL : `${FILESTORE_BASE_URL}/`;
+  return new URL(normalizedPath, base).toString();
 }
 
 function buildJsonHeaders(options: JsonHeadersOptions = {}): Record<string, string> {
@@ -368,7 +370,7 @@ export async function fetchNodeByPath(
   input: GetNodeByPathInput,
   options: RequestOptions = {}
 ): Promise<FilestoreNode> {
-  const url = new URL('/v1/nodes/by-path', FILESTORE_BASE_URL);
+  const url = new URL(buildFilestoreUrl('/v1/nodes/by-path'));
   url.searchParams.set('backendMountId', String(input.backendMountId));
   url.searchParams.set('path', input.path);
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
@@ -381,7 +383,7 @@ export async function listNodes(
   params: ListNodesParams,
   options: RequestOptions = {}
 ): Promise<FilestoreNodeList> {
-  const url = new URL('/v1/nodes', FILESTORE_BASE_URL);
+  const url = new URL(buildFilestoreUrl('/v1/nodes'));
   url.searchParams.set('backendMountId', String(params.backendMountId));
   if (params.limit && params.limit > 0) {
     url.searchParams.set('limit', String(params.limit));
@@ -415,7 +417,7 @@ export async function fetchNodeChildren(
   params: FetchNodeChildrenParams = {},
   options: RequestOptions = {}
 ): Promise<FilestoreNodeChildren> {
-  const url = new URL(`/v1/nodes/${nodeId}/children`, FILESTORE_BASE_URL);
+  const url = new URL(buildFilestoreUrl(`/v1/nodes/${nodeId}/children`));
   if (params.limit && params.limit > 0) {
     url.searchParams.set('limit', String(params.limit));
   }
