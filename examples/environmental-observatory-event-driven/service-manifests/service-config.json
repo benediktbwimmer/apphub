@@ -1,4 +1,132 @@
 {
   "module": "github.com/apphub/examples/environmental-observatory-event-driven",
-  "manifestPath": "./service-manifest.json"
+  "manifestPath": "./service-manifest.json",
+  "bootstrap": {
+    "actions": [
+      {
+        "type": "ensureDirectories",
+        "description": "Create local directories required by the observatory example",
+        "directories": [
+          "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
+          "{{ placeholders.OBSERVATORY_STAGING_PATH }}",
+          "{{ placeholders.OBSERVATORY_ARCHIVE_PATH }}",
+          "{{ placeholders.OBSERVATORY_PLOTS_PATH }}",
+          "{{ placeholders.OBSERVATORY_REPORTS_PATH }}"
+        ]
+      },
+      {
+        "type": "ensureFilestoreBackend",
+        "description": "Provision the observatory filestore backend",
+        "mountKey": "observatory-event-driven-local",
+        "backend": {
+          "kind": "local",
+          "rootPath": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/data"
+        },
+        "config": {
+          "provisionedBy": "observatory-import"
+        },
+        "assign": {
+          "placeholders": {
+            "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ outputs.lastFilestoreBackendId | number }}"
+          }
+        }
+      },
+      {
+        "type": "writeJsonFile",
+        "description": "Materialize the observatory runtime configuration",
+        "path": "{{ paths.repoRoot }}/examples/environmental-observatory-event-driven/.generated/observatory-config.json",
+        "content": {
+          "paths": {
+            "inbox": "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
+            "staging": "{{ placeholders.OBSERVATORY_STAGING_PATH }}",
+            "archive": "{{ placeholders.OBSERVATORY_ARCHIVE_PATH }}",
+            "plots": "{{ placeholders.OBSERVATORY_PLOTS_PATH }}",
+            "reports": "{{ placeholders.OBSERVATORY_REPORTS_PATH }}"
+          },
+          "filestore": {
+            "baseUrl": "{{ placeholders.OBSERVATORY_FILESTORE_BASE_URL }}",
+            "backendMountId": "{{ placeholders.OBSERVATORY_FILESTORE_BACKEND_ID | number }}",
+            "token": "{{ placeholders.OBSERVATORY_FILESTORE_TOKEN | default(null) }}",
+            "inboxPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_INBOX_PREFIX }}",
+            "stagingPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_STAGING_PREFIX }}",
+            "archivePrefix": "{{ placeholders.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX }}"
+          },
+          "timestore": {
+            "baseUrl": "{{ placeholders.OBSERVATORY_TIMESTORE_BASE_URL }}",
+            "datasetSlug": "{{ placeholders.OBSERVATORY_TIMESTORE_DATASET_SLUG }}",
+            "datasetName": "{{ placeholders.OBSERVATORY_TIMESTORE_DATASET_NAME | default(null) }}",
+            "tableName": "{{ placeholders.OBSERVATORY_TIMESTORE_TABLE_NAME | default(null) }}",
+            "storageTargetId": "{{ placeholders.OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID | default(null) }}",
+            "authToken": "{{ placeholders.OBSERVATORY_TIMESTORE_TOKEN | default(null) }}"
+          },
+          "metastore": {
+            "baseUrl": "{{ placeholders.OBSERVATORY_METASTORE_BASE_URL | default(null) }}",
+            "namespace": "{{ placeholders.OBSERVATORY_METASTORE_NAMESPACE | default(null) }}",
+            "authToken": "{{ placeholders.OBSERVATORY_METASTORE_TOKEN | default(null) }}"
+          },
+          "catalog": {
+            "baseUrl": "{{ placeholders.OBSERVATORY_CATALOG_BASE_URL | default(null) }}",
+            "apiToken": "{{ placeholders.OBSERVATORY_CATALOG_TOKEN | default(null) }}"
+          },
+          "workflows": {
+            "ingestSlug": "{{ placeholders.OBSERVATORY_INGEST_WORKFLOW_SLUG }}",
+            "publicationSlug": "{{ placeholders.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG }}",
+            "visualizationAssetId": "{{ placeholders.OBSERVATORY_VISUALIZATION_ASSET_ID }}"
+          }
+        }
+      },
+      {
+        "type": "applyWorkflowDefaults",
+        "description": "Apply default parameters for observatory workflows",
+        "workflows": [
+          {
+            "slug": "observatory-minute-data-generator",
+            "defaults": {
+              "inboxDir": "{{ placeholders.OBSERVATORY_INBOX_PATH }}",
+              "filestoreBaseUrl": "{{ placeholders.OBSERVATORY_FILESTORE_BASE_URL }}",
+              "filestoreBackendId": "{{ placeholders.OBSERVATORY_FILESTORE_BACKEND_ID | number }}",
+              "inboxPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_INBOX_PREFIX }}",
+              "stagingPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_STAGING_PREFIX }}",
+              "archivePrefix": "{{ placeholders.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX }}",
+              "filestorePrincipal": "observatory-data-generator",
+              "filestoreToken": "{{ placeholders.OBSERVATORY_FILESTORE_TOKEN | default(null) }}"
+            }
+          },
+          {
+            "slug": "observatory-minute-ingest",
+            "defaults": {
+              "stagingDir": "{{ placeholders.OBSERVATORY_STAGING_PATH }}",
+              "archiveDir": "{{ placeholders.OBSERVATORY_ARCHIVE_PATH }}",
+              "filestoreBaseUrl": "{{ placeholders.OBSERVATORY_FILESTORE_BASE_URL }}",
+              "filestoreBackendId": "{{ placeholders.OBSERVATORY_FILESTORE_BACKEND_ID | number }}",
+              "inboxPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_INBOX_PREFIX }}",
+              "stagingPrefix": "{{ placeholders.OBSERVATORY_FILESTORE_STAGING_PREFIX }}",
+              "archivePrefix": "{{ placeholders.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX }}",
+              "filestorePrincipal": "observatory-inbox-normalizer",
+              "filestoreToken": "{{ placeholders.OBSERVATORY_FILESTORE_TOKEN | default(null) }}",
+              "timestoreBaseUrl": "{{ placeholders.OBSERVATORY_TIMESTORE_BASE_URL }}",
+              "timestoreDatasetSlug": "{{ placeholders.OBSERVATORY_TIMESTORE_DATASET_SLUG }}",
+              "timestoreDatasetName": "{{ placeholders.OBSERVATORY_TIMESTORE_DATASET_NAME | default(null) }}",
+              "timestoreTableName": "{{ placeholders.OBSERVATORY_TIMESTORE_TABLE_NAME | default(null) }}",
+              "timestoreStorageTargetId": "{{ placeholders.OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID | default(null) }}",
+              "timestoreAuthToken": "{{ placeholders.OBSERVATORY_TIMESTORE_TOKEN | default(null) }}"
+            }
+          },
+          {
+            "slug": "observatory-daily-publication",
+            "defaults": {
+              "timestoreBaseUrl": "{{ placeholders.OBSERVATORY_TIMESTORE_BASE_URL }}",
+              "timestoreDatasetSlug": "{{ placeholders.OBSERVATORY_TIMESTORE_DATASET_SLUG }}",
+              "timestoreAuthToken": "{{ placeholders.OBSERVATORY_TIMESTORE_TOKEN | default(null) }}",
+              "plotsDir": "{{ placeholders.OBSERVATORY_PLOTS_PATH }}",
+              "reportsDir": "{{ placeholders.OBSERVATORY_REPORTS_PATH }}",
+              "metastoreBaseUrl": "{{ placeholders.OBSERVATORY_METASTORE_BASE_URL | default(null) }}",
+              "metastoreNamespace": "{{ placeholders.OBSERVATORY_METASTORE_NAMESPACE | default(null) }}",
+              "metastoreAuthToken": "{{ placeholders.OBSERVATORY_METASTORE_TOKEN | default(null) }}"
+            }
+          }
+        ]
+      }
+    ]
+  }
 }

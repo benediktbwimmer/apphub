@@ -155,7 +155,7 @@ export async function ensureObservatoryBackend(
   config: EventDrivenObservatoryConfig,
   options?: EnsureObservatoryBackendOptions
 ): Promise<number | null> {
-  if (process.env.APPHUB_DISABLE_OBSERVATORY_BOOTSTRAP === '1') {
+  if (process.env.APPHUB_DISABLE_MODULE_BOOTSTRAP === '1') {
     options?.logger?.debug?.({ reason: 'disabled' }, 'Observatory bootstrap disabled via env flag');
     return null;
   }

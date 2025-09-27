@@ -25,7 +25,8 @@ import {
   createWorkflowSchedule,
   updateWorkflowSchedule,
   deleteWorkflowSchedule,
-  getWorkflowScheduleWithWorkflow
+  getWorkflowScheduleWithWorkflow,
+  type JsonValue
 } from '../db/index';
 import type {
   JobDefinitionRecord,
@@ -77,11 +78,7 @@ import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES, WORKFLOW_WRITE_SCOPES } from './shared/scopes';
 import type { JsonValue } from './shared/serializers';
 import { registerWorkflowTriggerRoutes } from './workflows/triggers';
-import {
-  applyObservatoryWorkflowDefaults,
-  isObservatoryWorkflowSlug,
-  loadObservatoryConfig
-} from '@apphub/examples-registry';
+import { getWorkflowDefaultParameters } from '../bootstrap';
 
 type WorkflowJobStepInput = Extract<WorkflowStepInput, { jobSlug: string }>;
 type WorkflowJobTemplateInput = Extract<WorkflowFanOutTemplateInput, { jobSlug: string }>;
@@ -902,13 +899,16 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     }
 
     const payload = parseBody.data;
-    if (isObservatoryWorkflowSlug(payload.slug)) {
-      try {
-        const config = await loadObservatoryConfig();
-        applyObservatoryWorkflowDefaults(payload, config);
-      } catch (err) {
-        request.log.debug({ err, slug: payload.slug }, 'Skipped observatory workflow overrides');
+    const moduleDefaults = getWorkflowDefaultParameters(payload.slug);
+    if (moduleDefaults) {
+      const existingDefaults =
+        payload.defaultParameters && typeof payload.defaultParameters === 'object' && !Array.isArray(payload.defaultParameters)
+          ? { ...(payload.defaultParameters as Record<string, JsonValue>) }
+          : {};
+      for (const [key, value] of Object.entries(moduleDefaults)) {
+        existingDefaults[key] = value;
       }
+      payload.defaultParameters = existingDefaults;
     }
     const normalizedSteps = await normalizeWorkflowSteps(payload.steps);
     const triggers = normalizeWorkflowTriggers(payload.triggers);

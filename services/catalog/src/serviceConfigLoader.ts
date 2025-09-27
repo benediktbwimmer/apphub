@@ -17,6 +17,7 @@ import {
   type ManifestServiceNetworkInput,
   type ResolvedManifestEnvVar
 } from './serviceManifestTypes';
+import { bootstrapPlanSchema, type BootstrapPlanSpec, type BootstrapActionSpec } from './bootstrap';
 
 const git = simpleGit();
 
@@ -71,7 +72,8 @@ const serviceConfigSchema = z
     services: z.array(manifestEntrySchema).optional(),
     networks: z.array(serviceNetworkSchema).optional(),
     manifestPath: z.string().min(1).optional(),
-    imports: z.array(serviceConfigImportSchema).optional()
+    imports: z.array(serviceConfigImportSchema).optional(),
+    bootstrap: bootstrapPlanSchema.optional()
   })
   .strict();
 
@@ -120,6 +122,7 @@ type ConfigLoadResult = {
   entries: LoadedManifestEntry[];
   networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
+  bootstrap: BootstrapPlanSpec | null;
 };
 
 type PlaceholderValueSource = 'default' | 'variable';
@@ -680,7 +683,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     config = await readServiceConfig(filePath);
   } catch (err) {
     errors.push({ source: sourceLabel, error: err as Error });
-    return { moduleId: null, entries: [], networks: [], errors };
+    return { moduleId: null, entries: [], networks: [], errors, bootstrap: null };
   }
 
   const moduleId = config.module.trim();
@@ -692,13 +695,14 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   }
 
   if (visitedModules.has(moduleId)) {
-    return { moduleId, entries: [], networks: [], errors };
+    return { moduleId, entries: [], networks: [], errors, bootstrap: null };
   }
 
   visitedModules.set(moduleId, sourceLabel);
 
   const entries: LoadedManifestEntry[] = [];
   const networks: LoadedServiceNetwork[] = [];
+  const bootstrapActions: BootstrapActionSpec[] = [...(config.bootstrap?.actions ?? [])];
   const moduleSource = `module:${moduleId}`;
 
   if (config.services?.length) {
@@ -754,9 +758,14 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     entries.push(...childResult.entries);
     networks.push(...childResult.networks);
     errors.push(...childResult.errors);
+    if (childResult.bootstrap?.actions?.length) {
+      bootstrapActions.push(...childResult.bootstrap.actions);
+    }
   }
 
-  return { moduleId, entries, networks, errors };
+  const bootstrapPlan = bootstrapActions.length > 0 ? { actions: bootstrapActions } : null;
+
+  return { moduleId, entries, networks, errors, bootstrap: bootstrapPlan };
 }
 
 async function loadConfigImport(
@@ -774,6 +783,7 @@ async function loadConfigImport(
   let entries: LoadedManifestEntry[] = [];
   let networks: LoadedServiceNetwork[] = [];
   let resolvedCommit: string | null = null;
+  let bootstrap: BootstrapPlanSpec | null = null;
   try {
     let repoRoot: string;
     let sourceLabelBase: string;
@@ -836,6 +846,7 @@ async function loadConfigImport(
     entries = result.entries;
     networks = result.networks;
     errors.push(...result.errors);
+    bootstrap = result.bootstrap;
   } catch (err) {
     const sourceLabel = importConfig.repo
       ? `git:${importConfig.repo}`
@@ -850,7 +861,7 @@ async function loadConfigImport(
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 
-  return { moduleId, entries, networks, errors, resolvedCommit };
+  return { moduleId, entries, networks, errors, resolvedCommit, bootstrap };
 }
 
 export type ServiceConfigImportRequest = {
@@ -871,6 +882,7 @@ export type ServiceConfigImportPreview = {
   networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
   placeholders: ManifestPlaceholderSummary[];
+  bootstrap: BootstrapPlanSpec | null;
 };
 
 export async function previewServiceConfigImport(
@@ -927,6 +939,7 @@ export async function previewServiceConfigImport(
     entries: result.entries,
     networks: result.networks,
     errors: result.errors,
-    placeholders
+    placeholders,
+    bootstrap: result.bootstrap ?? null
   };
 }

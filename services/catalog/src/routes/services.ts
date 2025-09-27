@@ -1,6 +1,4 @@
 import { Buffer } from 'node:buffer';
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -19,15 +17,11 @@ import {
   type LoadedManifestEntry,
   type LoadedServiceNetwork
 } from '../serviceConfigLoader';
+import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import { mergeServiceMetadata, serviceMetadataUpdateSchema } from '../serviceMetadata';
-import {
-  createEventDrivenObservatoryConfig,
-  ensureObservatoryBackend,
-  isObservatoryModule,
-  resolveObservatoryRepoRoot
-} from '@apphub/examples-registry';
+import { executeBootstrapPlan, registerWorkflowDefaults } from '../bootstrap';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
 
@@ -198,42 +192,106 @@ export async function registerServiceRoutes(app: FastifyInstance, options: Servi
   return headers;
 }
 
-async function applyServiceImportArtifacts(
+function buildBootstrapContext(
   preview: Awaited<ReturnType<typeof previewServiceConfigImport>>,
-  variables: Record<string, string> | undefined,
-  logger: FastifyBaseLogger
-): Promise<void> {
-  if (!isObservatoryModule(preview.moduleId)) {
-    return;
-  }
-
+  variables: Record<string, string> | undefined
+): { placeholders: Map<string, string>; variables: Record<string, string> } {
   const resolvedVariables: Record<string, string> = { ...(variables ?? {}) };
+  const placeholders = new Map<string, string>();
+
   for (const placeholder of preview.placeholders) {
     if (placeholder.value === undefined) {
       continue;
     }
-    resolvedVariables[placeholder.name] = placeholder.value;
-  }
-
-  const repoRoot = resolveObservatoryRepoRoot();
-  const { config, outputPath } = createEventDrivenObservatoryConfig({
-    repoRoot,
-    variables: resolvedVariables
-  });
-
-  try {
-    const backendId = await ensureObservatoryBackend(config, { logger });
-    if (typeof backendId === 'number' && Number.isFinite(backendId)) {
-      config.filestore.backendMountId = backendId;
-      resolvedVariables.OBSERVATORY_FILESTORE_BACKEND_ID = String(backendId);
+    placeholders.set(placeholder.name, placeholder.value);
+    if (!(placeholder.name in resolvedVariables)) {
+      resolvedVariables[placeholder.name] = placeholder.value;
     }
-  } catch (err) {
-    // ensureObservatoryBackend already logged; surface a clearer error upstream
-    throw new Error('Failed to prepare observatory filestore backend');
   }
 
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { placeholders, variables: resolvedVariables };
+}
+
+function updatePlaceholderSummaries(
+  summaries: Awaited<ReturnType<typeof previewServiceConfigImport>>['placeholders'],
+  values: Map<string, string>
+): void {
+  for (const summary of summaries) {
+    const resolved = values.get(summary.name);
+    if (resolved === undefined) {
+      continue;
+    }
+    summary.value = resolved;
+    summary.missing = false;
+  }
+}
+
+function updateEnvVarValue(env: ResolvedManifestEnvVar[] | undefined, key: string, value: string): void {
+  if (!env) {
+    return;
+  }
+  for (const entry of env) {
+    if (entry.key === key) {
+      entry.value = value;
+    }
+  }
+}
+
+function applyPlaceholderValuesToManifest(
+  summaries: Awaited<ReturnType<typeof previewServiceConfigImport>>['placeholders'],
+  entries: LoadedManifestEntry[],
+  networks: LoadedServiceNetwork[],
+  values: Map<string, string>
+): void {
+  if (summaries.length === 0 || values.size === 0) {
+    return;
+  }
+
+  const serviceMap = new Map<string, LoadedManifestEntry>();
+  for (const entry of entries) {
+    serviceMap.set(entry.slug, entry);
+  }
+
+  const networkMap = new Map<string, LoadedServiceNetwork>();
+  for (const network of networks) {
+    networkMap.set(network.id, network);
+  }
+
+  for (const summary of summaries) {
+    const nextValue = values.get(summary.name);
+    if (nextValue === undefined) {
+      continue;
+    }
+
+    for (const occurrence of summary.occurrences) {
+      switch (occurrence.kind) {
+        case 'service': {
+          const service = serviceMap.get(occurrence.serviceSlug);
+          updateEnvVarValue(service?.env, occurrence.envKey, nextValue);
+          break;
+        }
+        case 'network': {
+          const network = networkMap.get(occurrence.networkId);
+          updateEnvVarValue(network?.env, occurrence.envKey, nextValue);
+          break;
+        }
+        case 'network-service': {
+          const network = networkMap.get(occurrence.networkId);
+          const service = network?.services.find((entry) => entry.serviceSlug === occurrence.serviceSlug);
+          updateEnvVarValue(service?.env, occurrence.envKey, nextValue);
+          break;
+        }
+        case 'app-launch': {
+          const network = networkMap.get(occurrence.networkId);
+          const service = network?.services.find((entry) => entry.app.id === occurrence.appId);
+          updateEnvVarValue(service?.app.launchEnv, occurrence.envKey, nextValue);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
 }
 
 async function processServiceManifestImport(request: FastifyRequest, reply: FastifyReply) {
@@ -303,18 +361,59 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
       };
     }
 
-    try {
-    await registry.importManifestModule({
-      moduleId: preview.moduleId,
-      entries: preview.entries,
-      networks: preview.networks
-    });
-    await applyServiceImportArtifacts(preview, variables, request.log);
-  } catch (err) {
-    request.log.error(
-      { err, module: preview.moduleId },
-      'service manifest import failed to apply'
+    const { placeholders: initialPlaceholders, variables: bootstrapVariables } = buildBootstrapContext(
+      preview,
+      variables
     );
+    let placeholderValues = initialPlaceholders;
+    let bootstrapResult: Awaited<ReturnType<typeof executeBootstrapPlan>> | null = null;
+    const bootstrapPlan = preview.bootstrap;
+    const hasBootstrapActions = Boolean(bootstrapPlan && bootstrapPlan.actions.length > 0);
+    const bootstrapDisabled = process.env.APPHUB_DISABLE_MODULE_BOOTSTRAP === '1';
+
+    if (hasBootstrapActions && !bootstrapDisabled) {
+      try {
+        bootstrapResult = await executeBootstrapPlan({
+          moduleId: preview.moduleId,
+          plan: bootstrapPlan,
+          placeholders: initialPlaceholders,
+          variables: bootstrapVariables,
+          logger: request.log
+        });
+        placeholderValues = bootstrapResult.placeholders;
+      } catch (err) {
+        request.log.error(
+          { err, module: preview.moduleId },
+          'module bootstrap execution failed'
+        );
+        reply.status(500);
+        return { error: 'failed to execute module bootstrap actions' };
+      }
+    } else if (hasBootstrapActions && bootstrapDisabled) {
+      request.log.debug(
+        { module: preview.moduleId, reason: 'disabled' },
+        'module bootstrap skipped via APPHUB_DISABLE_MODULE_BOOTSTRAP'
+      );
+    }
+
+    updatePlaceholderSummaries(preview.placeholders, placeholderValues);
+    applyPlaceholderValuesToManifest(preview.placeholders, preview.entries, preview.networks, placeholderValues);
+
+    try {
+      await registry.importManifestModule({
+        moduleId: preview.moduleId,
+        entries: preview.entries,
+        networks: preview.networks
+      });
+
+      if (bootstrapResult?.workflowDefaults.size) {
+        registerWorkflowDefaults(preview.moduleId, bootstrapResult.workflowDefaults);
+      }
+    } catch (err) {
+      request.log.error(
+        { err, module: preview.moduleId },
+        'service manifest import failed to apply'
+      );
       reply.status(500);
       return { error: 'failed to apply service manifest' };
     }
