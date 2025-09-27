@@ -32,6 +32,7 @@ import {
 } from '../db/index';
 import type {
   JobDefinitionRecord,
+  JsonValue,
   WorkflowAssetDeclaration,
   WorkflowAssetDeclarationRecord,
   WorkflowAssetSnapshotRecord,
