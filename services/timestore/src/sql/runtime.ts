@@ -49,6 +49,7 @@ export interface SqlDatasetContext {
   partitionKeys: string[];
   partitions: SqlDatasetPartitionContext[];
   viewName: string;
+  aliasWarnings: string[];
 }
 
 export interface SqlContext {
@@ -83,7 +84,11 @@ export async function loadSqlContext(): Promise<SqlContext> {
       ? await mapPartitions(manifest.partitions, config, storageTargetCache, warnings)
       : [];
     const partitionKeys = derivePartitionKeys(partitions);
-    const viewName = createViewName(dataset.slug);
+    const { viewName, aliasWarning } = createViewName(dataset.slug);
+    const aliasWarnings = aliasWarning ? [aliasWarning] : [];
+    if (aliasWarning) {
+      warnings.push(aliasWarning);
+    }
 
     datasets.push({
       dataset,
@@ -91,7 +96,8 @@ export async function loadSqlContext(): Promise<SqlContext> {
       columns,
       partitionKeys,
       partitions,
-      viewName
+      viewName,
+      aliasWarnings
     });
   }
 
@@ -285,7 +291,8 @@ async function attachDataset(connection: DuckDbConnection, dataset: SqlDatasetCo
   }
 
   const selects: string[] = [];
-  for (const [index, partition] of dataset.partitions.entries()) {
+  let index = 0;
+  for (const partition of dataset.partitions) {
     const alias = buildPartitionAlias(dataset.dataset.slug, index);
     try {
       await run(
@@ -298,6 +305,7 @@ async function attachDataset(connection: DuckDbConnection, dataset: SqlDatasetCo
         `Failed to attach partition ${partition.id} for dataset ${dataset.dataset.slug}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    index += 1;
   }
 
   if (selects.length === 0) {
@@ -445,13 +453,30 @@ async function populateRuntimeTables(connection: DuckDbConnection, datasets: Sql
   }
 }
 
-function createViewName(datasetSlug: string): string {
-  return `timestore.${datasetSlug}`;
+function createViewName(datasetSlug: string): { viewName: string; aliasWarning: string | null } {
+  const sanitized = sanitizeIdentifierSegment(datasetSlug);
+  const viewName = `timestore.${sanitized}`;
+  const aliasWarning = sanitized !== datasetSlug
+    ? `Dataset ${datasetSlug} exposed as view ${viewName} to comply with identifier rules.`
+    : null;
+  return { viewName, aliasWarning };
 }
 
 function buildPartitionAlias(datasetSlug: string, index: number): string {
   const safeSlug = datasetSlug.replace(/[^a-zA-Z0-9]+/g, '_');
   return `ds_${safeSlug}_${index}_${randomUUID().slice(0, 6)}`;
+}
+
+function sanitizeIdentifierSegment(segment: string): string {
+  const trimmed = segment.trim();
+  const replaced = trimmed.replace(/[^A-Za-z0-9_]/g, '_');
+  const collapsed = replaced.replace(/_+/g, '_');
+  const stripped = collapsed.replace(/^_+|_+$/g, '');
+  const fallback = stripped.length > 0 ? stripped : 'dataset';
+  if (/^[0-9]/.test(fallback)) {
+    return `d_${fallback}`;
+  }
+  return fallback;
 }
 
 function extractTableName(metadata: Record<string, unknown>): string {

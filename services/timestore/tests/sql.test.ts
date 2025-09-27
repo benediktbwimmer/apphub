@@ -9,6 +9,7 @@ import { after, before, describe, test } from 'node:test';
 import fastify from 'fastify';
 import EmbeddedPostgres from 'embedded-postgres';
 import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
+import type { FieldDefinition } from '../src/storage';
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -132,7 +133,7 @@ async function seedDuckDbDataset(): Promise<void> {
   });
   datasetSlug = dataset.slug;
 
-  const schemaFields = [
+  const schemaFields: FieldDefinition[] = [
     { name: 'timestamp', type: 'timestamp' },
     { name: 'site', type: 'string' },
     { name: 'value', type: 'double' }

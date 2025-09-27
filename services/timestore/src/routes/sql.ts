@@ -47,13 +47,29 @@ interface FormatWriter {
 
 type WriteChunk = (chunk: string) => Promise<void>;
 
+function mergeDescription(base: string | null, warnings: string[]): string | null {
+  const parts: string[] = [];
+  if (base && base.trim().length > 0) {
+    parts.push(base.trim());
+  }
+  for (const warning of warnings) {
+    if (warning.trim().length > 0) {
+      parts.push(warning.trim());
+    }
+  }
+  if (parts.length === 0) {
+    return null;
+  }
+  return parts.join(' ');
+}
+
 export async function registerSqlRoutes(app: FastifyInstance): Promise<void> {
   app.get('/sql/schema', async (request) => {
     await authorizeSqlReadAccess(request as FastifyRequest);
     const context = await loadSqlContext();
     const tables: SqlSchemaTableInfo[] = context.datasets.map((dataset) => ({
       name: dataset.viewName,
-      description: dataset.dataset.description ?? null,
+      description: mergeDescription(dataset.dataset.description ?? null, dataset.aliasWarnings),
       partitionKeys: dataset.partitionKeys.length > 0 ? dataset.partitionKeys : undefined,
       columns: dataset.columns
     }));
