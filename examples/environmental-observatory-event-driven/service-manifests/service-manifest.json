@@ -25,46 +25,6 @@
           }
         },
         {
-          "key": "OBSERVATORY_STAGING_PATH",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_STAGING_PATH",
-              "default": "examples/environmental-observatory-event-driven/data/staging",
-              "description": "Directory used for normalized files prior to timestore ingest."
-            }
-          }
-        },
-        {
-          "key": "OBSERVATORY_ARCHIVE_PATH",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_ARCHIVE_PATH",
-              "default": "examples/environmental-observatory-event-driven/data/archive",
-              "description": "Archive location for processed inbox files."
-            }
-          }
-        },
-        {
-          "key": "OBSERVATORY_PLOTS_PATH",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_PLOTS_PATH",
-              "default": "examples/environmental-observatory-event-driven/data/plots",
-              "description": "Directory where visualization assets are written."
-            }
-          }
-        },
-        {
-          "key": "OBSERVATORY_REPORTS_PATH",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_REPORTS_PATH",
-              "default": "examples/environmental-observatory-event-driven/data/reports",
-              "description": "Directory where published reports are stored."
-            }
-          }
-        },
-        {
           "key": "OBSERVATORY_FILESTORE_BASE_URL",
           "value": {
             "$var": {

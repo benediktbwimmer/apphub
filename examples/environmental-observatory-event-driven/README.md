@@ -20,8 +20,9 @@ This variant of the observatory example uses **Filestore** uploads as the system
 
 ## Bootstrapping the Scenario
 1. Install dependencies if you have not yet (`npm install`).
-2. Generate the shared config (prompts respect the defaults shipped in `scripts/materializeConfig.ts`):
+2. Generate the shared config. Set `OBSERVATORY_DATA_ROOT` once to point at the host directory where you want datasets, staging, archives, plots, and reports to live; everything else derives from that root:
    ```bash
+   OBSERVATORY_DATA_ROOT=/Users/you/observatory \
    npx tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts
    ```
    The script writes `.generated/observatory-config.json` – keep it out of source control.

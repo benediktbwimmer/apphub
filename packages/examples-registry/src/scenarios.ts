@@ -332,10 +332,6 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
       module: 'github.com/apphub/examples/environmental-observatory-event-driven',
       variables: {
         OBSERVATORY_DATA_ROOT: 'examples/environmental-observatory-event-driven/data',
-        OBSERVATORY_STAGING_PATH: 'examples/environmental-observatory-event-driven/data/staging',
-        OBSERVATORY_ARCHIVE_PATH: 'examples/environmental-observatory-event-driven/data/archive',
-        OBSERVATORY_PLOTS_PATH: 'examples/environmental-observatory-event-driven/data/plots',
-        OBSERVATORY_REPORTS_PATH: 'examples/environmental-observatory-event-driven/data/reports',
         OBSERVATORY_FILESTORE_BASE_URL: 'http://127.0.0.1:4300',
         OBSERVATORY_FILESTORE_BACKEND_ID: '1',
         OBSERVATORY_FILESTORE_TOKEN: '',
@@ -833,7 +829,7 @@ export const EXAMPLE_SCENARIOS: ExampleScenario[] = [
     form: {
       source: 'upload',
       reference: jobReference('observatory-inbox-normalizer'),
-      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer. Configure inbox/staging/archive directories to match your environment.'
+      notes: 'Bundle sourced from examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer. Uses the shared observatory config; override the Filestore prefixes or data root if you need different host directories.'
     },
     exampleSlug: 'observatory-inbox-normalizer',
     analyticsTag: 'job__observatory_inbox_normalizer'

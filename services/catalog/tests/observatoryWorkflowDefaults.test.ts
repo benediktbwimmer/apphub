@@ -56,10 +56,6 @@ async function run(): Promise<void> {
 
   const placeholderValues = new Map<string, string>([
     ['OBSERVATORY_DATA_ROOT', path.dirname(config.paths.staging)],
-    ['OBSERVATORY_STAGING_PATH', config.paths.staging],
-    ['OBSERVATORY_ARCHIVE_PATH', config.paths.archive],
-    ['OBSERVATORY_PLOTS_PATH', config.paths.plots],
-    ['OBSERVATORY_REPORTS_PATH', config.paths.reports],
     ['OBSERVATORY_FILESTORE_BASE_URL', config.filestore.baseUrl],
     ['OBSERVATORY_FILESTORE_BACKEND_ID', String(config.filestore.backendMountId)],
     ['OBSERVATORY_FILESTORE_TOKEN', config.filestore.token ?? ''],
