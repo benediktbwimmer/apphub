@@ -125,6 +125,32 @@ runE2E(async ({ registerCleanup }) => {
   const backendMountId = await createBackendMount(dbClientModule, mountRoots);
   const backendRoot = mountRoots[mountRoots.length - 1];
 
+  const mountsResponse = await app.inject({
+    method: 'GET',
+    url: '/v1/backend-mounts'
+  });
+  assert.equal(mountsResponse.statusCode, 200, mountsResponse.body);
+  const mountsBody = mountsResponse.json() as {
+    data: {
+      mounts: Array<{
+        id: number;
+        mountKey: string;
+        backendKind: string;
+        accessMode: string;
+        state: string;
+        rootPath: string | null;
+        bucket: string | null;
+        prefix: string | null;
+      }>;
+    };
+  };
+  assert.ok(Array.isArray(mountsBody.data.mounts));
+  const discoveredMount = mountsBody.data.mounts.find((entry) => entry.id === backendMountId);
+  assert.ok(discoveredMount);
+  assert.equal(discoveredMount?.backendKind, 'local');
+  assert.equal(discoveredMount?.rootPath, backendRoot);
+  assert.equal(Object.prototype.hasOwnProperty.call(discoveredMount as Record<string, unknown>, 'config'), false);
+
   const countBeforeParent = await getJournalCount(dbClientModule);
   const parentResponse = await app.inject({
     method: 'POST',

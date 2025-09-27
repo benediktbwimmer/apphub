@@ -7,10 +7,12 @@ import {
   enqueueReconciliation,
   fetchNodeById,
   fetchNodeChildren,
+  listBackendMounts,
   listNodes,
   updateNodeMetadata,
   subscribeToFilestoreEvents,
   type FetchNodeChildrenParams,
+  type FilestoreBackendMount,
   type FilestoreEventType,
   type FilestoreNode,
   type FilestoreNodeChildren,
@@ -23,6 +25,7 @@ import {
 } from './api';
 import { formatBytes } from '../catalog/utils';
 import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
+import { useAnalytics } from '../utils/useAnalytics';
 
 const LIST_PAGE_SIZE = 25;
 const ACTIVITY_LIMIT = 50;
@@ -63,6 +66,7 @@ const SSE_EVENT_TYPES: FilestoreEventType[] = [
   'filestore.node.reconciled',
   'filestore.node.missing'
 ];
+const MOUNT_STORAGE_KEY = 'apphub.filestore.selectedMountId';
 type RefreshTimers = {
   list: number | null;
   node: number | null;
@@ -116,13 +120,17 @@ type FilestoreExplorerPageProps = {
 export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPageProps) {
   const authorizedFetch = useAuthorizedFetch();
   const { showError, showSuccess, showInfo } = useToastHelpers();
+  const { trackEvent } = useAnalytics();
 
   const authDisabled = identity?.authDisabled ?? false;
   const hasWriteScope =
     authDisabled || (identity?.scopes ? identity.scopes.includes('filestore:write') || identity.scopes.includes('filestore:admin') : false);
 
-  const [backendMountId, setBackendMountId] = useState<number>(1);
-  const [knownMountIds, setKnownMountIds] = useState<number[]>([1]);
+  const [backendMountId, setBackendMountId] = useState<number | null>(null);
+  const [mountsLoading, setMountsLoading] = useState(true);
+  const [mountsError, setMountsError] = useState<string | null>(null);
+  const [availableMounts, setAvailableMounts] = useState<FilestoreBackendMount[]>([]);
+  const [extraMountIds, setExtraMountIds] = useState<number[]>([]);
   const [pathDraft, setPathDraft] = useState('');
   const [activePath, setActivePath] = useState<string | null>(null);
   const [depth, setDepth] = useState<number>(1);
@@ -136,22 +144,29 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
 
   const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null });
 
-  const registerMountId = useCallback((value: number | null | undefined) => {
-    if (!value || !Number.isFinite(value) || value <= 0) {
-      return;
-    }
-    setKnownMountIds((prev) => {
-      if (prev.includes(value)) {
-        return prev;
+  const registerMountId = useCallback(
+    (value: number | null | undefined) => {
+      if (!value || !Number.isFinite(value) || value <= 0) {
+        return;
       }
-      return [...prev, value].sort((a, b) => a - b);
-    });
-  }, []);
+      setExtraMountIds((prev) => {
+        if (prev.includes(value) || availableMounts.some((mount) => mount.id === value)) {
+          return prev;
+        }
+        return [...prev, value].sort((a, b) => a - b);
+      });
+    },
+    [availableMounts]
+  );
 
   const listFetcher = useCallback(
     async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
+      if (backendMountId === null) {
+        throw new Error('Backend mount not selected');
+      }
+      const mountId = backendMountId;
       const params = buildListParams({
-        backendMountId,
+        backendMountId: mountId,
         offset,
         limit: LIST_PAGE_SIZE,
         path: activePath,
@@ -173,7 +188,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   } = usePollingResource<FilestoreNodeList>({
     fetcher: listFetcher,
     intervalMs: 20000,
-    enabled: backendMountId > 0
+    enabled: backendMountId !== null
   });
 
   const detailFetcher = useCallback(
@@ -220,7 +235,77 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   });
 
   useEffect(() => {
-    if (!listData) {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const loadMounts = async () => {
+      setMountsLoading(true);
+      setMountsError(null);
+      try {
+        const result = await listBackendMounts(authorizedFetch, { signal: controller.signal });
+        if (cancelled) {
+          return;
+        }
+        setAvailableMounts(result.mounts);
+        setExtraMountIds((prev) => prev.filter((id) => !result.mounts.some((mount) => mount.id === id)));
+
+        let nextId: number | null = null;
+        let storedId: number | null = null;
+        if (typeof window !== 'undefined') {
+          const stored = window.localStorage.getItem(MOUNT_STORAGE_KEY);
+          if (stored) {
+            const parsed = Number.parseInt(stored, 10);
+            storedId = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+          }
+        }
+
+        if (storedId && result.mounts.some((mount) => mount.id === storedId)) {
+          nextId = storedId;
+        } else if (result.mounts.length > 0) {
+          nextId = result.mounts[0].id;
+        } else {
+          nextId = null;
+        }
+
+        setBackendMountId(nextId);
+
+        if (typeof window !== 'undefined') {
+          if (nextId) {
+            window.localStorage.setItem(MOUNT_STORAGE_KEY, String(nextId));
+          } else {
+            window.localStorage.removeItem(MOUNT_STORAGE_KEY);
+          }
+        }
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'Unable to load backend mounts';
+        setMountsError(message);
+        setAvailableMounts([]);
+        setExtraMountIds([]);
+        setBackendMountId(null);
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(MOUNT_STORAGE_KEY);
+        }
+        showError('Failed to load filestore mounts', err);
+      } finally {
+        if (!cancelled) {
+          setMountsLoading(false);
+        }
+      }
+    };
+
+    void loadMounts();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [authorizedFetch, showError]);
+
+  useEffect(() => {
+    if (!listData || backendMountId === null) {
       return;
     }
     registerMountId(listData.filters.backendMountId ?? backendMountId);
@@ -354,7 +439,53 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     []
   );
 
-  const knownMountOptions = useMemo(() => knownMountIds.sort((a, b) => a - b), [knownMountIds]);
+  const mountOptions = useMemo(() => {
+    const base = availableMounts.map((mount) => {
+      const kindLabel = mount.backendKind === 'local' ? 'Local' : 'S3';
+      const stateSuffix = mount.state && mount.state !== 'active' ? ` · ${mount.state}` : '';
+      return {
+        id: mount.id,
+        label: `${mount.mountKey} · ${kindLabel}${stateSuffix}`
+      };
+    });
+    const extras = extraMountIds
+      .filter((id) => !availableMounts.some((mount) => mount.id === id))
+      .map((id) => ({
+        id,
+        label: `Mount ${id}`
+      }));
+    return [...base, ...extras].sort((a, b) => a.id - b.id);
+  }, [availableMounts, extraMountIds]);
+
+  const hasMountOptions = mountOptions.length > 0;
+
+  const applyBackendMountSelection = useCallback(
+    (value: number | null, source: 'input' | 'select') => {
+      setBackendMountId(value);
+      if (backendMountId === value) {
+        return;
+      }
+      setOffset(0);
+      setSelectedNodeId(null);
+      if (typeof window !== 'undefined') {
+        if (value !== null) {
+          window.localStorage.setItem(MOUNT_STORAGE_KEY, String(value));
+        } else {
+          window.localStorage.removeItem(MOUNT_STORAGE_KEY);
+        }
+      }
+      if (value !== null) {
+        registerMountId(value);
+        trackEvent('filestore.mount.changed', {
+          backendMountId: value,
+          source
+        });
+      } else {
+        trackEvent('filestore.mount.cleared', { source });
+      }
+    },
+    [backendMountId, registerMountId, trackEvent]
+  );
 
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
@@ -537,43 +668,67 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               <label htmlFor="filestore-mount" className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Backend mount ID
               </label>
-              <div className="mt-1 flex gap-2">
-                <input
-                  id="filestore-mount"
-                  type="number"
-                  min={1}
-                  value={backendMountId}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    if (Number.isFinite(next) && next > 0) {
-                      setBackendMountId(next);
-                      setOffset(0);
-                      setSelectedNodeId(null);
-                      registerMountId(next);
-                    }
-                  }}
-                  className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
-                />
-                <select
-                  aria-label="Known mounts"
-                  value={backendMountId}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    if (Number.isFinite(next) && next > 0) {
-                      setBackendMountId(next);
-                      setOffset(0);
-                      setSelectedNodeId(null);
-                    }
-                  }}
-                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
-                >
-                  {knownMountOptions.map((option) => (
-                    <option key={`mount-${option}`} value={option}>
-                      Mount {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {mountsLoading ? (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Loading mounts…</p>
+              ) : hasMountOptions ? (
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id="filestore-mount"
+                    type="number"
+                    min={1}
+                    value={backendMountId ?? ''}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      if (!raw) {
+                        applyBackendMountSelection(null, 'input');
+                        return;
+                      }
+                      const next = Number(raw);
+                      if (Number.isFinite(next) && next > 0) {
+                        applyBackendMountSelection(next, 'input');
+                      }
+                    }}
+                    className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <select
+                    aria-label="Known mounts"
+                    value={backendMountId ?? ''}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      if (!raw) {
+                        applyBackendMountSelection(null, 'select');
+                        return;
+                      }
+                      const next = Number(raw);
+                      if (Number.isFinite(next) && next > 0) {
+                        applyBackendMountSelection(next, 'select');
+                      }
+                    }}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  >
+                    {backendMountId === null ? (
+                      <option value="" disabled>
+                        Select a mount…
+                      </option>
+                    ) : null}
+                    {mountOptions.map((option) => (
+                      <option key={`mount-${option.id}`} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <p className="font-medium">No backend mounts detected.</p>
+                  <p className="mt-1 text-xs">
+                    Register a mount in the filestore service (see the repo docs) or via the CLI, then refresh this page.
+                  </p>
+                </div>
+              )}
+              {mountsError ? (
+                <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{mountsError}</p>
+              ) : null}
             </div>
 
             <form
@@ -732,6 +887,10 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
             <div className="max-h-80 overflow-y-auto">
               {listLoading && nodes.length === 0 ? (
                 <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">Loading nodes…</div>
+              ) : backendMountId === null ? (
+                <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">
+                  Select a backend mount to browse nodes.
+                </div>
               ) : nodes.length === 0 ? (
                 <div className="px-4 py-6 text-sm text-slate-500 dark:text-slate-300">No nodes matched the current filters.</div>
               ) : (

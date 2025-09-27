@@ -3,6 +3,25 @@ import { z } from 'zod';
 export const filestoreRollupStateSchema = z.enum(['up_to_date', 'pending', 'stale', 'invalid']);
 export type FilestoreRollupState = z.infer<typeof filestoreRollupStateSchema>;
 
+export const filestoreBackendMountSchema = z.object({
+  id: z.number(),
+  mountKey: z.string(),
+  backendKind: z.enum(['local', 's3']),
+  accessMode: z.enum(['rw', 'ro']),
+  state: z.string(),
+  rootPath: z.string().nullable(),
+  bucket: z.string().nullable(),
+  prefix: z.string().nullable()
+});
+export type FilestoreBackendMount = z.infer<typeof filestoreBackendMountSchema>;
+
+export const filestoreBackendMountListEnvelopeSchema = z.object({
+  data: z.object({
+    mounts: z.array(filestoreBackendMountSchema)
+  })
+});
+export type FilestoreBackendMountList = z.infer<typeof filestoreBackendMountListEnvelopeSchema>['data'];
+
 export const filestoreRollupSummarySchema = z.object({
   nodeId: z.number(),
   sizeBytes: z.number(),

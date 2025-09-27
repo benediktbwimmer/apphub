@@ -2,6 +2,7 @@ import { FILESTORE_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { z } from 'zod';
 import {
+  filestoreBackendMountListEnvelopeSchema,
   filestoreCommandResponseEnvelopeSchema,
   filestoreEventSchema,
   filestoreNodeChildrenEnvelopeSchema,
@@ -11,6 +12,7 @@ import {
   type FilestoreCommandResponse,
   type FilestoreEvent,
   type FilestoreEventType,
+  type FilestoreBackendMountList,
   type FilestoreNodeChildren,
   type FilestoreNodeKind,
   type FilestoreNodeList,
@@ -194,6 +196,19 @@ async function parseJsonOrThrow<T>(response: Response, schema: z.ZodSchema<T>): 
   }
   const payload = text ? (JSON.parse(text) as unknown) : {};
   return schema.parse(payload);
+}
+
+export async function listBackendMounts(
+  authorizedFetch: AuthorizedFetch,
+  options: RequestOptions = {}
+): Promise<FilestoreBackendMountList> {
+  const url = buildFilestoreUrl('/v1/backend-mounts');
+  const response = await authorizedFetch(url, {
+    method: 'GET',
+    signal: options.signal
+  });
+  const payload = await parseJsonOrThrow(response, filestoreBackendMountListEnvelopeSchema);
+  return payload.data;
 }
 
 export async function createDirectory(
@@ -623,6 +638,7 @@ export function subscribeToFilestoreEvents(
 }
 
 export type {
+  FilestoreBackendMount,
   FilestoreEvent,
   FilestoreEventType,
   FilestoreNode,

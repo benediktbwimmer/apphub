@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { copyNode, moveNode, parseFilestoreEventFrame, updateNodeMetadata, uploadFile } from '../api';
+import { copyNode, listBackendMounts, moveNode, parseFilestoreEventFrame, updateNodeMetadata, uploadFile } from '../api';
 import { describeFilestoreEvent } from '../eventSummaries';
 import type { FilestoreEvent } from '../api';
 
@@ -35,6 +35,42 @@ describe('filestore api helpers', () => {
 
     const event = parseFilestoreEventFrame(frame, ['filestore.node.created']);
     expect(event).toBeNull();
+  });
+
+  it('lists backend mounts via GET request', async () => {
+    const responsePayload = {
+      data: {
+        mounts: [
+          {
+            id: 5,
+            mountKey: 'primary',
+            backendKind: 'local',
+            accessMode: 'rw',
+            state: 'active',
+            rootPath: '/var/filestore',
+            bucket: null,
+            prefix: null
+          }
+        ]
+      }
+    };
+
+    const fetchMock = vi.fn<FetchLike>(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error('Expected mount discovery URL to be a string.');
+      }
+      expect(input).toContain('/v1/backend-mounts');
+      expect(init?.method).toBe('GET');
+      return {
+        ok: true,
+        text: async () => JSON.stringify(responsePayload)
+      } as Response;
+    });
+
+    const result = await listBackendMounts(fetchMock);
+    expect(result.mounts).toHaveLength(1);
+    expect(result.mounts[0].mountKey).toBe('primary');
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('summarizes node created events for the activity feed', () => {

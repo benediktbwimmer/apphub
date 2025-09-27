@@ -54,6 +54,7 @@ graph TD
 - Implements REST endpoints for node inspection, directory listing, snapshots, and mutation commands.
 - Supports streaming file uploads (`POST /v1/files`) for creating and overwriting tracked files with idempotent semantics and checksum validation.
 - Provides browse-friendly read APIs (`GET /v1/nodes`, `GET /v1/nodes/:id`, `GET /v1/nodes/:id/children`, `GET /v1/nodes/by-path`) with filters for backend mount, path prefix, depth, node state, and drift-only queries.
+- Exposes mount discovery at `GET /v1/backend-mounts`, returning configured mount metadata for operators and the frontend explorer.
 - Streams change notifications via Server-Sent Events at `/v1/events/stream` for local development or environments without Redis.
 - Handles auth, validation (zod schemas), idempotency headers, and streaming uploads/downloads.
 
@@ -140,6 +141,11 @@ stateDiagram-v2
 - **TypeScript SDK** (`@apphub/filestore-client`) wraps the REST API with typed helpers for idempotent command execution, node lookups, reconciliation enqueueing, and Server-Sent Events streaming. Configure it with `baseUrl`, optional bearer `token`, and it will automatically set `Idempotency-Key` headers and translate HTTP failures into `FilestoreClientError` instances.
 - **CLI** (`@apphub/filestore-cli`) provides operator-friendly commands backed by the SDK: create directories, delete nodes, enqueue reconciliation jobs, and tail live events using the new `/v1/events/stream` endpoint. Point it at a local inline setup via environment variables (`FILESTORE_BASE_URL`, `FILESTORE_TOKEN`) and run `npx filestore nodes:stat <backend> <path>` to inspect metadata without touching the filesystem directly.
 - The CLI uses the same SSE stream as the SDK, so it works in both Redis and inline event modes. Use `filestore events:tail` to monitor activity during migrations or reconciliation runs.
+
+## Frontend Explorer UX
+- The React explorer now requests `GET /v1/backend-mounts` on load, populating the mount selector with live metadata (key, backend kind, health state) instead of assuming mount ID `1`.
+- Operator selections persist per browser via `localStorage` so returning users resume from the last mount they inspected; switching mounts emits analytics events under `filestore.mount.changed`.
+- Empty and error states guide operators toward CLI/docs when no mounts are configured and surface toast notifications if the discovery endpoint fails.
 
 ## Security & Auth
 - Reuse existing bearer token model with scopes like `filestore:read`, `filestore:write`, `filestore:admin` plus optional namespace/path allow lists.

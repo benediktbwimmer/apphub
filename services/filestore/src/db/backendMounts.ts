@@ -12,30 +12,19 @@ export type BackendMountRecord = {
   state: string;
 };
 
-export async function getBackendMountById(client: PoolClient, id: number): Promise<BackendMountRecord | null> {
-  const result = await client.query<{
-    id: number;
-    mount_key: string;
-    backend_kind: 'local' | 's3';
-    root_path: string | null;
-    bucket: string | null;
-    prefix: string | null;
-    config: Record<string, unknown> | null;
-    access_mode: 'rw' | 'ro';
-    state: string;
-  }>(
-    `SELECT id, mount_key, backend_kind, root_path, bucket, prefix, config, access_mode, state
-       FROM backend_mounts
-      WHERE id = $1
-      FOR UPDATE`,
-    [id]
-  );
+type BackendMountRow = {
+  id: number;
+  mount_key: string;
+  backend_kind: 'local' | 's3';
+  root_path: string | null;
+  bucket: string | null;
+  prefix: string | null;
+  config: Record<string, unknown> | null;
+  access_mode: 'rw' | 'ro';
+  state: string;
+};
 
-  if (result.rowCount === 0) {
-    return null;
-  }
-
-  const row = result.rows[0];
+function mapBackendMountRow(row: BackendMountRow): BackendMountRecord {
   return {
     id: row.id,
     mountKey: row.mount_key,
@@ -47,4 +36,30 @@ export async function getBackendMountById(client: PoolClient, id: number): Promi
     accessMode: row.access_mode,
     state: row.state
   };
+}
+
+export async function getBackendMountById(client: PoolClient, id: number): Promise<BackendMountRecord | null> {
+  const result = await client.query<BackendMountRow>(
+    `SELECT id, mount_key, backend_kind, root_path, bucket, prefix, config, access_mode, state
+       FROM backend_mounts
+      WHERE id = $1
+      FOR UPDATE`,
+    [id]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return mapBackendMountRow(result.rows[0]);
+}
+
+export async function listBackendMounts(client: PoolClient): Promise<BackendMountRecord[]> {
+  const result = await client.query<BackendMountRow>(
+    `SELECT id, mount_key, backend_kind, root_path, bucket, prefix, config, access_mode, state
+       FROM backend_mounts
+      ORDER BY id`
+  );
+
+  return result.rows.map(mapBackendMountRow);
 }

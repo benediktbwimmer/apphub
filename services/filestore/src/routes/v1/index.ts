@@ -9,6 +9,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
 import { runCommand } from '../../commands/orchestrator';
+import { listBackendMounts } from '../../db/backendMounts';
 import {
   getNodeById,
   getNodeByPath,
@@ -189,6 +190,23 @@ const optionalKindFilterSchema = z
 
 const booleanQuerySchema = z.preprocess(preprocessBooleanQuery, z.boolean()).optional();
 
+const backendMountResponseSchema = z.object({
+  data: z.object({
+    mounts: z.array(
+      z.object({
+        id: z.number().int().positive(),
+        mountKey: z.string(),
+        backendKind: z.enum(['local', 's3']),
+        accessMode: z.enum(['rw', 'ro']),
+        state: z.string(),
+        rootPath: z.string().nullable(),
+        bucket: z.string().nullable(),
+        prefix: z.string().nullable()
+      })
+    )
+  })
+});
+
 const listNodesQuerySchema = z.object({
   backendMountId: z.coerce.number().int().positive(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -325,6 +343,27 @@ function resolveIdempotencyKey(
 }
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
+  app.get('/v1/backend-mounts', async (request, reply) => {
+    const mounts = await withConnection((client) => listBackendMounts(client));
+
+    const payload = backendMountResponseSchema.parse({
+      data: {
+        mounts: mounts.map((mount) => ({
+          id: mount.id,
+          mountKey: mount.mountKey,
+          backendKind: mount.backendKind,
+          accessMode: mount.accessMode,
+          state: mount.state,
+          rootPath: mount.rootPath,
+          bucket: mount.bucket,
+          prefix: mount.prefix
+        }))
+      }
+    });
+
+    reply.send(payload);
+  });
+
   app.post('/v1/files', async (request, reply) => {
     if (typeof (request as any).isMultipart !== 'function' || !(request as any).isMultipart()) {
       return reply.status(415).send({
