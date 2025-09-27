@@ -4,3 +4,4 @@ export * from './postgres';
 export * from './filestoreEvents';
 export * from './timestoreAdmin';
 export * from './filestoreMounts';
+export * from './filestoreFilters';

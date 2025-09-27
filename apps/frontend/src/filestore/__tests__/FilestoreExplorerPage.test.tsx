@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import FilestoreExplorerPage from '../FilestoreExplorerPage';
 import type { FilestoreBackendMount, FilestoreBackendMountList, FilestoreNode } from '../types';
 import type { WorkflowDefinition, WorkflowRun } from '../../workflows/types';
@@ -8,15 +9,16 @@ import type {
   UsePollingResourceOptions,
   UsePollingResourceResult
 } from '../../hooks/usePollingResource';
+import { encodeFilestoreNodeFiltersParam } from '@apphub/shared/filestoreFilters';
 
 const iso = '2024-01-01T00:00:00.000Z';
 
-type ListBackendMountsMock = (...args: any[]) => Promise<FilestoreBackendMountList>;
+type ListBackendMountsMock = (...args: unknown[]) => Promise<FilestoreBackendMountList>;
 type PollingResourceFn = (options: UsePollingResourceOptions<unknown>) => UsePollingResourceResult<unknown>;
 
 const mocks = vi.hoisted(() => {
   const listBackendMountsMock = vi.fn<ListBackendMountsMock>();
-  const subscribeToFilestoreEventsMock = vi.fn((..._args: any[]) => ({ close: vi.fn() }));
+  const subscribeToFilestoreEventsMock = vi.fn(() => ({ close: vi.fn() }));
   const trackEventMock = vi.fn();
   const pollingResourceMock = vi.fn<PollingResourceFn>(() => ({
     data: null,
@@ -154,7 +156,8 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
         states: [],
         kinds: [],
         search: null,
-        driftOnly: false
+        driftOnly: false,
+        advanced: null
       }
     },
     error: null,
@@ -180,7 +183,8 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
         states: [],
         kinds: [],
         search: null,
-        driftOnly: false
+        driftOnly: false,
+        advanced: null
       }
     },
     error: null,
@@ -235,6 +239,15 @@ function setupPollingResourcesForNode(node: FilestoreNode) {
     callIndex += 1;
     return resource;
   });
+}
+
+function renderExplorer(options: { identity?: AuthIdentity | null; initialEntries?: string[] } = {}) {
+  const { identity = null, initialEntries = ['/'] } = options;
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <FilestoreExplorerPage identity={identity} />
+    </MemoryRouter>
+  );
 }
 const toastHelpersMock = {
   showError: vi.fn(),
@@ -371,7 +384,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       ])
     );
 
-    render(<FilestoreExplorerPage identity={null} />);
+    renderExplorer();
 
     const select = await screen.findByLabelText('Known mounts');
     await waitFor(() => {
@@ -437,7 +450,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       ])
     );
 
-    render(<FilestoreExplorerPage identity={null} />);
+    renderExplorer();
 
     const select = await screen.findByLabelText('Known mounts');
     await waitFor(() => {
@@ -448,10 +461,46 @@ describe('FilestoreExplorerPage mount discovery', () => {
     });
   });
 
+  it('adds metadata filters and renders chips', async () => {
+    const node = buildNode({ metadata: { owner: 'astro-ops' } });
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+
+    renderExplorer();
+
+    await screen.findByLabelText('Known mounts');
+
+    fireEvent.change(screen.getByPlaceholderText('key'), { target: { value: 'owner' } });
+    fireEvent.change(screen.getByPlaceholderText('value'), { target: { value: 'astro-ops' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await screen.findByText('metadata.owner=astro-ops');
+  });
+
+  it('initialises filters from the URL', async () => {
+    const node = buildNode();
+    setupPollingResourcesForNode(node);
+    mocks.listBackendMountsMock.mockResolvedValueOnce({ mounts: [sampleMount] });
+
+    const encodedFilters = encodeFilestoreNodeFiltersParam({
+      query: 'galaxy',
+      size: { min: 2048 }
+    });
+    const initialEntries = [
+      `/filestore?backendMountId=${sampleMount.id}&filters=${encodeURIComponent(encodedFilters ?? '')}`
+    ];
+
+    renderExplorer({ initialEntries });
+
+    await screen.findByLabelText('Known mounts');
+    expect(screen.getByDisplayValue('galaxy')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Min (e.g. 10GB)')).toHaveValue('2048');
+  });
+
   it('shows an empty state when no mounts are returned', async () => {
     mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([]));
 
-    render(<FilestoreExplorerPage identity={null} />);
+    renderExplorer();
 
     await waitFor(() => {
       expect(screen.getByText('No backend mounts detected.')).toBeInTheDocument();
@@ -502,7 +551,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       arrayBuffer: async () => chunk.buffer
     } as unknown as Response);
 
-    render(<FilestoreExplorerPage identity={null} />);
+    renderExplorer();
 
     const downloadButton = await screen.findByRole('button', { name: 'Download file' });
     fireEvent.click(downloadButton);
@@ -544,7 +593,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       method: 'GET'
     });
 
-    render(<FilestoreExplorerPage identity={null} />);
+    renderExplorer();
 
     const downloadButton = await screen.findByRole('button', { name: 'Open download link' });
     fireEvent.click(downloadButton);
@@ -612,7 +661,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
     mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
     setupPollingResourcesForNode(buildNode());
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     await waitFor(() => expect(screen.getByText('Reconciliation jobs')).toBeInTheDocument());
     expect(screen.getAllByText('datasets/example').length).toBeGreaterThan(0);
@@ -631,7 +680,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       result: { path: createdNode.path }
     });
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     const createButton = await screen.findByRole('button', { name: 'New directory' });
     fireEvent.click(createButton);
@@ -664,7 +713,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       result: { path: uploadedNode.path }
     });
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     const [openUploadButton] = await screen.findAllByRole('button', { name: 'Upload file' });
     fireEvent.click(openUploadButton);
@@ -700,7 +749,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
       result: { path: node.path }
     });
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     const [openDeleteButton] = await screen.findAllByRole('button', { name: 'Soft-delete' });
     fireEvent.click(openDeleteButton);
@@ -772,7 +821,7 @@ describe('FilestoreExplorerPage playbooks', () => {
       } as WorkflowDefinition
     ]);
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     await screen.findByText('Drift playbook');
 
@@ -808,7 +857,7 @@ describe('FilestoreExplorerPage playbooks', () => {
     const node = buildNode({ state: 'missing' });
     setupPollingResourcesForNode(node);
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     await screen.findByText('Drift playbook');
     await waitFor(() => expect(mocks.listWorkflowDefinitionsMock).toHaveBeenCalled());

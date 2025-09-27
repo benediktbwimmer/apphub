@@ -353,6 +353,161 @@ function escapeLikePattern(input: string): string {
   return input.replace(/([%_\\])/g, '\\$1');
 }
 
+type SqlValue = string | number | boolean | NodeState[] | NodeKind[] | string[];
+
+export type NodeMetadataFilter = {
+  key: string;
+  value: unknown;
+};
+
+export type NodeNumericRangeFilter = {
+  min?: number;
+  max?: number;
+};
+
+export type NodeDateRangeFilter = {
+  after?: string;
+  before?: string;
+};
+
+export type NodeRollupFilter = {
+  states?: string[];
+  minChildCount?: number;
+  maxChildCount?: number;
+  minFileCount?: number;
+  maxFileCount?: number;
+  minDirectoryCount?: number;
+  maxDirectoryCount?: number;
+  minSizeBytes?: number;
+  maxSizeBytes?: number;
+  lastCalculatedAfter?: string;
+  lastCalculatedBefore?: string;
+};
+
+export type NodeAdvancedFilters = {
+  query?: string;
+  metadata?: NodeMetadataFilter[];
+  size?: NodeNumericRangeFilter;
+  lastSeenAt?: NodeDateRangeFilter;
+  rollup?: NodeRollupFilter;
+};
+
+function applyAdvancedFilters({
+  filters,
+  alias,
+  rollupAlias,
+  joins,
+  conditions,
+  values
+}: {
+  filters?: NodeAdvancedFilters;
+  alias: string;
+  rollupAlias: string;
+  joins: string[];
+  conditions: string[];
+  values: SqlValue[];
+}): void {
+  if (!filters) {
+    return;
+  }
+
+  const metadataFilters = filters.metadata as NodeMetadataFilter[] | undefined;
+  if (metadataFilters && metadataFilters.length > 0) {
+    for (const entry of metadataFilters) {
+      const param = values.length + 1;
+      values.push(JSON.stringify({ [entry.key]: entry.value }));
+      conditions.push(`${alias}.metadata @> $${param}::jsonb`);
+    }
+  }
+
+  const sizeFilter = filters.size as NodeNumericRangeFilter | undefined;
+  if (sizeFilter) {
+    if (typeof sizeFilter.min === 'number') {
+      const param = values.length + 1;
+      values.push(sizeFilter.min);
+      conditions.push(`${alias}.size_bytes >= $${param}`);
+    }
+    if (typeof sizeFilter.max === 'number') {
+      const param = values.length + 1;
+      values.push(sizeFilter.max);
+      conditions.push(`${alias}.size_bytes <= $${param}`);
+    }
+  }
+
+  const lastSeenFilter = filters.lastSeenAt as NodeDateRangeFilter | undefined;
+  if (lastSeenFilter) {
+    if (typeof lastSeenFilter.after === 'string') {
+      const param = values.length + 1;
+      values.push(lastSeenFilter.after);
+      conditions.push(`${alias}.last_seen_at >= $${param}`);
+    }
+    if (typeof lastSeenFilter.before === 'string') {
+      const param = values.length + 1;
+      values.push(lastSeenFilter.before);
+      conditions.push(`${alias}.last_seen_at <= $${param}`);
+    }
+  }
+
+  const rollup = filters.rollup as NodeRollupFilter | undefined;
+  if (rollup) {
+    const hasRollupJoin = joins.some((clause) => clause.includes(` ${rollupAlias} `));
+    if (!hasRollupJoin) {
+      joins.push(`LEFT JOIN rollups ${rollupAlias} ON ${rollupAlias}.node_id = ${alias}.id`);
+    }
+
+    if (rollup.states && rollup.states.length > 0) {
+      const param = values.length + 1;
+      values.push(rollup.states);
+      conditions.push(`${rollupAlias}.state = ANY($${param}::text[])`);
+    }
+
+    const handleNumericFilter = (
+      min: number | undefined,
+      max: number | undefined,
+      column: string,
+      coalesceZero = true
+    ) => {
+      const wrappedColumn = coalesceZero ? `COALESCE(${column}, 0)` : column;
+      if (typeof min === 'number') {
+        const param = values.length + 1;
+        values.push(min);
+        conditions.push(`${wrappedColumn} >= $${param}`);
+      }
+      if (typeof max === 'number') {
+        const param = values.length + 1;
+        values.push(max);
+        conditions.push(`${wrappedColumn} <= $${param}`);
+      }
+    };
+
+    handleNumericFilter(rollup.minChildCount, rollup.maxChildCount, `${rollupAlias}.child_count`);
+    handleNumericFilter(rollup.minFileCount, rollup.maxFileCount, `${rollupAlias}.file_count`);
+    handleNumericFilter(
+      rollup.minDirectoryCount,
+      rollup.maxDirectoryCount,
+      `${rollupAlias}.directory_count`
+    );
+    handleNumericFilter(rollup.minSizeBytes, rollup.maxSizeBytes, `${rollupAlias}.size_bytes`);
+
+    if (typeof rollup.lastCalculatedAfter === 'string') {
+      const param = values.length + 1;
+      values.push(rollup.lastCalculatedAfter);
+      conditions.push(`${rollupAlias}.last_calculated_at IS NOT NULL`);
+      conditions.push(`${rollupAlias}.last_calculated_at >= $${param}`);
+    }
+
+    if (typeof rollup.lastCalculatedBefore === 'string') {
+      const param = values.length + 1;
+      values.push(rollup.lastCalculatedBefore);
+      if (typeof rollup.lastCalculatedAfter === 'string') {
+        conditions.push(`${rollupAlias}.last_calculated_at <= $${param}`);
+      } else {
+        conditions.push(`(${rollupAlias}.last_calculated_at IS NULL OR ${rollupAlias}.last_calculated_at <= $${param})`);
+      }
+    }
+  }
+}
+
 type ListNodesOptions = {
   backendMountId: number;
   limit: number;
@@ -363,6 +518,7 @@ type ListNodesOptions = {
   kinds?: NodeKind[];
   searchTerm?: string;
   driftOnly?: boolean;
+  filters?: NodeAdvancedFilters;
 };
 
 type ListNodesResult = {
@@ -372,9 +528,10 @@ type ListNodesResult = {
 
 export async function listNodes(client: PoolClient, options: ListNodesOptions): Promise<ListNodesResult> {
   const conditions: string[] = [];
-  const values: Array<string | number | boolean | NodeState[] | NodeKind[]> = [];
+  const joins: string[] = [];
+  const values: SqlValue[] = [];
 
-  conditions.push(`backend_mount_id = $${values.length + 1}`);
+  conditions.push(`nodes.backend_mount_id = $${values.length + 1}`);
   values.push(options.backendMountId);
 
   if (options.pathPrefix) {
@@ -384,52 +541,67 @@ export async function listNodes(client: PoolClient, options: ListNodesOptions): 
     values.push(normalized);
     const likeParam = values.length + 1;
     values.push(`${escapedPrefix}/%`);
-    conditions.push(`(path = $${equalsParam} OR path LIKE $${likeParam} ESCAPE '\\')`);
+    conditions.push(`(nodes.path = $${equalsParam} OR nodes.path LIKE $${likeParam} ESCAPE '\\')`);
   }
 
   if (typeof options.maxDepth === 'number') {
     const depthParam = values.length + 1;
     values.push(options.maxDepth);
-    conditions.push(`depth <= $${depthParam}`);
+    conditions.push(`nodes.depth <= $${depthParam}`);
   }
 
   if (options.states && options.states.length > 0) {
     const stateParam = values.length + 1;
     values.push(options.states);
-    conditions.push(`state = ANY($${stateParam}::text[])`);
+    conditions.push(`nodes.state = ANY($${stateParam}::text[])`);
   }
 
   if (options.kinds && options.kinds.length > 0) {
     const kindParam = values.length + 1;
     values.push(options.kinds);
-    conditions.push(`kind = ANY($${kindParam}::text[])`);
+    conditions.push(`nodes.kind = ANY($${kindParam}::text[])`);
   }
 
   if (options.driftOnly) {
     const consistencyParam = values.length + 1;
     values.push('active');
-    conditions.push(`(consistency_state <> $${consistencyParam} OR last_drift_detected_at IS NOT NULL)`);
+    conditions.push(
+      `(nodes.consistency_state <> $${consistencyParam} OR nodes.last_drift_detected_at IS NOT NULL)`
+    );
   }
 
-  if (options.searchTerm) {
-    const escapedSearch = `%${escapeLikePattern(options.searchTerm)}%`;
+  const searchTerm = options.searchTerm ?? (options.filters ? options.filters.query : undefined);
+  if (searchTerm) {
+    const escapedSearch = `%${escapeLikePattern(searchTerm)}%`;
     const searchParam = values.length + 1;
     values.push(escapedSearch);
-    conditions.push(`(path ILIKE $${searchParam} ESCAPE '\\' OR name ILIKE $${searchParam} ESCAPE '\\')`);
+    conditions.push(
+      `(nodes.path ILIKE $${searchParam} ESCAPE '\\' OR nodes.name ILIKE $${searchParam} ESCAPE '\\')`
+    );
   }
+
+  applyAdvancedFilters({
+    filters: options.filters,
+    alias: 'nodes',
+    rollupAlias: 'rollup_stats',
+    joins,
+    conditions,
+    values
+  });
 
   const limitParam = values.length + 1;
   values.push(options.limit);
   const offsetParam = values.length + 1;
   values.push(options.offset);
 
+  const joinClause = joins.length > 0 ? ` ${joins.join(' ')}` : '';
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const query = `
-    SELECT *, COUNT(*) OVER() AS total_count
-      FROM nodes
+    SELECT nodes.*, COUNT(*) OVER() AS total_count
+      FROM nodes${joinClause}
       ${whereClause}
-     ORDER BY depth ASC, path ASC
+     ORDER BY nodes.depth ASC, nodes.path ASC
      LIMIT $${limitParam}
     OFFSET $${offsetParam}
   `;
@@ -449,6 +621,7 @@ type ListChildrenOptions = {
   kinds?: NodeKind[];
   searchTerm?: string;
   driftOnly?: boolean;
+  filters?: NodeAdvancedFilters;
 };
 
 export async function listNodeChildren(
@@ -456,44 +629,60 @@ export async function listNodeChildren(
   parentId: number,
   options: ListChildrenOptions
 ): Promise<ListNodesResult> {
-  const conditions: string[] = [`parent_id = $1`];
-  const values: Array<string | number | NodeState[] | NodeKind[]> = [parentId];
+  const conditions: string[] = [`nodes.parent_id = $1`];
+  const joins: string[] = [];
+  const values: SqlValue[] = [parentId];
 
   if (options.states && options.states.length > 0) {
     const stateParam = values.length + 1;
     values.push(options.states);
-    conditions.push(`state = ANY($${stateParam}::text[])`);
+    conditions.push(`nodes.state = ANY($${stateParam}::text[])`);
   }
 
   if (options.kinds && options.kinds.length > 0) {
     const kindParam = values.length + 1;
     values.push(options.kinds);
-    conditions.push(`kind = ANY($${kindParam}::text[])`);
+    conditions.push(`nodes.kind = ANY($${kindParam}::text[])`);
   }
 
   if (options.driftOnly) {
     const consistencyParam = values.length + 1;
     values.push('active');
-    conditions.push(`(consistency_state <> $${consistencyParam} OR last_drift_detected_at IS NOT NULL)`);
+    conditions.push(
+      `(nodes.consistency_state <> $${consistencyParam} OR nodes.last_drift_detected_at IS NOT NULL)`
+    );
   }
 
-  if (options.searchTerm) {
-    const escapedSearch = `%${escapeLikePattern(options.searchTerm)}%`;
+  const searchTerm = options.searchTerm ?? (options.filters ? options.filters.query : undefined);
+  if (searchTerm) {
+    const escapedSearch = `%${escapeLikePattern(searchTerm)}%`;
     const searchParam = values.length + 1;
     values.push(escapedSearch);
-    conditions.push(`(path ILIKE $${searchParam} ESCAPE '\\' OR name ILIKE $${searchParam} ESCAPE '\\')`);
+    conditions.push(
+      `(nodes.path ILIKE $${searchParam} ESCAPE '\\' OR nodes.name ILIKE $${searchParam} ESCAPE '\\')`
+    );
   }
+
+  applyAdvancedFilters({
+    filters: options.filters,
+    alias: 'nodes',
+    rollupAlias: 'rollup_stats',
+    joins,
+    conditions,
+    values
+  });
 
   const limitParam = values.length + 1;
   values.push(options.limit);
   const offsetParam = values.length + 1;
   values.push(options.offset);
 
+  const joinClause = joins.length > 0 ? ` ${joins.join(' ')}` : '';
   const query = `
-    SELECT *, COUNT(*) OVER() AS total_count
-      FROM nodes
+    SELECT nodes.*, COUNT(*) OVER() AS total_count
+      FROM nodes${joinClause}
      WHERE ${conditions.join(' AND ')}
-     ORDER BY kind ASC, name ASC
+     ORDER BY nodes.kind ASC, nodes.name ASC
      LIMIT $${limitParam}
     OFFSET $${offsetParam}
   `;

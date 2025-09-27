@@ -17,6 +17,11 @@ import {
   filestoreBackendMountStateSchema,
   filestoreBackendMountUpdateSchema
 } from '@apphub/shared/filestoreMounts';
+import {
+  isFilestoreNodeFiltersEmpty,
+  safeParseFilestoreNodeFilters,
+  type FilestoreNodeFilters
+} from '@apphub/shared/filestoreFilters';
 import { runCommand } from '../../commands/orchestrator';
 import {
   createBackendMount,
@@ -40,7 +45,8 @@ import {
   listNodes,
   type NodeKind,
   type NodeRecord,
-  type NodeState
+  type NodeState,
+  type NodeAdvancedFilters
 } from '../../db/nodes';
 import { withConnection } from '../../db/client';
 import { FilestoreError } from '../../errors';
@@ -362,6 +368,37 @@ function serializeBackendMount(record: BackendMountRecord) {
   };
 }
 
+type FiltersParseResult =
+  | { ok: true; filters: FilestoreNodeFilters | null }
+  | { ok: false; error: string; details?: unknown };
+
+function parseFiltersQuery(value: string | undefined): FiltersParseResult {
+  if (typeof value !== 'string') {
+    return { ok: true, filters: null };
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: true, filters: null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return { ok: false, error: 'Filters payload must be valid JSON' };
+  }
+
+  const result = safeParseFilestoreNodeFilters(parsed);
+  if (!result.success) {
+    return { ok: false, error: 'Invalid filters payload', details: result.error.flatten() };
+  }
+
+  const filters = result.data;
+  if (isFilestoreNodeFiltersEmpty(filters)) {
+    return { ok: true, filters: null };
+  }
+  return { ok: true, filters };
+}
+
 const createDirectorySchema = z.object({
   backendMountId: z.number().int().positive(),
   path: z.string().min(1),
@@ -481,7 +518,8 @@ const listNodesQuerySchema = z.object({
   search: z.string().min(1).optional(),
   states: optionalStateFilterSchema,
   kinds: optionalKindFilterSchema,
-  driftOnly: booleanQuerySchema
+  driftOnly: booleanQuerySchema,
+  filters: z.string().optional()
 });
 
 const listChildrenQuerySchema = z.object({
@@ -490,7 +528,8 @@ const listChildrenQuerySchema = z.object({
   search: z.string().min(1).optional(),
   states: optionalStateFilterSchema,
   kinds: optionalKindFilterSchema,
-  driftOnly: booleanQuerySchema
+  driftOnly: booleanQuerySchema,
+  filters: z.string().optional()
 });
 
 const listReconciliationJobsQuerySchema = z.object({
@@ -1728,6 +1767,18 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
 
     const query = parseResult.data;
+    const filtersParse = parseFiltersQuery(query.filters);
+    if (!filtersParse.ok) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: filtersParse.error,
+          details: filtersParse.details ?? null
+        }
+      });
+    }
+
+    const advancedFilters = filtersParse.filters;
     const limit = query.limit ?? 50;
     const offset = query.offset ?? 0;
     const driftOnly = query.driftOnly ?? false;
@@ -1752,6 +1803,10 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         : undefined;
 
     try {
+      const effectiveFilters: NodeAdvancedFilters | undefined = advancedFilters
+        ? (advancedFilters as NodeAdvancedFilters)
+        : undefined;
+      const textSearch = advancedFilters?.query ?? searchTerm ?? undefined;
       const result = await withConnection((client) =>
         listNodes(client, {
           backendMountId: query.backendMountId,
@@ -1761,8 +1816,9 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           maxDepth,
           states: stateFilters,
           kinds: kindFilters,
-          searchTerm: searchTerm ?? undefined,
-          driftOnly
+          searchTerm: textSearch,
+          driftOnly,
+          filters: effectiveFilters
         })
       );
 
@@ -1790,8 +1846,9 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
             depth: typeof query.depth === 'number' ? query.depth : null,
             states: query.states ?? [],
             kinds: query.kinds ?? [],
-            search: searchTerm ?? null,
-            driftOnly
+            search: (advancedFilters?.query ?? searchTerm) ?? null,
+            driftOnly,
+            advanced: advancedFilters ?? null
           }
         }
       });
@@ -1839,6 +1896,18 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     }
 
     const query = parseResult.data;
+    const filtersParse = parseFiltersQuery(query.filters);
+    if (!filtersParse.ok) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: filtersParse.error,
+          details: filtersParse.details ?? null
+        }
+      });
+    }
+
+    const advancedFilters = filtersParse.filters;
     const limit = query.limit ?? 100;
     const offset = query.offset ?? 0;
     const driftOnly = query.driftOnly ?? false;
@@ -1853,8 +1922,9 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           offset,
           states: stateFilters,
           kinds: kindFilters,
-          searchTerm: searchTerm ?? undefined,
-          driftOnly
+          searchTerm: advancedFilters?.query ?? searchTerm ?? undefined,
+          driftOnly,
+          filters: advancedFilters ? (advancedFilters as NodeAdvancedFilters) : undefined
         })
       );
 
@@ -1884,8 +1954,9 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           filters: {
             states: query.states ?? [],
             kinds: query.kinds ?? [],
-            search: searchTerm ?? null,
-            driftOnly
+            search: (advancedFilters?.query ?? searchTerm) ?? null,
+            driftOnly,
+            advanced: advancedFilters ?? null
           }
         }
       });

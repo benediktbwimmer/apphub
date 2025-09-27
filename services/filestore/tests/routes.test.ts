@@ -7,6 +7,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import http from 'node:http';
 import EmbeddedPostgres from 'embedded-postgres';
+import { encodeFilestoreNodeFiltersParam } from '@apphub/shared/filestoreFilters';
 import { runE2E } from '../../../tests/helpers';
 
 async function createBackendMount(
@@ -699,6 +700,114 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(presignResponse.statusCode, 400, presignResponse.body);
   const presignBody = presignResponse.json() as { error: { code: string } };
   assert.equal(presignBody.error.code, 'NOT_SUPPORTED');
+
+  const metadataFilters = encodeFilestoreNodeFiltersParam({
+    metadata: [{ key: 'owner', value: 'astro-ops' }]
+  });
+  const metadataQuery = new URLSearchParams({ backendMountId: String(backendMountId) });
+  if (metadataFilters) {
+    metadataQuery.set('filters', metadataFilters);
+  }
+  const metadataFilteredResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?${metadataQuery.toString()}`
+  });
+  assert.equal(metadataFilteredResponse.statusCode, 200, metadataFilteredResponse.body);
+  const metadataFilteredBody = metadataFilteredResponse.json() as {
+    data: {
+      nodes: Array<{ path: string; metadata: Record<string, unknown> }>;
+      filters: { advanced: { metadata?: Array<{ key: string; value: unknown }> } | null };
+    };
+  };
+  assert.ok(metadataFilteredBody.data.filters.advanced?.metadata);
+  assert.ok(
+    metadataFilteredBody.data.nodes.every(
+      (node) => (node.metadata.owner ?? null) === 'astro-ops'
+    )
+  );
+  assert.ok(
+    metadataFilteredBody.data.nodes.some((node) => node.path.includes('observatory-archive'))
+  );
+
+  const sizeFilters = encodeFilestoreNodeFiltersParam({
+    size: { min: overwriteContent.length, max: overwriteContent.length }
+  });
+  const sizeQuery = new URLSearchParams({ backendMountId: String(backendMountId) });
+  if (sizeFilters) {
+    sizeQuery.set('filters', sizeFilters);
+  }
+  const sizeFilteredResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?${sizeQuery.toString()}`
+  });
+  assert.equal(sizeFilteredResponse.statusCode, 200, sizeFilteredResponse.body);
+  const sizeFilteredBody = sizeFilteredResponse.json() as {
+    data: {
+      nodes: Array<{ path: string; sizeBytes: number }>;
+      filters: { advanced: { size?: { min?: number; max?: number } } | null };
+    };
+  };
+  assert.equal(sizeFilteredBody.data.nodes.length, 1);
+  assert.equal(sizeFilteredBody.data.nodes[0].path, uploadPath);
+  assert.equal(sizeFilteredBody.data.nodes[0].sizeBytes, overwriteContent.length);
+
+  const recentIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const recentFilters = encodeFilestoreNodeFiltersParam({
+    lastSeenAt: { after: recentIso }
+  });
+  const recentQuery = new URLSearchParams({ backendMountId: String(backendMountId) });
+  if (recentFilters) {
+    recentQuery.set('filters', recentFilters);
+  }
+  const recentResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?${recentQuery.toString()}`
+  });
+  assert.equal(recentResponse.statusCode, 200, recentResponse.body);
+  const recentBody = recentResponse.json() as { data: { nodes: Array<{ lastSeenAt: string }> } };
+  assert.ok(recentBody.data.nodes.length > 0);
+  assert.ok(
+    recentBody.data.nodes.every((node) => new Date(node.lastSeenAt) >= new Date(recentIso))
+  );
+
+  const pastFilters = encodeFilestoreNodeFiltersParam({
+    lastSeenAt: { before: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() }
+  });
+  const pastQuery = new URLSearchParams({ backendMountId: String(backendMountId) });
+  if (pastFilters) {
+    pastQuery.set('filters', pastFilters);
+  }
+  const pastResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?${pastQuery.toString()}`
+  });
+  assert.equal(pastResponse.statusCode, 200, pastResponse.body);
+  const pastBody = pastResponse.json() as { data: { nodes: unknown[] } };
+  assert.equal(pastBody.data.nodes.length, 0);
+
+  const rollupFilters = encodeFilestoreNodeFiltersParam({
+    rollup: { states: ['up_to_date'], minChildCount: 1 }
+  });
+  const rollupQuery = new URLSearchParams({ backendMountId: String(backendMountId) });
+  if (rollupFilters) {
+    rollupQuery.set('filters', rollupFilters);
+  }
+  const rollupResponse = await app.inject({
+    method: 'GET',
+    url: `/v1/nodes?${rollupQuery.toString()}`
+  });
+  assert.equal(rollupResponse.statusCode, 200, rollupResponse.body);
+  const rollupBody = rollupResponse.json() as {
+    data: {
+      nodes: Array<{ path: string; rollup: { state: string; childCount: number } | null }>;
+    };
+  };
+  assert.ok(rollupBody.data.nodes.length > 0);
+  assert.ok(
+    rollupBody.data.nodes.every(
+      (node) => node.rollup !== null && node.rollup.state === 'up_to_date' && node.rollup.childCount >= 1
+    )
+  );
 
   const deleteResponse = await app.inject({
     method: 'DELETE',

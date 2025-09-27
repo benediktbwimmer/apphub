@@ -150,7 +150,8 @@ describe('filestore types', () => {
           states: [],
           kinds: [],
           search: null,
-          driftOnly: false
+          driftOnly: false,
+          advanced: null
         }
       }
     });
@@ -244,7 +245,8 @@ describe('filestore types', () => {
           states: [],
           kinds: [],
           search: null,
-          driftOnly: false
+          driftOnly: false,
+          advanced: null
         }
       }
     });

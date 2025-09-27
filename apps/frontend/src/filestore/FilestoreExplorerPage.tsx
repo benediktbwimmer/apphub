@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  decodeFilestoreNodeFiltersParam,
+  encodeFilestoreNodeFiltersParam,
+  isFilestoreNodeFiltersEmpty,
+  type FilestoreNodeFilters
+} from '@apphub/shared/filestoreFilters';
 import type { AuthIdentity } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
@@ -37,6 +44,7 @@ import {
   type ListNodesParams,
   type ListReconciliationJobsParams
 } from './api';
+import { filestoreRollupStateSchema, type FilestoreRollupState } from './types';
 import { FILESTORE_BASE_URL } from '../config';
 import { formatBytes } from '../catalog/utils';
 import { describeFilestoreEvent, type ActivityEntry } from './eventSummaries';
@@ -117,6 +125,13 @@ const JOB_STATUS_BADGE_CLASS: Record<FilestoreReconciliationJobStatus, string> =
   failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
   skipped: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
   cancelled: 'bg-slate-200 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200'
+};
+const ROLLUP_STATE_OPTIONS: FilestoreRollupState[] = filestoreRollupStateSchema.options;
+const ROLLUP_STATE_LABEL: Record<FilestoreRollupState, string> = {
+  up_to_date: 'Up to date',
+  pending: 'Pending',
+  stale: 'Stale',
+  invalid: 'Invalid'
 };
 const CONSISTENCY_LABEL: Record<string, string> = {
   active: 'Consistent',
@@ -226,8 +241,11 @@ function formatDurationMs(value: number | null | undefined): string {
     return `${Math.round(value)} ms`;
   }
   const seconds = value / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(2)} s`;
+  }
   if (seconds < 60) {
-    return seconds >= 10 ? `${Math.round(seconds)} s` : `${seconds.toFixed(1)} s`;
+    return `${seconds.toFixed(1)} s`;
   }
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.round(seconds % 60);
@@ -239,30 +257,129 @@ function formatDurationMs(value: number | null | undefined): string {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
+const SIZE_UNIT_MULTIPLIERS: Record<string, number> = {
+  b: 1,
+  kb: 1024,
+  k: 1024,
+  mb: 1024 ** 2,
+  m: 1024 ** 2,
+  gb: 1024 ** 3,
+  g: 1024 ** 3,
+  tb: 1024 ** 4,
+  t: 1024 ** 4,
+  pb: 1024 ** 5,
+  p: 1024 ** 5
+};
+
+function parseByteSizeInput(value: string): number {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error('Value is required');
+  }
+  const match = normalized.match(/^(-?\d+(?:\.\d+)?)([a-zA-Z]*)$/);
+  if (!match) {
+    throw new Error('Use formats like 1024, 10GB, or 1.5TB');
+  }
+  const [, numericPart, unitPart] = match;
+  const parsed = Number(numericPart);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error('Size must be a non-negative number');
+  }
+  const unitKey = (unitPart || 'b').toLowerCase();
+  const multiplier = SIZE_UNIT_MULTIPLIERS[unitKey];
+  if (!multiplier) {
+    throw new Error('Unknown size unit');
+  }
+  return Math.round(parsed * multiplier);
+}
+
+function parseMetadataValueInput(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const lowered = trimmed.toLowerCase();
+  if (lowered === 'true') {
+    return true;
+  }
+  if (lowered === 'false') {
+    return false;
+  }
+  if (lowered === 'null') {
+    return null;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  return trimmed;
+}
+
+function formatMetadataValueDisplay(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (typeof value === 'number') {
+    return value.toString();
+  }
+  return String(value);
+}
+
+function toDateTimeLocalInput(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const iso = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+  return iso;
+}
 function buildListParams(input: {
   backendMountId: number;
   offset: number;
   limit: number;
   path: string | null;
   depth: number;
-  search: string | null;
   states: FilestoreNodeState[];
   driftOnly: boolean;
+  filters: FilestoreNodeFilters | null;
 }): ListNodesParams {
+  const filters = input.filters && !isFilestoreNodeFiltersEmpty(input.filters) ? input.filters : null;
   return {
     backendMountId: input.backendMountId,
     offset: input.offset,
     limit: input.limit,
     path: input.path,
     depth: input.path ? input.depth : null,
-    search: input.search,
+    search: filters?.query ?? null,
     states: input.states,
-    driftOnly: input.driftOnly
+    driftOnly: input.driftOnly,
+    filters
   };
 }
 
-function buildChildrenParams(input: { limit: number }): FetchNodeChildrenParams {
-  return { limit: input.limit };
+function buildChildrenParams(input: {
+  limit: number;
+  states: FilestoreNodeState[];
+  driftOnly: boolean;
+  filters: FilestoreNodeFilters | null;
+}): FetchNodeChildrenParams {
+  const filters = input.filters && !isFilestoreNodeFiltersEmpty(input.filters) ? input.filters : null;
+  return {
+    limit: input.limit,
+    states: input.states.length > 0 ? input.states : undefined,
+    driftOnly: input.driftOnly || undefined,
+    filters
+  };
 }
 
 type FilestoreExplorerPageProps = {
@@ -273,6 +390,7 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const authorizedFetch = useAuthorizedFetch();
   const { showError, showSuccess, showInfo } = useToastHelpers();
   const { trackEvent } = useAnalytics();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const authDisabled = identity?.authDisabled ?? false;
   const hasWriteScope =
@@ -288,8 +406,6 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [pathDraft, setPathDraft] = useState('');
   const [activePath, setActivePath] = useState<string | null>(null);
   const [depth, setDepth] = useState<number>(1);
-  const [searchDraft, setSearchDraft] = useState('');
-  const [searchTerm, setSearchTerm] = useState<string | null>(null);
   const [stateFilters, setStateFilters] = useState<FilestoreNodeState[]>([]);
   const [driftOnly, setDriftOnly] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -311,8 +427,98 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  const [advancedFilters, setAdvancedFilters] = useState<FilestoreNodeFilters>(() => {
+    const parsed = decodeFilestoreNodeFiltersParam(searchParams.get('filters'));
+    return parsed ?? {};
+  });
+  const [queryDraft, setQueryDraft] = useState<string>(() => advancedFilters.query ?? '');
+  const [metadataKeyDraft, setMetadataKeyDraft] = useState('');
+  const [metadataValueDraft, setMetadataValueDraft] = useState('');
+  const [sizeMinDraft, setSizeMinDraft] = useState('');
+  const [sizeMaxDraft, setSizeMaxDraft] = useState('');
+  const [lastSeenAfterDraft, setLastSeenAfterDraft] = useState('');
+  const [lastSeenBeforeDraft, setLastSeenBeforeDraft] = useState('');
+  const [rollupStateDraft, setRollupStateDraft] = useState<FilestoreRollupState[]>(
+    advancedFilters.rollup?.states ?? []
+  );
+  const [rollupMinChildDraft, setRollupMinChildDraft] = useState('');
+  const [rollupMaxChildDraft, setRollupMaxChildDraft] = useState('');
+  const [rollupLastCalculatedAfterDraft, setRollupLastCalculatedAfterDraft] = useState('');
+  const [rollupLastCalculatedBeforeDraft, setRollupLastCalculatedBeforeDraft] = useState('');
+
   const refreshTimers = useRef<RefreshTimers>({ list: null, node: null, children: null, jobs: null, jobDetail: null });
   const pendingSelectionRef = useRef<{ mountId: number; path: string } | null>(null);
+  const filtersEncodedRef = useRef<string>(encodeFilestoreNodeFiltersParam(advancedFilters) ?? '');
+
+  useEffect(() => {
+    const encoded = encodeFilestoreNodeFiltersParam(advancedFilters) ?? '';
+    if (encoded === filtersEncodedRef.current) {
+      return;
+    }
+    filtersEncodedRef.current = encoded;
+    const nextParams = new URLSearchParams(window.location.search);
+    if (encoded) {
+      nextParams.set('filters', encoded);
+    } else {
+      nextParams.delete('filters');
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [advancedFilters, setSearchParams]);
+
+  useEffect(() => {
+    const encoded = searchParams.get('filters') ?? '';
+    if (encoded === filtersEncodedRef.current) {
+      return;
+    }
+    filtersEncodedRef.current = encoded;
+    const parsed = decodeFilestoreNodeFiltersParam(encoded);
+    setAdvancedFilters(parsed ?? {});
+  }, [searchParams]);
+
+  useEffect(() => {
+    setQueryDraft(advancedFilters.query ?? '');
+    if (advancedFilters.size) {
+      setSizeMinDraft(advancedFilters.size.min ? String(advancedFilters.size.min) : '');
+      setSizeMaxDraft(advancedFilters.size.max ? String(advancedFilters.size.max) : '');
+    } else {
+      setSizeMinDraft('');
+      setSizeMaxDraft('');
+    }
+
+    if (advancedFilters.lastSeenAt) {
+      setLastSeenAfterDraft(toDateTimeLocalInput(advancedFilters.lastSeenAt.after ?? null));
+      setLastSeenBeforeDraft(toDateTimeLocalInput(advancedFilters.lastSeenAt.before ?? null));
+    } else {
+      setLastSeenAfterDraft('');
+      setLastSeenBeforeDraft('');
+    }
+
+    if (advancedFilters.rollup) {
+      setRollupStateDraft(advancedFilters.rollup.states ?? []);
+      setRollupMinChildDraft(
+        typeof advancedFilters.rollup.minChildCount === 'number'
+          ? String(advancedFilters.rollup.minChildCount)
+          : ''
+      );
+      setRollupMaxChildDraft(
+        typeof advancedFilters.rollup.maxChildCount === 'number'
+          ? String(advancedFilters.rollup.maxChildCount)
+          : ''
+      );
+      setRollupLastCalculatedAfterDraft(
+        toDateTimeLocalInput(advancedFilters.rollup.lastCalculatedAfter ?? null)
+      );
+      setRollupLastCalculatedBeforeDraft(
+        toDateTimeLocalInput(advancedFilters.rollup.lastCalculatedBefore ?? null)
+      );
+    } else {
+      setRollupStateDraft([]);
+      setRollupMinChildDraft('');
+      setRollupMaxChildDraft('');
+      setRollupLastCalculatedAfterDraft('');
+      setRollupLastCalculatedBeforeDraft('');
+    }
+  }, [advancedFilters]);
 
   const enabledEventTypes = useMemo(() => {
     const seen = new Set<FilestoreEventType>();
@@ -358,6 +564,374 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     [availableMounts]
   );
 
+  const applyFilters = useCallback(
+    (updater: (prev: FilestoreNodeFilters) => FilestoreNodeFilters) => {
+      setAdvancedFilters((prev) => {
+        const next = updater(prev);
+        const prevEncoded = encodeFilestoreNodeFiltersParam(prev) ?? '';
+        const nextEncoded = encodeFilestoreNodeFiltersParam(next) ?? '';
+        if (prevEncoded !== nextEncoded) {
+          setOffset(0);
+          return next;
+        }
+        return prev;
+      });
+    },
+    [setOffset]
+  );
+
+  const handleAddMetadataFilter = useCallback(() => {
+    const key = metadataKeyDraft.trim();
+    if (!key) {
+      showError('Metadata key is required.');
+      return;
+    }
+    if ((advancedFilters.metadata?.length ?? 0) >= 16) {
+      showError('You can only apply up to 16 metadata filters.');
+      return;
+    }
+    let parsedValue: unknown;
+    try {
+      parsedValue = parseMetadataValueInput(metadataValueDraft);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Invalid metadata value');
+      return;
+    }
+    applyFilters((prev) => {
+      const existing = prev.metadata ?? [];
+      if (existing.some((entry) => entry.key === key && entry.value === parsedValue)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        metadata: [...existing, { key, value: parsedValue }]
+      };
+    });
+    setMetadataKeyDraft('');
+    setMetadataValueDraft('');
+  }, [metadataKeyDraft, metadataValueDraft, applyFilters, showError, advancedFilters.metadata?.length]);
+
+  const handleRemoveMetadataFilter = useCallback(
+    (index: number) => {
+      applyFilters((prev) => {
+        if (!prev.metadata || index < 0 || index >= prev.metadata.length) {
+          return prev;
+        }
+        const nextMetadata = prev.metadata.filter((_, idx) => idx !== index);
+        const next = { ...prev } as FilestoreNodeFilters;
+        if (nextMetadata.length === 0) {
+          delete next.metadata;
+        } else {
+          next.metadata = nextMetadata;
+        }
+        return next;
+      });
+    },
+    [applyFilters]
+  );
+
+  const handleClearMetadataFilters = useCallback(() => {
+    if (!advancedFilters.metadata || advancedFilters.metadata.length === 0) {
+      return;
+    }
+    applyFilters((prev) => {
+      if (!prev.metadata || prev.metadata.length === 0) {
+        return prev;
+      }
+      const next = { ...prev } as FilestoreNodeFilters;
+      delete next.metadata;
+      return next;
+    });
+  }, [applyFilters, advancedFilters.metadata]);
+
+  const handleApplySizeFilter = useCallback(() => {
+    const minInput = sizeMinDraft.trim();
+    const maxInput = sizeMaxDraft.trim();
+    if (!minInput && !maxInput) {
+      applyFilters((prev) => {
+        if (!prev.size) {
+          return prev;
+        }
+        const next = { ...prev } as FilestoreNodeFilters;
+        delete next.size;
+        return next;
+      });
+      return;
+    }
+    let min: number | undefined;
+    let max: number | undefined;
+    try {
+      if (minInput) {
+        min = parseByteSizeInput(minInput);
+      }
+      if (maxInput) {
+        max = parseByteSizeInput(maxInput);
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Invalid size value');
+      return;
+    }
+    if (min !== undefined && max !== undefined && min > max) {
+      showError('Minimum size cannot exceed maximum size.');
+      return;
+    }
+    applyFilters((prev) => {
+      const next = { ...prev } as FilestoreNodeFilters;
+      const range = { ...(prev.size ?? {}) } as { min?: number; max?: number };
+      if (min !== undefined) {
+        range.min = min;
+      } else {
+        delete range.min;
+      }
+      if (max !== undefined) {
+        range.max = max;
+      } else {
+        delete range.max;
+      }
+      if (Object.keys(range).length === 0) {
+        delete next.size;
+      } else {
+        next.size = range;
+      }
+      return next;
+    });
+  }, [applyFilters, showError, sizeMinDraft, sizeMaxDraft]);
+
+  const handleClearSizeFilter = useCallback(() => {
+    applyFilters((prev) => {
+      if (!prev.size) {
+        return prev;
+      }
+      const next = { ...prev } as FilestoreNodeFilters;
+      delete next.size;
+      return next;
+    });
+    setSizeMinDraft('');
+    setSizeMaxDraft('');
+  }, [applyFilters]);
+
+  const handleApplyLastSeenFilter = useCallback(() => {
+    const afterInput = lastSeenAfterDraft.trim();
+    const beforeInput = lastSeenBeforeDraft.trim();
+    if (!afterInput && !beforeInput) {
+      applyFilters((prev) => {
+        if (!prev.lastSeenAt) {
+          return prev;
+        }
+        const next = { ...prev } as FilestoreNodeFilters;
+        delete next.lastSeenAt;
+        return next;
+      });
+      return;
+    }
+    let afterIso: string | undefined;
+    let beforeIso: string | undefined;
+    if (afterInput) {
+      const parsed = new Date(afterInput);
+      if (Number.isNaN(parsed.getTime())) {
+        showError('Invalid "seen after" timestamp.');
+        return;
+      }
+      afterIso = parsed.toISOString();
+    }
+    if (beforeInput) {
+      const parsed = new Date(beforeInput);
+      if (Number.isNaN(parsed.getTime())) {
+        showError('Invalid "seen before" timestamp.');
+        return;
+      }
+      beforeIso = parsed.toISOString();
+    }
+    if (afterIso && beforeIso && new Date(afterIso) > new Date(beforeIso)) {
+      showError('"Seen after" must be earlier than "seen before".');
+      return;
+    }
+    applyFilters((prev) => {
+      const next = { ...prev } as FilestoreNodeFilters;
+      const range = { ...(prev.lastSeenAt ?? {}) } as { after?: string; before?: string };
+      if (afterIso) {
+        range.after = afterIso;
+      } else {
+        delete range.after;
+      }
+      if (beforeIso) {
+        range.before = beforeIso;
+      } else {
+        delete range.before;
+      }
+      if (Object.keys(range).length === 0) {
+        delete next.lastSeenAt;
+      } else {
+        next.lastSeenAt = range;
+      }
+      return next;
+    });
+  }, [applyFilters, lastSeenAfterDraft, lastSeenBeforeDraft, showError]);
+
+  const handleClearLastSeenFilter = useCallback(() => {
+    applyFilters((prev) => {
+      if (!prev.lastSeenAt) {
+        return prev;
+      }
+      const next = { ...prev } as FilestoreNodeFilters;
+      delete next.lastSeenAt;
+      return next;
+    });
+    setLastSeenAfterDraft('');
+    setLastSeenBeforeDraft('');
+  }, [applyFilters]);
+
+  const handleApplyRollupFilter = useCallback(() => {
+    const stateSelection = rollupStateDraft;
+    const minChildRaw = rollupMinChildDraft.trim();
+    const maxChildRaw = rollupMaxChildDraft.trim();
+    const afterRaw = rollupLastCalculatedAfterDraft.trim();
+    const beforeRaw = rollupLastCalculatedBeforeDraft.trim();
+
+    if (
+      stateSelection.length === 0 &&
+      !minChildRaw &&
+      !maxChildRaw &&
+      !afterRaw &&
+      !beforeRaw
+    ) {
+      applyFilters((prev) => {
+        if (!prev.rollup) {
+          return prev;
+        }
+        const next = { ...prev } as FilestoreNodeFilters;
+        delete next.rollup;
+        return next;
+      });
+      return;
+    }
+
+    const parseNonNegativeInteger = (input: string, label: string): number => {
+      const parsed = Number(input);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`${label} must be a non-negative integer.`);
+      }
+      return parsed;
+    };
+
+    let minChild: number | undefined;
+    let maxChild: number | undefined;
+    try {
+      if (minChildRaw) {
+        minChild = parseNonNegativeInteger(minChildRaw, 'Minimum child count');
+      }
+      if (maxChildRaw) {
+        maxChild = parseNonNegativeInteger(maxChildRaw, 'Maximum child count');
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Invalid rollup child count');
+      return;
+    }
+
+    if (minChild !== undefined && maxChild !== undefined && minChild > maxChild) {
+      showError('Minimum child count cannot exceed maximum.');
+      return;
+    }
+
+    let afterIso: string | undefined;
+    let beforeIso: string | undefined;
+    if (afterRaw) {
+      const parsed = new Date(afterRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        showError('Invalid rollup recalculated-after timestamp.');
+        return;
+      }
+      afterIso = parsed.toISOString();
+    }
+    if (beforeRaw) {
+      const parsed = new Date(beforeRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        showError('Invalid rollup recalculated-before timestamp.');
+        return;
+      }
+      beforeIso = parsed.toISOString();
+    }
+    if (afterIso && beforeIso && new Date(afterIso) > new Date(beforeIso)) {
+      showError('Rollup recalculated-after must be earlier than recalculated-before.');
+      return;
+    }
+
+    applyFilters((prev) => {
+      const next = { ...prev } as FilestoreNodeFilters;
+      const rollup = { ...(prev.rollup ?? {}) } as FilestoreNodeFilters['rollup'];
+
+      if (stateSelection.length > 0) {
+        rollup.states = [...stateSelection];
+      } else {
+        delete rollup.states;
+      }
+
+      if (minChild !== undefined) {
+        rollup.minChildCount = minChild;
+      } else {
+        delete rollup.minChildCount;
+      }
+
+      if (maxChild !== undefined) {
+        rollup.maxChildCount = maxChild;
+      } else {
+        delete rollup.maxChildCount;
+      }
+
+      if (afterIso) {
+        rollup.lastCalculatedAfter = afterIso;
+      } else {
+        delete rollup.lastCalculatedAfter;
+      }
+
+      if (beforeIso) {
+        rollup.lastCalculatedBefore = beforeIso;
+      } else {
+        delete rollup.lastCalculatedBefore;
+      }
+
+      if (Object.keys(rollup ?? {}).length === 0) {
+        delete next.rollup;
+      } else {
+        next.rollup = rollup ?? undefined;
+      }
+
+      return next;
+    });
+  }, [applyFilters, rollupStateDraft, rollupMinChildDraft, rollupMaxChildDraft, rollupLastCalculatedAfterDraft, rollupLastCalculatedBeforeDraft, showError]);
+
+  const handleClearRollupFilter = useCallback(() => {
+    applyFilters((prev) => {
+      if (!prev.rollup) {
+        return prev;
+      }
+      const next = { ...prev } as FilestoreNodeFilters;
+      delete next.rollup;
+      return next;
+    });
+    setRollupStateDraft([]);
+    setRollupMinChildDraft('');
+    setRollupMaxChildDraft('');
+    setRollupLastCalculatedAfterDraft('');
+    setRollupLastCalculatedBeforeDraft('');
+  }, [applyFilters]);
+
+  const handleResetFilters = useCallback(() => {
+    applyFilters(() => ({}));
+    setQueryDraft('');
+    setMetadataKeyDraft('');
+    setMetadataValueDraft('');
+    setSizeMinDraft('');
+    setSizeMaxDraft('');
+    setLastSeenAfterDraft('');
+    setLastSeenBeforeDraft('');
+    setRollupStateDraft([]);
+    setRollupMinChildDraft('');
+    setRollupMaxChildDraft('');
+    setRollupLastCalculatedAfterDraft('');
+    setRollupLastCalculatedBeforeDraft('');
+  }, [applyFilters]);
+
   const listFetcher = useCallback(
     async ({ authorizedFetch: fetchFn, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (backendMountId === null) {
@@ -370,13 +944,13 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
         limit: LIST_PAGE_SIZE,
         path: activePath,
         depth,
-        search: searchTerm,
         states: stateFilters,
-        driftOnly
+        driftOnly,
+        filters: advancedFilters
       });
       return listNodes(fetchFn, params, { signal });
     },
-    [backendMountId, offset, activePath, depth, searchTerm, stateFilters, driftOnly]
+    [backendMountId, offset, activePath, depth, stateFilters, driftOnly, advancedFilters]
   );
 
   const {
@@ -416,10 +990,15 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
       if (!selectedNodeId) {
         throw new Error('Node not selected');
       }
-      const params = buildChildrenParams({ limit: 50 });
+      const params = buildChildrenParams({
+        limit: 50,
+        states: stateFilters,
+        driftOnly,
+        filters: advancedFilters
+      });
       return fetchNodeChildren(fetchFn, selectedNodeId, params, { signal });
     },
-    [selectedNodeId]
+    [selectedNodeId, stateFilters, driftOnly, advancedFilters]
   );
 
   const {
@@ -1399,13 +1978,25 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
     []
   );
 
-  const handleApplySearch = useCallback(
+  const handleApplyQuery = useCallback(
     (value: string) => {
       const trimmed = value.trim();
-      setSearchTerm(trimmed.length > 0 ? trimmed : null);
-      setOffset(0);
+      applyFilters((prev) => {
+        if (trimmed.length === 0) {
+          if (prev.query === undefined) {
+            return prev;
+          }
+          const next = { ...prev } as FilestoreNodeFilters;
+          delete next.query;
+          return next;
+        }
+        if (prev.query === trimmed) {
+          return prev;
+        }
+        return { ...prev, query: trimmed };
+      });
     },
-    []
+    [applyFilters]
   );
 
   const mountOptions = useMemo(() => {
@@ -1451,6 +2042,79 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
   }, [mountOptions, mountSearch, backendMountId]);
 
   const hasMountOptions = mountOptions.length > 0;
+  const advancedFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+    if (advancedFilters.query) {
+      chips.push({
+        key: 'query',
+        label: `query: "${advancedFilters.query}"`,
+        onRemove: () => handleApplyQuery('')
+      });
+    }
+    (advancedFilters.metadata ?? []).forEach((entry, index) => {
+      chips.push({
+        key: `metadata-${index}`,
+        label: `metadata.${entry.key}=${formatMetadataValueDisplay(entry.value)}`,
+        onRemove: () => handleRemoveMetadataFilter(index)
+      });
+    });
+    if (advancedFilters.size) {
+      const { min, max } = advancedFilters.size;
+      const label =
+        min !== undefined && max !== undefined
+          ? `size ${formatBytes(min)} – ${formatBytes(max)}`
+          : min !== undefined
+            ? `size ≥ ${formatBytes(min)}`
+            : max !== undefined
+              ? `size ≤ ${formatBytes(max)}`
+              : 'size';
+      chips.push({ key: 'size', label, onRemove: handleClearSizeFilter });
+    }
+    if (advancedFilters.lastSeenAt) {
+      const { after, before } = advancedFilters.lastSeenAt;
+      const parts: string[] = [];
+      if (after) {
+        parts.push(`≥ ${formatTimestamp(after)}`);
+      }
+      if (before) {
+        parts.push(`≤ ${formatTimestamp(before)}`);
+      }
+      chips.push({
+        key: 'lastSeen',
+        label: `seen ${parts.join(' ')} `.trim(),
+        onRemove: handleClearLastSeenFilter
+      });
+    }
+    if (advancedFilters.rollup) {
+      const summaries: string[] = [];
+      if (advancedFilters.rollup.states && advancedFilters.rollup.states.length > 0) {
+        summaries.push(`state ${advancedFilters.rollup.states.map((state) => ROLLUP_STATE_LABEL[state]).join('/')}`);
+      }
+      if (typeof advancedFilters.rollup.minChildCount === 'number') {
+        summaries.push(`child ≥ ${advancedFilters.rollup.minChildCount}`);
+      }
+      if (typeof advancedFilters.rollup.maxChildCount === 'number') {
+        summaries.push(`child ≤ ${advancedFilters.rollup.maxChildCount}`);
+      }
+      if (advancedFilters.rollup.lastCalculatedAfter) {
+        summaries.push(`recalc ≥ ${formatTimestamp(advancedFilters.rollup.lastCalculatedAfter)}`);
+      }
+      if (advancedFilters.rollup.lastCalculatedBefore) {
+        summaries.push(`recalc ≤ ${formatTimestamp(advancedFilters.rollup.lastCalculatedBefore)}`);
+      }
+      chips.push({ key: 'rollup', label: `rollup ${summaries.join(' ')}`.trim(), onRemove: handleClearRollupFilter });
+    }
+    return chips;
+  }, [
+    advancedFilters,
+    handleApplyQuery,
+    handleRemoveMetadataFilter,
+    handleClearSizeFilter,
+    handleClearLastSeenFilter,
+    handleClearRollupFilter
+  ]);
+
+  const hasAdvancedFilters = advancedFilterChips.length > 0;
 
   const pagination: FilestorePagination | null = listData?.pagination ?? null;
   const nodes = listData?.nodes ?? [];
@@ -2180,45 +2844,279 @@ export default function FilestoreExplorerPage({ identity }: FilestoreExplorerPag
               </div>
             </form>
 
-            <form
-              className="space-y-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleApplySearch(searchDraft);
-              }}
-            >
-              <label htmlFor="filestore-search" className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Search nodes
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id="filestore-search"
-                  value={searchDraft}
-                  onChange={(event) => setSearchDraft(event.target.value)}
-                  placeholder="owner:astro"
-                  className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
-                />
-                <button
-                  type="submit"
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-                >
-                  Search
-                </button>
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Advanced filters</span>
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                  >
+                    Reset all
+                  </button>
+                </div>
+                {hasAdvancedFilters ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {advancedFilterChips.map((chip) => (
+                      <button
+                        key={chip.key}
+                        type="button"
+                        onClick={chip.onRemove}
+                        className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-100"
+                      >
+                        <span>{chip.label}</span>
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">No advanced filters applied.</p>
+                )}
               </div>
-              {searchTerm ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm(null);
-                    setSearchDraft('');
-                    setOffset(0);
-                  }}
-                  className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
-                >
-                  Clear search
-                </button>
-              ) : null}
-            </form>
+
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleApplyQuery(queryDraft);
+                }}
+              >
+                <label htmlFor="filestore-query" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  Search query
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="filestore-query"
+                    value={queryDraft}
+                    onChange={(event) => setQueryDraft(event.target.value)}
+                    placeholder="name includes…"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+                {advancedFilters.query ? (
+                  <button
+                    type="button"
+                    onClick={() => handleApplyQuery('')}
+                    className="text-xs font-medium text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+                  >
+                    Clear query
+                  </button>
+                ) : null}
+              </form>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Metadata filters</span>
+                  {advancedFilters.metadata && advancedFilters.metadata.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleClearMetadataFilters}
+                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    >
+                      Clear metadata
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={metadataKeyDraft}
+                    onChange={(event) => setMetadataKeyDraft(event.target.value)}
+                    placeholder="key"
+                    className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <input
+                    value={metadataValueDraft}
+                    onChange={(event) => setMetadataValueDraft(event.target.value)}
+                    placeholder="value"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddMetadataFilter}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleApplySizeFilter();
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <label htmlFor="filestore-size-min" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Size (bytes)
+                  </label>
+                  {advancedFilters.size ? (
+                    <button
+                      type="button"
+                      onClick={handleClearSizeFilter}
+                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    >
+                      Clear size
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    id="filestore-size-min"
+                    value={sizeMinDraft}
+                    onChange={(event) => setSizeMinDraft(event.target.value)}
+                    placeholder="Min (e.g. 10GB)"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <input
+                    value={sizeMaxDraft}
+                    onChange={(event) => setSizeMaxDraft(event.target.value)}
+                    placeholder="Max"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </form>
+
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleApplyLastSeenFilter();
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Last seen window
+                  </label>
+                  {advancedFilters.lastSeenAt ? (
+                    <button
+                      type="button"
+                      onClick={handleClearLastSeenFilter}
+                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    >
+                      Clear last seen
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="datetime-local"
+                    value={lastSeenAfterDraft}
+                    onChange={(event) => setLastSeenAfterDraft(event.target.value)}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={lastSeenBeforeDraft}
+                    onChange={(event) => setLastSeenBeforeDraft(event.target.value)}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </form>
+
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handleApplyRollupFilter();
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Rollup filters
+                  </label>
+                  {advancedFilters.rollup ? (
+                    <button
+                      type="button"
+                      onClick={handleClearRollupFilter}
+                      className="text-xs text-slate-400 underline decoration-dotted underline-offset-2 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                    >
+                      Clear rollup
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {ROLLUP_STATE_OPTIONS.map((state) => {
+                    const active = rollupStateDraft.includes(state);
+                    return (
+                      <button
+                        key={`rollup-state-${state}`}
+                        type="button"
+                        onClick={() => {
+                          setRollupStateDraft((prev) => {
+                            if (prev.includes(state)) {
+                              return prev.filter((value) => value !== state);
+                            }
+                            return [...prev, state];
+                          });
+                        }}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          active
+                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {ROLLUP_STATE_LABEL[state]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={rollupMinChildDraft}
+                    onChange={(event) => setRollupMinChildDraft(event.target.value)}
+                    placeholder="Min children"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <input
+                    value={rollupMaxChildDraft}
+                    onChange={(event) => setRollupMaxChildDraft(event.target.value)}
+                    placeholder="Max children"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="datetime-local"
+                    value={rollupLastCalculatedAfterDraft}
+                    onChange={(event) => setRollupLastCalculatedAfterDraft(event.target.value)}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={rollupLastCalculatedBeforeDraft}
+                    onChange={(event) => setRollupLastCalculatedBeforeDraft(event.target.value)}
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </form>
+            </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">

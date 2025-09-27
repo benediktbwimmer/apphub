@@ -39,6 +39,11 @@
       "require": "./dist/filestoreMounts.js",
       "default": "./dist/filestoreMounts.js"
     },
+    "./filestoreFilters": {
+      "types": "./dist/filestoreFilters.d.ts",
+      "require": "./dist/filestoreFilters.js",
+      "default": "./dist/filestoreFilters.js"
+    },
     "./timestoreAdmin": {
       "types": "./dist/timestoreAdmin.d.ts",
       "require": "./dist/timestoreAdmin.js",

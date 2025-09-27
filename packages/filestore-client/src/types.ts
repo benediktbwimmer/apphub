@@ -4,6 +4,7 @@ import type {
   FilestoreNodeReconciledPayload,
   FilestoreReconciliationReason
 } from '@apphub/shared/filestoreEvents';
+import type { FilestoreNodeFilters } from '@apphub/shared/filestoreFilters';
 
 export type TokenSupplier = string | (() => string | Promise<string>);
 
@@ -94,6 +95,7 @@ export interface ListNodesInput {
   kinds?: ('file' | 'directory')[];
   driftOnly?: boolean;
   search?: string;
+  filters?: FilestoreNodeFilters;
 }
 
 export interface ListNodesResult {

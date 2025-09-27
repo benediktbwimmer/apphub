@@ -9,6 +9,7 @@ import {
   type FilestoreBackendMount as SharedFilestoreBackendMount,
   type FilestoreBackendMountList as SharedFilestoreBackendMountList
 } from '@apphub/shared/filestoreMounts';
+import { filestoreNodeFiltersSchema } from '@apphub/shared/filestoreFilters';
 
 export const filestoreRollupStateSchema = z.enum(['up_to_date', 'pending', 'stale', 'invalid']);
 export type FilestoreRollupState = z.infer<typeof filestoreRollupStateSchema>;
@@ -186,7 +187,8 @@ export const filestoreNodeListEnvelopeSchema = z.object({
       states: z.array(filestoreNodeStateSchema),
       kinds: z.array(filestoreNodeKindSchema),
       search: z.string().nullable(),
-      driftOnly: z.boolean()
+      driftOnly: z.boolean(),
+      advanced: filestoreNodeFiltersSchema.nullable()
     })
   })
 });
@@ -201,7 +203,8 @@ export const filestoreNodeChildrenEnvelopeSchema = z.object({
       states: z.array(filestoreNodeStateSchema),
       kinds: z.array(filestoreNodeKindSchema),
       search: z.string().nullable(),
-      driftOnly: z.boolean()
+      driftOnly: z.boolean(),
+      advanced: filestoreNodeFiltersSchema.nullable()
     })
   })
 });

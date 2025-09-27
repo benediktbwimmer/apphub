@@ -264,6 +264,25 @@ const migrations: Migration[] = [
          ADD COLUMN IF NOT EXISTS labels TEXT[] NOT NULL DEFAULT '{}'::text[],
          ADD COLUMN IF NOT EXISTS state_reason TEXT;`
     ]
+  },
+  {
+    id: '005_filestore_filter_indexes',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_nodes_size_bytes
+         ON nodes(size_bytes);`,
+      `CREATE INDEX IF NOT EXISTS idx_nodes_last_seen_at
+         ON nodes(last_seen_at);`,
+      `CREATE INDEX IF NOT EXISTS idx_rollups_child_count
+         ON rollups(child_count);`,
+      `CREATE INDEX IF NOT EXISTS idx_rollups_file_count
+         ON rollups(file_count);`,
+      `CREATE INDEX IF NOT EXISTS idx_rollups_directory_count
+         ON rollups(directory_count);`,
+      `CREATE INDEX IF NOT EXISTS idx_rollups_size_bytes
+         ON rollups(size_bytes);`,
+      `CREATE INDEX IF NOT EXISTS idx_rollups_last_calculated_at
+         ON rollups(last_calculated_at);`
+    ]
   }
 ];
 

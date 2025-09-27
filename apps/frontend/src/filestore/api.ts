@@ -1,6 +1,10 @@
+import { z } from 'zod';
+import {
+  encodeFilestoreNodeFiltersParam,
+  type FilestoreNodeFilters
+} from '@apphub/shared/filestoreFilters';
 import { FILESTORE_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { z } from 'zod';
 import {
   filestoreBackendMountListEnvelopeSchema,
   filestoreCommandResponseEnvelopeSchema,
@@ -71,6 +75,7 @@ export type ListNodesParams = {
   states?: FilestoreNodeState[];
   kinds?: FilestoreNodeKind[];
   driftOnly?: boolean;
+  filters?: FilestoreNodeFilters | null;
 };
 
 export type FetchNodeChildrenParams = {
@@ -80,6 +85,7 @@ export type FetchNodeChildrenParams = {
   states?: FilestoreNodeState[];
   kinds?: FilestoreNodeKind[];
   driftOnly?: boolean;
+  filters?: FilestoreNodeFilters | null;
 };
 
 export type CreateDirectoryInput = {
@@ -479,14 +485,19 @@ export async function listNodes(
   if (typeof params.depth === 'number' && Number.isFinite(params.depth)) {
     url.searchParams.set('depth', String(params.depth));
   }
-  if (params.search && params.search.trim().length > 0) {
-    url.searchParams.set('search', params.search.trim());
+  const searchValue = params.filters?.query ?? params.search;
+  if (searchValue && searchValue.trim().length > 0) {
+    url.searchParams.set('search', searchValue.trim());
   }
   if (params.driftOnly) {
     url.searchParams.set('driftOnly', 'true');
   }
   appendQueryValues(url.searchParams, 'states', params.states);
   appendQueryValues(url.searchParams, 'kinds', params.kinds);
+  const encodedFilters = encodeFilestoreNodeFiltersParam(params.filters ?? null);
+  if (encodedFilters) {
+    url.searchParams.set('filters', encodedFilters);
+  }
 
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   const payload = await parseJsonOrThrow(response, filestoreNodeListEnvelopeSchema);
@@ -506,14 +517,19 @@ export async function fetchNodeChildren(
   if (params.offset && params.offset > 0) {
     url.searchParams.set('offset', String(params.offset));
   }
-  if (params.search && params.search.trim().length > 0) {
-    url.searchParams.set('search', params.search.trim());
+  const searchValue = params.filters?.query ?? params.search;
+  if (searchValue && searchValue.trim().length > 0) {
+    url.searchParams.set('search', searchValue.trim());
   }
   if (params.driftOnly) {
     url.searchParams.set('driftOnly', 'true');
   }
   appendQueryValues(url.searchParams, 'states', params.states);
   appendQueryValues(url.searchParams, 'kinds', params.kinds);
+  const encodedFilters = encodeFilestoreNodeFiltersParam(params.filters ?? null);
+  if (encodedFilters) {
+    url.searchParams.set('filters', encodedFilters);
+  }
 
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   const payload = await parseJsonOrThrow(response, filestoreNodeChildrenEnvelopeSchema);

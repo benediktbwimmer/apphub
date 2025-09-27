@@ -4,6 +4,7 @@ import type { RequestInit, Response } from 'undici';
 import { Blob, Buffer } from 'node:buffer';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { FilestoreClientError, FilestoreStreamClosedError } from './errors';
+import { encodeFilestoreNodeFiltersParam } from '@apphub/shared/filestoreFilters';
 import type {
   ApiEnvelope,
   CommandResponse,
@@ -228,6 +229,7 @@ export class FilestoreClient {
   }
 
   async listNodes(input: ListNodesInput): Promise<ListNodesResult> {
+    const search = input.filters?.query ?? input.search;
     const query: Record<string, string | number | boolean | undefined> = {
       backendMountId: input.backendMountId,
       limit: input.limit,
@@ -235,13 +237,17 @@ export class FilestoreClient {
       path: input.path,
       depth: input.depth,
       driftOnly: input.driftOnly,
-      search: input.search
+      search
     };
     if (input.states?.length) {
       query.states = input.states.join(',');
     }
     if (input.kinds?.length) {
       query.kinds = input.kinds.join(',');
+    }
+    const encodedFilters = encodeFilestoreNodeFiltersParam(input.filters ?? null);
+    if (encodedFilters) {
+      query.filters = encodedFilters;
     }
 
     const envelope = await this.request<
