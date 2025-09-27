@@ -166,31 +166,6 @@ export const lifecycleStatusResponseSchema = z.object({
 
 export type LifecycleStatusResponse = z.infer<typeof lifecycleStatusResponseSchema>;
 
-const datasetAccessMetadataSchema = z.record(z.unknown()).catch({});
-
-export const datasetAccessAuditEventSchema = z
-  .object({
-    id: z.string(),
-    datasetId: z.string().nullable(),
-    datasetSlug: z.string(),
-    actorId: z.string().nullable(),
-    actorScopes: z.array(z.string()),
-    action: z.string(),
-    success: z.boolean(),
-    metadata: datasetAccessMetadataSchema,
-    createdAt: z.string()
-  })
-  .passthrough();
-
-export type DatasetAccessAuditEvent = z.infer<typeof datasetAccessAuditEventSchema>;
-
-export const datasetAccessAuditListResponseSchema = z.object({
-  events: z.array(datasetAccessAuditEventSchema),
-  nextCursor: z.string().nullable()
-});
-
-export type DatasetAccessAuditListResponse = z.infer<typeof datasetAccessAuditListResponseSchema>;
-
 export const retentionResponseSchema = z.object({
   datasetId: z.string(),
   datasetSlug: z.string(),

@@ -37,6 +37,10 @@ const DEFAULT_FIELDS: CreateFormFields = {
   writeScopes: ''
 };
 
+function isCreateFormFieldKey(value: string): value is keyof CreateFormFields {
+  return Object.prototype.hasOwnProperty.call(DEFAULT_FIELDS, value);
+}
+
 function parseScopes(input: string): string[] | undefined {
   const normalized = input
     .split(/[\n,]+/)
@@ -116,19 +120,19 @@ export function DatasetCreateDialog({ open, onClose, onCreate, busy = false }: D
     if (!validation.success) {
       const nextErrors: FieldErrorMap = {};
       for (const issue of validation.error.issues) {
-        const key = issue.path.join('.') as keyof CreateFormFields;
-        if (!key || typeof key !== 'string') {
+        const keyPath = issue.path.join('.');
+        if (!keyPath) {
           nextErrors.general = issue.message;
           continue;
         }
-        if (key.includes('readScopes')) {
+        if (keyPath.includes('readScopes')) {
           nextErrors.readScopes = issue.message;
-        } else if (key.includes('writeScopes')) {
+        } else if (keyPath.includes('writeScopes')) {
           nextErrors.writeScopes = issue.message;
-        } else if (key === 'metadata') {
+        } else if (keyPath === 'metadata') {
           nextErrors.general = issue.message;
-        } else if (key in fields) {
-          nextErrors[key] = issue.message;
+        } else if (isCreateFormFieldKey(keyPath)) {
+          nextErrors[keyPath] = issue.message;
         } else {
           nextErrors.general = issue.message;
         }
