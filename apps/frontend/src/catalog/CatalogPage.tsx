@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useCatalog } from './useCatalog';
+import { useCatalogSearch } from './hooks/useCatalogSearch';
+import { useCatalogHistory } from './hooks/useCatalogHistory';
+import { useCatalogBuilds } from './hooks/useCatalogBuilds';
+import { useCatalogLaunches } from './hooks/useCatalogLaunches';
 import SearchSection from './components/SearchSection';
 import AppList from './components/AppList';
 import { Spinner } from '../components';
@@ -11,6 +14,7 @@ type CatalogPageProps = {
 
 function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+
   const {
     inputValue,
     setInputValue,
@@ -19,20 +23,18 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
     error,
     suggestions,
     highlightIndex,
-    searchMeta,
     sortMode,
     showHighlights,
     activeTokens,
     highlightEnabled,
-    historyState,
-    buildState,
-    launchLists,
-    launchErrors,
-    launchingId,
-    stoppingLaunchId,
-    retryingId,
-    handlers
-  } = useCatalog();
+    searchMeta,
+    handlers,
+    repositories,
+    setGlobalError
+  } = useCatalogSearch();
+  const history = useCatalogHistory({ repositories, setGlobalError });
+  const builds = useCatalogBuilds({ repositories });
+  const launches = useCatalogLaunches({ repositories });
 
   useEffect(() => {
     if (searchSeed && searchSeed !== inputValue) {
@@ -101,25 +103,25 @@ function CatalogPage({ searchSeed, onSeedApplied }: CatalogPageProps) {
           apps={apps}
           activeTokens={activeTokens}
           highlightEnabled={highlightEnabled}
-          retryingId={retryingId}
-          onRetry={handlers.retryIngestion}
-          buildState={buildState}
-          onTriggerBuild={handlers.triggerBuild}
-          onLaunch={handlers.launchApp}
-          onStopLaunch={handlers.stopLaunch}
-          launchingId={launchingId}
-          stoppingLaunchId={stoppingLaunchId}
-          launchErrors={launchErrors}
+          retryingId={history.retryingId}
+          onRetry={history.retryIngestion}
+          buildState={builds.buildState}
+          onTriggerBuild={builds.triggerBuild}
+          onLaunch={launches.launchApp}
+          onStopLaunch={launches.stopLaunch}
+          launchingId={launches.launchingId}
+          stoppingLaunchId={launches.stoppingLaunchId}
+          launchErrors={launches.launchErrors}
           selectedAppId={selectedAppId}
           onSelectApp={handleSelectApp}
-          historyState={historyState}
-          onToggleHistory={handlers.toggleHistory}
-          onToggleBuilds={handlers.toggleBuilds}
-          onLoadMoreBuilds={handlers.loadMoreBuilds}
-          onToggleLogs={handlers.toggleLogs}
-          onRetryBuild={handlers.retryBuild}
-          launchLists={launchLists}
-          onToggleLaunches={handlers.toggleLaunches}
+          historyState={history.historyState}
+          onToggleHistory={history.toggleHistory}
+          onToggleBuilds={builds.toggleBuilds}
+          onLoadMoreBuilds={builds.loadMoreBuilds}
+          onToggleLogs={builds.toggleLogs}
+          onRetryBuild={builds.retryBuild}
+          launchLists={launches.launchLists}
+          onToggleLaunches={launches.toggleLaunches}
         />
       </section>
     </>
