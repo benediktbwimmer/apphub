@@ -23,6 +23,7 @@ import type { IngestionJobPayload, IngestionProcessingResult } from './types';
 import { observeIngestionJob } from '../observability/metrics';
 import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
+import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 export async function processIngestionJob(
   payload: IngestionJobPayload
@@ -193,6 +194,8 @@ export async function processIngestionJob(
     } catch (err) {
       console.error('[timestore] failed to publish partition.created event', err);
     }
+
+    invalidateSqlRuntimeCache();
 
     endSpan(span);
     return {

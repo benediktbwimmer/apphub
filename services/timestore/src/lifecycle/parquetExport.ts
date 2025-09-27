@@ -16,6 +16,7 @@ import {
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
 import { publishTimestoreEvent } from '../events/publisher';
+import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 export async function performParquetExport(
   context: LifecycleJobContext,
@@ -125,6 +126,8 @@ export async function performParquetExport(
   } catch (err) {
     console.error('[timestore] failed to publish dataset.export completed event', err);
   }
+
+  invalidateSqlRuntimeCache();
 
   return {
     operation: 'parquetExport',

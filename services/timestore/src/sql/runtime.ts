@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import {
@@ -19,8 +19,188 @@ import {
   type ResolvedAzureOptions
 } from '../storage';
 import { configureS3Support, configureGcsSupport, configureAzureSupport } from '../query/executor';
+import {
+  recordRuntimeCacheEvent,
+  observeRuntimeCacheRebuild,
+  type RuntimeCacheEvent
+} from '../observability/metrics';
 
 type DuckDbConnection = any;
+
+const DEFAULT_SQL_RUNTIME_CACHE_TTL_MS = 30_000;
+const CONTEXT_SIGNATURE_SYMBOL: unique symbol = Symbol('apphub.timestore.sqlContextSignature');
+const CONTEXT_VERSION_SYMBOL: unique symbol = Symbol('apphub.timestore.sqlContextVersion');
+
+type VersionedSqlContext = SqlContext & {
+  [CONTEXT_SIGNATURE_SYMBOL]?: string;
+  [CONTEXT_VERSION_SYMBOL]?: number;
+};
+
+interface ContextCacheEntry {
+  context: VersionedSqlContext;
+  expiresAt: number;
+  builtAt: number;
+  version: number;
+  signature: string;
+}
+
+interface ConnectionCacheEntry {
+  signature: string;
+  db: any;
+  warnings: string[];
+  expiresAt: number;
+  activeConnections: number;
+  disposed: boolean;
+  closePromise: Promise<void> | null;
+}
+
+let contextCacheEntry: ContextCacheEntry | null = null;
+let contextBuildPromise: Promise<VersionedSqlContext> | null = null;
+let contextVersionCounter = 0;
+let cacheGeneration = 0;
+const connectionCache = new Map<string, ConnectionCacheEntry>();
+const connectionBuildPromises = new Map<string, Promise<void>>();
+
+function getRuntimeCacheTtlMs(): number {
+  const config = loadServiceConfig();
+  const value = config.sql.runtimeCacheTtlMs;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(value, 0);
+  }
+  return DEFAULT_SQL_RUNTIME_CACHE_TTL_MS;
+}
+
+function computeContextSignature(context: SqlContext): string {
+  const hash = createHash('sha1');
+  const datasets = [...context.datasets].sort((a, b) =>
+    a.dataset.id.localeCompare(b.dataset.id)
+  );
+  for (const entry of datasets) {
+    hash.update(String(entry.dataset.id));
+    hash.update('|');
+    hash.update(String(entry.dataset.slug));
+    hash.update('|');
+    hash.update(String(entry.dataset.updatedAt ?? ''));
+    hash.update('|');
+    hash.update(String(entry.manifest?.id ?? 'none'));
+    hash.update('|');
+    hash.update(String(entry.manifest?.version ?? 'none'));
+    hash.update('|');
+    hash.update(String(entry.manifest?.updatedAt ?? ''));
+    hash.update('|');
+    const partitionIds = entry.partitions.map((partition) => partition.id).sort();
+    for (const partitionId of partitionIds) {
+      hash.update(String(partitionId));
+      hash.update(',');
+    }
+    hash.update(';');
+  }
+  hash.update(`count:${context.datasets.length}`);
+  return hash.digest('hex');
+}
+
+function annotateContext(
+  context: SqlContext,
+  signature: string,
+  version: number
+): VersionedSqlContext {
+  const target = context as VersionedSqlContext;
+  Object.defineProperty(target, CONTEXT_SIGNATURE_SYMBOL, {
+    value: signature,
+    enumerable: false,
+    configurable: true
+  });
+  Object.defineProperty(target, CONTEXT_VERSION_SYMBOL, {
+    value: version,
+    enumerable: false,
+    configurable: true
+  });
+  return target;
+}
+
+function getContextSignature(context: SqlContext): string {
+  const target = context as VersionedSqlContext;
+  if (target[CONTEXT_SIGNATURE_SYMBOL]) {
+    return target[CONTEXT_SIGNATURE_SYMBOL] as string;
+  }
+  const signature = computeContextSignature(context);
+  Object.defineProperty(target, CONTEXT_SIGNATURE_SYMBOL, {
+    value: signature,
+    enumerable: false,
+    configurable: true
+  });
+  if (typeof target[CONTEXT_VERSION_SYMBOL] !== 'number') {
+    Object.defineProperty(target, CONTEXT_VERSION_SYMBOL, {
+      value: 0,
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return signature;
+}
+
+function pruneExpiredConnectionEntries(now: number): void {
+  for (const [signature, entry] of connectionCache.entries()) {
+    if (entry.expiresAt <= now) {
+      connectionCache.delete(signature);
+      markConnectionEntryForDisposal(entry, 'expired');
+    }
+  }
+}
+
+function flushConnectionCache(event: RuntimeCacheEvent): void {
+  for (const [signature, entry] of connectionCache.entries()) {
+    connectionCache.delete(signature);
+    markConnectionEntryForDisposal(entry, event);
+  }
+}
+
+function markConnectionEntryForDisposal(entry: ConnectionCacheEntry, event: RuntimeCacheEvent): void {
+  if (!entry.disposed) {
+    entry.disposed = true;
+  }
+  recordRuntimeCacheEvent('connection', event);
+  if (entry.activeConnections === 0) {
+    disposeConnectionDatabase(entry);
+  }
+}
+
+function disposeConnectionDatabase(entry: ConnectionCacheEntry): void {
+  if (entry.closePromise) {
+    return;
+  }
+  entry.closePromise = Promise.resolve().then(() => {
+    if (isCloseable(entry.db)) {
+      ignoreCloseError(() => entry.db.close());
+    }
+  });
+}
+
+async function releaseCachedConnection(
+  entry: ConnectionCacheEntry,
+  connection: DuckDbConnection
+): Promise<void> {
+  try {
+    await closeConnection(connection);
+  } finally {
+    entry.activeConnections = Math.max(entry.activeConnections - 1, 0);
+    if (entry.disposed && entry.activeConnections === 0) {
+      disposeConnectionDatabase(entry);
+    }
+  }
+}
+
+function leaseCachedConnection(entry: ConnectionCacheEntry): SqlRuntimeConnection {
+  const connection = entry.db.connect();
+  entry.activeConnections += 1;
+  return {
+    connection,
+    warnings: [...entry.warnings],
+    cleanup: async () => {
+      await releaseCachedConnection(entry, connection);
+    }
+  } satisfies SqlRuntimeConnection;
+}
 
 export interface SqlSchemaColumnInfo {
   name: string;
@@ -70,7 +250,7 @@ export interface SqlRuntimeConnection {
   warnings: string[];
 }
 
-export async function loadSqlContext(): Promise<SqlContext> {
+async function buildSqlContext(): Promise<SqlContext> {
   const config = loadServiceConfig();
   const warnings: string[] = [];
   const datasets: SqlDatasetContext[] = [];
@@ -114,7 +294,179 @@ export async function loadSqlContext(): Promise<SqlContext> {
   } satisfies SqlContext;
 }
 
+export async function loadSqlContext(): Promise<SqlContext> {
+  const ttlMs = getRuntimeCacheTtlMs();
+  if (ttlMs <= 0) {
+    const context = (await buildSqlContext()) as VersionedSqlContext;
+    const signature = computeContextSignature(context);
+    const version = ++contextVersionCounter;
+    return annotateContext(context, signature, version);
+  }
+
+  const now = Date.now();
+  pruneExpiredConnectionEntries(now);
+
+  if (contextCacheEntry && contextCacheEntry.expiresAt > now) {
+    contextCacheEntry.expiresAt = now + ttlMs;
+    recordRuntimeCacheEvent('context', 'hit');
+    return contextCacheEntry.context;
+  }
+
+  if (contextCacheEntry) {
+    recordRuntimeCacheEvent('context', 'expired');
+    flushConnectionCache('expired');
+    contextCacheEntry = null;
+  }
+
+  if (!contextBuildPromise) {
+    contextBuildPromise = buildAndCacheContext(ttlMs).catch((error) => {
+      contextBuildPromise = null;
+      contextCacheEntry = null;
+      throw error;
+    });
+  }
+
+  return contextBuildPromise;
+}
+
+async function buildAndCacheContext(ttlMs: number): Promise<VersionedSqlContext> {
+  const start = process.hrtime.bigint();
+  const generation = cacheGeneration;
+  try {
+    const context = (await buildSqlContext()) as VersionedSqlContext;
+    const signature = computeContextSignature(context);
+    const version = ++contextVersionCounter;
+    annotateContext(context, signature, version);
+    const builtAt = Date.now();
+    recordRuntimeCacheEvent('context', 'miss');
+    observeRuntimeCacheRebuild('context', Number(process.hrtime.bigint() - start) / 1_000_000_000);
+    if (generation === cacheGeneration) {
+      contextCacheEntry = {
+        context,
+        expiresAt: builtAt + ttlMs,
+        builtAt,
+        version,
+        signature
+      } satisfies ContextCacheEntry;
+    }
+    return context;
+  } finally {
+    contextBuildPromise = null;
+  }
+}
+
 export async function createDuckDbConnection(context: SqlContext): Promise<SqlRuntimeConnection> {
+  const ttlMs = getRuntimeCacheTtlMs();
+  if (ttlMs <= 0) {
+    return createDuckDbConnectionUncached(context);
+  }
+
+  const signature = getContextSignature(context);
+  while (true) {
+    const now = Date.now();
+    pruneExpiredConnectionEntries(now);
+
+    const cachedEntry = connectionCache.get(signature);
+    if (cachedEntry && !cachedEntry.disposed && cachedEntry.expiresAt > now) {
+      cachedEntry.expiresAt = now + ttlMs;
+      recordRuntimeCacheEvent('connection', 'hit');
+      return leaseCachedConnection(cachedEntry);
+    }
+
+    if (cachedEntry) {
+      connectionCache.delete(signature);
+      markConnectionEntryForDisposal(cachedEntry, 'expired');
+    }
+
+    let pending = connectionBuildPromises.get(signature);
+    let initiatedBuild = false;
+
+    if (!pending) {
+      initiatedBuild = true;
+      pending = buildConnectionEntry(context, signature, ttlMs)
+        .catch((error) => {
+          connectionCache.delete(signature);
+          throw error;
+        })
+        .finally(() => {
+          connectionBuildPromises.delete(signature);
+        });
+      connectionBuildPromises.set(signature, pending);
+    }
+
+    await pending;
+
+    const entry = connectionCache.get(signature);
+    if (!entry || entry.disposed) {
+      continue;
+    }
+
+    entry.expiresAt = Date.now() + ttlMs;
+    if (!initiatedBuild) {
+      recordRuntimeCacheEvent('connection', 'hit');
+    }
+
+    return leaseCachedConnection(entry);
+  }
+}
+
+async function buildConnectionEntry(
+  context: SqlContext,
+  signature: string,
+  ttlMs: number
+): Promise<void> {
+  const start = process.hrtime.bigint();
+  const generation = cacheGeneration;
+  const { db, warnings } = await initializeDuckDbDatabase(context);
+  recordRuntimeCacheEvent('connection', 'miss');
+  observeRuntimeCacheRebuild('connection', Number(process.hrtime.bigint() - start) / 1_000_000_000);
+  if (generation !== cacheGeneration) {
+    if (isCloseable(db)) {
+      ignoreCloseError(() => db.close());
+    }
+    return;
+  }
+  const entry: ConnectionCacheEntry = {
+    signature,
+    db,
+    warnings,
+    expiresAt: Date.now() + ttlMs,
+    activeConnections: 0,
+    disposed: false,
+    closePromise: null
+  };
+  connectionCache.set(signature, entry);
+}
+
+async function createDuckDbConnectionUncached(
+  context: SqlContext
+): Promise<SqlRuntimeConnection> {
+  const { db, warnings } = await initializeDuckDbDatabase(context);
+  let connection: DuckDbConnection | null = null;
+  try {
+    connection = db.connect();
+  } catch (error) {
+    if (isCloseable(db)) {
+      ignoreCloseError(() => db.close());
+    }
+    throw error;
+  }
+
+  return {
+    connection,
+    warnings: [...warnings],
+    cleanup: async () => {
+      await closeConnection(connection!).catch(() => {
+        // ignore cleanup failures
+      });
+      if (isCloseable(db)) {
+        ignoreCloseError(() => db.close());
+      }
+    }
+  } satisfies SqlRuntimeConnection;
+}
+
+async function initializeDuckDbDatabase(context: SqlContext): Promise<{ db: any; warnings: string[] }> {
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();
@@ -134,16 +486,8 @@ export async function createDuckDbConnection(context: SqlContext): Promise<SqlRu
       warnings.push(...datasetWarnings);
     }
 
-    return {
-      connection,
-      warnings,
-      cleanup: async () => {
-        await closeConnection(connection);
-        if (isCloseable(db)) {
-          db.close();
-        }
-      }
-    } satisfies SqlRuntimeConnection;
+    await closeConnection(connection);
+    return { db, warnings };
   } catch (error) {
     await closeConnection(connection).catch(() => {
       // ignore cleanup failures during bootstrapping
@@ -201,6 +545,23 @@ async function prepareConnectionForRemotePartitions(
   if (azureTargets.size > 0) {
     await configureAzureSupport(connection, Array.from(azureTargets.values()));
   }
+}
+
+export function invalidateSqlRuntimeCache(): void {
+  cacheGeneration += 1;
+  contextCacheEntry = null;
+  contextBuildPromise = null;
+  recordRuntimeCacheEvent('context', 'invalidated');
+  flushConnectionCache('invalidated');
+}
+
+export function resetSqlRuntimeCache(): void {
+  cacheGeneration += 1;
+  contextCacheEntry = null;
+  contextBuildPromise = null;
+  contextVersionCounter = 0;
+  flushConnectionCache('invalidated');
+  connectionBuildPromises.clear();
 }
 
 async function loadAllDatasets(): Promise<DatasetRecord[]> {

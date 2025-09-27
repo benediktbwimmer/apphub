@@ -43,6 +43,7 @@ import {
   type LifecycleOperation
 } from '../lifecycle/types';
 import { authorizeAdminAccess, resolveRequestActor, getRequestScopes } from '../service/iam';
+import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
@@ -294,6 +295,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
+    invalidateSqlRuntimeCache();
+
     reply.header('etag', dataset.updatedAt);
     if (created) {
       reply.status(201);
@@ -378,6 +381,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         }
       });
 
+      invalidateSqlRuntimeCache();
+
       reply.header('etag', updated.updatedAt);
       return {
         dataset: updated,
@@ -451,6 +456,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           idempotent: dataset.status === 'inactive'
         }
       });
+
+      invalidateSqlRuntimeCache();
 
       reply.header('etag', updated.updatedAt);
       return {
@@ -732,6 +739,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         actor: resolveActor(request)
       }
     });
+
+    invalidateSqlRuntimeCache();
 
     const updatedDataset = await getDatasetById(dataset.id);
 

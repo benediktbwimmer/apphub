@@ -55,6 +55,9 @@ export interface HttpMetricInput {
   durationSeconds?: number;
 }
 
+export type RuntimeCacheResource = 'context' | 'connection';
+export type RuntimeCacheEvent = 'hit' | 'miss' | 'invalidated' | 'expired';
+
 interface MetricsState {
   enabled: boolean;
   registry: Registry;
@@ -74,6 +77,8 @@ interface MetricsState {
   lifecycleQueueJobs: Gauge<string> | null;
   httpRequestsTotal: Counter<string> | null;
   httpRequestDurationSeconds: Histogram<string> | null;
+  runtimeCacheEventsTotal: Counter<string> | null;
+  runtimeCacheRebuildDurationSeconds: Histogram<string> | null;
 }
 
 const INGESTION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
@@ -236,6 +241,25 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const runtimeCacheEventsTotal = enabled
+    ? new Counter({
+        name: `${prefix}sql_runtime_cache_events_total`,
+        help: 'SQL runtime cache events grouped by resource and event type',
+        labelNames: ['resource', 'event'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const runtimeCacheRebuildDurationSeconds = enabled
+    ? new Histogram({
+        name: `${prefix}sql_runtime_cache_rebuild_duration_seconds`,
+        help: 'SQL runtime cache rebuild durations grouped by resource',
+        labelNames: ['resource'],
+        buckets: QUERY_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
   if (enabled && options.collectDefaultMetrics) {
     collectDefaultMetrics({ register: registry, prefix });
   }
@@ -258,7 +282,9 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     lifecycleOperationsTotal,
     lifecycleQueueJobs,
     httpRequestsTotal,
-    httpRequestDurationSeconds
+    httpRequestDurationSeconds,
+    runtimeCacheEventsTotal,
+    runtimeCacheRebuildDurationSeconds
   } satisfies MetricsState;
 
   return metricsState;
@@ -360,6 +386,25 @@ export function observeHttpRequest(input: HttpMetricInput): void {
   if (input.durationSeconds !== undefined && state.httpRequestDurationSeconds) {
     state.httpRequestDurationSeconds.labels(method, route).observe(Math.max(input.durationSeconds, 0));
   }
+}
+
+export function recordRuntimeCacheEvent(resource: RuntimeCacheResource, event: RuntimeCacheEvent): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.runtimeCacheEventsTotal) {
+    return;
+  }
+  state.runtimeCacheEventsTotal.labels(resource, event).inc();
+}
+
+export function observeRuntimeCacheRebuild(
+  resource: RuntimeCacheResource,
+  durationSeconds: number
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.runtimeCacheRebuildDurationSeconds) {
+    return;
+  }
+  state.runtimeCacheRebuildDurationSeconds.labels(resource).observe(Math.max(durationSeconds, 0));
 }
 
 export function metricsEnabled(): boolean {

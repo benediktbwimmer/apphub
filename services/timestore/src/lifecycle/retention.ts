@@ -10,6 +10,7 @@ import { createDefaultRetentionPolicy, type RetentionPolicy } from './types';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
 import { publishTimestoreEvent } from '../events/publisher';
+import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 export async function enforceRetention(
   context: LifecycleJobContext,
@@ -126,6 +127,8 @@ export async function enforceRetention(
       console.error('[timestore] failed to publish partition.deleted event', err);
     }
   }
+
+  invalidateSqlRuntimeCache();
 
   return {
     operation: 'retention',

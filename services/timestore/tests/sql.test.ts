@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { after, before, describe, test } from 'node:test';
+import { after, afterEach, before, describe, test } from 'node:test';
 import fastify from 'fastify';
 import EmbeddedPostgres from 'embedded-postgres';
 import { loadServiceConfig, resetCachedServiceConfig } from '../src/config/serviceConfig';
@@ -22,6 +22,7 @@ let migrationsModule: typeof import('../src/db/migrations');
 let metadataModule: typeof import('../src/db/metadata');
 let storageModule: typeof import('../src/storage');
 let sqlRoutesModule: typeof import('../src/routes/sql');
+let runtimeModule: typeof import('../src/sql/runtime');
 
 let datasetSlug: string;
 
@@ -29,6 +30,7 @@ before(async () => {
   process.env.TIMESTORE_SQL_READ_SCOPE = 'sql:read';
   process.env.TIMESTORE_SQL_EXEC_SCOPE = 'sql:exec';
   process.env.REDIS_URL = 'inline';
+  process.env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS = '60000';
 
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-sql-pg-'));
   storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-sql-storage-'));
@@ -65,6 +67,8 @@ before(async () => {
   metadataModule = await import('../src/db/metadata');
   storageModule = await import('../src/storage');
   sqlRoutesModule = await import('../src/routes/sql');
+  runtimeModule = await import('../src/sql/runtime');
+  runtimeModule.resetSqlRuntimeCache();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
@@ -91,6 +95,12 @@ after(async () => {
   if (storageRoot) {
     await rm(storageRoot, { recursive: true, force: true });
   }
+  runtimeModule?.resetSqlRuntimeCache();
+  delete process.env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS;
+});
+
+afterEach(() => {
+  runtimeModule?.resetSqlRuntimeCache();
 });
 
 async function seedSamples(): Promise<void> {
@@ -334,5 +344,65 @@ describe('sql routes', () => {
     const body = response.json() as { rowCount: number; command?: string };
     assert.equal(body.rowCount, 1);
     assert.equal(body.command, 'INSERT');
+  });
+});
+
+describe('sql runtime cache', () => {
+  test('loadSqlContext reuses cached context until invalidated', async () => {
+    assert.ok(runtimeModule);
+    runtimeModule.resetSqlRuntimeCache();
+
+    const contextA = await runtimeModule.loadSqlContext();
+    assert.ok(contextA.datasets.length > 0, 'expected datasets in context');
+
+    const contextB = await runtimeModule.loadSqlContext();
+    assert.strictEqual(contextA, contextB, 'cached context should be reused');
+
+    runtimeModule.invalidateSqlRuntimeCache();
+    const contextC = await runtimeModule.loadSqlContext();
+    assert.notStrictEqual(contextC, contextA, 'rebuild should produce new context instance');
+  });
+
+  test('createDuckDbConnection caches DuckDB attachments between reads', async () => {
+    assert.ok(runtimeModule);
+    runtimeModule.resetSqlRuntimeCache();
+
+    const contextFirst = await runtimeModule.loadSqlContext();
+    assert.ok(contextFirst.datasets.length > 0);
+
+    const sharedModule = await import('@apphub/shared');
+    const duckdbModule = sharedModule.loadDuckDb();
+    const OriginalDatabase = duckdbModule.Database as unknown as { new (...args: unknown[]): unknown };
+    let databaseCreates = 0;
+
+    const CountingDatabase = class extends OriginalDatabase {
+      constructor(...args: unknown[]) {
+        super(...args);
+        databaseCreates += 1;
+      }
+    };
+
+    duckdbModule.Database = CountingDatabase as unknown as typeof duckdbModule.Database;
+
+    try {
+      const contextA = await runtimeModule.loadSqlContext();
+      const runtimeA = await runtimeModule.createDuckDbConnection(contextA);
+      await runtimeA.cleanup();
+
+      const contextB = await runtimeModule.loadSqlContext();
+      const runtimeB = await runtimeModule.createDuckDbConnection(contextB);
+      await runtimeB.cleanup();
+
+      assert.equal(databaseCreates, 1, 'cached connection should reuse prepared attachments');
+
+      runtimeModule.invalidateSqlRuntimeCache();
+      const contextC = await runtimeModule.loadSqlContext();
+      const runtimeC = await runtimeModule.createDuckDbConnection(contextC);
+      await runtimeC.cleanup();
+
+      assert.equal(databaseCreates, 2, 'rebuild after invalidation should create new DuckDB instance');
+    } finally {
+      duckdbModule.Database = OriginalDatabase as unknown as typeof duckdbModule.Database;
+    }
   });
 });

@@ -22,6 +22,7 @@ import {
   mergeSummaryLifecycle,
   partitionRecordToInput
 } from './manifest';
+import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 interface CompactionGroup {
   partitions: PartitionWithTarget[];
@@ -164,6 +165,8 @@ export async function performCompaction(
     createdBy: 'timestore-lifecycle',
     partitions: finalPartitionInputs
   });
+
+  invalidateSqlRuntimeCache();
 
   return {
     operation: 'compaction',
