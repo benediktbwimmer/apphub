@@ -1428,8 +1428,17 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
 
 async function checkServiceHealth(service: ServiceRecord) {
   const manifest = manifestEntries.get(service.slug);
-  const healthEndpoint = manifest?.healthEndpoint ?? '/healthz';
   const metadata = coerceServiceMetadata(service.metadata ?? null);
+  const manifestHealthEndpoint =
+    typeof manifest?.healthEndpoint === 'string' && manifest.healthEndpoint.trim().length > 0
+      ? manifest.healthEndpoint.trim()
+      : null;
+  const metadataHealthEndpoint =
+    typeof metadata?.manifest?.healthEndpoint === 'string' &&
+    metadata.manifest.healthEndpoint.trim().length > 0
+      ? metadata.manifest.healthEndpoint.trim()
+      : null;
+  const healthEndpoint = manifestHealthEndpoint ?? metadataHealthEndpoint ?? '/healthz';
   const runtimeMeta = toPlainObject(metadata?.runtime as JsonValue | null | undefined);
   const metadataRecord = toPlainObject(service.metadata ?? null);
   metadataRecord.resourceType = 'service';

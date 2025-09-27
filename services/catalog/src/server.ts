@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
 import { initializeServiceRegistry } from './serviceRegistry';
+import { registerDefaultServices } from './startup/registerDefaultServices';
 import { stopAnalyticsSnapshots } from './events';
 import { registerCoreRoutes } from './routes/core';
 import { registerAuthRoutes } from './routes/auth';
@@ -51,6 +52,8 @@ export async function buildServer() {
       deepLinking: true
     }
   });
+
+  await registerDefaultServices(app.log);
 
   const registry = await initializeServiceRegistry();
 
