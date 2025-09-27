@@ -36,8 +36,10 @@ import { RetentionPanel } from './components/RetentionPanel';
 import { QueryConsole } from './components/QueryConsole';
 import { LifecycleControls } from './components/LifecycleControls';
 import { MetricsSummary } from './components/MetricsSummary';
+import DatasetHistoryPanel from './components/DatasetHistoryPanel';
 import { formatInstant } from './utils';
 import { ROUTE_PATHS } from '../routes/paths';
+import { useDatasetHistory } from './hooks/useDatasetHistory';
 
 const DATASET_POLL_INTERVAL = 30000;
 const LIFECYCLE_POLL_INTERVAL = 60000;
@@ -475,6 +477,22 @@ export default function TimestoreDatasetsPage() {
 
   const datasetSlugForQuery = datasetDetail?.slug ?? selectedDatasetRecord?.slug ?? null;
 
+  const {
+    events: historyEvents,
+    loading: historyLoading,
+    loadingMore: historyLoadingMore,
+    error: historyError,
+    hasMore: historyHasMore,
+    lastFetchedAt: historyLastFetchedAt,
+    refresh: refreshHistory,
+    loadMore: loadMoreHistory
+  } = useDatasetHistory({
+    datasetId: selectedDatasetId,
+    authorizedFetch,
+    enabled: hasAdminScope,
+    pageSize: 30
+  });
+
   const handleSubmitSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSearch(searchInput.trim());
@@ -664,7 +682,10 @@ export default function TimestoreDatasetsPage() {
         <div className="flex flex-col gap-6">
           {selectedDatasetId ? (
             <>
-              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+              <div
+                id="timestore-manifest"
+                className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
+              >
                 {detailLoading ? (
                   <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-300">
                     <Spinner label="Loading dataset details" />
@@ -729,7 +750,10 @@ export default function TimestoreDatasetsPage() {
 
               <QueryConsole datasetSlug={datasetSlugForQuery} defaultTimestampColumn="timestamp" canQuery={hasReadScope} />
 
-              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+              <div
+                id="timestore-manifest"
+                className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
+              >
                 <header className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
@@ -824,6 +848,18 @@ export default function TimestoreDatasetsPage() {
                 )}
               </div>
 
+              <DatasetHistoryPanel
+                events={historyEvents}
+                loading={historyLoading}
+                loadingMore={historyLoadingMore}
+                error={historyError}
+                canView={hasAdminScope}
+                hasMore={historyHasMore}
+                lastFetchedAt={historyLastFetchedAt}
+                onRefresh={refreshHistory}
+                onLoadMore={loadMoreHistory}
+              />
+
               {datasetSlugForQuery ? (
                 <LifecycleControls
                   datasetId={selectedDatasetId}
@@ -833,6 +869,7 @@ export default function TimestoreDatasetsPage() {
                   error={lifecycleErrorMessage}
                   onRefresh={refetchLifecycle}
                   canRun={hasAdminScope}
+                  panelId="timestore-lifecycle"
                 />
               ) : (
                 <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">

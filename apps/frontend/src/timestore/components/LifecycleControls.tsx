@@ -22,6 +22,7 @@ interface LifecycleControlsProps {
   error: string | null;
   onRefresh: () => void;
   canRun: boolean;
+  panelId?: string;
 }
 
 function resolveReportTimestamp(report: LifecycleMaintenanceReport): string | null {
@@ -35,7 +36,16 @@ function resolveReportTimestamp(report: LifecycleMaintenanceReport): string | nu
   return null;
 }
 
-export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error, onRefresh, canRun }: LifecycleControlsProps) {
+export function LifecycleControls({
+  datasetId,
+  datasetSlug,
+  jobs,
+  loading,
+  error,
+  onRefresh,
+  canRun,
+  panelId
+}: LifecycleControlsProps) {
   const authorizedFetch = useAuthorizedFetch();
   const { showSuccess, showError, showInfo } = useToastHelpers();
   const [selectedOperations, setSelectedOperations] = useState<LifecycleOperation[]>([...DEFAULT_OPERATIONS]);
@@ -97,7 +107,10 @@ export function LifecycleControls({ datasetId, datasetSlug, jobs, loading, error
   };
 
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <div
+      id={panelId}
+      className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70"
+    >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Lifecycle</span>

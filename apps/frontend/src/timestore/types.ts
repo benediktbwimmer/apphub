@@ -2,6 +2,9 @@ import { z } from 'zod';
 import {
   archiveDatasetRequestSchema as sharedArchiveDatasetRequestSchema,
   createDatasetRequestSchema as sharedCreateDatasetRequestSchema,
+  datasetAccessAuditEventSchema as sharedDatasetAccessAuditEventSchema,
+  datasetAccessAuditListQuerySchema as sharedDatasetAccessAuditListQuerySchema,
+  datasetAccessAuditListResponseSchema as sharedDatasetAccessAuditListResponseSchema,
   datasetIamConfigSchema as sharedDatasetIamConfigSchema,
   datasetMetadataSchema as sharedDatasetMetadataSchema,
   datasetRecordSchema as sharedDatasetRecordSchema,
@@ -9,9 +12,6 @@ import {
   datasetStatusSchema as sharedDatasetStatusSchema,
   patchDatasetRequestSchema as sharedPatchDatasetRequestSchema
 } from '@apphub/shared/timestoreAdmin';
-
-const datasetStatusSchema = sharedDatasetStatusSchema;
-const writeFormatSchema = z.enum(['duckdb', 'parquet']);
 
 const retentionRuleSchema = z.object({
   maxAgeHours: z.number().int().positive().optional(),
@@ -48,7 +48,15 @@ export const patchDatasetRequestSchema = sharedPatchDatasetRequestSchema;
 
 export const archiveDatasetRequestSchema = sharedArchiveDatasetRequestSchema;
 
-export type DatasetStatus = z.infer<typeof datasetStatusSchema>;
+export const datasetAccessAuditEventSchema = sharedDatasetAccessAuditEventSchema;
+
+export const datasetAccessAuditListQuerySchema = sharedDatasetAccessAuditListQuerySchema;
+
+export const datasetAccessAuditListResponseSchema = sharedDatasetAccessAuditListResponseSchema.extend({
+  events: z.array(datasetAccessAuditEventSchema)
+});
+
+export type DatasetStatus = z.infer<typeof sharedDatasetStatusSchema>;
 export type DatasetIamConfig = z.infer<typeof datasetIamConfigSchema>;
 export type DatasetMetadata = z.infer<typeof datasetMetadataSchema>;
 export type DatasetRecord = z.infer<typeof datasetRecordSchema>;
@@ -56,6 +64,9 @@ export type DatasetResponse = z.infer<typeof datasetResponseSchema>;
 export type CreateDatasetRequest = z.infer<typeof createDatasetRequestSchema>;
 export type PatchDatasetRequest = z.infer<typeof patchDatasetRequestSchema>;
 export type ArchiveDatasetRequest = z.infer<typeof archiveDatasetRequestSchema>;
+export type DatasetAccessAuditListQuery = z.infer<typeof datasetAccessAuditListQuerySchema>;
+export type DatasetAccessAuditEvent = z.infer<typeof datasetAccessAuditEventSchema>;
+export type DatasetAccessAuditListResponse = z.infer<typeof datasetAccessAuditListResponseSchema>;
 
 export const datasetListResponseSchema = z.object({
   datasets: z.array(datasetRecordSchema),

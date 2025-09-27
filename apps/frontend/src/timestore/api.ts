@@ -19,6 +19,7 @@ import type {
 } from './types';
 import {
   archiveDatasetRequestSchema,
+  datasetAccessAuditListResponseSchema,
   createDatasetRequestSchema,
   datasetAccessAuditListResponseSchema,
   datasetListResponseSchema,
@@ -34,6 +35,15 @@ import {
   sqlQueryResultSchema,
   sqlSchemaResponseSchema
 } from './types';
+
+export type DatasetAccessAuditListParams = {
+  limit?: number;
+  cursor?: string | null;
+  actions?: string[];
+  success?: boolean | null;
+  startTime?: string | null;
+  endTime?: string | null;
+};
 
 function createTimestoreUrl(path: string): URL {
   const normalizedPath = path.replace(/^\/+/, '');
@@ -162,6 +172,43 @@ export async function fetchDatasets(
     throw new Error(`Fetch datasets failed with status ${response.status}`);
   }
   return parseJson(response, datasetListResponseSchema);
+}
+
+export async function fetchDatasetAccessAudit(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  datasetId: string,
+  params: DatasetAccessAuditListParams = {},
+  options: { signal?: AbortSignal } = {}
+): Promise<DatasetAccessAuditListResponse> {
+  const url = createTimestoreUrl(`admin/datasets/${encodeURIComponent(datasetId)}/audit`);
+  if (params.limit) {
+    url.searchParams.set('limit', Math.max(1, Math.min(params.limit, 200)).toString());
+  }
+  if (params.cursor) {
+    url.searchParams.set('cursor', params.cursor);
+  }
+  if (Array.isArray(params.actions)) {
+    for (const action of params.actions) {
+      if (action && action.trim().length > 0) {
+        url.searchParams.append('actions', action.trim());
+      }
+    }
+  }
+  if (typeof params.success === 'boolean') {
+    url.searchParams.set('success', params.success ? 'true' : 'false');
+  }
+  if (params.startTime) {
+    url.searchParams.set('startTime', params.startTime);
+  }
+  if (params.endTime) {
+    url.searchParams.set('endTime', params.endTime);
+  }
+
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  if (!response.ok) {
+    throw new Error(`Fetch dataset access audit failed with status ${response.status}`);
+  }
+  return parseJson(response, datasetAccessAuditListResponseSchema);
 }
 
 export async function fetchDatasetById(
