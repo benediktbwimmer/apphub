@@ -5,20 +5,16 @@ import catalog from '../../../../../examples/catalog/scenarios.json';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleScenario } from '../examples';
 import type { ExampleBundleStatus } from '../exampleBundles';
-import scenarioCatalog from '../../../../../examples/catalog/scenarios.json';
-import type { ExampleScenario } from '../examples';
 
-const exampleScenarios: ExampleScenario[] = (scenarioCatalog as { scenarios?: ExampleScenario[] }).scenarios ?? [];
+const catalogData = catalog as { scenarios?: ExampleScenario[] };
+const catalogScenarios: ExampleScenario[] = catalogData.scenarios ?? [];
 
 const SCENARIO_FIXTURE_IDS = new Set([
   'retail-sales-csv-loader-job',
   'retail-sales-parquet-job',
   'retail-sales-daily-ingest-workflow'
 ]);
-
-const exampleCatalog = catalog as { scenarios: ExampleScenario[] };
-
-const exampleScenarios: ExampleScenario[] = exampleCatalog.scenarios.filter((scenario) =>
+const exampleScenarios: ExampleScenario[] = catalogScenarios.filter((scenario) =>
   SCENARIO_FIXTURE_IDS.has(scenario.id)
 );
 
@@ -63,12 +59,6 @@ beforeEach(() => {
     if (url.includes('/examples/bundles/status')) {
       return new Response(
         JSON.stringify({ data: { statuses: bundleStatuses } }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    if (url.includes('/examples/catalog')) {
-      return new Response(
-        JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }

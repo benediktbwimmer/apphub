@@ -22,7 +22,6 @@ type EventsExplorerListProps = {
 
 type EventDetailDrawerProps = {
   event: WorkflowEventSample | null;
-  schema: WorkflowEventSchema | null;
   open: boolean;
   onClose: () => void;
 };
@@ -212,7 +211,7 @@ export default function EventsExplorerPage() {
         ) : null}
       </div>
 
-      <EventDetailDrawer event={selectedEvent} schema={schema} open={selectedEvent !== null} onClose={() => setSelectedId(null)} />
+      <EventDetailDrawer event={selectedEvent} open={selectedEvent !== null} onClose={() => setSelectedId(null)} />
 
       <SchemaBrowser
         schema={schema}
@@ -521,7 +520,7 @@ function SeverityBadge({ severity }: { severity: WorkflowEventSample['severity']
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classes}`}>{severity}</span>;
 }
 
-function EventDetailDrawer({ event, schema, open, onClose }: EventDetailDrawerProps) {
+function EventDetailDrawer({ event, open, onClose }: EventDetailDrawerProps) {
   return (
     <Modal open={open} onClose={onClose} contentClassName="max-w-4xl">
       {event ? (

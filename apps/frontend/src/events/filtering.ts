@@ -53,9 +53,29 @@ function matchesText(value: string | null | undefined, filter: string | null): b
   return candidate.includes(pattern);
 }
 
+type JsonInput = null | boolean | number | string | object | unknown[];
+
+function normalizeJsonPayload(payload: unknown): JsonInput {
+  if (payload === null) {
+    return null;
+  }
+  const valueType = typeof payload;
+  if (valueType === 'boolean' || valueType === 'number' || valueType === 'string') {
+    return payload as JsonInput;
+  }
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (valueType === 'object') {
+    return payload as object;
+  }
+  return null;
+}
+
 function evaluateJsonPath(path: string, payload: unknown): boolean {
   try {
-    const result = JSONPath({ path, json: payload, wrap: true }) as unknown[];
+    const jsonPayload = normalizeJsonPayload(payload);
+    const result = JSONPath<unknown[]>({ path, json: jsonPayload, wrap: true });
     return Array.isArray(result) && result.length > 0;
   } catch {
     return false;
