@@ -50,7 +50,7 @@ export async function buildApp(options?: BuildAppOptions) {
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
 
   await registerSystemRoutes(app);
-  await registerRecordRoutes(app);
+  await registerRecordRoutes(app, config);
   await registerNamespaceRoutes(app);
   await registerAdminRoutes(app);
 

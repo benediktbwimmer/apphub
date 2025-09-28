@@ -473,7 +473,19 @@ export const openApiDocument: OpenAPIV3.Document = {
                 required: ['namespace'],
                 properties: {
                   namespace: { type: 'string' },
-                  filter: { $ref: '#/components/schemas/SearchFilter' },
+                  filter: {
+                    allOf: [{ $ref: '#/components/schemas/SearchFilter' }],
+                    description: 'Structured filter tree. Combined with `q` and `preset` using an AND group.'
+                  },
+                  q: {
+                    type: 'string',
+                    description:
+                      'Lightweight query-string syntax (e.g. `key:foo owner=ops status:"in progress"`). Combined with other filters using AND semantics.'
+                  },
+                  preset: {
+                    type: 'string',
+                    description: 'Named server-defined filter preset. Requires appropriate scopes to use.'
+                  },
                   limit: { type: 'integer', minimum: 1, maximum: 200 },
                   offset: { type: 'integer', minimum: 0 },
                   includeDeleted: { type: 'boolean' },

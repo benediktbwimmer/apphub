@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parseFilterNode } from './filters';
-import type { FilterNode, SearchOptions, SortField } from '../search/types';
+import type { FilterNode, SortField } from '../search/types';
 
 const namespaceSchema = z
   .string()
@@ -88,6 +88,8 @@ const deleteRecordSchema = z.object({
 const searchSchema = z.object({
   namespace: namespaceSchema,
   filter: z.unknown().optional(),
+  q: z.string().trim().min(1).max(512).optional(),
+  preset: z.string().trim().min(1).max(64).optional(),
   includeDeleted: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
@@ -191,9 +193,16 @@ export function parsePatchRecordPayload(payload: unknown): PatchRecordPayload {
   return patchRecordSchema.parse(payload);
 }
 
-export type ParsedSearchPayload = Omit<SearchOptions, 'filter' | 'sort'> & {
+export type ParsedSearchPayload = {
+  namespace: string;
+  includeDeleted?: boolean;
+  limit?: number;
+  offset?: number;
   filter?: FilterNode;
+  q?: string;
+  preset?: string;
   sort?: SortField[];
+  projection?: string[];
 };
 
 export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
@@ -214,6 +223,8 @@ export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
     limit: parsed.limit,
     offset: parsed.offset,
     filter,
+    q: parsed.q,
+    preset: parsed.preset,
     sort,
     projection: parsed.projection
   } satisfies ParsedSearchPayload;

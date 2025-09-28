@@ -68,6 +68,21 @@ async function setupMetastore(): Promise<TestContext> {
 
   process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
   process.env.APPHUB_AUTH_DISABLED = '1';
+  process.env.APPHUB_METASTORE_SEARCH_PRESETS = JSON.stringify([
+    {
+      name: 'soft-deleted',
+      filter: { field: 'deletedAt', operator: 'exists' },
+      requiredScopes: ['metastore:read']
+    },
+    {
+      name: 'active-records',
+      filter: {
+        type: 'condition',
+        condition: { field: 'metadata.status', operator: 'eq', value: 'active' }
+      },
+      requiredScopes: ['metastore:read']
+    }
+  ]);
   if (!process.env.NODE_ENV) {
     process.env.NODE_ENV = 'test';
   }
@@ -81,7 +96,13 @@ async function setupMetastore(): Promise<TestContext> {
 }
 
 runE2E(async ({ registerCleanup }) => {
-  const envSnapshot = snapshotEnv(['DATABASE_URL', 'APPHUB_AUTH_DISABLED', 'NODE_ENV', 'APPHUB_METASTORE_TOKENS']);
+  const envSnapshot = snapshotEnv([
+    'DATABASE_URL',
+    'APPHUB_AUTH_DISABLED',
+    'NODE_ENV',
+    'APPHUB_METASTORE_TOKENS',
+    'APPHUB_METASTORE_SEARCH_PRESETS'
+  ]);
   registerCleanup(async () => {
     restoreEnv(envSnapshot);
   });
@@ -233,6 +254,31 @@ runE2E(async ({ registerCleanup }) => {
   assert.deepEqual(Object.keys(projectedRecord.metadata ?? {}).sort(), ['status']);
   assert.equal(projectedRecord.metadata.status, 'active');
 
+  const querySearchResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      q: 'key:pipeline-1 status:"active"'
+    }
+  });
+  assert.equal(querySearchResponse.statusCode, 200, querySearchResponse.body);
+  const querySearchBody = querySearchResponse.json() as {
+    records: Array<{ key: string }>;
+  };
+  assert.equal(querySearchBody.records.length, 1);
+  assert.equal(querySearchBody.records[0]?.key, 'pipeline-1');
+
+  const missingPresetResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      preset: 'does-not-exist'
+    }
+  });
+  assert.equal(missingPresetResponse.statusCode, 400, missingPresetResponse.body);
+
   // Search records
   const searchResponse = await app.inject({
     method: 'POST',
@@ -329,6 +375,23 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(fetchDeleted.statusCode, 200, fetchDeleted.body);
   const deletedBody = fetchDeleted.json() as { record: { deletedAt: string | null; version: number } };
   assert.ok(deletedBody.record.deletedAt);
+
+  const presetSearchResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      includeDeleted: true,
+      preset: 'soft-deleted'
+    }
+  });
+  assert.equal(presetSearchResponse.statusCode, 200, presetSearchResponse.body);
+  const presetSearchBody = presetSearchResponse.json() as {
+    records: Array<{ key: string; deletedAt: string | null }>;
+  };
+  assert.equal(presetSearchBody.records.length, 1);
+  assert.equal(presetSearchBody.records[0]?.key, 'pipeline-1');
+  assert.ok(presetSearchBody.records[0]?.deletedAt);
 
   const auditResponse = await app.inject({
     method: 'GET',

@@ -110,6 +110,12 @@ Supported comparison operators:
 
 Boolean operators: `and`, `or`, plus `not` combinator. Filter depth is capped at 8 levels to protect query compilation. Numeric, boolean, and ISO 8601 timestamp comparisons auto-cast metadata values when using `<`, `>`, or `between`.
 
+### Query Shortcuts & Presets
+- `POST /records/search` also accepts a `q` parameter with a lightweight `field:value` syntax (e.g. `key:ingest owner=ops status:"in progress"`). Terms default to AND semantics and automatically prefix unknown fields with `metadata.`.
+- Combine `q`, structured `filter`, and a `preset` in the same request—the server merges them into a single AND group before compiling SQL.
+- Define reusable presets via `APPHUB_METASTORE_SEARCH_PRESETS` (inline JSON) or `APPHUB_METASTORE_SEARCH_PRESETS_PATH` (JSON file). Each preset declares a name, JSON filter payload, and optional `requiredScopes`; callers must hold at least one of the listed scopes.
+
+
 ## Authentication & Namespaces
 - Bearer tokens are loaded from `APPHUB_METASTORE_TOKENS`, `APPHUB_METASTORE_TOKENS_PATH`, or fall back to `APPHUB_OPERATOR_TOKENS`. 
 - Tokens declare scopes (`metastore:read`, `metastore:write`, `metastore:delete`, `metastore:admin`) and optional namespace allow-lists. Admin scope implies all other scopes and namespace access.

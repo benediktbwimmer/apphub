@@ -27,6 +27,9 @@ import {
 } from '../schemas/records';
 import { HttpError, toHttpError } from './errors';
 import { hasScope } from '../auth/identity';
+import type { ServiceConfig } from '../config/serviceConfig';
+import type { FilterNode } from '../search/types';
+import { compileQueryString, mergeFilterNodes } from '../search/queryCompiler';
 import { listRecordAudits } from '../db/auditRepository';
 import { serializeAuditEntry } from './serializers';
 import { publishMetastoreRecordEvent } from '../events/publisher';
@@ -52,7 +55,7 @@ function mapError(err: unknown): HttpError {
   return new HttpError(500, 'internal_error', err instanceof Error ? err.message : 'Unknown error');
 }
 
-export async function registerRecordRoutes(app: FastifyInstance): Promise<void> {
+export async function registerRecordRoutes(app: FastifyInstance, config: ServiceConfig): Promise<void> {
   app.post('/records', async (request, reply) => {
     if (!ensureScope(request, reply, 'metastore:write')) {
       return;
@@ -462,12 +465,48 @@ export async function registerRecordRoutes(app: FastifyInstance): Promise<void> 
       return;
     }
 
+    let queryFilter: FilterNode | undefined;
+    if (payload.q) {
+      try {
+        queryFilter = compileQueryString(payload.q);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Invalid query string';
+        reply.code(400).send({ statusCode: 400, error: 'bad_request', message });
+        return;
+      }
+    }
+
+    let presetFilter: FilterNode | undefined;
+    if (payload.preset) {
+      const preset = config.searchPresets.find((entry) => entry.name === payload.preset);
+      if (!preset) {
+        reply.code(400).send({
+          statusCode: 400,
+          error: 'bad_request',
+          message: `Unknown search preset: ${payload.preset}`
+        });
+        return;
+      }
+      const allowed = preset.requiredScopes.some((scope) => hasScope(request.identity, scope));
+      if (!allowed) {
+        reply.code(403).send({
+          statusCode: 403,
+          error: 'forbidden',
+          message: `Missing required scope for preset ${payload.preset}`
+        });
+        return;
+      }
+      presetFilter = preset.filter;
+    }
+
+    const combinedFilter = mergeFilterNodes([payload.filter, presetFilter, queryFilter]);
+
     try {
       const { records, total } = await withConnection((client) =>
         searchRecords(client, {
           namespace: payload.namespace,
           includeDeleted: payload.includeDeleted,
-          filter: payload.filter,
+          filter: combinedFilter,
           limit: payload.limit,
           offset: payload.offset,
           sort: payload.sort,

@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { FilterNode } from '../search/types';
+import { parseFilterNode } from '../schemas/filters';
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
@@ -20,6 +22,7 @@ export type ServiceConfig = {
   tokens: TokenDefinition[];
   defaultNamespace: string;
   metricsEnabled: boolean;
+  searchPresets: SearchPresetDefinition[];
   database: {
     schema: string;
     maxConnections: number;
@@ -34,6 +37,14 @@ export type ServiceConfig = {
     retryDelayMs: number;
     inline: boolean;
   };
+};
+
+export type SearchPresetDefinition = {
+  name: string;
+  label?: string;
+  description?: string;
+  filter: FilterNode;
+  requiredScopes: TokenScope[];
 };
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -70,6 +81,40 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
 }
 
 const KNOWN_SCOPES: TokenScope[] = ['metastore:read', 'metastore:write', 'metastore:delete', 'metastore:admin'];
+
+function parsePresetScopes(raw: unknown): TokenScope[] {
+  if (!raw) {
+    return ['metastore:read'];
+  }
+
+  const coerceToList = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => (typeof entry === 'string' ? entry : ''))
+        .filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      return value
+        .split(/[\s,]+/)
+        .map((segment) => segment.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+
+  const normalized = new Set<TokenScope>();
+  for (const candidate of coerceToList(raw)) {
+    if ((KNOWN_SCOPES as string[]).includes(candidate)) {
+      normalized.add(candidate as TokenScope);
+    }
+  }
+
+  if (normalized.size === 0) {
+    return ['metastore:read'];
+  }
+
+  return Array.from(normalized);
+}
 
 function normalizeScopes(raw: unknown): TokenScope[] | '*'
 {
@@ -147,6 +192,99 @@ function resolveTokensFromString(contents: string, source: string): TokenDefinit
   }
 }
 
+type RawPresetDefinition = {
+  name?: unknown;
+  label?: unknown;
+  description?: unknown;
+  filter?: unknown;
+  scopes?: unknown;
+  requiredScopes?: unknown;
+};
+
+function parsePresetDefinition(raw: RawPresetDefinition, source: string, index: number): SearchPresetDefinition | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+  if (!name) {
+    console.warn(`[metastore:config] Preset at index ${index} in ${source} is missing a name`);
+    return null;
+  }
+
+  if (!raw.filter) {
+    console.warn(`[metastore:config] Preset "${name}" in ${source} is missing a filter definition`);
+    return null;
+  }
+
+  try {
+    const filter = parseFilterNode(raw.filter);
+    const requiredScopes = parsePresetScopes(raw.requiredScopes ?? raw.scopes);
+    const label = typeof raw.label === 'string' ? raw.label.trim() : undefined;
+    const description = typeof raw.description === 'string' ? raw.description.trim() : undefined;
+
+    return {
+      name,
+      label,
+      description,
+      filter,
+      requiredScopes
+    } satisfies SearchPresetDefinition;
+  } catch (error) {
+    console.warn(
+      `[metastore:config] Failed to parse preset "${name}" in ${source}:`,
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+function resolvePresetsFromString(contents: string, source: string): SearchPresetDefinition[] {
+  try {
+    const parsed = JSON.parse(contents);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((entry, index) => parsePresetDefinition(entry as RawPresetDefinition, source, index))
+      .filter((entry): entry is SearchPresetDefinition => entry !== null);
+  } catch (error) {
+    console.warn(`[metastore:config] Failed to parse search preset definition from ${source}:`, error);
+    return [];
+  }
+}
+
+function loadPresetsFromPath(rawPath: string | undefined): SearchPresetDefinition[] {
+  if (!rawPath) {
+    return [];
+  }
+
+  const resolved = path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+  if (!existsSync(resolved)) {
+    console.warn(`[metastore:config] Search preset file not found: ${resolved}`);
+    return [];
+  }
+
+  try {
+    const contents = readFileSync(resolved, 'utf8');
+    return resolvePresetsFromString(contents, resolved);
+  } catch (error) {
+    console.warn(`[metastore:config] Failed to read search preset file ${resolved}:`, error);
+    return [];
+  }
+}
+
+function loadSearchPresets(): SearchPresetDefinition[] {
+  const direct = process.env.APPHUB_METASTORE_SEARCH_PRESETS ?? '';
+  const filePath = process.env.APPHUB_METASTORE_SEARCH_PRESETS_PATH;
+
+  const fromEnv = direct ? resolvePresetsFromString(direct, 'APPHUB_METASTORE_SEARCH_PRESETS') : [];
+  const fromFile = loadPresetsFromPath(filePath);
+
+  return [...fromFile, ...fromEnv];
+}
+
 function loadTokensFromPath(rawPath: string | undefined): TokenDefinition[] {
   if (!rawPath) {
     return [];
@@ -214,6 +352,7 @@ export function loadServiceConfig(): ServiceConfig {
     tokens,
     defaultNamespace,
     metricsEnabled,
+    searchPresets: loadSearchPresets(),
     database: {
       schema,
       maxConnections,
