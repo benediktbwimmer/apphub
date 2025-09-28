@@ -60,6 +60,13 @@ export interface LifecycleOperationMetricsInput {
   bytes?: number;
 }
 
+export interface SchemaMigrationMetricsInput {
+  datasetSlug: string;
+  result: 'completed' | 'failed';
+  durationSeconds?: number;
+  partitions?: number;
+}
+
 export type ManifestCacheHitSource = 'memory' | 'redis';
 export type ManifestCacheMissReason = 'disabled' | 'index' | 'entry' | 'stale' | 'error';
 export type ManifestCacheEvictionReason = 'invalidate' | 'rebuild';
@@ -106,6 +113,9 @@ interface MetricsState {
   httpRequestDurationSeconds: Histogram<string> | null;
   runtimeCacheEventsTotal: Counter<string> | null;
   runtimeCacheRebuildDurationSeconds: Histogram<string> | null;
+  schemaMigrationRunsTotal: Counter<string> | null;
+  schemaMigrationDurationSeconds: Histogram<string> | null;
+  schemaMigrationPartitions: Histogram<string> | null;
 }
 
 const INGESTION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10];
@@ -113,6 +123,7 @@ const QUERY_BUCKETS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5]
 const QUERY_ROWS_BUCKETS = [1, 10, 100, 1_000, 10_000, 100_000];
 const LIFECYCLE_BUCKETS = [0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
 const HTTP_BUCKETS = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5];
+const SCHEMA_MIGRATION_PARTITION_BUCKETS = [1, 5, 10, 25, 50, 100, 250, 500, 1_000];
 
 let metricsState: MetricsState | null = null;
 
@@ -369,6 +380,35 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const schemaMigrationRunsTotal = enabled
+    ? new Counter({
+        name: `${prefix}schema_migration_runs_total`,
+        help: 'Schema migration execution outcomes grouped by dataset and result',
+        labelNames: ['dataset', 'result'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const schemaMigrationDurationSeconds = enabled
+    ? new Histogram({
+        name: `${prefix}schema_migration_duration_seconds`,
+        help: 'Schema migration execution durations grouped by dataset',
+        labelNames: ['dataset'],
+        buckets: LIFECYCLE_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const schemaMigrationPartitions = enabled
+    ? new Histogram({
+        name: `${prefix}schema_migration_partitions`,
+        help: 'Schema migration partition counts grouped by dataset',
+        labelNames: ['dataset'],
+        buckets: SCHEMA_MIGRATION_PARTITION_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
   if (enabled && options.collectDefaultMetrics) {
     collectDefaultMetrics({ register: registry, prefix });
   }
@@ -402,7 +442,10 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     httpRequestsTotal,
     httpRequestDurationSeconds,
     runtimeCacheEventsTotal,
-    runtimeCacheRebuildDurationSeconds
+    runtimeCacheRebuildDurationSeconds,
+    schemaMigrationRunsTotal,
+    schemaMigrationDurationSeconds,
+    schemaMigrationPartitions
   } satisfies MetricsState;
 
   return metricsState;
@@ -600,6 +643,20 @@ export function observeRuntimeCacheRebuild(
     return;
   }
   state.runtimeCacheRebuildDurationSeconds.labels(resource).observe(Math.max(durationSeconds, 0));
+}
+
+export function observeSchemaMigration(input: SchemaMigrationMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.schemaMigrationRunsTotal) {
+    return;
+  }
+  state.schemaMigrationRunsTotal.labels(input.datasetSlug, input.result).inc();
+  if (typeof input.durationSeconds === 'number' && state.schemaMigrationDurationSeconds) {
+    state.schemaMigrationDurationSeconds.labels(input.datasetSlug).observe(Math.max(input.durationSeconds, 0));
+  }
+  if (typeof input.partitions === 'number' && state.schemaMigrationPartitions) {
+    state.schemaMigrationPartitions.labels(input.datasetSlug).observe(Math.max(input.partitions, 0));
+  }
 }
 
 export function metricsEnabled(): boolean {

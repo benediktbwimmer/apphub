@@ -14,7 +14,8 @@
     "ingest": "tsx src/workers/ingestionWorker.ts",
     "partition-build": "tsx src/workers/partitionBuildWorker.ts",
     "test": "tsx tests/runE2E.ts",
-    "prime-cache": "tsx src/tools/primeManifestCache.ts"
+    "prime-cache": "tsx src/tools/primeManifestCache.ts",
+    "schema-migrate": "tsx src/tools/schemaMigration.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.1",
@@ -29,12 +30,14 @@
     "fastify-plugin": "^4.5.1",
     "ioredis": "^5.8.0",
     "pg": "^8.16.3",
+    "js-yaml": "^4.1.0",
     "prom-client": "^15.1.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
     "@types/pg": "^8.15.5",
+    "@types/js-yaml": "^4.0.9",
     "embedded-postgres": "^17.6.0-beta.15",
     "s3rver": "^3.7.1",
     "tsx": "^4.20.5",

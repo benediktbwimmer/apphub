@@ -11,6 +11,19 @@ The timestore service exposes a Fastify API that fronts a DuckDB-backed time ser
 
 The service listens on `http://127.0.0.1:4100` by default and exposes `/health` and `/ready` endpoints for smoke tests.
 
+## Schema Migration Tooling
+Breaking schema changes (column renames, type rewrites, or removals) are executed via the offline migration CLI:
+
+    npm run schema-migrate -- --manifest path/to/migration.yaml [--dry-run|--execute] [--archive-dir ./archives]
+
+- **Manifest format** – Describe the dataset slug, governance metadata, target schema, and ordered operations. Supported operations include `rename` (optional inline transform), `transform` (arbitrary expression), and `drop` (with optional archival metadata).
+- **Dry runs** – Set `execution.dryRun: true` in the manifest or pass `--dry-run` to validate expressions, checksums, and guardrails without mutating manifests or storage.
+- **Execution** – Successful runs create a new schema version, rewrite each published manifest partition-by-partition, emit lifecycle audit events, refresh caches, and mark previous manifests as superseded for rollback.
+- **Archival** – Drop operations can archive their values as NDJSON files under `execution.archiveDirectory` (overridable with `--archive-dir`). Files are named `dataset-<partitionId>-<column>.jsonl`.
+- **Governance metadata** – `governance.ticketId` and `governance.approvedBy` are stamped into manifest metadata, partition metadata, and lifecycle logs for audit trails.
+
+See `tickets/126-timestore-schema-tooling.md` for the full manifest schema, validation checklist, and rollout guidance.
+
 ## Configuration
 Environment variables control networking, storage, and database access:
 
