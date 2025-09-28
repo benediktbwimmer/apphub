@@ -132,7 +132,7 @@ async function scheduleDatasets(
     };
     try {
       await queue.add(dataset.slug, payload, {
-        jobId: `dataset:${dataset.id}`,
+        jobId: `dataset-${dataset.id}`,
         repeat: {
           every: intervalMs
         },

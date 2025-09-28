@@ -153,13 +153,19 @@ export function createEventDrivenObservatoryConfig(
     staging: resolvePathValue(
       repoRoot,
       getVar('OBSERVATORY_STAGING_PATH'),
-      path.join(dataRoot, 'staging'),
+      path.join(
+        dataRoot,
+        filestore.stagingPrefix.split('/').join(path.sep)
+      ),
       'paths.staging'
     ),
     archive: resolvePathValue(
       repoRoot,
       getVar('OBSERVATORY_ARCHIVE_PATH'),
-      path.join(dataRoot, 'archive'),
+      path.join(
+        dataRoot,
+        filestore.archivePrefix.split('/').join(path.sep)
+      ),
       'paths.archive'
     ),
     plots: resolvePathValue(

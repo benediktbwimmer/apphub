@@ -92,7 +92,7 @@ export class RollupQueue {
     }
 
     await this.queue.add(payload.reason, payload, {
-      jobId: `rollup:${payload.nodeId}`,
+      jobId: `rollup-${payload.nodeId}`,
       removeOnComplete: true,
       removeOnFail: false
     });

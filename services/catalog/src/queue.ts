@@ -580,7 +580,25 @@ export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
   }
 
   const queue = queueManager.getQueue(QUEUE_KEYS.workflow);
-  await queue.add('workflow-run', { workflowRunId: trimmedId });
+  const baseOptions = queue.opts.defaultJobOptions ?? {};
+  const jobId = ['workflow-run', trimmedId, 'run'].join(':');
+  console.log('[enqueueWorkflowRun] scheduling run', { workflowRunId: trimmedId, jobId });
+  try {
+    await queue.add(
+      'workflow-run',
+      { workflowRunId: trimmedId },
+      {
+        ...baseOptions,
+        jobId
+      }
+    );
+  } catch (err) {
+    console.error('[enqueueWorkflowRun] queue.add failed', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err)
+    });
+    throw err;
+  }
 }
 
 export type EnqueueExampleBundleResult = {

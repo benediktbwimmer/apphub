@@ -548,7 +548,7 @@
                 "throttleWindowMs": 60000,
                 "throttleCount": 1,
                 "maxConcurrency": 1,
-                "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}",
+                "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute | replace: \":\", \"-\" }}",
                 "status": "active"
               }
             ]
@@ -869,7 +869,7 @@
                 "throttleWindowMs": 60000,
                 "throttleCount": 5,
                 "maxConcurrency": 2,
-                "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}",
+                "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey | replace: \":\", \"-\" }}",
                 "status": "active"
               }
             ]

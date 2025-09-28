@@ -224,6 +224,7 @@ async function collectInboxNodes(
   minuteSuffixes: string[]
 ): Promise<FilestoreNodeResponse[]> {
   const matches: FilestoreNodeResponse[] = [];
+  const normalizedParameterMinute = parameters.minute.replace(/:/g, '-');
   let offset: number | undefined = 0;
   const limit = Math.max(parameters.maxFiles * 2, 50);
   const normalizedPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
@@ -244,7 +245,14 @@ async function collectInboxNodes(
         node.metadata && typeof node.metadata === 'object'
           ? (node.metadata as Record<string, unknown>).minute
           : null;
-      const matchesMinuteMetadata = typeof metadataMinute === 'string' && metadataMinute === parameters.minute;
+      const metadataMinuteIso =
+        node.metadata && typeof node.metadata === 'object'
+          ? (node.metadata as Record<string, unknown>).minuteIso
+          : null;
+      const matchesMinuteMetadata =
+        (typeof metadataMinute === 'string' &&
+          (metadataMinute === parameters.minute || metadataMinute === normalizedParameterMinute)) ||
+        (typeof metadataMinuteIso === 'string' && metadataMinuteIso === parameters.minute);
       const matchesSuffix = minuteSuffixes.some((suffix) => filename.endsWith(suffix));
       if (matchesMinuteMetadata || matchesSuffix) {
         matches.push(node);
@@ -428,13 +436,25 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const stagingRelativePosix = stagingRelativePath.split(path.sep).join('/');
     const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
 
-    await filestoreClient.copyNode({
-      backendMountId: parameters.filestoreBackendId,
-      path: node.path,
-      targetPath: stagingTargetPath,
-      overwrite: true,
-      principal: parameters.principal
-    });
+    try {
+      await filestoreClient.copyNode({
+        backendMountId: parameters.filestoreBackendId,
+        path: node.path,
+        targetPath: stagingTargetPath,
+        overwrite: true,
+        principal: parameters.principal
+      });
+    } catch (err) {
+      context.logger('Filestore copy failed', {
+        error: err instanceof FilestoreClientError ? err.message : String(err),
+        code: err instanceof FilestoreClientError ? err.code : undefined,
+        statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
+        details: err instanceof FilestoreClientError ? err.details : undefined,
+        path: node.path,
+        targetPath: stagingTargetPath
+      });
+      throw err;
+    }
 
     const metadata =
       node.metadata && typeof node.metadata === 'object'
@@ -467,13 +487,25 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       );
     }
 
-    await filestoreClient.moveNode({
-      backendMountId: parameters.filestoreBackendId,
-      path: node.path,
-      targetPath: archiveTargetPath,
-      overwrite: true,
-      principal: parameters.principal
-    });
+    try {
+      await filestoreClient.moveNode({
+        backendMountId: parameters.filestoreBackendId,
+        path: node.path,
+        targetPath: archiveTargetPath,
+        overwrite: true,
+        principal: parameters.principal
+      });
+    } catch (err) {
+      context.logger('Filestore move failed', {
+        error: err instanceof FilestoreClientError ? err.message : String(err),
+        code: err instanceof FilestoreClientError ? err.code : undefined,
+        statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
+        details: err instanceof FilestoreClientError ? err.details : undefined,
+        path: node.path,
+        targetPath: archiveTargetPath
+      });
+      throw err;
+    }
 
     archiveOperations.push({
       sourcePath: node.path,

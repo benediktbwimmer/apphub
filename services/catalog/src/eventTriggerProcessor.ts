@@ -327,7 +327,11 @@ function normalizeDedupeKey(raw: string | null): string | null {
     return null;
   }
   const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (!trimmed) {
+    return null;
+  }
+  const sanitized = trimmed.replace(/:+/g, '-');
+  return sanitized.length > 0 ? sanitized : null;
 }
 
 async function handleThrottle(

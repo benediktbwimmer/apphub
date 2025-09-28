@@ -338,13 +338,10 @@
               "authToken": "{{ defaultParameters.timestoreAuthToken }}"
             }
           },
-          "throttleWindowMs": 60000,
-          "throttleCount": 1,
-          "maxConcurrency": 1,
-          "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}",
-          "status": "active"
-        }
-      ]
+    "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute | replace: \":\", \"-\" }}",
+    "status": "active"
+  }
+]
     }
   }
 }

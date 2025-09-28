@@ -55,7 +55,7 @@ function buildAssetKey(
 }
 
 function buildJobId(reason: AssetExpiryReason, assetKey: string): string {
-  return `${reason}:${assetKey}`;
+  return `${reason}-${assetKey.replace(/[:]/g, '-')}`;
 }
 
 function ensureAssetEventQueue(): Queue<AssetExpiryJobData> | null {

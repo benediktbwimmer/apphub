@@ -57,6 +57,7 @@ type GeneratorAssetPayload = {
   instrumentCount: number;
   filestoreInboxPrefix: string;
   filestoreBackendId: number;
+  minuteKey: string;
 };
 
 const DEFAULT_PROFILES: InstrumentProfile[] = [
@@ -443,6 +444,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   let seedOffset = parameters.seed;
 
   const normalizedInboxPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
+  const sanitizedMinuteKey = parameters.minute.replace(/:/g, '-');
 
   for (const profile of parameters.instrumentProfiles) {
     seedOffset += 1;
@@ -468,6 +470,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       principal: parameters.principal,
       metadata: {
         minute: parameters.minute,
+        minuteKey: sanitizedMinuteKey,
         instrumentId: profile.instrumentId,
         site: profile.site,
         rows: metrics.rows,
@@ -492,7 +495,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   await context.update({
     filesCreated: summaries.length,
     rowsGenerated: totalRows,
-    filestoreInboxPrefix: parameters.inboxPrefix
+    filestoreInboxPrefix: parameters.inboxPrefix,
+    minuteKey: sanitizedMinuteKey
   });
 
   const payload: GeneratorAssetPayload = {
@@ -503,6 +507,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     rowsGenerated: totalRows,
     instrumentCount: summaries.length,
     filestoreInboxPrefix: parameters.inboxPrefix,
+    minuteKey: sanitizedMinuteKey,
     filestoreBackendId: parameters.filestoreBackendId
   } satisfies GeneratorAssetPayload;
 

@@ -42,7 +42,9 @@ export async function enqueueIngestionJob(
 
   const queue = ensureQueue();
   const jobOptions = jobPayload.idempotencyKey
-    ? { jobId: `${jobPayload.datasetSlug}:${jobPayload.idempotencyKey}` }
+    ? {
+        jobId: `${jobPayload.datasetSlug}-${jobPayload.idempotencyKey.replace(/[:]/g, '-')}`
+      }
     : undefined;
   const job: Job<IngestionJobPayload> = await queue.add(
     jobPayload.datasetSlug,

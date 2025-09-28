@@ -289,29 +289,26 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
-          "metadata": {
-            "timestore": {
-              "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
-              "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
-              "authToken": "{{ defaultParameters.timestoreAuthToken }}"
-            },
-            "paths": {
-              "plotsDir": "{{ defaultParameters.plotsDir }}",
-              "reportsDir": "{{ defaultParameters.reportsDir }}"
-            },
-            "metastore": {
-              "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
-              "namespace": "{{ defaultParameters.metastoreNamespace }}",
-              "authToken": "{{ defaultParameters.metastoreAuthToken }}"
-            }
-          },
-          "throttleWindowMs": 60000,
-          "throttleCount": 5,
-          "maxConcurrency": 2,
-          "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}",
-          "status": "active"
-        }
-      ]
+    "metadata": {
+      "timestore": {
+        "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+        "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+        "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+      },
+      "paths": {
+        "plotsDir": "{{ defaultParameters.plotsDir }}",
+        "reportsDir": "{{ defaultParameters.reportsDir }}"
+      },
+      "metastore": {
+        "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+        "namespace": "{{ defaultParameters.metastoreNamespace }}",
+        "authToken": "{{ defaultParameters.metastoreAuthToken }}"
+      }
+    },
+    "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey | replace: \":\", \"-\" }}",
+    "status": "active"
+  }
+]
     }
   }
 }

@@ -54,7 +54,7 @@ export async function startFilestoreTestServer(options: {
   const envRestore = applyEnv({
     FILESTORE_HOST: '127.0.0.1',
     FILESTORE_PORT: String(port),
-    FILESTORE_LOG_LEVEL: 'fatal',
+    FILESTORE_LOG_LEVEL: process.env.FILESTORE_LOG_LEVEL ?? 'fatal',
     FILESTORE_DATABASE_URL: options.databaseUrl,
     FILESTORE_PG_SCHEMA: schema,
     FILESTORE_PGPOOL_MAX: '4',

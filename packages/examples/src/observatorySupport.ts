@@ -133,6 +133,30 @@ function resolveBackendRoot(config: EventDrivenObservatoryConfig): string {
     throw new Error('Observatory configuration is missing directories for filestore backend root resolution');
   }
 
+  const inboxPrefixSegments = config.filestore.inboxPrefix
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (inboxPrefixSegments.length > 0) {
+    let derived = directories[0];
+    for (let index = 0; index < inboxPrefixSegments.length; index += 1) {
+      const parent = path.dirname(derived);
+      if (parent === derived) {
+        derived = null;
+        break;
+      }
+      derived = parent;
+    }
+    if (derived) {
+      const normalized = resolveContainerPath(derived);
+      const allWithinDerived = directories.every((dir) => isWithinDirectory(normalized, dir));
+      if (allWithinDerived) {
+        return normalized;
+      }
+    }
+  }
+
   let candidate = directories[0];
   while (candidate) {
     const normalized = resolveContainerPath(candidate);
