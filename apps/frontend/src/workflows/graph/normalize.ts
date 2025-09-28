@@ -307,7 +307,9 @@ function compareTriggerWorkflowEdge(a: WorkflowTopologyTriggerWorkflowEdge, b: W
   if (a.workflowId !== b.workflowId) {
     return a.workflowId.localeCompare(b.workflowId);
   }
-  return a.triggerId.localeCompare(b.triggerId);
+  const keyA = 'triggerId' in a ? a.triggerId : a.scheduleId ?? '';
+  const keyB = 'triggerId' in b ? b.triggerId : b.scheduleId ?? '';
+  return keyA.localeCompare(keyB);
 }
 
 function compareEventSourceTriggerEdge(

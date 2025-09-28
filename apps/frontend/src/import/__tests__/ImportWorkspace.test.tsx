@@ -3,6 +3,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportWorkspace from '../ImportWorkspace';
 import type { ExampleBundleStatus } from '../exampleBundles';
+import scenarioCatalog from '../../../../../examples/catalog/scenarios.json';
+import type { ExampleScenario } from '../examples';
+
+const exampleScenarios: ExampleScenario[] = (scenarioCatalog as { scenarios?: ExampleScenario[] }).scenarios ?? [];
 
 const authorizedFetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>();
 const pushToastMock = vi.fn();
@@ -36,6 +40,12 @@ let bundleStatuses: ExampleBundleStatus[] = [];
 beforeEach(() => {
   bundleStatuses = [];
   authorizedFetchMock.mockImplementation(async (url: string) => {
+    if (url.includes('/examples/catalog')) {
+      return new Response(
+        JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     if (url.includes('/examples/bundles/status')) {
       return new Response(
         JSON.stringify({ data: { statuses: bundleStatuses } }),
@@ -77,8 +87,10 @@ describe('ImportWorkspace wizard', () => {
     const user = userEvent.setup();
     render(<ImportWorkspace />);
 
-    await user.click(screen.getByRole('button', { name: /load example/i }));
-    const picker = screen.getByRole('dialog');
+    const loadExampleButton = await screen.findByRole('button', { name: /load example/i });
+    await waitFor(() => expect(loadExampleButton).toBeEnabled());
+    await user.click(loadExampleButton);
+    const picker = await screen.findByRole('dialog');
     const workflowFilter = within(picker).getAllByRole('button', { name: /Workflows/i })[0];
     await user.click(workflowFilter);
 
@@ -115,8 +127,10 @@ describe('ImportWorkspace wizard', () => {
     const user = userEvent.setup();
     render(<ImportWorkspace />);
 
-    await user.click(screen.getByRole('button', { name: /load example/i }));
-    const picker = screen.getByRole('dialog');
+    const loadExampleButton = await screen.findByRole('button', { name: /load example/i });
+    await waitFor(() => expect(loadExampleButton).toBeEnabled());
+    await user.click(loadExampleButton);
+    const picker = await screen.findByRole('dialog');
     const workflowFilter = within(picker).getAllByRole('button', { name: /Workflows/i })[0];
     await user.click(workflowFilter);
 

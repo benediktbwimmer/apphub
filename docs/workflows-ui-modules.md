@@ -20,6 +20,7 @@ The workflows surface is now composed from a set of focused modules that mirror 
 - `WorkflowDetailsCard` shows metadata, triggers, and step breakdown for the selected workflow.
 - `WorkflowRunHistory` handles the runs table, refresh action, and runtime status metadata.
 - `WorkflowRunDetails` renders the selected run's metrics, output, and per-step history.
+- `WorkflowTopologyPanel` embeds the new React Flow canvas with normalized topology data, surfacing counts, cache metadata, and selection-aware highlighting.
 
 Existing shared components (`ManualRunPanel`, `WorkflowGraph`, `WorkflowFilters`, `StatusBadge`) continue to be reused by the page shell.
 

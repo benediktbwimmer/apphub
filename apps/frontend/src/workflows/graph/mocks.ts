@@ -1,4 +1,18 @@
-import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
+import type {
+  WorkflowTopologyAssetNode,
+  WorkflowTopologyAssetWorkflowEdge,
+  WorkflowTopologyEventSourceNode,
+  WorkflowTopologyEventSourceTriggerEdge,
+  WorkflowTopologyGraph,
+  WorkflowTopologyScheduleNode,
+  WorkflowTopologyStepAssetEdge,
+  WorkflowTopologyStepNode,
+  WorkflowTopologyStepRuntime,
+  WorkflowTopologyTriggerNode,
+  WorkflowTopologyTriggerWorkflowEdge,
+  WorkflowTopologyWorkflowNode,
+  WorkflowTopologyWorkflowStepEdge
+} from '@apphub/shared/workflowTopology';
 import { normalizeWorkflowGraph } from './normalize';
 import type { WorkflowGraphNormalized } from './types';
 
@@ -277,6 +291,274 @@ const DEMO_GRAPH: WorkflowTopologyGraph = {
 
 export function createDemoWorkflowGraph(): WorkflowTopologyGraph {
   return JSON.parse(JSON.stringify(DEMO_GRAPH)) as WorkflowTopologyGraph;
+}
+
+export function createMediumWorkflowGraph(): WorkflowTopologyGraph {
+  return createDemoWorkflowGraph();
+}
+
+export function createSmallWorkflowGraph(): WorkflowTopologyGraph {
+  const graph = createDemoWorkflowGraph();
+  const workflowIds = new Set<string>();
+  const firstWorkflow = graph.nodes.workflows[0];
+  if (firstWorkflow) {
+    workflowIds.add(firstWorkflow.id);
+  }
+
+  graph.nodes.workflows = graph.nodes.workflows.filter((workflow) => workflowIds.has(workflow.id));
+  graph.nodes.steps = graph.nodes.steps.filter((step) => workflowIds.has(step.workflowId));
+  graph.nodes.triggers = graph.nodes.triggers.filter((trigger) => workflowIds.has(trigger.workflowId));
+  graph.nodes.schedules = graph.nodes.schedules.filter((schedule) => workflowIds.has(schedule.workflowId));
+
+  const assetIds = new Set<string>();
+  graph.edges.stepToAsset = graph.edges.stepToAsset.filter((edge) => {
+    if (workflowIds.has(edge.workflowId)) {
+      assetIds.add(edge.normalizedAssetId);
+      return true;
+    }
+    return false;
+  });
+
+  graph.nodes.assets = graph.nodes.assets.filter((asset) => assetIds.has(asset.normalizedAssetId));
+  graph.edges.assetToWorkflow = graph.edges.assetToWorkflow.filter((edge) => workflowIds.has(edge.workflowId));
+  graph.edges.workflowToStep = graph.edges.workflowToStep.filter((edge) => workflowIds.has(edge.workflowId));
+  graph.edges.triggerToWorkflow = graph.edges.triggerToWorkflow.filter((edge) => workflowIds.has(edge.workflowId));
+
+  const triggerIds = new Set(graph.nodes.triggers.map((trigger) => trigger.id));
+  graph.edges.eventSourceToTrigger = graph.edges.eventSourceToTrigger.filter((edge) =>
+    triggerIds.has(edge.triggerId)
+  );
+  const sourceIds = new Set(graph.edges.eventSourceToTrigger.map((edge) => edge.sourceId));
+  graph.nodes.eventSources = graph.nodes.eventSources.filter((source) => sourceIds.has(source.id));
+
+  return graph;
+}
+
+export function createLargeWorkflowGraph({
+  workflowCount = 12,
+  stepsPerWorkflow = 10
+}: {
+  workflowCount?: number;
+  stepsPerWorkflow?: number;
+} = {}): WorkflowTopologyGraph {
+  const workflows: WorkflowTopologyWorkflowNode[] = [];
+  const steps: WorkflowTopologyStepNode[] = [];
+  const triggers: WorkflowTopologyTriggerNode[] = [];
+  const schedules: WorkflowTopologyScheduleNode[] = [];
+  const assets: WorkflowTopologyAssetNode[] = [];
+  const eventSources: WorkflowTopologyEventSourceNode[] = [];
+
+  const triggerToWorkflow: WorkflowTopologyTriggerWorkflowEdge[] = [];
+  const workflowToStep: WorkflowTopologyWorkflowStepEdge[] = [];
+  const stepToAsset: WorkflowTopologyStepAssetEdge[] = [];
+  const assetToWorkflow: WorkflowTopologyAssetWorkflowEdge[] = [];
+  const eventSourceToTrigger: WorkflowTopologyEventSourceTriggerEdge[] = [];
+
+  const now = new Date(BASE_GENERATED_AT);
+
+  for (let index = 0; index < workflowCount; index += 1) {
+    const workflowId = `wf-batch-${index}`;
+    const slug = `workflow-${index}`;
+    workflows.push({
+      id: workflowId,
+      slug,
+      name: `Workflow ${index + 1}`,
+      version: (index % 5) + 1,
+      description: `Generated workflow ${index + 1}`,
+      createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 24 * (index + 1)).toISOString(),
+      updatedAt: new Date(now.getTime() - 1000 * 60 * 15 * index).toISOString(),
+      metadata: null,
+      annotations: {
+        tags: [`team-${index % 3}`, `domain-${index % 4}`],
+        ownerName: `Team ${index % 5}`
+      }
+    });
+
+    const triggerId = `trigger-event-${workflowId}`;
+    const eventSourceId = `event-source-${workflowId}`;
+    eventSources.push({
+      id: eventSourceId,
+      eventType: `event.type.${index}`,
+      eventSource: `svc.event.${index}`
+    });
+    triggers.push({
+      id: triggerId,
+      workflowId,
+      kind: 'event',
+      name: `Event Trigger ${index + 1}`,
+      description: 'Generated trigger',
+      status: 'active',
+      eventType: `event.type.${index}`,
+      eventSource: eventSourceId,
+      predicates: [],
+      parameterTemplate: null,
+      throttleWindowMs: 60000,
+      throttleCount: 5,
+      maxConcurrency: 4,
+      idempotencyKeyExpression: '{{ event.id }}',
+      metadata: null,
+      createdAt: new Date(now.getTime() - 1000 * 60 * 10 * index).toISOString(),
+      updatedAt: new Date(now.getTime() - 1000 * 60 * index).toISOString(),
+      createdBy: 'system@apphub.example',
+      updatedBy: 'system@apphub.example'
+    });
+    eventSourceToTrigger.push({
+      sourceId: eventSourceId,
+      triggerId
+    });
+    triggerToWorkflow.push({
+      kind: 'event-trigger',
+      triggerId,
+      workflowId
+    });
+
+    const scheduleId = `schedule-${workflowId}`;
+    schedules.push({
+      id: scheduleId,
+      workflowId,
+      name: `Daily ${index}`,
+      description: 'Generated schedule',
+      cron: `${index % 60} ${index % 24} * * *`,
+      timezone: 'UTC',
+      parameters: null,
+      startWindow: null,
+      endWindow: null,
+      catchUp: index % 2 === 0,
+      nextRunAt: null,
+      isActive: true,
+      createdAt: new Date(now.getTime() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+      updatedAt: new Date(now.getTime() - 1000 * 60 * 60).toISOString()
+    });
+    triggerToWorkflow.push({
+      kind: 'schedule',
+      scheduleId,
+      workflowId
+    });
+
+    let previousStepId: string | null = null;
+    let previousAssetNormalizedId: string | null = null;
+
+    for (let stepIndex = 0; stepIndex < stepsPerWorkflow; stepIndex += 1) {
+      const stepId = `step-${workflowId}-${stepIndex}`;
+      const isJob = stepIndex % 2 === 0;
+      const runtime: WorkflowTopologyStepRuntime = isJob
+        ? {
+            type: 'job',
+            jobSlug: `job.slug.${index}.${stepIndex}`,
+            bundleStrategy: 'latest',
+            timeoutMs: 120000
+          }
+        : {
+            type: 'service',
+            serviceSlug: `svc.slug.${index}.${stepIndex}`,
+            timeoutMs: 90000,
+            requireHealthy: true
+          };
+
+      steps.push({
+        id: stepId,
+        workflowId,
+        name: isJob ? `Job Step ${stepIndex + 1}` : `Service Step ${stepIndex + 1}`,
+        description: 'Generated step',
+        type: isJob ? 'job' : 'service',
+        dependsOn: previousStepId ? [previousStepId] : [],
+        dependents: [],
+        runtime
+      });
+
+      workflowToStep.push({
+        workflowId,
+        fromStepId: previousStepId,
+        toStepId: stepId
+      });
+
+      const assetNormalizedId = `asset:${workflowId}:${stepIndex}`;
+      assets.push({
+        id: `asset-${workflowId}-${stepIndex}`,
+        assetId: `asset.${workflowId}.${stepIndex}`,
+        normalizedAssetId: assetNormalizedId,
+        annotations: {
+          tags: [`asset-${index % 4}`],
+          ownerName: `Data Team ${index % 3}`
+        }
+      });
+
+      stepToAsset.push({
+        workflowId,
+        stepId,
+        assetId: `asset.${workflowId}.${stepIndex}`,
+        normalizedAssetId: assetNormalizedId,
+        direction: 'produces',
+        freshness: null,
+        partitioning: null,
+        autoMaterialize: null
+      });
+
+      if (previousAssetNormalizedId) {
+        stepToAsset.push({
+          workflowId,
+          stepId,
+          assetId: `asset.${workflowId}.${stepIndex - 1}`,
+          normalizedAssetId: previousAssetNormalizedId,
+          direction: 'consumes',
+          freshness: null,
+          partitioning: null,
+          autoMaterialize: null
+        });
+      }
+
+      previousStepId = stepId;
+      previousAssetNormalizedId = assetNormalizedId;
+    }
+
+    if (previousAssetNormalizedId) {
+      const downstreamWorkflowIndex = (index + 1) % workflowCount;
+      const targetWorkflowId = `wf-batch-${downstreamWorkflowIndex}`;
+      assetToWorkflow.push({
+        assetId: `asset.${workflowId}.${stepsPerWorkflow - 1}`,
+        normalizedAssetId: previousAssetNormalizedId,
+        workflowId: targetWorkflowId,
+        stepId: null,
+        reason: 'auto-materialize',
+        priority: 1
+      });
+    }
+  }
+
+  return {
+    version: 'v1',
+    generatedAt: BASE_GENERATED_AT,
+    nodes: {
+      workflows,
+      steps,
+      triggers,
+      schedules,
+      assets,
+      eventSources
+    },
+    edges: {
+      triggerToWorkflow,
+      workflowToStep,
+      stepToAsset,
+      assetToWorkflow,
+      eventSourceToTrigger
+    }
+  } satisfies WorkflowTopologyGraph;
+}
+
+export function createSmallWorkflowGraphNormalized(): WorkflowGraphNormalized {
+  return normalizeWorkflowGraph(createSmallWorkflowGraph());
+}
+
+export function createMediumWorkflowGraphNormalized(): WorkflowGraphNormalized {
+  return normalizeWorkflowGraph(createMediumWorkflowGraph());
+}
+
+export function createLargeWorkflowGraphNormalized(options?: {
+  workflowCount?: number;
+  stepsPerWorkflow?: number;
+}): WorkflowGraphNormalized {
+  return normalizeWorkflowGraph(createLargeWorkflowGraph(options));
 }
 
 export function createNormalizedDemoWorkflowGraph(): WorkflowGraphNormalized {

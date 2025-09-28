@@ -612,7 +612,7 @@ describe('FilestoreExplorerPage mount discovery', () => {
   it('subscribes to scoped SSE with mount, path, and category filters', async () => {
     mocks.listBackendMountsMock.mockResolvedValueOnce(buildMountList([sampleMount]));
 
-    render(<FilestoreExplorerPage identity={writableIdentity} />);
+    renderExplorer({ identity: writableIdentity });
 
     await waitFor(() => {
       expect(mocks.subscribeToFilestoreEventsMock).toHaveBeenCalled();
