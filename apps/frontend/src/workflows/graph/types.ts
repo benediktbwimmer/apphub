@@ -76,6 +76,74 @@ export type WorkflowGraphStats = {
   totalEventSources: number;
 };
 
+export type WorkflowGraphWorkflowStatusState =
+  | 'idle'
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'degraded'
+  | 'unknown';
+
+export type WorkflowGraphWorkflowStatus = {
+  state: WorkflowGraphWorkflowStatusState;
+  runId: string | null;
+  updatedAt: string;
+  triggeredBy?: string | null;
+  errorMessage?: string | null;
+};
+
+export type WorkflowGraphStepStatusState = 'pending' | 'running' | 'failed' | 'succeeded' | 'unknown';
+
+export type WorkflowGraphStepStatus = {
+  state: WorkflowGraphStepStatusState;
+  runId: string;
+  updatedAt: string;
+  attempt?: number | null;
+};
+
+export type WorkflowGraphAssetStatusState = 'fresh' | 'stale' | 'unknown';
+
+export type WorkflowGraphAssetStatus = {
+  state: WorkflowGraphAssetStatusState;
+  producedAt?: string | null;
+  expiresAt?: string | null;
+  partitionKey?: string | null;
+  workflowDefinitionId?: string | null;
+  workflowRunId?: string | null;
+  reason?: string | null;
+};
+
+export type WorkflowGraphTriggerStatusState =
+  | 'active'
+  | 'paused'
+  | 'failing'
+  | 'throttled'
+  | 'disabled'
+  | 'unknown';
+
+export type WorkflowGraphTriggerStatus = {
+  state: WorkflowGraphTriggerStatusState;
+  updatedAt?: string | null;
+  lastError?: string | null;
+  reason?: string | null;
+};
+
+export type WorkflowGraphLiveOverlay = {
+  workflows: Record<string, WorkflowGraphWorkflowStatus>;
+  steps: Record<string, WorkflowGraphStepStatus>;
+  assets: Record<string, WorkflowGraphAssetStatus>;
+  triggers: Record<string, WorkflowGraphTriggerStatus>;
+};
+
+export type WorkflowGraphOverlayMeta = {
+  lastEventAt: number | null;
+  lastProcessedAt: number | null;
+  droppedEvents: number;
+  queueSize: number;
+};
+
 export type WorkflowGraphNormalized = {
   version: WorkflowTopologyGraphVersion;
   generatedAt: string;
@@ -104,7 +172,9 @@ export const WORKFLOW_GRAPH_EVENT_TYPES = [
   'workflow.run.running',
   'workflow.run.succeeded',
   'workflow.run.failed',
-  'workflow.run.canceled'
+  'workflow.run.canceled',
+  'asset.produced',
+  'asset.expired'
 ] as const;
 
 export type WorkflowGraphEventType = (typeof WORKFLOW_GRAPH_EVENT_TYPES)[number];
@@ -131,6 +201,8 @@ export type WorkflowGraphContextValue = {
   lastLoadedAt: string | null;
   graphMeta: WorkflowGraphFetchMeta | null;
   pendingEvents: WorkflowGraphEventEntry[];
+  overlay: WorkflowGraphLiveOverlay;
+  overlayMeta: WorkflowGraphOverlayMeta;
   loadWorkflowGraph: (options?: LoadWorkflowGraphOptions) => Promise<void>;
   dequeuePendingEvents: (limit?: number) => WorkflowGraphEventEntry[];
   clearPendingEvents: () => void;

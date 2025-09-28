@@ -2,7 +2,11 @@ import type { ComponentProps, ReactElement } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import WorkflowTopologyPanel from '../WorkflowTopologyPanel';
 import { createSmallWorkflowGraphNormalized } from '../../graph/mocks';
-import type { WorkflowGraphFetchMeta } from '../../graph';
+import type {
+  WorkflowGraphFetchMeta,
+  WorkflowGraphLiveOverlay,
+  WorkflowGraphOverlayMeta
+} from '../../graph';
 
 const SAMPLE_META: WorkflowGraphFetchMeta = {
   cache: {
@@ -21,6 +25,18 @@ const SAMPLE_META: WorkflowGraphFetchMeta = {
 };
 
 const SAMPLE_GRAPH = createSmallWorkflowGraphNormalized();
+const SAMPLE_OVERLAY: WorkflowGraphLiveOverlay = {
+  workflows: {},
+  steps: {},
+  assets: {},
+  triggers: {}
+};
+const SAMPLE_OVERLAY_META: WorkflowGraphOverlayMeta = {
+  lastEventAt: Date.now(),
+  lastProcessedAt: Date.now(),
+  droppedEvents: 0,
+  queueSize: 0
+};
 
 type StoryMetadata<Component> = {
   title: string;
@@ -59,6 +75,8 @@ export const Default: Story = {
     graphStale: false,
     lastLoadedAt: new Date().toISOString(),
     meta: SAMPLE_META,
+    overlay: SAMPLE_OVERLAY,
+    overlayMeta: SAMPLE_OVERLAY_META,
     onRefresh: () => undefined,
     selection: {}
   }

@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import {
   useEffect,
   useMemo,
@@ -28,7 +29,7 @@ import {
   type WorkflowGraphCanvasNodeKind,
   type WorkflowGraphCanvasEdgeKind
 } from '../graph/canvasModel';
-import type { WorkflowGraphNormalized } from '../graph';
+import type { WorkflowGraphLiveOverlay, WorkflowGraphNormalized } from '../graph';
 
 type WorkflowGraphCanvasNodeTheme = {
   background: string;
@@ -70,6 +71,11 @@ type WorkflowGraphCanvasNodeData = {
   subtitle?: string;
   meta: string[];
   badges: string[];
+  status?: {
+    label: string;
+    tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+    tooltip?: string;
+  };
   kind: WorkflowGraphCanvasNodeKind;
   highlighted: boolean;
   onSelect?: (data: WorkflowGraphCanvasNodeData) => void;
@@ -264,6 +270,10 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
   const variant = theme.nodes[data.kind];
   const isHighlighted = data.highlighted || selected;
   const ariaLabel = `${describeNodeKind(data.kind)}: ${data.label}`;
+  const status = data.status;
+  const statusClassName = status ? STATUS_TONE_CLASSES[status.tone] ?? STATUS_TONE_CLASSES.neutral : null;
+  const primaryBadge = !status && data.badges.length > 0 ? data.badges[0] : null;
+  const secondaryBadges = status ? data.badges : data.badges.slice(primaryBadge ? 1 : 0);
   return (
     <div
       className={classNames(
@@ -302,18 +312,28 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
             </p>
           )}
         </div>
-        {data.badges.length > 0 && (
+        {status ? (
+          <span
+            className={classNames(
+              'inline-flex max-w-[140px] items-center justify-center rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide',
+              statusClassName
+            )}
+            title={status.tooltip ?? status.label}
+          >
+            {status.label}
+          </span>
+        ) : primaryBadge ? (
           <span
             className="inline-flex max-w-[120px] items-center justify-center rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide"
             style={{ background: variant.badgeBackground, color: variant.badgeText }}
           >
-            {data.badges[0]}
+            {primaryBadge}
           </span>
-        )}
+        ) : null}
       </div>
-      {data.badges.length > 1 && (
+      {secondaryBadges.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
-          {data.badges.slice(1).map((badge) => (
+          {secondaryBadges.map((badge) => (
             <span
               key={badge}
               className="inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
@@ -339,6 +359,17 @@ const NODE_TYPES = {
   'workflow-graph-node': WorkflowGraphNode
 };
 
+const STATUS_TONE_CLASSES: Record<
+  NonNullable<WorkflowGraphCanvasNodeData['status']>['tone'],
+  string
+> = {
+  neutral: 'bg-slate-200 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200',
+  info: 'bg-sky-200 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200',
+  success: 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200',
+  warning: 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
+  danger: 'bg-rose-200 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
+};
+
 type WorkflowGraphCanvasProps = {
   graph: WorkflowGraphNormalized | null;
   loading?: boolean;
@@ -354,6 +385,7 @@ type WorkflowGraphCanvasProps = {
   onNodeSelect?: (nodeId: string, data: WorkflowGraphCanvasNodeData) => void;
   onCanvasClick?: () => void;
   interactionMode?: 'interactive' | 'static';
+  overlay?: WorkflowGraphLiveOverlay | null;
 };
 
 export function WorkflowGraphCanvas({
@@ -370,7 +402,8 @@ export function WorkflowGraphCanvas({
   fitViewPadding = 0.2,
   onNodeSelect,
   onCanvasClick,
-  interactionMode = 'interactive'
+  interactionMode = 'interactive',
+  overlay = null
 }: WorkflowGraphCanvasProps) {
   const mergedTheme = useMemo(() => mergeTheme(DEFAULT_THEME, theme), [theme]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -380,8 +413,8 @@ export function WorkflowGraphCanvas({
     if (!graph) {
       return null;
     }
-    return buildWorkflowGraphCanvasModel(graph, { layout, selection, filters, searchTerm });
-  }, [graph, layout, selection, filters, searchTerm]);
+    return buildWorkflowGraphCanvasModel(graph, { layout, selection, filters, searchTerm, overlay });
+  }, [graph, layout, selection, filters, searchTerm, overlay]);
 
   useEffect(() => {
     setTooltip(null);
@@ -409,6 +442,7 @@ export function WorkflowGraphCanvas({
         subtitle: node.subtitle,
         meta: node.meta ?? [],
         badges: node.badges ?? [],
+        status: node.status,
         kind: node.kind,
         highlighted: node.highlighted,
         onSelect: onNodeSelect

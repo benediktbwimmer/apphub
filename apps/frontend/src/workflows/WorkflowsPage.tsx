@@ -156,6 +156,8 @@ function WorkflowsPageContent() {
     graphStale,
     lastLoadedAt,
     graphMeta,
+    overlay,
+    overlayMeta,
     loadWorkflowGraph
   } = useWorkflowsController();
 
@@ -284,6 +286,8 @@ function WorkflowsPageContent() {
             graphStale={graphStale}
             lastLoadedAt={lastLoadedAt}
             meta={graphMeta}
+            overlay={overlay}
+            overlayMeta={overlayMeta}
             onRefresh={refreshTopology}
             selection={{ workflowId: selectedWorkflowId }}
           />

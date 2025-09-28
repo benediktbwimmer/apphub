@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildWorkflowGraphCanvasModel } from '../canvasModel';
+import type { WorkflowGraphLiveOverlay } from '../types';
 import {
   createLargeWorkflowGraphNormalized,
   createMediumWorkflowGraphNormalized,
@@ -99,5 +100,46 @@ describe('buildWorkflowGraphCanvasModel', () => {
     const labels = model.nodes.map((node) => node.label.toLowerCase());
     expect(labels.some((label) => label.includes('orders'))).toBe(true);
     expect(model.searchApplied).toBe(true);
+  });
+
+  it('annotates nodes with live status overlay metadata', () => {
+    const graph = createSmallWorkflowGraphNormalized();
+    const overlay: WorkflowGraphLiveOverlay = {
+      workflows: {
+        [graph.workflows[0]?.id ?? 'wf-unknown']: {
+          state: 'running',
+          runId: 'run-123',
+          updatedAt: '2024-04-02T00:00:05.000Z'
+        }
+      },
+      steps: {
+        [graph.steps[0]?.id ?? 'step-unknown']: {
+          state: 'running',
+          runId: 'run-123',
+          updatedAt: '2024-04-02T00:00:05.000Z'
+        }
+      },
+      assets: {
+        [graph.assets[0]?.normalizedAssetId ?? 'asset-unknown']: {
+          state: 'fresh',
+          producedAt: '2024-04-02T00:00:10.000Z',
+          expiresAt: '2024-04-02T00:01:10.000Z',
+          workflowDefinitionId: graph.workflows[0]?.id ?? null,
+          workflowRunId: 'run-123',
+          reason: null
+        }
+      },
+      triggers: {}
+    };
+
+    const model = buildWorkflowGraphCanvasModel(graph, { overlay });
+    const workflowNode = model.nodes.find((node) => node.kind === 'workflow');
+    expect(workflowNode?.status?.label).toBe('Running');
+
+    const stepNode = model.nodes.find((node) => node.kind.startsWith('step'));
+    expect(stepNode?.status?.label).toBe('Running');
+
+    const assetNode = model.nodes.find((node) => node.kind === 'asset');
+    expect(assetNode?.status?.label).toBe('Fresh');
   });
 });

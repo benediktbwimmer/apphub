@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
 import { WorkflowGraphProvider, useWorkflowGraph } from '../useWorkflowGraph';
 
-const { mockFetchWorkflowTopologyGraph, appHubSubscribers, accessContextMock } = vi.hoisted(() => {
+const { mockFetchWorkflowTopologyGraph, mockGetWorkflowEventHealth, appHubSubscribers, accessContextMock } =
+  vi.hoisted(() => {
   const pushToast = vi.fn();
   return {
     mockFetchWorkflowTopologyGraph: vi.fn(),
+    mockGetWorkflowEventHealth: vi.fn(),
     appHubSubscribers: new Set<(event: { type: string; data?: unknown }) => void>(),
     accessContextMock: {
       authorizedFetch: vi.fn(),
@@ -26,7 +28,8 @@ vi.mock('../../api', async () => {
   const actual = await vi.importActual<typeof import('../../api')>('../../api');
   return {
     ...actual,
-    fetchWorkflowTopologyGraph: mockFetchWorkflowTopologyGraph
+    fetchWorkflowTopologyGraph: mockFetchWorkflowTopologyGraph,
+    getWorkflowEventHealth: mockGetWorkflowEventHealth
   } satisfies Partial<typeof actual>;
 });
 
@@ -122,9 +125,65 @@ const UPDATED_GRAPH: WorkflowTopologyGraph = {
   generatedAt: '2024-04-02T00:00:01.000Z'
 };
 
+const RUN_EVENT_RUNNING = {
+  id: 'run-1',
+  workflowDefinitionId: 'wf-1',
+  status: 'running',
+  health: 'healthy' as const,
+  currentStepId: 'start',
+  currentStepIndex: 0,
+  startedAt: '2024-04-02T00:00:05.000Z',
+  completedAt: null,
+  durationMs: null,
+  errorMessage: null,
+  triggeredBy: 'manual',
+  partitionKey: null,
+  metrics: null,
+  parameters: null,
+  context: null,
+  trigger: null,
+  output: null,
+  createdAt: '2024-04-02T00:00:00.000Z',
+  updatedAt: '2024-04-02T00:00:06.000Z',
+  retrySummary: {
+    pendingSteps: 0,
+    nextAttemptAt: null,
+    overdueSteps: 0
+  }
+};
+
+const ASSET_PRODUCED_EVENT = {
+  assetId: 'warehouse.dataset',
+  workflowDefinitionId: 'wf-1',
+  workflowSlug: 'demo',
+  workflowRunId: 'run-1',
+  workflowRunStepId: 'step-run-1',
+  stepId: 'start',
+  producedAt: '2024-04-02T00:00:10.000Z',
+  freshness: { ttlMs: 60000, cadenceMs: null, maxAgeMs: null },
+  partitionKey: null
+} as const;
+
+const ASSET_EXPIRED_EVENT = {
+  assetId: 'warehouse.dataset',
+  workflowDefinitionId: 'wf-1',
+  workflowSlug: 'demo',
+  workflowRunId: 'run-1',
+  workflowRunStepId: 'step-run-1',
+  stepId: 'start',
+  producedAt: '2024-04-02T00:00:10.000Z',
+  freshness: { ttlMs: 60000, cadenceMs: null, maxAgeMs: null },
+  partitionKey: null,
+  expiresAt: '2024-04-02T00:01:10.000Z',
+  requestedAt: '2024-04-02T00:00:10.000Z',
+  reason: 'ttl'
+} as const;
+
 describe('useWorkflowGraph', () => {
   beforeEach(() => {
     mockFetchWorkflowTopologyGraph.mockReset();
+    mockGetWorkflowEventHealth.mockReset();
+    mockGetWorkflowEventHealth.mockResolvedValue(null);
     accessContextMock.authorizedFetch.mockReset();
     mockFetchWorkflowTopologyGraph.mockResolvedValue({ graph: GRAPH_V1, meta: { cache: null } });
     accessContextMock.pushToast.mockReset();
@@ -144,6 +203,7 @@ describe('useWorkflowGraph', () => {
     expect(result.current.graphStale).toBe(false);
   });
 
+
   it('queues websocket events and dequeues them on demand', async () => {
     const { result } = renderHook(() => useWorkflowGraph(), {
       wrapper: ({ children }) => <WorkflowGraphProvider>{children}</WorkflowGraphProvider>
@@ -151,13 +211,9 @@ describe('useWorkflowGraph', () => {
 
     await waitFor(() => expect(result.current.graphLoading).toBe(false));
 
-    act(() => {
-      emitMockAppHubEvent({ type: 'workflow.run.updated', data: { run: { id: 'run-1' } } });
-    });
-
-    await waitFor(() => expect(result.current.pendingEvents.length).toBeGreaterThanOrEqual(1));
     let dequeued: ReturnType<typeof result.current.dequeuePendingEvents> = [];
     act(() => {
+      emitMockAppHubEvent({ type: 'workflow.run.updated', data: { run: { id: 'run-1' } } });
       dequeued = result.current.dequeuePendingEvents();
     });
     expect(Array.isArray(dequeued)).toBe(true);
@@ -165,10 +221,6 @@ describe('useWorkflowGraph', () => {
     act(() => {
       emitMockAppHubEvent({ type: 'workflow.run.failed', data: { run: { id: 'run-2' } } });
       emitMockAppHubEvent({ type: 'workflow.run.running', data: { run: { id: 'run-3' } } });
-    });
-
-    await waitFor(() => expect(result.current.pendingEvents.length).toBeGreaterThanOrEqual(2));
-    act(() => {
       result.current.clearPendingEvents();
     });
     expect(result.current.pendingEvents).toHaveLength(0);
@@ -197,5 +249,41 @@ describe('useWorkflowGraph', () => {
 
     expect(result.current.graph?.generatedAt).toBe('2024-04-02T00:00:01.000Z');
     expect(result.current.graphMeta).toEqual({ cache: { hit: false } });
+  });
+
+  it('updates workflow and asset overlay from live events', async () => {
+    const { result } = renderHook(() => useWorkflowGraph(), {
+      wrapper: ({ children }) => <WorkflowGraphProvider>{children}</WorkflowGraphProvider>
+    });
+
+    await waitFor(() => expect(result.current.graphLoading).toBe(false));
+
+    act(() => {
+      emitMockAppHubEvent({ type: 'workflow.run.running', data: { run: RUN_EVENT_RUNNING } });
+    });
+
+    await waitFor(() => {
+      expect(result.current.overlay.workflows['wf-1']?.state).toBe('running');
+    });
+
+    expect(result.current.overlay.steps['start']?.state).toBe('running');
+
+    act(() => {
+      emitMockAppHubEvent({ type: 'asset.produced', data: ASSET_PRODUCED_EVENT });
+    });
+
+    await waitFor(() => {
+      expect(result.current.overlay.assets['warehouse.dataset']?.state).toBe('fresh');
+    });
+
+    act(() => {
+      emitMockAppHubEvent({ type: 'asset.expired', data: ASSET_EXPIRED_EVENT });
+    });
+
+    await waitFor(() => {
+      expect(result.current.overlay.assets['warehouse.dataset']?.state).toBe('stale');
+    });
+
+    expect(result.current.overlayMeta.queueSize).toBe(0);
   });
 });

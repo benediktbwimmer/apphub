@@ -7,7 +7,14 @@ import type {
   WorkflowTopologyTriggerNode,
   WorkflowTopologyWorkflowNode
 } from '@apphub/shared/workflowTopology';
-import type { WorkflowGraphNormalized } from './types';
+import type {
+  WorkflowGraphAssetStatus,
+  WorkflowGraphLiveOverlay,
+  WorkflowGraphNormalized,
+  WorkflowGraphStepStatus,
+  WorkflowGraphTriggerStatus,
+  WorkflowGraphWorkflowStatus
+} from './types';
 
 export type WorkflowGraphCanvasNodeKind =
   | 'workflow'
@@ -37,6 +44,7 @@ export type WorkflowGraphCanvasNode = {
   subtitle?: string;
   meta?: string[];
   badges?: string[];
+  status?: NodeStatusDescriptor;
   width: number;
   height: number;
   position: { x: number; y: number };
@@ -108,6 +116,183 @@ const STEP_KIND_MAP: Record<WorkflowTopologyStepNode['runtime']['type'], Workflo
   service: 'step-service',
   fanout: 'step-fanout'
 };
+
+type NodeStatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+type NodeStatusDescriptor = {
+  label: string;
+  tone: NodeStatusTone;
+  tooltip?: string;
+};
+
+function formatTimestampLabel(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+function toWorkflowNodeStatus(status: WorkflowGraphWorkflowStatus | undefined): NodeStatusDescriptor | undefined {
+  if (!status) {
+    return undefined;
+  }
+  let label = 'Unknown';
+  let tone: NodeStatusTone = 'neutral';
+  switch (status.state) {
+    case 'pending':
+      label = 'Pending';
+      tone = 'info';
+      break;
+    case 'running':
+      label = 'Running';
+      tone = 'info';
+      break;
+    case 'succeeded':
+      label = 'Succeeded';
+      tone = 'success';
+      break;
+    case 'degraded':
+      label = 'Degraded';
+      tone = 'warning';
+      break;
+    case 'failed':
+      label = 'Failed';
+      tone = 'danger';
+      break;
+    case 'canceled':
+      label = 'Canceled';
+      tone = 'neutral';
+      break;
+    case 'idle':
+      label = 'Idle';
+      tone = 'neutral';
+      break;
+    default:
+      label = 'Unknown';
+      tone = 'neutral';
+  }
+  const timestamp = formatTimestampLabel(status.updatedAt);
+  const tooltip = status.errorMessage
+    ? `${status.errorMessage}${timestamp ? ` • ${timestamp}` : ''}`
+    : timestamp ?? undefined;
+  return { label, tone, tooltip } satisfies NodeStatusDescriptor;
+}
+
+function toStepNodeStatus(status: WorkflowGraphStepStatus | undefined): NodeStatusDescriptor | undefined {
+  if (!status) {
+    return undefined;
+  }
+  let label = 'Unknown';
+  let tone: NodeStatusTone = 'neutral';
+  switch (status.state) {
+    case 'pending':
+      label = 'Pending';
+      tone = 'info';
+      break;
+    case 'running':
+      label = 'Running';
+      tone = 'info';
+      break;
+    case 'succeeded':
+      label = 'Succeeded';
+      tone = 'success';
+      break;
+    case 'failed':
+      label = 'Failed';
+      tone = 'danger';
+      break;
+    default:
+      label = 'Unknown';
+      tone = 'neutral';
+  }
+  const tooltip = formatTimestampLabel(status.updatedAt);
+  return { label, tone, tooltip } satisfies NodeStatusDescriptor;
+}
+
+function toAssetNodeStatus(status: WorkflowGraphAssetStatus | undefined): NodeStatusDescriptor | undefined {
+  if (!status) {
+    return undefined;
+  }
+  let label = 'Unknown';
+  let tone: NodeStatusTone = 'neutral';
+  switch (status.state) {
+    case 'fresh':
+      label = 'Fresh';
+      tone = 'success';
+      break;
+    case 'stale':
+      label = 'Stale';
+      tone = 'warning';
+      break;
+    default:
+      label = 'Unknown';
+      tone = 'neutral';
+  }
+  const expiresLabel = formatTimestampLabel(status.expiresAt);
+  const producedLabel = formatTimestampLabel(status.producedAt);
+  const tooltipParts: string[] = [];
+  if (producedLabel) {
+    tooltipParts.push(`Produced • ${producedLabel}`);
+  }
+  if (expiresLabel) {
+    tooltipParts.push(`Expires • ${expiresLabel}`);
+  }
+  if (status.reason) {
+    tooltipParts.push(status.reason);
+  }
+  const tooltip = tooltipParts.length > 0 ? tooltipParts.join('\n') : undefined;
+  return { label, tone, tooltip } satisfies NodeStatusDescriptor;
+}
+
+function toTriggerNodeStatus(status: WorkflowGraphTriggerStatus | undefined): NodeStatusDescriptor | undefined {
+  if (!status) {
+    return undefined;
+  }
+  let label = 'Active';
+  let tone: NodeStatusTone = 'success';
+  switch (status.state) {
+    case 'paused':
+      label = 'Paused';
+      tone = 'warning';
+      break;
+    case 'failing':
+      label = 'Failing';
+      tone = 'danger';
+      break;
+    case 'throttled':
+      label = 'Throttled';
+      tone = 'warning';
+      break;
+    case 'disabled':
+      label = 'Disabled';
+      tone = 'neutral';
+      break;
+    case 'active':
+      label = 'Active';
+      tone = 'success';
+      break;
+    default:
+      label = 'Unknown';
+      tone = 'neutral';
+  }
+  const tooltipParts: string[] = [];
+  const updatedLabel = formatTimestampLabel(status.updatedAt ?? null);
+  if (status.reason) {
+    tooltipParts.push(status.reason);
+  }
+  if (status.lastError) {
+    tooltipParts.push(status.lastError);
+  }
+  if (updatedLabel) {
+    tooltipParts.push(`Updated • ${updatedLabel}`);
+  }
+  const tooltip = tooltipParts.length > 0 ? tooltipParts.join('\n') : undefined;
+  return { label, tone, tooltip } satisfies NodeStatusDescriptor;
+}
 
 function toWorkflowNodeId(workflowId: string): string {
   return `workflow:${workflowId}`;
@@ -281,17 +466,32 @@ export function collectHighlightedNodeIds(
 
 function buildWorkflowNodes(
   workflows: WorkflowTopologyWorkflowNode[],
-  highlighted: Set<string>
+  highlighted: Set<string>,
+  overlay?: WorkflowGraphLiveOverlay | null
 ): WorkflowGraphCanvasNode[] {
   return workflows.map((workflow) => {
     const id = toWorkflowNodeId(workflow.id);
+    const statusDescriptor = overlay ? toWorkflowNodeStatus(overlay.workflows[workflow.id]) : undefined;
+    const meta: string[] = [`Version ${workflow.version}`];
+    const overlayStatus = overlay?.workflows[workflow.id];
+    if (overlayStatus?.runId) {
+      meta.push(`Run · ${overlayStatus.runId}`);
+    }
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : null;
+    if (updatedLabel) {
+      meta.push(`Updated ${updatedLabel}`);
+    }
+    if (overlayStatus?.triggeredBy) {
+      meta.push(`Triggered by · ${overlayStatus.triggeredBy}`);
+    }
     return {
       id,
       refId: workflow.id,
       kind: 'workflow',
       label: workflow.name,
       subtitle: workflow.slug,
-      meta: [`Version ${workflow.version}`],
+      meta,
+      status: statusDescriptor,
       width: NODE_DIMENSIONS.workflow.width,
       height: NODE_DIMENSIONS.workflow.height,
       position: { x: 0, y: 0 },
@@ -302,7 +502,8 @@ function buildWorkflowNodes(
 
 function buildStepNodes(
   steps: WorkflowTopologyStepNode[],
-  highlighted: Set<string>
+  highlighted: Set<string>,
+  overlay?: WorkflowGraphLiveOverlay | null
 ): WorkflowGraphCanvasNode[] {
   return steps.map((step) => {
     const id = toStepNodeId(step);
@@ -318,6 +519,15 @@ function buildStepNodes(
       badges.push(`${step.runtime.template.runtime.type} template`);
     }
     const meta = formatStepRuntimeMeta(step);
+    const overlayStatus = overlay?.steps[step.id];
+    if (overlayStatus?.runId) {
+      meta.push(`Run · ${overlayStatus.runId}`);
+    }
+    const statusDescriptor = overlay ? toStepNodeStatus(overlayStatus) : undefined;
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : null;
+    if (updatedLabel) {
+      meta.push(`Updated ${updatedLabel}`);
+    }
     return {
       id,
       refId: step.id,
@@ -326,6 +536,7 @@ function buildStepNodes(
       subtitle: step.type ?? step.runtime.type,
       badges,
       meta,
+      status: statusDescriptor,
       width: NODE_DIMENSIONS[kind].width,
       height: NODE_DIMENSIONS[kind].height,
       position: { x: 0, y: 0 },
@@ -336,7 +547,8 @@ function buildStepNodes(
 
 function buildTriggerNodes(
   triggers: WorkflowTopologyTriggerNode[],
-  highlighted: Set<string>
+  highlighted: Set<string>,
+  overlay?: WorkflowGraphLiveOverlay | null
 ): WorkflowGraphCanvasNode[] {
   return triggers.map((trigger) => {
     const id = toTriggerNodeId(trigger);
@@ -369,6 +581,12 @@ function buildTriggerNodes(
       }
     }
     const label = isEventTrigger(trigger) ? trigger.name ?? trigger.id : trigger.triggerType;
+    const overlayStatus = overlay?.triggers[trigger.id];
+    const statusDescriptor = overlay ? toTriggerNodeStatus(overlayStatus) : undefined;
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt ?? null) : null;
+    if (updatedLabel) {
+      meta.push(`Updated ${updatedLabel}`);
+    }
     return {
       id,
       refId: trigger.id,
@@ -377,6 +595,7 @@ function buildTriggerNodes(
       subtitle,
       badges: badges.slice(0, 2),
       meta,
+      status: statusDescriptor,
       width: NODE_DIMENSIONS[kind].width,
       height: NODE_DIMENSIONS[kind].height,
       position: { x: 0, y: 0 },
@@ -414,11 +633,22 @@ function buildScheduleNodes(
 
 function buildAssetNodes(
   assets: WorkflowTopologyAssetNode[],
-  highlighted: Set<string>
+  highlighted: Set<string>,
+  overlay?: WorkflowGraphLiveOverlay | null
 ): WorkflowGraphCanvasNode[] {
   return assets.map((asset) => {
     const id = toAssetNodeId(asset);
     const tags = asset.annotations?.tags ?? [];
+    const overlayStatus = overlay?.assets[asset.normalizedAssetId];
+    const statusDescriptor = overlay ? toAssetNodeStatus(overlayStatus) : undefined;
+    const meta = tags.slice(2);
+    if (overlayStatus?.partitionKey) {
+      meta.push(`Partition · ${overlayStatus.partitionKey}`);
+    }
+    const producedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.producedAt) : null;
+    if (producedLabel) {
+      meta.push(`Produced ${producedLabel}`);
+    }
     return {
       id,
       refId: asset.normalizedAssetId,
@@ -426,7 +656,8 @@ function buildAssetNodes(
       label: asset.assetId,
       subtitle: asset.normalizedAssetId,
       badges: tags.slice(0, 2),
-      meta: tags.slice(2),
+      meta,
+      status: statusDescriptor,
       width: NODE_DIMENSIONS.asset.width,
       height: NODE_DIMENSIONS.asset.height,
       position: { x: 0, y: 0 },
@@ -1035,20 +1266,23 @@ export function buildWorkflowGraphCanvasModel(
     selection?: WorkflowGraphCanvasSelection;
     filters?: WorkflowGraphCanvasFilters;
     searchTerm?: string | null;
+    overlay?: WorkflowGraphLiveOverlay | null;
   } = {}
 ): WorkflowGraphCanvasModel {
+  const { layout, selection, filters, searchTerm: searchTermRaw, overlay } = options;
+
   const layoutConfig: WorkflowGraphCanvasLayoutConfig = {
     ...DEFAULT_LAYOUT,
-    ...(options.layout ?? {})
+    ...(layout ?? {})
   };
 
-  const highlightedNodes = collectHighlightedNodeIds(graph, options.selection);
+  const highlightedNodes = collectHighlightedNodeIds(graph, selection);
 
-  const workflowNodes = buildWorkflowNodes(graph.workflows, highlightedNodes);
-  const stepNodes = buildStepNodes(graph.steps, highlightedNodes);
-  const triggerNodes = buildTriggerNodes(graph.triggers, highlightedNodes);
+  const workflowNodes = buildWorkflowNodes(graph.workflows, highlightedNodes, overlay);
+  const stepNodes = buildStepNodes(graph.steps, highlightedNodes, overlay);
+  const triggerNodes = buildTriggerNodes(graph.triggers, highlightedNodes, overlay);
   const scheduleNodes = buildScheduleNodes(graph.schedules, highlightedNodes);
-  const assetNodes = buildAssetNodes(graph.assets, highlightedNodes);
+  const assetNodes = buildAssetNodes(graph.assets, highlightedNodes, overlay);
   const eventSourceNodes = buildEventSourceNodes(graph.eventSources, highlightedNodes);
 
   let nodes = [
@@ -1068,12 +1302,12 @@ export function buildWorkflowGraphCanvasModel(
     ...buildEventSourceEdges(graph, highlightedNodes)
   ];
 
-  const searchTerm = normalizeSearchTerm(options.searchTerm ?? null);
+  const searchTerm = normalizeSearchTerm(searchTermRaw ?? null);
   const { visibleNodeIds, filtersActive, searchActive } = computeVisibleNodeIds(
     graph,
     nodes,
     edges,
-    options.filters,
+    filters,
     searchTerm
   );
 

@@ -1,10 +1,16 @@
+import classNames from 'classnames';
 import { useMemo, useState, useCallback, useEffect, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import WorkflowGraphCanvas, {
   type WorkflowGraphCanvasThemeOverrides,
   type WorkflowGraphCanvasNodeData
 } from './WorkflowGraphCanvas';
-import type { WorkflowGraphFetchMeta, WorkflowGraphNormalized } from '../graph';
+import type {
+  WorkflowGraphFetchMeta,
+  WorkflowGraphLiveOverlay,
+  WorkflowGraphNormalized,
+  WorkflowGraphOverlayMeta
+} from '../graph';
 import type { WorkflowGraphCanvasFilters } from '../graph/canvasModel';
 import { ROUTE_PATHS } from '../../routes/paths';
 
@@ -16,6 +22,8 @@ type WorkflowTopologyPanelProps = {
   graphStale: boolean;
   lastLoadedAt: string | null;
   meta: WorkflowGraphFetchMeta | null;
+  overlay: WorkflowGraphLiveOverlay | null;
+  overlayMeta: WorkflowGraphOverlayMeta | null;
   onRefresh: () => void;
   selection?: {
     workflowId?: string | null;
@@ -25,6 +33,24 @@ type WorkflowTopologyPanelProps = {
 const PANEL_THEME: WorkflowGraphCanvasThemeOverrides = {
   surface: 'rgba(255, 255, 255, 0.94)'
 };
+
+const STATUS_TONE_BADGE_CLASSES: Record<'neutral' | 'info' | 'success' | 'warning' | 'danger', string> = {
+  neutral: 'bg-slate-200 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200',
+  info: 'bg-sky-200 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200',
+  success: 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200',
+  warning: 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
+  danger: 'bg-rose-200 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
+};
+
+const LIVE_STALE_THRESHOLD_MS = 90_000;
+
+const STATUS_LEGEND_ITEMS: Array<{ label: string; tone: keyof typeof STATUS_TONE_BADGE_CLASSES }> = [
+  { label: 'Running / Pending', tone: 'info' },
+  { label: 'Succeeded / Fresh / Active', tone: 'success' },
+  { label: 'Degraded / Stale / Throttled', tone: 'warning' },
+  { label: 'Failed / Failing', tone: 'danger' },
+  { label: 'Idle / Unknown', tone: 'neutral' }
+];
 
 function formatTimestamp(ts: string | null): string {
   if (!ts) {
@@ -56,6 +82,8 @@ export function WorkflowTopologyPanel({
   graphStale,
   lastLoadedAt,
   meta,
+  overlay,
+  overlayMeta,
   onRefresh,
   selection
 }: WorkflowTopologyPanelProps) {
@@ -71,6 +99,20 @@ export function WorkflowTopologyPanel({
   const cacheAgeSeconds = meta?.cache?.ageMs !== null && meta?.cache?.ageMs !== undefined
     ? Math.round(meta.cache.ageMs / 1000)
     : null;
+
+  const lastProcessedIso = overlayMeta?.lastProcessedAt
+    ? new Date(overlayMeta.lastProcessedAt).toISOString()
+    : null;
+  const lastEventIso = overlayMeta?.lastEventAt ? new Date(overlayMeta.lastEventAt).toISOString() : null;
+  const liveLagMs = overlayMeta?.lastProcessedAt ? Date.now() - overlayMeta.lastProcessedAt : null;
+  const liveStale = liveLagMs === null || liveLagMs > LIVE_STALE_THRESHOLD_MS;
+  const liveTone: 'success' | 'warning' | 'neutral' = liveStale ? 'warning' : 'success';
+  const liveStatusLabel = liveStale ? 'Live updates delayed' : 'Live feed active';
+  const processedLabel = formatTimestamp(lastProcessedIso);
+  const liveStatusDetail = processedLabel !== '—' ? `Updated ${processedLabel}` : 'No live events yet';
+  const lastEventLabel = formatTimestamp(lastEventIso);
+  const droppedEvents = overlayMeta?.droppedEvents ?? 0;
+  const overlayQueueSize = overlayMeta?.queueSize ?? 0;
 
   const statusMessage = useMemo(() => {
     if (graphError) {
@@ -224,15 +266,39 @@ export function WorkflowTopologyPanel({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex flex-col text-right text-[11px] text-slate-500 dark:text-slate-400">
-            <span className="font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
-              Status
+        <div className="flex flex-col text-right text-[11px] text-slate-500 dark:text-slate-400">
+          <span className="font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+            Status
+          </span>
+          <span className="text-slate-600 dark:text-slate-300">{statusMessage}</span>
+          <span className="text-[10px] tracking-[0.24em] text-slate-400 dark:text-slate-500">
+            {formatTimestamp(lastLoadedAt)}
+          </span>
+          <span className="mt-3 font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+            Live Data
+          </span>
+          <span
+            className={classNames(
+              'inline-flex items-center justify-end rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide',
+              STATUS_TONE_BADGE_CLASSES[liveTone]
+            )}
+            title={liveStatusDetail}
+          >
+            {liveStatusLabel}
+          </span>
+          <span className="text-[10px] tracking-[0.16em] text-slate-500 dark:text-slate-400">
+            {liveStatusDetail}
+            {lastEventLabel !== '—' ? ` • Last event ${lastEventLabel}` : ''}
+          </span>
+          <span className="text-[10px] tracking-[0.16em] text-slate-500 dark:text-slate-400">
+            Stream queue · {overlayQueueSize}
+          </span>
+          {droppedEvents > 0 && (
+            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              Dropped {droppedEvents} events
             </span>
-            <span className="text-slate-600 dark:text-slate-300">{statusMessage}</span>
-            <span className="text-[10px] tracking-[0.24em] text-slate-400 dark:text-slate-500">
-              {formatTimestamp(lastLoadedAt)}
-            </span>
-          </div>
+          )}
+        </div>
           <button
             type="button"
             onClick={onRefresh}
@@ -266,6 +332,21 @@ export function WorkflowTopologyPanel({
           )}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+        <span className="mr-1 text-slate-400 dark:text-slate-500">Legend</span>
+        {STATUS_LEGEND_ITEMS.map(({ label, tone }) => (
+          <span
+            key={tone}
+            className={classNames(
+              'inline-flex items-center rounded-full px-2 py-[2px] text-[10px] font-semibold tracking-wide',
+              STATUS_TONE_BADGE_CLASSES[tone]
+            )}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
 
       <div className="mt-2 flex flex-col gap-4">
         <div className="flex flex-wrap items-end gap-4">
@@ -379,6 +460,7 @@ export function WorkflowTopologyPanel({
             searchTerm={canvasSearchTerm}
             onNodeSelect={handleCanvasNodeSelect}
             onCanvasClick={handleCanvasClick}
+            overlay={overlay ?? null}
             {...selectionProps}
           />
           <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />

@@ -58,6 +58,30 @@ export type LaunchSummary = {
   port: number | null;
 };
 
+export type AssetFreshnessSnapshot = {
+  maxAgeMs?: number | null;
+  ttlMs?: number | null;
+  cadenceMs?: number | null;
+};
+
+export type AssetProducedEvent = {
+  assetId: string;
+  workflowDefinitionId: string;
+  workflowSlug: string;
+  workflowRunId: string;
+  workflowRunStepId: string;
+  stepId: string;
+  producedAt: string;
+  freshness: AssetFreshnessSnapshot | null;
+  partitionKey: string | null;
+};
+
+export type AssetExpiredEvent = AssetProducedEvent & {
+  expiresAt: string;
+  requestedAt: string;
+  reason: string;
+};
+
 export type PreviewTileKind = 'gif' | 'image' | 'video' | 'storybook' | 'embed';
 
 export type PreviewTile = {
@@ -243,6 +267,8 @@ export type CatalogSocketEvent =
   | { type: 'workflow.run.succeeded'; data: { run: unknown } }
   | { type: 'workflow.run.failed'; data: { run: unknown } }
   | { type: 'workflow.run.canceled'; data: { run: unknown } }
+  | { type: 'asset.produced'; data: AssetProducedEvent }
+  | { type: 'asset.expired'; data: AssetExpiredEvent }
   | { type: 'job.run.updated'; data: { run: unknown } }
   | { type: 'job.run.pending'; data: { run: unknown } }
   | { type: 'job.run.running'; data: { run: unknown } }

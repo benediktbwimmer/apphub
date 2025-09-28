@@ -8,6 +8,8 @@ export type {
   WorkflowGraphEventSourceIndex,
   WorkflowGraphFetchMeta,
   WorkflowGraphNormalized,
+  WorkflowGraphLiveOverlay,
+  WorkflowGraphOverlayMeta,
   WorkflowGraphScheduleIndex,
   WorkflowGraphSocketEvent,
   WorkflowGraphStats,
