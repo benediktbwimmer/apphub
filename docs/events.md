@@ -119,6 +119,32 @@ Responses now include derived insights alongside the raw row:
 
 The WebSocket stream at `/ws` emits the same enriched structure via `workflow.event.received`, along with dedicated frames for platform sub-systems (`asset.produced`, `metastore.record.updated`, `timestore.partition.created`, and Filestore node events). Clients can derive severity chips or cross-links without reparsing raw payloads.
 
+## Explorer Health Overlays
+
+The Events Explorer UI now ships with a health rail that surfaces live scheduler telemetry alongside the event feed. The rail refreshes every 30 seconds (or whenever an operator presses **Refresh**) and highlights:
+
+- **Per-source lag:** Average, latest, and maximum lag in milliseconds, plus throttled and dropped counts
+- **Retry backlog:** Summaries for ingress events, trigger deliveries, and workflow steps, each with total and overdue counts plus the next scheduled attempt
+- **Paused routing:** Active source and trigger pauses so operators can immediately see why certain events are not progressing
+
+Collapse the rail to reclaim screen real estate or expand it for deeper triage. Metrics use the same `/admin/event-health` snapshot that powers workflow topology overlays, so the data matches what SRE dashboards show.
+
+## Saved Views
+
+Operators can now pin commonly used filter combinations as _saved views_. Each saved view preserves the current Explorer filters (type, source, severity, time range, JSONPath) and exposes quick actions:
+
+1. Configure filters in the Explorer and use **Save view** to capture them. Optionally supply a description and mark the view as shared across the org.
+2. Click the saved view name to apply it. The Explorer records usage so teams can see which presets are popular.
+3. Rename or delete private views, and share them once they are stable. Shared views are read-only for everyone except the original owner.
+
+Saved views display lightweight analytics derived from the past 15 minutes of history:
+
+- **Events/minute** shows the observed throughput for the filtered scope.
+- **Error ratio** highlights the relative frequency of critical and error severity events.
+- **Sampled count** indicates how many events contributed to the snapshot and whether the sample hit internal limits.
+
+Use these metrics to sanity-check noisy pipelines before diving into payloads, and promote shared presets so on-call engineers land on the right filters immediately.
+
 ## Publishing Checklist
 
 1. Always provide a stable `type` and `source`—they drive trigger routing and observability.

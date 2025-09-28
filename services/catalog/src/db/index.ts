@@ -16,3 +16,4 @@ export * from './eventScheduler';
 export * from './eventIngressRetries';
 export * from './assetMaterializer';
 export * from './savedSearches';
+export * from './eventSavedViews';

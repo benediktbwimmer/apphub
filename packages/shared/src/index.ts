@@ -8,3 +8,4 @@ export * from './filestoreMounts';
 export * from './filestoreFilters';
 export * from './retries/backoff';
 export * from './workflowTopology';
+export * from './eventsExplorer';

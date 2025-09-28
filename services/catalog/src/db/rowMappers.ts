@@ -1,4 +1,5 @@
 import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
+import type { WorkflowEventSeverity } from '@apphub/shared/catalogEvents';
 import {
   type BuildRecord,
   type IngestStatus,
@@ -61,7 +62,10 @@ import {
   type WorkflowTriggerDeliveryStatus,
   type SavedCatalogSearchRecord,
   type RepositorySort,
-  type EventIngressRetryRecord
+  type EventIngressRetryRecord,
+  type EventSavedViewRecord,
+  type EventSavedViewFilters,
+  type EventSavedViewVisibility
 } from './types';
 import type {
   BuildRow,
@@ -92,7 +96,8 @@ import type {
   WorkflowEventTriggerRow,
   WorkflowTriggerDeliveryRow,
   SavedCatalogSearchRow,
-  EventIngressRetryRow
+  EventIngressRetryRow,
+  EventSavedViewRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1930,4 +1935,142 @@ export function mapSavedCatalogSearchRow(row: SavedCatalogSearchRow): SavedCatal
     ownerKind: row.owner_kind === 'service' ? 'service' : 'user',
     ownerUserId: row.owner_user_id ?? null
   } satisfies SavedCatalogSearchRecord;
+}
+
+const EVENT_SAVED_VIEW_VISIBILITY_DEFAULT: EventSavedViewVisibility = 'private';
+const EVENT_SAVED_VIEW_VISIBILITIES = new Set<EventSavedViewVisibility>(['private', 'shared']);
+const EVENT_SAVED_VIEW_SEVERITIES: readonly WorkflowEventSeverity[] = ['critical', 'error', 'warning', 'info', 'debug'];
+
+function normalizeEventSavedViewVisibility(value: unknown): EventSavedViewVisibility {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (EVENT_SAVED_VIEW_VISIBILITIES.has(normalized as EventSavedViewVisibility)) {
+      return normalized as EventSavedViewVisibility;
+    }
+  }
+  return EVENT_SAVED_VIEW_VISIBILITY_DEFAULT;
+}
+
+function sanitizeFilterString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeEventSavedViewLimit(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const bounded = Math.trunc(value);
+    if (bounded >= 1 && bounded <= 200) {
+      return bounded;
+    }
+    return Math.min(Math.max(bounded, 1), 200);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return normalizeEventSavedViewLimit(parsed);
+    }
+  }
+  return null;
+}
+
+function parseSeverityList(value: unknown): WorkflowEventSeverity[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const seen = new Set<WorkflowEventSeverity>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const normalized = entry.trim().toLowerCase();
+    if (EVENT_SAVED_VIEW_SEVERITIES.includes(normalized as WorkflowEventSeverity)) {
+      seen.add(normalized as WorkflowEventSeverity);
+    }
+  }
+  return seen.size > 0 ? Array.from(seen) : undefined;
+}
+
+function parseEventSavedViewFilters(value: unknown): EventSavedViewFilters {
+  if (value === null || value === undefined) {
+    return {};
+  }
+  let source: Record<string, unknown> | null = null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        source = parsed as Record<string, unknown>;
+      }
+    } catch {
+      source = null;
+    }
+  } else if (typeof value === 'object' && !Array.isArray(value)) {
+    source = value as Record<string, unknown>;
+  }
+
+  if (!source) {
+    return {};
+  }
+
+  const filters: EventSavedViewFilters = {};
+  const typeValue = sanitizeFilterString(source.type ?? source.eventType);
+  if (typeValue) {
+    filters.type = typeValue;
+  }
+  const sourceValue = sanitizeFilterString(source.source ?? source.eventSource);
+  if (sourceValue) {
+    filters.source = sourceValue;
+  }
+  const correlationValue = sanitizeFilterString(source.correlationId ?? source.correlation);
+  if (correlationValue) {
+    filters.correlationId = correlationValue;
+  }
+  const fromValue = sanitizeFilterString(source.from ?? source.start);
+  if (fromValue) {
+    filters.from = fromValue;
+  }
+  const toValue = sanitizeFilterString(source.to ?? source.end);
+  if (toValue) {
+    filters.to = toValue;
+  }
+  const jsonPathValue = sanitizeFilterString(source.jsonPath ?? source.path);
+  if (jsonPathValue) {
+    filters.jsonPath = jsonPathValue;
+  }
+  const severityList = parseSeverityList(source.severity ?? source.severities);
+  if (severityList) {
+    filters.severity = severityList;
+  }
+  const limitValue = normalizeEventSavedViewLimit(source.limit);
+  if (limitValue !== null) {
+    filters.limit = limitValue;
+  }
+
+  return filters;
+}
+
+export function mapEventSavedViewRow(row: EventSavedViewRow): EventSavedViewRecord {
+  const filters = parseEventSavedViewFilters(row.filters);
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: sanitizeFilterString(row.description) ?? null,
+    filters,
+    visibility: normalizeEventSavedViewVisibility(row.visibility),
+    appliedCount: toSafeCount(row.applied_count),
+    sharedCount: toSafeCount(row.shared_count),
+    lastAppliedAt: row.last_applied_at ?? null,
+    lastSharedAt: row.last_shared_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ownerKey: row.owner_key,
+    ownerSubject: row.owner_subject,
+    ownerKind: row.owner_kind === 'service' ? 'service' : 'user',
+    ownerUserId: row.owner_user_id ?? null,
+    analytics: null
+  } satisfies EventSavedViewRecord;
 }

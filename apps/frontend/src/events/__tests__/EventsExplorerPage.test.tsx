@@ -27,6 +27,40 @@ vi.mock('../../auth/useAuthorizedFetch', () => ({
   useAuthorizedFetch: vi.fn(() => vi.fn())
 }));
 
+vi.mock('../useSavedEventViews', () => ({
+  useSavedEventViews: vi.fn(() => ({
+    savedViews: [],
+    loading: false,
+    error: null,
+    mutationState: {
+      creating: false,
+      applyingSlug: null,
+      sharingSlug: null,
+      updatingSlug: null,
+      deletingSlug: null
+    },
+    viewerSubject: 'user:test',
+    viewerUserId: 'user-test',
+    refresh: vi.fn(),
+    createSavedView: vi.fn(),
+    updateSavedView: vi.fn(),
+    deleteSavedView: vi.fn(),
+    applySavedView: vi.fn(),
+    shareSavedView: vi.fn()
+  }))
+}));
+
+vi.mock('../useEventHealthSnapshot', () => ({
+  useEventHealthSnapshot: vi.fn(() => ({
+    health: null,
+    loading: false,
+    refreshing: false,
+    error: null,
+    lastUpdatedAt: null,
+    refresh: vi.fn()
+  }))
+}));
+
 const useEventsExplorerMock = vi.mocked(useEventsExplorer);
 
 const sampleEvents: WorkflowEventSample[] = [

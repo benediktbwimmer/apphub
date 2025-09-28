@@ -376,6 +376,131 @@ const savedCatalogSearchUpdateRequestSchema: OpenAPIV3.SchemaObject = {
   ]
 };
 
+const eventSavedViewFiltersSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', maxLength: 200 },
+    source: { type: 'string', maxLength: 200 },
+    correlationId: { type: 'string', maxLength: 200 },
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    jsonPath: { type: 'string', maxLength: 500 },
+    severity: {
+      type: 'array',
+      maxItems: 5,
+      items: { type: 'string', enum: ['critical', 'error', 'warning', 'info', 'debug'] }
+    },
+    limit: { type: 'integer', minimum: 1, maximum: 200 }
+  }
+};
+
+const eventSavedViewAnalyticsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'windowSeconds',
+    'totalEvents',
+    'errorEvents',
+    'eventRatePerMinute',
+    'errorRatio',
+    'generatedAt',
+    'sampledCount',
+    'sampleLimit',
+    'truncated'
+  ],
+  properties: {
+    windowSeconds: { type: 'integer', minimum: 60 },
+    totalEvents: { type: 'integer', minimum: 0 },
+    errorEvents: { type: 'integer', minimum: 0 },
+    eventRatePerMinute: { type: 'number', minimum: 0 },
+    errorRatio: { type: 'number', minimum: 0 },
+    generatedAt: stringSchema('date-time'),
+    sampledCount: { type: 'integer', minimum: 0 },
+    sampleLimit: { type: 'integer', minimum: 1 },
+    truncated: { type: 'boolean' }
+  }
+};
+
+const eventSavedViewOwnerSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['key', 'subject', 'kind'],
+  properties: {
+    key: { type: 'string' },
+    subject: { type: 'string' },
+    kind: { type: 'string', enum: ['user', 'service'] },
+    userId: nullable(stringSchema())
+  }
+};
+
+const eventSavedViewSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'slug',
+    'name',
+    'filters',
+    'visibility',
+    'appliedCount',
+    'sharedCount',
+    'createdAt',
+    'updatedAt',
+    'owner'
+  ],
+  properties: {
+    id: { type: 'string', description: 'Saved view identifier.' },
+    slug: { type: 'string', description: 'Slug used to reference the saved view.' },
+    name: { type: 'string', description: 'Display name for the saved view.' },
+    description: nullable(stringSchema()),
+    filters: eventSavedViewFiltersSchema,
+    visibility: { type: 'string', enum: ['private', 'shared'] },
+    appliedCount: { type: 'integer', minimum: 0 },
+    sharedCount: { type: 'integer', minimum: 0 },
+    lastAppliedAt: nullable(stringSchema('date-time')),
+    lastSharedAt: nullable(stringSchema('date-time')),
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time'),
+    owner: eventSavedViewOwnerSchema,
+    analytics: nullable(eventSavedViewAnalyticsSchema)
+  }
+};
+
+const eventSavedViewResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: eventSavedViewSchema
+  }
+};
+
+const eventSavedViewListResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: eventSavedViewSchema
+    }
+  }
+};
+
+const eventSavedViewCreateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['name'],
+  properties: {
+    name: { type: 'string', maxLength: 120 },
+    description: nullable(stringSchema()),
+    filters: eventSavedViewFiltersSchema,
+    visibility: { type: 'string', enum: ['private', 'shared'] }
+  },
+  additionalProperties: false
+};
+
+const eventSavedViewUpdateRequestSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  properties: eventSavedViewCreateRequestSchema.properties,
+  additionalProperties: false
+};
+
 const operatorIdentitySchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['subject', 'kind', 'scopes'],
@@ -1919,6 +2044,13 @@ const components: OpenAPIV3.ComponentsObject = {
     SavedCatalogSearchListResponse: savedCatalogSearchListResponseSchema,
     SavedCatalogSearchCreateRequest: savedCatalogSearchCreateRequestSchema,
     SavedCatalogSearchUpdateRequest: savedCatalogSearchUpdateRequestSchema,
+    EventSavedViewFilters: eventSavedViewFiltersSchema,
+    EventSavedViewAnalytics: eventSavedViewAnalyticsSchema,
+    EventSavedView: eventSavedViewSchema,
+    EventSavedViewResponse: eventSavedViewResponseSchema,
+    EventSavedViewListResponse: eventSavedViewListResponseSchema,
+    EventSavedViewCreateRequest: eventSavedViewCreateRequestSchema,
+    EventSavedViewUpdateRequest: eventSavedViewUpdateRequestSchema,
     OperatorIdentity: operatorIdentitySchema,
     IdentityResponse: identityResponseSchema,
     RepositoryCreateRequest: createRepositoryRequestSchema,
@@ -2010,7 +2142,8 @@ export const openApiDocument: OpenAPIV3.Document = {
     { name: 'Services', description: 'Runtime services discovered and managed by Apphub.' },
     { name: 'Jobs', description: 'Reusable job definitions executed by the platform.' },
     { name: 'Workflows', description: 'Multi-step workflow orchestration definitions.' },
-    { name: 'Saved Searches', description: 'Manage reusable catalog search definitions.' }
+    { name: 'Saved Searches', description: 'Manage reusable catalog search definitions.' },
+    { name: 'Events', description: 'Events explorer health overlays and saved views.' }
   ],
   components,
   paths: {
@@ -2685,6 +2818,313 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '404': {
             description: 'The saved search does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/events/saved-views': {
+      get: {
+        tags: ['Events'],
+        summary: 'List saved event views',
+        description: 'Returns saved event views available to the authenticated operator, including shared presets.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '200': {
+            description: 'Saved event views available to the caller.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewListResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to view saved event overlays.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      post: {
+        tags: ['Events'],
+        summary: 'Create a saved event view',
+        description: 'Persists a reusable filter preset for the events explorer.',
+        security: [{ OperatorToken: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/EventSavedViewCreateRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Saved event view created successfully.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The payload failed validation.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to create saved event views.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '500': {
+            description: 'The server failed to persist the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/events/saved-views/{slug}': {
+      get: {
+        tags: ['Events'],
+        summary: 'Get a saved event view',
+        description: 'Retrieves a saved event view owned by the caller or shared across the organization.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Saved event view details.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to access the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'No saved event view matches the provided slug.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      patch: {
+        tags: ['Events'],
+        summary: 'Update a saved event view',
+        description: 'Updates fields on a saved view owned by the caller.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/EventSavedViewUpdateRequest' }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Saved event view updated.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
+              }
+            }
+          },
+          '400': {
+            description: 'The update payload was invalid.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to modify the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved event view does not exist for this operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '500': {
+            description: 'The server failed to update the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      },
+      delete: {
+        tags: ['Events'],
+        summary: 'Delete a saved event view',
+        description: 'Removes a saved event view owned by the caller.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '204': { description: 'Saved event view deleted.' },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to delete the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved event view was not found for the operator.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/events/saved-views/{slug}/apply': {
+      post: {
+        tags: ['Events'],
+        summary: 'Record saved event view usage',
+        description: 'Increments usage metrics for a saved event view.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Updated saved event view metadata.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to update saved event views.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved event view does not exist.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          }
+        }
+      }
+    },
+    '/events/saved-views/{slug}/share': {
+      post: {
+        tags: ['Events'],
+        summary: 'Share a saved event view',
+        description: 'Marks a saved event view as shared and records share metrics.',
+        security: [{ OperatorToken: [] }],
+        parameters: [
+          {
+            name: 'slug',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Updated saved event view metadata.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EventSavedViewResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The caller is unauthenticated.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '403': {
+            description: 'The caller is not authorized to share the saved event view.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
+            }
+          },
+          '404': {
+            description: 'The saved event view does not exist for the operator.',
             content: {
               'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } }
             }

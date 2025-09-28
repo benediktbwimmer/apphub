@@ -5,10 +5,22 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { Spinner } from '../components/Spinner';
 import EventSchemaExplorer from '../workflows/components/eventTriggers/EventSchemaExplorer';
 import { Modal } from '../components/Modal';
-import { DEFAULT_EVENTS_FILTERS, EVENTS_SEVERITIES, type EventsExplorerFilters } from './explorerTypes';
+import {
+  DEFAULT_EVENTS_FILTERS,
+  EVENTS_SEVERITIES,
+  filtersMatchSavedView,
+  fromSavedViewFilters,
+  toSavedViewFilters,
+  type EventsExplorerFilters
+} from './explorerTypes';
 import { useEventsExplorer } from './useEventsExplorer';
 import type { EventsExplorerPreset } from './explorerTypes';
 import type { AppHubConnectionStatus } from './context';
+import SavedEventViewsPanel from './SavedEventViewsPanel';
+import { useSavedEventViews } from './useSavedEventViews';
+import { useEventHealthSnapshot } from './useEventHealthSnapshot';
+import EventsHealthRail from './EventsHealthRail';
+import type { EventSavedViewRecord } from '@apphub/shared/eventsExplorer';
 
 type EventsExplorerListProps = {
   events: WorkflowEventSample[];
@@ -105,6 +117,10 @@ export default function EventsExplorerPage() {
     refresh,
     loadMore
   } = useEventsExplorer(authorizedFetch);
+  const savedViews = useSavedEventViews();
+  const healthSnapshot = useEventHealthSnapshot();
+
+  const [activeSavedViewSlug, setActiveSavedViewSlug] = useState<string | null>(null);
 
   const [draftFilters, setDraftFilters] = useState<EventsExplorerFilters>(filters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -114,6 +130,18 @@ export default function EventsExplorerPage() {
     setDraftFilters(filters);
     setSchemaBrowserOpen(false);
   }, [filters]);
+
+  useEffect(() => {
+    if (savedViews.savedViews.length === 0) {
+      setActiveSavedViewSlug((current) => (current !== null ? null : current));
+      return;
+    }
+    const match = savedViews.savedViews.find((view) => filtersMatchSavedView(filters, view.filters));
+    setActiveSavedViewSlug((current) => {
+      const next = match ? match.slug : null;
+      return next === current ? current : next;
+    });
+  }, [filters, savedViews.savedViews]);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedId) ?? null, [events, selectedId]);
 
@@ -125,6 +153,7 @@ export default function EventsExplorerPage() {
 
   const handleApply = async () => {
     setSelectedId(null);
+    setActiveSavedViewSlug(null);
     await applyFilters(draftFilters);
   };
 
@@ -132,12 +161,52 @@ export default function EventsExplorerPage() {
     const next = { ...DEFAULT_EVENTS_FILTERS };
     setDraftFilters(next);
     setSelectedId(null);
+    setActiveSavedViewSlug(null);
     await applyFilters(next);
   };
 
   const handlePreset = async (presetId: string) => {
     setSelectedId(null);
+    setActiveSavedViewSlug(null);
     await applyPreset(presetId);
+  };
+
+  const handleCreateSavedView = async (input: {
+    name: string;
+    description: string | null;
+    visibility: 'private' | 'shared';
+  }) => {
+    const record = await savedViews.createSavedView({
+      name: input.name,
+      description: input.description ?? null,
+      visibility: input.visibility,
+      filters: toSavedViewFilters(draftFilters)
+    });
+    setActiveSavedViewSlug(record.slug);
+  };
+
+  const handleApplySavedView = async (view: EventSavedViewRecord) => {
+    const nextFilters = fromSavedViewFilters(view.filters);
+    setDraftFilters(nextFilters);
+    setSelectedId(null);
+    await applyFilters(nextFilters);
+    await savedViews.applySavedView(view.slug);
+    setActiveSavedViewSlug(view.slug);
+  };
+
+  const handleRenameSavedView = async (view: EventSavedViewRecord, nextName: string) => {
+    await savedViews.updateSavedView(view.slug, { name: nextName });
+  };
+
+  const handleDeleteSavedView = async (view: EventSavedViewRecord) => {
+    const deleted = await savedViews.deleteSavedView(view.slug);
+    if (deleted && activeSavedViewSlug === view.slug) {
+      setActiveSavedViewSlug(null);
+    }
+  };
+
+  const handleShareSavedView = async (view: EventSavedViewRecord) => {
+    await savedViews.shareSavedView(view.slug);
   };
 
   const handleRefresh = async () => {
@@ -170,45 +239,82 @@ export default function EventsExplorerPage() {
         </div>
       </header>
 
-      <EventsFilterBar
-        presets={presets}
-        activePresetId={activePresetId}
-        draftFilters={draftFilters}
-        schema={schema}
-        onChange={setDraftFilters}
-        onApply={handleApply}
-        onReset={handleReset}
-        onPresetSelect={handlePreset}
-        onOpenSchemaBrowser={() => setSchemaBrowserOpen(true)}
-      />
+      <div className="flex flex-col gap-6 xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <EventsFilterBar
+            presets={presets}
+            activePresetId={activePresetId}
+            draftFilters={draftFilters}
+            schema={schema}
+            onChange={setDraftFilters}
+            onApply={handleApply}
+            onReset={handleReset}
+            onPresetSelect={handlePreset}
+            onOpenSchemaBrowser={() => setSchemaBrowserOpen(true)}
+          />
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-200/70 bg-rose-50/60 px-4 py-3 text-sm text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
+          <SavedEventViewsPanel
+            savedViews={savedViews.savedViews}
+            loading={savedViews.loading}
+            error={savedViews.error}
+            mutationState={savedViews.mutationState}
+            viewerSubject={savedViews.viewerSubject}
+            onCreate={handleCreateSavedView}
+            onApply={(view) => {
+              void handleApplySavedView(view);
+            }}
+            onRename={(view, nextName) => {
+              void handleRenameSavedView(view, nextName);
+            }}
+            onDelete={(view) => {
+              void handleDeleteSavedView(view);
+            }}
+            onShare={(view) => {
+              void handleShareSavedView(view);
+            }}
+            activeSlug={activeSavedViewSlug}
+          />
+
+          {error ? (
+            <div className="rounded-2xl border border-rose-200/70 bg-rose-50/60 px-4 py-3 text-sm text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-200">
+              {error}
+            </div>
+          ) : null}
+
+          <EventsExplorerList
+            events={events}
+            highlightedIds={highlightedIds}
+            selectedId={selectedId}
+            connectionStatus={connectionStatus}
+            loading={loading}
+            refreshing={refreshing}
+            onSelect={(event) => setSelectedId(event.id)}
+          />
+
+          <div className="flex flex-col items-center gap-4">
+            {hasMore ? (
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                className="rounded-full border border-slate-200/70 px-5 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                {loadingMore ? 'Loading…' : 'Load older events'}
+              </button>
+            ) : null}
+          </div>
         </div>
-      ) : null}
 
-      <EventsExplorerList
-        events={events}
-        highlightedIds={highlightedIds}
-        selectedId={selectedId}
-        connectionStatus={connectionStatus}
-        loading={loading}
-        refreshing={refreshing}
-        onSelect={(event) => setSelectedId(event.id)}
-      />
-
-      <div className="flex flex-col items-center gap-4">
-        {hasMore ? (
-          <button
-            type="button"
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            className="rounded-full border border-slate-200/70 px-5 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            {loadingMore ? 'Loading…' : 'Load older events'}
-          </button>
-        ) : null}
+        <EventsHealthRail
+          health={healthSnapshot.health}
+          loading={healthSnapshot.loading}
+          refreshing={healthSnapshot.refreshing}
+          error={healthSnapshot.error}
+          lastUpdatedAt={healthSnapshot.lastUpdatedAt}
+          onRefresh={() => {
+            void healthSnapshot.refresh();
+          }}
+        />
       </div>
 
       <EventDetailDrawer event={selectedEvent} open={selectedEvent !== null} onClose={() => setSelectedId(null)} />

@@ -1,5 +1,14 @@
 import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
 import type { WorkflowEventCursorPayload } from '@apphub/shared/catalogEvents';
+import type {
+  EventSavedViewAnalytics as SharedEventSavedViewAnalytics,
+  EventSavedViewCreateInput as SharedEventSavedViewCreateInput,
+  EventSavedViewFilters as SharedEventSavedViewFilters,
+  EventSavedViewOwner as SharedEventSavedViewOwner,
+  EventSavedViewRecord as SharedEventSavedViewRecord,
+  EventSavedViewUpdateInput as SharedEventSavedViewUpdateInput,
+  EventSavedViewVisibility as SharedEventSavedViewVisibility
+} from '@apphub/shared/eventsExplorer';
 
 export type TagKV = {
   key: string;
@@ -207,6 +216,14 @@ export type SavedCatalogSearchRecord = {
   ownerKind: 'user' | 'service';
   ownerUserId: string | null;
 };
+
+export type EventSavedViewFilters = SharedEventSavedViewFilters;
+export type EventSavedViewVisibility = SharedEventSavedViewVisibility;
+export type EventSavedViewRecord = SharedEventSavedViewRecord;
+export type EventSavedViewCreateInput = SharedEventSavedViewCreateInput;
+export type EventSavedViewUpdateInput = SharedEventSavedViewUpdateInput;
+export type EventSavedViewOwner = SharedEventSavedViewOwner;
+export type EventSavedViewAnalytics = SharedEventSavedViewAnalytics;
 
 export type SavedCatalogSearchCreateInput = {
   name: string;

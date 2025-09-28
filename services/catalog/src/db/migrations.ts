@@ -1003,6 +1003,39 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_workflow_events_occurred_id
          ON workflow_events (occurred_at DESC, id DESC);`
     ]
+  },
+  {
+    id: '034_event_saved_views',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS event_saved_views (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL UNIQUE,
+         owner_key TEXT NOT NULL,
+         owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+         owner_subject TEXT NOT NULL,
+         owner_kind TEXT NOT NULL,
+         owner_token_hash TEXT,
+         name TEXT NOT NULL,
+         description TEXT,
+         filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+         visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'shared')),
+         applied_count BIGINT NOT NULL DEFAULT 0,
+         shared_count BIGINT NOT NULL DEFAULT 0,
+         last_applied_at TIMESTAMPTZ,
+         last_shared_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CHECK (owner_kind IN ('user', 'service'))
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_saved_views_owner_key
+         ON event_saved_views(owner_key);`,
+      `CREATE INDEX IF NOT EXISTS idx_event_saved_views_owner_user
+         ON event_saved_views(owner_user_id)
+         WHERE owner_user_id IS NOT NULL;`,
+      `CREATE INDEX IF NOT EXISTS idx_event_saved_views_visibility_shared
+         ON event_saved_views(visibility)
+         WHERE visibility = 'shared';`
+    ]
   }
 ];
 

@@ -528,3 +528,23 @@ export type EventIngressRetryRow = {
   created_at: string;
   updated_at: string;
 };
+
+export type EventSavedViewRow = {
+  id: string;
+  slug: string;
+  owner_key: string;
+  owner_user_id: string | null;
+  owner_subject: string;
+  owner_kind: string;
+  owner_token_hash: string | null;
+  name: string;
+  description: string | null;
+  filters: unknown;
+  visibility: string;
+  applied_count: string | number | null;
+  shared_count: string | number | null;
+  last_applied_at: string | null;
+  last_shared_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
