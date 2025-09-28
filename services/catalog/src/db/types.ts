@@ -83,6 +83,11 @@ export type ServiceNetworkMemberRecord = {
 export type ServiceNetworkRecord = {
   repositoryId: string;
   manifestSource: string | null;
+  moduleId: string | null;
+  moduleVersion: number | null;
+  version: number;
+  definition: JsonValue | null;
+  checksum: string | null;
   createdAt: string;
   updatedAt: string;
   members: ServiceNetworkMemberRecord[];
@@ -376,6 +381,52 @@ export type ServiceRecord = {
   lastHealthyAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ServiceManifestStoreRecord = {
+  id: number;
+  moduleId: string;
+  moduleVersion: number;
+  serviceSlug: string;
+  definition: JsonValue;
+  checksum: string;
+  createdAt: string;
+  updatedAt: string;
+  supersededAt: string | null;
+};
+
+export type ServiceManifestStoreInput = {
+  serviceSlug: string;
+  definition: JsonValue;
+  checksum: string;
+};
+
+export type ServiceHealthSnapshotRecord = {
+  id: number;
+  serviceSlug: string;
+  version: number;
+  status: ServiceStatus;
+  statusMessage: string | null;
+  latencyMs: number | null;
+  statusCode: number | null;
+  checkedAt: string;
+  baseUrl: string | null;
+  healthEndpoint: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceHealthSnapshotInsert = {
+  serviceSlug: string;
+  status: ServiceStatus;
+  statusMessage?: string | null;
+  latencyMs?: number | null;
+  statusCode?: number | null;
+  checkedAt: string;
+  baseUrl?: string | null;
+  healthEndpoint?: string | null;
+  metadata?: JsonValue | null;
 };
 
 export type ServiceUpsertInput = {

@@ -6,6 +6,8 @@ export * from './repositories';
 export * from './builds';
 export * from './launches';
 export * from './serviceNetworks';
+export * from './serviceManifests';
+export * from './serviceHealth';
 export * from './services';
 export * from './jobs';
 export * from './jobBundles';

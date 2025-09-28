@@ -1036,6 +1036,59 @@ const migrations: Migration[] = [
          ON event_saved_views(visibility)
          WHERE visibility = 'shared';`
     ]
+  },
+  {
+    id: '035_service_registry_shared_state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS service_manifests (
+         id BIGSERIAL PRIMARY KEY,
+         module_id TEXT NOT NULL,
+         module_version INTEGER NOT NULL,
+         service_slug TEXT NOT NULL,
+         definition JSONB NOT NULL,
+         checksum TEXT NOT NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         superseded_at TIMESTAMPTZ,
+         UNIQUE (module_id, module_version, service_slug)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_service_manifests_active_slug
+         ON service_manifests(service_slug)
+         WHERE superseded_at IS NULL;`,
+      `CREATE INDEX IF NOT EXISTS idx_service_manifests_active_module
+         ON service_manifests(module_id, module_version)
+         WHERE superseded_at IS NULL;`,
+      `ALTER TABLE service_networks
+         ADD COLUMN IF NOT EXISTS module_id TEXT;`,
+      `ALTER TABLE service_networks
+         ADD COLUMN IF NOT EXISTS module_version INTEGER;`,
+      `ALTER TABLE service_networks
+         ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;`,
+      `ALTER TABLE service_networks
+         ADD COLUMN IF NOT EXISTS definition JSONB;`,
+      `ALTER TABLE service_networks
+         ADD COLUMN IF NOT EXISTS checksum TEXT;`,
+      `CREATE INDEX IF NOT EXISTS idx_service_networks_module
+         ON service_networks(module_id);`,
+      `CREATE TABLE IF NOT EXISTS service_health_snapshots (
+         id BIGSERIAL PRIMARY KEY,
+         service_slug TEXT NOT NULL REFERENCES services(slug) ON DELETE CASCADE,
+         version INTEGER NOT NULL,
+         status TEXT NOT NULL CHECK (status IN ('healthy', 'degraded', 'unreachable')),
+         status_message TEXT,
+         latency_ms INTEGER,
+         status_code INTEGER,
+         checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         base_url TEXT,
+         health_endpoint TEXT,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (service_slug, version)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_service_health_snapshots_checked
+         ON service_health_snapshots(service_slug, checked_at DESC);`
+    ]
   }
 ];
 

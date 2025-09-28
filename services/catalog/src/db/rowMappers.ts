@@ -97,9 +97,16 @@ import type {
   WorkflowTriggerDeliveryRow,
   SavedCatalogSearchRow,
   EventIngressRetryRow,
-  EventSavedViewRow
+  EventSavedViewRow,
+  ServiceManifestRow,
+  ServiceHealthSnapshotRow
 } from './rowTypes';
-import type { ServiceRecord, IngestionEvent } from './types';
+import type {
+  ServiceRecord,
+  IngestionEvent,
+  ServiceManifestStoreRecord,
+  ServiceHealthSnapshotRecord
+} from './types';
 
 export function parseLaunchEnv(value: unknown): LaunchEnvVar[] {
   if (!value) {
@@ -1206,6 +1213,11 @@ export function mapServiceNetworkRow(
   return {
     repositoryId: row.repository_id,
     manifestSource: row.manifest_source,
+    moduleId: row.module_id ?? null,
+    moduleVersion: row.module_version ?? null,
+    version: row.version ?? 1,
+    definition: ensureJsonValue(row.definition, null),
+    checksum: row.checksum ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     members: members.map(mapServiceNetworkMemberRow)
@@ -1223,6 +1235,40 @@ export function mapServiceNetworkLaunchMemberRow(
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies ServiceNetworkLaunchMemberRecord;
+}
+
+export function mapServiceManifestRow(row: ServiceManifestRow): ServiceManifestStoreRecord {
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    moduleVersion: row.module_version,
+    serviceSlug: row.service_slug,
+    definition: ensureJsonValue(row.definition, {} as JsonValue),
+    checksum: row.checksum,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    supersededAt: row.superseded_at ?? null
+  } satisfies ServiceManifestStoreRecord;
+}
+
+export function mapServiceHealthSnapshotRow(
+  row: ServiceHealthSnapshotRow
+): ServiceHealthSnapshotRecord {
+  return {
+    id: row.id,
+    serviceSlug: row.service_slug,
+    version: row.version,
+    status: row.status as ServiceHealthSnapshotRecord['status'],
+    statusMessage: row.status_message ?? null,
+    latencyMs: row.latency_ms,
+    statusCode: row.status_code,
+    checkedAt: row.checked_at,
+    baseUrl: row.base_url ?? null,
+    healthEndpoint: row.health_endpoint ?? null,
+    metadata: ensureJsonValue(row.metadata, null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies ServiceHealthSnapshotRecord;
 }
 
 export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord {

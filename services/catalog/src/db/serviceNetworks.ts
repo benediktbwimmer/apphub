@@ -4,7 +4,8 @@ import {
   type ServiceNetworkRecord,
   type ServiceNetworkMemberInput,
   type ServiceNetworkLaunchMemberInput,
-  type ServiceNetworkLaunchMemberRecord
+  type ServiceNetworkLaunchMemberRecord,
+  type JsonValue
 } from './types';
 import {
   mapServiceNetworkLaunchMemberRow,
@@ -84,15 +85,49 @@ async function fetchServiceNetwork(
 }
 
 export async function upsertServiceNetwork(
-  input: { repositoryId: string; manifestSource?: string | null }
+  input: {
+    repositoryId: string;
+    manifestSource?: string | null;
+    moduleId?: string | null;
+    moduleVersion?: number | null;
+    definition?: JsonValue | null;
+    checksum?: string | null;
+  }
 ): Promise<ServiceNetworkRecord> {
   const manifestSource = input.manifestSource ?? null;
+  const moduleId = input.moduleId ?? null;
+  const moduleVersion = input.moduleVersion ?? null;
+  const definition = input.definition ?? null;
+  const checksum = input.checksum ?? null;
   await useTransaction(async (client) => {
     await client.query(
-      `INSERT INTO service_networks (repository_id, manifest_source, created_at, updated_at)
-       VALUES ($1, $2, NOW(), NOW())
-       ON CONFLICT (repository_id) DO UPDATE SET manifest_source = EXCLUDED.manifest_source, updated_at = NOW()`,
-      [input.repositoryId, manifestSource]
+      `INSERT INTO service_networks (
+         repository_id,
+         manifest_source,
+         module_id,
+         module_version,
+         version,
+         definition,
+         checksum,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, 1, $5::jsonb, $6, NOW(), NOW())
+       ON CONFLICT (repository_id) DO UPDATE SET
+         manifest_source = EXCLUDED.manifest_source,
+         module_id = EXCLUDED.module_id,
+         module_version = EXCLUDED.module_version,
+         definition = EXCLUDED.definition,
+         checksum = EXCLUDED.checksum,
+         version = service_networks.version + 1,
+         updated_at = NOW()`,
+      [
+        input.repositoryId,
+        manifestSource,
+        moduleId,
+        moduleVersion,
+        definition === null ? null : JSON.stringify(definition),
+        checksum
+      ]
     );
   });
 
@@ -174,6 +209,79 @@ export async function listServiceNetworkRepositoryIds(): Promise<string[]> {
       'SELECT repository_id FROM service_networks ORDER BY repository_id ASC'
     );
     return rows.map((row) => row.repository_id);
+  });
+}
+
+export async function listAllServiceNetworks(): Promise<ServiceNetworkRecord[]> {
+  return useConnection(async (client) => {
+    const { rows: networkRows } = await client.query<ServiceNetworkRow>(
+      'SELECT * FROM service_networks ORDER BY repository_id ASC'
+    );
+    if (networkRows.length === 0) {
+      return [];
+    }
+
+    const networkIds = networkRows.map((row) => row.repository_id);
+    const { rows: memberRows } = await client.query<ServiceNetworkMemberRow>(
+      `SELECT *
+       FROM service_network_members
+       WHERE network_repository_id = ANY($1)
+       ORDER BY network_repository_id ASC, launch_order ASC, member_repository_id ASC`,
+      [networkIds]
+    );
+
+    const membersByNetwork = new Map<string, ServiceNetworkMemberRow[]>();
+    for (const member of memberRows) {
+      const current = membersByNetwork.get(member.network_repository_id);
+      if (current) {
+        current.push(member);
+      } else {
+        membersByNetwork.set(member.network_repository_id, [member]);
+      }
+    }
+
+    return networkRows.map((row) =>
+      mapServiceNetworkRow(row, membersByNetwork.get(row.repository_id) ?? [])
+    );
+  });
+}
+
+export async function listServiceNetworksByModule(
+  moduleId: string
+): Promise<ServiceNetworkRecord[]> {
+  const normalizedModuleId = moduleId.trim();
+  if (!normalizedModuleId) {
+    return [];
+  }
+
+  return useConnection(async (client) => {
+    const { rows: networkRows } = await client.query<ServiceNetworkRow>(
+      'SELECT * FROM service_networks WHERE module_id = $1 ORDER BY repository_id ASC',
+      [normalizedModuleId]
+    );
+    if (networkRows.length === 0) {
+      return [];
+    }
+    const ids = networkRows.map((row) => row.repository_id);
+    const { rows: memberRows } = await client.query<ServiceNetworkMemberRow>(
+      `SELECT *
+       FROM service_network_members
+       WHERE network_repository_id = ANY($1)
+       ORDER BY network_repository_id ASC, launch_order ASC, member_repository_id ASC`,
+      [ids]
+    );
+    const membersByNetwork = new Map<string, ServiceNetworkMemberRow[]>();
+    for (const member of memberRows) {
+      const current = membersByNetwork.get(member.network_repository_id);
+      if (current) {
+        current.push(member);
+      } else {
+        membersByNetwork.set(member.network_repository_id, [member]);
+      }
+    }
+    return networkRows.map((row) =>
+      mapServiceNetworkRow(row, membersByNetwork.get(row.repository_id) ?? [])
+    );
   });
 }
 

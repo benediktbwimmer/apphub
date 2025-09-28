@@ -89,6 +89,11 @@ export type IngestionEventRow = {
 export type ServiceNetworkRow = {
   repository_id: string;
   manifest_source: string | null;
+  module_id: string | null;
+  module_version: number | null;
+  version: number;
+  definition: unknown;
+  checksum: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -109,6 +114,34 @@ export type ServiceNetworkLaunchMemberRow = {
   member_launch_id: string;
   member_repository_id: string;
   launch_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceManifestRow = {
+  id: number;
+  module_id: string;
+  module_version: number;
+  service_slug: string;
+  definition: unknown;
+  checksum: string;
+  created_at: string;
+  updated_at: string;
+  superseded_at: string | null;
+};
+
+export type ServiceHealthSnapshotRow = {
+  id: number;
+  service_slug: string;
+  version: number;
+  status: string;
+  status_message: string | null;
+  latency_ms: number | null;
+  status_code: number | null;
+  checked_at: string;
+  base_url: string | null;
+  health_endpoint: string | null;
+  metadata: unknown;
   created_at: string;
   updated_at: string;
 };

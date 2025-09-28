@@ -740,7 +740,22 @@ const serviceSchema: OpenAPIV3.SchemaObject = {
     openapi: nullable(jsonValueSchema),
     lastHealthyAt: nullable(stringSchema('date-time')),
     createdAt: { type: 'string', format: 'date-time' },
-    updatedAt: { type: 'string', format: 'date-time' }
+    updatedAt: { type: 'string', format: 'date-time' },
+    health: nullable({
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['unknown', 'healthy', 'degraded', 'unreachable']
+        },
+        statusMessage: nullable(stringSchema()),
+        checkedAt: nullable(stringSchema('date-time')),
+        latencyMs: nullable(integerSchema()),
+        statusCode: nullable(integerSchema()),
+        baseUrl: nullable(stringSchema()),
+        healthEndpoint: nullable(stringSchema())
+      }
+    })
   }
 };
 

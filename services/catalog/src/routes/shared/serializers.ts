@@ -9,6 +9,7 @@ import {
   type LaunchRecord,
   type RepositoryRecordWithRelevance,
   type ServiceRecord,
+  type ServiceHealthSnapshotRecord,
   type WorkflowDefinitionRecord,
   type WorkflowScheduleRecord,
   type WorkflowRunRecord,
@@ -98,7 +99,10 @@ function extractOpenApiMetadata(metadata: JsonValue | null): JsonValue | null {
   return openapi;
 }
 
-export function serializeService(service: ServiceRecord) {
+export function serializeService(
+  service: ServiceRecord,
+  health?: ServiceHealthSnapshotRecord | null
+) {
   return {
     id: service.id,
     slug: service.slug,
@@ -112,7 +116,18 @@ export function serializeService(service: ServiceRecord) {
     openapi: extractOpenApiMetadata(service.metadata),
     lastHealthyAt: service.lastHealthyAt,
     createdAt: service.createdAt,
-    updatedAt: service.updatedAt
+    updatedAt: service.updatedAt,
+    health: health
+      ? {
+          status: health.status,
+          statusMessage: health.statusMessage,
+          checkedAt: health.checkedAt,
+          latencyMs: health.latencyMs,
+          statusCode: health.statusCode,
+          baseUrl: health.baseUrl,
+          healthEndpoint: health.healthEndpoint
+        }
+      : null
   };
 }
 

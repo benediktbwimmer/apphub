@@ -1,15 +1,22 @@
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { URL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import IORedis, { type Redis } from 'ioredis';
 import {
   addRepository,
   deleteServiceNetwork,
   getRepositoryById,
   getServiceBySlug,
-  listServiceNetworkRepositoryIds,
+  getLatestServiceHealthSnapshots,
+  listActiveServiceManifests,
+  listAllServiceNetworks,
+  listServiceNetworksByModule,
   listServices,
   replaceRepositoryTags,
   replaceServiceNetworkMembers,
+  replaceModuleManifests,
+  recordServiceHealthSnapshot,
   setRepositoryStatus,
   setServiceStatus,
   upsertRepository,
@@ -20,7 +27,11 @@ import {
   type LaunchEnvVar,
   type RepositoryRecord,
   type RepositoryMetadataStrategy,
+  type ServiceHealthSnapshotRecord,
   type ServiceRecord,
+  type ServiceManifestStoreInput,
+  type ServiceManifestStoreRecord,
+  type ServiceNetworkRecord,
   type ServiceUpsertInput,
   type TagKV,
   type ServiceNetworkMemberInput
@@ -42,10 +53,30 @@ import {
 const HEALTH_INTERVAL_MS = Number(process.env.SERVICE_HEALTH_INTERVAL_MS ?? 30_000);
 const HEALTH_TIMEOUT_MS = Number(process.env.SERVICE_HEALTH_TIMEOUT_MS ?? 5_000);
 const OPENAPI_REFRESH_INTERVAL_MS = Number(process.env.SERVICE_OPENAPI_REFRESH_INTERVAL_MS ?? 15 * 60_000);
+const MANIFEST_CACHE_TTL_MS = Number(process.env.SERVICE_REGISTRY_CACHE_TTL_MS ?? 5_000);
+const HEALTH_CACHE_TTL_MS = Number(process.env.SERVICE_HEALTH_CACHE_TTL_MS ?? 10_000);
+const INVALIDATION_CHANNEL = 'service-registry:invalidate';
+
+type InvalidationMessage =
+  | { kind: 'manifest'; reason: string; moduleId?: string | null }
+  | { kind: 'health'; reason: string; slug?: string | null };
 
 type ManifestEntry = LoadedManifestEntry;
 
 type ManifestMap = Map<string, ManifestEntry>;
+
+type ManifestStateCache = {
+  entries: ManifestMap;
+  networks: LoadedServiceNetwork[];
+  fetchedAt: number;
+  expiresAt: number;
+};
+
+type HealthSnapshotCache = {
+  snapshots: Map<string, ServiceHealthSnapshotRecord>;
+  fetchedAt: number;
+  expiresAt: number;
+};
 
 type HealthCheckOutcome = {
   status: 'healthy' | 'degraded' | 'unreachable';
@@ -68,14 +99,210 @@ type PollerController = {
   isRunning: () => boolean;
 };
 
+let manifestStateCache: ManifestStateCache | null = null;
+let healthSnapshotCache: HealthSnapshotCache | null = null;
 let manifestEntries: ManifestMap = new Map();
 let manifestNetworks: LoadedServiceNetwork[] = [];
-const manifestModules = new Map<string, { entries: LoadedManifestEntry[]; networks: LoadedServiceNetwork[] }>();
 let poller: PollerController | null = null;
 let isPolling = false;
 const repositoryToServiceSlug = new Map<string, string>();
+const invalidationEmitter = new EventEmitter();
+let redisPublisher: Redis | null = null;
+let redisSubscriber: Redis | null = null;
+let redisSubscriptionActive = false;
+let redisConnectionPromise: Promise<void> | null = null;
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1', '0.0.0.0']);
+
+function normalize(value: string | undefined): string | undefined {
+  return value ? value.trim() : undefined;
+}
+
+function isInlineRedisMode(): boolean {
+  const redisUrl = normalize(process.env.REDIS_URL);
+  if (redisUrl && redisUrl.toLowerCase() === 'inline') {
+    return true;
+  }
+  const eventsMode = normalize(process.env.APPHUB_EVENTS_MODE);
+  return Boolean(eventsMode && eventsMode.toLowerCase() === 'inline');
+}
+
+function resolveRedisUrl(): string {
+  const redisUrl = normalize(process.env.REDIS_URL);
+  if (!redisUrl || redisUrl.toLowerCase() === 'inline') {
+    return 'redis://127.0.0.1:6379';
+  }
+  return redisUrl;
+}
+
+function deepCloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function computeStableHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function toManifestStoreInput(entry: LoadedManifestEntry): ServiceManifestStoreInput {
+  const clone = cloneLoadedManifestEntry(entry);
+  const jsonDefinition = deepCloneJson(clone) as JsonValue;
+  return {
+    serviceSlug: clone.slug.trim().toLowerCase(),
+    definition: jsonDefinition,
+    checksum: computeStableHash(jsonDefinition)
+  } satisfies ServiceManifestStoreInput;
+}
+
+function parseStoredManifest(record: ServiceManifestStoreRecord): LoadedManifestEntry {
+  const definition = deepCloneJson(record.definition) as LoadedManifestEntry;
+  return cloneLoadedManifestEntry(definition);
+}
+
+function buildNetworkStoreDefinition(network: LoadedServiceNetwork): {
+  definition: JsonValue;
+  checksum: string;
+} {
+  const clone = cloneLoadedServiceNetwork(network);
+  const jsonDefinition = deepCloneJson(clone) as JsonValue;
+  return {
+    definition: jsonDefinition,
+    checksum: computeStableHash(jsonDefinition)
+  };
+}
+
+function parseStoredNetwork(record: ServiceNetworkRecord): LoadedServiceNetwork | null {
+  if (!record.definition) {
+    return null;
+  }
+  try {
+    const definition = deepCloneJson(record.definition) as LoadedServiceNetwork;
+    return cloneLoadedServiceNetwork(definition);
+  } catch (err) {
+    log('warn', 'failed to parse stored service network definition', {
+      repositoryId: record.repositoryId,
+      error: err instanceof Error ? err.message : String(err)
+    });
+    return null;
+  }
+}
+
+async function ensureInvalidationChannel(): Promise<void> {
+  if (redisSubscriptionActive) {
+    return;
+  }
+  if (isInlineRedisMode()) {
+    if (!redisSubscriptionActive) {
+      invalidationEmitter.on('invalidate', (message: InvalidationMessage) => {
+        handleInvalidation(message, 'remote');
+      });
+      redisSubscriptionActive = true;
+    }
+    return;
+  }
+  await ensureRedisConnections();
+}
+
+async function ensureRedisConnections(): Promise<void> {
+  if (isInlineRedisMode()) {
+    redisPublisher = null;
+    redisSubscriber = null;
+    redisConnectionPromise = null;
+    return;
+  }
+  if (redisSubscriptionActive && redisPublisher && redisSubscriber) {
+    return;
+  }
+  if (redisConnectionPromise) {
+    await redisConnectionPromise;
+    return;
+  }
+  const url = resolveRedisUrl();
+  redisConnectionPromise = (async () => {
+    if (!redisPublisher) {
+      const publisher = new IORedis(url, { maxRetriesPerRequest: null });
+      publisher.on('error', (err) => {
+        console.error('[service-registry] redis publish error', err);
+      });
+      redisPublisher = publisher;
+    }
+    if (!redisSubscriber) {
+      const subscriber = new IORedis(url, { maxRetriesPerRequest: null });
+      subscriber.on('message', (_channel, payload) => {
+        try {
+          const message = JSON.parse(payload) as InvalidationMessage;
+          handleInvalidation(message, 'remote');
+        } catch (err) {
+          console.error('[service-registry] failed to parse invalidation message', err);
+        }
+      });
+      subscriber.on('error', (err) => {
+        console.error('[service-registry] redis subscribe error', err);
+      });
+      await subscriber.subscribe(INVALIDATION_CHANNEL);
+      redisSubscriber = subscriber;
+    }
+    redisSubscriptionActive = true;
+  })()
+    .catch((err) => {
+      console.error('[service-registry] failed to establish redis connections', err);
+      redisPublisher?.disconnect();
+      redisSubscriber?.disconnect();
+      redisPublisher = null;
+      redisSubscriber = null;
+      redisSubscriptionActive = false;
+    })
+    .finally(() => {
+      redisConnectionPromise = null;
+    });
+  await redisConnectionPromise;
+}
+
+async function broadcastInvalidation(
+  message: InvalidationMessage,
+  options: { skipLocal?: boolean } = {}
+): Promise<void> {
+  if (!options.skipLocal) {
+    handleInvalidation(message, 'local');
+  }
+  if (isInlineRedisMode()) {
+    if (options.skipLocal) {
+      return;
+    }
+    setImmediate(() => {
+      invalidationEmitter.emit('invalidate', message);
+    });
+    return;
+  }
+  try {
+    await ensureRedisConnections();
+    if (redisPublisher) {
+      await redisPublisher.publish(INVALIDATION_CHANNEL, JSON.stringify(message));
+    }
+  } catch (err) {
+    console.error('[service-registry] failed to publish invalidation event', err);
+  }
+}
+
+function handleInvalidation(message: InvalidationMessage, source: 'local' | 'remote'): void {
+  if (message.kind === 'manifest') {
+    manifestStateCache = null;
+    manifestEntries = new Map();
+    manifestNetworks = [];
+    repositoryToServiceSlug.clear();
+  } else if (message.kind === 'health') {
+    if (message.slug && healthSnapshotCache) {
+      healthSnapshotCache.snapshots.delete(message.slug);
+    } else {
+      healthSnapshotCache = null;
+    }
+  }
+
+  if (source === 'remote') {
+    log('info', 'cache invalidation received', message.kind === 'manifest'
+      ? { scope: 'manifest', reason: message.reason }
+      : { scope: 'health', reason: message.reason, slug: message.slug ?? null });
+  }
+}
 
 function envFlagEnabled(value: string | undefined): boolean {
   if (!value) {
@@ -410,45 +637,136 @@ function mergeManifestEntries(entries: ManifestEntry[]): ManifestMap {
   return merged;
 }
 
-function mergeServiceNetworks(
-  existing: LoadedServiceNetwork[],
-  incoming: LoadedServiceNetwork[]
-): LoadedServiceNetwork[] {
-  const merged = new Map<string, LoadedServiceNetwork>();
-  for (const entry of existing) {
-    if (entry && typeof entry.id === 'string') {
-      merged.set(entry.id, entry);
-    }
-  }
-  for (const entry of incoming) {
-    if (entry && typeof entry.id === 'string') {
-      merged.set(entry.id, entry);
-    }
-  }
-  return Array.from(merged.values());
-}
+async function loadManifestState(options?: { force?: boolean }): Promise<ManifestStateCache> {
+  const force = options?.force ?? false;
+  const now = Date.now();
 
-function rebuildManifestState(): {
-  entries: ManifestMap;
-  networks: LoadedServiceNetwork[];
-} {
+  if (!force && manifestStateCache && manifestStateCache.expiresAt > now) {
+    return manifestStateCache;
+  }
+
   const aggregatedEntries: ManifestEntry[] = [];
-  const aggregatedNetworks: LoadedServiceNetwork[] = [];
-
-  for (const module of manifestModules.values()) {
-    for (const entry of module.entries) {
-      aggregatedEntries.push(applyEnvOverrides(cloneLoadedManifestEntry(entry)));
+  try {
+    const records = await listActiveServiceManifests();
+    for (const record of records) {
+      try {
+        const entry = parseStoredManifest(record);
+        aggregatedEntries.push(applyEnvOverrides(entry));
+      } catch (err) {
+        log('warn', 'failed to parse stored manifest entry', {
+          moduleId: record.moduleId,
+          serviceSlug: record.serviceSlug,
+          error: err instanceof Error ? err.message : String(err)
+        });
+      }
     }
-    aggregatedNetworks.push(...module.networks.map(cloneLoadedServiceNetwork));
+  } catch (err) {
+    log('error', 'failed to load service manifests from database', {
+      error: err instanceof Error ? err.message : String(err)
+    });
+    throw err;
   }
 
   const mergedEntries = mergeManifestEntries(aggregatedEntries);
-  const mergedNetworks = mergeServiceNetworks([], aggregatedNetworks);
 
+  const networks: LoadedServiceNetwork[] = [];
+  try {
+    const records = await listAllServiceNetworks();
+    for (const record of records) {
+      const parsed = parseStoredNetwork(record);
+      if (parsed) {
+        networks.push(parsed);
+      }
+    }
+  } catch (err) {
+    log('error', 'failed to load service networks from database', {
+      error: err instanceof Error ? err.message : String(err)
+    });
+    throw err;
+  }
+
+  const state: ManifestStateCache = {
+    entries: mergedEntries,
+    networks,
+    fetchedAt: now,
+    expiresAt: now + MANIFEST_CACHE_TTL_MS
+  };
+
+  manifestStateCache = state;
   manifestEntries = mergedEntries;
-  manifestNetworks = mergedNetworks;
+  manifestNetworks = networks;
 
-  return { entries: mergedEntries, networks: mergedNetworks };
+  rebuildRepositoryToServiceSlugFromNetworks(networks);
+
+  return state;
+}
+
+async function rebuildManifestState(options?: { force?: boolean }): Promise<{
+  entries: ManifestMap;
+  networks: LoadedServiceNetwork[];
+}> {
+  const state = await loadManifestState(options);
+  return { entries: state.entries, networks: state.networks };
+}
+
+function rebuildRepositoryToServiceSlugFromNetworks(networks: LoadedServiceNetwork[]): void {
+  repositoryToServiceSlug.clear();
+  for (const network of networks) {
+    if (!network?.services) {
+      continue;
+    }
+    for (const service of network.services) {
+      const repositoryId = normalizeRepositoryId(service?.app?.id);
+      if (!repositoryId) {
+        continue;
+      }
+      if (service?.serviceSlug) {
+        repositoryToServiceSlug.set(repositoryId, service.serviceSlug);
+      }
+    }
+  }
+}
+
+async function getHealthSnapshots(
+  slugs: string[]
+): Promise<Map<string, ServiceHealthSnapshotRecord>> {
+  const normalized = Array.from(
+    new Set(
+      slugs
+        .map((slug) => slug.trim().toLowerCase())
+        .filter((slug) => slug.length > 0)
+    )
+  );
+
+  if (normalized.length === 0) {
+    return new Map();
+  }
+
+  const now = Date.now();
+  if (healthSnapshotCache && healthSnapshotCache.expiresAt > now) {
+    const cached = new Map<string, ServiceHealthSnapshotRecord>();
+    let allPresent = true;
+    for (const slug of normalized) {
+      const record = healthSnapshotCache.snapshots.get(slug);
+      if (record) {
+        cached.set(slug, record);
+      } else {
+        allPresent = false;
+        break;
+      }
+    }
+    if (allPresent) {
+      return cached;
+    }
+  }
+
+  const snapshots = await getLatestServiceHealthSnapshots(normalized);
+  healthSnapshotCache = {
+    snapshots: new Map(snapshots),
+    fetchedAt: now,
+    expiresAt: now + HEALTH_CACHE_TTL_MS
+  };
+  return snapshots;
 }
 
 function cloneResolvedEnvVars(env?: ResolvedManifestEnvVar[] | null): ResolvedManifestEnvVar[] | undefined {
@@ -514,16 +832,18 @@ export async function importServiceManifestModule(options: {
     throw new Error('moduleId is required for service manifest import');
   }
 
-  manifestModules.set(moduleId, {
-    entries: options.entries.map(cloneLoadedManifestEntry),
-    networks: options.networks.map(cloneLoadedServiceNetwork)
-  });
+  const manifestInputs = options.entries.map((entry) => toManifestStoreInput(entry));
+  const moduleVersion = await replaceModuleManifests(moduleId, manifestInputs);
 
-  const { entries, networks } = rebuildManifestState();
+  const clonedNetworks = options.networks.map(cloneLoadedServiceNetwork);
+  await syncNetworksFromManifest(moduleId, moduleVersion, clonedNetworks);
+
+  const { entries, networks } = await rebuildManifestState({ force: true });
 
   await applyManifestToDatabase(entries);
-  await syncNetworksFromManifest(networks);
-  await updateServiceManifestAppReferences(networks);
+  await updateServiceManifestAppReferences(networks, entries);
+
+  await broadcastInvalidation({ kind: 'manifest', reason: 'module-import', moduleId }, { skipLocal: true });
 
   return {
     servicesApplied: entries.size,
@@ -532,7 +852,7 @@ export async function importServiceManifestModule(options: {
 }
 
 export function resetServiceManifestState(): void {
-  manifestModules.clear();
+  manifestStateCache = null;
   manifestEntries = new Map();
   manifestNetworks = [];
   repositoryToServiceSlug.clear();
@@ -874,35 +1194,51 @@ async function ensureRepositoryFromManifest(options: {
   return updated;
 }
 
-async function ensureNetworkFromManifest(network: LoadedServiceNetwork) {
-  const networkId = network.id;
-  const manifestSource = network.sources[network.sources.length - 1] ?? null;
-  const manifestTags = network.tags
-    ? network.tags.map((tag) => ({ key: tag.key, value: tag.value }))
+async function ensureNetworkFromManifest(
+  network: LoadedServiceNetwork,
+  context: { moduleId: string; moduleVersion: number }
+) {
+  const clone = cloneLoadedServiceNetwork(network);
+  const networkId = clone.id;
+  if (!networkId) {
+    throw new Error('service network missing id');
+  }
+  const manifestSource = clone.sources[clone.sources.length - 1] ?? null;
+  const manifestTags = clone.tags
+    ? clone.tags.map((tag) => ({ key: tag.key, value: tag.value }))
     : [];
   const networkTags = normalizeTags([
     ...manifestTags,
     { key: 'category', value: 'service-network' }
   ]);
-  const networkEnv = toLaunchEnvVars(network.env ?? []);
+  const networkEnv = toLaunchEnvVars(clone.env ?? []);
+
+  const { definition, checksum } = buildNetworkStoreDefinition(clone);
 
   await ensureRepositoryFromManifest({
     id: networkId,
-    name: network.name,
-    description: network.description,
-    repoUrl: network.repoUrl,
-    dockerfilePath: network.dockerfilePath,
+    name: clone.name,
+    description: clone.description,
+    repoUrl: clone.repoUrl,
+    dockerfilePath: clone.dockerfilePath,
     tags: networkTags,
     envTemplates: networkEnv,
     sourceLabel: manifestSource
   });
 
-  await upsertServiceNetwork({ repositoryId: networkId, manifestSource });
+  await upsertServiceNetwork({
+    repositoryId: networkId,
+    manifestSource,
+    moduleId: context.moduleId,
+    moduleVersion: context.moduleVersion,
+    definition,
+    checksum
+  });
 
   const memberInputs: ServiceNetworkMemberInput[] = [];
   let defaultOrder = 0;
 
-  for (const service of network.services) {
+  for (const service of clone.services) {
     if (!service || typeof service.app?.id !== 'string') {
       continue;
     }
@@ -948,7 +1284,11 @@ async function ensureNetworkFromManifest(network: LoadedServiceNetwork) {
   await replaceServiceNetworkMembers(networkId, memberInputs);
 }
 
-async function syncNetworksFromManifest(networks: LoadedServiceNetwork[]) {
+async function syncNetworksFromManifest(
+  moduleId: string,
+  moduleVersion: number,
+  networks: LoadedServiceNetwork[]
+) {
   const desired = new Set<string>();
   for (const network of networks) {
     if (!network?.id) {
@@ -956,22 +1296,27 @@ async function syncNetworksFromManifest(networks: LoadedServiceNetwork[]) {
     }
     desired.add(network.id);
     try {
-      await ensureNetworkFromManifest(network);
+      await ensureNetworkFromManifest(network, { moduleId, moduleVersion });
     } catch (err) {
       log('error', 'failed to sync service network', {
+        moduleId,
+        moduleVersion,
         networkId: network.id,
         error: (err as Error).message
       });
     }
   }
 
-  const existing = await listServiceNetworkRepositoryIds();
-  for (const repositoryId of existing) {
-    if (desired.has(repositoryId)) {
+  const existing = await listServiceNetworksByModule(moduleId);
+  for (const record of existing) {
+    if (desired.has(record.repositoryId)) {
       continue;
     }
-    await deleteServiceNetwork(repositoryId);
-    log('info', 'removed service network not present in manifest', { networkId: repositoryId });
+    await deleteServiceNetwork(record.repositoryId);
+    log('info', 'removed service network not present in manifest', {
+      moduleId,
+      networkId: record.repositoryId
+    });
   }
 }
 
@@ -982,7 +1327,10 @@ function toPlainObject(value: JsonValue | null | undefined): Record<string, Json
   return {};
 }
 
-async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork[]) {
+async function updateServiceManifestAppReferences(
+  networks: LoadedServiceNetwork[],
+  entries: ManifestMap
+) {
   const serviceToApps = new Map<string, Set<string>>();
   for (const network of networks) {
     for (const service of network.services) {
@@ -1000,7 +1348,7 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
     }
   }
 
-  for (const [slug, entry] of manifestEntries) {
+  for (const [slug, entry] of entries) {
     const normalizedSlug = normalizeRepositoryId(slug);
     if (!normalizedSlug) {
       continue;
@@ -1042,7 +1390,7 @@ async function updateServiceManifestAppReferences(networks: LoadedServiceNetwork
     }
   }
 
-  const slugs = new Set<string>([...manifestEntries.keys(), ...serviceToApps.keys()]);
+  const slugs = new Set<string>([...entries.keys(), ...serviceToApps.keys()]);
   for (const slug of slugs) {
     const service = await getServiceBySlug(slug);
     if (!service) {
@@ -1091,6 +1439,8 @@ async function getServiceSlugForRepository(repositoryId: string): Promise<string
   if (!normalized) {
     return null;
   }
+
+  await loadManifestState();
 
   const cached = repositoryToServiceSlug.get(normalized);
   if (cached) {
@@ -1179,6 +1529,7 @@ export async function resolveManifestPortForRepository(repositoryId: string): Pr
   if (!slug) {
     return null;
   }
+  await loadManifestState();
   const manifest = manifestEntries.get(slug);
   if (manifest) {
     const manifestEnv = serializeManifestEnvVars(manifest.env);
@@ -1214,6 +1565,7 @@ export async function resolveManifestEnvForRepository(repositoryId: string): Pro
     return [];
   }
 
+  await loadManifestState();
   const manifest = manifestEntries.get(slug);
   if (manifest) {
     const manifestEnv = manifestInputsToLaunchEnv(serializeManifestEnvVars(manifest.env));
@@ -1427,6 +1779,7 @@ async function fetchOpenApi(url: string, signal: AbortSignal) {
 }
 
 async function checkServiceHealth(service: ServiceRecord) {
+  await loadManifestState();
   const manifest = manifestEntries.get(service.slug);
   const metadata = coerceServiceMetadata(service.metadata ?? null);
   const manifestHealthEndpoint =
@@ -1547,6 +1900,27 @@ async function finalizeHealthUpdate(
     error: result.outcome.statusMessage
   });
 
+  try {
+    await recordServiceHealthSnapshot({
+      serviceSlug: service.slug,
+      status: result.outcome.status,
+      statusMessage: result.outcome.statusMessage ?? null,
+      latencyMs: result.outcome.latencyMs ?? null,
+      statusCode: result.outcome.statusCode ?? null,
+      checkedAt: nowIso,
+      baseUrl: result.baseUrl,
+      healthEndpoint: result.healthUrl,
+      metadata: result.outcome.openapi ? { openapi: result.outcome.openapi } : null
+    });
+    healthSnapshotCache = null;
+    await broadcastInvalidation({ kind: 'health', reason: 'snapshot', slug: service.slug });
+  } catch (err) {
+    log('warn', 'failed to record service health snapshot', {
+      slug: service.slug,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+
   if (result.outcome.status === 'healthy') {
     const openapiPath = manifest?.openapiPath ?? '/openapi.yaml';
     const openapiUrl = resolveUrl(result.baseUrl, openapiPath);
@@ -1647,6 +2021,15 @@ export async function initializeServiceRegistry(options?: { enablePolling?: bool
   const disablePollingEnv = envFlagEnabled(process.env.APPHUB_DISABLE_SERVICE_POLLING);
   const enablePolling = options?.enablePolling ?? !disablePollingEnv;
 
+  await ensureInvalidationChannel();
+  try {
+    await loadManifestState({ force: true });
+  } catch (err) {
+    log('warn', 'failed to prewarm service manifest cache', {
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+
   poller?.stop();
   poller = null;
   if (enablePolling) {
@@ -1665,6 +2048,28 @@ export async function initializeServiceRegistry(options?: { enablePolling?: bool
   };
 }
 
-export function getServiceManifest(slug: string) {
+export async function getServiceManifest(slug: string) {
+  await loadManifestState();
   return manifestEntries.get(slug) ?? null;
 }
+
+export async function getServiceHealthSnapshot(slug: string): Promise<ServiceHealthSnapshotRecord | null> {
+  const snapshots = await getHealthSnapshots([slug]);
+  return snapshots.get(slug) ?? null;
+}
+
+export async function getServiceHealthSnapshots(
+  slugs: string[]
+): Promise<Map<string, ServiceHealthSnapshotRecord>> {
+  return getHealthSnapshots(slugs);
+}
+
+export const __testing = {
+  checkServiceHealth,
+  waitForInvalidations: async () =>
+    new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    }),
+  getManifestCache: () => manifestStateCache,
+  getHealthCache: () => healthSnapshotCache
+};

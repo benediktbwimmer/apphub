@@ -25,6 +25,10 @@ Services and apps collaborate but play distinct roles:
 | **Primary focus** | Long-lived network endpoints, manifests, service networks, health reporting | Container builds produced from a repository + Dockerfile |
 | **Registration** | Manifest import or `POST /services`. Payloads hydrate `ServiceMetadata.manifest` and add placeholder requirements. | `POST /apps` enqueues ingestion + build. Payload highlights repository URL and Dockerfile path with stronger validation. |
 | **Runtime coupling** | `ServiceMetadata.linkedApps` captures the app IDs that back the service. Runtime probes emit snapshots into `metadata.runtime`. | Build + launch events stream runtime metadata back into the service registry. Launch previews depend on the service slug wiring. |
+
+### Shared Service Registry State
+
+Service manifests, service networks, and health snapshots now persist in Postgres (`service_manifests`, `service_networks`, and `service_health_snapshots`). Each catalog replica keeps a short-lived in-memory cache for hot reads and subscribes to Redis invalidation events. Imports, backfills, and health pollers write through the shared store and publish an invalidation so sibling replicas refresh their caches. See `docs/runbooks/service-registry-shared-state.md` for rollout and operational guidance. The `examples/environmental-observatory-event-driven` module is the canonical smoke test for verifying shared state locally and in staging.
 | **Typical consumers** | Workflow service steps, operator dashboards, manifest sync tooling. | Launch previews, build retry UI, workflow jobs that consume container artifacts. |
 
 ```mermaid
