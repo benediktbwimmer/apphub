@@ -504,17 +504,31 @@ export function useImportWizardController() {
         overrides !== undefined ? mergeServiceVariables(scenario.form.variables ?? {}, overrides) : undefined;
       const normalizedVariables = overrideVariables ? normalizeVariablesForRequest(overrideVariables) : undefined;
 
+      const sourceType = scenario.form.sourceType === 'image' ? 'image' : 'git';
       const body: Record<string, unknown> = {
-        repo: scenario.form.repo.trim(),
         requirePlaceholderValues: true
       };
-      const ref = scenario.form.ref?.trim();
-      if (ref) {
-        body.ref = ref;
-      }
-      const commit = scenario.form.commit?.trim();
-      if (commit) {
-        body.commit = commit;
+
+      if (sourceType === 'git') {
+        const repo = scenario.form.repo?.trim();
+        if (!repo) {
+          throw new Error(`Example service manifest ${scenario.id} is missing a repository`);
+        }
+        body.repo = repo;
+        const ref = scenario.form.ref?.trim();
+        if (ref) {
+          body.ref = ref;
+        }
+        const commit = scenario.form.commit?.trim();
+        if (commit) {
+          body.commit = commit;
+        }
+      } else {
+        const image = scenario.form.image?.trim();
+        if (!image) {
+          throw new Error(`Example service manifest ${scenario.id} is missing an image reference`);
+        }
+        body.image = image;
       }
       const configPath = scenario.form.configPath?.trim();
       if (configPath) {

@@ -301,7 +301,9 @@ export type ExampleScenarioBase<T extends ExampleScenarioType> = {
 
 export type ServiceManifestScenario = ExampleScenarioBase<'service-manifest'> & {
   form: {
-    repo: string;
+    sourceType?: 'git' | 'image';
+    repo?: string;
+    image?: string;
     ref?: string;
     commit?: string;
     configPath?: ExampleFileReference;

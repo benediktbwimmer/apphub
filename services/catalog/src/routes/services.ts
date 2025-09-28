@@ -108,6 +108,7 @@ const serviceConfigImportSchema = z
   .object({
     repo: z.string().min(1).optional(),
     path: z.string().min(1).optional(),
+    image: z.string().min(1).optional(),
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
@@ -119,11 +120,14 @@ const serviceConfigImportSchema = z
   .superRefine((value, ctx) => {
     const hasRepo = typeof value.repo === 'string' && value.repo.trim().length > 0;
     const hasPath = typeof value.path === 'string' && value.path.trim().length > 0;
+    const hasImage = typeof value.image === 'string' && value.image.trim().length > 0;
 
-    if (hasRepo === hasPath) {
+    const selectedSources = [hasRepo, hasPath, hasImage].filter(Boolean).length;
+
+    if (selectedSources !== 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Provide exactly one of "repo" or "path" when importing service configs.'
+        message: 'Provide exactly one of "repo", "path", or "image" when importing service configs.'
       });
     }
 
@@ -304,6 +308,7 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
     const payload = parseBody.data;
     const repo = payload.repo?.trim() || null;
     const localPath = payload.path?.trim() || null;
+    const image = payload.image?.trim() || null;
     const ref = payload.ref?.trim() || undefined;
     const commit = payload.commit?.trim() || undefined;
     const configPath = payload.configPath?.trim() || undefined;
@@ -316,6 +321,7 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
       preview = await previewServiceConfigImport({
         repo,
         path: localPath,
+        image,
         ref,
         commit,
         configPath,
@@ -422,7 +428,7 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
     return {
       data: {
         module: preview.moduleId,
-        resolvedCommit: preview.resolvedCommit ?? commit ?? null,
+        resolvedCommit: preview.resolvedCommit ?? commit ?? image ?? null,
         servicesDiscovered: preview.entries.length,
         networksDiscovered: preview.networks.length
       }

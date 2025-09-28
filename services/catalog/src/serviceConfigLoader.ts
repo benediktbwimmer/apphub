@@ -18,6 +18,7 @@ import {
   type ResolvedManifestEnvVar
 } from './serviceManifestTypes';
 import { bootstrapPlanSchema, type BootstrapPlanSpec, type BootstrapActionSpec } from './bootstrap';
+import { extractDockerImageFilesystem } from './dockerImageLoader';
 
 const git = simpleGit();
 
@@ -31,6 +32,7 @@ const serviceConfigImportSchema = z
     module: z.string().min(1),
     repo: z.string().min(1).optional(),
     path: z.string().min(1).optional(),
+    image: z.string().min(1).optional(),
     ref: z.string().min(1).optional(),
     commit: gitShaSchema.optional(),
     configPath: z.string().min(1).optional(),
@@ -40,11 +42,14 @@ const serviceConfigImportSchema = z
   .superRefine((value, ctx) => {
     const hasRepo = typeof value.repo === 'string' && value.repo.trim().length > 0;
     const hasPath = typeof value.path === 'string' && value.path.trim().length > 0;
+    const hasImage = typeof value.image === 'string' && value.image.trim().length > 0;
 
-    if (hasRepo === hasPath) {
+    const selectedSources = [hasRepo, hasPath, hasImage].filter(Boolean).length;
+
+    if (selectedSources !== 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Provide exactly one of "repo" or "path" when importing service configs.'
+        message: 'Provide exactly one of "repo", "path", or "image" when importing service configs.'
       });
     }
 
@@ -693,22 +698,40 @@ async function readServiceConfig(configPath: string): Promise<ExampleConfigDescr
   return readJsonFile(configPath, (value) => exampleConfigDescriptorSchema.parse(value));
 }
 
+function normalizeConfigRelativePath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('config path must not be empty');
+  }
+  const withoutLeadingSeparators = trimmed.replace(/^[/\\]+/, '');
+  const normalized = path.normalize(withoutLeadingSeparators);
+  if (!normalized || normalized === '.' || path.isAbsolute(normalized) || normalized.startsWith('..')) {
+    throw new Error('config path must stay within the module root');
+  }
+  return normalized;
+}
+
 async function resolveConfigFilePath(repoRoot: string, overridePath?: string | null) {
   if (overridePath && overridePath.trim()) {
-    return overridePath.trim();
+    try {
+      return normalizeConfigRelativePath(overridePath);
+    } catch (err) {
+      throw new Error(`invalid configPath: ${(err as Error).message}`);
+    }
   }
   const candidates = ['config.json', 'service-config.json'];
   for (const candidate of candidates) {
+    const normalizedCandidate = normalizeConfigRelativePath(candidate);
     try {
-      await fs.access(path.resolve(repoRoot, candidate));
-      return candidate;
+      await fs.access(path.resolve(repoRoot, normalizedCandidate));
+      return normalizedCandidate;
     } catch (err) {
       if (!isErrnoException(err) || err.code !== 'ENOENT') {
         throw err;
       }
     }
   }
-  return 'service-config.json';
+  return normalizeConfigRelativePath('service-config.json');
 }
 
 function toRepoRelativePath(filePath: string, repoRoot?: string) {
@@ -1035,8 +1058,14 @@ async function loadConfigImport(
     } else if (importConfig.path) {
       repoRoot = path.resolve(importConfig.path);
       sourceLabelBase = `path:${repoRoot}`;
+    } else if (importConfig.image) {
+      const extraction = await extractDockerImageFilesystem(importConfig.image, tempDir);
+      repoRoot = extraction.directory;
+      resolvedCommit = extraction.reference ?? null;
+      const baseLabel = `image:${importConfig.image}`;
+      sourceLabelBase = extraction.reference ? `${baseLabel}@${extraction.reference}` : baseLabel;
     } else {
-      throw new Error('service import must provide either a git repository or a local path');
+      throw new Error('service import must provide either a git repository, local path, or docker image');
     }
 
     const configPathRelative = await resolveConfigFilePath(repoRoot, importConfig.configPath);
@@ -1065,7 +1094,9 @@ async function loadConfigImport(
       ? `git:${importConfig.repo}`
       : importConfig.path
         ? `path:${path.resolve(importConfig.path)}`
-        : 'service-import';
+        : importConfig.image
+          ? `image:${importConfig.image}`
+          : 'service-import';
     errors.push({
       source: sourceLabel,
       error: err as Error
@@ -1080,6 +1111,7 @@ async function loadConfigImport(
 export type ServiceConfigImportRequest = {
   repo?: string | null;
   path?: string | null;
+  image?: string | null;
   ref?: string | null;
   commit?: string | null;
   configPath?: string | null;
@@ -1106,6 +1138,7 @@ export async function previewServiceConfigImport(
     module: expectedModule ?? '__preview__',
     repo: payload.repo?.trim() || undefined,
     path: payload.path?.trim() || undefined,
+    image: payload.image?.trim() || undefined,
     ref: payload.ref?.trim() || undefined,
     commit: payload.commit?.trim() ? payload.commit.trim() : undefined,
     configPath: payload.configPath?.trim() || undefined,

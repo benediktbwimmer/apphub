@@ -19,8 +19,12 @@ export type ManifestPlaceholder = {
   conflicts: string[];
 };
 
+export type ManifestSourceType = 'git' | 'image';
+
 export type ImportManifestForm = {
+  sourceType: ManifestSourceType;
   repo: string;
+  image: string;
   ref: string;
   commit: string;
   configPath: string;
@@ -35,7 +39,8 @@ export type ImportManifestResult = {
 };
 
 type NormalizedRequestBody = {
-  repo: string;
+  repo?: string;
+  image?: string;
   ref?: string;
   commit?: string;
   configPath?: string;
@@ -49,18 +54,28 @@ function buildRequestBody(
   variables: Record<string, string>,
   placeholders: ManifestPlaceholder[]
 ): NormalizedRequestBody {
-  const body: NormalizedRequestBody = {
-    repo: form.repo.trim()
-  };
+  const body: NormalizedRequestBody = {};
 
-  const ref = form.ref.trim();
-  if (ref) {
-    body.ref = ref;
-  }
+  if (form.sourceType === 'git') {
+    const repo = form.repo.trim();
+    if (repo) {
+      body.repo = repo;
+    }
 
-  const commit = form.commit.trim();
-  if (commit) {
-    body.commit = commit;
+    const ref = form.ref.trim();
+    if (ref) {
+      body.ref = ref;
+    }
+
+    const commit = form.commit.trim();
+    if (commit) {
+      body.commit = commit;
+    }
+  } else if (form.sourceType === 'image') {
+    const image = form.image.trim();
+    if (image) {
+      body.image = image;
+    }
   }
 
   const configPath = form.configPath.trim();
@@ -129,7 +144,9 @@ function hydrateVariables(
 export function useImportServiceManifest() {
   const authorizedFetch = useAuthorizedFetch();
   const [form, setForm] = useState<ImportManifestForm>({
+    sourceType: 'git',
     repo: '',
+    image: '',
     ref: '',
     commit: '',
     configPath: '',
@@ -205,8 +222,11 @@ export function useImportServiceManifest() {
       setResult(null);
       try {
         const body = buildRequestBody(form, variables, placeholders);
-        if (!body.repo) {
+        if (form.sourceType === 'git' && !body.repo) {
           throw new Error('Repository URL is required');
+        }
+        if (form.sourceType === 'image' && !body.image) {
+          throw new Error('Docker image reference is required');
         }
 
         await importManifest(body);

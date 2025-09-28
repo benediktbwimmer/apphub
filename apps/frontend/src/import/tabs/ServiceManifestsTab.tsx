@@ -10,7 +10,8 @@ import { useToasts } from '../../components/toast';
 import {
   useImportServiceManifest,
   type ManifestPlaceholder,
-  type ManifestPlaceholderOccurrence
+  type ManifestPlaceholderOccurrence,
+  type ManifestSourceType
 } from '../useImportServiceManifest';
 import type { ServiceManifestScenario } from '../examples';
 import { ScenarioSwitcher } from '../components/ScenarioSwitcher';
@@ -93,8 +94,12 @@ export default function ServiceManifestsTab({
     if (!scenario || typeof scenarioRequestToken === 'undefined') {
       return;
     }
+    const sourceType: ManifestSourceType =
+      scenario.form.sourceType === 'image' ? 'image' : 'git';
     setForm({
+      sourceType,
       repo: scenario.form.repo ?? '',
+      image: scenario.form.image ?? '',
       ref: scenario.form.ref ?? '',
       commit: scenario.form.commit ?? '',
       configPath: scenario.form.configPath ?? '',
@@ -153,7 +158,7 @@ export default function ServiceManifestsTab({
         <dl className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-              Resolved commit
+              Resolved reference
             </dt>
             <dd className="text-sm text-slate-700 dark:text-slate-200">
               {result.resolvedCommit ?? 'n/a'}
@@ -250,9 +255,10 @@ export default function ServiceManifestsTab({
       <FormSection as="form" onSubmit={handleSubmit} aria-label="Import service manifest">
         <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
           <p className="leading-relaxed">
-            <strong>Services</strong> define long-lived endpoints and configuration imported from manifests. Use this tab to
-            register health URLs, environment placeholders, and service networks. If you are packaging a Docker build,
-            switch to the <span className="font-semibold">Apps</span> tab instead.
+            <strong>Services</strong> define long-lived endpoints and configuration imported from manifests. Supply either a
+            Git repository or a Docker image that contains your manifest bundle to register health URLs, environment
+            placeholders, and service networks. When you want AppHub to build a container from source, continue with the{' '}
+            <span className="font-semibold">Apps</span> tab instead.
           </p>
           <a
             className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
@@ -264,36 +270,62 @@ export default function ServiceManifestsTab({
             <span aria-hidden="true">→</span>
           </a>
         </div>
-        <FormField label="Service manifest repository" htmlFor="manifest-repo">
-          <input
-            id="manifest-repo"
+        <FormField label="Manifest source" htmlFor="manifest-source">
+          <select
+            id="manifest-source"
             className={INPUT_CLASSES}
-            value={form.repo}
-            onChange={(event) => updateField('repo', event.target.value)}
-            placeholder="https://github.com/user/service-manifest.git"
-            required
-          />
+            value={form.sourceType}
+            onChange={(event) => updateField('sourceType', event.target.value as ManifestSourceType)}
+          >
+            <option value="git">Git repository</option>
+            <option value="image">Docker image</option>
+          </select>
         </FormField>
-        <div className={GRID_SECTION_CLASSES}>
-          <FormField label="Git ref (optional)" htmlFor="manifest-ref">
+        {form.sourceType === 'git' ? (
+          <>
+            <FormField label="Service manifest repository" htmlFor="manifest-repo">
+              <input
+                id="manifest-repo"
+                className={INPUT_CLASSES}
+                value={form.repo}
+                onChange={(event) => updateField('repo', event.target.value)}
+                placeholder="https://github.com/user/service-manifest.git"
+                required={form.sourceType === 'git'}
+              />
+            </FormField>
+            <div className={GRID_SECTION_CLASSES}>
+              <FormField label="Git ref (optional)" htmlFor="manifest-ref">
+                <input
+                  id="manifest-ref"
+                  className={INPUT_CLASSES}
+                  value={form.ref}
+                  onChange={(event) => updateField('ref', event.target.value)}
+                  placeholder="main"
+                />
+              </FormField>
+              <FormField label="Commit SHA (optional)" htmlFor="manifest-commit">
+                <input
+                  id="manifest-commit"
+                  className={INPUT_CLASSES}
+                  value={form.commit}
+                  onChange={(event) => updateField('commit', event.target.value)}
+                  placeholder="abcdef123456"
+                />
+              </FormField>
+            </div>
+          </>
+        ) : (
+          <FormField label="Docker image reference" htmlFor="manifest-image">
             <input
-              id="manifest-ref"
+              id="manifest-image"
               className={INPUT_CLASSES}
-              value={form.ref}
-              onChange={(event) => updateField('ref', event.target.value)}
-              placeholder="main"
+              value={form.image}
+              onChange={(event) => updateField('image', event.target.value)}
+              placeholder="registry.example.com/org/service-manifest:latest"
+              required={form.sourceType === 'image'}
             />
           </FormField>
-          <FormField label="Commit SHA (optional)" htmlFor="manifest-commit">
-            <input
-              id="manifest-commit"
-              className={INPUT_CLASSES}
-              value={form.commit}
-              onChange={(event) => updateField('commit', event.target.value)}
-              placeholder="abcdef123456"
-            />
-          </FormField>
-        </div>
+        )}
         <div className={GRID_SECTION_CLASSES}>
           <FormField label="Config path (optional)" htmlFor="manifest-config-path">
             <input
