@@ -181,21 +181,33 @@ function resolveStepDefinition(
   return null;
 }
 
+function extractMaxAttempts(policy: { maxAttempts?: unknown } | null | undefined): number | null {
+  if (!policy || policy.maxAttempts === undefined || policy.maxAttempts === null) {
+    return null;
+  }
+  const parsed = Number(policy.maxAttempts);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
 function getMaxAttempts(stepDefinition: WorkflowStepDefinition | null): number {
   if (!stepDefinition) {
-    return 1;
+    return Number.POSITIVE_INFINITY;
   }
   if (stepDefinition.type === 'fanout') {
     const template = stepDefinition.template;
-    if (template && template.retryPolicy && typeof template.retryPolicy.maxAttempts === 'number') {
-      return template.retryPolicy.maxAttempts;
+    const templateAttempts = extractMaxAttempts(template?.retryPolicy ?? null);
+    if (templateAttempts !== null) {
+      return templateAttempts;
     }
-    return 1;
   }
-  if (stepDefinition.retryPolicy && typeof stepDefinition.retryPolicy.maxAttempts === 'number') {
-    return stepDefinition.retryPolicy.maxAttempts;
+  const stepAttempts = extractMaxAttempts(stepDefinition.retryPolicy ?? null);
+  if (stepAttempts !== null) {
+    return stepAttempts;
   }
-  return 1;
+  return Number.POSITIVE_INFINITY;
 }
 
 async function handleStaleStep(

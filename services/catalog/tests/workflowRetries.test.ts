@@ -8,7 +8,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 
-import type { WorkflowDefinitionRecord } from '../src/db/types';
+import type { JobRetryPolicy, WorkflowDefinitionRecord } from '../src/db/types';
 import { runWorkflowOrchestration } from '../src/workflowOrchestrator';
 import { resetDatabasePool } from '../src/db/client';
 import {
@@ -106,7 +106,8 @@ function restoreEnv(key: string, value: string | undefined) {
   process.env[key] = value;
 }
 
-async function runInlineWorkflowRetryScenario() {
+async function runInlineWorkflowRetryScenario(options: { retryPolicy?: JobRetryPolicy | null } = {}) {
+  const { retryPolicy } = options;
   const previousEventsMode = process.env.APPHUB_EVENTS_MODE;
   const previousRedisUrl = process.env.REDIS_URL;
   const previousBase = process.env.WORKFLOW_RETRY_BASE_MS;
@@ -141,11 +142,7 @@ async function runInlineWorkflowRetryScenario() {
             method: 'GET',
             path: '/healthz'
           },
-          retryPolicy: {
-            maxAttempts: 3,
-            strategy: 'fixed',
-            initialDelayMs: 200
-          }
+          ...(retryPolicy ? { retryPolicy } : {})
         }
       ]
     });
@@ -302,6 +299,16 @@ async function runQueuedWorkflowRetryScenario() {
 
 test('workflow workflow retries persist during throttling and failures', async (t) => {
   await t.test('workflow step retry schedules durable state when service missing', async () => {
+    await runInlineWorkflowRetryScenario({
+      retryPolicy: {
+        maxAttempts: 3,
+        strategy: 'fixed',
+        initialDelayMs: 200
+      }
+    });
+  });
+
+  await t.test('workflow step retry schedules without explicit retry policy', async () => {
     await runInlineWorkflowRetryScenario();
   });
 

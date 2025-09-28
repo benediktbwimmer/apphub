@@ -92,6 +92,17 @@ function normalizeRatio(value: string | undefined, fallback: number): number {
   return Math.min(Math.max(parsed, 0), 1);
 }
 
+function resolveRetryAttemptLimit(policy: JobRetryPolicy | null | undefined): number | null {
+  if (!policy || policy.maxAttempts === undefined || policy.maxAttempts === null) {
+    return null;
+  }
+  const parsed = Number(policy.maxAttempts);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
 type ScheduledRetryInfo = {
   stepId: string;
   runAt: string;
@@ -1122,9 +1133,9 @@ async function scheduleWorkflowStepRetry(
   reason: string
 ): Promise<StepExecutionResult | null> {
   const policy = (step as WorkflowJobStepDefinition | WorkflowServiceStepDefinition | WorkflowFanOutTemplateDefinition)?.retryPolicy;
-  const maxAttempts = Math.max(1, policy?.maxAttempts ?? 1);
+  const attemptLimit = resolveRetryAttemptLimit(policy ?? null);
   const nextRetryAttempts = (stepRecord.retryAttempts ?? 0) + 1;
-  if (nextRetryAttempts >= maxAttempts) {
+  if (attemptLimit !== null && nextRetryAttempts >= attemptLimit) {
     return null;
   }
 
@@ -2441,7 +2452,8 @@ async function executeServiceStep(
     currentStepIndex: stepIndex
   });
 
-  const maxAttempts = Math.max(1, step.retryPolicy?.maxAttempts ?? 1);
+  const retryAttemptLimit = resolveRetryAttemptLimit(step.retryPolicy ?? null);
+  const maxAttempts = retryAttemptLimit ?? Number.POSITIVE_INFINITY;
   const initialAttempt = Math.max(stepRecord.attempt ?? 1, 1);
   let finalContext = nextContext;
   let lastErrorMessage: string | null = null;
@@ -2507,7 +2519,7 @@ async function executeServiceStep(
         metrics: lastMetrics,
         service: serviceContext
       });
-      if (attempt < maxAttempts) {
+      if (retryAttemptLimit === null || attempt < retryAttemptLimit) {
         const scheduled = await scheduleWorkflowStepRetry(
           run,
           step,
@@ -2550,7 +2562,7 @@ async function executeServiceStep(
         metrics: lastMetrics,
         service: serviceContext
       });
-      if (attempt < maxAttempts) {
+      if (retryAttemptLimit === null || attempt < retryAttemptLimit) {
         const scheduled = await scheduleWorkflowStepRetry(
           run,
           step,
@@ -2703,7 +2715,7 @@ async function executeServiceStep(
       service: serviceContextWithMetrics
     });
 
-    if (attempt < maxAttempts) {
+    if (retryAttemptLimit === null || attempt < retryAttemptLimit) {
       const scheduled = await scheduleWorkflowStepRetry(
         run,
         step,
