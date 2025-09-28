@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { stringify as stringifyYaml } from 'yaml';
 
 import { runDockerCommand } from '../../docker';
+import { evaluateDockerImagePolicy, getDockerRuntimeConfig } from '../../config/dockerRuntime';
+import type { DockerRuntimeConfig } from '../../config/dockerRuntime';
 import { getFilestoreClient } from './filestoreClient';
 import {
   collectFilestoreOutputs,
@@ -23,7 +24,6 @@ import type {
 } from '../../db/types';
 import type { JobResult } from '../runtime';
 
-const WORKSPACE_ROOT_ENV = 'CATALOG_DOCKER_WORKSPACE_ROOT';
 const DEFAULT_LOG_LIMIT = Math.max(
   1024,
   Number(process.env.CATALOG_DOCKER_MAX_LOG_CHARS ?? 16384)
@@ -87,6 +87,8 @@ type DockerCommandPlan = {
   args: string[];
   containerName: string;
   workspaceMountPath: string;
+  networkMode: 'none' | 'bridge';
+  gpuRequested: boolean;
 };
 
 type DockerExecutionTelemetry = {
@@ -99,21 +101,14 @@ type DockerExecutionTelemetry = {
   startedAt: string;
   completedAt: string;
   workspacePath: string;
+  networkMode: 'none' | 'bridge';
+  gpuRequested: boolean;
 } & BufferedLogs;
 
 export type DockerExecutionResult = {
   jobResult: JobResult;
   telemetry: DockerExecutionTelemetry;
 };
-
-function resolveWorkspaceRoot(): string {
-  const configured = process.env[WORKSPACE_ROOT_ENV];
-  const trimmed = typeof configured === 'string' ? configured.trim() : '';
-  if (trimmed) {
-    return path.resolve(trimmed);
-  }
-  return path.join(os.tmpdir(), 'apphub-docker-workspaces');
-}
 
 function sanitizeContainerSegment(value: string): string {
   return (
@@ -132,8 +127,8 @@ function buildContainerName(definition: JobDefinitionRecord, run: JobRunRecord):
   return `apphub-${slugSegment}-${runSegment}${suffix}`.slice(0, 63);
 }
 
-async function ensureWorkspace(runId: string): Promise<WorkspacePaths> {
-  const root = resolveWorkspaceRoot();
+async function ensureWorkspace(runId: string, workspaceRoot: string): Promise<WorkspacePaths> {
+  const root = workspaceRoot;
   await mkdir(root, { recursive: true });
   const sanitized = runId.replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 24) || 'job';
   const base = await mkdtemp(path.join(root, `run-${sanitized}-`));
@@ -150,6 +145,40 @@ async function ensureWorkspace(runId: string): Promise<WorkspacePaths> {
 
 async function cleanupWorkspace(paths: WorkspacePaths): Promise<void> {
   await rm(paths.base, { recursive: true, force: true }).catch(() => {});
+}
+
+function resolveNetworkMode(
+  requested: DockerJobMetadata['docker']['networkMode'] | undefined,
+  config: DockerRuntimeConfig
+): 'none' | 'bridge' {
+  const { network } = config;
+
+  if (network.isolationEnabled) {
+    return 'none';
+  }
+
+  if (requested) {
+    if (!network.allowedModes.has(requested)) {
+      throw new Error(`Network mode ${requested} is not permitted by policy`);
+    }
+    if (!network.allowModeOverride && requested !== network.defaultMode) {
+      throw new Error('Network overrides are disabled for docker jobs');
+    }
+    return requested;
+  }
+
+  return network.defaultMode;
+}
+
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return unitIndex === 0 ? `${Math.round(value)} ${units[unitIndex]}` : `${value.toFixed(2)} ${units[unitIndex]}`;
 }
 
 function ensureWithinWorkspace(workDir: string, candidate: string): void {
@@ -217,13 +246,25 @@ async function buildDockerCommand(options: {
   parameters: JsonValue;
   resolveSecret: (reference: SecretReference) => string | null | Promise<string | null>;
   logger: (message: string, meta?: Record<string, unknown>) => void;
+  config: DockerRuntimeConfig;
 }): Promise<DockerCommandPlan> {
   const containerName = buildContainerName(options.definition, options.run);
   const args: string[] = ['run', '--rm', '--name', containerName];
+  const policyResult = evaluateDockerImagePolicy(options.metadata.image, options.config);
+  if (!policyResult.allowed) {
+    throw new Error(policyResult.reason ?? 'Docker image is not permitted by policy');
+  }
   const workspaceMountPath = options.metadata.workspaceMountPath ?? '/workspace';
   args.push('-v', `${options.paths.mountSource}:${workspaceMountPath}:rw`);
-  if (options.metadata.networkMode) {
-    args.push('--network', options.metadata.networkMode);
+  const networkMode = resolveNetworkMode(options.metadata.networkMode, options.config);
+  args.push('--network', networkMode);
+  let gpuRequested = false;
+  if (options.metadata.requiresGpu) {
+    if (!options.config.gpuEnabled) {
+      throw new Error('Docker job requested GPU resources but GPU support is disabled');
+    }
+    args.push('--gpus', 'all');
+    gpuRequested = true;
   }
   if (options.metadata.platform) {
     args.push('--platform', options.metadata.platform);
@@ -267,7 +308,7 @@ async function buildDockerCommand(options: {
   if (options.metadata.inputs) {
     for (const input of options.metadata.inputs) {
       const hostPath = await resolveWorkspacePath(options.paths.workDir, input.workspacePath);
-      const mode = input.writable ? 'rw' : 'ro';
+      const mode = 'ro';
       if (input.mountPath) {
         args.push('-v', `${hostPath}:${input.mountPath}:${mode}`);
       }
@@ -299,8 +340,10 @@ async function buildDockerCommand(options: {
     image: options.metadata.image,
     workspaceMountPath,
     configMountPath,
+    networkMode,
+    gpuRequested,
   });
-  return { args, containerName, workspaceMountPath } satisfies DockerCommandPlan;
+  return { args, containerName, workspaceMountPath, networkMode, gpuRequested } satisfies DockerCommandPlan;
 }
 
 async function runDockerAndCapture(options: {
@@ -438,7 +481,8 @@ export class DockerJobRunner {
     ) => Promise<JobRunRecord>;
     resolveSecret: (reference: SecretReference) => string | null | Promise<string | null>;
   }): Promise<DockerExecutionResult> {
-    const workspace = await ensureWorkspace(options.run.id);
+    const runtimeConfig = getDockerRuntimeConfig();
+    const workspace = await ensureWorkspace(options.run.id, runtimeConfig.workspaceRoot);
     const resolvePath = (relative: string) => resolveWorkspacePath(workspace.workDir, relative);
     const requiresFilestore = Boolean(
       (options.metadata.inputs && options.metadata.inputs.length > 0) ||
@@ -488,6 +532,15 @@ export class DockerJobRunner {
         filestoreSummary.filesDownloaded = staged.filesDownloaded;
       }
 
+      if (
+        runtimeConfig.maxWorkspaceBytes !== null &&
+        filestoreSummary.bytesDownloaded > runtimeConfig.maxWorkspaceBytes
+      ) {
+        throw new Error(
+          `Workspace inputs total ${formatBytes(filestoreSummary.bytesDownloaded)}, exceeding limit ${formatBytes(runtimeConfig.maxWorkspaceBytes)}`
+        );
+      }
+
       const commandPlan = await buildDockerCommand({
         metadata: options.metadata,
         paths: workspace,
@@ -496,6 +549,7 @@ export class DockerJobRunner {
         parameters: options.parameters,
         resolveSecret: options.resolveSecret,
         logger: options.logger,
+        config: runtimeConfig,
       });
       containerName = commandPlan.containerName;
 
@@ -533,6 +587,8 @@ export class DockerJobRunner {
         startedAt: execution.startedAt,
         completedAt: execution.completedAt,
         workspacePath: workspace.workDir,
+        networkMode: commandPlan.networkMode,
+        gpuRequested: commandPlan.gpuRequested,
         ...execution.logs,
       } satisfies DockerExecutionTelemetry;
 
@@ -558,6 +614,8 @@ export class DockerJobRunner {
           signal: execution.signal ?? null,
           durationMs: Math.round(execution.durationMs),
           timedOut: execution.timedOut,
+          networkMode: commandPlan.networkMode,
+          gpuRequested: commandPlan.gpuRequested,
         },
         filestore: filestoreClient
           ? {
@@ -580,6 +638,8 @@ export class DockerJobRunner {
           startedAt: execution.startedAt,
           completedAt: execution.completedAt,
           workspacePath: workspace.workDir,
+          networkMode: commandPlan.networkMode,
+          gpuRequested: commandPlan.gpuRequested,
         },
         filestore: filestoreClient
           ? {
@@ -624,6 +684,8 @@ export class DockerJobRunner {
         containerName: commandPlan.containerName,
         image: options.metadata.image,
         timedOut: execution.timedOut,
+        networkMode: commandPlan.networkMode,
+        gpuRequested: commandPlan.gpuRequested,
         filestore: filestoreResult,
       } satisfies JsonValue;
 

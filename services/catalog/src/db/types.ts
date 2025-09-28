@@ -483,6 +483,7 @@ export type DockerJobMetadata = {
     workingDirectory?: string | null;
     workspaceMountPath?: string | null;
     networkMode?: 'none' | 'bridge';
+    requiresGpu?: boolean;
     environment?: DockerJobEnvironmentVariable[];
     configFile?: DockerJobConfigFileSpec | null;
     inputs?: DockerJobInputDescriptor[];

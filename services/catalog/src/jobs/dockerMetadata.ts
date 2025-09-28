@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { evaluateDockerImagePolicy, getDockerRuntimeConfig } from '../config/dockerRuntime';
+
 const MAX_PATH_LENGTH = 1024;
 const MAX_RELATIVE_PATH_LENGTH = 512;
 const MAX_ENV_VARS = 200;
@@ -117,6 +119,13 @@ const dockerEnvVarSchema = z
         message: 'Provide either a literal value or a secret reference'
       });
     }
+    if (entry.secret && entry.value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['value'],
+        message: 'Secret environment variables must not include inline values'
+      });
+    }
   });
 
 const dockerConfigFileSchema = z
@@ -205,6 +214,7 @@ const dockerMetadataCoreSchema = z
     workingDirectory: absolutePathSchema.optional(),
     workspaceMountPath: absolutePathSchema.optional(),
     networkMode: z.enum(['bridge', 'none']).optional(),
+    requiresGpu: z.boolean().optional(),
     environment: z.array(dockerEnvVarSchema).max(MAX_ENV_VARS).optional(),
     configFile: dockerConfigFileSchema.optional(),
     inputs: z.array(dockerInputDescriptorSchema).max(MAX_INPUTS).optional(),
@@ -212,6 +222,46 @@ const dockerMetadataCoreSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    const runtimeConfig = getDockerRuntimeConfig();
+    const policyResult = evaluateDockerImagePolicy(value.image, runtimeConfig);
+    if (!policyResult.allowed) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['image'],
+        message: policyResult.reason ?? 'Docker image is not permitted by policy'
+      });
+    }
+
+    if (value.networkMode) {
+      if (!runtimeConfig.network.allowedModes.has(value.networkMode)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['networkMode'],
+          message: `Network mode ${value.networkMode} is not permitted in this environment`
+        });
+      } else if (runtimeConfig.network.isolationEnabled && value.networkMode !== 'none') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['networkMode'],
+          message: 'Network isolation is enforced; containers must run with network mode "none"'
+        });
+      } else if (!runtimeConfig.network.allowModeOverride && value.networkMode !== runtimeConfig.network.defaultMode) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['networkMode'],
+          message: `Network mode overrides are disabled. Use ${runtimeConfig.network.defaultMode}`
+        });
+      }
+    }
+
+    if (value.requiresGpu && !runtimeConfig.gpuEnabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['requiresGpu'],
+        message: 'GPU execution is not enabled in this environment'
+      });
+    }
+
     const environmentEntries = (value.environment ?? []) as DockerEnvVarInput[];
     const seenEnv = new Set<string>();
     environmentEntries.forEach((entry, index) => {
@@ -230,6 +280,13 @@ const dockerMetadataCoreSchema = z
     const inputEntries = (value.inputs ?? []) as DockerInputDescriptorInput[];
     const seenInputIds = new Set<string>();
     inputEntries.forEach((entry, index) => {
+      if (entry.writable) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['inputs', index, 'writable'],
+          message: 'Input mounts are read-only; set writable=false or omit the field'
+        });
+      }
       if (!entry.id) {
         return;
       }

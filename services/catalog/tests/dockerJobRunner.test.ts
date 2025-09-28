@@ -23,6 +23,7 @@ import {
   type StageFilestoreInputsResult,
   type CollectFilestoreOutputsResult
 } from '../src/jobs/docker/filestoreArtifacts';
+import { clearDockerRuntimeConfigCache } from '../src/config/dockerRuntime';
 import type {
   DockerJobMetadata,
   JobDefinitionRecord,
@@ -114,6 +115,12 @@ describe('DockerJobRunner', () => {
   beforeEach(async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'docker-runner-test-'));
     process.env.CATALOG_DOCKER_WORKSPACE_ROOT = workspaceRoot;
+    process.env.CATALOG_DOCKER_ENFORCE_NETWORK_ISOLATION = 'true';
+    delete process.env.CATALOG_DOCKER_ALLOWED_NETWORK_MODES;
+    delete process.env.CATALOG_DOCKER_DEFAULT_NETWORK_MODE;
+    delete process.env.CATALOG_DOCKER_ALLOW_NETWORK_OVERRIDE;
+    delete process.env.CATALOG_DOCKER_ENABLE_GPU;
+    clearDockerRuntimeConfigCache();
     getFilestoreClientMock.mockReset();
     stageFilestoreInputsMock.mockReset();
     collectFilestoreOutputsMock.mockReset();
@@ -121,6 +128,8 @@ describe('DockerJobRunner', () => {
 
   afterEach(async () => {
     delete process.env.CATALOG_DOCKER_WORKSPACE_ROOT;
+    delete process.env.CATALOG_DOCKER_ENFORCE_NETWORK_ISOLATION;
+    clearDockerRuntimeConfigCache();
     vi.clearAllMocks();
     await rm(workspaceRoot, { recursive: true, force: true });
   });
@@ -176,12 +185,22 @@ describe('DockerJobRunner', () => {
     expect(spawnArgs).toContain('run');
     expect(spawnArgs).toContain('--rm');
     expect(spawnArgs).toContain(metadata.image);
+    const networkFlagIndex = spawnArgs.indexOf('--network');
+    expect(networkFlagIndex).toBeGreaterThan(-1);
+    expect(spawnArgs[networkFlagIndex + 1]).toBe('none');
+    expect(spawnArgs.includes('--gpus')).toBe(false);
 
     const entries = await readdir(workspaceRoot);
     expect(entries.length).toBe(0);
 
     const cleanupCalls = runDockerCommandMock.mock.calls.filter((call) => call[0][0] === 'rm');
     expect(cleanupCalls.length).toBe(1);
+
+    expect(result.telemetry.networkMode).toBe('none');
+    expect(result.telemetry.gpuRequested).toBe(false);
+    const metrics = result.jobResult.metrics as any;
+    expect(metrics?.docker?.networkMode).toBe('none');
+    expect(metrics?.docker?.gpuRequested).toBe(false);
   });
 
   test('terminates container on timeout', async () => {
@@ -233,6 +252,213 @@ describe('DockerJobRunner', () => {
     expect(result.jobResult.status).toBe('expired');
     const killCalls = runDockerCommandMock.mock.calls.filter((call) => call[0][0] === 'kill');
     expect(killCalls.length).toBeGreaterThan(0);
+  });
+
+  test('adds gpu flag when enabled and requested', async () => {
+    process.env.CATALOG_DOCKER_ENABLE_GPU = 'true';
+    clearDockerRuntimeConfigCache();
+
+    const spawnMock = vi.fn(() => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child: any = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        return true;
+      });
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({ docker: { ...metadata, requiresGpu: true } satisfies JsonValue });
+
+    const result = (await runner.execute({
+      definition,
+      run,
+      metadata: definition.metadata?.docker as DockerJobMetadata['docker'],
+      parameters: run.parameters,
+      timeoutMs: null,
+      logger: vi.fn(),
+      update: vi.fn(async () => run),
+      resolveSecret,
+    })) as DockerExecutionResult;
+
+    const spawnArgs = spawnMock.mock.calls[0][1] as string[];
+    const gpuIndex = spawnArgs.indexOf('--gpus');
+    expect(gpuIndex).toBeGreaterThan(-1);
+    expect(spawnArgs[gpuIndex + 1]).toBe('all');
+    expect(result.telemetry.gpuRequested).toBe(true);
+  });
+
+  test('throws when gpu requested but disabled', async () => {
+    clearDockerRuntimeConfigCache();
+
+    const spawnMock = vi.fn();
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({ docker: { ...metadata, requiresGpu: true } satisfies JsonValue });
+
+    await expect(
+      runner.execute({
+        definition,
+        run,
+        metadata: definition.metadata?.docker as DockerJobMetadata['docker'],
+        parameters: run.parameters,
+        timeoutMs: null,
+        logger: vi.fn(),
+        update: vi.fn(async () => run),
+        resolveSecret,
+      })
+    ).rejects.toThrow('GPU support is disabled');
+  });
+
+  test('honours bridge network mode when overrides enabled', async () => {
+    process.env.CATALOG_DOCKER_ENFORCE_NETWORK_ISOLATION = 'false';
+    process.env.CATALOG_DOCKER_ALLOW_NETWORK_OVERRIDE = 'true';
+    process.env.CATALOG_DOCKER_DEFAULT_NETWORK_MODE = 'bridge';
+    clearDockerRuntimeConfigCache();
+
+    const spawnMock = vi.fn(() => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child: any = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        return true;
+      });
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({
+      docker: {
+        ...metadata,
+        networkMode: 'bridge'
+      }
+    } satisfies JsonValue);
+
+    const result = (await runner.execute({
+      definition,
+      run,
+      metadata: definition.metadata?.docker as DockerJobMetadata['docker'],
+      parameters: run.parameters,
+      timeoutMs: null,
+      logger: vi.fn(),
+      update: vi.fn(async () => run),
+      resolveSecret,
+    })) as DockerExecutionResult;
+
+    const spawnArgs = spawnMock.mock.calls[0][1] as string[];
+    const networkIndex = spawnArgs.indexOf('--network');
+    expect(networkIndex).toBeGreaterThan(-1);
+    expect(spawnArgs[networkIndex + 1]).toBe('bridge');
+    expect(result.telemetry.networkMode).toBe('bridge');
+  });
+
+  test('fails when workspace inputs exceed configured limit', async () => {
+    process.env.CATALOG_DOCKER_MAX_WORKSPACE_BYTES = '64';
+    clearDockerRuntimeConfigCache();
+
+    const stageResult: StageFilestoreInputsResult = {
+      inputs: [
+        {
+          id: 'config',
+          workspacePath: 'inputs/data.txt',
+          source: { type: 'filestoreNode', nodeId: 11 },
+          nodeId: 101,
+          backendMountId: 5,
+          path: '/datasets/data.txt',
+          kind: 'file',
+          sizeBytes: 128,
+          checksum: 'sha256:abc',
+          contentHash: 'hash-1',
+          bytesDownloaded: 128,
+          filesDownloaded: 1,
+          checksumVerified: true
+        }
+      ],
+      bytesDownloaded: 128,
+      filesDownloaded: 1
+    };
+
+    getFilestoreClientMock.mockResolvedValue({
+      client: {} as unknown,
+      config: {
+        baseUrl: 'http://filestore.local',
+        token: null,
+        userAgent: 'test-agent',
+        fetchTimeoutMs: null,
+        source: 'env'
+      }
+    });
+    stageFilestoreInputsMock.mockResolvedValue(stageResult);
+    collectFilestoreOutputsMock.mockResolvedValue({ outputs: [], bytesUploaded: 0, filesUploaded: 0 });
+
+    const spawnMock = vi.fn();
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({
+      docker: {
+        ...metadata,
+        inputs: [
+          {
+            id: 'config',
+            source: { type: 'filestoreNode', nodeId: 11 },
+            workspacePath: 'inputs/data.txt'
+          }
+        ]
+      }
+    } satisfies JsonValue);
+
+    await expect(
+      runner.execute({
+        definition,
+        run,
+        metadata: definition.metadata?.docker as DockerJobMetadata['docker'],
+        parameters: run.parameters,
+        timeoutMs: null,
+        logger: vi.fn(),
+        update: vi.fn(async () => run),
+        resolveSecret,
+      })
+    ).rejects.toThrow('Workspace inputs total');
+    expect(spawnMock).not.toHaveBeenCalled();
   });
 
   test('stages filestore inputs and collects outputs', async () => {
