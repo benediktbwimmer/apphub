@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   getDatasetBySlug,
+  getSchemaVersionById,
   listPublishedManifestsForRange,
   listPartitionsForQuery,
   type PartitionWithTarget,
@@ -15,6 +16,12 @@ import {
   type DownsampleInput,
   type DownsampleAggregationInput
 } from './types';
+import {
+  extractFieldDefinitions,
+  mergeFieldDefinitionsSuperset,
+  normalizeFieldDefinitions
+} from '../schema/compatibility';
+import type { FieldDefinition } from '../storage';
 
 export interface QueryPlanPartition {
   id: string;
@@ -47,6 +54,7 @@ export interface QueryPlan {
   mode: 'raw' | 'downsampled';
   rangeStart: Date;
   rangeEnd: Date;
+  schemaFields: FieldDefinition[];
 }
 
 export async function buildQueryPlan(
@@ -94,6 +102,7 @@ export async function buildQueryPlan(
   }
 
   const mode = downsamplePlan ? 'downsampled' : 'raw';
+  const schemaFields = await resolveSchemaFieldsForPlan(manifests);
 
   return {
     datasetId: dataset.id,
@@ -105,8 +114,41 @@ export async function buildQueryPlan(
     downsample: downsamplePlan,
     mode,
     rangeStart,
-    rangeEnd
+    rangeEnd,
+    schemaFields
   } satisfies QueryPlan;
+}
+
+async function resolveSchemaFieldsForPlan(
+  manifests: Awaited<ReturnType<typeof listPublishedManifestsForRange>>
+): Promise<FieldDefinition[]> {
+  const schemaVersionIds = manifests
+    .map((manifest) => manifest.schemaVersionId)
+    .filter((id): id is string => Boolean(id));
+
+  if (schemaVersionIds.length === 0) {
+    return [];
+  }
+
+  const uniqueIds = Array.from(new Set(schemaVersionIds));
+  const fieldSets: FieldDefinition[][] = [];
+
+  for (const schemaVersionId of uniqueIds) {
+    const schemaVersion = await getSchemaVersionById(schemaVersionId);
+    if (!schemaVersion) {
+      continue;
+    }
+    const fields = normalizeFieldDefinitions(extractFieldDefinitions(schemaVersion.schema));
+    if (fields.length > 0) {
+      fieldSets.push(fields);
+    }
+  }
+
+  if (fieldSets.length === 0) {
+    return [];
+  }
+
+  return mergeFieldDefinitionsSuperset(fieldSets);
 }
 
 function buildPlanPartition(

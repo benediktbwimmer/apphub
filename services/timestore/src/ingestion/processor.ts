@@ -11,6 +11,7 @@ import {
   getManifestById,
   getNextManifestVersion,
   getNextSchemaVersion,
+  getSchemaVersionById,
   getStorageTargetById,
   recordIngestionBatch,
   updateDatasetDefaultStorageTarget,
@@ -20,6 +21,7 @@ import {
 } from '../db/metadata';
 import { loadServiceConfig } from '../config/serviceConfig';
 import { createStorageDriver } from '../storage';
+import type { FieldDefinition } from '../storage';
 import { ensureDefaultStorageTarget } from '../service/bootstrap';
 import type { IngestionJobPayload, IngestionProcessingResult } from './types';
 import { observeIngestionJob } from '../observability/metrics';
@@ -27,6 +29,28 @@ import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
 import { deriveManifestShardKey } from '../service/manifestShard';
+import {
+  analyzeSchemaCompatibility,
+  extractFieldDefinitions,
+  normalizeFieldDefinitions,
+  type SchemaCompatibilityResult,
+  type SchemaMigrationPlan
+} from '../schema/compatibility';
+
+class SchemaEvolutionError extends Error {
+  readonly reasons: string[];
+  readonly migrationPlan?: SchemaMigrationPlan;
+
+  constructor(datasetSlug: string, result: SchemaCompatibilityResult) {
+    const reasons = result.breakingReasons.length > 0
+      ? result.breakingReasons.join('; ')
+      : 'incompatible schema change detected';
+    super(`Schema evolution for dataset '${datasetSlug}' is incompatible: ${reasons}`);
+    this.name = 'SchemaEvolutionError';
+    this.reasons = result.breakingReasons;
+    this.migrationPlan = result.migrationPlan;
+  }
+}
 
 export async function processIngestionJob(
   payload: IngestionJobPayload
@@ -81,31 +105,13 @@ export async function processIngestionJob(
       }
     }
 
-    const schemaChecksum = createSchemaChecksum(payload.schema.fields);
-    let schemaVersion = await findSchemaVersionByChecksum(dataset.id, schemaChecksum);
-    if (!schemaVersion) {
-      const version = await getNextSchemaVersion(dataset.id);
-      schemaVersion = await createDatasetSchemaVersion({
-        id: `dsv-${randomUUID()}`,
-        datasetId: dataset.id,
-        version,
-        description: `Schema derived from ingestion at ${payload.receivedAt}`,
-        schema: { fields: payload.schema.fields },
-        checksum: schemaChecksum
-      });
-    }
-
-    const partitionId = `part-${randomUUID()}`;
-    const tableName = payload.tableName ?? 'records';
-    const driver = createStorageDriver(config, storageTarget);
-    const writeResult = await driver.writePartition({
-      datasetSlug,
-      partitionId,
-      partitionKey: payload.partition.key,
-      tableName,
-      schema: payload.schema.fields,
-      rows: payload.rows
-    });
+    const schemaFields = normalizeFieldDefinitions(payload.schema.fields);
+    const rawDefaults = payload.schema.evolution?.defaults;
+    const schemaDefaults =
+      rawDefaults && typeof rawDefaults === 'object' && !Array.isArray(rawDefaults)
+        ? (rawDefaults as Record<string, unknown>)
+        : {};
+    const backfillRequested = payload.schema.evolution?.backfill === true;
 
     const startTime = new Date(payload.partition.timeRange.start);
     const endTime = new Date(payload.partition.timeRange.end);
@@ -119,6 +125,45 @@ export async function processIngestionJob(
 
     const manifestShard = deriveManifestShardKey(startTime);
     const previousManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShard });
+    const baselineManifest = previousManifest ?? (await getLatestPublishedManifest(dataset.id));
+
+    let compatibility: SchemaCompatibilityResult | null = null;
+    if (baselineManifest?.schemaVersionId) {
+      const baselineSchemaVersion = await getSchemaVersionById(baselineManifest.schemaVersionId);
+      const baselineFields = baselineSchemaVersion
+        ? extractFieldDefinitions(baselineSchemaVersion.schema)
+        : [];
+      compatibility = analyzeSchemaCompatibility(baselineFields, schemaFields);
+      if (compatibility.status === 'breaking') {
+        throw new SchemaEvolutionError(datasetSlug, compatibility);
+      }
+    }
+
+    const schemaChecksum = createSchemaChecksum(schemaFields);
+    let schemaVersion = await findSchemaVersionByChecksum(dataset.id, schemaChecksum);
+    if (!schemaVersion) {
+      const version = await getNextSchemaVersion(dataset.id);
+      schemaVersion = await createDatasetSchemaVersion({
+        id: `dsv-${randomUUID()}`,
+        datasetId: dataset.id,
+        version,
+        description: `Schema derived from ingestion at ${payload.receivedAt}`,
+        schema: { fields: schemaFields },
+        checksum: schemaChecksum
+      });
+    }
+
+    const partitionId = `part-${randomUUID()}`;
+    const tableName = payload.tableName ?? 'records';
+    const driver = createStorageDriver(config, storageTarget);
+    const writeResult = await driver.writePartition({
+      datasetSlug,
+      partitionId,
+      partitionKey: payload.partition.key,
+      tableName,
+      schema: schemaFields,
+      rows: payload.rows
+    });
     const partitionInput = {
       id: partitionId,
       storageTargetId: storageTarget.id,
@@ -131,7 +176,8 @@ export async function processIngestionJob(
       rowCount: writeResult.rowCount,
       checksum: writeResult.checksum,
       metadata: {
-        tableName
+        tableName,
+        schemaVersionId: schemaVersion.id
       }
     } satisfies PartitionInput;
 
@@ -139,23 +185,38 @@ export async function processIngestionJob(
       batchRowCount: writeResult.rowCount,
       tableName,
       lastPartitionId: partitionId,
-      lastIngestedAt: payload.receivedAt
+      lastIngestedAt: payload.receivedAt,
+      schemaVersionId: schemaVersion.id
     } satisfies Record<string, unknown>;
 
-    const metadataPatch = {
+    const metadataPatch: Record<string, unknown> = {
       tableName,
-      storageTargetId: storageTarget.id
-    } satisfies Record<string, unknown>;
+      storageTargetId: storageTarget.id,
+      schemaVersionId: schemaVersion.id
+    };
+
+    if (compatibility?.status === 'additive' && compatibility.addedFields.length > 0) {
+      metadataPatch.schemaEvolution = {
+        status: 'additive',
+        addedColumns: compatibility.addedFields.map((field) => field.name),
+        requestedBackfill: backfillRequested
+      } satisfies Record<string, unknown>;
+    }
 
     let manifest: import('../db/metadata').DatasetManifestWithPartitions;
 
-    if (previousManifest && previousManifest.schemaVersionId === schemaVersion.id) {
+    const canReuseManifest =
+      Boolean(previousManifest) &&
+      (previousManifest?.schemaVersionId === schemaVersion.id || compatibility?.status === 'additive');
+
+    if (previousManifest && canReuseManifest) {
       manifest = await appendPartitionsToManifest({
         datasetId: dataset.id,
         manifestId: previousManifest.id,
         partitions: [partitionInput],
         summaryPatch,
-        metadataPatch
+        metadataPatch,
+        schemaVersionId: schemaVersion.id
       });
     } else {
       const manifestVersion = await getNextManifestVersion(dataset.id);
@@ -195,6 +256,8 @@ export async function processIngestionJob(
       durationSeconds: durationSince(start)
     });
 
+    const addedColumns = compatibility?.addedFields.map((field) => field.name) ?? [];
+
     try {
       await publishTimestoreEvent(
         'timestore.partition.created',
@@ -215,6 +278,47 @@ export async function processIngestionJob(
       );
     } catch (err) {
       console.error('[timestore] failed to publish partition.created event', err);
+    }
+
+    if (addedColumns.length > 0) {
+      try {
+        await publishTimestoreEvent(
+          'timestore.schema.evolved',
+          {
+            datasetId: dataset.id,
+            datasetSlug,
+            manifestId: manifest.id,
+            previousManifestId: previousManifest?.id ?? null,
+            schemaVersionId: schemaVersion.id,
+            addedColumns
+          },
+          'timestore.ingest'
+        );
+      } catch (err) {
+        console.error('[timestore] failed to publish schema.evolved event', err);
+      }
+    }
+
+    if (backfillRequested && addedColumns.length > 0) {
+      try {
+        const defaults = Object.fromEntries(
+          addedColumns.map((column) => [column, schemaDefaults[column] ?? null])
+        );
+        await publishTimestoreEvent(
+          'timestore.schema.backfill.requested',
+          {
+            datasetId: dataset.id,
+            datasetSlug,
+            manifestId: manifest.id,
+            schemaVersionId: schemaVersion.id,
+            addedColumns,
+            defaults
+          },
+          'timestore.ingest'
+        );
+      } catch (err) {
+        console.error('[timestore] failed to publish schema.backfill.requested event', err);
+      }
     }
 
     invalidateSqlRuntimeCache();
@@ -250,7 +354,7 @@ async function resolveStorageTarget(payload: IngestionJobPayload): Promise<Stora
   return defaultTarget;
 }
 
-function createSchemaChecksum(fields: IngestionJobPayload['schema']['fields']): string {
+function createSchemaChecksum(fields: FieldDefinition[]): string {
   const canonical = JSON.stringify(fields.map((field) => ({ name: field.name, type: field.type })));
   return createHash('sha1').update(canonical).digest('hex');
 }

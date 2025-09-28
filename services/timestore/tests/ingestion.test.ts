@@ -186,3 +186,141 @@ test('processIngestionJob shards manifests by partition start date', async () =>
   assert.equal(firstManifest?.partitionCount, 1);
   assert.equal(secondManifest?.partitionCount, 1);
 });
+
+test('processIngestionJob reuses manifest for additive schema evolution', async () => {
+  const metadataModule = await import('../src/db/metadata');
+
+  const basePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug: 'schema-evolution-dataset',
+    datasetName: 'Schema Evolution Dataset',
+    tableName: 'observations',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'temperature_c', type: 'double' }
+      ]
+    },
+    partition: {
+      key: { window: '2024-04-01' },
+      timeRange: {
+        start: '2024-04-01T00:00:00.000Z',
+        end: '2024-04-01T00:30:00.000Z'
+      }
+    },
+    rows: [
+      { timestamp: '2024-04-01T00:00:00.000Z', temperature_c: 18.5 },
+      { timestamp: '2024-04-01T00:15:00.000Z', temperature_c: 19.1 }
+    ],
+    idempotencyKey: 'schema-evolution-base',
+    receivedAt: new Date().toISOString()
+  });
+
+  const initialResult = await ingestionModule.processIngestionJob(basePayload);
+  assert.ok(initialResult.manifest.schemaVersionId);
+
+  const additivePayload = {
+    ...basePayload,
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'temperature_c', type: 'double' },
+        { name: 'wind_speed_mps', type: 'double' }
+      ],
+      evolution: {
+        backfill: true,
+        defaults: {
+          wind_speed_mps: 0
+        }
+      }
+    },
+    partition: {
+      key: { window: '2024-04-01', batch: 'evening' },
+      timeRange: {
+        start: '2024-04-01T18:00:00.000Z',
+        end: '2024-04-01T18:30:00.000Z'
+      }
+    },
+    rows: [
+      {
+        timestamp: '2024-04-01T18:05:00.000Z',
+        temperature_c: 17.8,
+        wind_speed_mps: 4.2
+      }
+    ],
+    idempotencyKey: 'schema-evolution-additive'
+  } satisfies typeof basePayload;
+
+  const additiveResult = await ingestionModule.processIngestionJob(additivePayload);
+
+  assert.equal(additiveResult.manifest.id, initialResult.manifest.id);
+  assert.notEqual(additiveResult.manifest.schemaVersionId, initialResult.manifest.schemaVersionId);
+  assert.equal(additiveResult.manifest.partitionCount, 2);
+  assert.equal(additiveResult.manifest.partitions.length, 2);
+  assert.equal(
+    additiveResult.manifest.partitions[additiveResult.manifest.partitions.length - 1]?.metadata.schemaVersionId,
+    additiveResult.manifest.schemaVersionId
+  );
+
+  const manifestRecord = await metadataModule.getManifestById(additiveResult.manifest.id);
+  assert.ok(manifestRecord);
+  const schemaEvolutionMetadata = manifestRecord?.metadata?.schemaEvolution as
+    | { status: string; addedColumns: string[]; requestedBackfill: boolean }
+    | undefined;
+  assert.ok(schemaEvolutionMetadata);
+  assert.deepEqual(schemaEvolutionMetadata?.addedColumns, ['wind_speed_mps']);
+  assert.equal(schemaEvolutionMetadata?.requestedBackfill, true);
+});
+
+test('processIngestionJob rejects incompatible schema changes', async () => {
+  const basePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug: 'schema-evolution-incompatible',
+    datasetName: 'Schema Evolution Incompatible Dataset',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'temperature_c', type: 'double' }
+      ]
+    },
+    partition: {
+      key: { window: '2024-05-01' },
+      timeRange: {
+        start: '2024-05-01T00:00:00.000Z',
+        end: '2024-05-01T00:10:00.000Z'
+      }
+    },
+    rows: [
+      { timestamp: '2024-05-01T00:00:00.000Z', temperature_c: 20.2 }
+    ],
+    idempotencyKey: 'schema-incompat-base',
+    receivedAt: new Date().toISOString()
+  });
+
+  await ingestionModule.processIngestionJob(basePayload);
+
+  const incompatiblePayload = {
+    ...basePayload,
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'temperature_c', type: 'string' }
+      ]
+    },
+    partition: {
+      key: { window: '2024-05-01', batch: 'evening' },
+      timeRange: {
+        start: '2024-05-01T18:00:00.000Z',
+        end: '2024-05-01T18:10:00.000Z'
+      }
+    },
+    idempotencyKey: 'schema-incompat-change'
+  } satisfies typeof basePayload;
+
+  await assert.rejects(async () => {
+    await ingestionModule.processIngestionJob(incompatiblePayload);
+  }, (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, 'SchemaEvolutionError');
+    assert.match(error.message, /incompatible/i);
+    return true;
+  });
+});

@@ -1,7 +1,7 @@
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { mkdir } from 'node:fs/promises';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
-import type { QueryPlan } from './planner';
+import type { QueryPlan, QueryPlanPartition } from './planner';
 import type { StorageTargetRecord } from '../db/metadata';
 import {
   resolveGcsDriverOptions,
@@ -10,6 +10,7 @@ import {
   type ResolvedGcsOptions,
   type ResolvedAzureOptions
 } from '../storage';
+import type { FieldDefinition, FieldType } from '../storage';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -38,8 +39,8 @@ export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionR
     }
 
     await prepareConnectionForPlan(connection, plan, config);
-    await attachPartitions(connection, plan);
-    await createDatasetView(connection, plan);
+    const partitionColumns = await attachPartitions(connection, plan);
+    await createDatasetView(connection, plan, partitionColumns);
 
     const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan);
     for (const query of preparatoryQueries) {
@@ -109,11 +110,18 @@ async function prepareConnectionForPlan(
   }
 }
 
-async function attachPartitions(connection: any, plan: QueryPlan): Promise<void> {
+async function attachPartitions(
+  connection: any,
+  plan: QueryPlan
+): Promise<Map<string, Set<string>>> {
+  const columnMap = new Map<string, Set<string>>();
+
   for (const partition of plan.partitions) {
     const escapedLocation = partition.location.replace(/'/g, "''");
     await run(connection, `ATTACH '${escapedLocation}' AS ${partition.alias}`);
     const tableName = quoteIdentifier(partition.tableName);
+    const availableColumns = await introspectPartitionColumns(connection, partition);
+    columnMap.set(partition.alias, availableColumns);
     const timestampColumn = quoteIdentifier(plan.timestampColumn);
     const startLiteral = plan.rangeStart.toISOString().replace(/'/g, "''");
     const endLiteral = plan.rangeEnd.toISOString().replace(/'/g, "''");
@@ -123,12 +131,96 @@ async function attachPartitions(connection: any, plan: QueryPlan): Promise<void>
          WHERE ${timestampColumn} BETWEEN TIMESTAMP '${startLiteral}' AND TIMESTAMP '${endLiteral}'`;
     await run(connection, filterSql);
   }
+  return columnMap;
 }
 
-async function createDatasetView(connection: any, plan: QueryPlan): Promise<void> {
-  const selects = plan.partitions.map((partition) => `SELECT * FROM ${partition.alias}_filtered`);
+async function createDatasetView(
+  connection: any,
+  plan: QueryPlan,
+  partitionColumns: Map<string, Set<string>>
+): Promise<void> {
+  const canonicalFields = resolveCanonicalSchema(plan, partitionColumns);
+  const selects = plan.partitions.map((partition) =>
+    buildPartitionSelect(partition, canonicalFields, partitionColumns.get(partition.alias))
+  );
   const unionSql = selects.join('\nUNION ALL\n');
   await run(connection, `CREATE TEMP VIEW dataset_view AS ${unionSql}`);
+}
+
+async function introspectPartitionColumns(
+  connection: any,
+  partition: QueryPlanPartition
+): Promise<Set<string>> {
+  const alias = partition.alias.replace(/'/g, "''");
+  const table = partition.tableName.replace(/"/g, '""').replace(/'/g, "''");
+  const qualified = `${alias}."${table}"`;
+  const rows = await all(connection, `PRAGMA table_info('${qualified}')`);
+  const columns = new Set<string>();
+  for (const row of rows ?? []) {
+    const columnName =
+      typeof row?.column_name === 'string'
+        ? (row.column_name as string)
+        : typeof row?.name === 'string'
+          ? (row.name as string)
+          : null;
+    if (columnName) {
+      columns.add(columnName);
+    }
+  }
+  return columns;
+}
+
+function resolveCanonicalSchema(
+  plan: QueryPlan,
+  partitionColumns: Map<string, Set<string>>
+): FieldDefinition[] {
+  if (plan.schemaFields.length > 0) {
+    return plan.schemaFields;
+  }
+  return inferFieldsFromPartitionColumns(partitionColumns);
+}
+
+function buildPartitionSelect(
+  partition: QueryPlanPartition,
+  canonicalFields: FieldDefinition[],
+  availableColumns: Set<string> | undefined
+): string {
+  if (canonicalFields.length === 0) {
+    return `SELECT * FROM ${partition.alias}_filtered`;
+  }
+
+  const available = availableColumns ?? new Set<string>();
+  const expressions = canonicalFields.map((field) => {
+    const identifier = quoteIdentifier(field.name);
+    if (available.has(field.name)) {
+      return identifier;
+    }
+    const duckType = mapFieldTypeToDuckDb(field.type);
+    return `NULL::${duckType} AS ${identifier}`;
+  });
+
+  const selectList = expressions.join(', ');
+  return `SELECT ${selectList}
+        FROM ${partition.alias}_filtered`;
+}
+
+function inferFieldsFromPartitionColumns(
+  partitionColumns: Map<string, Set<string>>
+): FieldDefinition[] {
+  const seen = new Set<string>();
+  const inferred: FieldDefinition[] = [];
+  for (const columns of partitionColumns.values()) {
+    for (const column of columns) {
+      if (!seen.has(column)) {
+        seen.add(column);
+        inferred.push({
+          name: column,
+          type: 'string'
+        });
+      }
+    }
+  }
+  return inferred;
 }
 
 function buildFinalQuery(plan: QueryPlan): {
@@ -233,6 +325,22 @@ function closeConnection(connection: any): Promise<void> {
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function mapFieldTypeToDuckDb(type: FieldType): string {
+  switch (type) {
+    case 'timestamp':
+      return 'TIMESTAMP';
+    case 'double':
+      return 'DOUBLE';
+    case 'integer':
+      return 'BIGINT';
+    case 'boolean':
+      return 'BOOLEAN';
+    case 'string':
+    default:
+      return 'VARCHAR';
+  }
 }
 
 function normalizeRows(rows: QueryResultRow[]): QueryResultRow[] {

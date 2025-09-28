@@ -218,6 +218,90 @@ test('execute downsampled query with count and percentile', async () => {
   assert.equal(Number(result.rows[0]?.p50_temp), 22);
 });
 
+test('query fills missing columns with nulls after additive schema evolution', async () => {
+  const datasetSlug = `observatory-timeseries-evolved-${randomUUID().slice(0, 8)}`;
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName: 'Observatory Time Series Evolved',
+    tableName: 'observations',
+    partitionKey: { window: '2024-01-01', dataset: 'observatory' },
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T00:20:00.000Z'
+    },
+    rows: [
+      {
+        timestamp: '2024-01-01T00:00:00.000Z',
+        temperature_c: 20,
+        humidity_percent: 60
+      },
+      {
+        timestamp: '2024-01-01T00:10:00.000Z',
+        temperature_c: 21,
+        humidity_percent: 59
+      }
+    ]
+  });
+
+  const additivePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug,
+    datasetName: 'Observatory Time Series Evolved',
+    tableName: 'observations',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' as const },
+        { name: 'temperature_c', type: 'double' as const },
+        { name: 'humidity_percent', type: 'double' as const },
+        { name: 'wind_speed_mps', type: 'double' as const }
+      ],
+      evolution: {
+        backfill: false
+      }
+    },
+    partition: {
+      key: { window: '2024-01-01', dataset: 'observatory', batch: 'expanded' },
+      timeRange: {
+        start: '2024-01-01T00:30:00.000Z',
+        end: '2024-01-01T00:40:00.000Z'
+      }
+    },
+    rows: [
+      {
+        timestamp: '2024-01-01T00:35:00.000Z',
+        temperature_c: 24.6,
+        humidity_percent: 55.1,
+        wind_speed_mps: 5.8
+      }
+    ],
+    idempotencyKey: `schema-additive-${randomUUID()}`,
+    receivedAt: new Date().toISOString()
+  });
+
+  await ingestionModule.processIngestionJob(additivePayload);
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-02T00:00:00.000Z'
+    },
+    columns: ['timestamp', 'temperature_c', 'humidity_percent', 'wind_speed_mps'],
+    timestampColumn: 'timestamp'
+  });
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.ok(result.columns.includes('wind_speed_mps'));
+  assert.equal(result.rows.length, 3);
+
+  const firstRow = result.rows.find((row) => row.timestamp === '2024-01-01T00:00:00.000Z');
+  assert.ok(firstRow);
+  assert.equal(firstRow?.wind_speed_mps, null);
+
+  const evolvedRow = result.rows.find((row) => row.timestamp === '2024-01-01T00:35:00.000Z');
+  assert.ok(evolvedRow);
+  assert.equal(evolvedRow?.wind_speed_mps, 5.8);
+});
+
 test('union query spans multiple published partitions', async () => {
   const datasetSlug = `observations-${randomUUID().slice(0, 8)}`;
   const datasetName = 'Telemetry Windowed Series';

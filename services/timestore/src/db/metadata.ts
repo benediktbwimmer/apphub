@@ -514,6 +514,7 @@ export interface AppendManifestPartitionsInput {
   partitions: PartitionInput[];
   summaryPatch?: JsonObject;
   metadataPatch?: JsonObject;
+  schemaVersionId?: string | null;
 }
 
 export async function appendPartitionsToManifest(
@@ -593,15 +594,27 @@ export async function appendPartitionsToManifest(
 
     const summary = summaryPatch ?? {};
     const metadata = metadataPatch ?? {};
+    const updateParams: unknown[] = [
+      manifestId,
+      JSON.stringify(summary),
+      JSON.stringify(statistics),
+      JSON.stringify(metadata)
+    ];
+
+    let schemaUpdateClause = '';
+    if (input.schemaVersionId !== undefined) {
+      updateParams.push(input.schemaVersionId ?? null);
+      schemaUpdateClause = ',\n              schema_version_id = $5';
+    }
 
     await client.query(
       `UPDATE dataset_manifests
           SET summary = summary || $2::jsonb,
               statistics = $3::jsonb,
-              metadata = metadata || $4::jsonb,
+              metadata = metadata || $4::jsonb${schemaUpdateClause},
               updated_at = NOW()
         WHERE id = $1`,
-      [manifestId, JSON.stringify(summary), JSON.stringify(statistics), JSON.stringify(metadata)]
+      updateParams
     );
 
     await touchDataset(client, datasetId);

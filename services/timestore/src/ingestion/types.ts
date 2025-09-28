@@ -14,12 +14,24 @@ export const ingestionActorSchema = z.object({
   scopes: z.array(z.string().min(1)).default([])
 });
 
+const schemaEvolutionOptionsSchema = z
+  .object({
+    defaults: z.record(z.unknown()).optional(),
+    backfill: z.boolean().optional()
+  })
+  .partial();
+
+const datasetSchemaSchema = z.object({
+  fields: z.array(fieldDefinitionSchema).min(1),
+  evolution: schemaEvolutionOptionsSchema.optional()
+});
+
 export const ingestionRequestSchema = z.object({
   datasetSlug: z.string().min(1),
   datasetName: z.string().min(1).optional(),
   storageTargetId: z.string().optional(),
   tableName: z.string().min(1).max(120).optional(),
-  schema: z.object({ fields: z.array(fieldDefinitionSchema).min(1) }),
+  schema: datasetSchemaSchema,
   partition: z.object({
     key: z.record(z.string(), z.string()),
     timeRange: z.object({
@@ -50,3 +62,5 @@ export interface IngestionProcessingResult {
 }
 
 export type { FieldDefinition };
+
+export type SchemaEvolutionOptions = z.infer<typeof schemaEvolutionOptionsSchema>;
