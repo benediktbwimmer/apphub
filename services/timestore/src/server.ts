@@ -14,6 +14,7 @@ import { timestoreMetricsPlugin } from './observability/metricsPlugin';
 import { setupTracing } from './observability/tracing';
 import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
 import { shutdownManifestCache } from './cache/manifestCache';
+import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -44,12 +45,14 @@ async function start(): Promise<void> {
     await closeLifecycleQueue();
     await shutdownManifestCache();
     await shutdownFilestoreActivity();
+    await shutdownIngestionConnectors();
   });
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
   await ensureDefaultStorageTarget();
   await initializeFilestoreActivity({ config, logger: app.log });
+  await initializeIngestionConnectors({ config, logger: app.log });
 
   try {
     await app.listen({ port: config.port, host: config.host });

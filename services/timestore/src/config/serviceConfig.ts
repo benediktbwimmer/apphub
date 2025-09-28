@@ -26,6 +26,45 @@ export interface PartitionIndexColumnConfig {
   bloom: boolean;
 }
 
+export interface StreamingConnectorConfig {
+  id: string;
+  driver: 'file';
+  path: string;
+  pollIntervalMs: number;
+  batchSize: number;
+  dedupeWindowMs: number;
+  checkpointPath?: string;
+  startAtOldest: boolean;
+  dlqPath?: string | null;
+}
+
+export interface BulkConnectorConfig {
+  id: string;
+  driver: 'file';
+  directory: string;
+  filePattern: string;
+  pollIntervalMs: number;
+  chunkSize: number;
+  checkpointPath?: string;
+  deleteAfterLoad: boolean;
+  renameOnSuccess: boolean;
+  dlqPath?: string | null;
+}
+
+export interface ConnectorBackpressureConfig {
+  highWatermark: number;
+  lowWatermark: number;
+  minPauseMs: number;
+  maxPauseMs: number;
+}
+
+export interface IngestionConnectorConfig {
+  enabled: boolean;
+  streaming: StreamingConnectorConfig[];
+  bulk: BulkConnectorConfig[];
+  backpressure: ConnectorBackpressureConfig;
+}
+
 const retentionRuleSchema = z.object({
   maxAgeHours: z.number().int().positive().optional(),
   maxTotalBytes: z.number().int().positive().optional()
@@ -114,6 +153,91 @@ const partitionIndexSchema = z.object({
   bloomFalsePositiveRate: z.number().positive().max(0.5)
 });
 
+const streamingConnectorSchema = z
+  .object({
+    id: z.string().min(1),
+    driver: z.literal('file').default('file'),
+    path: z.string().min(1),
+    pollIntervalMs: z.number().int().positive().default(500),
+    batchSize: z.number().int().positive().default(500),
+    dedupeWindowMs: z.number().int().nonnegative().default(5 * 60_000),
+    checkpointPath: z.string().min(1).optional(),
+    startAtOldest: z.boolean().default(true),
+    dlqPath: z.string().min(1).nullable().optional()
+  })
+  .transform((value) => ({
+    id: value.id,
+    driver: 'file' as const,
+    path: value.path,
+    pollIntervalMs: value.pollIntervalMs,
+    batchSize: value.batchSize,
+    dedupeWindowMs: value.dedupeWindowMs,
+    checkpointPath: value.checkpointPath,
+    startAtOldest: value.startAtOldest,
+    dlqPath: value.dlqPath ?? null
+  } satisfies StreamingConnectorConfig));
+
+const bulkConnectorSchema = z
+  .object({
+    id: z.string().min(1),
+    driver: z.literal('file').default('file'),
+    directory: z.string().min(1),
+    filePattern: z.string().min(1).default('*.json'),
+    pollIntervalMs: z.number().int().positive().default(5_000),
+    chunkSize: z.number().int().positive().default(10_000),
+    checkpointPath: z.string().min(1).optional(),
+    deleteAfterLoad: z.boolean().default(false),
+    renameOnSuccess: z.boolean().default(true),
+    dlqPath: z.string().min(1).nullable().optional()
+  })
+  .transform((value) => ({
+    id: value.id,
+    driver: 'file' as const,
+    directory: value.directory,
+    filePattern: value.filePattern,
+    pollIntervalMs: value.pollIntervalMs,
+    chunkSize: value.chunkSize,
+    checkpointPath: value.checkpointPath,
+    deleteAfterLoad: value.deleteAfterLoad,
+    renameOnSuccess: value.renameOnSuccess,
+    dlqPath: value.dlqPath ?? null
+  } satisfies BulkConnectorConfig));
+
+const backpressureConfigSchema = z
+  .object({
+    highWatermark: z.number().int().nonnegative().default(500),
+    lowWatermark: z.number().int().nonnegative().default(250),
+    minPauseMs: z.number().int().positive().default(500),
+    maxPauseMs: z.number().int().positive().default(30_000)
+  })
+  .superRefine((value, ctx) => {
+    if (value.lowWatermark > value.highWatermark) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'lowWatermark must be less than or equal to highWatermark'
+      });
+    }
+    if (value.minPauseMs > value.maxPauseMs) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'minPauseMs must be less than or equal to maxPauseMs'
+      });
+  }
+})
+  .transform((value) => ({
+    highWatermark: value.highWatermark,
+    lowWatermark: value.lowWatermark,
+    minPauseMs: value.minPauseMs,
+    maxPauseMs: value.maxPauseMs
+  } satisfies ConnectorBackpressureConfig));
+
+const ingestionConnectorSchema = z.object({
+  enabled: z.boolean(),
+  streaming: z.array(streamingConnectorSchema),
+  bulk: z.array(bulkConnectorSchema),
+  backpressure: backpressureConfigSchema
+});
+
 const filestoreSchema = z.object({
   enabled: z.boolean(),
   redisUrl: z.string().min(1),
@@ -183,6 +307,9 @@ const configSchema = z.object({
     cache: cacheSchema,
     manifestCache: manifestCacheSchema,
     execution: queryExecutionSchema
+  }),
+  ingestion: z.object({
+    connectors: ingestionConnectorSchema
   }),
   partitionIndex: partitionIndexSchema,
   sql: sqlSchema,
@@ -398,6 +525,56 @@ function normalizeExecutionConfig(
   } satisfies QueryExecutionConfig;
 }
 
+function parseConnectorList<T>(
+  raw: string | undefined,
+  schema: z.ZodType<T>,
+  kind: 'streaming' | 'bulk'
+): T[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.warn(`[timestore] ${kind} connector configuration must be an array`);
+      return [];
+    }
+    const results: T[] = [];
+    for (const entry of parsed) {
+      try {
+        results.push(schema.parse(entry));
+      } catch (error) {
+        console.warn(`[timestore] skipped invalid ${kind} connector configuration entry`, error);
+      }
+    }
+    return results;
+  } catch (error) {
+    console.warn(`[timestore] failed to parse ${kind} connector configuration`, error);
+    return [];
+  }
+}
+
+function parseStreamingConnectors(raw: string | undefined): StreamingConnectorConfig[] {
+  return parseConnectorList(raw, streamingConnectorSchema, 'streaming');
+}
+
+function parseBulkConnectors(raw: string | undefined): BulkConnectorConfig[] {
+  return parseConnectorList(raw, bulkConnectorSchema, 'bulk');
+}
+
+function parseConnectorBackpressure(raw: string | undefined): ConnectorBackpressureConfig {
+  if (!raw) {
+    return backpressureConfigSchema.parse({});
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return backpressureConfigSchema.parse(parsed);
+  } catch (error) {
+    console.warn('[timestore] failed to parse connector backpressure configuration', error);
+    return backpressureConfigSchema.parse({});
+  }
+}
+
 export function loadServiceConfig(): ServiceConfig {
   if (cachedConfig) {
     return cachedConfig;
@@ -493,6 +670,20 @@ export function loadServiceConfig(): ServiceConfig {
   const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
   const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
+  const streamingConnectors = parseStreamingConnectors(env.TIMESTORE_STREAMING_CONNECTORS);
+  const bulkConnectors = parseBulkConnectors(env.TIMESTORE_BULK_CONNECTORS);
+  const connectorBackpressure = parseConnectorBackpressure(env.TIMESTORE_CONNECTOR_BACKPRESSURE);
+  const connectorsEnabled = parseBoolean(
+    env.TIMESTORE_CONNECTORS_ENABLED,
+    streamingConnectors.length > 0 || bulkConnectors.length > 0
+  );
+  const connectorsConfig: IngestionConnectorConfig = {
+    enabled: connectorsEnabled && (streamingConnectors.length > 0 || bulkConnectors.length > 0),
+    streaming: streamingConnectors,
+    bulk: bulkConnectors,
+    backpressure: connectorBackpressure
+  };
+
   const partitionIndexColumns = resolvePartitionIndexColumns({
     configJson: partitionIndexConfigJson,
     columns: partitionIndexColumnsEnv,
@@ -569,6 +760,9 @@ export function loadServiceConfig(): ServiceConfig {
         inline: manifestCacheInline
       },
       execution: executionConfig
+    },
+    ingestion: {
+      connectors: connectorsConfig
     },
     partitionIndex: {
       columns: partitionIndexColumns,

@@ -97,6 +97,22 @@ export async function closeQueueConnection(): Promise<void> {
   }
 }
 
+export async function getIngestionQueueDepth(): Promise<number> {
+  if (isInlineQueueMode()) {
+    return 0;
+  }
+  try {
+    const queue = ensureQueue();
+    const counts = await queue.getJobCounts();
+    return (counts.waiting ?? 0) + (counts.active ?? 0) + (counts.delayed ?? 0);
+  } catch (error) {
+    console.warn('[timestore:queue] failed to determine ingestion queue depth', {
+      error: error instanceof Error ? error.message : error
+    });
+    return 0;
+  }
+}
+
 function ensureQueue(): Queue<IngestionJobPayload> {
   if (isInlineRedis()) {
     throw new Error('Queue not available in inline mode');
