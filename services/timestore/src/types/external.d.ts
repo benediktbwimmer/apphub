@@ -21,3 +21,21 @@ declare module '@azure/storage-blob' {
     getContainerClient(name: string): ContainerClient;
   }
 }
+
+declare module 's3rver' {
+  interface S3rverOptions {
+    address?: string;
+    port?: number;
+    silent?: boolean;
+    resetOnClose?: boolean;
+    directory?: string;
+    allowMismatchedSignatures?: boolean;
+    configureBuckets?: Array<{ name: string; configs?: Array<string | Buffer> }>;
+  }
+
+  export default class S3rver {
+    constructor(options?: S3rverOptions);
+    run(): Promise<unknown>;
+    close(): Promise<void>;
+  }
+}

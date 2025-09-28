@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  appendPartitionsToManifest,
   createDataset,
   createDatasetManifest,
   createDatasetSchemaVersion,
@@ -14,6 +15,7 @@ import {
   recordIngestionBatch,
   updateDatasetDefaultStorageTarget,
   type DatasetRecord,
+  type PartitionInput,
   type StorageTargetRecord
 } from '../db/metadata';
 import { loadServiceConfig } from '../config/serviceConfig';
@@ -92,7 +94,6 @@ export async function processIngestionJob(
       });
     }
 
-    const manifestVersion = await getNextManifestVersion(dataset.id);
     const partitionId = `part-${randomUUID()}`;
     const tableName = payload.tableName ?? 'records';
     const driver = createStorageDriver(config, storageTarget);
@@ -116,47 +117,65 @@ export async function processIngestionJob(
     }
 
     const previousManifest = await getLatestPublishedManifest(dataset.id);
-
-    const manifest = await createDatasetManifest({
-      id: `dm-${randomUUID()}`,
-      datasetId: dataset.id,
-      version: manifestVersion,
-      status: 'published',
-      schemaVersionId: schemaVersion.id,
-      parentManifestId: previousManifest?.id,
-      summary: {
-        batchRowCount: writeResult.rowCount,
-        tableName
-      },
-      statistics: {
-        rowCount: writeResult.rowCount,
-        fileSizeBytes: writeResult.fileSizeBytes,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString()
-      },
+    const partitionInput = {
+      id: partitionId,
+      storageTargetId: storageTarget.id,
+      fileFormat: 'duckdb' as const,
+      filePath: writeResult.relativePath,
+      partitionKey: payload.partition.key,
+      startTime,
+      endTime,
+      fileSizeBytes: writeResult.fileSizeBytes,
+      rowCount: writeResult.rowCount,
+      checksum: writeResult.checksum,
       metadata: {
-        tableName,
-        storageTargetId: storageTarget.id
-      },
-      createdBy: 'timestore-ingestion',
-      partitions: [
-        {
-          id: partitionId,
-          storageTargetId: storageTarget.id,
-          fileFormat: 'duckdb',
-          filePath: writeResult.relativePath,
-          partitionKey: payload.partition.key,
-          startTime,
-          endTime,
-          fileSizeBytes: writeResult.fileSizeBytes,
+        tableName
+      }
+    } satisfies PartitionInput;
+
+    const summaryPatch = {
+      batchRowCount: writeResult.rowCount,
+      tableName,
+      lastPartitionId: partitionId,
+      lastIngestedAt: payload.receivedAt
+    } satisfies Record<string, unknown>;
+
+    const metadataPatch = {
+      tableName,
+      storageTargetId: storageTarget.id
+    } satisfies Record<string, unknown>;
+
+    let manifest: import('../db/metadata').DatasetManifestWithPartitions;
+
+    if (previousManifest && previousManifest.schemaVersionId === schemaVersion.id) {
+      manifest = await appendPartitionsToManifest({
+        datasetId: dataset.id,
+        manifestId: previousManifest.id,
+        partitions: [partitionInput],
+        summaryPatch,
+        metadataPatch
+      });
+    } else {
+      const manifestVersion = await getNextManifestVersion(dataset.id);
+      manifest = await createDatasetManifest({
+        id: `dm-${randomUUID()}`,
+        datasetId: dataset.id,
+        version: manifestVersion,
+        status: 'published',
+        schemaVersionId: schemaVersion.id,
+        parentManifestId: previousManifest?.id ?? null,
+        summary: summaryPatch,
+        statistics: {
           rowCount: writeResult.rowCount,
-          checksum: writeResult.checksum,
-          metadata: {
-            tableName
-          }
-        }
-      ]
-    });
+          fileSizeBytes: writeResult.fileSizeBytes,
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString()
+        },
+        metadata: metadataPatch,
+        createdBy: 'timestore-ingestion',
+        partitions: [partitionInput]
+      });
+    }
 
     if (payload.idempotencyKey) {
       await recordIngestionBatch({

@@ -1,14 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { LifecycleAuditLogInput, PartitionWithTarget } from '../db/metadata';
-import {
-  deleteDatasetPartitions,
-  getManifestById,
-  refreshManifestRollups,
-  updateManifestSummaryAndMetadata
-} from '../db/metadata';
+import { replacePartitionsInManifest } from '../db/metadata';
 import { createDefaultRetentionPolicy, type RetentionPolicy } from './types';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
-import { mergeMetadataLifecycle, mergeSummaryLifecycle } from './manifest';
 import { publishTimestoreEvent } from '../events/publisher';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
@@ -75,12 +69,26 @@ export async function enforceRetention(
     removedCount: deletions.size
   } as Record<string, unknown>;
 
-  await deleteDatasetPartitions(Array.from(deletions.keys()));
-  const refreshed = await refreshManifestRollups(context.manifest.id);
-  const updatedSummary = mergeSummaryLifecycle(refreshed, 'retention', summaryPayload);
-  const updatedMetadata = mergeMetadataLifecycle(refreshed, 'retention', metadataPayload);
-  await updateManifestSummaryAndMetadata(context.manifest.id, updatedSummary, updatedMetadata);
-  const manifestAfterUpdate = await getManifestById(context.manifest.id);
+  const summaryPatch = {
+    lifecycle: {
+      retention: summaryPayload
+    }
+  } as Record<string, unknown>;
+
+  const metadataPatch = {
+    lifecycle: {
+      retention: metadataPayload
+    }
+  } as Record<string, unknown>;
+
+  const manifestAfterUpdate = await replacePartitionsInManifest({
+    datasetId: context.dataset.id,
+    manifestId: context.manifest.id,
+    removePartitionIds: Array.from(deletions.keys()),
+    addPartitions: [],
+    summaryPatch,
+    metadataPatch
+  });
 
   const auditEvents: LifecycleAuditLogInput[] = [];
   let bytesDeleted = 0;
@@ -133,7 +141,7 @@ export async function enforceRetention(
   return {
     operation: 'retention',
     status: 'completed',
-    manifest: manifestAfterUpdate ?? refreshed,
+    manifest: manifestAfterUpdate,
     auditEvents,
     totals: {
       partitions: deletions.size,

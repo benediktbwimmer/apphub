@@ -7,7 +7,7 @@ import type {
   PartitionInput,
   PartitionWithTarget
 } from '../db/metadata';
-import { createDatasetManifest, getNextManifestVersion, getSchemaVersionById } from '../db/metadata';
+import { getSchemaVersionById, replacePartitionsInManifest } from '../db/metadata';
 import {
   createStorageDriver,
   resolvePartitionLocation,
@@ -16,12 +16,6 @@ import {
 } from '../storage';
 import type { ServiceConfig } from '../config/serviceConfig';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
-import {
-  computeStatistics,
-  mergeMetadataLifecycle,
-  mergeSummaryLifecycle,
-  partitionRecordToInput
-} from './manifest';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
 
 interface CompactionGroup {
@@ -134,36 +128,42 @@ export async function performCompaction(
     });
   }
 
-  const replacementIds = new Set(partitionsToDelete.map((partition) => partition.id));
-  const retainedPartitionInputs = manifest.partitions
-    .filter((partition) => !replacementIds.has(partition.id))
-    .map(partitionRecordToInput);
+  const removeIds = partitionsToDelete.map((partition) => partition.id);
 
-  const finalPartitionInputs = [...retainedPartitionInputs, ...replacementPartitionInputs];
   const summaryPayload = {
     appliedAt: new Date().toISOString(),
     groups: groups.map((group) => ({
       sourcePartitionIds: group.partitions.map((partition) => partition.id),
       totalRows: group.totalRows,
       totalBytes: group.totalBytes
-    }))
+    })),
+    replacementPartitionIds: replacementPartitionInputs.map((partition) => partition.id)
   } as Record<string, unknown>;
+
   const metadataPayload = {
     appliedAt: new Date().toISOString(),
     previousManifestId: manifest.id
   } as Record<string, unknown>;
-  const newManifest = await createDatasetManifest({
-    id: `dm-${randomUUID()}`,
+
+  const summaryPatch = {
+    lifecycle: {
+      compaction: summaryPayload
+    }
+  } as Record<string, unknown>;
+
+  const metadataPatch = {
+    lifecycle: {
+      compaction: metadataPayload
+    }
+  } as Record<string, unknown>;
+
+  const newManifest = await replacePartitionsInManifest({
     datasetId: context.dataset.id,
-    version: await getNextManifestVersion(context.dataset.id),
-    status: 'published',
-    schemaVersionId: manifest.schemaVersionId,
-    parentManifestId: manifest.id,
-    summary: mergeSummaryLifecycle(manifest, 'compaction', summaryPayload),
-    statistics: computeStatistics(finalPartitionInputs),
-    metadata: mergeMetadataLifecycle(manifest, 'compaction', metadataPayload),
-    createdBy: 'timestore-lifecycle',
-    partitions: finalPartitionInputs
+    manifestId: manifest.id,
+    removePartitionIds: removeIds,
+    addPartitions: replacementPartitionInputs,
+    summaryPatch,
+    metadataPatch
   });
 
   invalidateSqlRuntimeCache();

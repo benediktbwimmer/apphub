@@ -22,6 +22,14 @@ let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
 let storageRoot: string | null = null;
 
+const observationSchema = {
+  fields: [
+    { name: 'timestamp', type: 'timestamp' as const },
+    { name: 'temperature_c', type: 'double' as const },
+    { name: 'humidity_percent', type: 'double' as const }
+  ]
+};
+
 before(async () => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'timestore-query-pg-'));
   dataDirectory = dataRoot;
@@ -88,13 +96,7 @@ async function seedDataset(): Promise<void> {
     datasetSlug: 'observatory-timeseries',
     datasetName: 'Observatory Time Series',
     tableName: 'observations',
-    schema: {
-      fields: [
-        { name: 'timestamp', type: 'timestamp' },
-        { name: 'temperature_c', type: 'double' },
-        { name: 'humidity_percent', type: 'double' }
-      ]
-    },
+    schema: observationSchema,
     partition: {
       key: { window: '2024-01-01', dataset: 'observatory' },
       timeRange: {
@@ -108,6 +110,39 @@ async function seedDataset(): Promise<void> {
       humidity_percent: 60 - index
     })),
     idempotencyKey: `seed-${randomUUID()}`,
+    receivedAt: new Date().toISOString()
+  });
+
+  await ingestionModule.processIngestionJob(payload);
+}
+
+interface ObservationRow {
+  timestamp: string;
+  temperature_c: number;
+  humidity_percent: number;
+}
+
+interface ObservationPartitionInput {
+  datasetSlug: string;
+  datasetName?: string;
+  partitionKey: Record<string, string>;
+  timeRange: { start: string; end: string };
+  rows: ObservationRow[];
+  tableName?: string;
+}
+
+async function ingestObservationPartition(input: ObservationPartitionInput): Promise<void> {
+  const payload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug: input.datasetSlug,
+    datasetName: input.datasetName ?? input.datasetSlug,
+    tableName: input.tableName ?? 'observations',
+    schema: observationSchema,
+    partition: {
+      key: input.partitionKey,
+      timeRange: input.timeRange
+    },
+    rows: input.rows,
+    idempotencyKey: `partition-${randomUUID()}`,
     receivedAt: new Date().toISOString()
   });
 
@@ -181,6 +216,202 @@ test('execute downsampled query with count and percentile', async () => {
   assert.equal(result.rows.length, 1);
   assert.equal(Number(result.rows[0]?.count), 6);
   assert.equal(Number(result.rows[0]?.p50_temp), 22);
+});
+
+test('union query spans multiple published partitions', async () => {
+  const datasetSlug = `observations-${randomUUID().slice(0, 8)}`;
+  const datasetName = 'Telemetry Windowed Series';
+  const base = Date.UTC(2024, 0, 1, 0, 0, 0);
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: { window: '2024-01-01T00', region: 'east' },
+    timeRange: {
+      start: new Date(base).toISOString(),
+      end: new Date(base + 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base).toISOString(),
+        temperature_c: 18,
+        humidity_percent: 64
+      },
+      {
+        timestamp: new Date(base + 30 * 60 * 1000).toISOString(),
+        temperature_c: 19,
+        humidity_percent: 63
+      }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: { window: '2024-01-01T01', region: 'central' },
+    timeRange: {
+      start: new Date(base + 60 * 60 * 1000).toISOString(),
+      end: new Date(base + 2 * 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base + 60 * 60 * 1000).toISOString(),
+        temperature_c: 20,
+        humidity_percent: 58
+      },
+      {
+        timestamp: new Date(base + 90 * 60 * 1000).toISOString(),
+        temperature_c: 21,
+        humidity_percent: 57
+      }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: { window: '2024-01-01T02', region: 'west' },
+    timeRange: {
+      start: new Date(base + 2 * 60 * 60 * 1000).toISOString(),
+      end: new Date(base + 3 * 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base + 2 * 60 * 60 * 1000).toISOString(),
+        temperature_c: 22,
+        humidity_percent: 55
+      },
+      {
+        timestamp: new Date(base + 150 * 60 * 1000).toISOString(),
+        temperature_c: 23,
+        humidity_percent: 54
+      }
+    ]
+  });
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: new Date(base).toISOString(),
+      end: new Date(base + 3 * 60 * 60 * 1000).toISOString()
+    },
+    columns: ['timestamp', 'temperature_c', 'humidity_percent'],
+    timestampColumn: 'timestamp'
+  });
+
+  assert.equal(plan.partitions.length, 3);
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.mode, 'raw');
+  assert.equal(result.rows.length, 6);
+  assert.deepEqual(
+    result.rows.map((row) => row.temperature_c),
+    [18, 19, 20, 21, 22, 23]
+  );
+});
+
+test('query planner applies partition key filters', async () => {
+  const datasetSlug = `filtered-${randomUUID().slice(0, 8)}`;
+  const datasetName = 'Filtered Observations';
+  const base = Date.UTC(2024, 0, 1, 0, 0, 0);
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: {
+      region: 'east',
+      shard: '1',
+      captured_at: new Date(base).toISOString()
+    },
+    timeRange: {
+      start: new Date(base).toISOString(),
+      end: new Date(base + 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base + 5 * 60 * 1000).toISOString(),
+        temperature_c: 16,
+        humidity_percent: 68
+      }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: {
+      region: 'west',
+      shard: '2',
+      captured_at: new Date(base + 60 * 60 * 1000).toISOString()
+    },
+    timeRange: {
+      start: new Date(base + 60 * 60 * 1000).toISOString(),
+      end: new Date(base + 2 * 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base + 70 * 60 * 1000).toISOString(),
+        temperature_c: 17,
+        humidity_percent: 62
+      },
+      {
+        timestamp: new Date(base + 85 * 60 * 1000).toISOString(),
+        temperature_c: 18,
+        humidity_percent: 61
+      }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName,
+    partitionKey: {
+      region: 'west',
+      shard: '3',
+      captured_at: new Date(base + 2 * 60 * 60 * 1000).toISOString()
+    },
+    timeRange: {
+      start: new Date(base + 2 * 60 * 60 * 1000).toISOString(),
+      end: new Date(base + 3 * 60 * 60 * 1000).toISOString()
+    },
+    rows: [
+      {
+        timestamp: new Date(base + 130 * 60 * 1000).toISOString(),
+        temperature_c: 19,
+        humidity_percent: 59
+      }
+    ]
+  });
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: new Date(base).toISOString(),
+      end: new Date(base + 3 * 60 * 60 * 1000).toISOString()
+    },
+    columns: ['timestamp', 'temperature_c'],
+    timestampColumn: 'timestamp',
+    filters: {
+      partitionKey: {
+        region: { type: 'string', eq: 'west' },
+        shard: { type: 'number', gte: 2, lt: 3 },
+        captured_at: {
+          type: 'timestamp',
+          gte: new Date(base + 60 * 60 * 1000).toISOString(),
+          lt: new Date(base + 2 * 60 * 60 * 1000).toISOString()
+        }
+      }
+    }
+  });
+
+  assert.equal(plan.partitions.length, 1);
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+
+  assert.equal(result.rows.length, 2);
+  assert.deepEqual(
+    result.rows.map((row) => row.temperature_c),
+    [17, 18]
+  );
 });
 
 test('returns empty result when no partitions match', async () => {

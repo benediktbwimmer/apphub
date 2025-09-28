@@ -495,6 +495,241 @@ export async function createDatasetManifest(
   });
 }
 
+export interface AppendManifestPartitionsInput {
+  datasetId: string;
+  manifestId: string;
+  partitions: PartitionInput[];
+  summaryPatch?: JsonObject;
+  metadataPatch?: JsonObject;
+}
+
+export async function appendPartitionsToManifest(
+  input: AppendManifestPartitionsInput
+): Promise<DatasetManifestWithPartitions> {
+  return withTransaction(async (client) => {
+    const { manifestId, datasetId, partitions, summaryPatch, metadataPatch } = input;
+    if (partitions.length === 0) {
+      throw new Error('appendPartitionsToManifest requires at least one partition');
+    }
+
+    const { rows: manifestRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1 FOR UPDATE',
+      [manifestId]
+    );
+    const manifestRow = manifestRows[0];
+    if (!manifestRow) {
+      throw new Error(`Manifest ${manifestId} not found`);
+    }
+    if (manifestRow.dataset_id !== datasetId) {
+      throw new Error('Manifest does not belong to provided dataset');
+    }
+    if (manifestRow.status !== 'published') {
+      throw new Error('Cannot append partitions to a non-published manifest');
+    }
+
+    for (const partition of partitions) {
+      await client.query<DatasetPartitionRow>(
+        `INSERT INTO dataset_partitions (
+           id,
+           dataset_id,
+           manifest_id,
+           partition_key,
+           storage_target_id,
+           file_format,
+           file_path,
+           file_size_bytes,
+           row_count,
+           start_time,
+           end_time,
+           checksum,
+           metadata
+         ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)` as const,
+        [
+          partition.id,
+          datasetId,
+          manifestId,
+          JSON.stringify(partition.partitionKey),
+          partition.storageTargetId,
+          partition.fileFormat,
+          partition.filePath,
+          partition.fileSizeBytes ?? null,
+          partition.rowCount ?? null,
+          partition.startTime.toISOString(),
+          partition.endTime.toISOString(),
+          partition.checksum ?? null,
+          JSON.stringify(partition.metadata ?? {})
+        ]
+      );
+    }
+
+    const allPartitions = await fetchPartitions(client, manifestId);
+    const rollups = calculatePartitionRollups(allPartitions);
+    await updateManifestRollups(client, manifestId, rollups);
+
+    const firstPartition = allPartitions[0];
+    const lastPartition = allPartitions[allPartitions.length - 1];
+
+    const statistics = {
+      rowCount: rollups.totalRows,
+      fileSizeBytes: rollups.totalBytes,
+      startTime: firstPartition?.startTime ?? null,
+      endTime: lastPartition?.endTime ?? null
+    } satisfies JsonObject;
+
+    const summary = summaryPatch ?? {};
+    const metadata = metadataPatch ?? {};
+
+    await client.query(
+      `UPDATE dataset_manifests
+          SET summary = summary || $2::jsonb,
+              statistics = $3::jsonb,
+              metadata = metadata || $4::jsonb,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [manifestId, JSON.stringify(summary), JSON.stringify(statistics), JSON.stringify(metadata)]
+    );
+
+    await touchDataset(client, datasetId);
+
+    const { rows: updatedRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1',
+      [manifestId]
+    );
+    const updatedManifest = mapManifest(updatedRows[0] ?? manifestRow);
+
+    return {
+      ...updatedManifest,
+      partitionCount: rollups.partitionCount,
+      totalRows: rollups.totalRows,
+      totalBytes: rollups.totalBytes,
+      partitions: allPartitions
+    } satisfies DatasetManifestWithPartitions;
+  });
+}
+
+export interface ReplaceManifestPartitionsInput {
+  datasetId: string;
+  manifestId: string;
+  removePartitionIds: string[];
+  addPartitions: PartitionInput[];
+  summaryPatch?: JsonObject;
+  metadataPatch?: JsonObject;
+}
+
+export async function replacePartitionsInManifest(
+  input: ReplaceManifestPartitionsInput
+): Promise<DatasetManifestWithPartitions> {
+  return withTransaction(async (client) => {
+    const { datasetId, manifestId, removePartitionIds, addPartitions, summaryPatch, metadataPatch } = input;
+    if (removePartitionIds.length === 0 && addPartitions.length === 0) {
+      throw new Error('replacePartitionsInManifest requires partitions to add or remove');
+    }
+
+    const { rows: manifestRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1 FOR UPDATE',
+      [manifestId]
+    );
+    const manifestRow = manifestRows[0];
+    if (!manifestRow) {
+      throw new Error(`Manifest ${manifestId} not found`);
+    }
+    if (manifestRow.dataset_id !== datasetId) {
+      throw new Error('Manifest does not belong to provided dataset');
+    }
+    if (manifestRow.status !== 'published') {
+      throw new Error('Cannot replace partitions on a non-published manifest');
+    }
+
+    if (removePartitionIds.length > 0) {
+      await client.query(
+        `DELETE FROM dataset_partitions
+           WHERE dataset_id = $1
+             AND manifest_id = $2
+             AND id = ANY($3::text[])`,
+        [datasetId, manifestId, removePartitionIds]
+      );
+    }
+
+    for (const partition of addPartitions) {
+      await client.query<DatasetPartitionRow>(
+        `INSERT INTO dataset_partitions (
+           id,
+           dataset_id,
+           manifest_id,
+           partition_key,
+           storage_target_id,
+           file_format,
+           file_path,
+           file_size_bytes,
+           row_count,
+           start_time,
+           end_time,
+           checksum,
+           metadata
+         ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)` as const,
+        [
+          partition.id,
+          datasetId,
+          manifestId,
+          JSON.stringify(partition.partitionKey),
+          partition.storageTargetId,
+          partition.fileFormat,
+          partition.filePath,
+          partition.fileSizeBytes ?? null,
+          partition.rowCount ?? null,
+          partition.startTime.toISOString(),
+          partition.endTime.toISOString(),
+          partition.checksum ?? null,
+          JSON.stringify(partition.metadata ?? {})
+        ]
+      );
+    }
+
+    const allPartitions = await fetchPartitions(client, manifestId);
+    const rollups = calculatePartitionRollups(allPartitions);
+    await updateManifestRollups(client, manifestId, rollups);
+
+    const firstPartition = allPartitions[0];
+    const lastPartition = allPartitions[allPartitions.length - 1];
+
+    const statistics = {
+      rowCount: rollups.totalRows,
+      fileSizeBytes: rollups.totalBytes,
+      startTime: firstPartition?.startTime ?? null,
+      endTime: lastPartition?.endTime ?? null
+    } satisfies JsonObject;
+
+    const summary = summaryPatch ?? {};
+    const metadata = metadataPatch ?? {};
+
+    await client.query(
+      `UPDATE dataset_manifests
+          SET summary = summary || $2::jsonb,
+              statistics = $3::jsonb,
+              metadata = metadata || $4::jsonb,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [manifestId, JSON.stringify(summary), JSON.stringify(statistics), JSON.stringify(metadata)]
+    );
+
+    await touchDataset(client, datasetId);
+
+    const { rows: updatedRows } = await client.query<DatasetManifestRow>(
+      'SELECT * FROM dataset_manifests WHERE id = $1',
+      [manifestId]
+    );
+    const updatedManifest = mapManifest(updatedRows[0] ?? manifestRow);
+
+    return {
+      ...updatedManifest,
+      partitionCount: rollups.partitionCount,
+      totalRows: rollups.totalRows,
+      totalBytes: rollups.totalBytes,
+      partitions: allPartitions
+    } satisfies DatasetManifestWithPartitions;
+  });
+}
+
 export async function getDatasetBySlug(slug: string): Promise<DatasetRecord | null> {
   return withConnection(async (client) => {
     const { rows } = await client.query<DatasetRow>(
@@ -954,41 +1189,6 @@ export async function updateManifestSummaryAndMetadata(
       throw new Error(`Manifest ${manifestId} not found`);
     }
     return mapManifest(rows[0]);
-  });
-}
-
-export async function deleteDatasetPartitions(partitionIds: string[]): Promise<void> {
-  if (partitionIds.length === 0) {
-    return;
-  }
-  await withConnection(async (client) => {
-    await client.query('DELETE FROM dataset_partitions WHERE id = ANY($1)', [partitionIds]);
-  });
-}
-
-export async function refreshManifestRollups(
-  manifestId: string
-): Promise<DatasetManifestWithPartitions> {
-  return withTransaction(async (client) => {
-    const { rows: manifestRows } = await client.query<DatasetManifestRow>(
-      'SELECT * FROM dataset_manifests WHERE id = $1 LIMIT 1',
-      [manifestId]
-    );
-    if (manifestRows.length === 0) {
-      throw new Error(`Manifest ${manifestId} not found`);
-    }
-    const partitions = await fetchPartitions(client, manifestId);
-    const rollups = calculatePartitionRollups(partitions);
-    await updateManifestRollups(client, manifestId, rollups);
-    const { rows: updatedRows } = await client.query<DatasetManifestRow>(
-      'SELECT * FROM dataset_manifests WHERE id = $1 LIMIT 1',
-      [manifestId]
-    );
-    const manifest = mapManifest(updatedRows[0] ?? manifestRows[0]);
-    return {
-      ...manifest,
-      partitions
-    };
   });
 }
 
