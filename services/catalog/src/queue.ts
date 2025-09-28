@@ -309,7 +309,7 @@ export async function removeEventRetryJob(eventId: string, attempt: number): Pro
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
   const jobId = `event-retry:${eventId}:${safeAttempt}`;
   try {
-    await queue.removeJobs([jobId]);
+    await queue.remove(jobId);
   } catch (err) {
     if (err instanceof Error && err.message.includes('no queue name')) {
       return;
@@ -365,7 +365,7 @@ export async function removeEventTriggerRetryJob(deliveryId: string, attempt: nu
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
   const jobId = `event-trigger-retry:${deliveryId}:${safeAttempt}`;
   try {
-    await queue.removeJobs([jobId]);
+    await queue.remove(jobId);
   } catch (err) {
     if (err instanceof Error && err.message.includes('no queue name')) {
       return;
@@ -441,7 +441,7 @@ export async function removeWorkflowRetryJob(
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
   const jobId = ['workflow-retry', workflowRunId, stepId ?? 'run', String(safeAttempt)].join(':');
   try {
-    await queue.removeJobs([jobId]);
+    await queue.remove(jobId);
   } catch (err) {
     if (err instanceof Error && err.message.includes('no queue name')) {
       return;
