@@ -39,7 +39,8 @@ test('timestore metrics capture ingestion and query events', async () => {
     durationSeconds: 0.1,
     rowCount: 0,
     remotePartitions: 2,
-    cacheEnabled: true
+    cacheEnabled: true,
+    executionBackend: 'duckdb-local'
   });
 
   const registry = getMetricsRegistry();
@@ -52,11 +53,11 @@ test('timestore metrics capture ingestion and query events', async () => {
   );
   assert.match(
     output,
-    /timestore_query_requests_total\{dataset="ds-metrics",mode="raw",result="failure"\} 1/
+    /timestore_query_requests_total\{dataset="ds-metrics",backend="duckdb-local",mode="raw",result="failure"\} 1/
   );
   assert.match(
     output,
-    /timestore_query_remote_partitions_total\{dataset="ds-metrics",cache_enabled="true"\} 2/
+    /timestore_query_remote_partitions_total\{dataset="ds-metrics",backend="duckdb-local",cache_enabled="true"\} 2/
   );
 });
 

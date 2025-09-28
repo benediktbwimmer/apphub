@@ -8,7 +8,11 @@ import {
   type PartitionWithTarget
 } from '../db/metadata';
 import { loadManifestPartitionsForQuery } from '../cache/manifestCache';
-import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
+import {
+  loadServiceConfig,
+  type ServiceConfig,
+  type QueryExecutionBackendConfig
+} from '../config/serviceConfig';
 import { resolvePartitionLocation } from '../storage';
 import {
   queryRequestSchema,
@@ -58,6 +62,12 @@ export interface QueryPlan {
   schemaFields: FieldDefinition[];
   columnFilters?: Record<string, ColumnPredicate>;
   partitionSelection: PartitionSelectionSummary;
+  execution: QueryExecutionPlan;
+}
+
+export interface QueryExecutionPlan {
+  backend: QueryExecutionBackendConfig;
+  requestedBackend: string | null;
 }
 
 export interface PartitionSelectionSummary {
@@ -118,6 +128,7 @@ export async function buildQueryPlan(
 
   const mode = downsamplePlan ? 'downsampled' : 'raw';
   const schemaFields = await resolveSchemaFieldsForPlan(manifests);
+  const execution = resolveExecutionPlan(dataset, config);
 
   return {
     datasetId: dataset.id,
@@ -132,8 +143,45 @@ export async function buildQueryPlan(
     rangeEnd,
     schemaFields,
     columnFilters: hasColumnFilters ? columnFilters : undefined,
-    partitionSelection: selection
+    partitionSelection: selection,
+    execution
   } satisfies QueryPlan;
+}
+
+function resolveExecutionPlan(
+  dataset: DatasetRecord,
+  config: ServiceConfig
+): QueryExecutionPlan {
+  const requested = extractRequestedBackend(dataset.metadata ?? {});
+  const executionConfig = config.query.execution;
+  const backendMap = new Map<string, QueryExecutionBackendConfig>(
+    executionConfig.backends.map((backend) => [backend.name, backend])
+  );
+  const fallbackBackend = backendMap.get(executionConfig.defaultBackend) ?? executionConfig.backends[0];
+  if (!fallbackBackend) {
+    throw new Error('No query execution backends configured');
+  }
+  const backend = requested ? backendMap.get(requested) ?? fallbackBackend : fallbackBackend;
+  return {
+    backend,
+    requestedBackend: requested
+  } satisfies QueryExecutionPlan;
+}
+
+function extractRequestedBackend(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  const execution = (metadata as { execution?: unknown }).execution;
+  if (!execution || typeof execution !== 'object') {
+    return null;
+  }
+  const backend = (execution as { backend?: unknown }).backend;
+  if (typeof backend !== 'string') {
+    return null;
+  }
+  const trimmed = backend.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 async function resolveSchemaFieldsForPlan(

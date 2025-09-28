@@ -1027,6 +1027,20 @@ function mergeDatasetMetadata(base: JsonObject, patch: DatasetMetadata | undefin
       continue;
     }
 
+    if (key === 'execution') {
+      if (rawValue === null) {
+        delete result.execution;
+        continue;
+      }
+      const normalized = normalizeExecutionMetadata(rawValue);
+      if (normalized) {
+        result.execution = normalized;
+      } else {
+        delete result.execution;
+      }
+      continue;
+    }
+
     result[key] = cloneJsonValue(rawValue);
   }
 
@@ -1148,6 +1162,26 @@ function cloneJsonValue(value: unknown): unknown {
     return result;
   }
   return null;
+}
+
+function normalizeExecutionMetadata(value: unknown): JsonObject | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const backend = typeof raw.backend === 'string' ? raw.backend.trim() : '';
+  if (!backend) {
+    return null;
+  }
+  const normalized: JsonObject = { backend };
+  const optionsValue = raw.options;
+  if (optionsValue && typeof optionsValue === 'object' && !Array.isArray(optionsValue)) {
+    const cloned = cloneJsonObject(optionsValue as JsonObject);
+    if (Object.keys(cloned).length > 0) {
+      normalized.options = cloned;
+    }
+  }
+  return normalized;
 }
 
 function dedupeScopes(scopes: string[]): string[] {

@@ -41,6 +41,7 @@ export interface QueryMetricsInput {
   datasetSlug: string;
   mode: 'raw' | 'downsampled';
   result: 'success' | 'failure';
+  executionBackend: string;
   durationSeconds?: number;
   rowCount?: number;
   remotePartitions?: number;
@@ -234,8 +235,8 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
   const queryRequestsTotal = enabled
     ? new Counter({
         name: `${prefix}query_requests_total`,
-        help: 'Total query requests grouped by dataset, mode, and result',
-        labelNames: ['dataset', 'mode', 'result'],
+        help: 'Total query requests grouped by dataset, backend, mode, and result',
+        labelNames: ['dataset', 'backend', 'mode', 'result'],
         registers: registerMetrics
       })
     : null;
@@ -244,7 +245,7 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     ? new Histogram({
         name: `${prefix}query_duration_seconds`,
         help: 'Duration of query execution in seconds',
-        labelNames: ['dataset', 'mode'],
+        labelNames: ['dataset', 'backend', 'mode'],
         buckets: QUERY_BUCKETS,
         registers: registerMetrics
       })
@@ -254,7 +255,7 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     ? new Histogram({
         name: `${prefix}query_row_count`,
         help: 'Result row counts for queries',
-        labelNames: ['dataset', 'mode'],
+        labelNames: ['dataset', 'backend', 'mode'],
         buckets: QUERY_ROWS_BUCKETS,
         registers: registerMetrics
       })
@@ -263,8 +264,8 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
   const queryRemotePartitions = enabled
     ? new Counter({
         name: `${prefix}query_remote_partitions_total`,
-        help: 'Remote partition access counts grouped by dataset and cache configuration',
-        labelNames: ['dataset', 'cache_enabled'],
+        help: 'Remote partition access counts grouped by dataset, backend, and cache configuration',
+        labelNames: ['dataset', 'backend', 'cache_enabled'],
         registers: registerMetrics
       })
     : null;
@@ -530,16 +531,19 @@ export function observeQuery(input: QueryMetricsInput): void {
   if (!state?.enabled || !state.queryRequestsTotal) {
     return;
   }
-  state.queryRequestsTotal.labels(input.datasetSlug, input.mode, input.result).inc();
+  const backend = input.executionBackend && input.executionBackend.trim().length > 0
+    ? input.executionBackend.trim()
+    : 'unknown';
+  state.queryRequestsTotal.labels(input.datasetSlug, backend, input.mode, input.result).inc();
   if (input.durationSeconds !== undefined && state.queryDurationSeconds) {
-    state.queryDurationSeconds.labels(input.datasetSlug, input.mode).observe(Math.max(input.durationSeconds, 0));
+    state.queryDurationSeconds.labels(input.datasetSlug, backend, input.mode).observe(Math.max(input.durationSeconds, 0));
   }
   if (input.rowCount !== undefined && state.queryRowCount) {
-    state.queryRowCount.labels(input.datasetSlug, input.mode).observe(Math.max(input.rowCount, 0));
+    state.queryRowCount.labels(input.datasetSlug, backend, input.mode).observe(Math.max(input.rowCount, 0));
   }
   if (state.queryRemotePartitions && input.remotePartitions && input.remotePartitions > 0) {
     const cacheFlag = input.cacheEnabled ? 'true' : 'false';
-    state.queryRemotePartitions.labels(input.datasetSlug, cacheFlag).inc(input.remotePartitions);
+    state.queryRemotePartitions.labels(input.datasetSlug, backend, cacheFlag).inc(input.remotePartitions);
   }
 }
 

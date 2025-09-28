@@ -5,6 +5,21 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
 
+export type QueryExecutionBackendKind = 'duckdb_local' | 'duckdb_cluster';
+
+export interface QueryExecutionBackendConfig {
+  name: string;
+  kind: QueryExecutionBackendKind;
+  queueName?: string | null;
+  maxPartitionFanout?: number;
+  maxWorkerConcurrency?: number;
+}
+
+export interface QueryExecutionConfig {
+  defaultBackend: string;
+  backends: QueryExecutionBackendConfig[];
+}
+
 export interface PartitionIndexColumnConfig {
   name: string;
   histogram: boolean;
@@ -54,6 +69,19 @@ const manifestCacheSchema = z.object({
   keyPrefix: z.string().min(1),
   ttlSeconds: z.number().int().positive(),
   inline: z.boolean()
+});
+
+const queryExecutionBackendSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['duckdb_local', 'duckdb_cluster']),
+  queueName: z.string().min(1).optional(),
+  maxPartitionFanout: z.number().int().positive().optional(),
+  maxWorkerConcurrency: z.number().int().positive().optional()
+});
+
+const queryExecutionSchema = z.object({
+  defaultBackend: z.string().min(1),
+  backends: z.array(queryExecutionBackendSchema).min(1)
 });
 
 const metricsSchema = z.object({
@@ -153,7 +181,8 @@ const configSchema = z.object({
   }),
   query: z.object({
     cache: cacheSchema,
-    manifestCache: manifestCacheSchema
+    manifestCache: manifestCacheSchema,
+    execution: queryExecutionSchema
   }),
   partitionIndex: partitionIndexSchema,
   sql: sqlSchema,
@@ -310,6 +339,65 @@ function resolvePartitionIndexColumns(env: {
   return dedupePartitionIndexColumns(results);
 }
 
+function parseExecutionBackendList(raw: string | undefined): QueryExecutionBackendConfig[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const results: QueryExecutionBackendConfig[] = [];
+    for (const entry of parsed) {
+      try {
+        const normalized = queryExecutionBackendSchema.parse(entry);
+        results.push(normalized);
+      } catch (error) {
+        console.warn('[timestore] skipped invalid execution backend configuration entry', error);
+      }
+    }
+    return results;
+  } catch (error) {
+    console.warn('[timestore] failed to parse TIMESTORE_QUERY_EXECUTION_BACKENDS', error);
+    return [];
+  }
+}
+
+function normalizeExecutionConfig(
+  backends: QueryExecutionBackendConfig[],
+  defaultBackend: string
+): QueryExecutionConfig {
+  const fallbackBackend: QueryExecutionBackendConfig = {
+    name: 'duckdb-local',
+    kind: 'duckdb_local'
+  };
+
+  const normalizedBackends = new Map<string, QueryExecutionBackendConfig>();
+  for (const backend of backends) {
+    normalizedBackends.set(backend.name, backend);
+  }
+
+  if (!normalizedBackends.has(fallbackBackend.name)) {
+    normalizedBackends.set(fallbackBackend.name, fallbackBackend);
+  }
+
+  const effectiveDefault = normalizedBackends.has(defaultBackend)
+    ? defaultBackend
+    : fallbackBackend.name;
+
+  if (!normalizedBackends.has(defaultBackend) && defaultBackend.trim().length > 0 && defaultBackend !== fallbackBackend.name) {
+    console.warn(
+      `[timestore] execution backend '${defaultBackend}' not found; falling back to '${fallbackBackend.name}'`
+    );
+  }
+
+  return {
+    defaultBackend: effectiveDefault,
+    backends: Array.from(normalizedBackends.values())
+  } satisfies QueryExecutionConfig;
+}
+
 export function loadServiceConfig(): ServiceConfig {
   if (cachedConfig) {
     return cachedConfig;
@@ -398,6 +486,12 @@ export function loadServiceConfig(): ServiceConfig {
   const filestoreTableName = env.TIMESTORE_FILESTORE_TABLE_NAME || 'filestore_activity';
   const filestoreRetryMs = parseNumber(env.TIMESTORE_FILESTORE_RETRY_MS, 3_000);
   const filestoreInline = filestoreRedisUrl === 'inline';
+  const executionDefaultBackendRaw = env.TIMESTORE_QUERY_EXECUTION_DEFAULT;
+  const executionDefaultBackend = executionDefaultBackendRaw && executionDefaultBackendRaw.trim().length > 0
+    ? executionDefaultBackendRaw.trim()
+    : 'duckdb-local';
+  const executionBackends = parseExecutionBackendList(env.TIMESTORE_QUERY_EXECUTION_BACKENDS);
+  const executionConfig = normalizeExecutionConfig(executionBackends, executionDefaultBackend);
 
   const partitionIndexColumns = resolvePartitionIndexColumns({
     configJson: partitionIndexConfigJson,
@@ -473,7 +567,8 @@ export function loadServiceConfig(): ServiceConfig {
         keyPrefix: manifestCacheKeyPrefix,
         ttlSeconds: manifestCacheTtlSeconds > 0 ? manifestCacheTtlSeconds : 60,
         inline: manifestCacheInline
-      }
+      },
+      execution: executionConfig
     },
     partitionIndex: {
       columns: partitionIndexColumns,

@@ -1,6 +1,10 @@
 import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { mkdir } from 'node:fs/promises';
-import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
+import {
+  loadServiceConfig,
+  type QueryExecutionBackendConfig,
+  type ServiceConfig
+} from '../config/serviceConfig';
 import type { QueryPlan, QueryPlanPartition } from './planner';
 import type { StorageTargetRecord } from '../db/metadata';
 import {
@@ -30,6 +34,93 @@ export interface QueryExecutionResult {
 }
 
 export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
+  const { backend } = plan.execution;
+  switch (backend.kind) {
+    case 'duckdb_local':
+      return executeDuckDbPlan(plan);
+    case 'duckdb_cluster':
+      return executeClusteredDuckDbPlan(plan, backend);
+    default:
+      throw new Error(`Unsupported query execution backend: ${backend.kind}`);
+  }
+}
+
+async function executeClusteredDuckDbPlan(
+  plan: QueryPlan,
+  backend: QueryExecutionBackendConfig
+): Promise<QueryExecutionResult> {
+  const fanout = Math.max(backend.maxPartitionFanout ?? 32, 1);
+  if (plan.partitions.length <= fanout || plan.mode === 'downsampled') {
+    return executeDuckDbPlan(plan);
+  }
+
+  const partitionGroups = chunkPartitions(plan.partitions, fanout);
+  const results: QueryExecutionResult[] = new Array(partitionGroups.length);
+  const concurrency = Math.max(backend.maxWorkerConcurrency ?? 2, 1);
+
+  let cursor = 0;
+  async function processNext(): Promise<void> {
+    const groupIndex = cursor++;
+    if (groupIndex >= partitionGroups.length) {
+      return;
+    }
+    const group = partitionGroups[groupIndex]!;
+    const partialPlan: QueryPlan = {
+      ...plan,
+      partitions: group
+    };
+    results[groupIndex] = await executeDuckDbPlan(partialPlan);
+    await processNext();
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, partitionGroups.length) }, () => processNext());
+  await Promise.all(workers);
+
+  return mergeClusterResults(results, plan);
+}
+
+function chunkPartitions(partitions: QueryPlanPartition[], size: number): QueryPlanPartition[][] {
+  const groups: QueryPlanPartition[][] = [];
+  for (let index = 0; index < partitions.length; index += size) {
+    groups.push(partitions.slice(index, index + size));
+  }
+  return groups;
+}
+
+function mergeClusterResults(results: QueryExecutionResult[], plan: QueryPlan): QueryExecutionResult {
+  if (results.length === 0) {
+    return {
+      rows: [],
+      columns: deriveColumns(plan, plan.mode),
+      mode: plan.mode
+    };
+  }
+
+  if (plan.mode === 'downsampled') {
+    return results[0];
+  }
+
+  const timestampColumn = plan.timestampColumn;
+  const aggregatedRows = results.flatMap((result) => result.rows);
+  aggregatedRows.sort((a, b) => {
+    const left = a[timestampColumn];
+    const right = b[timestampColumn];
+    if (typeof left === 'string' && typeof right === 'string') {
+      return left.localeCompare(right);
+    }
+    return 0;
+  });
+
+  const limitedRows = plan.limit ? aggregatedRows.slice(0, plan.limit) : aggregatedRows;
+  const columns = results[0]?.columns ?? deriveColumns(plan, 'raw');
+  return {
+    rows: limitedRows,
+    columns,
+    mode: 'raw'
+  } satisfies QueryExecutionResult;
+}
+
+async function executeDuckDbPlan(plan: QueryPlan): Promise<QueryExecutionResult> {
   const duckdb = loadDuckDb();
   const db = new duckdb.Database(':memory:');
   const connection = db.connect();

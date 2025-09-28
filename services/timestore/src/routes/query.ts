@@ -28,6 +28,8 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
     const config = loadServiceConfig();
     let mode: 'raw' | 'downsampled' = 'raw';
     let remotePartitions = 0;
+    let executionBackend = 'unknown';
+    let plan: Awaited<ReturnType<typeof buildQueryPlan>> | null = null;
 
     const recordFailure = async (stage: string, error: unknown) => {
       await recordDatasetAccessEvent({
@@ -66,16 +68,18 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         result: 'failure',
         durationSeconds: durationSince(start),
         remotePartitions,
-        cacheEnabled: config.query.cache.enabled
+        cacheEnabled: config.query.cache.enabled,
+        executionBackend
       });
       endSpan(span, error);
       throw error;
     }
 
     try {
-      const plan = await buildQueryPlan(datasetSlug, request.body ?? {}, dataset);
+      plan = await buildQueryPlan(datasetSlug, request.body ?? {}, dataset);
       mode = plan.mode;
       remotePartitions = countRemotePartitions(plan);
+      executionBackend = plan.execution.backend.name;
       recordQueryPartitionSelection(
         dataset.slug,
         plan.partitionSelection.selected,
@@ -93,7 +97,8 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
           scopes: actor?.scopes ?? [],
           mode: result.mode,
           rangeStart: plan.rangeStart.toISOString(),
-          rangeEnd: plan.rangeEnd.toISOString()
+          rangeEnd: plan.rangeEnd.toISOString(),
+          backend: executionBackend
         },
         'dataset query succeeded'
       );
@@ -110,7 +115,8 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
           mode: result.mode,
           rowCount: result.rows.length,
           rangeStart: plan.rangeStart.toISOString(),
-          rangeEnd: plan.rangeEnd.toISOString()
+          rangeEnd: plan.rangeEnd.toISOString(),
+          backend: executionBackend
         }
       });
 
@@ -121,12 +127,14 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         durationSeconds,
         rowCount: result.rows.length,
         remotePartitions,
-        cacheEnabled: config.query.cache.enabled
+        cacheEnabled: config.query.cache.enabled,
+        executionBackend
       });
       if (span) {
         span.setAttribute('timestore.query.mode', result.mode);
         span.setAttribute('timestore.query.rows', result.rows.length);
         span.setAttribute('timestore.query.remote_partitions', remotePartitions);
+        span.setAttribute('timestore.query.backend', executionBackend);
       }
       endSpan(span);
 
@@ -139,7 +147,8 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
         result: 'failure',
         durationSeconds: durationSince(start),
         remotePartitions,
-        cacheEnabled: config.query.cache.enabled
+        cacheEnabled: config.query.cache.enabled,
+        executionBackend: executionBackend || 'unknown'
       });
       endSpan(span, error);
       (request.log ?? reply.log).error(

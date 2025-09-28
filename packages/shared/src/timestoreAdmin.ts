@@ -17,9 +17,17 @@ export const datasetIamConfigSchema = z
   })
   .strict();
 
+const datasetExecutionMetadataSchema = z
+  .object({
+    backend: z.string().min(1),
+    options: z.record(z.unknown()).optional()
+  })
+  .strict();
+
 export const datasetMetadataSchema = z
   .object({
-    iam: datasetIamConfigSchema.nullable().optional()
+    iam: datasetIamConfigSchema.nullable().optional(),
+    execution: z.union([datasetExecutionMetadataSchema, z.null()]).optional()
   })
   .catchall(z.unknown());
 
@@ -112,6 +120,7 @@ export const datasetAccessAuditListResponseSchema = z.object({
 
 export type DatasetStatus = z.infer<typeof datasetStatusSchema>;
 export type DatasetIamConfig = z.infer<typeof datasetIamConfigSchema>;
+export type DatasetExecutionMetadata = z.infer<typeof datasetExecutionMetadataSchema>;
 export type DatasetMetadata = z.infer<typeof datasetMetadataSchema>;
 export type DatasetRecord = z.infer<typeof datasetRecordSchema>;
 export type CreateDatasetRequest = z.infer<typeof createDatasetRequestSchema>;

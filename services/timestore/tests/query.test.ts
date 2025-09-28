@@ -20,6 +20,7 @@ let queryPlannerModule: typeof import('../src/query/planner');
 let queryExecutorModule: typeof import('../src/query/executor');
 let manifestCacheModule: typeof import('../src/cache/manifestCache');
 let queryRoutesModule: typeof import('../src/routes/query');
+let metadataModule: typeof import('../src/db/metadata');
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -65,6 +66,11 @@ before(async () => {
   process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = 'temperature_c,humidity_percent';
   process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = 'temperature_c';
   process.env.TIMESTORE_REQUIRE_SCOPE = 'query-scope';
+  process.env.TIMESTORE_QUERY_EXECUTION_DEFAULT = 'duckdb-local';
+  process.env.TIMESTORE_QUERY_EXECUTION_BACKENDS = JSON.stringify([
+    { name: 'duckdb-local', kind: 'duckdb_local' },
+    { name: 'duckdb-cluster', kind: 'duckdb_cluster', maxPartitionFanout: 2 }
+  ]);
 
   resetCachedServiceConfig();
 
@@ -78,6 +84,7 @@ before(async () => {
   queryExecutorModule = await import('../src/query/executor');
   manifestCacheModule = await import('../src/cache/manifestCache');
   queryRoutesModule = await import('../src/routes/query');
+  metadataModule = await import('../src/db/metadata');
   manifestCacheModule.__resetManifestCacheForTests();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
@@ -181,6 +188,60 @@ test('execute raw query over dataset partitions', async () => {
   assert.deepEqual(result.columns, ['timestamp', 'temperature_c', 'humidity_percent']);
   assert.equal(result.rows.length, 6);
   assert.equal(result.rows[0]?.timestamp, '2024-01-01T00:00:00.000Z');
+});
+
+test('query planner honours dataset execution backend overrides', async () => {
+  const datasetSlug = 'distributed-timeseries';
+  for (let index = 0; index < 4; index += 1) {
+    await ingestObservationPartition({
+      datasetSlug,
+      datasetName: 'Distributed Time Series',
+      partitionKey: { window: '2024-01-01', shard: 'west', batch: `b${index}` },
+      timeRange: {
+        start: new Date(Date.UTC(2024, 0, 1, index, 0)).toISOString(),
+        end: new Date(Date.UTC(2024, 0, 1, index, 15)).toISOString()
+      },
+      rows: Array.from({ length: 3 }).map((_, rowIndex) => ({
+        timestamp: new Date(Date.UTC(2024, 0, 1, index, rowIndex * 5)).toISOString(),
+        temperature_c: 10 + index + rowIndex,
+        humidity_percent: 40 + rowIndex
+      }))
+    });
+  }
+
+  const dataset = await metadataModule.getDatasetBySlug(datasetSlug);
+  assert.ok(dataset, 'dataset should exist after ingestion');
+  await metadataModule.updateDataset({
+    id: dataset.id,
+    metadata: {
+      ...dataset.metadata,
+      execution: {
+        backend: 'duckdb-cluster'
+      }
+    }
+  });
+
+  manifestCacheModule.__resetManifestCacheForTests();
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T04:00:00.000Z'
+    },
+    columns: ['timestamp', 'temperature_c'],
+    timestampColumn: 'timestamp'
+  });
+
+  assert.equal(plan.execution.backend.name, 'duckdb-cluster');
+  assert.equal(plan.execution.backend.kind, 'duckdb_cluster');
+  assert.equal(plan.partitions.length, 4);
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+  assert.equal(result.mode, 'raw');
+  assert.equal(result.columns[0], 'timestamp');
+  assert.equal(result.rows.length, 12);
+  assert.equal(result.rows[0]?.timestamp, '2024-01-01T00:00:00.000Z');
+  assert.equal(result.rows[result.rows.length - 1]?.timestamp, '2024-01-01T03:10:00.000Z');
 });
 
 test('query planner reflects manifest cache updates after ingestion', async () => {
