@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, test } from 'node:test';
@@ -357,6 +357,86 @@ test('reconciliation worker heals local drift and emits events', async () => {
   assert.ok(reconciledEvent);
 
   unsubscribe();
+});
+
+test('reconciliation with detectChildren imports existing directory tree', async () => {
+  const backendMountId = await createBackendMount();
+  const rootResult = await clientModule.withConnection((client) =>
+    client.query<{ root_path: string }>(
+      `SELECT root_path FROM backend_mounts WHERE id = $1`,
+      [backendMountId]
+    )
+  );
+  const rootPath = rootResult.rows[0].root_path;
+  const treeRoot = 'bootstrap-tree';
+
+  await mkdir(path.join(rootPath, treeRoot, 'incoming', 'nested'), { recursive: true });
+  await writeFile(path.join(rootPath, treeRoot, 'incoming', 'notes.txt'), 'notes', 'utf8');
+  await writeFile(path.join(rootPath, treeRoot, 'incoming', 'nested', 'deep.txt'), 'deep', 'utf8');
+
+  await reconciliationManagerModule.initializeReconciliationManager({ config: serviceConfig, metricsEnabled: false });
+  const manager = reconciliationManagerModule.ensureReconciliationManager();
+
+  await manager.enqueue({
+    backendMountId,
+    nodeId: null,
+    path: treeRoot,
+    reason: 'manual',
+    detectChildren: true
+  });
+
+  const nodes = await clientModule.withConnection((client) =>
+    client.query<{ path: string; kind: string; consistency_state: string }>(
+      `SELECT path, kind, consistency_state
+         FROM nodes
+        WHERE backend_mount_id = $1
+          AND path LIKE $2
+        ORDER BY path`,
+      [backendMountId, `${treeRoot}%`]
+    )
+  );
+
+  const expectedKinds = new Map<string, string>([
+    [treeRoot, 'directory'],
+    [`${treeRoot}/incoming`, 'directory'],
+    [`${treeRoot}/incoming/nested`, 'directory'],
+    [`${treeRoot}/incoming/nested/deep.txt`, 'file'],
+    [`${treeRoot}/incoming/notes.txt`, 'file']
+  ]);
+
+  assert.equal(nodes.rows.length, expectedKinds.size);
+  for (const row of nodes.rows) {
+    const expectedKind = expectedKinds.get(row.path);
+    assert.ok(expectedKind, `unexpected node path ${row.path}`);
+    assert.equal(row.kind, expectedKind);
+    assert.equal(row.consistency_state, 'active');
+  }
+
+  const jobs = await clientModule.withConnection((client) =>
+    client.query<{ path: string; detect_children: boolean }>(
+      `SELECT path, detect_children
+         FROM reconciliation_jobs
+        WHERE backend_mount_id = $1
+          AND path LIKE $2
+        ORDER BY path`,
+      [backendMountId, `${treeRoot}%`]
+    )
+  );
+
+  const expectedDetectChildren = new Map<string, boolean>([
+    [treeRoot, true],
+    [`${treeRoot}/incoming`, true],
+    [`${treeRoot}/incoming/nested`, true],
+    [`${treeRoot}/incoming/nested/deep.txt`, false],
+    [`${treeRoot}/incoming/notes.txt`, false]
+  ]);
+
+  assert.equal(jobs.rows.length, expectedDetectChildren.size);
+  for (const row of jobs.rows) {
+    const expected = expectedDetectChildren.get(row.path);
+    assert.notEqual(expected, undefined, `unexpected job path ${row.path}`);
+    assert.equal(row.detect_children, expected);
+  }
 });
 
 test('idempotent createDirectory returns existing result', async () => {

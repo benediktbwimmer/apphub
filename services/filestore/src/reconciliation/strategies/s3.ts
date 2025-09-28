@@ -23,8 +23,12 @@ import {
   computeContribution
 } from '../../rollup/manager';
 import { createEmptyRollupPlan } from '../../rollup/types';
-import { getParentPath } from '../../utils/path';
-import type { ReconciliationJobPayload, ReconciliationJobSummary } from '../types';
+import { getParentPath, normalizePath } from '../../utils/path';
+import type {
+  ChildReconciliationJobRequest,
+  ReconciliationJobPayload,
+  ReconciliationJobSummary
+} from '../types';
 
 const defaultClients = new Map<number, S3Client>();
 
@@ -244,6 +248,74 @@ function diffContribution(before: Contribution, after: Contribution) {
   };
 }
 
+async function collectS3ChildJobs(
+  client: S3Client,
+  backend: S3Backend,
+  normalizedPath: string,
+  options: { requestedHash: boolean }
+): Promise<ChildReconciliationJobRequest[]> {
+  const baseKey = buildKey(backend, normalizedPath);
+  if (!baseKey) {
+    return [];
+  }
+  const prefix = `${baseKey.replace(/\/+$/, '')}/`;
+  const children: ChildReconciliationJobRequest[] = [];
+  let continuationToken: string | undefined;
+
+  do {
+    const response = (await client.send(
+      new ListObjectsV2Command({
+        Bucket: backend.bucket,
+        Prefix: prefix,
+        Delimiter: '/',
+        ContinuationToken: continuationToken
+      })
+    )) as ListObjectsV2CommandOutput;
+
+    for (const entry of response.Contents ?? []) {
+      const key = entry.Key ?? '';
+      if (!key || key === prefix) {
+        continue;
+      }
+      const remainder = key.slice(prefix.length);
+      if (!remainder || remainder.includes('/')) {
+        continue;
+      }
+      const childPath = normalizedPath ? `${normalizedPath}/${remainder}` : remainder;
+      const normalizedChild = normalizePath(childPath);
+      children.push({
+        path: normalizedChild,
+        nodeId: null,
+        detectChildren: false,
+        requestedHash: options.requestedHash
+      });
+    }
+
+    for (const entry of response.CommonPrefixes ?? []) {
+      const key = entry.Prefix ?? '';
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      const remainder = key.slice(prefix.length).replace(/\/+$/, '');
+      if (!remainder) {
+        continue;
+      }
+      const childPath = normalizedPath ? `${normalizedPath}/${remainder}` : remainder;
+      const normalizedChild = normalizePath(childPath);
+      children.push({
+        path: normalizedChild,
+        nodeId: null,
+        detectChildren: true,
+        requestedHash: options.requestedHash
+      });
+    }
+
+    continuationToken = response.IsTruncated ? response.NextContinuationToken ?? undefined : undefined;
+  } while (continuationToken);
+
+  return children;
+}
+
 async function buildAncestorPlan(
   client: PoolClient,
   node: NodeRecord,
@@ -307,6 +379,7 @@ export async function reconcileS3(
   const probe = await probeS3Path(clientInstance, backend, normalizedPath);
   const plan = createEmptyRollupPlan();
   const now = new Date();
+  const requestedHash = Boolean(job.requestedHash);
 
   if (!probe.exists) {
     if (!node) {
@@ -361,6 +434,7 @@ export async function reconcileS3(
   const sizeBytes = probe.isDirectory ? 0 : probe.sizeBytes;
   const kind: NodeRecord['kind'] = probe.isDirectory ? 'directory' : 'file';
   const consistencyState: ConsistencyState = 'active';
+  const shouldDiscoverChildren = Boolean(job.detectChildren) && probe.isDirectory;
 
   if (!node) {
     const parentPath = getParentPath(normalizedPath);
@@ -407,6 +481,10 @@ export async function reconcileS3(
       appliedPlan = await applyRollupPlanWithinTransaction(client, plan);
     }
 
+    const childJobs = shouldDiscoverChildren
+      ? await collectS3ChildJobs(clientInstance, backend, normalizedPath, { requestedHash })
+      : [];
+
     return {
       outcome: 'reconciled',
       reason: job.reason,
@@ -417,7 +495,8 @@ export async function reconcileS3(
       emittedEvent: {
         type: 'filestore.node.reconciled',
         node: inserted
-      }
+      },
+      childJobs
     } satisfies ReconciliationJobSummary;
   }
 
@@ -447,6 +526,10 @@ export async function reconcileS3(
     appliedPlan = await applyRollupPlanWithinTransaction(client, plan);
   }
 
+  const childJobs = shouldDiscoverChildren
+    ? await collectS3ChildJobs(clientInstance, backend, normalizedPath, { requestedHash })
+    : [];
+
   return {
     outcome: 'reconciled',
     reason: job.reason,
@@ -457,6 +540,7 @@ export async function reconcileS3(
     emittedEvent: {
       type: 'filestore.node.reconciled',
       node: updated
-    }
+    },
+    childJobs
   } satisfies ReconciliationJobSummary;
 }

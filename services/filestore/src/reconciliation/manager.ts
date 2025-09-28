@@ -23,7 +23,12 @@ import {
 import type { AppliedRollupPlan, RollupPlan } from '../rollup/types';
 import { createReconciliationMetrics, type ReconciliationMetrics } from './metrics';
 import { ReconciliationQueue } from './queue';
-import type { ReconciliationJobPayload, ReconciliationJobSummary, ReconciliationReason } from './types';
+import type {
+  ChildReconciliationJobRequest,
+  ReconciliationJobPayload,
+  ReconciliationJobSummary,
+  ReconciliationReason
+} from './types';
 import { reconcileLocal } from './strategies/local';
 import { reconcileS3 } from './strategies/s3';
 
@@ -75,6 +80,7 @@ type PostCommitAction = {
         reason: ReconciliationReason;
       }
     | null;
+  childJobs: ChildReconciliationJobRequest[];
 };
 
 type DriftListener = (event: FilestoreEvent) => void;
@@ -284,9 +290,8 @@ class ReconciliationManager {
 
     try {
       const execution = await this.executeReconciliation(payload);
-      if (execution.postCommit) {
-        await this.runPostCommit(execution.postCommit);
-      }
+      const deferredChildJobs: ChildReconciliationJobRequest[] =
+        execution.postCommit ? await this.runPostCommit(execution.postCommit) : [];
 
       const completedAt = new Date();
       const durationMs = Math.max(0, completedAt.getTime() - startedAt.getTime());
@@ -313,6 +318,10 @@ class ReconciliationManager {
         console.warn('[filestore:reconcile] failed to update completed job record', {
           jobRecordId: payload.jobRecordId
         });
+      }
+
+      if (deferredChildJobs.length > 0) {
+        await this.enqueueChildJobs(payload, deferredChildJobs);
       }
     } catch (err) {
       const completedAt = new Date();
@@ -406,7 +415,8 @@ class ReconciliationManager {
                   },
                   reason: payload.reason
                 }
-              : null
+              : null,
+            childJobs: result.childJobs ?? []
           };
 
     return {
@@ -433,6 +443,22 @@ class ReconciliationManager {
       requestedHash: Boolean(payload.requestedHash),
       emittedEvent: summary.emittedEvent ? summary.emittedEvent.type : null
     } satisfies Record<string, unknown>;
+  }
+
+  private async enqueueChildJobs(
+    parent: ReconciliationJobPayload,
+    children: ChildReconciliationJobRequest[]
+  ): Promise<void> {
+    for (const child of children) {
+      await this.enqueue({
+        backendMountId: parent.backendMountId,
+        nodeId: child.nodeId,
+        path: child.path,
+        reason: parent.reason,
+        detectChildren: child.detectChildren,
+        requestedHash: child.requestedHash
+      });
+    }
   }
 
   private normalizeError(err: unknown): Record<string, unknown> {
@@ -466,14 +492,14 @@ class ReconciliationManager {
     } satisfies Record<string, unknown>;
   }
 
-  private async runPostCommit(action: PostCommitAction): Promise<void> {
+  private async runPostCommit(action: PostCommitAction): Promise<ChildReconciliationJobRequest[]> {
     if (action.plan && action.applied) {
       ensureRollupManager();
       await finalizeRollupPlan(action.plan, action.applied);
     }
 
     if (!action.event) {
-      return;
+      return action.childJobs ?? [];
     }
 
     if (action.event.type === 'filestore.node.reconciled') {
@@ -496,10 +522,7 @@ class ReconciliationManager {
         reason: action.event.reason,
         observedAt: action.event.payload.observedAt
       });
-      return;
-    }
-
-    if (action.event.type === 'filestore.node.missing') {
+    } else if (action.event.type === 'filestore.node.missing') {
       await emitNodeMissingEvent({
         backendMountId: action.event.payload.backendMountId,
         nodeId: action.event.payload.nodeId,
@@ -520,6 +543,8 @@ class ReconciliationManager {
         observedAt: action.event.payload.observedAt
       });
     }
+
+    return action.childJobs ?? [];
   }
 }
 

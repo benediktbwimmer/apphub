@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import type { Stats } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { BackendMountRecord } from '../../db/backendMounts';
@@ -13,14 +13,18 @@ import {
 } from '../../db/nodes';
 import { recordSnapshot } from '../../db/snapshots';
 import { FilestoreError } from '../../errors';
-import { getParentPath } from '../../utils/path';
+import { getParentPath, normalizePath } from '../../utils/path';
 import {
   applyRollupPlanWithinTransaction,
   collectAncestorChain,
   computeContribution
 } from '../../rollup/manager';
 import { createEmptyRollupPlan, type RollupPlan } from '../../rollup/types';
-import type { ReconciliationJobPayload, ReconciliationJobSummary } from '../types';
+import type {
+  ChildReconciliationJobRequest,
+  ReconciliationJobPayload,
+  ReconciliationJobSummary
+} from '../types';
 
 type AppliedPlan = Awaited<ReturnType<typeof applyRollupPlanWithinTransaction>>;
 
@@ -55,6 +59,40 @@ function diffContribution(before: Contribution, after: Contribution) {
     directoryCountDelta: after.directoryCount - before.directoryCount,
     childCountDelta: (after.active ? 1 : 0) - (before.active ? 1 : 0)
   };
+}
+
+async function collectLocalChildJobs(
+  directoryPath: string,
+  normalizedPath: string,
+  options: { requestedHash: boolean }
+): Promise<ChildReconciliationJobRequest[]> {
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(directoryPath, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw err;
+  }
+
+  const children: ChildReconciliationJobRequest[] = [];
+  for (const entry of entries) {
+    const name = entry.name;
+    if (!name || name === '.' || name === '..') {
+      continue;
+    }
+    const relative = normalizedPath ? `${normalizedPath}/${name}` : name;
+    const childPath = normalizePath(relative);
+    children.push({
+      path: childPath,
+      nodeId: null,
+      detectChildren: entry.isDirectory(),
+      requestedHash: options.requestedHash
+    });
+  }
+
+  return children;
 }
 
 async function buildAncestorPlan(
@@ -146,6 +184,7 @@ export async function reconcileLocal(
   const stats = await statOptional(resolvedPath);
   const plan = createEmptyRollupPlan();
   const now = new Date();
+  const requestedHash = Boolean(job.requestedHash);
 
   if (!stats) {
     if (!node) {
@@ -197,6 +236,7 @@ export async function reconcileLocal(
   const sizeBytes = stats.isDirectory() ? 0 : stats.size;
   const kind = detectNodeKind(stats);
   const consistencyState: ConsistencyState = 'active';
+  const shouldDiscoverChildren = Boolean(job.detectChildren) && stats.isDirectory();
 
   if (!node) {
     const parentPath = getParentPath(normalizedPath);
@@ -243,6 +283,10 @@ export async function reconcileLocal(
       appliedPlan = await applyRollupPlanWithinTransaction(client, plan);
     }
 
+    const childJobs = shouldDiscoverChildren
+      ? await collectLocalChildJobs(resolvedPath, normalizedPath, { requestedHash })
+      : [];
+
     return {
       outcome: 'reconciled',
       reason: job.reason,
@@ -253,7 +297,8 @@ export async function reconcileLocal(
       emittedEvent: {
         type: 'filestore.node.reconciled',
         node: inserted
-      }
+      },
+      childJobs
     } satisfies ReconciliationJobSummary;
   }
 
@@ -283,6 +328,10 @@ export async function reconcileLocal(
     appliedPlan = await applyRollupPlanWithinTransaction(client, plan);
   }
 
+  const childJobs = shouldDiscoverChildren
+    ? await collectLocalChildJobs(resolvedPath, normalizedPath, { requestedHash })
+    : [];
+
   return {
     outcome: 'reconciled',
     reason: job.reason,
@@ -293,6 +342,7 @@ export async function reconcileLocal(
     emittedEvent: {
       type: 'filestore.node.reconciled',
       node: updated
-    }
+    },
+    childJobs
   } satisfies ReconciliationJobSummary;
 }

@@ -17,6 +17,13 @@ export interface ReconciliationJobPayload {
 
 export type ReconciliationJobOutcome = 'reconciled' | 'missing' | 'skipped';
 
+export interface ChildReconciliationJobRequest {
+  path: string;
+  nodeId: number | null;
+  detectChildren: boolean;
+  requestedHash: boolean;
+}
+
 export interface ReconciliationJobSummary {
   outcome: ReconciliationJobOutcome;
   reason: ReconciliationReason;
@@ -35,4 +42,5 @@ export interface ReconciliationJobSummary {
         previousState: NodeRecord['state'] | null;
       }
     | null;
+  childJobs?: ChildReconciliationJobRequest[];
 }
