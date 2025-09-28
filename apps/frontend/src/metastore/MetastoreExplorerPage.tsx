@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { usePollingResource } from '../hooks/usePollingResource';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { RecordTable } from './components/RecordTable';
@@ -36,9 +36,76 @@ import {
 import { ROUTE_PATHS } from '../routes/paths';
 import { Link } from 'react-router-dom';
 import JsonSyntaxHighlighter from '../components/JsonSyntaxHighlighter';
+import {
+  buildQueryPayload,
+  createEmptyClause,
+  decodeClausesFromUrl,
+  decodeDslFromUrl,
+  encodeClausesForUrl,
+  encodeDslForUrl,
+  sanitizeClauses,
+  type FilterNodeInput,
+  type QueryClause
+} from './queryComposer';
+import { MetastoreQueryBuilder } from './components/MetastoreQueryBuilder';
 
 const POLL_INTERVAL = 20000;
 const PAGE_SIZE = 25;
+const LIST_PROJECTION = [
+  'namespace',
+  'key',
+  'owner',
+  'schemaHash',
+  'tags',
+  'version',
+  'updatedAt',
+  'deletedAt'
+] as const;
+
+type AppliedQueryState = {
+  mode: 'builder' | 'advanced';
+  q?: string;
+  filter?: FilterNodeInput;
+  preset?: string | null;
+};
+
+type QueryPreset = {
+  value: string;
+  label: string;
+  description: string;
+};
+
+const METASTORE_PRESETS: readonly QueryPreset[] = [
+  {
+    value: 'recently-updated',
+    label: 'Recently Updated',
+    description: 'Changes in the last 24 hours'
+  },
+  {
+    value: 'soft-deleted',
+    label: 'Soft Deleted',
+    description: 'Records awaiting purge'
+  },
+  {
+    value: 'stale-gt-30d',
+    label: 'Stale (>30d)',
+    description: 'No updates in the past 30 days'
+  }
+] as const;
+
+function parseFilterFromText(raw: string): FilterNodeInput | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as FilterNodeInput;
+    return parsed;
+  } catch (err) {
+    console.warn('[MetastoreExplorer] Failed to parse DSL payload', err);
+    return undefined;
+  }
+}
 
 export default function MetastoreExplorerPage() {
   const { identity } = useAuth();
@@ -49,13 +116,51 @@ export default function MetastoreExplorerPage() {
   const hasDeleteScope = hasAdminScope || scopes.includes('metastore:delete');
   const hasWriteScope = hasDeleteScope || scopes.includes('metastore:write');
   const hasReadScope = hasWriteScope || scopes.includes('metastore:read');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [namespace, setNamespace] = useState('default');
-  const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [query, setQuery] = useState('');
-  const [queryInput, setQueryInput] = useState('');
-  const debouncedQueryInput = useDebouncedValue(queryInput, 300);
-  const [page, setPage] = useState(0);
+  const [namespace, setNamespace] = useState(() => searchParams.get('namespace') ?? 'default');
+  const [includeDeleted, setIncludeDeleted] = useState(() => searchParams.get('deleted') === 'true');
+  const [page, setPage] = useState(() => {
+    const raw = Number.parseInt(searchParams.get('page') ?? '0', 10);
+    return Number.isFinite(raw) && raw >= 0 ? raw : 0;
+  });
+
+  const [builderClauses, setBuilderClauses] = useState<QueryClause[]>(() =>
+    sanitizeClauses(decodeClausesFromUrl(searchParams.get('builder')))
+  );
+  const [builderPreset, setBuilderPreset] = useState<string | null>(() => searchParams.get('preset'));
+  const [advancedDraft, setAdvancedDraft] = useState<string>(() => decodeDslFromUrl(searchParams.get('dsl')));
+  const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [appliedQuery, setAppliedQuery] = useState<AppliedQueryState>(() => {
+    const mode = searchParams.get('mode') === 'advanced' ? 'advanced' : 'builder';
+    const preset = searchParams.get('preset');
+    if (mode === 'advanced') {
+      const filter = parseFilterFromText(decodeDslFromUrl(searchParams.get('dsl')));
+      return {
+        mode,
+        filter,
+        preset
+      } satisfies AppliedQueryState;
+    }
+    const clauses = sanitizeClauses(decodeClausesFromUrl(searchParams.get('builder')));
+    const payload = buildQueryPayload(clauses);
+    return {
+      mode: 'builder',
+      q: payload.q,
+      filter: payload.filter,
+      preset
+    } satisfies AppliedQueryState;
+  });
+
+  const updateUrlParams = useCallback(
+    (mutator: (params: URLSearchParams) => void) => {
+      const next = new URLSearchParams(searchParams);
+      mutator(next);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [recordDetail, setRecordDetail] = useState<MetastoreRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -75,6 +180,147 @@ export default function MetastoreExplorerPage() {
 
   const offset = page * PAGE_SIZE;
 
+  const handleNamespaceChange = (nextNamespace: string) => {
+    const normalized = nextNamespace.trim() || 'default';
+    setNamespace(normalized);
+    setPage(0);
+    updateUrlParams((params) => {
+      if (normalized && normalized !== 'default') {
+        params.set('namespace', normalized);
+      } else {
+        params.delete('namespace');
+      }
+      params.set('page', '0');
+    });
+  };
+
+  const handleIncludeDeletedChange = (checked: boolean) => {
+    setIncludeDeleted(checked);
+    setPage(0);
+    updateUrlParams((params) => {
+      if (checked) {
+        params.set('deleted', 'true');
+      } else {
+        params.delete('deleted');
+      }
+      params.set('page', '0');
+    });
+  };
+
+  const handlePresetChange = (value: string) => {
+    setBuilderPreset(value === '' ? null : value);
+  };
+
+  const goToPage = (nextPage: number) => {
+    const clamped = Math.max(Math.min(nextPage, totalPages - 1), 0);
+    setPage(clamped);
+    updateUrlParams((params) => {
+      if (clamped === 0) {
+        params.delete('page');
+      } else {
+        params.set('page', String(clamped));
+      }
+    });
+  };
+
+  const handlePreviousPage = () => {
+    goToPage(Math.max(page - 1, 0));
+  };
+
+  const handleNextPage = () => {
+    goToPage(Math.min(page + 1, totalPages - 1));
+  };
+
+  const applyBuilder = useCallback(() => {
+    const normalizedClauses = sanitizeClauses(builderClauses);
+    setBuilderClauses(normalizedClauses);
+    const payload = buildQueryPayload(normalizedClauses);
+    const next: AppliedQueryState = {
+      mode: 'builder',
+      q: payload.q,
+      filter: payload.filter,
+      preset: builderPreset ?? null
+    };
+    setAppliedQuery(next);
+    setAdvancedError(null);
+    setPage(0);
+    updateUrlParams((params) => {
+      const encoded = encodeClausesForUrl(normalizedClauses);
+      if (encoded) {
+        params.set('builder', encoded);
+      } else {
+        params.delete('builder');
+      }
+      if (builderPreset) {
+        params.set('preset', builderPreset);
+      } else {
+        params.delete('preset');
+      }
+      params.set('mode', 'builder');
+      params.delete('dsl');
+      params.set('page', '0');
+    });
+  }, [builderClauses, builderPreset, updateUrlParams]);
+
+  const resetBuilder = () => {
+    setBuilderClauses([createEmptyClause()]);
+    setBuilderPreset(null);
+  };
+
+  const openAdvancedEditor = () => {
+    const current = advancedDraft.trim();
+    if (!current && appliedQuery.filter) {
+      setAdvancedDraft(JSON.stringify(appliedQuery.filter, null, 2));
+    }
+    setAdvancedError(null);
+    setAdvancedOpen(true);
+  };
+
+  const closeAdvancedEditor = () => {
+    setAdvancedOpen(false);
+    setAdvancedError(null);
+  };
+
+  const applyAdvanced = () => {
+    const parsed = parseFilterFromText(advancedDraft);
+    if (!parsed && advancedDraft.trim()) {
+      setAdvancedError('Invalid DSL JSON. Review the structure and try again.');
+      return;
+    }
+    const normalizedClauses = sanitizeClauses(builderClauses);
+    setBuilderClauses(normalizedClauses);
+    const next: AppliedQueryState = {
+      mode: 'advanced',
+      filter: parsed,
+      preset: builderPreset ?? null
+    };
+    setAppliedQuery(next);
+    setAdvancedError(null);
+    setAdvancedOpen(false);
+    setPage(0);
+    updateUrlParams((params) => {
+      const encodedDsl = encodeDslForUrl(advancedDraft);
+      if (encodedDsl) {
+        params.set('dsl', encodedDsl);
+      } else {
+        params.delete('dsl');
+      }
+      if (builderPreset) {
+        params.set('preset', builderPreset);
+      } else {
+        params.delete('preset');
+      }
+      const encodedBuilder = encodeClausesForUrl(normalizedClauses);
+      if (encodedBuilder) {
+        params.set('builder', encodedBuilder);
+      } else {
+        params.delete('builder');
+      }
+      params.set('mode', 'advanced');
+      params.set('page', '0');
+    });
+  };
+
   const searchFetcher = useCallback(
     async ({ authorizedFetch, signal }: { authorizedFetch: ReturnType<typeof useAuthorizedFetch>; signal: AbortSignal }) => {
       if (!hasReadScope) {
@@ -82,31 +328,30 @@ export default function MetastoreExplorerPage() {
       }
 
       const normalizedNamespace = namespace.trim() || 'default';
-      const activeQuery = query.trim();
-      const hasQuery = activeQuery.length > 0;
-      const effectiveLimit = hasQuery ? 200 : PAGE_SIZE;
-      const effectiveOffset = hasQuery ? 0 : offset;
-
       const payload = await searchRecords(
         authorizedFetch,
         {
           namespace: normalizedNamespace,
           includeDeleted,
-          limit: effectiveLimit,
-          offset: effectiveOffset,
+          limit: PAGE_SIZE,
+          offset,
           sort: [
             {
               field: 'updatedAt',
               direction: 'desc'
             }
-          ]
+          ],
+          ...(appliedQuery.q ? { q: appliedQuery.q } : {}),
+          ...(appliedQuery.filter ? { filter: appliedQuery.filter } : {}),
+          ...(appliedQuery.preset ? { preset: appliedQuery.preset } : {}),
+          projection: [...LIST_PROJECTION]
         },
         { signal }
       );
 
       return payload;
     },
-    [hasReadScope, namespace, includeDeleted, offset, query]
+    [hasReadScope, namespace, includeDeleted, offset, appliedQuery]
   );
 
   const {
@@ -121,44 +366,20 @@ export default function MetastoreExplorerPage() {
     immediate: true
   });
 
-  const records = searchData?.records ?? null;
-  const namespaceTotal = searchData?.pagination.total ?? (records?.length ?? 0);
-  const activeQuery = query.trim();
-
-  const filteredRecords = useMemo(() => {
-    const baseRecords = records ?? [];
-    if (!activeQuery) {
-      return baseRecords;
-    }
-    const normalized = activeQuery.toLowerCase();
-    return baseRecords.filter((record) => {
-      return (
-        record.recordKey.toLowerCase().includes(normalized) ||
-        record.namespace.toLowerCase().includes(normalized) ||
-        (record.owner ?? '').toLowerCase().includes(normalized) ||
-        record.tags?.some((tag) => tag.toLowerCase().includes(normalized)) ||
-        JSON.stringify(record.metadata ?? {}).toLowerCase().includes(normalized)
-      );
-    });
-  }, [records, activeQuery]);
-
-  const hasActiveQuery = activeQuery.length > 0;
-  const displayTotal = hasActiveQuery ? filteredRecords.length : namespaceTotal;
+  const records = searchData?.records ?? [];
+  const namespaceTotal = searchData?.pagination.total ?? 0;
+  const totalPages = namespaceTotal === 0 ? 1 : Math.max(Math.ceil(namespaceTotal / PAGE_SIZE), 1);
 
   useEffect(() => {
-    if (filteredRecords.length > 0) {
-      if (!selectedRecordId || !filteredRecords.some((record) => record.id === selectedRecordId)) {
-        setSelectedRecordId(filteredRecords[0].id);
+    if (records.length > 0) {
+      if (!selectedRecordId || !records.some((record) => record.id === selectedRecordId)) {
+        setSelectedRecordId(records[0].id);
       }
     } else {
       setSelectedRecordId(null);
       setRecordDetail(null);
     }
-  }, [filteredRecords, selectedRecordId]);
-
-  useEffect(() => {
-    setPage(0);
-  }, [namespace, includeDeleted]);
+  }, [records, selectedRecordId]);
 
   useEffect(() => {
     if (!selectedRecordId) {
@@ -167,7 +388,7 @@ export default function MetastoreExplorerPage() {
       return;
     }
 
-    const recordSummary = (records ?? []).find((item) => item.id === selectedRecordId) ?? null;
+    const recordSummary = records.find((item) => item.id === selectedRecordId) ?? null;
     if (!recordSummary) {
       setRecordDetail(null);
       return;
@@ -210,27 +431,6 @@ export default function MetastoreExplorerPage() {
       controller.abort();
     };
   }, [authorizedFetch, includeDeleted, selectedRecordId, records, showError]);
-
-  const handleApplyQuery = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setQuery(queryInput);
-    setPage(0);
-  };
-
-  const handleClearQuery = () => {
-    setQueryInput('');
-    setQuery('');
-    setPage(0);
-  };
-
-  useEffect(() => {
-    const trimmed = debouncedQueryInput.trim();
-    if (query === trimmed) {
-      return;
-    }
-    setQuery(trimmed);
-    setPage(0);
-  }, [debouncedQueryInput, query]);
 
   const handleRecordUpdate = async () => {
     if (!recordDetail) {
@@ -382,6 +582,24 @@ export default function MetastoreExplorerPage() {
   const searchErrorMessage = searchError instanceof Error ? searchError.message : searchError ? String(searchError) : null;
   const currentRecord = recordDetail;
   const crossLinks = extractCrossLinks(currentRecord);
+  const activePreset = useMemo(() => METASTORE_PRESETS.find((preset) => preset.value === builderPreset) ?? null, [builderPreset]);
+  const builderSummary = useMemo(() => {
+    if (appliedQuery.mode !== 'builder') {
+      return null;
+    }
+    const parts: string[] = [];
+    if (appliedQuery.q) {
+      parts.push(`q: ${appliedQuery.q}`);
+    }
+    if (appliedQuery.filter) {
+      const serialized = JSON.stringify(appliedQuery.filter);
+      parts.push(`dsl: ${serialized.length > 140 ? `${serialized.slice(0, 140)}…` : serialized}`);
+    }
+    if (appliedQuery.preset) {
+      parts.push(`preset: ${appliedQuery.preset}`);
+    }
+    return parts.length > 0 ? parts.join(' • ') : null;
+  }, [appliedQuery]);
 
   if (!hasReadScope) {
     return (
@@ -394,100 +612,164 @@ export default function MetastoreExplorerPage() {
   return (
     <section className="flex flex-col gap-6">
       <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Metastore Explorer</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Search, update, and audit metadata records across namespaces.
-            </p>
-          </div>
-          <form className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start" onSubmit={handleApplyQuery}>
-            <NamespacePicker value={namespace} onChange={setNamespace} />
-            <div className="flex items-center gap-2">
-              <label htmlFor="metastore-query" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Search
-              </label>
-              <div className="flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 shadow-sm focus-within:border-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Metastore Explorer</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Search, update, and audit metadata records across namespaces.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <NamespacePicker value={namespace} onChange={handleNamespaceChange} />
+              <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input
-                  id="metastore-query"
-                  type="search"
-                  value={queryInput}
-                  onChange={(event) => setQueryInput(event.target.value)}
-                  placeholder="Filter by key, owner, or metadata"
-                  className="w-60 bg-transparent text-sm text-slate-700 outline-none dark:text-slate-100"
+                  type="checkbox"
+                  checked={includeDeleted}
+                  onChange={(event) => handleIncludeDeletedChange(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
                 />
-                {queryInput && (
-                  <button
-                    type="button"
-                    onClick={handleClearQuery}
-                    className="rounded-full px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                Include deleted
+              </label>
+              <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                Preset
+                <select
+                  value={builderPreset ?? ''}
+                  onChange={(event) => handlePresetChange(event.target.value)}
+                  className="mt-1 w-52 rounded-full border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="">No preset</option>
+                  {METASTORE_PRESETS.map((preset) => (
+                    <option key={preset.value} value={preset.value}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {activePreset && (
+                <span className="max-w-xs text-xs text-slate-500 dark:text-slate-400">{activePreset.description}</span>
+              )}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
+            <MetastoreQueryBuilder clauses={builderClauses} onChange={setBuilderClauses} />
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={applyBuilder}
+                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+              >
+                Apply builder query
+              </button>
+              <button
+                type="button"
+                onClick={resetBuilder}
+                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-600 dark:text-slate-200"
+              >
+                Reset builder
+              </button>
+              <button
+                type="button"
+                onClick={openAdvancedEditor}
+                className="rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+              >
+                Advanced DSL
+              </button>
+              {appliedQuery.mode === 'advanced' && (
+                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
+                  Advanced mode active
+                </span>
+              )}
+            </div>
+            {builderSummary && appliedQuery.mode === 'builder' && (
+              <p className="mt-3 whitespace-pre-wrap break-words text-xs text-slate-500 dark:text-slate-400">{builderSummary}</p>
+            )}
+          </div>
+          {advancedOpen && (
+            <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-4 shadow-sm dark:border-violet-500/60 dark:bg-violet-500/10">
+              <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-violet-600 dark:text-violet-300">
+                DSL JSON
+                <textarea
+                  rows={8}
+                  value={advancedDraft}
+                  onChange={(event) => setAdvancedDraft(event.target.value)}
+                  className="rounded-2xl border border-violet-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-violet-500 focus:outline-none dark:border-violet-600 dark:bg-slate-900 dark:text-slate-100"
+                  placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
+                />
+              </label>
+              {advancedError ? (
+                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
+                  {advancedError}{' '}
+                  <a
+                    href="https://docs.apphub.dev/metastore/search"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-rose-500 dark:hover:text-rose-200"
                   >
-                    Clear
-                  </button>
-                )}
+                    View documentation
+                  </a>
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={applyAdvanced}
+                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                >
+                  Apply DSL
+                </button>
+                <button
+                  type="button"
+                  onClick={closeAdvancedEditor}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-600 dark:text-slate-200"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-              <input
-                type="checkbox"
-                checked={includeDeleted}
-                onChange={(event) => setIncludeDeleted(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-              />
-              Include deleted
-            </label>
-            <button
-              type="submit"
-              className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-            >
-              Apply
-            </button>
-          </form>
+          )}
         </div>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
         <div className="flex flex-col gap-3">
           <RecordTable
-            records={filteredRecords}
+            records={records}
             selectedId={selectedRecordId}
             onSelect={(id) => setSelectedRecordId(id)}
             loading={searchLoading}
             error={searchErrorMessage}
             onRetry={refetchSearch}
-            total={displayTotal}
+            total={namespaceTotal}
           />
           <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
             <div className="flex items-center justify-between">
               <span>
-                {hasActiveQuery
-                  ? `Showing ${filteredRecords.length} matching records (namespace total ${namespaceTotal})`
-                  : `Showing ${filteredRecords.length} of ${namespaceTotal} records`}
+                Showing {records.length} records • Page {Math.min(page + 1, totalPages)} of {totalPages} • Total {namespaceTotal}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
-                  disabled={hasActiveQuery || page === 0}
+                  onClick={handlePreviousPage}
+                  disabled={page === 0 || namespaceTotal === 0}
                   className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
                 >
                   Previous
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPage((prev) => prev + 1)}
-                  disabled={hasActiveQuery || offset + PAGE_SIZE >= namespaceTotal}
+                  onClick={handleNextPage}
+                  disabled={namespaceTotal === 0 || page >= totalPages - 1}
                   className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
                 >
                   Next
                 </button>
               </div>
             </div>
-            {hasActiveQuery && (
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Search is applied locally; results include up to the first 200 records for the selected namespace.
-              </span>
-            )}
           </div>
           {hasWriteScope && (
             <button
