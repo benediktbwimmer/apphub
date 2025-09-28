@@ -1,3 +1,4 @@
+import type { WorkflowTopologyGraph } from '@apphub/shared/workflowTopology';
 import { API_BASE_URL } from '../config';
 import type {
   WorkflowAssetDetail,
@@ -56,6 +57,86 @@ export class ApiError extends Error {
     this.status = status;
     this.details = details;
   }
+}
+
+export type WorkflowGraphCacheStats = {
+  hits: number;
+  misses: number;
+  invalidations: number;
+};
+
+export type WorkflowGraphCacheMeta = {
+  hit: boolean;
+  cachedAt: string | null;
+  ageMs: number | null;
+  expiresAt: string | null;
+  stats: WorkflowGraphCacheStats | null;
+  lastInvalidatedAt: string | null;
+  lastInvalidationReason: string | null;
+};
+
+export type WorkflowGraphFetchMeta = {
+  cache: WorkflowGraphCacheMeta | null;
+};
+
+export type WorkflowGraphFetchResult = {
+  graph: WorkflowTopologyGraph;
+  meta: WorkflowGraphFetchMeta;
+};
+
+function parseNullableString(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return null;
+}
+
+function parseNullableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function parseWorkflowGraphCacheStats(value: unknown): WorkflowGraphCacheStats | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const hits = parseNullableNumber(record.hits);
+  const misses = parseNullableNumber(record.misses);
+  const invalidations = parseNullableNumber(record.invalidations);
+  if (hits === null && misses === null && invalidations === null) {
+    return null;
+  }
+  return {
+    hits: hits ?? 0,
+    misses: misses ?? 0,
+    invalidations: invalidations ?? 0
+  };
+}
+
+function parseWorkflowGraphCacheMeta(value: unknown): WorkflowGraphCacheMeta | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    hit: Boolean(record.hit),
+    cachedAt: parseNullableString(record.cachedAt),
+    ageMs: parseNullableNumber(record.ageMs),
+    expiresAt: parseNullableString(record.expiresAt),
+    stats: parseWorkflowGraphCacheStats(record.stats),
+    lastInvalidatedAt: parseNullableString(record.lastInvalidatedAt),
+    lastInvalidationReason: parseNullableString(record.lastInvalidationReason)
+  };
 }
 
 export type WorkflowTriggerInput = {
@@ -438,6 +519,32 @@ export async function ensureOk(response: Response, fallbackMessage: string): Pro
     // Ignore secondary parse errors.
   }
   throw new ApiError(message, response.status, details);
+}
+
+export async function fetchWorkflowTopologyGraph(
+  fetcher: AuthorizedFetch
+): Promise<WorkflowGraphFetchResult> {
+  const response = await fetcher(`${API_BASE_URL}/workflows/graph`, {
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache'
+    }
+  });
+  await ensureOk(response, 'Failed to load workflow graph');
+  const payload = await parseJson<{ data?: unknown; meta?: { cache?: unknown } }>(response);
+  const graph = payload.data;
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
+    throw new ApiError('Invalid workflow graph response', response.status, payload);
+  }
+  const version = (graph as { version?: unknown }).version;
+  if (version !== 'v1') {
+    throw new ApiError('Unsupported workflow graph version', response.status, graph);
+  }
+  const cacheMeta = parseWorkflowGraphCacheMeta(payload.meta?.cache);
+  return {
+    graph: graph as WorkflowTopologyGraph,
+    meta: { cache: cacheMeta }
+  };
 }
 
 export async function listWorkflowDefinitions(fetcher: AuthorizedFetch): Promise<WorkflowDefinition[]> {

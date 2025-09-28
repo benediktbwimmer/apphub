@@ -1,5 +1,6 @@
 import { useCallback, type ReactNode } from 'react';
 import { WorkflowAccessProvider, useWorkflowAccess } from './useWorkflowAccess';
+import { WorkflowGraphProvider, useWorkflowGraph } from './useWorkflowGraph';
 import {
   INITIAL_FILTERS,
   WorkflowDefinitionsProvider,
@@ -20,19 +21,21 @@ export { INITIAL_FILTERS };
 export function WorkflowsProviders({ children }: { children: ReactNode }) {
   return (
     <WorkflowAccessProvider>
-      <WorkflowDefinitionsProvider>
-        <WorkflowRunsProvider>
-          <WorkflowAnalyticsProvider>
-            <WorkflowAssetsProvider>
-              <WorkflowEventTriggersProvider>
-                <WorkflowTimelineProvider>
-                  <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
-                </WorkflowTimelineProvider>
-              </WorkflowEventTriggersProvider>
-            </WorkflowAssetsProvider>
-          </WorkflowAnalyticsProvider>
-        </WorkflowRunsProvider>
-      </WorkflowDefinitionsProvider>
+      <WorkflowGraphProvider>
+        <WorkflowDefinitionsProvider>
+          <WorkflowRunsProvider>
+            <WorkflowAnalyticsProvider>
+              <WorkflowAssetsProvider>
+                <WorkflowEventTriggersProvider>
+                  <WorkflowTimelineProvider>
+                    <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
+                  </WorkflowTimelineProvider>
+                </WorkflowEventTriggersProvider>
+              </WorkflowAssetsProvider>
+            </WorkflowAnalyticsProvider>
+          </WorkflowRunsProvider>
+        </WorkflowDefinitionsProvider>
+      </WorkflowGraphProvider>
     </WorkflowAccessProvider>
   );
 }
@@ -40,6 +43,7 @@ export function WorkflowsProviders({ children }: { children: ReactNode }) {
 export function useWorkflowsController() {
   const access = useWorkflowAccess();
   const definitions = useWorkflowDefinitions();
+  const graph = useWorkflowGraph();
   const runs = useWorkflowRuns();
   const analytics = useWorkflowAnalytics();
   const assets = useWorkflowAssets();
@@ -49,6 +53,7 @@ export function useWorkflowsController() {
 
   const handleRefresh = useCallback(() => {
     void definitions.loadWorkflows();
+    void graph.loadWorkflowGraph({ background: true });
     void definitions.loadServices();
     void triggers.loadEventSchedulerHealth();
 
@@ -87,6 +92,7 @@ export function useWorkflowsController() {
     ...assets,
     ...triggers,
     ...timeline,
+    ...graph,
     ...builder,
     handleRefresh
   };

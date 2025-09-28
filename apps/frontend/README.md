@@ -2,6 +2,12 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Workflow topology data layer
+
+The workflows surface now exposes a dedicated client and store for the topology graph. The `fetchWorkflowTopologyGraph` API reads the catalog payload and `normalizeWorkflowGraph` builds derived lookup maps (per-workflow indexes, asset/trigger adjacency, cache metadata) for downstream consumption. React code can access the data by wrapping pages in `WorkflowGraphProvider` and calling `useWorkflowGraph()`, which exposes loading/error state, the normalized graph, cache meta, and helper methods for manual refreshes.
+
+The provider automatically listens for `workflow.run.*` and `workflow.definition.updated` websocket events, queuing them for later visualization work while triggering a debounced background refresh after definitions change. Tests for the store live in `src/workflows/hooks/__tests__/useWorkflowGraph.test.tsx`, and Storybook-friendly mocks are available in `src/workflows/graph/mocks.ts` for building UI scenarios.
+
 ## Environment variables
 
 Set the following variables in `.env.local` to target locally running services:
