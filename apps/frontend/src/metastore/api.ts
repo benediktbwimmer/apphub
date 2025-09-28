@@ -4,7 +4,8 @@ import {
   recordResponseSchema,
   searchResponseSchema,
   auditResponseSchema,
-  bulkResponseSchema
+  bulkResponseSchema,
+  namespaceListResponseSchema
 } from './types';
 import type {
   MetastoreSearchResponse,
@@ -13,7 +14,8 @@ import type {
   MetastorePatchPayload,
   BulkRequestPayload,
   BulkResponsePayload,
-  MetastoreAuditEntry
+  MetastoreAuditEntry,
+  MetastoreNamespaceListResponse
 } from './types';
 
 async function parseJsonOrError<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -170,4 +172,23 @@ export async function bulkOperate(
     body: JSON.stringify(payload)
   });
   return parseJsonOrError(response, bulkResponseSchema);
+}
+
+export async function listNamespaces(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  options: { prefix?: string; limit?: number; offset?: number; signal?: AbortSignal } = {}
+): Promise<MetastoreNamespaceListResponse> {
+  const url = new URL('/namespaces', METASTORE_BASE_URL);
+  const trimmedPrefix = options.prefix?.trim();
+  if (trimmedPrefix) {
+    url.searchParams.set('prefix', trimmedPrefix);
+  }
+  if (typeof options.limit === 'number') {
+    url.searchParams.set('limit', String(options.limit));
+  }
+  if (typeof options.offset === 'number') {
+    url.searchParams.set('offset', String(options.offset));
+  }
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  return parseJsonOrError(response, namespaceListResponseSchema);
 }

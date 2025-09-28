@@ -6,6 +6,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { RecordTable } from './components/RecordTable';
+import { NamespacePicker } from './components/NamespacePicker';
 import {
   searchRecords,
   fetchRecord,
@@ -400,19 +401,8 @@ export default function MetastoreExplorerPage() {
               Search, update, and audit metadata records across namespaces.
             </p>
           </div>
-          <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleApplyQuery}>
-            <div className="flex items-center gap-2">
-              <label htmlFor="metastore-namespace" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Namespace
-              </label>
-              <input
-                id="metastore-namespace"
-                type="text"
-                value={namespace}
-                onChange={(event) => setNamespace(event.target.value)}
-                className="w-40 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-              />
-            </div>
+          <form className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start" onSubmit={handleApplyQuery}>
+            <NamespacePicker value={namespace} onChange={setNamespace} />
             <div className="flex items-center gap-2">
               <label htmlFor="metastore-query" className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
                 Search

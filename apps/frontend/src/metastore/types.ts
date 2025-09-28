@@ -145,3 +145,32 @@ export const bulkResponseSchema = z.object({
 });
 
 export type BulkResponsePayload = z.infer<typeof bulkResponseSchema>;
+
+export const namespaceOwnerCountSchema = z.object({
+  owner: z.string(),
+  count: z.number().int().nonnegative()
+});
+
+export const namespaceSummarySchema = z.object({
+  name: z.string(),
+  totalRecords: z.number().int().nonnegative(),
+  deletedRecords: z.number().int().nonnegative(),
+  lastUpdatedAt: z.string().nullable(),
+  ownerCounts: z.array(namespaceOwnerCountSchema).optional()
+});
+
+export const namespaceListResponseSchema = z.object({
+  pagination: z.object({
+    total: z.number().nonnegative(),
+    limit: z.number().positive(),
+    offset: z.number().nonnegative(),
+    nextOffset: z.number().nonnegative().optional()
+  }),
+  namespaces: z.array(namespaceSummarySchema)
+});
+
+export type MetastoreNamespaceOwnerCount = z.infer<typeof namespaceOwnerCountSchema>;
+
+export type MetastoreNamespaceSummary = z.infer<typeof namespaceSummarySchema>;
+
+export type MetastoreNamespaceListResponse = z.infer<typeof namespaceListResponseSchema>;
