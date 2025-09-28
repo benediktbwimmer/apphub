@@ -6,7 +6,12 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 import EmbeddedPostgres from 'embedded-postgres';
+import { Queue } from 'bullmq';
 import { normalizeEventEnvelope } from '@apphub/event-bus';
+import { retryWorkflowTriggerDelivery } from '../src/eventTriggerProcessor';
+import { ingestWorkflowEvent } from '../src/workflowEvents';
+import { resetDatabasePool } from '../src/db/client';
+import { EVENT_TRIGGER_QUEUE_NAME, type EventTriggerJobData } from '../src/queue';
 import { runE2E } from '@apphub/test-helpers';
 type CatalogDbModule = typeof import('../src/db');
 
@@ -21,6 +26,7 @@ async function loadCatalogDb(): Promise<CatalogDbModule> {
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
 let embeddedCleanup: (() => Promise<void>) | null = null;
+let embeddedDatabaseUrl: string | null = null;
 
 async function findAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -41,6 +47,10 @@ async function findAvailablePort(): Promise<number> {
 
 async function ensureEmbeddedPostgres(): Promise<void> {
   if (embeddedPostgres) {
+    if (embeddedDatabaseUrl) {
+      process.env.DATABASE_URL = embeddedDatabaseUrl;
+      await resetDatabasePool({ connectionString: embeddedDatabaseUrl });
+    }
     return;
   }
 
@@ -61,6 +71,8 @@ async function ensureEmbeddedPostgres(): Promise<void> {
 
   process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
   process.env.PGPOOL_MAX = '6';
+  embeddedDatabaseUrl = process.env.DATABASE_URL;
+  await resetDatabasePool({ connectionString: embeddedDatabaseUrl, max: 6 });
 
   embeddedPostgres = postgres;
   embeddedCleanup = async () => {
@@ -366,6 +378,125 @@ async function testEventTriggerCrud(): Promise<void> {
   );
 }
 
+async function testTriggerRetryScheduling(): Promise<void> {
+  await ensureEmbeddedPostgres();
+  const db = await loadCatalogDb();
+  await db.ensureDatabase();
+
+  await db.createJobDefinition({
+    slug: 'retry-noop-job',
+    name: 'Retry Noop Job',
+    type: 'manual',
+    runtime: 'node',
+    entryPoint: 'tests.noop',
+    parametersSchema: {},
+    defaultParameters: {},
+    outputSchema: {}
+  });
+
+  const workflow = await db.createWorkflowDefinition({
+    slug: `wf-retry-${randomUUID()}`.toLowerCase(),
+    name: 'Retry Workflow',
+    steps: [
+      {
+        id: 'step-1',
+        name: 'Noop Step',
+        type: 'job',
+        jobSlug: 'retry-noop-job'
+      }
+    ],
+    triggers: [{ type: 'manual' }]
+  });
+
+  const trigger = await db.createWorkflowEventTrigger({
+    workflowDefinitionId: workflow.id,
+    name: 'Throttle Trigger',
+    description: 'Retries when throttled',
+    eventType: 'catalog.retry.test',
+    eventSource: 'retry.test',
+    predicates: [],
+    parameterTemplate: {},
+    throttleWindowMs: 60_000,
+    throttleCount: 1,
+    maxConcurrency: null,
+    idempotencyKeyExpression: null,
+    metadata: { source: 'test' },
+    status: 'active',
+    createdBy: 'event-trigger-test'
+  });
+
+  const { processEventTriggersForEnvelope } = await import('../src/eventTriggerProcessor');
+
+  const envelopeOne = normalizeEventEnvelope({
+    type: 'catalog.retry.test',
+    source: 'retry.test',
+    payload: { idx: 1 }
+  });
+  const envelopeTwo = normalizeEventEnvelope({
+    type: 'catalog.retry.test',
+    source: 'retry.test',
+    payload: { idx: 2 }
+  });
+
+  await ingestWorkflowEvent(envelopeOne);
+  await ingestWorkflowEvent(envelopeTwo);
+
+  const queue = new Queue<EventTriggerJobData>(EVENT_TRIGGER_QUEUE_NAME, {
+    connection: { connectionString: process.env.REDIS_URL }
+  });
+  try {
+    await queue.waitUntilReady();
+    await queue.drain(true);
+    await queue.clean(0, 0, 'delayed');
+
+    await processEventTriggersForEnvelope(envelopeOne);
+    await processEventTriggersForEnvelope(envelopeTwo);
+
+    const deliveries = await db.listWorkflowTriggerDeliveries({ triggerId: trigger.id });
+  const throttledDelivery = deliveries.find((record) => record.status === 'throttled');
+  assert.ok(throttledDelivery, 'expected throttled delivery to be created');
+    assert.equal(throttledDelivery.retryState, 'scheduled');
+    assert.ok(throttledDelivery.nextAttemptAt, 'expected retry nextAttemptAt to be populated');
+    assert.equal(throttledDelivery.retryAttempts, 1);
+
+    const delayedJobs = await queue.getDelayed();
+    assert.equal(delayedJobs.length, 1, 'expected one delayed trigger retry job');
+    const scheduledJob = delayedJobs[0];
+    assert.equal(scheduledJob?.data.deliveryId, throttledDelivery.id);
+
+    const launchedDelivery = deliveries.find((record) => record.status === 'launched');
+    assert.ok(launchedDelivery, 'expected first delivery to launch workflow');
+
+  const { useConnection } = await import('../src/db/utils');
+    await useConnection(async (client) => {
+      await client.query(
+        `UPDATE workflow_trigger_deliveries
+            SET created_at = NOW() - INTERVAL '2 minutes'
+          WHERE trigger_id = $1`,
+        [trigger.id]
+      );
+    });
+
+    const jobPayload = scheduledJob?.data ?? {};
+    await scheduledJob?.remove();
+    await retryWorkflowTriggerDelivery(jobPayload.deliveryId ?? throttledDelivery.id);
+
+    const retried = await db.getWorkflowTriggerDeliveryById(throttledDelivery.id);
+    assert.ok(retried, 'expected retried delivery to exist');
+    assert.equal(retried?.status, 'launched');
+    assert.equal(retried?.retryState, 'pending');
+    assert.equal(retried?.retryAttempts, throttledDelivery.retryAttempts);
+    assert.ok(retried?.workflowRunId, 'expected retried delivery to launch workflow run');
+    assert.equal(retried?.nextAttemptAt, null);
+
+    const delayedAfter = await queue.getDelayed();
+    assert.equal(delayedAfter.length, 0, 'expected delayed queue to be empty after retry');
+  } finally {
+    await queue.drain(true).catch(() => undefined);
+    await queue.close();
+  }
+}
+
 async function testEventTriggerApi(): Promise<void> {
   process.env.APPHUB_AUTH_DISABLED = '1';
   await ensureEmbeddedPostgres();
@@ -490,4 +621,5 @@ runE2E(async ({ registerCleanup }) => {
   registerCleanup(() => shutdownEmbeddedPostgres());
   await testEventTriggerCrud();
   await testEventTriggerApi();
+  await testTriggerRetryScheduling();
 }, { name: 'catalog-event-triggers.e2e' });

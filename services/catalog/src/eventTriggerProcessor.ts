@@ -7,21 +7,95 @@ import {
   createWorkflowRun,
   createWorkflowTriggerDelivery,
   findWorkflowTriggerDeliveryByDedupeKey,
+  getWorkflowEventTriggerById,
+  getWorkflowTriggerDeliveryById,
+  listScheduledWorkflowTriggerDeliveries,
   listWorkflowEventTriggersForEvent,
   updateWorkflowTriggerDelivery
 } from './db/workflows';
 import type {
   JsonValue,
   WorkflowEventTriggerPredicate,
-  WorkflowEventTriggerRecord
+  WorkflowEventTriggerRecord,
+  WorkflowEventRecord,
+  WorkflowTriggerDeliveryRecord
 } from './db/types';
-import { enqueueWorkflowRun } from './queue';
+import { enqueueWorkflowRun, scheduleEventTriggerRetryJob } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
 import { recordTriggerEvaluation } from './eventSchedulerMetrics';
 import { isTriggerPaused, registerTriggerFailure, registerTriggerSuccess } from './eventSchedulerState';
+import { computeNextAttemptTimestamp } from '@apphub/shared/retries/backoff';
+import { getWorkflowEventById } from './workflowEvents';
 
 const liquid = new Liquid({ cache: false, strictFilters: false, strictVariables: false });
+
+const TRIGGER_RETRY_BACKOFF = {
+  baseMs: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_BASE_MS, 10_000),
+  factor: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_FACTOR, 2),
+  maxMs: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_MAX_MS, 15 * 60_000),
+  jitterRatio: normalizeRatio(process.env.EVENT_TRIGGER_RETRY_JITTER_RATIO, 0.2)
+} as const;
+
+function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed >= minimum ? parsed : fallback;
+}
+
+function normalizeRatio(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, 0), 1);
+}
+
+function computeNextTriggerAttemptTimestamp(
+  attempts: number,
+  throttledUntil: string | null | undefined,
+  now: Date = new Date()
+): string {
+  const backoffAt = computeNextAttemptTimestamp(attempts, TRIGGER_RETRY_BACKOFF, now);
+  if (!throttledUntil) {
+    return backoffAt;
+  }
+  const throttleTs = Date.parse(throttledUntil);
+  const backoffTs = Date.parse(backoffAt);
+  if (Number.isNaN(throttleTs)) {
+    return backoffAt;
+  }
+  if (Number.isNaN(backoffTs)) {
+    return new Date(Math.max(throttleTs, now.getTime())).toISOString();
+  }
+  return new Date(Math.max(throttleTs, backoffTs)).toISOString();
+}
+
+function workflowEventRecordToEnvelope(record: WorkflowEventRecord): EventEnvelope {
+  const metadata =
+    record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+      ? (record.metadata as Record<string, JsonValue>)
+      : undefined;
+
+  return {
+    id: record.id,
+    type: record.type,
+    source: record.source,
+    occurredAt: record.occurredAt,
+    payload: (record.payload as JsonValue) ?? {},
+    correlationId: record.correlationId ?? undefined,
+    ttl: record.ttlMs ?? undefined,
+    metadata
+  } satisfies EventEnvelope;
+}
 
 function evaluatePredicate(predicate: WorkflowEventTriggerPredicate, event: EventEnvelope): boolean {
   const results = JSONPath({ path: predicate.path, json: event, wrap: true }) as JsonValue[];
@@ -259,11 +333,16 @@ function normalizeDedupeKey(raw: string | null): string | null {
 async function handleThrottle(
   trigger: WorkflowEventTriggerRecord,
   windowMs: number,
-  maxCount: number
+  maxCount: number,
+  excludeDeliveryId?: string | null
 ): Promise<{ throttled: boolean; until: string | null }> {
   const now = new Date();
   const since = new Date(now.getTime() - windowMs).toISOString();
-  const count = await countRecentWorkflowTriggerDeliveries(trigger.id, since);
+  const count = await countRecentWorkflowTriggerDeliveries(
+    trigger.id,
+    since,
+    excludeDeliveryId ?? undefined
+  );
   if (count >= maxCount) {
     return { throttled: true, until: new Date(now.getTime() + windowMs).toISOString() };
   }
@@ -301,17 +380,96 @@ async function createDeliveryRecord(
   });
 }
 
+async function scheduleTriggerRetry(
+  trigger: WorkflowEventTriggerRecord,
+  delivery: WorkflowTriggerDeliveryRecord,
+  reason: string,
+  throttledUntil?: string | null
+): Promise<void> {
+  const attempts = (delivery.retryAttempts ?? 0) + 1;
+  const nextAttemptAt = computeNextTriggerAttemptTimestamp(
+    attempts,
+    throttledUntil ?? delivery.throttledUntil ?? null
+  );
+
+  const metadata: Record<string, JsonValue> = {
+    reason,
+    throttledUntil: throttledUntil ?? delivery.throttledUntil ?? null
+  };
+
+  const updated = await updateWorkflowTriggerDelivery(delivery.id, {
+    retryState: 'scheduled',
+    retryAttempts: attempts,
+    nextAttemptAt,
+    throttledUntil: throttledUntil ?? delivery.throttledUntil ?? null,
+    retryMetadata: metadata
+  });
+
+  const effective = updated ?? {
+    ...delivery,
+    retryAttempts: attempts,
+    nextAttemptAt,
+    throttledUntil: throttledUntil ?? delivery.throttledUntil ?? null,
+    retryState: 'scheduled',
+    retryMetadata: metadata as JsonValue
+  } satisfies WorkflowTriggerDeliveryRecord;
+
+  await scheduleEventTriggerRetryJob(effective.id, effective.eventId, nextAttemptAt, effective.retryAttempts);
+
+  logger.info(
+    'Scheduled trigger delivery retry',
+    normalizeMeta({
+      triggerId: trigger.id,
+      workflowDefinitionId: trigger.workflowDefinitionId,
+      deliveryId: delivery.id,
+      attempts: effective.retryAttempts,
+      nextAttemptAt,
+      throttledUntil: metadata.throttledUntil,
+      reason
+    })
+  );
+}
+
 async function processTrigger(
   trigger: WorkflowEventTriggerRecord,
-  event: EventEnvelope
+  event: EventEnvelope,
+  options: { existingDelivery?: WorkflowTriggerDeliveryRecord } = {}
 ): Promise<void> {
+  let currentDelivery = options.existingDelivery ?? null;
+
+  if (currentDelivery) {
+    const cleared = await updateWorkflowTriggerDelivery(currentDelivery.id, {
+      retryState: 'pending',
+      nextAttemptAt: null,
+      retryMetadata: null
+    });
+    currentDelivery = cleared ?? {
+      ...currentDelivery,
+      retryState: 'pending',
+      nextAttemptAt: null,
+      retryMetadata: null
+    };
+  }
+
   const context = buildTriggerContext(trigger, event);
   const pauseState = await isTriggerPaused(trigger.id);
   if (pauseState.paused) {
-    await createDeliveryRecord(trigger, event, 'skipped', {
-      dedupeKey: null,
-      lastError: `Trigger paused until ${pauseState.until ?? 'unspecified'}`
-    });
+    if (currentDelivery) {
+      await updateWorkflowTriggerDelivery(currentDelivery.id, {
+        status: 'skipped',
+        lastError: `Trigger paused until ${pauseState.until ?? 'unspecified'}`,
+        retryState: 'cancelled',
+        retryMetadata: {
+          reason: 'trigger_paused',
+          resumeAt: pauseState.until ?? null
+        }
+      });
+    } else {
+      await createDeliveryRecord(trigger, event, 'skipped', {
+        dedupeKey: null,
+        lastError: `Trigger paused until ${pauseState.until ?? 'unspecified'}`
+      });
+    }
     await recordTriggerEvaluation(trigger, 'paused');
     return;
   }
@@ -324,13 +482,13 @@ async function processTrigger(
     return;
   }
 
-  let dedupeKey: string | null = null;
-  if (trigger.idempotencyKeyExpression) {
+  let dedupeKey: string | null = currentDelivery?.dedupeKey ?? null;
+  if (!currentDelivery && trigger.idempotencyKeyExpression) {
     const rendered = await renderStringTemplate(trigger.idempotencyKeyExpression, context);
     dedupeKey = normalizeDedupeKey(rendered);
   }
 
-  if (dedupeKey) {
+  if (!currentDelivery && dedupeKey) {
     const existing = await findWorkflowTriggerDeliveryByDedupeKey(trigger.id, dedupeKey);
     if (existing && ['pending', 'matched', 'launched'].includes(existing.status)) {
       await createDeliveryRecord(trigger, event, 'skipped', {
@@ -344,33 +502,88 @@ async function processTrigger(
     }
   }
 
+  const excludeDeliveryId = currentDelivery?.id ?? null;
+
   if (trigger.throttleWindowMs && trigger.throttleCount) {
     const { throttled, until } = await handleThrottle(
       trigger,
       trigger.throttleWindowMs,
-      trigger.throttleCount
+      trigger.throttleCount,
+      excludeDeliveryId
     );
     if (throttled) {
-      await createDeliveryRecord(trigger, event, 'throttled', {
-        dedupeKey,
-        throttledUntil: until,
-        lastError: 'Throttle window exceeded'
-      });
+      let deliveryRecord = currentDelivery;
+      if (!deliveryRecord) {
+        deliveryRecord = await createDeliveryRecord(trigger, event, 'throttled', {
+          dedupeKey,
+          throttledUntil: until,
+          lastError: 'Throttle window exceeded'
+        });
+      } else {
+        const updated = await updateWorkflowTriggerDelivery(deliveryRecord.id, {
+          status: 'throttled',
+          throttledUntil: until ?? null,
+          lastError: 'Throttle window exceeded'
+        });
+        deliveryRecord = updated ?? {
+          ...deliveryRecord,
+          status: 'throttled',
+          throttledUntil: until ?? null,
+          lastError: 'Throttle window exceeded'
+        };
+      }
+
+      await scheduleTriggerRetry(trigger, deliveryRecord, 'throttle_window', until ?? null);
       await recordTriggerEvaluation(trigger, 'throttled');
       return;
     }
   }
 
   if (trigger.maxConcurrency && (await handleConcurrency(trigger, trigger.maxConcurrency))) {
-    await createDeliveryRecord(trigger, event, 'throttled', {
-      dedupeKey,
-      lastError: 'Max concurrency reached'
-    });
+    let deliveryRecord = currentDelivery;
+    if (!deliveryRecord) {
+      deliveryRecord = await createDeliveryRecord(trigger, event, 'throttled', {
+        dedupeKey,
+        lastError: 'Max concurrency reached'
+      });
+    } else {
+      const updated = await updateWorkflowTriggerDelivery(deliveryRecord.id, {
+        status: 'throttled',
+        lastError: 'Max concurrency reached'
+      });
+      deliveryRecord = updated ?? {
+        ...deliveryRecord,
+        status: 'throttled',
+        lastError: 'Max concurrency reached'
+      };
+    }
+
+    await scheduleTriggerRetry(trigger, deliveryRecord, 'max_concurrency', null);
     await recordTriggerEvaluation(trigger, 'throttled');
     return;
   }
 
-  const delivery = await createDeliveryRecord(trigger, event, 'matched', { dedupeKey });
+  let delivery = currentDelivery;
+  if (!delivery) {
+    delivery = await createDeliveryRecord(trigger, event, 'matched', { dedupeKey });
+  } else {
+    const updated = await updateWorkflowTriggerDelivery(delivery.id, {
+      status: 'matched',
+      dedupeKey,
+      nextAttemptAt: null,
+      retryState: 'pending',
+      retryMetadata: null
+    });
+    delivery = updated ?? {
+      ...delivery,
+      status: 'matched',
+      dedupeKey,
+      nextAttemptAt: null,
+      retryState: 'pending',
+      retryMetadata: null
+    };
+  }
+
   await recordTriggerEvaluation(trigger, 'matched');
 
   try {
@@ -397,7 +610,10 @@ async function processTrigger(
     await updateWorkflowTriggerDelivery(delivery.id, {
       status: 'launched',
       workflowRunId: run.id,
-      lastError: null
+      lastError: null,
+      retryState: 'pending',
+      retryMetadata: null,
+      nextAttemptAt: null
     });
 
     await enqueueWorkflowRun(run.id);
@@ -407,7 +623,10 @@ async function processTrigger(
     const message = err instanceof Error ? err.message : String(err);
     await updateWorkflowTriggerDelivery(delivery.id, {
       status: 'failed',
-      lastError: message
+      lastError: message,
+      retryState: 'pending',
+      retryMetadata: null,
+      nextAttemptAt: null
     });
     await recordTriggerEvaluation(trigger, 'failed', { error: message });
     const pauseOutcome = await registerTriggerFailure(trigger.id, message);
@@ -447,4 +666,106 @@ export async function processEventTriggersForEnvelope(envelope: EventEnvelope): 
       );
     }
   }
+}
+
+export async function retryWorkflowTriggerDelivery(deliveryId: string): Promise<void> {
+  const delivery = await getWorkflowTriggerDeliveryById(deliveryId);
+  if (!delivery) {
+    logger.warn('Trigger delivery not found for retry', normalizeMeta({ deliveryId }));
+    return;
+  }
+
+  if (delivery.retryState === 'cancelled') {
+    logger.info('Trigger delivery retry cancelled; skipping', normalizeMeta({ deliveryId }));
+    return;
+  }
+
+  const trigger = await getWorkflowEventTriggerById(delivery.triggerId);
+  if (!trigger) {
+    await updateWorkflowTriggerDelivery(delivery.id, {
+      status: 'failed',
+      lastError: 'Trigger definition not found',
+      retryState: 'cancelled',
+      retryMetadata: {
+        reason: 'missing_trigger'
+      },
+      nextAttemptAt: null
+    });
+    logger.warn('Trigger definition missing during retry', normalizeMeta({ deliveryId, triggerId: delivery.triggerId }));
+    return;
+  }
+
+  if (trigger.status !== 'active') {
+    await updateWorkflowTriggerDelivery(delivery.id, {
+      status: 'skipped',
+      lastError: 'Trigger is not active',
+      retryState: 'cancelled',
+      retryMetadata: {
+        reason: 'trigger_inactive'
+      },
+      nextAttemptAt: null
+    });
+    logger.info('Trigger inactive; cancelling retry', normalizeMeta({ deliveryId, triggerId: delivery.triggerId }));
+    return;
+  }
+
+  const eventRecord = await getWorkflowEventById(delivery.eventId);
+  if (!eventRecord) {
+    await updateWorkflowTriggerDelivery(delivery.id, {
+      status: 'failed',
+      lastError: 'Event payload not found',
+      retryState: 'cancelled',
+      retryMetadata: {
+        reason: 'missing_event'
+      },
+      nextAttemptAt: null
+    });
+    logger.warn('Event payload missing during trigger retry', normalizeMeta({ deliveryId, eventId: delivery.eventId }));
+    return;
+  }
+
+  const envelope = workflowEventRecordToEnvelope(eventRecord);
+
+  try {
+    await processTrigger(trigger, envelope, { existingDelivery: delivery });
+  } catch (err) {
+    logger.error(
+      'Trigger retry processing failed',
+      normalizeMeta({
+        deliveryId,
+        triggerId: trigger.id,
+        workflowDefinitionId: trigger.workflowDefinitionId,
+        eventId: envelope.id,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    );
+    throw err;
+  }
+}
+
+export async function reconcileScheduledTriggerRetries(): Promise<void> {
+  const scheduled = await listScheduledWorkflowTriggerDeliveries();
+  if (scheduled.length === 0) {
+    return;
+  }
+
+  for (const delivery of scheduled) {
+    const runAt = delivery.nextAttemptAt ?? new Date().toISOString();
+    try {
+      await scheduleEventTriggerRetryJob(delivery.id, delivery.eventId, runAt, delivery.retryAttempts ?? 0);
+    } catch (err) {
+      logger.error(
+        'Failed to requeue scheduled trigger retry',
+        normalizeMeta({
+          deliveryId: delivery.id,
+          triggerId: delivery.triggerId,
+          eventId: delivery.eventId,
+          nextAttemptAt: runAt,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      );
+    }
+  }
+
+  logger.info('Reconciled scheduled trigger retries', normalizeMeta({ count: scheduled.length }));
 }

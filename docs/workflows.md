@@ -96,5 +96,6 @@ The retry durability work ships in stages. This ticket introduces the shared per
 - `workflow_trigger_deliveries` now stores `retry_state`, `retry_attempts`, and `retry_metadata` so throttled deliveries can be rescheduled without dropping the original context.
 - `workflow_run_steps` captures `next_attempt_at`, `retry_state`, `retry_attempts`, and `retry_metadata` to let workflow orchestration persist retry plans across process restarts.
 - A new `event_ingress_retries` table tracks source-level throttles with `retry_state`, `attempts`, and `next_attempt_at` timestamps. Workers will rely on this table to reconcile BullMQ jobs.
+- Retry backoff timings are configurable via `EVENT_TRIGGER_RETRY_BASE_MS`, `EVENT_TRIGGER_RETRY_FACTOR`, `EVENT_TRIGGER_RETRY_MAX_MS`, and `EVENT_TRIGGER_RETRY_JITTER_RATIO` for trigger deliveries (plus analogous `EVENT_RETRY_*` variables for source retries).
 
 Apply the accompanying migration before enabling any runtime changes. Future tickets will wire these columns into the scheduler, workflow orchestrator, and UI workflows.

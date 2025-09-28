@@ -31,10 +31,14 @@ export const EVENT_QUEUE_NAME = process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_E
 export const EVENT_TRIGGER_QUEUE_NAME =
   process.env.APPHUB_EVENT_TRIGGER_QUEUE_NAME ?? 'apphub_event_trigger_queue';
 export const EVENT_TRIGGER_JOB_NAME = 'apphub.event.trigger';
+export const EVENT_TRIGGER_RETRY_JOB_NAME = 'apphub.event.trigger.retry';
 export const EVENT_RETRY_JOB_NAME = 'apphub.event.retry';
 
 export type EventTriggerJobData = {
-  envelope: EventEnvelope;
+  envelope?: EventEnvelope;
+  deliveryId?: string;
+  eventId?: string;
+  retryKind?: 'trigger';
 };
 
 const QUEUE_KEYS = {
@@ -275,6 +279,42 @@ export async function scheduleEventRetryJob(
       {
         delay: computeDelayMs(runAtIso),
         jobId: `event-retry:${eventId}:${attempt}`,
+        removeOnComplete: 100,
+        removeOnFail: 100
+      }
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('jobId already exists')) {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function scheduleEventTriggerRetryJob(
+  deliveryId: string,
+  eventId: string,
+  runAtIso: string,
+  attempt: number
+): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    console.warn('[event-trigger-retry] Inline mode active; skipping retry scheduling', {
+      deliveryId,
+      eventId,
+      runAtIso
+    });
+    return;
+  }
+
+  const queue = queueManager.getQueue<EventTriggerJobData>(QUEUE_KEYS.eventTrigger);
+
+  try {
+    await queue.add(
+      EVENT_TRIGGER_RETRY_JOB_NAME,
+      { deliveryId, eventId, retryKind: 'trigger' },
+      {
+        delay: computeDelayMs(runAtIso),
+        jobId: `event-trigger-retry:${deliveryId}:${attempt}`,
         removeOnComplete: 100,
         removeOnFail: 100
       }

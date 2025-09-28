@@ -2244,6 +2244,9 @@ export async function createWorkflowTriggerDelivery(
          dedupe_key,
          next_attempt_at,
          throttled_until,
+         retry_state,
+         retry_attempts,
+         retry_metadata,
          created_at,
          updated_at
        ) VALUES (
@@ -2258,6 +2261,9 @@ export async function createWorkflowTriggerDelivery(
          $9,
          $10,
          $11,
+         $12,
+         $13,
+         $14::jsonb,
          NOW(),
          NOW()
        )
@@ -2273,7 +2279,10 @@ export async function createWorkflowTriggerDelivery(
         input.workflowRunId ?? null,
         input.dedupeKey ?? null,
         input.nextAttemptAt ?? null,
-        input.throttledUntil ?? null
+        input.throttledUntil ?? null,
+        input.retryState ?? 'pending',
+        input.retryAttempts ?? 0,
+        serializeJson(input.retryMetadata)
       ]
     )
   );
@@ -2416,6 +2425,23 @@ export async function listWorkflowTriggerDeliveries(
   return rows.map(mapWorkflowTriggerDeliveryRow);
 }
 
+export async function listScheduledWorkflowTriggerDeliveries(
+  limit = 200
+): Promise<WorkflowTriggerDeliveryRecord[]> {
+  const bounded = Math.max(1, Math.min(limit, 500));
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowTriggerDeliveryRow>(
+      `SELECT *
+         FROM workflow_trigger_deliveries
+        WHERE retry_state = 'scheduled'
+        ORDER BY next_attempt_at ASC NULLS LAST
+        LIMIT $1`,
+      [bounded]
+    )
+  );
+  return rows.map(mapWorkflowTriggerDeliveryRow);
+}
+
 export async function listWorkflowTriggerDeliveriesForWorkflow(
   workflowDefinitionId: string,
   options: { from: string; to: string; limit?: number; statuses?: string[] }
@@ -2447,17 +2473,23 @@ export async function listWorkflowTriggerDeliveriesForWorkflow(
 
 export async function countRecentWorkflowTriggerDeliveries(
   triggerId: string,
-  sinceIso: string
+  sinceIso: string,
+  excludeDeliveryId?: string | null
 ): Promise<number> {
+  const params: unknown[] = [triggerId, sinceIso];
+  let query = `SELECT COUNT(*)::text AS count
+                 FROM workflow_trigger_deliveries
+                WHERE trigger_id = $1
+                  AND created_at >= $2
+                  AND status IN ('pending', 'matched', 'launched', 'throttled')`;
+
+  if (excludeDeliveryId) {
+    query += ' AND id <> $3';
+    params.push(excludeDeliveryId);
+  }
+
   const { rows } = await useConnection((client) =>
-    client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-         FROM workflow_trigger_deliveries
-        WHERE trigger_id = $1
-          AND created_at >= $2
-          AND status IN ('pending', 'matched', 'launched', 'throttled')`,
-      [triggerId, sinceIso]
-    )
+    client.query<{ count: string }>(query, params)
   );
   return rows.length > 0 ? Number.parseInt(rows[0].count, 10) : 0;
 }

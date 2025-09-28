@@ -3,21 +3,22 @@ import type { EventEnvelope } from '@apphub/event-bus';
 import {
   EVENT_TRIGGER_JOB_NAME,
   EVENT_TRIGGER_QUEUE_NAME,
+  EVENT_TRIGGER_RETRY_JOB_NAME,
   closeQueueConnection,
   getQueueConnection,
   isInlineQueueMode,
   type EventTriggerJobData
 } from './queue';
-import { processEventTriggersForEnvelope } from './eventTriggerProcessor';
+import {
+  processEventTriggersForEnvelope,
+  reconcileScheduledTriggerRetries,
+  retryWorkflowTriggerDelivery
+} from './eventTriggerProcessor';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
 
 const inlineMode = isInlineQueueMode();
 const EVENT_TRIGGER_WORKER_CONCURRENCY = Number(process.env.EVENT_TRIGGER_CONCURRENCY ?? 5);
-
-async function processJob(data: EventTriggerJobData): Promise<void> {
-  await processEventTriggersForEnvelope(data.envelope as EventEnvelope);
-}
 
 async function runInlineMode(): Promise<void> {
   logger.info('Event trigger worker running in inline mode; jobs execute synchronously');
@@ -29,7 +30,26 @@ async function runQueuedWorker(): Promise<void> {
     EVENT_TRIGGER_QUEUE_NAME,
     async (job) => {
       try {
-        await processJob(job.data);
+        if (job.name === EVENT_TRIGGER_RETRY_JOB_NAME || job.data.retryKind === 'trigger') {
+          const deliveryId = job.data.deliveryId;
+          if (!deliveryId) {
+            logger.warn(
+              'Trigger retry job missing deliveryId',
+              normalizeMeta({ jobId: job.id })
+            );
+            return;
+          }
+          await retryWorkflowTriggerDelivery(deliveryId);
+          return;
+        }
+
+        const envelope = job.data.envelope;
+        if (!envelope) {
+          logger.warn('Trigger job missing envelope payload', normalizeMeta({ jobId: job.id }));
+          return;
+        }
+
+        await processEventTriggersForEnvelope(envelope as EventEnvelope);
       } catch (err) {
         logger.error(
           'Workflow event trigger job failed',
@@ -56,6 +76,7 @@ async function runQueuedWorker(): Promise<void> {
   });
 
   await worker.waitUntilReady();
+  await reconcileScheduledTriggerRetries();
   logger.info(
     'Event trigger worker ready',
     normalizeMeta({ queue: EVENT_TRIGGER_QUEUE_NAME, concurrency: EVENT_TRIGGER_WORKER_CONCURRENCY })
