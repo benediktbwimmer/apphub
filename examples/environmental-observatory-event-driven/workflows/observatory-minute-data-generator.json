@@ -68,7 +68,10 @@
     "stagingPrefix": "datasets/observatory/staging",
     "archivePrefix": "datasets/observatory/archive",
     "filestorePrincipal": "observatory-data-generator",
-    "filestoreToken": null
+    "filestoreToken": null,
+    "metastoreBaseUrl": null,
+    "metastoreNamespace": "observatory.ingest",
+    "metastoreAuthToken": null
   },
   "steps": [
     {
@@ -85,10 +88,13 @@
         "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
         "filestoreToken": "{{ parameters.filestoreToken }}",
         "inboxPrefix": "{{ parameters.inboxPrefix }}",
-        "stagingPrefix": "{{ parameters.stagingPrefix }}",
-        "archivePrefix": "{{ parameters.archivePrefix }}",
-        "principal": "{{ parameters.filestorePrincipal }}"
-      },
+              "stagingPrefix": "{{ parameters.stagingPrefix }}",
+              "archivePrefix": "{{ parameters.archivePrefix }}",
+              "principal": "{{ parameters.filestorePrincipal }}",
+              "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+              "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+              "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}"
+            },
       "storeResultAs": "syntheticDrop",
       "produces": [
         {
@@ -189,7 +195,10 @@
             "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
             "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
             "archivePrefix": "{{ defaultParameters.archivePrefix }}",
-            "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}"
+            "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}",
+            "metastoreBaseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+            "metastoreNamespace": "{{ defaultParameters.metastoreNamespace }}",
+            "metastoreAuthToken": "{{ defaultParameters.metastoreAuthToken }}"
           }
         }
       ]

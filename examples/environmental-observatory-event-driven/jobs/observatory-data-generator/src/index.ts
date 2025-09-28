@@ -36,6 +36,9 @@ type ObservatoryGeneratorParameters = {
   stagingPrefix: string;
   archivePrefix: string;
   principal?: string;
+  metastoreBaseUrl?: string;
+  metastoreNamespace?: string;
+  metastoreAuthToken?: string;
 };
 
 type GeneratedFileSummary = {
@@ -59,6 +62,14 @@ type GeneratorAssetPayload = {
   filestoreBackendId: number;
   minuteKey: string;
 };
+
+type MetastoreConfig = {
+  baseUrl: string;
+  namespace: string;
+  authToken?: string;
+};
+
+const INGEST_RECORD_TYPE = 'observatory.ingest.file';
 
 const DEFAULT_PROFILES: InstrumentProfile[] = [
   {
@@ -116,6 +127,56 @@ function ensureNumber(value: unknown, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function sanitizeRecordKey(value: string): string {
+  return value ? value.replace(/[^0-9A-Za-z._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '') : '';
+}
+
+function toMetastoreConfig(parameters: ObservatoryGeneratorParameters): MetastoreConfig | null {
+  if (!parameters.metastoreBaseUrl) {
+    return null;
+  }
+  const namespace = parameters.metastoreNamespace?.trim() || 'observatory.ingest';
+  return {
+    baseUrl: normalizeBaseUrl(parameters.metastoreBaseUrl),
+    namespace,
+    authToken: parameters.metastoreAuthToken?.trim() || undefined
+  } satisfies MetastoreConfig;
+}
+
+async function upsertMetastoreRecord(
+  config: MetastoreConfig,
+  key: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  const recordKey = sanitizeRecordKey(key);
+  if (!recordKey) {
+    throw new Error('Metastore record key must not be empty');
+  }
+
+  const url = `${config.baseUrl}/records/${encodeURIComponent(config.namespace)}/${encodeURIComponent(recordKey)}`;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json'
+  };
+  if (config.authToken) {
+    headers.authorization = `Bearer ${config.authToken}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ metadata })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to upsert metastore record ${config.namespace}/${recordKey}: ${errorText}`);
+  }
 }
 
 function sliceIsoMinute(value: string): string | null {
@@ -310,6 +371,30 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     'observatory-data-generator'
   );
 
+  const metastoreBaseUrl = ensureString(
+    raw.metastoreBaseUrl ??
+      raw.metastore_base_url ??
+      process.env.OBSERVATORY_METASTORE_BASE_URL ??
+      process.env.METASTORE_BASE_URL,
+    ''
+  );
+
+  const metastoreNamespace = ensureString(
+    raw.metastoreNamespace ??
+      raw.metastore_namespace ??
+      process.env.OBSERVATORY_METASTORE_INGEST_NAMESPACE ??
+      process.env.OBSERVATORY_METASTORE_NAMESPACE ??
+      'observatory.ingest'
+  );
+
+  const metastoreAuthToken = ensureString(
+    raw.metastoreAuthToken ??
+      raw.metastore_auth_token ??
+      process.env.OBSERVATORY_METASTORE_TOKEN ??
+      process.env.METASTORE_AUTH_TOKEN,
+    ''
+  );
+
   return {
     minute,
     rowsPerInstrument,
@@ -322,7 +407,10 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     inboxPrefix,
     stagingPrefix,
     archivePrefix,
-    principal: principal || undefined
+    principal: principal || undefined,
+    metastoreBaseUrl: metastoreBaseUrl ? normalizeBaseUrl(metastoreBaseUrl) : undefined,
+    metastoreNamespace: (metastoreNamespace || 'observatory.ingest').trim() || 'observatory.ingest',
+    metastoreAuthToken: metastoreAuthToken || undefined
   } satisfies ObservatoryGeneratorParameters;
 }
 
@@ -413,6 +501,7 @@ function buildCsvContent(
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const { stamp, startDate } = parseMinute(parameters.minute);
+  const metastoreConfig = toMetastoreConfig(parameters);
 
   const filestoreClient = new FilestoreClient({
     baseUrl: parameters.filestoreBaseUrl,
@@ -461,7 +550,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       rng
     );
     const filestorePath = `${normalizedInboxPrefix}/${fileName}`;
-    await filestoreClient.uploadFile({
+    const uploadResult = await filestoreClient.uploadFile({
       backendMountId: parameters.filestoreBackendId,
       path: filestorePath,
       content,
@@ -478,6 +567,23 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         lastTimestamp: metrics.lastTimestamp
       }
     });
+    const nodeId = uploadResult.node?.id ?? null;
+    const createdAt = new Date().toISOString();
+    if (metastoreConfig) {
+      const metadata: Record<string, unknown> = {
+        type: INGEST_RECORD_TYPE,
+        status: 'pending',
+        minute: parameters.minute,
+        minuteKey: sanitizedMinuteKey,
+        instrumentId: profile.instrumentId,
+        site: profile.site,
+        rows: metrics.rows,
+        filestorePath,
+        nodeId,
+        createdAt
+      };
+      await upsertMetastoreRecord(metastoreConfig, filestorePath, metadata);
+    }
     totalRows += metrics.rows;
     summaries.push({
       instrumentId: profile.instrumentId,

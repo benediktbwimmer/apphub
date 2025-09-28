@@ -4,5 +4,5 @@
   "entry": "dist/index.js",
   "runtime": "node18",
   "description": "Produces synthetic minute-level instrument CSVs and uploads them to Filestore.",
-  "capabilities": ["fs"]
+  "capabilities": ["fs", "network"]
 }

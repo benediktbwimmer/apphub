@@ -124,8 +124,8 @@ function parseRawAsset(raw: unknown): RawAsset {
     } satisfies RawAssetSourceFile;
   });
 
-  if (!partitionKey || !minute || !stagingDir || sourceFiles.length === 0) {
-    throw new Error('rawAsset must include partitionKey/minute, stagingDir, and at least one source file');
+  if (!partitionKey || !minute || !stagingDir) {
+    throw new Error('rawAsset must include partitionKey/minute and stagingDir');
   }
 
   return {
@@ -262,6 +262,23 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const allRows: ObservatoryRow[] = [];
   let minTimestamp = '';
   let maxTimestamp = '';
+
+  if (parameters.rawAsset.sourceFiles.length === 0) {
+    context.logger('No source files provided for Timestore ingestion; skipping', {
+      minute: parameters.minute,
+      datasetSlug: parameters.datasetSlug
+    });
+    await context.update({ skipped: true, reason: 'no-source-files' });
+    return {
+      status: 'succeeded',
+      result: {
+        skipped: true,
+        rowsIngested: 0,
+        datasetSlug: parameters.datasetSlug,
+        minute: parameters.minute
+      }
+    } satisfies JobRunResult;
+  }
 
   for (const source of parameters.rawAsset.sourceFiles) {
     const { rows, minTimestamp: localMin, maxTimestamp: localMax } = await ingestableRowsFromCsv(

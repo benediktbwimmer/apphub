@@ -53,6 +53,15 @@
             },
             "filestorePrincipal": {
               "type": "string"
+            },
+            "metastoreBaseUrl": {
+              "type": "string"
+            },
+            "metastoreNamespace": {
+              "type": "string"
+            },
+            "metastoreAuthToken": {
+              "type": "string"
             }
           },
           "required": [
@@ -73,7 +82,10 @@
           "stagingPrefix": "datasets/observatory/staging",
           "archivePrefix": "datasets/observatory/archive",
           "filestorePrincipal": "observatory-data-generator",
-          "filestoreToken": null
+          "filestoreToken": null,
+          "metastoreBaseUrl": null,
+          "metastoreNamespace": "observatory.ingest",
+          "metastoreAuthToken": null
         },
         "steps": [
           {
@@ -92,7 +104,10 @@
               "inboxPrefix": "{{ parameters.inboxPrefix }}",
               "stagingPrefix": "{{ parameters.stagingPrefix }}",
               "archivePrefix": "{{ parameters.archivePrefix }}",
-              "principal": "{{ parameters.filestorePrincipal }}"
+              "principal": "{{ parameters.filestorePrincipal }}",
+              "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+              "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+              "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}"
             },
             "storeResultAs": "syntheticDrop",
             "produces": [
@@ -294,7 +309,7 @@
           ]
         },
         "defaultParameters": {
-          "maxFiles": 64,
+          "maxFiles": 1000,
           "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
           "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
           "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -309,7 +324,10 @@
           "timestoreTableName": "observations",
           "filestoreToken": null,
           "timestoreStorageTargetId": null,
-          "timestoreAuthToken": null
+          "timestoreAuthToken": null,
+          "metastoreBaseUrl": null,
+          "metastoreNamespace": "observatory.ingest",
+          "metastoreAuthToken": null
         },
         "steps": [
           {
@@ -329,7 +347,10 @@
               "stagingPrefix": "{{ parameters.stagingPrefix }}",
               "archivePrefix": "{{ parameters.archivePrefix }}",
               "commandPath": "{{ parameters.commandPath }}",
-              "principal": "{{ parameters.filestorePrincipal }}"
+              "principal": "{{ parameters.filestorePrincipal }}",
+              "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+              "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+              "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}"
             },
             "storeResultAs": "normalizedOutput",
             "produces": [
@@ -519,7 +540,10 @@
                   "timestoreDatasetName": "{{ trigger.metadata.timestore.datasetName }}",
                   "timestoreTableName": "{{ trigger.metadata.timestore.tableName }}",
                   "timestoreStorageTargetId": "{{ trigger.metadata.timestore.storageTargetId }}",
-                  "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}"
+                  "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
+                  "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
+                  "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
+                  "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
                 },
                 "metadata": {
                   "maxFiles": "{{ defaultParameters.maxFiles }}",
@@ -543,12 +567,17 @@
                     "tableName": "{{ defaultParameters.timestoreTableName }}",
                     "storageTargetId": "{{ defaultParameters.timestoreStorageTargetId }}",
                     "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+                  },
+                  "metastore": {
+                    "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+                    "namespace": "{{ defaultParameters.metastoreNamespace }}",
+                    "authToken": "{{ defaultParameters.metastoreAuthToken }}"
                   }
                 },
                 "throttleWindowMs": 60000,
                 "throttleCount": 1,
                 "maxConcurrency": 1,
-                "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute | replace: \":\", \"-\" }}",
+                "idempotencyKeyExpression": "{{ event.payload.path | replace: '/', '_' | replace: ':', '-' }}",
                 "status": "active"
               }
             ]

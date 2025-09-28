@@ -28,7 +28,7 @@
     ]
   },
   "defaultParameters": {
-    "maxFiles": 64,
+    "maxFiles": 1000,
     "inboxDir": "examples/environmental-observatory/data/inbox",
     "stagingDir": "examples/environmental-observatory/data/staging",
     "archiveDir": "examples/environmental-observatory/data/archive",

@@ -119,8 +119,8 @@ async function main(): Promise<void> {
     throw new Error('Catalog API token missing. Set catalog.apiToken in the observatory config.');
   }
 
-  const ingestMetadata = {
-    maxFiles: 64,
+  const ingestMetadata: Record<string, unknown> = {
+    maxFiles: 1000,
     paths: {
       stagingDir: config.paths.staging,
       archiveDir: config.paths.archive
@@ -142,7 +142,15 @@ async function main(): Promise<void> {
       storageTargetId: config.timestore.storageTargetId ?? null,
       authToken: config.timestore.authToken ?? null
     }
-  } satisfies Record<string, unknown>;
+  };
+
+  if (config.metastore?.baseUrl) {
+    (ingestMetadata as Record<string, unknown>).metastore = {
+      baseUrl: config.metastore.baseUrl,
+      namespace: config.metastore.namespace ?? 'observatory.ingest',
+      authToken: config.metastore.authToken ?? null
+    } satisfies Record<string, unknown>;
+  }
 
   const ingestTemplate: Record<string, unknown> = {
     minute: '{{ event.payload.node.metadata.minute }}',
@@ -170,6 +178,13 @@ async function main(): Promise<void> {
   }
   if (config.timestore.authToken) {
     ingestTemplate.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+  if (config.metastore?.baseUrl) {
+    ingestTemplate.metastoreBaseUrl = '{{ trigger.metadata.metastore.baseUrl }}';
+    ingestTemplate.metastoreNamespace = '{{ trigger.metadata.metastore.namespace }}';
+  }
+  if (config.metastore?.authToken) {
+    ingestTemplate.metastoreAuthToken = '{{ trigger.metadata.metastore.authToken }}';
   }
 
   const publicationMetadata = {

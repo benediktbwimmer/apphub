@@ -638,6 +638,15 @@
             "principal": {
               "type": "string"
             },
+            "metastoreBaseUrl": {
+              "type": "string"
+            },
+            "metastoreNamespace": {
+              "type": "string"
+            },
+            "metastoreAuthToken": {
+              "type": "string"
+            },
             "instrumentProfiles": {
               "type": "array",
               "items": {
@@ -681,16 +690,19 @@
             "archivePrefix"
           ]
         },
-        "defaultParameters": {
-          "rowsPerInstrument": 6,
-          "intervalMinutes": 10,
-          "filestoreBaseUrl": "http://127.0.0.1:4300",
-          "filestoreBackendId": 1,
-          "inboxPrefix": "datasets/observatory/inbox",
-          "stagingPrefix": "datasets/observatory/staging",
-          "archivePrefix": "datasets/observatory/archive",
-          "principal": "observatory-data-generator"
-        },
+          "defaultParameters": {
+            "rowsPerInstrument": 6,
+            "intervalMinutes": 10,
+            "filestoreBaseUrl": "http://127.0.0.1:4300",
+            "filestoreBackendId": 1,
+            "inboxPrefix": "datasets/observatory/inbox",
+            "stagingPrefix": "datasets/observatory/staging",
+            "archivePrefix": "datasets/observatory/archive",
+            "principal": "observatory-data-generator",
+            "metastoreBaseUrl": null,
+            "metastoreNamespace": "observatory.ingest",
+            "metastoreAuthToken": null
+          },
         "outputSchema": {
           "type": "object",
           "properties": {
@@ -875,6 +887,18 @@
             },
             "principal": {
               "type": "string"
+            },
+            "commandPath": {
+              "type": "string"
+            },
+            "metastoreBaseUrl": {
+              "type": "string"
+            },
+            "metastoreNamespace": {
+              "type": "string"
+            },
+            "metastoreAuthToken": {
+              "type": "string"
             }
           },
           "required": [
@@ -889,7 +913,7 @@
           ]
         },
         "defaultParameters": {
-          "maxFiles": 64,
+          "maxFiles": 1000,
           "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
           "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
           "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -897,7 +921,10 @@
           "inboxPrefix": "datasets/observatory/inbox",
           "stagingPrefix": "datasets/observatory/staging",
           "archivePrefix": "datasets/observatory/archive",
-          "principal": "observatory-inbox-normalizer"
+          "principal": "observatory-inbox-normalizer",
+          "metastoreBaseUrl": null,
+          "metastoreNamespace": "observatory.ingest",
+          "metastoreAuthToken": null
         },
         "outputSchema": {
           "type": "object",

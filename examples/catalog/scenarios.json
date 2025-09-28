@@ -1508,15 +1508,18 @@
                   "intervalMinutes": "{{ defaultParameters.intervalMinutes }}",
                   "filestoreBaseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
                   "filestoreBackendId": "{{ defaultParameters.filestoreBackendId }}",
-                  "filestoreToken": "{{ defaultParameters.filestoreToken }}",
-                  "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
-                  "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
-                  "archivePrefix": "{{ defaultParameters.archivePrefix }}",
-                  "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}"
-                }
+                "filestoreToken": "{{ defaultParameters.filestoreToken }}",
+                "inboxPrefix": "{{ defaultParameters.inboxPrefix }}",
+                "stagingPrefix": "{{ defaultParameters.stagingPrefix }}",
+                "archivePrefix": "{{ defaultParameters.archivePrefix }}",
+                "filestorePrincipal": "{{ defaultParameters.filestorePrincipal }}",
+                "metastoreBaseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+                "metastoreNamespace": "{{ defaultParameters.metastoreNamespace }}",
+                "metastoreAuthToken": "{{ defaultParameters.metastoreAuthToken }}"
               }
-            ]
-          }
+            }
+          ]
+        }
         }
       },
       "includes": [
@@ -1570,7 +1573,7 @@
             "maxFiles": {
               "type": "number",
               "minimum": 1,
-              "maximum": 200
+              "maximum": 2000
             },
             "filestoreBaseUrl": {
               "type": "string",
@@ -1599,6 +1602,15 @@
               "type": "string"
             },
             "commandPath": {
+              "type": "string"
+            },
+            "metastoreBaseUrl": {
+              "type": "string"
+            },
+            "metastoreNamespace": {
+              "type": "string"
+            },
+            "metastoreAuthToken": {
               "type": "string"
             },
             "timestoreBaseUrl": {
@@ -1636,7 +1648,7 @@
           ]
         },
         "defaultParameters": {
-          "maxFiles": 64,
+          "maxFiles": 1000,
           "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
           "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
           "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -1651,7 +1663,10 @@
           "timestoreTableName": "observations",
           "filestoreToken": null,
           "timestoreStorageTargetId": null,
-          "timestoreAuthToken": null
+          "timestoreAuthToken": null,
+          "metastoreBaseUrl": null,
+          "metastoreNamespace": "observatory.ingest",
+          "metastoreAuthToken": null
         },
         "steps": [
           {

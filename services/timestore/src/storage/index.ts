@@ -4,8 +4,6 @@ import { promises as fs } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
 import type { Storage as GoogleStorageCtor, StorageOptions, Bucket } from '@google-cloud/storage';
 import type {
   BlobServiceClient as AzureBlobServiceClientCtor,
@@ -51,9 +49,55 @@ export interface StorageDriver {
 
 type GoogleStorageModule = typeof import('@google-cloud/storage');
 type AzureBlobModule = typeof import('@azure/storage-blob');
+type AwsSdkS3Module = typeof import('@aws-sdk/client-s3');
+type AwsSdkLibStorageModule = typeof import('@aws-sdk/lib-storage');
 
 let cachedGoogleStorageModule: GoogleStorageModule | null = null;
 let cachedAzureBlobModule: AzureBlobModule | null = null;
+let cachedAwsSdkS3Module: AwsSdkS3Module | null = null;
+let cachedAwsSdkLibStorageModule: AwsSdkLibStorageModule | null = null;
+
+type S3ClientConstructor = AwsSdkS3Module['S3Client'];
+type S3ClientInstance = InstanceType<S3ClientConstructor>;
+
+function loadAwsS3Module(): AwsSdkS3Module {
+  if (cachedAwsSdkS3Module) {
+    return cachedAwsSdkS3Module;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@aws-sdk/client-s3') as AwsSdkS3Module;
+    cachedAwsSdkS3Module = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@aws-sdk/client-s3". Install it or remove S3 storage targets.');
+  }
+}
+
+function loadAwsLibStorageModule(): AwsSdkLibStorageModule {
+  if (cachedAwsSdkLibStorageModule) {
+    return cachedAwsSdkLibStorageModule;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    const module = require('@aws-sdk/lib-storage') as AwsSdkLibStorageModule;
+    cachedAwsSdkLibStorageModule = module;
+    return module;
+  } catch (error) {
+    throw new Error('Missing optional dependency "@aws-sdk/lib-storage". Install it or remove S3 storage targets.');
+  }
+}
+
+function loadAwsS3Dependencies() {
+  const s3Module = loadAwsS3Module();
+  const libModule = loadAwsLibStorageModule();
+  return {
+    S3Client: s3Module.S3Client,
+    PutObjectCommand: s3Module.PutObjectCommand,
+    DeleteObjectCommand: s3Module.DeleteObjectCommand,
+    Upload: libModule.Upload
+  };
+}
 
 function loadGoogleStorageModule(): GoogleStorageModule {
   if (cachedGoogleStorageModule) {
@@ -183,9 +227,11 @@ interface S3DriverOptions {
 }
 
 class S3StorageDriver implements StorageDriver {
-  private readonly client: S3Client;
+  private readonly client: S3ClientInstance;
 
   constructor(private readonly options: S3DriverOptions) {
+    const { S3Client } = loadAwsS3Dependencies();
+
     this.client = new S3Client({
       region: options.region ?? 'us-east-1',
       endpoint: options.endpoint,
@@ -204,6 +250,7 @@ class S3StorageDriver implements StorageDriver {
   async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
     if (request.sourceFilePath) {
+      const { Upload, PutObjectCommand } = loadAwsS3Dependencies();
       const stats = await fs.stat(request.sourceFilePath);
       const checksum = await computeFileChecksum(request.sourceFilePath);
 
@@ -248,6 +295,7 @@ class S3StorageDriver implements StorageDriver {
     try {
       await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
       const fileBuffer = await fs.readFile(tempFile);
+      const { PutObjectCommand } = loadAwsS3Dependencies();
       await this.client.send(
         new PutObjectCommand({
           Bucket: this.options.bucket,
@@ -504,6 +552,8 @@ export async function deletePartitionFile(
     const forcePathStyle = typeof target.config.forcePathStyle === 'boolean'
       ? target.config.forcePathStyle
       : config.storage.s3?.forcePathStyle ?? Boolean(endpoint);
+
+    const { S3Client, DeleteObjectCommand } = loadAwsS3Dependencies();
 
     const client = new S3Client({
       region,

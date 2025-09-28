@@ -75,6 +75,10 @@ type ReportAssetPayload = {
 const DEFAULT_METASTORE_NAMESPACE = 'observatory.reports';
 const DEFAULT_METASTORE_BASE_URL = '';
 
+function sanitizeRecordKey(key: string): string {
+  return key ? key.replace(/[^a-zA-Z0-9._-]/g, '-') : '';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -349,8 +353,8 @@ async function upsertMetastoreRecord(
 
   const namespace = params.metastoreNamespace ?? DEFAULT_METASTORE_NAMESPACE;
   const baseUrl = params.metastoreBaseUrl.replace(/\/$/, '');
-  const key = params.partitionKey;
-  const url = `${baseUrl}/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`;
+  const recordKey = sanitizeRecordKey(params.partitionKey);
+  const url = `${baseUrl}/records/${encodeURIComponent(namespace)}/${encodeURIComponent(recordKey)}`;
   const headers: Record<string, string> = {
     'content-type': 'application/json'
   };
@@ -360,6 +364,7 @@ async function upsertMetastoreRecord(
 
   const metadata = {
     partitionKey: params.partitionKey,
+    recordKey,
     generatedAt: payload.generatedAt,
     summary: payload.summary,
     reportFiles: payload.reportFiles,

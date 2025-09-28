@@ -16,14 +16,18 @@
       "stagingDir": { "type": "string", "minLength": 1 },
       "archiveDir": { "type": "string", "minLength": 1 },
       "minute": { "type": "string", "minLength": 1 },
-      "maxFiles": { "type": "number", "minimum": 1, "maximum": 200 },
+      "maxFiles": { "type": "number", "minimum": 1, "maximum": 2000 },
+      "commandPath": { "type": "string" },
       "filestoreBaseUrl": { "type": "string", "minLength": 1 },
       "filestoreBackendId": { "type": "number", "minimum": 1 },
       "filestoreToken": { "type": "string" },
       "inboxPrefix": { "type": "string", "minLength": 1 },
       "stagingPrefix": { "type": "string", "minLength": 1 },
       "archivePrefix": { "type": "string", "minLength": 1 },
-      "principal": { "type": "string" }
+      "principal": { "type": "string" },
+      "metastoreBaseUrl": { "type": "string" },
+      "metastoreNamespace": { "type": "string" },
+      "metastoreAuthToken": { "type": "string" }
     },
     "required": [
       "stagingDir",
@@ -37,7 +41,7 @@
     ]
   },
   "defaultParameters": {
-    "maxFiles": 64,
+    "maxFiles": 1000,
     "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
     "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
     "filestoreBaseUrl": "http://127.0.0.1:4300",
@@ -45,7 +49,10 @@
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",
     "archivePrefix": "datasets/observatory/archive",
-    "principal": "observatory-inbox-normalizer"
+    "principal": "observatory-inbox-normalizer",
+    "metastoreBaseUrl": null,
+    "metastoreNamespace": "observatory.ingest",
+    "metastoreAuthToken": null
   },
   "outputSchema": {
     "type": "object",

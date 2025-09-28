@@ -401,7 +401,8 @@ export async function scheduleWorkflowRetryJob(
   }
 
   const queue = queueManager.getQueue<WorkflowRetryJobData>(QUEUE_KEYS.workflow);
-  const jobId = ['workflow-retry', workflowRunId, stepId ?? 'run', String(attempt)].join(':');
+  const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
+  const jobId = ['workflow-retry', workflowRunId, `${safeStepId}-${attempt}`].join(':');
 
   try {
     await queue.add(
@@ -439,7 +440,8 @@ export async function removeWorkflowRetryJob(
     return;
   }
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
-  const jobId = ['workflow-retry', workflowRunId, stepId ?? 'run', String(safeAttempt)].join(':');
+  const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
+  const jobId = ['workflow-retry', workflowRunId, `${safeStepId}-${safeAttempt}`].join(':');
   try {
     await queue.remove(jobId);
   } catch (err) {

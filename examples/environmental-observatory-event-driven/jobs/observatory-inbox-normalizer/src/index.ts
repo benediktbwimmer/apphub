@@ -33,6 +33,9 @@ type ObservatoryNormalizerParameters = {
   archivePrefix: string;
   principal?: string;
   commandPath?: string;
+  metastoreBaseUrl?: string;
+  metastoreNamespace?: string;
+  metastoreAuthToken?: string;
 };
 
 type SourceFileMetadata = {
@@ -172,6 +175,30 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
 
   const commandPath = ensureString(raw.commandPath ?? raw.command_path ?? '');
 
+  const metastoreBaseUrl = ensureString(
+    raw.metastoreBaseUrl ??
+      raw.metastore_base_url ??
+      process.env.OBSERVATORY_METASTORE_BASE_URL ??
+      process.env.METASTORE_BASE_URL,
+    ''
+  );
+
+  const metastoreNamespace = ensureString(
+    raw.metastoreNamespace ??
+      raw.metastore_namespace ??
+      process.env.OBSERVATORY_METASTORE_INGEST_NAMESPACE ??
+      process.env.OBSERVATORY_METASTORE_NAMESPACE ??
+      'observatory.ingest'
+  );
+
+  const metastoreAuthToken = ensureString(
+    raw.metastoreAuthToken ??
+      raw.metastore_auth_token ??
+      process.env.OBSERVATORY_METASTORE_TOKEN ??
+      process.env.METASTORE_AUTH_TOKEN,
+    ''
+  );
+
   return {
     stagingDir,
     archiveDir,
@@ -184,7 +211,10 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
     stagingPrefix,
     archivePrefix,
     principal: principal || undefined,
-    commandPath: commandPath || undefined
+    commandPath: commandPath || undefined,
+    metastoreBaseUrl: metastoreBaseUrl ? normalizeBaseUrl(metastoreBaseUrl) : undefined,
+    metastoreNamespace: (metastoreNamespace || 'observatory.ingest').trim() || 'observatory.ingest',
+    metastoreAuthToken: metastoreAuthToken || undefined
   } satisfies ObservatoryNormalizerParameters;
 }
 
@@ -224,9 +254,8 @@ async function collectInboxNodes(
   minuteSuffixes: string[]
 ): Promise<FilestoreNodeResponse[]> {
   const matches: FilestoreNodeResponse[] = [];
-  const normalizedParameterMinute = parameters.minute.replace(/:/g, '-');
   let offset: number | undefined = 0;
-  const limit = Math.max(parameters.maxFiles * 2, 50);
+  const limit = Math.min(Math.max(parameters.maxFiles * 2, 50), 200);
   const normalizedPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
 
   while (matches.length < parameters.maxFiles) {
@@ -240,21 +269,7 @@ async function collectInboxNodes(
     });
 
     for (const node of result.nodes) {
-      const filename = node.path.split('/').pop() ?? '';
-      const metadataMinute =
-        node.metadata && typeof node.metadata === 'object'
-          ? (node.metadata as Record<string, unknown>).minute
-          : null;
-      const metadataMinuteIso =
-        node.metadata && typeof node.metadata === 'object'
-          ? (node.metadata as Record<string, unknown>).minuteIso
-          : null;
-      const matchesMinuteMetadata =
-        (typeof metadataMinute === 'string' &&
-          (metadataMinute === parameters.minute || metadataMinute === normalizedParameterMinute)) ||
-        (typeof metadataMinuteIso === 'string' && metadataMinuteIso === parameters.minute);
-      const matchesSuffix = minuteSuffixes.some((suffix) => filename.endsWith(suffix));
-      if (matchesMinuteMetadata || matchesSuffix) {
+      if (nodeMatchesMinute(node, parameters.minute, minuteSuffixes)) {
         matches.push(node);
       }
       if (matches.length >= parameters.maxFiles) {
@@ -307,6 +322,29 @@ type ArchivePlacement = {
   destination: string;
 };
 
+type MetastoreConfig = {
+  baseUrl: string;
+  namespace: string;
+  authToken?: string;
+};
+
+type MetastoreRecord = {
+  metadata: Record<string, unknown>;
+  version: number;
+};
+
+const INGEST_RECORD_TYPE = 'observatory.ingest.file';
+
+function normalizeBaseUrl(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function sanitizeRecordKey(value: string): string {
+  return value
+    ? value.replace(/[^0-9A-Za-z._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '')
+    : '';
+}
+
 function deriveArchivePlacement(
   archiveRoot: string,
   instrumentId: string,
@@ -345,6 +383,140 @@ function deriveArchivePlacement(
   const directory = path.resolve(archiveRoot, sanitizedInstrument, hourSegment);
   const destination = path.resolve(directory, minuteFilename);
   return { directory, destination } satisfies ArchivePlacement;
+}
+
+function toMetastoreConfig(parameters: ObservatoryNormalizerParameters): MetastoreConfig | null {
+  if (!parameters.metastoreBaseUrl) {
+    return null;
+  }
+  const namespace = parameters.metastoreNamespace?.trim() || 'observatory.ingest';
+  return {
+    baseUrl: normalizeBaseUrl(parameters.metastoreBaseUrl),
+    namespace,
+    authToken: parameters.metastoreAuthToken?.trim() || undefined
+  } satisfies MetastoreConfig;
+}
+
+function toRecordMetadata(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
+}
+
+function getRecordStatus(metadata: Record<string, unknown>): string | null {
+  const status = metadata.status;
+  return typeof status === 'string' ? status : null;
+}
+
+async function fetchMetastoreRecord(
+  config: MetastoreConfig,
+  key: string
+): Promise<MetastoreRecord | null> {
+  const recordKey = sanitizeRecordKey(key);
+  if (!recordKey) {
+    return null;
+  }
+
+  const url = `${config.baseUrl}/records/${encodeURIComponent(config.namespace)}/${encodeURIComponent(recordKey)}`;
+  const headers: Record<string, string> = {};
+  if (config.authToken) {
+    headers.authorization = `Bearer ${config.authToken}`;
+  }
+
+  const response = await fetch(url, { headers });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to fetch metastore record ${config.namespace}/${recordKey}: ${errorText}`);
+  }
+
+  const payload = (await response.json()) as {
+    record?: { metadata?: unknown; version?: number } | null;
+  };
+  const metadata = toRecordMetadata(payload.record?.metadata);
+  const versionRaw = payload.record?.version;
+  const version = typeof versionRaw === 'number' && Number.isFinite(versionRaw) ? versionRaw : 0;
+  return { metadata, version } satisfies MetastoreRecord;
+}
+
+async function upsertMetastoreRecord(
+  config: MetastoreConfig,
+  key: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  const recordKey = sanitizeRecordKey(key);
+  if (!recordKey) {
+    throw new Error('Metastore record key must not be empty');
+  }
+
+  const url = `${config.baseUrl}/records/${encodeURIComponent(config.namespace)}/${encodeURIComponent(recordKey)}`;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json'
+  };
+  if (config.authToken) {
+    headers.authorization = `Bearer ${config.authToken}`;
+  }
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ metadata })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to upsert metastore record ${config.namespace}/${recordKey}: ${errorText}`);
+  }
+}
+
+function nodeMatchesMinute(
+  node: FilestoreNodeResponse,
+  minute: string,
+  minuteSuffixes: string[]
+): boolean {
+  const filename = node.path.split('/').pop() ?? '';
+  const metadata =
+    node.metadata && typeof node.metadata === 'object'
+      ? (node.metadata as Record<string, unknown>)
+      : {};
+  const metadataMinute = ensureString(
+    metadata.minute ?? metadata.minuteKey ?? metadata.minute_key ?? metadata.minuteIso ?? metadata.minute_iso
+  );
+  const normalizedMinute = minute.replace(/:/g, '-');
+  if (metadataMinute) {
+    if (metadataMinute === minute || metadataMinute === normalizedMinute) {
+      return true;
+    }
+  }
+  const metadataIso = ensureString(metadata.minuteIso ?? metadata.minute_iso);
+  if (metadataIso && metadataIso === minute) {
+    return true;
+  }
+  return minuteSuffixes.some((suffix) => filename.endsWith(suffix));
+}
+
+async function loadNodeFromCommandPath(
+  client: FilestoreClient,
+  backendMountId: number,
+  commandPath: string,
+  minute: string,
+  minuteSuffixes: string[]
+): Promise<FilestoreNodeResponse | null> {
+  try {
+    const node = await client.getNodeByPath({ backendMountId, path: commandPath });
+    if (nodeMatchesMinute(node, minute, minuteSuffixes)) {
+      return node;
+    }
+    return null;
+  } catch (err) {
+    if (err instanceof FilestoreClientError && err.statusCode === 404) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 type ParsedCsvMetadata = {
@@ -403,6 +575,16 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     } satisfies JobRunResult;
   }
 
+  const metastoreConfig = toMetastoreConfig(parameters);
+  const normalizedCommandPath = parameters.commandPath?.replace(/^\/+/, '') ?? null;
+  const recordKeySource = normalizedCommandPath ?? parameters.minute;
+  const existingRecord =
+    metastoreConfig && normalizedCommandPath
+      ? await fetchMetastoreRecord(metastoreConfig, normalizedCommandPath)
+      : null;
+  const existingMetadata = toRecordMetadata(existingRecord?.metadata);
+  const existingStatus = getRecordStatus(existingMetadata);
+
   const stagingSubdir = parameters.minute.replace(':', '-');
   const stagingMinuteDir = path.resolve(parameters.stagingDir, stagingSubdir);
   await mkdir(parameters.stagingDir, { recursive: true });
@@ -417,122 +599,197 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     parameters.principal
   );
 
-  const inboxNodes = await collectInboxNodes(filestoreClient, parameters, minuteSuffixes);
-  if (inboxNodes.length === 0) {
-    throw new Error(
-      `No inbox files matching minute ${parameters.minute} under ${parameters.inboxPrefix}`
+  let inboxNode: FilestoreNodeResponse | null = null;
+  if (normalizedCommandPath) {
+    inboxNode = await loadNodeFromCommandPath(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      normalizedCommandPath,
+      parameters.minute,
+      minuteSuffixes
     );
+  }
+
+  if (!inboxNode) {
+    const fallbackNodes = await collectInboxNodes(filestoreClient, parameters, minuteSuffixes);
+    inboxNode = fallbackNodes[0] ?? null;
   }
 
   const sourceFiles: SourceFileMetadata[] = [];
   let recordCount = 0;
   const instrumentIds = new Set<string>();
-  const archiveOperations: Array<{ sourcePath: string; archiveDestination: string; localDestination: string }>
-    = [];
+  let normalizedAt = new Date().toISOString();
 
-  for (const node of inboxNodes) {
-    const filename = node.path.split('/').pop() ?? '';
-    const stagingRelativePath = path.join(stagingSubdir, filename);
-    const stagingRelativePosix = stagingRelativePath.split(path.sep).join('/');
-    const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
+  if (!inboxNode) {
+    if (normalizedCommandPath && existingStatus === 'processed') {
+      const rows =
+        typeof existingMetadata.rows === 'number' && Number.isFinite(existingMetadata.rows)
+          ? existingMetadata.rows
+          : 0;
+      const instrumentId = ensureString(existingMetadata.instrumentId);
+      const site = ensureString(existingMetadata.site);
+      const stagingRelative = ensureString(existingMetadata.stagingRelativePath);
+      if (!stagingRelative) {
+        throw new Error(
+          `Metastore record for ${normalizedCommandPath} is missing stagingRelativePath`
+        );
+      }
+      const normalizedRelative = stagingRelative.split(path.sep).join('/');
+      sourceFiles.push({
+        relativePath: normalizedRelative,
+        site,
+        instrumentId,
+        rows
+      });
+      if (instrumentId) {
+        instrumentIds.add(instrumentId);
+      }
+      recordCount = rows;
+      normalizedAt = ensureString(existingMetadata.processedAt) || normalizedAt;
 
-    try {
-      await filestoreClient.copyNode({
-        backendMountId: parameters.filestoreBackendId,
-        path: node.path,
-        targetPath: stagingTargetPath,
-        overwrite: true,
-        principal: parameters.principal
+      const payload: RawAssetPayload = {
+        partitionKey: parameters.minute,
+        minute: parameters.minute,
+        instrumentCount: instrumentIds.size || (instrumentId ? 1 : 0),
+        recordCount,
+        sourceFiles,
+        stagingDir: parameters.stagingDir,
+        stagingMinuteDir,
+        normalizedAt
+      } satisfies RawAssetPayload;
+
+      context.logger('Replaying normalization from metastore record', {
+        minute: parameters.minute,
+        commandPath: normalizedCommandPath,
+        recordCount,
+        instrumentCount: payload.instrumentCount
       });
-    } catch (err) {
-      context.logger('Filestore copy failed', {
-        error: err instanceof FilestoreClientError ? err.message : String(err),
-        code: err instanceof FilestoreClientError ? err.code : undefined,
-        statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
-        details: err instanceof FilestoreClientError ? err.details : undefined,
-        path: node.path,
-        targetPath: stagingTargetPath
+
+      await context.update({
+        filesProcessed: sourceFiles.length,
+        recordCount,
+        filesArchived: sourceFiles.length,
+        replayed: true
       });
-      throw err;
+
+      return {
+        status: 'succeeded',
+        result: {
+          partitionKey: parameters.minute,
+          normalized: payload,
+          assets: [
+            {
+              assetId: 'observatory.timeseries.raw',
+              partitionKey: parameters.minute,
+              producedAt: normalizedAt,
+              payload
+            }
+          ]
+        }
+      } satisfies JobRunResult;
     }
 
-    const metadata =
-      node.metadata && typeof node.metadata === 'object'
-        ? (node.metadata as Record<string, unknown>)
-        : {};
-
-    const inferredInstrumentId = ensureString(metadata.instrumentId ?? metadata.instrument_id)
-      || parseInstrumentId(filename);
-
-    const archivePlacement = deriveArchivePlacement(
-      parameters.archiveDir,
-      inferredInstrumentId,
-      parameters.minute,
-      filename
-    );
-
-    const archiveRelative = path
-      .relative(parameters.archiveDir, archivePlacement.destination)
-      .split(path.sep)
-      .join('/');
-    const normalizedArchivePrefix = parameters.archivePrefix.replace(/\/+$/g, '');
-    const archiveTargetPath = `${normalizedArchivePrefix}/${archiveRelative}`;
-    const archiveTargetDir = archiveTargetPath.split('/').slice(0, -1).join('/');
-    if (archiveTargetDir) {
-      await ensureFilestoreHierarchy(
-        filestoreClient,
-        parameters.filestoreBackendId,
-        archiveTargetDir,
-        parameters.principal
-      );
-    }
-
-    try {
-      await filestoreClient.moveNode({
-        backendMountId: parameters.filestoreBackendId,
-        path: node.path,
-        targetPath: archiveTargetPath,
-        overwrite: true,
-        principal: parameters.principal
-      });
-    } catch (err) {
-      context.logger('Filestore move failed', {
-        error: err instanceof FilestoreClientError ? err.message : String(err),
-        code: err instanceof FilestoreClientError ? err.code : undefined,
-        statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
-        details: err instanceof FilestoreClientError ? err.details : undefined,
-        path: node.path,
-        targetPath: archiveTargetPath
-      });
-      throw err;
-    }
-
-    archiveOperations.push({
-      sourcePath: node.path,
-      archiveDestination: archiveTargetPath,
-      localDestination: archivePlacement.destination
-    });
-
-    const stagingAbsolutePath = path.resolve(parameters.stagingDir, stagingRelativePath);
-    const content = await readFile(stagingAbsolutePath, 'utf8');
-    const { rows, site } = parseCsv(content);
-
-    const rowCount = rows || (typeof metadata.rows === 'number' ? metadata.rows : 0);
-    recordCount += rowCount;
-
-    if (inferredInstrumentId) {
-      instrumentIds.add(inferredInstrumentId);
-    }
-
-    sourceFiles.push({
-      relativePath: stagingRelativePosix,
-      site: site || ensureString(metadata.site ?? metadata.location ?? ''),
-      instrumentId: inferredInstrumentId,
-      rows: rowCount
-    });
+    const missingPath = normalizedCommandPath
+      ? `Inbox file ${normalizedCommandPath} not found for minute ${parameters.minute}`
+      : `No inbox files matching minute ${parameters.minute} under ${parameters.inboxPrefix}`;
+    throw new Error(missingPath);
   }
 
-  const normalizedAt = new Date().toISOString();
+  const filename = inboxNode.path.split('/').pop() ?? '';
+  const stagingRelativePath = path.join(stagingSubdir, filename);
+  const stagingRelativePosix = stagingRelativePath.split(path.sep).join('/');
+  const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
+
+  try {
+    await filestoreClient.copyNode({
+      backendMountId: parameters.filestoreBackendId,
+      path: inboxNode.path,
+      targetPath: stagingTargetPath,
+      overwrite: true,
+      principal: parameters.principal
+    });
+  } catch (err) {
+    context.logger('Filestore copy failed', {
+      error: err instanceof FilestoreClientError ? err.message : String(err),
+      code: err instanceof FilestoreClientError ? err.code : undefined,
+      statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
+      details: err instanceof FilestoreClientError ? err.details : undefined,
+      path: inboxNode.path,
+      targetPath: stagingTargetPath
+    });
+    throw err;
+  }
+
+  const metadata =
+    inboxNode.metadata && typeof inboxNode.metadata === 'object'
+      ? (inboxNode.metadata as Record<string, unknown>)
+      : {};
+
+  const inferredInstrumentId = ensureString(metadata.instrumentId ?? metadata.instrument_id)
+    || parseInstrumentId(filename);
+
+  const archivePlacement = deriveArchivePlacement(
+    parameters.archiveDir,
+    inferredInstrumentId,
+    parameters.minute,
+    filename
+  );
+
+  const archiveRelative = path
+    .relative(parameters.archiveDir, archivePlacement.destination)
+    .split(path.sep)
+    .join('/');
+  const normalizedArchivePrefix = parameters.archivePrefix.replace(/\/+$/g, '');
+  const archiveTargetPath = `${normalizedArchivePrefix}/${archiveRelative}`;
+  const archiveTargetDir = archiveTargetPath.split('/').slice(0, -1).join('/');
+  if (archiveTargetDir) {
+    await ensureFilestoreHierarchy(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      archiveTargetDir,
+      parameters.principal
+    );
+  }
+
+  try {
+    await filestoreClient.moveNode({
+      backendMountId: parameters.filestoreBackendId,
+      path: inboxNode.path,
+      targetPath: archiveTargetPath,
+      overwrite: true,
+      principal: parameters.principal
+    });
+  } catch (err) {
+    context.logger('Filestore move failed', {
+      error: err instanceof FilestoreClientError ? err.message : String(err),
+      code: err instanceof FilestoreClientError ? err.code : undefined,
+      statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
+      details: err instanceof FilestoreClientError ? err.details : undefined,
+      path: inboxNode.path,
+      targetPath: archiveTargetPath
+    });
+    throw err;
+  }
+
+  const stagingAbsolutePath = path.resolve(parameters.stagingDir, stagingRelativePath);
+  const content = await readFile(stagingAbsolutePath, 'utf8');
+  const { rows, site } = parseCsv(content);
+
+  recordCount = rows;
+
+  if (inferredInstrumentId) {
+    instrumentIds.add(inferredInstrumentId);
+  }
+
+  const sourceSite = site || ensureString(metadata.site ?? metadata.location ?? '');
+  sourceFiles.push({
+    relativePath: stagingRelativePosix,
+    site: sourceSite,
+    instrumentId: inferredInstrumentId,
+    rows
+  });
+
+  normalizedAt = new Date().toISOString();
   const payload: RawAssetPayload = {
     partitionKey: parameters.minute,
     minute: parameters.minute,
@@ -544,16 +801,43 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     normalizedAt
   } satisfies RawAssetPayload;
 
+  if (metastoreConfig) {
+    const primarySource = sourceFiles[0];
+    const stagingFilestorePath = primarySource
+      ? `${stagingMinutePrefix}/${primarySource.relativePath.split('/').pop() ?? ''}`
+      : null;
+    const updatedMetadata: Record<string, unknown> = {
+      ...existingMetadata,
+      type: existingMetadata.type ?? INGEST_RECORD_TYPE,
+      status: 'processed',
+      processedAt: normalizedAt,
+      minute: parameters.minute,
+      minuteKey: stagingSubdir,
+      instrumentId: primarySource?.instrumentId ?? existingMetadata.instrumentId ?? null,
+      site: primarySource?.site ?? sourceSite ?? existingMetadata.site ?? null,
+      rows: recordCount,
+      instrumentCount: instrumentIds.size,
+      filestorePath: normalizedCommandPath ?? existingMetadata.filestorePath ?? null,
+      stagingPath: stagingFilestorePath ?? existingMetadata.stagingPath ?? null,
+      stagingRelativePath: primarySource?.relativePath ?? existingMetadata.stagingRelativePath ?? null,
+      archivePath: archiveTargetPath ?? existingMetadata.archivePath ?? null,
+      archiveLocalPath: archivePlacement.destination ?? existingMetadata.archiveLocalPath ?? null
+    };
+    await upsertMetastoreRecord(metastoreConfig, recordKeySource, updatedMetadata);
+  }
+
   await context.update({
     filesProcessed: sourceFiles.length,
     recordCount,
-    filesArchived: archiveOperations.length
+    filesArchived: sourceFiles.length,
+    instrumentId: sourceFiles[0]?.instrumentId ?? null
   });
 
-  context.logger('Normalized observatory inbox files', {
+  context.logger('Normalized observatory inbox file', {
     minute: parameters.minute,
     filesProcessed: sourceFiles.length,
     recordCount,
+    instrumentId: sourceFiles[0]?.instrumentId ?? null,
     stagingPrefix: stagingMinutePrefix,
     archivePrefix: parameters.archivePrefix
   });

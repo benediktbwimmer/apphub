@@ -464,10 +464,17 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
   const copiedThirdPartyDeps = new Set<string>();
 
   const copyThirdPartyDependency = async (moduleName: string) => {
-    if (!moduleName || copiedThirdPartyDeps.has(moduleName)) {
+    if (!moduleName) {
       return;
     }
-    const segments = moduleName.startsWith('@') ? moduleName.split('/') : [moduleName];
+    const normalized = moduleName.replace(/^node:/, '').trim();
+    if (!normalized || normalized.startsWith('@apphub/')) {
+      return;
+    }
+    if (copiedThirdPartyDeps.has(normalized)) {
+      return;
+    }
+    const segments = normalized.startsWith('@') ? normalized.split('/') : [normalized];
     const sourceDir = path.join(rootNodeModules, ...segments);
     try {
       const stats = await fs.stat(sourceDir);
@@ -485,7 +492,30 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       recursive: true,
       dereference: false
     });
-    copiedThirdPartyDeps.add(moduleName);
+    copiedThirdPartyDeps.add(normalized);
+
+    const packageJsonPath = path.join(sourceDir, 'package.json');
+    try {
+      const packageJsonRaw = await fs.readFile(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(packageJsonRaw) as {
+        dependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      const nestedDeps = new Set<string>([
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.optionalDependencies ?? {}),
+        ...Object.keys(packageJson.peerDependencies ?? {})
+      ]);
+      for (const depName of nestedDeps) {
+        if (!depName || depName.startsWith('@apphub/')) {
+          continue;
+        }
+        await copyThirdPartyDependency(depName);
+      }
+    } catch {
+      // Ignore missing package manifests; dependency copying is best-effort.
+    }
   };
 
   const rootScopedSource = path.join(rootNodeModules, '@apphub');

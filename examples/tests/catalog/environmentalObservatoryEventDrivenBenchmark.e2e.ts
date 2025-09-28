@@ -19,7 +19,7 @@ import {
   type WorkflowProvisioningEventTrigger
 } from '@apphub/examples';
 import { validateEventEnvelope, type EventEnvelope } from '@apphub/event-bus';
-import { runE2E } from '@apphub/test-helpers';
+import { runE2E, scheduleForcedExit } from '@apphub/test-helpers';
 
 import { loadExampleWorkflowDefinition } from '../helpers/examples';
 import type { WorkflowDefinitionCreateInput } from '../../../services/catalog/src/workflows/zodSchemas';
@@ -31,6 +31,10 @@ import {
   startTimestoreTestServer,
   type TimestoreTestServer
 } from '../helpers/timestore';
+import {
+  startMetastoreTestServer,
+  type MetastoreTestServer
+} from '../helpers/metastore';
 
 import { runWorkflowOrchestration } from '../../../services/catalog/src/workflowOrchestrator';
 import { closePool, resetDatabasePool } from '../../../services/catalog/src/db/client';
@@ -66,9 +70,12 @@ const OBSERVATORY_WORKFLOW_SLUGS = [
   'observatory-daily-publication'
 ] as const;
 const GENERATOR_WORKFLOW_SLUG = 'observatory-minute-data-generator';
+const DEFAULT_INSTRUMENT_COUNT = 5;
+const OBSERVATORY_INSTRUMENT_COUNT = resolveInstrumentCount();
 const OBSERVATORY_ROWS_PER_INSTRUMENT = 6;
 const OBSERVATORY_INTERVAL_MINUTES = 1;
 const RUN_MINUTES = 5;
+const TEST_TIMEOUT_MS = Number(process.env.OBSERVATORY_BENCH_TIMEOUT_MS ?? 15 * 60 * 1000);
 
 process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
   {
@@ -115,12 +122,30 @@ type WorkflowRunSummary = {
 type ServerContext = {
   timestore: TimestoreTestServer;
   filestore: FilestoreTestServer;
+  metastore: MetastoreTestServer;
   tempRoot: string;
 };
 
 type BenchmarkContext = ServerContext & {
   config: EventDrivenObservatoryConfig;
 };
+
+type InstrumentProfileInput = {
+  instrumentId: string;
+  site: string;
+};
+
+function buildInstrumentProfiles(count: number): InstrumentProfileInput[] {
+  const profiles: InstrumentProfileInput[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const suffix = String(index + 1).padStart(3, '0');
+    profiles.push({
+      instrumentId: `instrument_${suffix}`,
+      site: `site_${suffix}`
+    });
+  }
+  return profiles;
+}
 
 async function ensureEmbeddedPostgres(): Promise<void> {
   if (embeddedPostgres) {
@@ -213,6 +238,11 @@ async function withServer(
     redisUrl
   });
 
+  const metastore = await startMetastoreTestServer({
+    databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
+    redisUrl
+  });
+
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'observatory-event-benchmark-'));
 
   const storageDir = await mkdtemp(path.join(tmpdir(), 'observatory-bundle-cache-'));
@@ -230,11 +260,12 @@ async function withServer(
   await app.ready();
 
   try {
-    await fn(app, { timestore, filestore, tempRoot });
+    await fn(app, { timestore, filestore, metastore, tempRoot });
   } finally {
     await app.close();
     await timestore.close();
     await filestore.close();
+    await metastore.close();
     await closePool().catch(() => undefined);
 
     if (previousRedisUrl === undefined) {
@@ -296,7 +327,7 @@ async function enqueueExampleBundles(app: FastifyInstance, slugs: readonly strin
       Authorization: `Bearer ${OPERATOR_TOKEN}`,
       'Content-Type': 'application/json'
     },
-    payload: { slugs }
+    payload: { slugs, force: true }
   });
   assert.equal(response.statusCode, 202, `Failed to enqueue bundles: ${response.payload}`);
 }
@@ -817,7 +848,8 @@ async function queryTimestoreRowCount(
   url: string,
   datasetSlug: string,
   startIso: string,
-  endIso: string
+  endIso: string,
+  windowKey: string
 ): Promise<number> {
   const response = await fetch(`${url}/datasets/${encodeURIComponent(datasetSlug)}/query`, {
     method: 'POST',
@@ -825,7 +857,12 @@ async function queryTimestoreRowCount(
     body: JSON.stringify({
       timeRange: { start: startIso, end: endIso },
       timestampColumn: 'timestamp',
-      limit: 10000
+      limit: 10000,
+      filters: {
+        partitionKey: {
+          window: { eq: windowKey }
+        }
+      }
     })
   });
 
@@ -836,6 +873,31 @@ async function queryTimestoreRowCount(
 
   const payload = (await response.json()) as { rows?: unknown[] };
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
+}
+
+async function waitForTimestoreRowCount(
+  url: string,
+  datasetSlug: string,
+  startIso: string,
+  endIso: string,
+  windowKey: string,
+  expected: number,
+  opts: { timeoutMs?: number; pollMs?: number } = {}
+): Promise<number> {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const pollMs = opts.pollMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+  let lastCount = 0;
+  while (Date.now() < deadline) {
+    lastCount = await queryTimestoreRowCount(url, datasetSlug, startIso, endIso, windowKey);
+    if (lastCount >= expected) {
+      return lastCount;
+    }
+    await delay(pollMs);
+  }
+  throw new Error(
+    `Timed out waiting for ${expected} Timestore rows (last observed ${lastCount}) for ${datasetSlug}`
+  );
 }
 
 async function verifyReports(paths: { plots: string; reports: string }, minute: string): Promise<void> {
@@ -869,7 +931,11 @@ async function verifyReports(paths: { plots: string; reports: string }, minute: 
   };
   const instrumentCount =
     parsed.summary?.instrumentCount ?? parsed.visualization?.metrics?.instrumentCount;
-  assert.equal(instrumentCount, 3, `Instrument count mismatch for ${minute}`);
+  assert.equal(
+    instrumentCount,
+    OBSERVATORY_INSTRUMENT_COUNT,
+    `Instrument count mismatch for ${minute}`
+  );
 }
 
 async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerContext): Promise<void> {
@@ -882,6 +948,10 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
     OBSERVATORY_FILESTORE_BASE_URL: serverContext.filestore.url,
     OBSERVATORY_TIMESTORE_BASE_URL: serverContext.timestore.url,
     OBSERVATORY_FILESTORE_BACKEND_ID: '1',
+    OBSERVATORY_METASTORE_BASE_URL: serverContext.metastore.url,
+    OBSERVATORY_METASTORE_NAMESPACE: 'observatory.ingest',
+    OBSERVATORY_METASTORE_INGEST_NAMESPACE: 'observatory.ingest',
+    OBSERVATORY_METASTORE_TOKEN: '',
     OBSERVATORY_CATALOG_BASE_URL: 'http://127.0.0.1:4000',
     OBSERVATORY_CATALOG_TOKEN: OPERATOR_TOKEN,
     FILESTORE_LOG_LEVEL: 'debug'
@@ -973,6 +1043,9 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
 async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Promise<void> {
   const minutes = generateMinuteSeries('2032-06-15T09:00', RUN_MINUTES);
   const timings: BenchmarkTiming[] = [];
+  const instrumentProfiles = buildInstrumentProfiles(OBSERVATORY_INSTRUMENT_COUNT);
+  const expectedRowsPerMinute = OBSERVATORY_ROWS_PER_INSTRUMENT * OBSERVATORY_INSTRUMENT_COUNT;
+  const metastoreConfig = context.config.metastore;
 
   await ensureEmptyDirectories(context.config.paths);
 
@@ -982,13 +1055,17 @@ async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Pr
       minute,
       rowsPerInstrument: OBSERVATORY_ROWS_PER_INSTRUMENT,
       intervalMinutes: OBSERVATORY_INTERVAL_MINUTES,
+      instrumentProfiles: instrumentProfiles.map((profile) => ({ ...profile })),
       filestoreBaseUrl: context.config.filestore.baseUrl,
       filestoreBackendId: context.config.filestore.backendMountId,
       filestoreToken: context.config.filestore.token ?? undefined,
       inboxPrefix: context.config.filestore.inboxPrefix,
       stagingPrefix: context.config.filestore.stagingPrefix,
       archivePrefix: context.config.filestore.archivePrefix,
-      filestorePrincipal: 'observatory-data-generator'
+      filestorePrincipal: 'observatory-data-generator',
+      metastoreBaseUrl: metastoreConfig?.baseUrl,
+      metastoreNamespace: metastoreConfig?.namespace ?? 'observatory.ingest',
+      metastoreAuthToken: metastoreConfig?.authToken ?? undefined
     });
     const generatorDone = performance.now();
 
@@ -1020,13 +1097,19 @@ async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Pr
       OBSERVATORY_ROWS_PER_INSTRUMENT,
       OBSERVATORY_INTERVAL_MINUTES
     );
-    const rowCount = await queryTimestoreRowCount(
+    const rowCount = await waitForTimestoreRowCount(
       context.timestore.url,
       context.config.timestore.datasetSlug,
       startIso,
-      endIso
+      endIso,
+      minute,
+      expectedRowsPerMinute
     );
-    assert.equal(rowCount, 18, `Expected 18 timestore rows for ${minute} but received ${rowCount}`);
+    assert.equal(
+      rowCount,
+      expectedRowsPerMinute,
+      `Expected ${expectedRowsPerMinute} timestore rows for ${minute} but received ${rowCount}`
+    );
 
     const inboxEntries = await readdir(context.config.paths.inbox);
     assert.equal(inboxEntries.length, 0, `Inbox should be empty after processing ${minute}`);
@@ -1096,8 +1179,38 @@ async function resetDirectory(target: string): Promise<void> {
 }
 
 runE2E(async ({ registerCleanup }) => {
+  const hardTimeout = setTimeout(() => {
+    console.error(
+      `[benchmark] Forcing exit after ${TEST_TIMEOUT_MS}ms without completing benchmark`
+    );
+    if (typeof process.exitCode !== 'number' || process.exitCode === 0) {
+      process.exitCode = 1;
+    }
+    scheduleForcedExit({
+      exitCode: process.exitCode,
+      name: 'examples-environmentalObservatoryEventDrivenBenchmark.e2e',
+      gracePeriodMs: 100
+    });
+  }, TEST_TIMEOUT_MS);
+  hardTimeout.unref();
+  registerCleanup(() => clearTimeout(hardTimeout));
+
   registerCleanup(() => shutdownEmbeddedPostgres());
   await withServer(async (app, context) => {
     await runBenchmarkScenario(app, context);
   });
 }, { name: 'examples-environmentalObservatoryEventDrivenBenchmark.e2e' });
+function resolveInstrumentCount(): number {
+  const raw = process.env.OBSERVATORY_BENCH_INSTRUMENTS ?? process.env.OBSERVATORY_BENCH_INSTRUMENT_COUNT;
+  if (!raw) {
+    return DEFAULT_INSTRUMENT_COUNT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `[benchmark] ignoring invalid instrument count '${raw}', using default ${DEFAULT_INSTRUMENT_COUNT}`
+    );
+    return DEFAULT_INSTRUMENT_COUNT;
+  }
+  return Math.min(Math.floor(parsed), 10_000);
+}

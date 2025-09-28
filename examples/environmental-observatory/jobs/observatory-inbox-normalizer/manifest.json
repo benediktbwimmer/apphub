@@ -4,5 +4,5 @@
   "entry": "dist/index.js",
   "runtime": "node18",
   "description": "Copies minute-level instrument CSVs into staging, archives the originals, and emits normalized observatory.timeseries.raw assets.",
-  "capabilities": ["fs"]
+  "capabilities": ["fs", "network"]
 }

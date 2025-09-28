@@ -87,6 +87,10 @@ export function applyObservatoryWorkflowDefaults(
       defaults.archivePrefix = config.filestore.archivePrefix;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-data-generator';
       defaults.filestoreToken = config.filestore.token ?? null;
+      defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
+      defaults.metastoreNamespace =
+        defaults.metastoreNamespace ?? config.metastore?.namespace ?? 'observatory.ingest';
+      defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
       break;
     case 'observatory-minute-ingest':
       defaults.stagingDir = config.paths.staging;
@@ -104,6 +108,10 @@ export function applyObservatoryWorkflowDefaults(
       defaults.timestoreTableName = config.timestore.tableName ?? null;
       defaults.timestoreStorageTargetId = config.timestore.storageTargetId ?? null;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
+      defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
+      defaults.metastoreNamespace =
+        defaults.metastoreNamespace ?? config.metastore?.namespace ?? 'observatory.ingest';
+      defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
       break;
     case 'observatory-daily-publication':
       defaults.timestoreBaseUrl = config.timestore.baseUrl;
