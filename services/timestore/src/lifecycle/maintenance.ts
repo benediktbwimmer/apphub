@@ -273,7 +273,6 @@ export async function runLifecycleJob(
       status: 'completed',
       durationSeconds: (Date.now() - startedAt.getTime()) / 1000
     });
-    captureLifecycleMetrics(dataset.id, auditRecords, context.retentionPolicy);
 
     return {
       jobId: jobRun.id,

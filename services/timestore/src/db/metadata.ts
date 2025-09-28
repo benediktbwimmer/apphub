@@ -878,7 +878,7 @@ export async function getLatestPublishedManifest(
 ): Promise<DatasetManifestWithPartitions | null> {
   return withConnection(async (client) => {
     const params: unknown[] = [datasetId];
-    let whereClause = 'dataset_id = $1 AND status = '\''published'\''';
+    let whereClause = "dataset_id = $1 AND status = 'published'";
 
     if (options.shard) {
       params.push(options.shard);
