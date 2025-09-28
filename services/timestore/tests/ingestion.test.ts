@@ -341,3 +341,38 @@ test('processIngestionJob rejects incompatible schema changes', async () => {
     return true;
   });
 });
+
+test('partition build job payload requires rows or source file', () => {
+  const payload = ingestionTypesModule.partitionBuildJobPayloadSchema.parse({
+    datasetSlug: 'payload-test',
+    storageTargetId: 'st-123',
+    partitionId: 'part-123',
+    partitionKey: { window: '2024-01-01' },
+    tableName: 'records',
+    schema: [
+      { name: 'timestamp', type: 'timestamp' },
+      { name: 'value', type: 'double' }
+    ],
+    rows: [
+      {
+        timestamp: '2024-01-01T00:00:00.000Z',
+        value: 42
+      }
+    ]
+  });
+
+  assert.equal(payload.rows?.length, 1);
+
+  assert.throws(() => {
+    ingestionTypesModule.partitionBuildJobPayloadSchema.parse({
+      datasetSlug: 'payload-test',
+      storageTargetId: 'st-123',
+      partitionId: 'part-456',
+      partitionKey: { window: '2024-01-02' },
+      tableName: 'records',
+      schema: [
+        { name: 'timestamp', type: 'timestamp' }
+      ]
+    });
+  }, /requires rows or a source file path/);
+});

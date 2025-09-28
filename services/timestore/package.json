@@ -12,6 +12,7 @@
     "lint": "tsc -b --pretty false",
     "lifecycle": "tsx src/workers/lifecycleWorker.ts",
     "ingest": "tsx src/workers/ingestionWorker.ts",
+    "partition-build": "tsx src/workers/partitionBuildWorker.ts",
     "test": "tsx tests/runE2E.ts",
     "prime-cache": "tsx src/tools/primeManifestCache.ts"
   },

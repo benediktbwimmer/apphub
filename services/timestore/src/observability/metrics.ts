@@ -23,6 +23,20 @@ type QueueState = 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'p
 
 export type IngestionQueueCounts = Partial<Record<QueueState, number>>;
 
+export type PartitionBuildQueueCounts = Partial<Record<QueueState, number>>;
+
+export interface PartitionBuildJobMetricsInput {
+  datasetSlug: string;
+  result: 'success' | 'failure';
+  durationSeconds?: number;
+  failureReason?: string;
+}
+
+export interface PartitionBuildRetryMetricsInput {
+  datasetSlug: string;
+  retries: number;
+}
+
 export interface QueryMetricsInput {
   datasetSlug: string;
   mode: 'raw' | 'downsampled';
@@ -71,6 +85,11 @@ interface MetricsState {
   ingestQueueJobs: Gauge<string> | null;
   ingestJobsTotal: Counter<string> | null;
   ingestJobDurationSeconds: Histogram<string> | null;
+  partitionBuildQueueJobs: Gauge<string> | null;
+  partitionBuildJobsTotal: Counter<string> | null;
+  partitionBuildJobDurationSeconds: Histogram<string> | null;
+  partitionBuildJobFailuresTotal: Counter<string> | null;
+  partitionBuildJobRetriesTotal: Counter<string> | null;
   queryRequestsTotal: Counter<string> | null;
   queryDurationSeconds: Histogram<string> | null;
   queryRowCount: Histogram<string> | null;
@@ -151,6 +170,52 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         help: 'Duration of ingestion job processing in seconds',
         labelNames: ['dataset'],
         buckets: INGESTION_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const partitionBuildQueueJobs = enabled
+    ? new Gauge({
+        name: `${prefix}partition_build_queue_jobs`,
+        help: 'Current partition build queue depth by state',
+        labelNames: ['state'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const partitionBuildJobsTotal = enabled
+    ? new Counter({
+        name: `${prefix}partition_build_jobs_total`,
+        help: 'Partition build job outcomes grouped by dataset and result',
+        labelNames: ['dataset', 'result'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const partitionBuildJobDurationSeconds = enabled
+    ? new Histogram({
+        name: `${prefix}partition_build_job_duration_seconds`,
+        help: 'Duration of partition build jobs in seconds',
+        labelNames: ['dataset'],
+        buckets: INGESTION_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const partitionBuildJobFailuresTotal = enabled
+    ? new Counter({
+        name: `${prefix}partition_build_job_failures_total`,
+        help: 'Partition build job failures grouped by dataset and reason',
+        labelNames: ['dataset', 'reason'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const partitionBuildJobRetriesTotal = enabled
+    ? new Counter({
+        name: `${prefix}partition_build_job_retries_total`,
+        help: 'Partition build job retry attempts grouped by dataset',
+        labelNames: ['dataset'],
         registers: registerMetrics
       })
     : null;
@@ -317,6 +382,11 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     ingestQueueJobs,
     ingestJobsTotal,
     ingestJobDurationSeconds,
+    partitionBuildQueueJobs,
+    partitionBuildJobsTotal,
+    partitionBuildJobDurationSeconds,
+    partitionBuildJobFailuresTotal,
+    partitionBuildJobRetriesTotal,
     queryRequestsTotal,
     queryDurationSeconds,
     queryRowCount,
@@ -374,6 +444,42 @@ export function observeIngestionJob(input: IngestionJobMetricsInput): void {
   if (input.durationSeconds !== undefined && state.ingestJobDurationSeconds) {
     state.ingestJobDurationSeconds.labels(input.datasetSlug).observe(Math.max(input.durationSeconds, 0));
   }
+}
+
+export function updatePartitionBuildQueueDepth(counts: PartitionBuildQueueCounts): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.partitionBuildQueueJobs) {
+    return;
+  }
+  setGaugeValues(state.partitionBuildQueueJobs, counts);
+}
+
+export function observePartitionBuildJob(input: PartitionBuildJobMetricsInput): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.partitionBuildJobsTotal) {
+    return;
+  }
+  state.partitionBuildJobsTotal.labels(input.datasetSlug, input.result).inc();
+  if (input.durationSeconds !== undefined && state.partitionBuildJobDurationSeconds) {
+    state.partitionBuildJobDurationSeconds.labels(input.datasetSlug).observe(Math.max(input.durationSeconds, 0));
+  }
+  if (input.result === 'failure' && state.partitionBuildJobFailuresTotal) {
+    const reason = input.failureReason && input.failureReason.trim().length > 0
+      ? input.failureReason.trim().slice(0, 120)
+      : 'unknown';
+    state.partitionBuildJobFailuresTotal.labels(input.datasetSlug, reason).inc();
+  }
+}
+
+export function recordPartitionBuildRetries(input: PartitionBuildRetryMetricsInput): void {
+  if (input.retries <= 0) {
+    return;
+  }
+  const state = metricsState;
+  if (!state?.enabled || !state.partitionBuildJobRetriesTotal) {
+    return;
+  }
+  state.partitionBuildJobRetriesTotal.labels(input.datasetSlug).inc(input.retries);
 }
 
 export function observeQuery(input: QueryMetricsInput): void {

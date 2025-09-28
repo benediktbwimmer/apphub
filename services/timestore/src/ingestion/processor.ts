@@ -21,7 +21,6 @@ import {
   type StorageTargetRecord
 } from '../db/metadata';
 import { loadServiceConfig } from '../config/serviceConfig';
-import { createStorageDriver } from '../storage';
 import type { FieldDefinition } from '../storage';
 import { ensureDefaultStorageTarget } from '../service/bootstrap';
 import type { IngestionJobPayload, IngestionProcessingResult } from './types';
@@ -32,6 +31,7 @@ import { invalidateSqlRuntimeCache } from '../sql/runtime';
 import { refreshManifestCache } from '../cache/manifestCache';
 import { deriveManifestShardKey } from '../service/manifestShard';
 import { computePartitionIndexForRows } from '../indexing/partitionIndex';
+import { executePartitionBuild } from './partitionBuilderClient';
 import {
   analyzeSchemaCompatibility,
   extractFieldDefinitions,
@@ -158,15 +158,20 @@ export async function processIngestionJob(
 
     const partitionId = `part-${randomUUID()}`;
     const tableName = payload.tableName ?? 'records';
-    const driver = createStorageDriver(config, storageTarget);
-    const partitionIndex = computePartitionIndexForRows(payload.rows ?? [], schemaFields, config.partitionIndex);
-    const writeResult = await driver.writePartition({
+    const partitionIndex = computePartitionIndexForRows(
+      payload.rows ?? [],
+      schemaFields,
+      config.partitionIndex
+    );
+    const writeResult = await executePartitionBuild(config, {
       datasetSlug,
+      storageTarget,
       partitionId,
       partitionKey: payload.partition.key,
       tableName,
       schema: schemaFields,
-      rows: payload.rows
+      rows: payload.rows,
+      rowCountHint: payload.rows?.length
     });
     const partitionInput = {
       id: partitionId,
