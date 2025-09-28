@@ -25,8 +25,8 @@ const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   runs: RunsIcon,
   jobs: JobsIcon,
   workflows: WorkflowsIcon,
+  topology: TopologyIcon,
   schedules: SchedulesIcon,
-  import: ImportIcon,
   settings: SettingsIcon
 };
 
@@ -332,6 +332,36 @@ function WorkflowsIcon({ className }: IconProps) {
   );
 }
 
+function TopologyIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="2.8" />
+      <circle cx="6.5" cy="6.5" r="2.1" />
+      <circle cx="17.5" cy="6.5" r="2.1" />
+      <circle cx="7.5" cy="17.5" r="2.1" />
+      <circle cx="16.5" cy="17.5" r="2.1" />
+      <path d="M9.2 9.2 10.7 10.7" />
+      <path d="m14.8 9.2-1.5 1.5" />
+      <path d="m9.8 14.8 1.3-1.3" />
+      <path d="m14.2 14.8-1.3-1.3" />
+      <path d="M6.5 6.5 5 5" />
+      <path d="M17.5 6.5 19 5" />
+      <path d="m7.5 17.5-1.8 1.5" />
+      <path d="m16.5 17.5 1.8 1.5" />
+    </svg>
+  );
+}
+
 function SchedulesIcon({ className }: IconProps) {
   return (
     <svg
@@ -350,27 +380,6 @@ function SchedulesIcon({ className }: IconProps) {
       <path d="M16 3v4" />
       <path d="M4 10h16" />
       <path d="M12 14.5 14.5 17 18 13.5" />
-    </svg>
-  );
-}
-
-function ImportIcon({ className }: IconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 4v10" />
-      <path d="M8.5 11.5 12 15l3.5-3.5" />
-      <path d="M5 18h14" />
-      <path d="M7 18h10" />
     </svg>
   );
 }

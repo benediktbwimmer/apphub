@@ -1,11 +1,40 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { ROUTE_SEGMENTS } from '../routes/paths';
 import { PREVIEW_HEIGHT_BOUNDS, PREVIEW_WIDTH_BOUNDS } from './previewLayoutContext';
 
 const TABS = [
-  { key: 'preview', label: 'Preview Scaling', path: 'preview', description: 'Adjust how embedded previews render inside the catalog and apps gallery.' },
-  { key: 'api', label: 'API Access', path: 'api', description: 'Manage operator tokens stored in your browser.' },
-  { key: 'ai-builder', label: 'AI builder', path: 'ai-builder', description: 'Configure AI builder providers and credentials.' },
-  { key: 'admin', label: 'Admin tools', path: 'admin', description: 'Danger zone controls available to operators only.' }
+  {
+    key: 'preview',
+    label: 'Preview Scaling',
+    path: ROUTE_SEGMENTS.settingsPreview,
+    description:
+      'Adjust how embedded previews render inside the catalog and apps gallery.'
+  },
+  {
+    key: 'api',
+    label: 'API Access',
+    path: ROUTE_SEGMENTS.settingsApiAccess,
+    description: 'Manage operator tokens stored in your browser.'
+  },
+  {
+    key: 'import',
+    label: 'Import workspace',
+    path: ROUTE_SEGMENTS.settingsImport,
+    description:
+      'Register services, apps, jobs, and workflows from manifests, bundles, or built-in examples.'
+  },
+  {
+    key: 'ai-builder',
+    label: 'AI builder',
+    path: ROUTE_SEGMENTS.settingsAiBuilder,
+    description: 'Configure AI builder providers and credentials.'
+  },
+  {
+    key: 'admin',
+    label: 'Admin tools',
+    path: ROUTE_SEGMENTS.settingsAdmin,
+    description: 'Danger zone controls available to operators only.'
+  }
 ] as const;
 
 export default function SettingsLayout() {

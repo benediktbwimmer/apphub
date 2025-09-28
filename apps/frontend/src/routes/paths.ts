@@ -13,13 +13,15 @@ export const ROUTE_SEGMENTS = {
   runs: 'runs',
   jobs: 'jobs',
   workflows: 'workflows',
+  topology: 'topology',
   schedules: 'schedules',
   import: 'import',
   settings: 'settings',
   settingsPreview: 'preview',
   settingsApiAccess: 'api',
   settingsAiBuilder: 'ai-builder',
-  settingsAdmin: 'admin'
+  settingsAdmin: 'admin',
+  settingsImport: 'import'
 } as const;
 
 export const ROUTE_PATHS = {
@@ -37,13 +39,15 @@ export const ROUTE_PATHS = {
   runs: `/${ROUTE_SEGMENTS.runs}`,
   jobs: `/${ROUTE_SEGMENTS.jobs}`,
   workflows: `/${ROUTE_SEGMENTS.workflows}`,
+  topology: `/${ROUTE_SEGMENTS.topology}`,
   schedules: `/${ROUTE_SEGMENTS.schedules}`,
-  import: `/${ROUTE_SEGMENTS.import}`,
+  import: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsImport}`,
   settings: `/${ROUTE_SEGMENTS.settings}`,
   settingsPreview: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsPreview}`,
   settingsApiAccess: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsApiAccess}`,
   settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`,
-  settingsAdmin: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAdmin}`
+  settingsAdmin: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAdmin}`,
+  settingsImport: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsImport}`
 } as const;
 
 export type PrimaryNavKey =
@@ -55,8 +59,8 @@ export type PrimaryNavKey =
   | 'runs'
   | 'jobs'
   | 'workflows'
+  | 'topology'
   | 'schedules'
-  | 'import'
   | 'settings';
 
 export type PrimaryNavigationItem = {
@@ -74,8 +78,8 @@ export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },
   { key: 'jobs', label: 'Jobs', path: ROUTE_PATHS.jobs },
   { key: 'workflows', label: 'Workflows', path: ROUTE_PATHS.workflows },
+  { key: 'topology', label: 'Topology', path: ROUTE_PATHS.topology },
   { key: 'schedules', label: 'Schedules', path: ROUTE_PATHS.schedules },
-  { key: 'import', label: 'Import', path: ROUTE_PATHS.import },
   { key: 'settings', label: 'Settings', path: ROUTE_PATHS.settings }
 ] as const;
 

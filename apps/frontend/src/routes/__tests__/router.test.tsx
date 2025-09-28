@@ -16,7 +16,7 @@ describe('appRouteConfig', () => {
     expect(childPaths.has(ROUTE_SEGMENTS.events)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.services)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.workflows)).toBe(true);
-    expect(childPaths.has(ROUTE_SEGMENTS.import)).toBe(true);
+    expect(childPaths.has(ROUTE_SEGMENTS.topology)).toBe(true);
     expect(childPaths.has(ROUTE_SEGMENTS.settings)).toBe(true);
     expect(childPaths.has('submit')).toBe(true);
     expect(childPaths.has('import-manifest')).toBe(true);
@@ -37,5 +37,14 @@ describe('appRouteConfig', () => {
     expect(childSegments.has(ROUTE_SEGMENTS.servicesOverview)).toBe(true);
     expect(childSegments.has(ROUTE_SEGMENTS.servicesTimestore)).toBe(true);
     expect(childSegments.has(ROUTE_SEGMENTS.servicesMetastore)).toBe(true);
+  });
+
+  it('nests import workspace under settings', () => {
+    const root = appRouteConfig.find((route) => route.path === '/');
+    const settingsRoute = root?.children?.find((child) => child.path === ROUTE_SEGMENTS.settings);
+    expect(settingsRoute).toBeTruthy();
+    const settingsChildren = settingsRoute?.children ?? [];
+    const childSegments = new Set(settingsChildren.map((child) => (child.index ? 'index' : child.path)));
+    expect(childSegments.has(ROUTE_SEGMENTS.settingsImport)).toBe(true);
   });
 });

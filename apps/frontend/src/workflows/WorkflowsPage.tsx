@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import WorkflowsHeader from './components/WorkflowsHeader';
 import WorkflowDefinitionsPanel from './components/WorkflowDefinitionsPanel';
@@ -14,7 +14,6 @@ import WorkflowAssetPanel from './components/WorkflowAssetPanel';
 import AutoMaterializePanel from './components/AutoMaterializePanel';
 import EventTriggersPanel from './components/eventTriggers/EventTriggersPanel';
 import WorkflowEventTimeline from './components/WorkflowEventTimeline';
-import WorkflowTopologyPanel from './components/WorkflowTopologyPanel';
 import { WorkflowResourcesProvider } from './WorkflowResourcesContext';
 import WorkflowBuilderDialog from './builder/WorkflowBuilderDialog';
 import AiBuilderDialog from './ai/AiBuilderDialog';
@@ -150,17 +149,7 @@ function WorkflowsPageContent() {
     clearTimelineStatuses,
     refreshTimeline: refreshTimelineView,
     loadMoreTimeline,
-    timelineHasMore,
-    graph,
-    graphLoading,
-    graphRefreshing,
-    graphError,
-    graphStale,
-    lastLoadedAt,
-    graphMeta,
-    overlay,
-    overlayMeta,
-    loadWorkflowGraph
+    timelineHasMore
   } = useWorkflowsController();
 
   const [searchParams] = useSearchParams();
@@ -227,17 +216,6 @@ function WorkflowsPageContent() {
     { value: '30d', label: 'Last 30 days' }
   ];
 
-  const selectedWorkflowId = useMemo(() => {
-    if (!graph || !selectedSlug) {
-      return null;
-    }
-    return graph.workflowsIndex.bySlug[selectedSlug]?.id ?? null;
-  }, [graph, selectedSlug]);
-
-  const refreshTopology = () => {
-    void loadWorkflowGraph({ force: true });
-  };
-
   return (
     <div className="flex flex-col gap-6">
       <WorkflowsHeader
@@ -282,20 +260,6 @@ function WorkflowsPageContent() {
         />
 
         <div className="flex flex-col gap-6">
-          <WorkflowTopologyPanel
-            graph={graph}
-            graphLoading={graphLoading}
-            graphRefreshing={graphRefreshing}
-            graphError={graphError}
-            graphStale={graphStale}
-            lastLoadedAt={lastLoadedAt}
-            meta={graphMeta}
-            overlay={overlay}
-            overlayMeta={overlayMeta}
-            onRefresh={refreshTopology}
-            selection={{ workflowId: selectedWorkflowId }}
-          />
-
           <ManualRunPanel
             workflow={workflowDetail}
             onSubmit={handleManualRun}

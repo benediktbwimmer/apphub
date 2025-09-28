@@ -23,6 +23,7 @@ import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import AdminToolsPage from '../settings/AdminToolsPage';
+import TopologyRoute from './TopologyRoute';
 import { ROUTE_PATHS, ROUTE_SEGMENTS } from './paths';
 import AssetsPage from '../dataAssets/AssetsPage';
 
@@ -117,18 +118,18 @@ export const appRouteConfig: RouteObject[] = [
         )
       },
       {
-        path: ROUTE_SEGMENTS.schedules,
+        path: ROUTE_SEGMENTS.topology,
         element: (
           <RequireOperatorToken>
-            <SchedulesPage />
+            <TopologyRoute />
           </RequireOperatorToken>
         )
       },
       {
-        path: ROUTE_SEGMENTS.import,
+        path: ROUTE_SEGMENTS.schedules,
         element: (
           <RequireOperatorToken>
-            <ImportRoute />
+            <SchedulesPage />
           </RequireOperatorToken>
         )
       },
@@ -147,6 +148,14 @@ export const appRouteConfig: RouteObject[] = [
           {
             path: ROUTE_SEGMENTS.settingsApiAccess,
             element: <ApiAccessPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsImport,
+            element: (
+              <RequireOperatorToken>
+                <ImportRoute />
+              </RequireOperatorToken>
+            )
           },
           {
             path: ROUTE_SEGMENTS.settingsAiBuilder,
