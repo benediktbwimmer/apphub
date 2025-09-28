@@ -1165,6 +1165,471 @@ const workflowDefinitionResponseSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const workflowTopologyAnnotationsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['tags'],
+  properties: {
+    tags: {
+      type: 'array',
+      description: 'Annotation tags that can be used for filtering and grouping.',
+      items: { type: 'string' }
+    },
+    ownerName: nullable(stringSchema()),
+    ownerContact: nullable(stringSchema()),
+    team: nullable(stringSchema()),
+    domain: nullable(stringSchema()),
+    environment: nullable(stringSchema()),
+    slo: nullable(stringSchema())
+  }
+};
+
+const workflowTopologyAssetFreshnessSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  properties: {
+    maxAgeMs: nullable(integerSchema()),
+    ttlMs: nullable(integerSchema()),
+    cadenceMs: nullable(integerSchema())
+  }
+};
+
+const workflowTopologyAssetAutoMaterializeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  properties: {
+    onUpstreamUpdate: { type: 'boolean' },
+    priority: nullable(integerSchema()),
+    parameterDefaults: jsonValueSchema
+  }
+};
+
+const workflowTopologyAssetPartitioningSchema: OpenAPIV3.SchemaObject = {
+  oneOf: [
+    {
+      type: 'object',
+      required: ['type', 'granularity'],
+      properties: {
+        type: { type: 'string', enum: ['timeWindow'] },
+        granularity: {
+          type: 'string',
+          enum: ['minute', 'hour', 'day', 'week', 'month']
+        },
+        timezone: nullable(stringSchema()),
+        format: nullable(stringSchema()),
+        lookbackWindows: nullable(integerSchema())
+      }
+    },
+    {
+      type: 'object',
+      required: ['type', 'keys'],
+      properties: {
+        type: { type: 'string', enum: ['static'] },
+        keys: { type: 'array', items: { type: 'string' } }
+      }
+    },
+    {
+      type: 'object',
+      required: ['type'],
+      properties: {
+        type: { type: 'string', enum: ['dynamic'] },
+        maxKeys: nullable(integerSchema()),
+        retentionDays: nullable(integerSchema())
+      }
+    }
+  ]
+};
+
+const workflowTopologyTriggerScheduleSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['cron'],
+  properties: {
+    cron: { type: 'string' },
+    timezone: nullable(stringSchema()),
+    startWindow: nullable(stringSchema()),
+    endWindow: nullable(stringSchema()),
+    catchUp: { type: 'boolean', nullable: true }
+  }
+};
+
+const workflowTopologyEventTriggerPredicateSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['type', 'path', 'operator'],
+  properties: {
+    type: { type: 'string', enum: ['jsonPath'] },
+    path: { type: 'string' },
+    operator: { type: 'string' },
+    value: jsonValueSchema,
+    values: {
+      type: 'array',
+      items: jsonValueSchema
+    },
+    caseSensitive: { type: 'boolean' },
+    flags: nullable(stringSchema())
+  }
+};
+
+const workflowTopologyDefinitionTriggerNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'workflowId', 'kind', 'triggerType'],
+  properties: {
+    id: { type: 'string' },
+    workflowId: { type: 'string' },
+    kind: { type: 'string', enum: ['definition'] },
+    triggerType: { type: 'string' },
+    options: jsonValueSchema,
+    schedule: nullable({ allOf: [workflowTopologyTriggerScheduleSchema] })
+  }
+};
+
+const workflowTopologyEventTriggerNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'workflowId',
+    'kind',
+    'status',
+    'eventType',
+    'predicates',
+    'parameterTemplate',
+    'throttleWindowMs',
+    'throttleCount',
+    'maxConcurrency',
+    'idempotencyKeyExpression',
+    'metadata',
+    'createdAt',
+    'updatedAt'
+  ],
+  properties: {
+    id: { type: 'string' },
+    workflowId: { type: 'string' },
+    kind: { type: 'string', enum: ['event'] },
+    name: nullable(stringSchema()),
+    description: nullable(stringSchema()),
+    status: { type: 'string', enum: ['active', 'disabled'] },
+    eventType: { type: 'string' },
+    eventSource: nullable(stringSchema()),
+    predicates: {
+      type: 'array',
+      items: workflowTopologyEventTriggerPredicateSchema
+    },
+    parameterTemplate: jsonValueSchema,
+    throttleWindowMs: nullable(integerSchema()),
+    throttleCount: nullable(integerSchema()),
+    maxConcurrency: nullable(integerSchema()),
+    idempotencyKeyExpression: nullable(stringSchema()),
+    metadata: jsonValueSchema,
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time'),
+    createdBy: nullable(stringSchema()),
+    updatedBy: nullable(stringSchema())
+  }
+};
+
+const workflowTopologyTriggerNodeSchema: OpenAPIV3.SchemaObject = {
+  oneOf: [
+    workflowTopologyDefinitionTriggerNodeSchema,
+    workflowTopologyEventTriggerNodeSchema
+  ]
+};
+
+const workflowTopologyScheduleNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: [
+    'id',
+    'workflowId',
+    'cron',
+    'timezone',
+    'parameters',
+    'startWindow',
+    'endWindow',
+    'catchUp',
+    'nextRunAt',
+    'isActive',
+    'createdAt',
+    'updatedAt'
+  ],
+  properties: {
+    id: { type: 'string' },
+    workflowId: { type: 'string' },
+    name: nullable(stringSchema()),
+    description: nullable(stringSchema()),
+    cron: { type: 'string' },
+    timezone: nullable(stringSchema()),
+    parameters: jsonValueSchema,
+    startWindow: nullable(stringSchema()),
+    endWindow: nullable(stringSchema()),
+    catchUp: { type: 'boolean' },
+    nextRunAt: nullable(stringSchema('date-time')),
+    isActive: { type: 'boolean' },
+    createdAt: stringSchema('date-time'),
+    updatedAt: stringSchema('date-time')
+  }
+};
+
+const workflowTopologyJobStepRuntimeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['type', 'jobSlug'],
+  properties: {
+    type: { type: 'string', enum: ['job'] },
+    jobSlug: { type: 'string' },
+    bundleStrategy: nullable({ type: 'string', enum: ['latest', 'pinned'] }),
+    bundleSlug: nullable(stringSchema()),
+    bundleVersion: nullable(stringSchema()),
+    exportName: nullable(stringSchema()),
+    timeoutMs: nullable(integerSchema())
+  }
+};
+
+const workflowTopologyServiceStepRuntimeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['type', 'serviceSlug'],
+  properties: {
+    type: { type: 'string', enum: ['service'] },
+    serviceSlug: { type: 'string' },
+    timeoutMs: nullable(integerSchema()),
+    requireHealthy: { type: 'boolean', nullable: true },
+    allowDegraded: { type: 'boolean', nullable: true },
+    captureResponse: { type: 'boolean', nullable: true }
+  }
+};
+
+const workflowTopologyStepTemplateSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'runtime'],
+  properties: {
+    id: { type: 'string' },
+    name: nullable(stringSchema()),
+    runtime: {
+      oneOf: [
+        workflowTopologyJobStepRuntimeSchema,
+        workflowTopologyServiceStepRuntimeSchema
+      ]
+    }
+  }
+};
+
+const workflowTopologyFanOutStepRuntimeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['type', 'collection', 'template'],
+  properties: {
+    type: { type: 'string', enum: ['fanout'] },
+    collection: jsonValueSchema,
+    maxItems: nullable(integerSchema()),
+    maxConcurrency: nullable(integerSchema()),
+    storeResultsAs: nullable(stringSchema()),
+    template: workflowTopologyStepTemplateSchema
+  }
+};
+
+const workflowTopologyStepRuntimeSchema: OpenAPIV3.SchemaObject = {
+  oneOf: [
+    workflowTopologyJobStepRuntimeSchema,
+    workflowTopologyServiceStepRuntimeSchema,
+    workflowTopologyFanOutStepRuntimeSchema
+  ]
+};
+
+const workflowTopologyStepNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'workflowId', 'name', 'type', 'dependsOn', 'dependents', 'runtime'],
+  properties: {
+    id: { type: 'string' },
+    workflowId: { type: 'string' },
+    name: { type: 'string' },
+    description: nullable(stringSchema()),
+    type: { type: 'string', enum: ['job', 'service', 'fanout'] },
+    dependsOn: { type: 'array', items: { type: 'string' } },
+    dependents: { type: 'array', items: { type: 'string' } },
+    runtime: workflowTopologyStepRuntimeSchema
+  }
+};
+
+const workflowTopologyAssetNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'assetId', 'normalizedAssetId', 'annotations'],
+  properties: {
+    id: { type: 'string' },
+    assetId: { type: 'string' },
+    normalizedAssetId: { type: 'string' },
+    annotations: workflowTopologyAnnotationsSchema
+  }
+};
+
+const workflowTopologyEventSourceNodeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['id', 'eventType'],
+  properties: {
+    id: { type: 'string' },
+    eventType: { type: 'string' },
+    eventSource: nullable(stringSchema())
+  }
+};
+
+const workflowTopologyTriggerWorkflowEdgeSchema: OpenAPIV3.SchemaObject = {
+  oneOf: [
+    {
+      type: 'object',
+      required: ['kind', 'triggerId', 'workflowId'],
+      properties: {
+        kind: { type: 'string', enum: ['event-trigger', 'definition-trigger'] },
+        triggerId: { type: 'string' },
+        workflowId: { type: 'string' }
+      }
+    },
+    {
+      type: 'object',
+      required: ['kind', 'scheduleId', 'workflowId'],
+      properties: {
+        kind: { type: 'string', enum: ['schedule'] },
+        scheduleId: { type: 'string' },
+        workflowId: { type: 'string' }
+      }
+    }
+  ]
+};
+
+const workflowTopologyWorkflowStepEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['workflowId', 'toStepId'],
+  properties: {
+    workflowId: { type: 'string' },
+    fromStepId: nullable(stringSchema()),
+    toStepId: { type: 'string' }
+  }
+};
+
+const workflowTopologyStepAssetEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['workflowId', 'stepId', 'assetId', 'normalizedAssetId', 'direction'],
+  properties: {
+    workflowId: { type: 'string' },
+    stepId: { type: 'string' },
+    assetId: { type: 'string' },
+    normalizedAssetId: { type: 'string' },
+    direction: { type: 'string', enum: ['produces', 'consumes'] },
+    freshness: nullable(workflowTopologyAssetFreshnessSchema),
+    partitioning: nullable(workflowTopologyAssetPartitioningSchema),
+    autoMaterialize: nullable(workflowTopologyAssetAutoMaterializeSchema)
+  }
+};
+
+const workflowTopologyAssetWorkflowEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['assetId', 'normalizedAssetId', 'workflowId', 'reason'],
+  properties: {
+    assetId: { type: 'string' },
+    normalizedAssetId: { type: 'string' },
+    workflowId: { type: 'string' },
+    stepId: nullable(stringSchema()),
+    reason: { type: 'string', enum: ['auto-materialize'] },
+    priority: nullable(integerSchema())
+  }
+};
+
+const workflowTopologyEventSourceTriggerEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['sourceId', 'triggerId'],
+  properties: {
+    sourceId: { type: 'string' },
+    triggerId: { type: 'string' }
+  }
+};
+
+const workflowTopologyGraphSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['version', 'generatedAt', 'nodes', 'edges'],
+  properties: {
+    version: { type: 'string', enum: ['v1'] },
+    generatedAt: stringSchema('date-time'),
+    nodes: {
+      type: 'object',
+      required: ['workflows', 'steps', 'triggers', 'schedules', 'assets', 'eventSources'],
+      properties: {
+        workflows: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'slug', 'name', 'version', 'createdAt', 'updatedAt', 'annotations'],
+            properties: {
+              id: { type: 'string' },
+              slug: { type: 'string' },
+              name: { type: 'string' },
+              version: { type: 'integer' },
+              description: nullable(stringSchema()),
+              createdAt: stringSchema('date-time'),
+              updatedAt: stringSchema('date-time'),
+              metadata: nullable({
+                type: 'object',
+                additionalProperties: jsonValueSchema
+              }),
+              annotations: workflowTopologyAnnotationsSchema
+            }
+          }
+        },
+        steps: { type: 'array', items: workflowTopologyStepNodeSchema },
+        triggers: { type: 'array', items: workflowTopologyTriggerNodeSchema },
+        schedules: { type: 'array', items: workflowTopologyScheduleNodeSchema },
+        assets: { type: 'array', items: workflowTopologyAssetNodeSchema },
+        eventSources: { type: 'array', items: workflowTopologyEventSourceNodeSchema }
+      }
+    },
+    edges: {
+      type: 'object',
+      required: [
+        'triggerToWorkflow',
+        'workflowToStep',
+        'stepToAsset',
+        'assetToWorkflow',
+        'eventSourceToTrigger'
+      ],
+      properties: {
+        triggerToWorkflow: { type: 'array', items: workflowTopologyTriggerWorkflowEdgeSchema },
+        workflowToStep: { type: 'array', items: workflowTopologyWorkflowStepEdgeSchema },
+        stepToAsset: { type: 'array', items: workflowTopologyStepAssetEdgeSchema },
+        assetToWorkflow: { type: 'array', items: workflowTopologyAssetWorkflowEdgeSchema },
+        eventSourceToTrigger: { type: 'array', items: workflowTopologyEventSourceTriggerEdgeSchema }
+      }
+    }
+  }
+};
+
+const workflowGraphCacheStatsSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['hits', 'misses', 'invalidations'],
+  properties: {
+    hits: integerSchema(),
+    misses: integerSchema(),
+    invalidations: integerSchema()
+  }
+};
+
+const workflowGraphCacheMetaSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['hit', 'stats'],
+  properties: {
+    hit: { type: 'boolean' },
+    cachedAt: nullable(stringSchema('date-time')),
+    ageMs: nullable(integerSchema()),
+    expiresAt: nullable(stringSchema('date-time')),
+    stats: workflowGraphCacheStatsSchema,
+    lastInvalidatedAt: nullable(stringSchema('date-time')),
+    lastInvalidationReason: nullable(stringSchema())
+  }
+};
+
+const workflowGraphResponseSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    data: workflowTopologyGraphSchema,
+    meta: {
+      type: 'object',
+      required: ['cache'],
+      properties: {
+        cache: workflowGraphCacheMetaSchema
+      }
+    }
+  }
+};
+
 const workflowRunSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['id', 'workflowDefinitionId', 'status', 'createdAt', 'updatedAt'],
@@ -1499,6 +1964,10 @@ const components: OpenAPIV3.ComponentsObject = {
     AssetGraphEdge: assetGraphEdgeSchema,
     AssetGraphResponse: assetGraphResponseSchema,
     AssetMarkStaleRequest: assetMarkStaleRequestSchema,
+    WorkflowTopologyGraph: workflowTopologyGraphSchema,
+    WorkflowGraphCacheMeta: workflowGraphCacheMetaSchema,
+    WorkflowGraphCacheStats: workflowGraphCacheStatsSchema,
+    WorkflowGraphResponse: workflowGraphResponseSchema,
     HealthResponse: healthResponseSchema,
     ErrorResponse: errorResponseSchema
   },
@@ -2705,6 +3174,49 @@ export const openApiDocument: OpenAPIV3.Document = {
           },
           '500': {
             description: 'The server failed to load auto-materialization activity.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/workflows/graph': {
+      get: {
+        tags: ['Workflows'],
+        summary: 'Retrieve workflow topology graph',
+        description:
+          'Returns the cached workflow topology graph used by the operations console. Requires the workflows:write operator scope.',
+        security: [{ OperatorToken: [] }],
+        responses: {
+          '200': {
+            description: 'Current workflow topology graph snapshot.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WorkflowGraphResponse' }
+              }
+            }
+          },
+          '401': {
+            description: 'The request lacked an operator token.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '403': {
+            description: 'The supplied operator token did not include the workflows:write scope.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' }
+              }
+            }
+          },
+          '500': {
+            description: 'The server failed to assemble the workflow topology graph.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' }

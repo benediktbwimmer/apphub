@@ -1821,12 +1821,14 @@ export async function createWorkflowEventTrigger(
   const metadataJson = serializeJson(normalized.metadata);
 
   let trigger: WorkflowEventTriggerRecord | null = null;
+  let definition: WorkflowDefinitionRecord | null = null;
 
   await useTransaction(async (client) => {
-    const definition = await fetchWorkflowDefinitionById(client, input.workflowDefinitionId);
-    if (!definition) {
+    const existingDefinition = await fetchWorkflowDefinitionById(client, input.workflowDefinitionId);
+    if (!existingDefinition) {
       throw new Error(`Workflow definition ${input.workflowDefinitionId} not found`);
     }
+    definition = existingDefinition;
 
     const { rows } = await client.query<WorkflowEventTriggerRow>(
       `INSERT INTO workflow_event_triggers (
@@ -1901,6 +1903,10 @@ export async function createWorkflowEventTrigger(
     throw new Error('Failed to create workflow event trigger');
   }
 
+  if (definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
+
   return trigger;
 }
 
@@ -1928,6 +1934,8 @@ export async function updateWorkflowEventTrigger(
 ): Promise<WorkflowEventTriggerRecord | null> {
   const normalized = normalizeWorkflowEventTriggerUpdate(updates);
   let trigger: WorkflowEventTriggerRecord | null = null;
+  let definition: WorkflowDefinitionRecord | null = null;
+  let mutated = false;
 
   await useTransaction(async (client) => {
     const { rows } = await client.query<WorkflowEventTriggerRow>(
@@ -2101,6 +2109,7 @@ export async function updateWorkflowEventTrigger(
     if (sets.length === 1 && sets[0] === 'updated_at = NOW()') {
       // No-op update; return the existing row.
       trigger = existing;
+      definition = await fetchWorkflowDefinitionById(client, existing.workflowDefinitionId);
       return;
     }
 
@@ -2110,10 +2119,17 @@ export async function updateWorkflowEventTrigger(
     const updated = await client.query<WorkflowEventTriggerRow>(query, values);
     if (updated.rows.length === 0) {
       trigger = existing;
+      definition = await fetchWorkflowDefinitionById(client, existing.workflowDefinitionId);
       return;
     }
     trigger = mapWorkflowEventTriggerRow(updated.rows[0]);
+    mutated = true;
+    definition = await fetchWorkflowDefinitionById(client, existing.workflowDefinitionId);
   });
+
+  if (mutated && definition) {
+    emitWorkflowDefinitionEvent(definition);
+  }
 
   return trigger;
 }

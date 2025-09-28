@@ -18,6 +18,13 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
   - Asset IDs reuse `canonicalAssetId()` and `normalizeAssetId()` from `services/catalog/src/assets/identifiers.ts` so
     producers and consumers agree on casing and trimming rules.
 
+## API Endpoint & Caching
+- The catalog API exposes the graph at `GET /workflows/graph`, gated by the `workflows:write` operator scope.
+- Responses come from an in-memory cache (`services/catalog/src/workflows/workflowGraphCache.ts`) that rebuilds on
+  demand and invalidates when `workflow.definition.updated` events fire (workflow edits, schedules, triggers) or on
+  explicit refresh. Set `APPHUB_WORKFLOW_GRAPH_CACHE_TTL_MS` to override the default 30 second TTL.
+- Each response includes cache metadata (`meta.cache`) so clients can observe hit/miss rates and refresh timers.
+
 ## Output Contents
 `assembleWorkflowTopologyGraph()` emits:
 - Workflow nodes with basic metadata and derived annotations (owner, domain, environment tags) sourced from the
