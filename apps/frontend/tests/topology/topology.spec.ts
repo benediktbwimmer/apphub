@@ -38,9 +38,11 @@ const eventHealthResponse = {
   }
 };
 
-async function fulfillJson(route: Route, body: unknown, origin: string) {
+let topologyOrigin: string;
+
+async function fulfillJson(route: Route, body: unknown, origin: string, status = 200) {
   await route.fulfill({
-    status: 200,
+    status,
     contentType: 'application/json',
     headers: {
       'Access-Control-Allow-Origin': origin,
@@ -97,8 +99,8 @@ async function waitForTopologyRender(page: Page) {
 test.describe('Workflow topology explorer', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     const baseURL = testInfo.project.use?.baseURL ?? 'http://127.0.0.1:4173';
-    const origin = new URL(baseURL).origin;
-    await stubTopologyApi(page, origin);
+    topologyOrigin = new URL(baseURL).origin;
+    await stubTopologyApi(page, topologyOrigin);
   });
 
   test('renders topology graph in light mode', async ({ page }) => {
@@ -143,7 +145,7 @@ test.describe('Workflow topology explorer', () => {
     expect(nodeColor).not.toBe('rgb(15, 23, 42)');
 
     const edgeStroke = await edges.first().evaluate((element) => getComputedStyle(element).stroke);
-    expect(edgeStroke).toBe('rgb(219, 234, 254)');
+    expect(edgeStroke).toBe('rgb(168, 85, 247)');
   });
 
   test('retains node count after idle period and fit reset', async ({ page }) => {
@@ -159,6 +161,36 @@ test.describe('Workflow topology explorer', () => {
 
     await expect(nodes).toHaveCount(totalNodeCount);
 
+    const edges = canvasRegion.locator('path.react-flow__edge-path');
+    await expect(edges).toHaveCount(totalEdgeCount);
+  });
+
+  test('keeps topology visible after unauthorized refresh', async ({ page }) => {
+    await page.unroute('**/workflows/graph');
+    let requestCount = 0;
+    await page.route('**/workflows/graph', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      await fulfillJson(route, { error: 'unauthorized' }, topologyOrigin, 401);
+    });
+
+    await page.goto('/topology');
+    const canvasRegion = await waitForTopologyRender(page);
+
+    const nodes = canvasRegion.locator('.react-flow__node');
+    await expect(nodes).toHaveCount(totalNodeCount);
+
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByText('Topology fetch failed').waitFor();
+
+    await expect(nodes).toHaveCount(totalNodeCount);
     const edges = canvasRegion.locator('path.react-flow__edge-path');
     await expect(edges).toHaveCount(totalEdgeCount);
   });

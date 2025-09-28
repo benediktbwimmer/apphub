@@ -207,9 +207,13 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
             });
           }
           if (err instanceof ApiError && err.status === 401) {
-            setGraph(null);
-            graphRef.current = null;
-            setGraphMeta(null);
+            if (graphRef.current) {
+              setGraphStale(true);
+            } else {
+              setGraph(null);
+              graphRef.current = null;
+              setGraphMeta(null);
+            }
           }
         } finally {
           if (!isMountedRef.current || !isLatestFetch()) {
