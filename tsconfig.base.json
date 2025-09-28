@@ -74,6 +74,12 @@
       ],
       "@apphub/docker-mock/*": [
         "packages/docker-mock/src/*"
+      ],
+      "@apphub/kubectl-mock": [
+        "packages/kubectl-mock/src/index.ts"
+      ],
+      "@apphub/kubectl-mock/*": [
+        "packages/kubectl-mock/src/*"
       ]
     }
   }

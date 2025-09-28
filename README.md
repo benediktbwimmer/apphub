@@ -282,13 +282,16 @@ INGEST_MAX_INLINE_PREVIEW_BYTES=1500000
 ```bash
 BUILD_CONCURRENCY=1
 BUILD_CLONE_DEPTH=1
+APPHUB_BUILD_EXECUTION_MODE=kubernetes   # Use "docker" for legacy local builds or "stub" to bypass execution
+APPHUB_K8S_NAMESPACE=apphub             # Target namespace for build and launch resources
+APPHUB_K8S_BUILDER_IMAGE=ghcr.io/apphub/builder:latest
 ```
 
 **Launch runner & preview**
 
 ```bash
 LAUNCH_CONCURRENCY=1
-LAUNCH_RUNNER_MODE=docker              # Use "stub" to bypass Docker during local development
+APPHUB_LAUNCH_EXECUTION_MODE=kubernetes # Set to "docker" for local fallback or "stub" to skip launches
 LAUNCH_INTERNAL_PORT=                  # Override detected container port
 LAUNCH_PREVIEW_BASE_URL=http://127.0.0.1
 LAUNCH_PREVIEW_PORT=443
@@ -297,7 +300,12 @@ SERVICE_NETWORK_BUILD_TIMEOUT_MS=600000
 SERVICE_NETWORK_BUILD_POLL_INTERVAL_MS=2000
 SERVICE_NETWORK_LAUNCH_TIMEOUT_MS=300000
 SERVICE_NETWORK_LAUNCH_POLL_INTERVAL_MS=2000
+APPHUB_K8S_PREVIEW_URL_TEMPLATE=        # Optional: e.g. https://{launch}.preview.local for ingress
+APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT=      # Service account for preview workloads
+APPHUB_K8S_INGRESS_CLASS=               # ingressClassName when provisioning preview URLs
 ```
+
+See `docs/runbooks/remote-build-launch.md` for Kubernetes setup guidance covering both minikube and multi-tenant clusters.
 
 **Authentication & sessions**
 
@@ -506,7 +514,7 @@ docker run \
 
 Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
-- Build and launch workers shell out to Docker, so the container needs the host Docker socket mounted at `/var/run/docker.sock`. If you prefer not to expose Docker, set `LAUNCH_RUNNER_MODE=stub` and omit the socket/host mounts.
+- Build and launch workers submit workloads to Kubernetes when `APPHUB_BUILD_EXECUTION_MODE` / `APPHUB_LAUNCH_EXECUTION_MODE` are `kubernetes` (default). Ensure the container can talk to your cluster (mount a service account, inject kubeconfig, or use the in-cluster configuration). Set the modes to `docker` if you still rely on local Docker; in that case mount `/var/run/docker.sock` plus any required host paths.
 - Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch runner can automatically mirror absolute paths from service environment variables. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
 - Start `services/codex-proxy` on the host before launching the container so the AI builder can reach Codex via `APPHUB_CODEX_PROXY_URL`.
 - `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.

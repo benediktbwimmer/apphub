@@ -58,6 +58,7 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "@apphub/kubectl-mock": "0.1.0",
     "@types/node": "^24.5.2",
     "@types/pg": "^8.15.5",
     "@types/tar": "^6.1.13",

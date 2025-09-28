@@ -6,7 +6,7 @@ import net from 'node:net';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import { runE2E } from '@apphub/test-helpers';
-import { DockerMock } from '@apphub/docker-mock';
+import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
 const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
@@ -93,17 +93,47 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
 }
 
 runE2E(async ({ registerCleanup }) => {
-  const dockerMock = new DockerMock({ mappedPort: 32768, containerIp: '172.18.0.2' });
-  const dockerPaths = await dockerMock.start();
-  registerCleanup(() => dockerMock.stop());
+  const kubectlMock = new KubectlMock();
+  const kubectlPaths = await kubectlMock.start();
+  registerCleanup(() => kubectlMock.stop());
 
   const previousPath = process.env.PATH;
-  process.env.PATH = `${dockerPaths.pathPrefix}:${previousPath ?? ''}`;
+  process.env.PATH = `${kubectlPaths.pathPrefix}:${previousPath ?? ''}`;
   registerCleanup(() => {
     if (previousPath === undefined) {
       delete process.env.PATH;
     } else {
       process.env.PATH = previousPath;
+    }
+  });
+
+  const previousBuildMode = process.env.APPHUB_BUILD_EXECUTION_MODE;
+  process.env.APPHUB_BUILD_EXECUTION_MODE = 'kubernetes';
+  registerCleanup(() => {
+    if (previousBuildMode === undefined) {
+      delete process.env.APPHUB_BUILD_EXECUTION_MODE;
+    } else {
+      process.env.APPHUB_BUILD_EXECUTION_MODE = previousBuildMode;
+    }
+  });
+
+  const previousLaunchMode = process.env.APPHUB_LAUNCH_EXECUTION_MODE;
+  process.env.APPHUB_LAUNCH_EXECUTION_MODE = 'kubernetes';
+  registerCleanup(() => {
+    if (previousLaunchMode === undefined) {
+      delete process.env.APPHUB_LAUNCH_EXECUTION_MODE;
+    } else {
+      process.env.APPHUB_LAUNCH_EXECUTION_MODE = previousLaunchMode;
+    }
+  });
+
+  const previousPreviewTemplate = process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE;
+  process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE = 'http://preview.local/{launch}';
+  registerCleanup(() => {
+    if (previousPreviewTemplate === undefined) {
+      delete process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE;
+    } else {
+      process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE = previousPreviewTemplate;
     }
   });
 
@@ -182,7 +212,7 @@ runE2E(async ({ registerCleanup }) => {
 
     const updatedBuild = await db.getBuildById(build.id);
     assert(updatedBuild, 'build record missing after run');
-    assert.equal(updatedBuild!.status, 'succeeded', 'expected build to succeed via docker mock');
+    assert.equal(updatedBuild!.status, 'succeeded', 'expected build to succeed via kubectl mock');
 
     const launch = await db.createLaunch(REPOSITORY_ID, build.id);
     await launchRunner.runLaunchStart(launch.id);

@@ -1,4 +1,6 @@
-# Docker Runtime Validation & Rollout
+# Docker Runtime Validation & Rollout (Legacy)
+
+> The Docker job runner is deprecated in favour of the Kubernetes-based build and launch platform described in `remote-build-launch.md`. Use this runbook only when maintaining the legacy fallback (`APPHUB_BUILD_EXECUTION_MODE=docker`).
 
 ## Overview
 - Validates the catalog Docker job runner end-to-end using the new integration suite in `services/catalog/tests/dockerRuntimeValidation.e2e.ts`.

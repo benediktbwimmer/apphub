@@ -43,6 +43,9 @@ import {
   resolveManifestPortForRepository,
   resolveManifestEnvForRepository
 } from './serviceRegistry';
+import { getKubernetesNamespace } from './kubernetes/config';
+import { applyManifest, deleteResource, runKubectl } from './kubernetes/kubectl';
+import { buildResourceName } from './kubernetes/naming';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -93,6 +96,164 @@ function parseHostPort(output: string, internalPort: number): string | null {
     }
   }
   return null;
+}
+
+function normalizeExecutionMode(value: string | undefined, fallback: 'docker' | 'kubernetes'): 'docker' | 'kubernetes' {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'docker' ? 'docker' : 'kubernetes';
+}
+
+function getLaunchExecutionMode(): 'docker' | 'kubernetes' {
+  return normalizeExecutionMode(process.env.APPHUB_LAUNCH_EXECUTION_MODE, 'kubernetes');
+}
+
+function sanitizeSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'app';
+}
+
+function applyPreviewTemplate(template: string, replacements: Record<string, string>): string {
+  return template.replace(/\{([^}]+)\}/g, (match, token) => {
+    const key = String(token ?? '').trim().toLowerCase();
+    return replacements[key] ?? match;
+  });
+}
+
+function resolvePreviewUrlTemplate(launchSlug: string, repositorySlug: string): string | null {
+  const replacements = {
+    launch: launchSlug,
+    launchid: launchSlug,
+    repository: repositorySlug,
+    repo: repositorySlug
+  } satisfies Record<string, string>;
+
+  const explicitUrl = process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE;
+  if (explicitUrl && explicitUrl.trim()) {
+    return applyPreviewTemplate(explicitUrl.trim(), replacements).replace(/\/$/, '');
+  }
+
+  const hostTemplate = process.env.APPHUB_K8S_PREVIEW_HOST_TEMPLATE;
+  if (hostTemplate && hostTemplate.trim()) {
+    const scheme = (process.env.APPHUB_K8S_PREVIEW_SCHEME ?? 'http').trim() || 'http';
+    const host = applyPreviewTemplate(hostTemplate.trim(), replacements).trim();
+    if (host) {
+      return `${scheme}://${host}`.replace(/\/$/, '');
+    }
+  }
+
+  return null;
+}
+
+const KUBERNETES_COMMAND_PREFIX = 'kubernetes:';
+
+type KubernetesLaunchMetadata = {
+  namespace: string;
+  deploymentName: string;
+  serviceName: string;
+  ingressName?: string | null;
+  previewUrl?: string | null;
+};
+
+function formatKubernetesCommandMetadata(metadata: KubernetesLaunchMetadata): string {
+  const parts = [`namespace=${metadata.namespace}`, `deployment=${metadata.deploymentName}`, `service=${metadata.serviceName}`];
+  if (metadata.ingressName) {
+    parts.push(`ingress=${metadata.ingressName}`);
+  }
+  if (metadata.previewUrl) {
+    parts.push(`preview=${metadata.previewUrl}`);
+  }
+  return `${KUBERNETES_COMMAND_PREFIX}${parts.join(';')}`;
+}
+
+function parseKubernetesCommandMetadata(command: string | null): KubernetesLaunchMetadata | null {
+  if (!command || !command.startsWith(KUBERNETES_COMMAND_PREFIX)) {
+    return null;
+  }
+  const payload = command.slice(KUBERNETES_COMMAND_PREFIX.length);
+  const entries = payload.split(';').map((entry) => entry.trim()).filter(Boolean);
+  const metadata: KubernetesLaunchMetadata = {
+    namespace: getKubernetesNamespace(),
+    deploymentName: '',
+    serviceName: ''
+  };
+  for (const entry of entries) {
+    const [key, value] = entry.split('=', 2);
+    if (!key || !value) {
+      continue;
+    }
+    const normalizedKey = key.trim().toLowerCase();
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+      continue;
+    }
+    switch (normalizedKey) {
+      case 'namespace':
+        metadata.namespace = normalizedValue;
+        break;
+      case 'deployment':
+        metadata.deploymentName = normalizedValue;
+        break;
+      case 'service':
+        metadata.serviceName = normalizedValue;
+        break;
+      case 'ingress':
+        metadata.ingressName = normalizedValue;
+        break;
+      case 'preview':
+        metadata.previewUrl = normalizedValue;
+        break;
+      default:
+        break;
+    }
+  }
+  if (!metadata.deploymentName || !metadata.serviceName) {
+    return null;
+  }
+  return metadata;
+}
+
+const DEFAULT_K8S_ROLLOUT_TIMEOUT_SECONDS = 5 * 60;
+
+function getKubernetesLaunchTimeoutSeconds(): number {
+  const raw = process.env.APPHUB_K8S_LAUNCH_TIMEOUT_SECONDS;
+  if (!raw) {
+    return DEFAULT_K8S_ROLLOUT_TIMEOUT_SECONDS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_K8S_ROLLOUT_TIMEOUT_SECONDS;
+  }
+  return parsed;
+}
+
+function getKubernetesLaunchServiceAccount(): string | undefined {
+  const raw = process.env.APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT;
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+function getKubernetesLaunchImagePullPolicy(): string | undefined {
+  const raw = process.env.APPHUB_K8S_LAUNCH_IMAGE_PULL_POLICY;
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+}
+
+async function cleanupKubernetesResources(
+  namespace: string,
+  resources: Array<{ kind: string; name: string }>
+): Promise<void> {
+  const reversed = resources.slice().reverse();
+  for (const resource of reversed) {
+    await deleteResource(resource.kind, resource.name, namespace, ['--ignore-not-found']);
+  }
 }
 
 type NormalizedEnvEntry = { key: string; value: string };
@@ -860,6 +1021,29 @@ export async function runLaunchStart(launchId: string) {
   const containerPort = envDefinedPort ?? manifestPort ?? (await resolveLaunchInternalPort(build.imageTag));
   const commandSource = launch.command?.trim() ?? '';
   const requiredVolumeMounts = resolveLaunchVolumeMounts(launch.env);
+
+  if (getLaunchExecutionMode() === 'kubernetes') {
+    if (commandSource) {
+      const message = 'Launch unavailable: custom commands not supported in Kubernetes mode';
+      await failLaunch(launch.id, message);
+      log('Launch failed - custom command not supported for Kubernetes mode', {
+        launchId: launch.id,
+        repositoryId: launch.repositoryId
+      });
+      return;
+    }
+    if (requiredVolumeMounts.length > 0) {
+      log('Ignoring host volume mounts for Kubernetes launch', {
+        launchId: launch.id,
+        repositoryId: launch.repositoryId,
+        mountCount: requiredVolumeMounts.length
+      });
+    }
+
+    await runKubernetesLaunchStart(launch, repository, build, containerPort);
+    return;
+  }
+
   let runArgs = commandSource ? parseDockerCommand(commandSource) : null;
   let commandLabel = commandSource;
   let containerName: string | null = null;
@@ -997,6 +1181,293 @@ export async function runLaunchStart(launchId: string) {
   }
 }
 
+async function runKubernetesLaunchStart(
+  launch: LaunchRecord,
+  repository: RepositoryRecord,
+  build: BuildRecord,
+  containerPort: number
+): Promise<void> {
+  const namespace = getKubernetesNamespace();
+  const launchSlug = sanitizeSlug(launch.id);
+  const repositorySlug = sanitizeSlug(repository.id);
+  const deploymentName = buildResourceName('apphub-launch', launch.id, repository.id);
+  const serviceName = buildResourceName('apphub-service', launch.id, repository.id);
+  const ingressCandidateName = buildResourceName('apphub-preview', launch.id, repository.id);
+  const labels = {
+    'apphub.io/repository-id': repository.id,
+    'apphub.io/launch-id': launch.id
+  } satisfies Record<string, string>;
+
+  const envEntries = (launch.env ?? [])
+    .map((entry) => normalizeLaunchEnvEntry(entry))
+    .filter((entry): entry is NormalizedEnvEntry => entry !== null)
+    .map((entry) => ({ name: entry.key, value: entry.value ?? '' }));
+
+  const serviceManifest = {
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+      name: serviceName,
+      namespace,
+      labels
+    },
+    spec: {
+      selector: labels,
+      ports: [
+        {
+          name: 'http',
+          port: containerPort,
+          targetPort: containerPort
+        }
+      ],
+      type: 'ClusterIP'
+    }
+  } satisfies Record<string, unknown>;
+
+  const deploymentManifest = {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: {
+      name: deploymentName,
+      namespace,
+      labels
+    },
+    spec: {
+      replicas: 1,
+      selector: {
+        matchLabels: labels
+      },
+      template: {
+        metadata: {
+          labels
+        },
+        spec: {
+          serviceAccountName: getKubernetesLaunchServiceAccount(),
+          containers: [
+            {
+              name: 'apphub-service',
+              image: build.imageTag,
+              imagePullPolicy: getKubernetesLaunchImagePullPolicy(),
+              ports: [
+                {
+                  name: 'http',
+                  containerPort
+                }
+              ],
+              env: envEntries
+            }
+          ]
+        }
+      }
+    }
+  } satisfies Record<string, unknown>;
+
+  const resourcesCreated: Array<{ kind: string; name: string }> = [];
+  let ingressName: string | null = null;
+  let previewUrl = resolvePreviewUrlTemplate(launchSlug, repositorySlug);
+
+  try {
+    const serviceResult = await applyManifest(serviceManifest, namespace);
+    if (serviceResult.exitCode !== 0) {
+      throw new Error(serviceResult.stderr || 'Failed to apply Kubernetes service manifest');
+    }
+    resourcesCreated.push({ kind: 'service', name: serviceName });
+
+    const deploymentResult = await applyManifest(deploymentManifest, namespace);
+    if (deploymentResult.exitCode !== 0) {
+      throw new Error(deploymentResult.stderr || 'Failed to apply Kubernetes deployment manifest');
+    }
+    resourcesCreated.push({ kind: 'deployment', name: deploymentName });
+
+    if (previewUrl) {
+      try {
+        const parsed = new URL(previewUrl);
+        const ingressManifest = {
+          apiVersion: 'networking.k8s.io/v1',
+          kind: 'Ingress',
+          metadata: {
+            name: ingressCandidateName,
+            namespace,
+            labels,
+            annotations: {}
+          },
+          spec: {
+            ingressClassName: process.env.APPHUB_K8S_INGRESS_CLASS?.trim() || undefined,
+            rules: [
+              {
+                host: parsed.hostname,
+                http: {
+                  paths: [
+                    {
+                      path: parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '/',
+                      pathType: 'Prefix',
+                      backend: {
+                        service: {
+                          name: serviceName,
+                          port: { number: containerPort }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        } satisfies Record<string, unknown>;
+
+        const ingressResult = await applyManifest(ingressManifest, namespace);
+        if (ingressResult.exitCode !== 0) {
+          throw new Error(ingressResult.stderr || 'Failed to apply Kubernetes ingress manifest');
+        }
+        ingressName = ingressCandidateName;
+        resourcesCreated.push({ kind: 'ingress', name: ingressCandidateName });
+        previewUrl = parsed.toString().replace(/\/$/, '');
+      } catch (err) {
+        log('Failed to configure preview ingress', {
+          launchId: launch.id,
+          error: (err as Error).message
+        });
+        ingressName = null;
+      }
+    }
+
+    const rolloutResult = await runKubectl([
+      'rollout',
+      'status',
+      `deployment/${deploymentName}`,
+      '--namespace',
+      namespace,
+      `--timeout=${getKubernetesLaunchTimeoutSeconds()}s`
+    ]);
+    if (rolloutResult.exitCode !== 0) {
+      throw new Error(rolloutResult.stderr || 'Deployment rollout failed');
+    }
+
+    if (!previewUrl) {
+      previewUrl = `http://${serviceName}.${namespace}.svc.cluster.local:${containerPort}`;
+    }
+
+    const metadata = {
+      namespace,
+      deploymentName,
+      serviceName,
+      ingressName,
+      previewUrl
+    } satisfies KubernetesLaunchMetadata;
+    const commandLabel = formatKubernetesCommandMetadata(metadata);
+
+    let runtimeHost: string | null = null;
+    let runtimePort: number | null = null;
+    if (previewUrl) {
+      try {
+        const parsed = new URL(previewUrl);
+        runtimeHost = parsed.hostname;
+        runtimePort = parsed.port ? Number(parsed.port) : null;
+      } catch {
+        runtimeHost = null;
+        runtimePort = null;
+      }
+    }
+
+    const containerBaseUrl = `http://${serviceName}.${namespace}.svc.cluster.local:${containerPort}`;
+
+    await markLaunchRunning(launch.id, {
+      instanceUrl: previewUrl,
+      containerId: `deployment/${deploymentName}`,
+      port: runtimePort,
+      internalPort: containerPort,
+      containerIp: null,
+      command: commandLabel
+    });
+
+    try {
+      await updateServiceRuntimeForRepository(launch.repositoryId, {
+        repositoryId: launch.repositoryId,
+        launchId: launch.id,
+        instanceUrl: previewUrl,
+        baseUrl: previewUrl,
+        previewUrl,
+        host: runtimeHost,
+        port: runtimePort,
+        containerIp: null,
+        containerPort,
+        containerBaseUrl,
+        source: 'launch-runner'
+      });
+    } catch (err) {
+      log('error updating service runtime', {
+        launchId: launch.id,
+        error: (err as Error).message
+      });
+    }
+
+    log('Kubernetes launch running', {
+      launchId: launch.id,
+      deployment: deploymentName,
+      service: serviceName,
+      namespace,
+      previewUrl
+    });
+  } catch (err) {
+    const message = (err as Error).message ?? 'Kubernetes launch failed';
+    try {
+      await cleanupKubernetesResources(namespace, resourcesCreated);
+    } catch (cleanupErr) {
+      log('error cleaning up Kubernetes resources', {
+        launchId: launch.id,
+        error: (cleanupErr as Error).message
+      });
+    }
+    await failLaunch(launch.id, message);
+    log('Launch failed - Kubernetes orchestration error', {
+      launchId: launch.id,
+      error: message
+    });
+  }
+}
+
+async function runKubernetesLaunchStop(launch: LaunchRecord): Promise<void> {
+  const metadata = parseKubernetesCommandMetadata(launch.command);
+  const namespace = metadata?.namespace ?? getKubernetesNamespace();
+  const resources: Array<{ kind: string; name: string }> = [];
+
+  if (metadata?.ingressName) {
+    resources.push({ kind: 'ingress', name: metadata.ingressName });
+  }
+  if (metadata?.serviceName) {
+    resources.push({ kind: 'service', name: metadata.serviceName });
+  }
+  if (metadata?.deploymentName) {
+    resources.push({ kind: 'deployment', name: metadata.deploymentName });
+  }
+
+  for (const resource of resources) {
+    const extraArgs = ['--ignore-not-found'];
+    if (resource.kind === 'deployment') {
+      extraArgs.push('--wait=true');
+    }
+    try {
+      await deleteResource(resource.kind, resource.name, namespace, extraArgs);
+    } catch (err) {
+      log('error deleting Kubernetes resource', {
+        launchId: launch.id,
+        kind: resource.kind,
+        name: resource.name,
+        error: (err as Error).message
+      });
+    }
+  }
+
+  await markLaunchStopped(launch.id);
+  await clearServiceRuntimeForRepository(launch.repositoryId, { launchId: launch.id });
+  log('Kubernetes launch stopped', {
+    launchId: launch.id,
+    namespace,
+    deployment: metadata?.deploymentName ?? null,
+    service: metadata?.serviceName ?? null
+  });
+}
+
 export async function runLaunchStop(launchId: string) {
   if (isStubRunnerEnabled) {
     await runStubLaunchStop(launchId);
@@ -1024,6 +1495,11 @@ export async function runLaunchStop(launchId: string) {
   const launchMembers = await getServiceNetworkLaunchMembers(launchId);
   if (networkConfig || launchMembers.length > 0) {
     await runServiceNetworkStop(current);
+    return;
+  }
+
+  if (getLaunchExecutionMode() === 'kubernetes') {
+    await runKubernetesLaunchStop(current);
     return;
   }
 

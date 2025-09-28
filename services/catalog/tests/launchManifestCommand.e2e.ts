@@ -6,7 +6,7 @@ import net from 'node:net';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import { runE2E } from '@apphub/test-helpers';
-import { DockerMock } from '@apphub/docker-mock';
+import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
 const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
@@ -103,17 +103,47 @@ runE2E(async ({ registerCleanup }) => {
     }
   });
 
-  const dockerMock = new DockerMock({ mappedPort: 32770, containerIp: '172.18.0.4' });
-  const dockerPaths = await dockerMock.start();
-  registerCleanup(() => dockerMock.stop());
+  const kubectlMock = new KubectlMock();
+  const kubectlPaths = await kubectlMock.start();
+  registerCleanup(() => kubectlMock.stop());
 
   const previousPath = process.env.PATH;
-  process.env.PATH = `${dockerPaths.pathPrefix}:${previousPath ?? ''}`;
+  process.env.PATH = `${kubectlPaths.pathPrefix}:${previousPath ?? ''}`;
   registerCleanup(() => {
     if (previousPath === undefined) {
       delete process.env.PATH;
     } else {
       process.env.PATH = previousPath;
+    }
+  });
+
+  const previousBuildMode = process.env.APPHUB_BUILD_EXECUTION_MODE;
+  process.env.APPHUB_BUILD_EXECUTION_MODE = 'kubernetes';
+  registerCleanup(() => {
+    if (previousBuildMode === undefined) {
+      delete process.env.APPHUB_BUILD_EXECUTION_MODE;
+    } else {
+      process.env.APPHUB_BUILD_EXECUTION_MODE = previousBuildMode;
+    }
+  });
+
+  const previousLaunchMode = process.env.APPHUB_LAUNCH_EXECUTION_MODE;
+  process.env.APPHUB_LAUNCH_EXECUTION_MODE = 'kubernetes';
+  registerCleanup(() => {
+    if (previousLaunchMode === undefined) {
+      delete process.env.APPHUB_LAUNCH_EXECUTION_MODE;
+    } else {
+      process.env.APPHUB_LAUNCH_EXECUTION_MODE = previousLaunchMode;
+    }
+  });
+
+  const previousPreviewTemplate = process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE;
+  process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE = 'http://preview.local/{launch}';
+  registerCleanup(() => {
+    if (previousPreviewTemplate === undefined) {
+      delete process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE;
+    } else {
+      process.env.APPHUB_K8S_PREVIEW_URL_TEMPLATE = previousPreviewTemplate;
     }
   });
 
@@ -197,25 +227,27 @@ runE2E(async ({ registerCleanup }) => {
 
     const updatedBuild = await db.getBuildById(build.id);
     assert(updatedBuild, 'build record missing after run');
-    assert.equal(updatedBuild!.status, 'succeeded', 'expected build to succeed via docker mock');
+    assert.equal(updatedBuild!.status, 'succeeded', 'expected build to succeed via kubectl mock');
 
     const launch = await db.createLaunch(REPOSITORY_ID, build.id);
     await launchRunner.runLaunchStart(launch.id);
 
     const finalLaunch = await db.getLaunchById(launch.id);
     assert(finalLaunch, 'launch record missing after start');
-    assert(finalLaunch!.command, 'expected docker command to be recorded');
+    assert(finalLaunch!.command, 'expected kubernetes command metadata to be recorded');
 
     const command = finalLaunch!.command ?? '';
-    const expectedMounts = [inboxDir, stagingDir, archiveDir];
-    for (const sourcePath of expectedMounts) {
-      const normalized = path.resolve(sourcePath);
-      const mountToken = `-v ${normalized}:${normalized}:rw`;
-      assert(
-        command.includes(mountToken),
-        `expected docker command to include bind mount for ${normalized}`
-      );
-    }
+    assert(command.startsWith('kubernetes:'), 'expected kubernetes command metadata prefix');
+    assert(finalLaunch!.containerId?.startsWith('deployment/'), 'expected deployment identifier as container id');
+
+    const previewEntry = command
+      .slice('kubernetes:'.length)
+      .split(';')
+      .map((token) => token.trim())
+      .find((token) => token.startsWith('preview='));
+    assert(previewEntry, 'expected preview metadata entry');
+    const previewUrl = previewEntry!.split('=', 2)[1];
+    assert.equal(finalLaunch!.instanceUrl, previewUrl);
   });
 
   await shutdownEmbeddedPostgres();

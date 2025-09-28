@@ -9,8 +9,9 @@ import {
   startLaunch
 } from './db/index';
 
-const RUNNER_MODE = (process.env.LAUNCH_RUNNER_MODE ?? 'docker').toLowerCase();
-export const isStubRunnerEnabled = RUNNER_MODE === 'stub';
+const EXECUTION_MODE =
+  (process.env.APPHUB_LAUNCH_EXECUTION_MODE ?? process.env.LAUNCH_RUNNER_MODE ?? 'kubernetes').toLowerCase();
+export const isStubRunnerEnabled = EXECUTION_MODE === 'stub';
 
 const DEFAULT_PREVIEW_BASE_URL = 'https://preview.osiris.local';
 const DEFAULT_PREVIEW_PORT = 443;
