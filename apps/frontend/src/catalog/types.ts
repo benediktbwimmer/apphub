@@ -1,4 +1,5 @@
 import type { KeyboardEventHandler } from 'react';
+import type { WorkflowEventRecordView } from '@apphub/shared/catalogEvents';
 import type { ExampleBundleStatus } from '../import/exampleBundles';
 
 export type TagKV = {
@@ -269,6 +270,7 @@ export type CatalogSocketEvent =
   | { type: 'workflow.run.canceled'; data: { run: unknown } }
   | { type: 'asset.produced'; data: AssetProducedEvent }
   | { type: 'asset.expired'; data: AssetExpiredEvent }
+  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecordView } }
   | { type: 'job.run.updated'; data: { run: unknown } }
   | { type: 'job.run.pending'; data: { run: unknown } }
   | { type: 'job.run.running'; data: { run: unknown } }

@@ -1,13 +1,23 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
 import type { CatalogSocketEvent } from '../catalog/types';
 
-export type AppHubSocketEvent = CatalogSocketEvent;
+export type AppHubConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
+export type AppHubConnectionStateEvent = {
+  type: 'connection.state';
+  data: { status: AppHubConnectionStatus };
+};
+
+export type AppHubSocketEvent = CatalogSocketEvent | AppHubConnectionStateEvent;
 export type AppHubEventType = AppHubSocketEvent['type'];
 
 export type AppHubEventHandler = (event: AppHubSocketEvent) => void;
+export type AppHubConnectionHandler = (status: AppHubConnectionStatus) => void;
 
 export type AppHubEventsClient = {
   subscribe: (handler: AppHubEventHandler) => () => void;
+  subscribeConnection: (handler: AppHubConnectionHandler) => () => void;
+  getConnectionState: () => AppHubConnectionStatus;
 };
 
 export const AppHubEventsContext = createContext<AppHubEventsClient | null>(null);

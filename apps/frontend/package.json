@@ -13,6 +13,7 @@
   "dependencies": {
     "@apphub/examples": "0.1.0",
     "@monaco-editor/react": "^4.7.0",
+    "@tanstack/react-virtual": "^3.13.12",
     "ajv": "^8.17.1",
     "classnames": "^2.5.1",
     "dagre": "^0.8.5",

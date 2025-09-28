@@ -12,6 +12,7 @@ import type {
 import type { AuthorizedFetch } from '../../api';
 import {
   AppHubEventsContext,
+  type AppHubConnectionHandler,
   type AppHubEventHandler,
   type AppHubEventsClient,
   type AppHubSocketEvent
@@ -274,6 +275,7 @@ import { useWorkflowAnalytics } from '../useWorkflowAnalytics';
 
 let appHubClient: AppHubEventsClient;
 let appHubSubscribers: Set<AppHubEventHandler>;
+let appHubConnectionHandlers: Set<AppHubConnectionHandler>;
 let wrapper: ({ children }: { children: ReactNode }) => ReactElement;
 
 beforeEach(() => {
@@ -287,13 +289,22 @@ beforeEach(() => {
   fetchWorkflowAssetHistoryMock.mockClear();
   fetchWorkflowAssetPartitionsMock.mockClear();
   appHubSubscribers = new Set<AppHubEventHandler>();
+  appHubConnectionHandlers = new Set<AppHubConnectionHandler>();
   appHubClient = {
     subscribe: (handler) => {
       appHubSubscribers.add(handler);
       return () => {
         appHubSubscribers.delete(handler);
       };
-    }
+    },
+    subscribeConnection: (handler) => {
+      handler('connected');
+      appHubConnectionHandlers.add(handler);
+      return () => {
+        appHubConnectionHandlers.delete(handler);
+      };
+    },
+    getConnectionState: () => 'connected'
   };
   wrapper = ({ children }: { children: ReactNode }): ReactElement =>
     createElement(AppHubEventsContext.Provider, { value: appHubClient },
@@ -304,6 +315,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllMocks();
   appHubSubscribers.clear();
+  appHubConnectionHandlers.clear();
 });
 
 describe('useWorkflowsController', () => {

@@ -19,6 +19,7 @@ type IconComponent = (props: IconProps) => JSX.Element;
 const NAV_ICON_MAP: Record<PrimaryNavKey, IconComponent> = {
   overview: OverviewIcon,
   catalog: AppsIcon,
+  events: EventsIcon,
   assets: AssetsIcon,
   services: ServicesIcon,
   runs: RunsIcon,
@@ -184,6 +185,24 @@ function OverviewIcon({ className }: IconProps) {
     >
       <path d="M12 4a8 8 0 1 1-7.48 10.39" />
       <path d="M12 4v8l4 2" />
+    </svg>
+  );
+}
+
+function EventsIcon({ className }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    >
+      <path d="M5 15v2m4-8v12m4-6v6m4-14v14" />
+      <path d="M3 19h18" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -17,6 +17,7 @@ import JobsPage from '../jobs/JobsPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import SchedulesPage from '../schedules/SchedulesPage';
 import RunsPage from '../runs/RunsPage';
+import EventsExplorerPage from '../events/EventsExplorerPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
 import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
@@ -41,6 +42,10 @@ export const appRouteConfig: RouteObject[] = [
       {
         path: ROUTE_SEGMENTS.catalog,
         element: <CatalogRoute />
+      },
+      {
+        path: ROUTE_SEGMENTS.events,
+        element: <EventsExplorerPage />
       },
       {
         path: ROUTE_SEGMENTS.assets,

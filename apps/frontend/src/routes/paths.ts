@@ -1,6 +1,7 @@
 export const ROUTE_SEGMENTS = {
   overview: 'overview',
   catalog: 'catalog',
+  events: 'events',
   assets: 'assets',
   services: 'services',
   servicesOverview: 'overview',
@@ -24,6 +25,7 @@ export const ROUTE_SEGMENTS = {
 export const ROUTE_PATHS = {
   overview: `/${ROUTE_SEGMENTS.overview}`,
   catalog: `/${ROUTE_SEGMENTS.catalog}`,
+  events: `/${ROUTE_SEGMENTS.events}`,
   assets: `/${ROUTE_SEGMENTS.assets}`,
   services: `/${ROUTE_SEGMENTS.services}`,
   servicesOverview: `/${ROUTE_SEGMENTS.services}/${ROUTE_SEGMENTS.servicesOverview}`,
@@ -47,6 +49,7 @@ export const ROUTE_PATHS = {
 export type PrimaryNavKey =
   | 'overview'
   | 'catalog'
+  | 'events'
   | 'assets'
   | 'services'
   | 'runs'
@@ -65,6 +68,7 @@ export type PrimaryNavigationItem = {
 export const PRIMARY_NAV_ITEMS: readonly PrimaryNavigationItem[] = [
   { key: 'overview', label: 'Overview', path: ROUTE_PATHS.overview },
   { key: 'catalog', label: 'Apps', path: ROUTE_PATHS.catalog },
+  { key: 'events', label: 'Events', path: ROUTE_PATHS.events },
   { key: 'assets', label: 'Assets', path: ROUTE_PATHS.assets },
   { key: 'services', label: 'Services', path: ROUTE_PATHS.services },
   { key: 'runs', label: 'Runs', path: ROUTE_PATHS.runs },

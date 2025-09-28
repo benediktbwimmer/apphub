@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { API_BASE_URL } from '../config';
 import {
   AppHubEventsContext,
+  type AppHubConnectionHandler,
+  type AppHubConnectionStatus,
   type AppHubEventHandler,
   type AppHubEventsClient,
   type AppHubSocketEvent
@@ -25,6 +27,8 @@ function resolveAppHubWebsocketUrl(): string {
 
 export function AppHubEventsProvider({ children }: { children: ReactNode }) {
   const handlersRef = useRef(new Set<AppHubEventHandler>());
+  const connectionHandlersRef = useRef(new Set<AppHubConnectionHandler>());
+  const connectionStateRef = useRef<AppHubConnectionStatus>('disconnected');
 
   const subscribe = useCallback((handler: AppHubEventHandler) => {
     handlersRef.current.add(handler);
@@ -32,6 +36,19 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
       handlersRef.current.delete(handler);
     };
   }, []);
+
+  const subscribeConnection = useCallback(
+    (handler: AppHubConnectionHandler) => {
+      handler(connectionStateRef.current);
+      connectionHandlersRef.current.add(handler);
+      return () => {
+        connectionHandlersRef.current.delete(handler);
+      };
+    },
+    []
+  );
+
+  const getConnectionState = useCallback(() => connectionStateRef.current, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -46,6 +63,25 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
           console.error('[AppHubEvents] handler failed', err);
         }
       });
+    };
+
+    const notifyConnectionHandlers = (status: AppHubConnectionStatus) => {
+      connectionHandlersRef.current.forEach((handler) => {
+        try {
+          handler(status);
+        } catch (err) {
+          console.error('[AppHubEvents] connection handler failed', err);
+        }
+      });
+    };
+
+    const emitConnection = (status: AppHubConnectionStatus) => {
+      if (connectionStateRef.current === status) {
+        return;
+      }
+      connectionStateRef.current = status;
+      notifyConnectionHandlers(status);
+      emit({ type: 'connection.state', data: { status } });
     };
 
     let socket: WebSocket | null = null;
@@ -101,11 +137,13 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
         reconnectTimer = null;
       }
 
+      emitConnection('connecting');
       const url = resolveAppHubWebsocketUrl();
       socket = new WebSocket(url);
 
       socket.onopen = () => {
         attempt = 0;
+        emitConnection('connected');
         startHeartbeat();
       };
 
@@ -147,6 +185,7 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
           return;
         }
         clearHeartbeat();
+        emitConnection('disconnected');
         attempt += 1;
         const delay = Math.min(10_000, 500 * 2 ** attempt);
         scheduleReconnect(delay);
@@ -154,6 +193,7 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
       };
 
       socket.onerror = () => {
+        emitConnection('disconnected');
         clearHeartbeat();
         socket?.close();
       };
@@ -168,6 +208,7 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
         reconnectTimer = null;
       }
       clearHeartbeat();
+      emitConnection('disconnected');
       if (socket) {
         try {
           socket.close();
@@ -179,7 +220,10 @@ export function AppHubEventsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo<AppHubEventsClient>(() => ({ subscribe }), [subscribe]);
+  const value = useMemo<AppHubEventsClient>(
+    () => ({ subscribe, subscribeConnection, getConnectionState }),
+    [subscribe, subscribeConnection, getConnectionState]
+  );
 
   return <AppHubEventsContext.Provider value={value}>{children}</AppHubEventsContext.Provider>;
 }

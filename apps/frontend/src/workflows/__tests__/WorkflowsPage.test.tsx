@@ -10,6 +10,7 @@ import { useAuth } from '../../auth/useAuth';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep } from '../types';
 import {
   AppHubEventsContext,
+  type AppHubConnectionHandler,
   type AppHubEventHandler,
   type AppHubEventsClient
 } from '../../events/context';
@@ -345,13 +346,22 @@ function createFetchMock(options?: FetchMockOptions) {
 
 function renderWorkflowsPage(initialEntries: string[] = ['/workflows']) {
   const subscribers = new Set<AppHubEventHandler>();
+  const connectionHandlers = new Set<AppHubConnectionHandler>();
   const client: AppHubEventsClient = {
     subscribe: (handler) => {
       subscribers.add(handler);
       return () => {
         subscribers.delete(handler);
       };
-    }
+    },
+    subscribeConnection: (handler) => {
+      handler('connected');
+      connectionHandlers.add(handler);
+      return () => {
+        connectionHandlers.delete(handler);
+      };
+    },
+    getConnectionState: () => 'connected'
   };
   return render(
     createElement(
