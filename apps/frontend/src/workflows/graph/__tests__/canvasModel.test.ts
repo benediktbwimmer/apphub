@@ -75,4 +75,29 @@ describe('buildWorkflowGraphCanvasModel', () => {
     );
     expect(maxAbsCoordinate).toBeGreaterThan(0);
   });
+
+  it('filters nodes when workflow filters are applied', () => {
+    const graph = createSmallWorkflowGraphNormalized();
+    const workflow = graph.workflows[0];
+    const model = buildWorkflowGraphCanvasModel(graph, {
+      filters: { workflowIds: [workflow.id] }
+    });
+
+    const workflowNodeIds = model.nodes
+      .filter((node) => node.kind === 'workflow')
+      .map((node) => node.refId);
+    expect(workflowNodeIds).toEqual([workflow.id]);
+    expect(model.filtersApplied).toBe(true);
+  });
+
+  it('applies search filtering with contextual neighbors', () => {
+    const graph = createSmallWorkflowGraphNormalized();
+    const model = buildWorkflowGraphCanvasModel(graph, {
+      searchTerm: 'Orders'
+    });
+
+    const labels = model.nodes.map((node) => node.label.toLowerCase());
+    expect(labels.some((label) => label.includes('orders'))).toBe(true);
+    expect(model.searchApplied).toBe(true);
+  });
 });

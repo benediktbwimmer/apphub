@@ -43,3 +43,10 @@ LargeGraph.args = {
   graph: createLargeWorkflowGraphNormalized({ workflowCount: 16, stepsPerWorkflow: 12 }),
   height: 720
 };
+
+export const FilteredByWorkflow = Template.bind({});
+FilteredByWorkflow.args = {
+  graph: createSmallWorkflowGraphNormalized(),
+  height: 520,
+  filters: { workflowIds: ['wf-orders'] }
+};

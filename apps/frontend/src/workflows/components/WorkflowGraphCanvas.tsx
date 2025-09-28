@@ -1,18 +1,34 @@
-import { useEffect, useMemo, useState, createContext, useContext, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react';
 import ReactFlow, {
   Background,
-  Controls,
   MarkerType,
+  Panel,
   type Edge,
   type Node,
   type NodeProps,
+  type NodeMouseHandler,
   type ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { buildWorkflowGraphCanvasModel, type WorkflowGraphCanvasSelection } from '../graph/canvasModel';
+import {
+  buildWorkflowGraphCanvasModel,
+  type WorkflowGraphCanvasSelection,
+  type WorkflowGraphCanvasFilters,
+  type WorkflowGraphCanvasLayoutConfig,
+  type WorkflowGraphCanvasNodeKind,
+  type WorkflowGraphCanvasEdgeKind
+} from '../graph/canvasModel';
 import type { WorkflowGraphNormalized } from '../graph';
-import type { WorkflowGraphCanvasNodeKind, WorkflowGraphCanvasEdgeKind } from '../graph/canvasModel';
-import type { WorkflowGraphCanvasLayoutConfig } from '../graph/canvasModel';
 
 type WorkflowGraphCanvasNodeTheme = {
   background: string;
@@ -57,6 +73,11 @@ type WorkflowGraphCanvasNodeData = {
   kind: WorkflowGraphCanvasNodeKind;
   highlighted: boolean;
   onSelect?: (data: WorkflowGraphCanvasNodeData) => void;
+};
+
+type WorkflowGraphCanvasTooltip = {
+  node: WorkflowGraphCanvasNodeData;
+  position: { x: number; y: number };
 };
 
 const WorkflowGraphCanvasThemeContext = createContext<WorkflowGraphCanvasTheme | null>(null);
@@ -207,14 +228,46 @@ function classNames(...values: Array<string | false | null | undefined>): string
   return values.filter(Boolean).join(' ');
 }
 
+function describeNodeKind(kind: WorkflowGraphCanvasNodeKind): string {
+  switch (kind) {
+    case 'workflow':
+      return 'Workflow';
+    case 'step-job':
+      return 'Job step';
+    case 'step-service':
+      return 'Service step';
+    case 'step-fanout':
+      return 'Fan-out step';
+    case 'trigger-event':
+      return 'Event trigger';
+    case 'trigger-definition':
+      return 'Definition trigger';
+    case 'schedule':
+      return 'Schedule';
+    case 'asset':
+      return 'Asset';
+    case 'event-source':
+      return 'Event source';
+    default:
+      return 'Node';
+  }
+}
+
+const CONTROL_BUTTON_CLASS =
+  'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white/90 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800/70';
+
+const CONTROL_BUTTON_WIDE_CLASS =
+  'inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white/90 px-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800/70';
+
 function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNodeData>) {
   const theme = useWorkflowGraphCanvasTheme();
   const variant = theme.nodes[data.kind];
   const isHighlighted = data.highlighted || selected;
+  const ariaLabel = `${describeNodeKind(data.kind)}: ${data.label}`;
   return (
     <div
       className={classNames(
-        'flex h-full w-full flex-col justify-between rounded-2xl border bg-white/80 p-4 text-left transition-shadow dark:bg-slate-950/60',
+        'flex h-full w-full flex-col justify-between rounded-2xl border bg-white/90 p-4 text-left transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-950/60',
         isHighlighted ? 'ring-2 ring-violet-300 dark:ring-violet-500/60' : 'ring-0'
       )}
       style={{
@@ -225,6 +278,8 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
       }}
       role="button"
       tabIndex={0}
+      aria-label={ariaLabel}
+      title={data.subtitle ? `${data.label} • ${data.subtitle}` : data.label}
       onClick={(event) => {
         event.stopPropagation();
         data.onSelect?.(data);
@@ -291,10 +346,13 @@ type WorkflowGraphCanvasProps = {
   height?: number | string;
   layout?: Partial<WorkflowGraphCanvasLayoutConfig>;
   selection?: WorkflowGraphCanvasSelection;
+  filters?: WorkflowGraphCanvasFilters;
+  searchTerm?: string | null;
   theme?: WorkflowGraphCanvasThemeOverrides;
   autoFit?: boolean;
   fitViewPadding?: number;
   onNodeSelect?: (nodeId: string, data: WorkflowGraphCanvasNodeData) => void;
+  onCanvasClick?: () => void;
   interactionMode?: 'interactive' | 'static';
 };
 
@@ -305,20 +363,37 @@ export function WorkflowGraphCanvas({
   height = 600,
   layout,
   selection,
+  filters,
+  searchTerm = null,
   theme,
   autoFit = true,
   fitViewPadding = 0.2,
   onNodeSelect,
+  onCanvasClick,
   interactionMode = 'interactive'
 }: WorkflowGraphCanvasProps) {
   const mergedTheme = useMemo(() => mergeTheme(DEFAULT_THEME, theme), [theme]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [tooltip, setTooltip] = useState<WorkflowGraphCanvasTooltip | null>(null);
 
   const model = useMemo(() => {
     if (!graph) {
       return null;
     }
-    return buildWorkflowGraphCanvasModel(graph, { layout, selection });
-  }, [graph, layout, selection]);
+    return buildWorkflowGraphCanvasModel(graph, { layout, selection, filters, searchTerm });
+  }, [graph, layout, selection, filters, searchTerm]);
+
+  useEffect(() => {
+    setTooltip(null);
+  }, [model, interactionMode]);
+
+  const handleNodeSelect = useCallback(
+    (nodeId: string, payload: WorkflowGraphCanvasNodeData) => {
+      setTooltip(null);
+      onNodeSelect?.(nodeId, payload);
+    },
+    [onNodeSelect]
+  );
 
   const reactFlowNodes = useMemo<Node<WorkflowGraphCanvasNodeData>[]>(() => {
     if (!model) {
@@ -337,7 +412,7 @@ export function WorkflowGraphCanvas({
         kind: node.kind,
         highlighted: node.highlighted,
         onSelect: onNodeSelect
-          ? (payload) => onNodeSelect(node.id, payload)
+          ? (payload) => handleNodeSelect(node.id, payload)
           : undefined
       },
       type: 'workflow-graph-node',
@@ -349,7 +424,7 @@ export function WorkflowGraphCanvas({
         height: node.height
       }
     }));
-  }, [model]);
+  }, [model, handleNodeSelect, onNodeSelect]);
 
   const reactFlowEdges = useMemo<Edge<WorkflowGraphCanvasEdgeData>[]>(() => {
     if (!model) {
@@ -389,6 +464,134 @@ export function WorkflowGraphCanvas({
   }, [model, mergedTheme.edgeDefault, mergedTheme.edgeDashed, mergedTheme.edgeHighlight, mergedTheme.edgeMuted, mergedTheme.labelBackground, mergedTheme.labelText]);
 
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
+  const interactive = interactionMode === 'interactive';
+  const hasRenderableNodes = Boolean(model && model.nodes.length > 0);
+
+  const panBy = useCallback(
+    (deltaX: number, deltaY: number, duration = 160) => {
+      if (!instance) {
+        return;
+      }
+      const viewport = instance.getViewport();
+      instance.setViewport(
+        {
+          x: viewport.x + deltaX,
+          y: viewport.y + deltaY,
+          zoom: viewport.zoom
+        },
+        { duration }
+      );
+    },
+    [instance]
+  );
+
+  const handleZoomIn = useCallback(() => {
+    instance?.zoomIn({ duration: 140 });
+  }, [instance]);
+
+  const handleZoomOut = useCallback(() => {
+    instance?.zoomOut({ duration: 140 });
+  }, [instance]);
+
+  const handleFitView = useCallback(() => {
+    if (!instance) {
+      return;
+    }
+    instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
+  }, [instance, fitViewPadding]);
+
+  const handleCanvasKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!instance || !interactive || !hasRenderableNodes) {
+        return;
+      }
+      if (event.target !== event.currentTarget) {
+        return;
+      }
+      const baseStep = event.shiftKey ? 240 : 160;
+      switch (event.key) {
+        case 'ArrowUp':
+          event.preventDefault();
+          panBy(0, baseStep);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          panBy(0, -baseStep);
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          panBy(baseStep, 0);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          panBy(-baseStep, 0);
+          break;
+        case '+':
+        case '=':
+          event.preventDefault();
+          instance.zoomIn({ duration: 140 });
+          break;
+        case '-':
+        case '_':
+          event.preventDefault();
+          instance.zoomOut({ duration: 140 });
+          break;
+        case '0':
+          if (event.metaKey || event.ctrlKey) {
+            event.preventDefault();
+            instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [fitViewPadding, hasRenderableNodes, instance, interactive, panBy]
+  );
+
+  const handleNodeMouseEnter = useCallback<NodeMouseHandler>((event, node) => {
+    if (!containerRef.current) {
+      return;
+    }
+    const nodeData = node.data as WorkflowGraphCanvasNodeData | undefined;
+    if (!nodeData) {
+      return;
+    }
+    const bounds = containerRef.current.getBoundingClientRect();
+    setTooltip({
+      node: nodeData,
+      position: {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top
+      }
+    });
+  }, []);
+
+  const handleNodeMouseMove = useCallback<NodeMouseHandler>((event, node) => {
+    if (!containerRef.current) {
+      return;
+    }
+    const nodeData = node.data as WorkflowGraphCanvasNodeData | undefined;
+    if (!nodeData) {
+      return;
+    }
+    const bounds = containerRef.current.getBoundingClientRect();
+    setTooltip({
+      node: nodeData,
+      position: {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top
+      }
+    });
+  }, []);
+
+  const handleNodeMouseLeave = useCallback<NodeMouseHandler>(() => {
+    setTooltip(null);
+  }, []);
+
+  const handleContainerMouseLeave = useCallback(() => {
+    setTooltip(null);
+  }, []);
 
   useEffect(() => {
     if (!instance || !model || !autoFit || model.nodes.length === 0) {
@@ -408,13 +611,43 @@ export function WorkflowGraphCanvas({
   };
 
   const showEmptyState = !loading && !error && (!model || model.nodes.length === 0);
-  const interactive = interactionMode === 'interactive';
+  const filteredEmpty =
+    !loading &&
+    !error &&
+    Boolean(model && model.nodes.length === 0 && (model.filtersApplied || model.searchApplied));
+  const controlsDisabled = !interactive || !instance || !hasRenderableNodes;
+
+  let tooltipStyle: CSSProperties | undefined;
+  if (tooltip && containerRef.current) {
+    const bounds = containerRef.current.getBoundingClientRect();
+    const offset = 18;
+    const margin = 12;
+    const maxWidth = 260;
+    const maxHeight = 220;
+    const proposedLeft = tooltip.position.x + offset;
+    const proposedTop = tooltip.position.y + offset;
+    const left = Math.min(
+      Math.max(margin, proposedLeft),
+      Math.max(margin, bounds.width - maxWidth)
+    );
+    const top = Math.min(
+      Math.max(margin, proposedTop),
+      Math.max(margin, bounds.height - maxHeight)
+    );
+    tooltipStyle = { left, top };
+  }
 
   return (
     <WorkflowGraphCanvasThemeContext.Provider value={mergedTheme}>
       <div
-        className="relative overflow-hidden rounded-3xl border border-slate-200/70 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-950/40"
+        ref={containerRef}
+        className="relative overflow-hidden rounded-3xl border border-slate-200/70 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 dark:border-slate-700/60 dark:bg-slate-950/40"
         style={containerStyle}
+        tabIndex={0}
+        role="region"
+        aria-label="Workflow topology graph canvas"
+        onKeyDown={handleCanvasKeyDown}
+        onMouseLeave={handleContainerMouseLeave}
       >
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 text-sm font-semibold text-slate-500 dark:bg-slate-950/60 dark:text-slate-300">
@@ -429,10 +662,56 @@ export function WorkflowGraphCanvas({
         )}
         {showEmptyState && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/70 p-6 text-center text-sm text-slate-500 dark:bg-slate-950/60 dark:text-slate-300">
-            <p>No workflow topology data available yet.</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500">
-              Define workflows, triggers, and assets to populate the explorer.
+            {filteredEmpty ? (
+              <>
+                <p>No matches for the current filters.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Adjust the search or filter selections to reveal workflow topology nodes.
+                </p>
+              </>
+            ) : (
+              <>
+                <p>No workflow topology data available yet.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Define workflows, triggers, and assets to populate the explorer.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+        {tooltip && tooltipStyle && (
+          <div
+            className="pointer-events-none absolute z-30 w-64 max-w-[260px] rounded-2xl bg-slate-900/95 px-4 py-3 text-xs font-semibold text-slate-100 shadow-[0_18px_40px_-22px_rgba(15,23,42,0.9)]"
+            style={tooltipStyle}
+            role="presentation"
+            aria-hidden="true"
+          >
+            <p className="text-sm font-semibold text-white">{tooltip.node.label}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-violet-200/80">
+              {describeNodeKind(tooltip.node.kind)}
             </p>
+            {tooltip.node.subtitle && (
+              <p className="mt-1 text-[11px] text-slate-200/80">{tooltip.node.subtitle}</p>
+            )}
+            {tooltip.node.badges.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {tooltip.node.badges.map((badge) => (
+                  <span
+                    key={badge}
+                    className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-violet-200"
+                  >
+                    {badge}
+                  </span>
+                ))}
+              </div>
+            )}
+            {tooltip.node.meta.length > 0 && (
+              <ul className="mt-2 space-y-1 text-[11px] font-normal text-slate-200/80">
+                {tooltip.node.meta.map((entry) => (
+                  <li key={entry}>{entry}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <ReactFlow
@@ -447,15 +726,97 @@ export function WorkflowGraphCanvas({
           zoomOnScroll={interactive}
           zoomOnPinch={interactive}
           zoomActivationKeyCode=" "
+          zoomOnDoubleClick={interactive}
           minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
           nodesDraggable={false}
           nodesFocusable
+          selectionOnDrag={false}
           onlyRenderVisibleElements
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseMove={handleNodeMouseMove}
+          onNodeMouseLeave={handleNodeMouseLeave}
+          onPaneClick={() => {
+            setTooltip(null);
+            onCanvasClick?.();
+          }}
         >
           <Background color={mergedTheme.gridColor} gap={26} size={1} />
-          <Controls position="bottom-right" showInteractive={false} />
+          <Panel
+            position="bottom-right"
+            className="flex flex-col gap-2 rounded-2xl border border-slate-200/60 bg-white/85 p-2 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70"
+          >
+            <div className="grid grid-cols-3 gap-1">
+              <span aria-hidden="true" />
+              <button
+                type="button"
+                className={CONTROL_BUTTON_CLASS}
+                onClick={() => panBy(0, 160)}
+                disabled={controlsDisabled}
+                aria-label="Pan up"
+              >
+                ^
+              </button>
+              <span aria-hidden="true" />
+              <button
+                type="button"
+                className={CONTROL_BUTTON_CLASS}
+                onClick={() => panBy(160, 0)}
+                disabled={controlsDisabled}
+                aria-label="Pan left"
+              >
+                {'<'}
+              </button>
+              <button
+                type="button"
+                className={CONTROL_BUTTON_CLASS}
+                onClick={() => panBy(0, -160)}
+                disabled={controlsDisabled}
+                aria-label="Pan down"
+              >
+                v
+              </button>
+              <button
+                type="button"
+                className={CONTROL_BUTTON_CLASS}
+                onClick={() => panBy(-160, 0)}
+                disabled={controlsDisabled}
+                aria-label="Pan right"
+              >
+                {'>'}
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className={CONTROL_BUTTON_WIDE_CLASS}
+                onClick={handleZoomOut}
+                disabled={controlsDisabled}
+                aria-label="Zoom out"
+              >
+                -
+              </button>
+              <button
+                type="button"
+                className={CONTROL_BUTTON_WIDE_CLASS}
+                onClick={handleZoomIn}
+                disabled={controlsDisabled}
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className={CONTROL_BUTTON_WIDE_CLASS}
+                onClick={handleFitView}
+                disabled={controlsDisabled}
+                aria-label="Reset view"
+              >
+                Fit
+              </button>
+            </div>
+          </Panel>
         </ReactFlow>
       </div>
     </WorkflowGraphCanvasThemeContext.Provider>

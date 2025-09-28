@@ -58,6 +58,8 @@ export type WorkflowGraphCanvasModel = {
   edges: WorkflowGraphCanvasEdge[];
   highlightedNodeIds: Set<string>;
   highlightedEdgeIds: Set<string>;
+  filtersApplied: boolean;
+  searchApplied: boolean;
 };
 
 export type WorkflowGraphCanvasSelection = {
@@ -65,6 +67,12 @@ export type WorkflowGraphCanvasSelection = {
   stepId?: string | null;
   triggerId?: string | null;
   assetNormalizedId?: string | null;
+};
+
+export type WorkflowGraphCanvasFilters = {
+  workflowIds?: string[];
+  assetNormalizedIds?: string[];
+  eventTypes?: string[];
 };
 
 export type WorkflowGraphCanvasLayoutConfig = {
@@ -337,13 +345,28 @@ function buildTriggerNodes(
       : 'trigger-definition';
     const subtitle = formatTriggerSubtitle(trigger);
     const meta: string[] = [];
+    const badges: string[] = [];
     if (isEventTrigger(trigger)) {
-      meta.push(`Status · ${trigger.status}`);
+      badges.push(trigger.status === 'active' ? 'Active' : 'Disabled');
+      if (trigger.eventSource) {
+        badges.push(trigger.eventSource);
+      } else {
+        badges.push('Event');
+      }
       if (trigger.maxConcurrency) {
         meta.push(`Concurrency · ${trigger.maxConcurrency}`);
       }
-    } else if (trigger.schedule) {
-      meta.push(`Schedule · ${trigger.schedule.cron}`);
+      if (trigger.throttleWindowMs && trigger.throttleCount) {
+        meta.push(`Throttle · ${trigger.throttleCount}/${trigger.throttleWindowMs}ms`);
+      }
+    } else {
+      badges.push(trigger.triggerType);
+      if (trigger.schedule?.timezone) {
+        badges.push(trigger.schedule.timezone);
+      }
+      if (trigger.schedule) {
+        meta.push(`Schedule · ${trigger.schedule.cron}`);
+      }
     }
     return {
       id,
@@ -351,6 +374,7 @@ function buildTriggerNodes(
       kind,
       label: trigger.name ?? trigger.id,
       subtitle,
+      badges: badges.slice(0, 2),
       meta,
       width: NODE_DIMENSIONS[kind].width,
       height: NODE_DIMENSIONS[kind].height,
@@ -367,6 +391,10 @@ function buildScheduleNodes(
   return schedules.map((schedule) => {
     const id = toScheduleNodeId(schedule);
     const subtitle = formatScheduleSubtitle(schedule);
+    const badges: string[] = [schedule.isActive ? 'Active' : 'Paused'];
+    if (schedule.catchUp) {
+      badges.push('Catch-up');
+    }
     return {
       id,
       refId: schedule.id,
@@ -374,6 +402,7 @@ function buildScheduleNodes(
       label: schedule.name ?? schedule.id,
       subtitle,
       meta: [schedule.isActive ? 'Active' : 'Paused'],
+      badges: badges.slice(0, 2),
       width: NODE_DIMENSIONS.schedule.width,
       height: NODE_DIMENSIONS.schedule.height,
       position: { x: 0, y: 0 },
@@ -660,11 +689,351 @@ function applyLayout(
   });
 }
 
+function normalizeSearchTerm(term?: string | null): string | null {
+  if (!term) {
+    return null;
+  }
+  const normalized = term.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function nodeMatchesSearch(node: WorkflowGraphCanvasNode, searchTerm: string): boolean {
+  if (!searchTerm) {
+    return false;
+  }
+  const candidates: string[] = [node.label];
+  if (node.subtitle) {
+    candidates.push(node.subtitle);
+  }
+  if (Array.isArray(node.meta)) {
+    candidates.push(...node.meta);
+  }
+  if (Array.isArray(node.badges)) {
+    candidates.push(...node.badges);
+  }
+  return candidates.some((entry) => entry && entry.toLowerCase().includes(searchTerm));
+}
+
+function buildNeighborMap(edges: WorkflowGraphCanvasEdge[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    if (!map.has(edge.source)) {
+      map.set(edge.source, new Set());
+    }
+    map.get(edge.source)?.add(edge.target);
+    if (!map.has(edge.target)) {
+      map.set(edge.target, new Set());
+    }
+    map.get(edge.target)?.add(edge.source);
+  }
+  return map;
+}
+
+function createContextCollector(
+  graph: WorkflowGraphNormalized,
+  register: (nodeId: string) => void
+) {
+  const visitedWorkflows = new Set<string>();
+  const visitedSteps = new Set<string>();
+  const visitedTriggers = new Set<string>();
+  const visitedSchedules = new Set<string>();
+  const visitedAssets = new Set<string>();
+  const visitedEventSources = new Set<string>();
+  const visitedEventTypes = new Set<string>();
+
+  const addWorkflowContext = (workflowId: string | null | undefined): void => {
+    if (!workflowId || visitedWorkflows.has(workflowId)) {
+      return;
+    }
+    visitedWorkflows.add(workflowId);
+    const workflow = graph.workflowsIndex.byId[workflowId];
+    if (!workflow) {
+      return;
+    }
+    register(toWorkflowNodeId(workflow.id));
+
+    const steps = graph.stepsIndex.byWorkflowId[workflowId] ?? [];
+    for (const step of steps) {
+      addStepContext(step.id);
+    }
+
+    const triggers = graph.triggersIndex.byWorkflowId[workflowId] ?? [];
+    for (const trigger of triggers) {
+      addTriggerContext(trigger.id);
+    }
+
+    const schedules = graph.schedulesIndex.byWorkflowId[workflowId] ?? [];
+    for (const schedule of schedules) {
+      addScheduleContext(schedule.id);
+    }
+
+    const autoMaterialize = graph.adjacency.workflowAutoMaterializeSources[workflowId] ?? [];
+    for (const edge of autoMaterialize) {
+      addAssetContext(edge.normalizedAssetId);
+      if (edge.stepId) {
+        addStepContext(edge.stepId);
+      }
+    }
+  };
+
+  const addStepContext = (stepId: string | null | undefined): void => {
+    if (!stepId || visitedSteps.has(stepId)) {
+      return;
+    }
+    visitedSteps.add(stepId);
+    const step = graph.stepsIndex.byId[stepId];
+    if (!step) {
+      return;
+    }
+    register(toStepNodeId(step));
+    addWorkflowContext(step.workflowId);
+
+    const produces = graph.adjacency.stepProduces[stepId] ?? [];
+    for (const edge of produces) {
+      addAssetContext(edge.normalizedAssetId);
+    }
+
+    const consumes = graph.adjacency.stepConsumes[stepId] ?? [];
+    for (const edge of consumes) {
+      addAssetContext(edge.normalizedAssetId);
+    }
+  };
+
+  const addTriggerContext = (triggerId: string | null | undefined): void => {
+    if (!triggerId || visitedTriggers.has(triggerId)) {
+      return;
+    }
+    visitedTriggers.add(triggerId);
+    const trigger = graph.triggersIndex.byId[triggerId];
+    if (!trigger) {
+      return;
+    }
+    register(toTriggerNodeId(trigger));
+    addWorkflowContext(trigger.workflowId);
+
+    const eventSources = graph.adjacency.triggerEventSourceEdges[triggerId] ?? [];
+    for (const link of eventSources) {
+      addEventSourceContext(link.sourceId);
+    }
+  };
+
+  const addScheduleContext = (scheduleId: string | null | undefined): void => {
+    if (!scheduleId || visitedSchedules.has(scheduleId)) {
+      return;
+    }
+    visitedSchedules.add(scheduleId);
+    const schedule = graph.schedulesIndex.byId[scheduleId];
+    if (!schedule) {
+      return;
+    }
+    register(toScheduleNodeId(schedule));
+    addWorkflowContext(schedule.workflowId);
+  };
+
+  const addAssetContext = (assetNormalizedId: string | null | undefined): void => {
+    if (!assetNormalizedId || visitedAssets.has(assetNormalizedId)) {
+      return;
+    }
+    visitedAssets.add(assetNormalizedId);
+    const asset = graph.assetsIndex.byNormalizedId[assetNormalizedId];
+    if (!asset) {
+      return;
+    }
+    register(toAssetNodeId(asset));
+
+    const producers = graph.adjacency.assetProducers[assetNormalizedId] ?? [];
+    for (const edge of producers) {
+      addStepContext(edge.stepId);
+      addWorkflowContext(edge.workflowId);
+    }
+
+    const consumers = graph.adjacency.assetConsumers[assetNormalizedId] ?? [];
+    for (const edge of consumers) {
+      addStepContext(edge.stepId);
+      addWorkflowContext(edge.workflowId);
+    }
+
+    const autoTargets = graph.adjacency.assetAutoMaterializeTargets[assetNormalizedId] ?? [];
+    for (const edge of autoTargets) {
+      addWorkflowContext(edge.workflowId);
+      if (edge.stepId) {
+        addStepContext(edge.stepId);
+      }
+    }
+  };
+
+  const addEventSourceContext = (sourceId: string | null | undefined): void => {
+    if (!sourceId || visitedEventSources.has(sourceId)) {
+      return;
+    }
+    visitedEventSources.add(sourceId);
+    const source = graph.eventSourcesIndex.byId[sourceId];
+    if (!source) {
+      return;
+    }
+    register(toEventSourceNodeId(source));
+
+    const triggers = graph.adjacency.eventSourceTriggerEdges[sourceId] ?? [];
+    for (const edge of triggers) {
+      addTriggerContext(edge.triggerId);
+    }
+  };
+
+  const addEventTypeContext = (eventType: string | null | undefined): void => {
+    if (!eventType) {
+      return;
+    }
+    const normalized = eventType.trim();
+    if (!normalized || visitedEventTypes.has(normalized)) {
+      return;
+    }
+    visitedEventTypes.add(normalized);
+
+    for (const trigger of graph.triggers) {
+      if (trigger.kind === 'event' && trigger.eventType === normalized) {
+        addTriggerContext(trigger.id);
+      }
+    }
+
+    for (const source of graph.eventSources) {
+      if (source.eventType === normalized) {
+        addEventSourceContext(source.id);
+      }
+    }
+  };
+
+  const includeNodeContext = (node: WorkflowGraphCanvasNode): void => {
+    switch (node.kind) {
+      case 'workflow':
+        addWorkflowContext(node.refId);
+        break;
+      case 'step-job':
+      case 'step-service':
+      case 'step-fanout':
+        addStepContext(node.refId);
+        break;
+      case 'trigger-event':
+      case 'trigger-definition':
+        addTriggerContext(node.refId);
+        break;
+      case 'schedule':
+        addScheduleContext(node.refId);
+        break;
+      case 'asset':
+        addAssetContext(node.refId);
+        break;
+      case 'event-source':
+        addEventSourceContext(node.refId);
+        break;
+      default:
+        break;
+    }
+  };
+
+  return {
+    addWorkflowContext,
+    addAssetContext,
+    addEventTypeContext,
+    addTriggerContext,
+    addScheduleContext,
+    addEventSourceContext,
+    includeNodeContext
+  };
+}
+
+function computeVisibleNodeIds(
+  graph: WorkflowGraphNormalized,
+  nodes: WorkflowGraphCanvasNode[],
+  edges: WorkflowGraphCanvasEdge[],
+  filters: WorkflowGraphCanvasFilters | undefined,
+  searchTerm: string | null
+): {
+  visibleNodeIds: Set<string>;
+  filtersActive: boolean;
+  searchActive: boolean;
+} {
+  const filtersActive = Boolean(
+    (filters?.workflowIds?.length ?? 0) > 0 ||
+      (filters?.assetNormalizedIds?.length ?? 0) > 0 ||
+      (filters?.eventTypes?.length ?? 0) > 0
+  );
+  const searchActive = searchTerm !== null;
+
+  if (!filtersActive && !searchActive) {
+    return {
+      visibleNodeIds: new Set(nodes.map((node) => node.id)),
+      filtersActive,
+      searchActive
+    };
+  }
+
+  const anchors = new Set<string>();
+  const collector = createContextCollector(graph, (nodeId) => {
+    if (nodeId) {
+      anchors.add(nodeId);
+    }
+  });
+
+  if (filtersActive && filters) {
+    for (const workflowId of filters.workflowIds ?? []) {
+      if (typeof workflowId === 'string' && workflowId.trim().length > 0) {
+        collector.addWorkflowContext(workflowId.trim());
+      }
+    }
+    for (const assetId of filters.assetNormalizedIds ?? []) {
+      if (typeof assetId === 'string' && assetId.trim().length > 0) {
+        collector.addAssetContext(assetId.trim());
+      }
+    }
+    for (const eventType of filters.eventTypes ?? []) {
+      if (typeof eventType === 'string' && eventType.trim().length > 0) {
+        collector.addEventTypeContext(eventType.trim());
+      }
+    }
+  }
+
+  if (searchActive && searchTerm) {
+    for (const node of nodes) {
+      if (nodeMatchesSearch(node, searchTerm)) {
+        collector.includeNodeContext(node);
+      }
+    }
+  }
+
+  if (anchors.size === 0) {
+    return {
+      visibleNodeIds: new Set<string>(),
+      filtersActive,
+      searchActive
+    };
+  }
+
+  const neighborMap = buildNeighborMap(edges);
+  const visible = new Set<string>(anchors);
+  for (const nodeId of Array.from(anchors)) {
+    const neighbors = neighborMap.get(nodeId);
+    if (!neighbors) {
+      continue;
+    }
+    for (const neighbor of neighbors) {
+      visible.add(neighbor);
+    }
+  }
+
+  return {
+    visibleNodeIds: visible,
+    filtersActive,
+    searchActive
+  };
+}
+
 export function buildWorkflowGraphCanvasModel(
   graph: WorkflowGraphNormalized,
   options: {
     layout?: Partial<WorkflowGraphCanvasLayoutConfig>;
     selection?: WorkflowGraphCanvasSelection;
+    filters?: WorkflowGraphCanvasFilters;
+    searchTerm?: string | null;
   } = {}
 ): WorkflowGraphCanvasModel {
   const layoutConfig: WorkflowGraphCanvasLayoutConfig = {
@@ -681,7 +1050,7 @@ export function buildWorkflowGraphCanvasModel(
   const assetNodes = buildAssetNodes(graph.assets, highlightedNodes);
   const eventSourceNodes = buildEventSourceNodes(graph.eventSources, highlightedNodes);
 
-  const nodes = [
+  let nodes = [
     ...workflowNodes,
     ...stepNodes,
     ...triggerNodes,
@@ -690,7 +1059,7 @@ export function buildWorkflowGraphCanvasModel(
     ...eventSourceNodes
   ];
 
-  const edges = [
+  let edges = [
     ...buildWorkflowAndStepEdges(graph, highlightedNodes),
     ...buildTriggerEdges(graph, highlightedNodes),
     ...buildStepAssetEdges(graph, highlightedNodes),
@@ -698,7 +1067,30 @@ export function buildWorkflowGraphCanvasModel(
     ...buildEventSourceEdges(graph, highlightedNodes)
   ];
 
-  const layoutNodes = applyLayout(nodes, edges, layoutConfig);
+  const searchTerm = normalizeSearchTerm(options.searchTerm ?? null);
+  const { visibleNodeIds, filtersActive, searchActive } = computeVisibleNodeIds(
+    graph,
+    nodes,
+    edges,
+    options.filters,
+    searchTerm
+  );
+
+  if ((filtersActive || searchActive) && visibleNodeIds.size === 0) {
+    nodes = [];
+    edges = [];
+  } else if (filtersActive || searchActive) {
+    nodes = nodes.filter((node) => visibleNodeIds.has(node.id));
+    edges = edges.filter(
+      (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
+    );
+  }
+
+  const layoutNodes = nodes.length > 0 ? applyLayout(nodes, edges, layoutConfig) : [];
+
+  const visibleHighlightedNodeIds = new Set<string>(
+    Array.from(highlightedNodes).filter((id) => visibleNodeIds.has(id))
+  );
 
   const highlightedEdgeIds = new Set<string>(
     edges.filter((edge) => edge.highlighted).map((edge) => edge.id)
@@ -707,8 +1099,10 @@ export function buildWorkflowGraphCanvasModel(
   return {
     nodes: layoutNodes,
     edges,
-    highlightedNodeIds: highlightedNodes,
-    highlightedEdgeIds
+    highlightedNodeIds: visibleHighlightedNodeIds,
+    highlightedEdgeIds,
+    filtersApplied: filtersActive,
+    searchApplied: searchActive
   } satisfies WorkflowGraphCanvasModel;
 }
 

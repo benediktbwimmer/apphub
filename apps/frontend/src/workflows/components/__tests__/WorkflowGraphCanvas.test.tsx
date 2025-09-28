@@ -41,4 +41,13 @@ describe('WorkflowGraphCanvas', () => {
     renderCanvas({ graph: null, loading: true, interactionMode: 'static' });
     expect(screen.getByText(/Rendering workflow topology/i)).toBeInTheDocument();
   });
+
+  it('renders filtered empty state message', async () => {
+    const graph = createSmallWorkflowGraphNormalized();
+    renderCanvas({ graph, filters: { workflowIds: ['missing-workflow'] } });
+
+    expect(
+      await screen.findByText(/No matches for the current filters/i)
+    ).toBeInTheDocument();
+  });
 });
