@@ -394,6 +394,13 @@ export function serializeWorkflowRunStep(step: WorkflowRunStepRecord) {
     parentStepId: step.parentStepId,
     fanoutIndex: step.fanoutIndex,
     templateStepId: step.templateStepId,
+    lastHeartbeatAt: step.lastHeartbeatAt,
+    retryCount: step.retryCount,
+    failureReason: step.failureReason,
+    nextAttemptAt: step.nextAttemptAt,
+    retryState: step.retryState,
+    retryAttempts: step.retryAttempts,
+    retryMetadata: step.retryMetadata,
     createdAt: step.createdAt,
     updatedAt: step.updatedAt
   };
@@ -476,6 +483,9 @@ export function serializeWorkflowTriggerDelivery(delivery: WorkflowTriggerDelive
     dedupeKey: delivery.dedupeKey,
     nextAttemptAt: delivery.nextAttemptAt,
     throttledUntil: delivery.throttledUntil,
+    retryState: delivery.retryState,
+    retryAttempts: delivery.retryAttempts,
+    retryMetadata: delivery.retryMetadata,
     createdAt: delivery.createdAt,
     updatedAt: delivery.updatedAt
   };

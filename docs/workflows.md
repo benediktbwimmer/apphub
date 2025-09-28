@@ -88,3 +88,13 @@ apphub workflows triggers disable <workflow-slug> <trigger-id> [--yes]
 - Responses and validation errors from the API surface directly in the CLI for quick iteration.
 
 See `npm run workflow-triggers -- --help` inside `apps/cli` for the full command tree once the package is built.
+
+## Durable Retry Foundations
+
+The retry durability work ships in stages. This ticket introduces the shared persistence primitives that later phases will activate:
+
+- `workflow_trigger_deliveries` now stores `retry_state`, `retry_attempts`, and `retry_metadata` so throttled deliveries can be rescheduled without dropping the original context.
+- `workflow_run_steps` captures `next_attempt_at`, `retry_state`, `retry_attempts`, and `retry_metadata` to let workflow orchestration persist retry plans across process restarts.
+- A new `event_ingress_retries` table tracks source-level throttles with `retry_state`, `attempts`, and `next_attempt_at` timestamps. Workers will rely on this table to reconcile BullMQ jobs.
+
+Apply the accompanying migration before enabling any runtime changes. Future tickets will wire these columns into the scheduler, workflow orchestrator, and UI workflows.

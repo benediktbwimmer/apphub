@@ -2333,6 +2333,21 @@ export async function updateWorkflowTriggerDelivery(
     values.push(updates.throttledUntil);
     index += 1;
   }
+  if (updates.retryState !== undefined) {
+    sets.push(`retry_state = $${index}`);
+    values.push(updates.retryState);
+    index += 1;
+  }
+  if (updates.retryAttempts !== undefined) {
+    sets.push(`retry_attempts = $${index}`);
+    values.push(updates.retryAttempts);
+    index += 1;
+  }
+  if (updates.retryMetadata !== undefined) {
+    sets.push(`retry_metadata = $${index}::jsonb`);
+    values.push(serializeJson(updates.retryMetadata));
+    index += 1;
+  }
 
   if (sets.length === 0) {
     return getWorkflowTriggerDeliveryById(deliveryId);
@@ -3236,6 +3251,15 @@ export async function updateWorkflowRunStep(
       updates.failureReason,
       existing.failure_reason ?? null
     );
+    const nextNextAttemptAt = Object.prototype.hasOwnProperty.call(updates, 'nextAttemptAt')
+      ? updates.nextAttemptAt ?? null
+      : existing.next_attempt_at ?? null;
+    const nextRetryState = updates.retryState ?? existing.retry_state ?? 'pending';
+    const nextRetryAttempts = updates.retryAttempts ?? existing.retry_attempts ?? 0;
+    const nextRetryMetadata =
+      updates.retryMetadata !== undefined
+        ? serializeJson(updates.retryMetadata)
+        : reuseJsonColumn(existing.retry_metadata);
 
     const { rows: updatedRows } = await client.query<WorkflowRunStepRow>(
       `UPDATE workflow_run_steps
@@ -3256,6 +3280,10 @@ export async function updateWorkflowRunStep(
            last_heartbeat_at = $16,
            retry_count = $17,
            failure_reason = $18,
+           next_attempt_at = $19,
+           retry_state = $20,
+           retry_attempts = $21,
+           retry_metadata = $22::jsonb,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -3277,7 +3305,11 @@ export async function updateWorkflowRunStep(
         nextTemplateStepId,
         nextLastHeartbeatAt,
         nextRetryCount,
-        nextFailureReason
+        nextFailureReason,
+        nextNextAttemptAt,
+        nextRetryState,
+        nextRetryAttempts,
+        nextRetryMetadata
       ]
     );
     if (updatedRows.length === 0) {

@@ -60,7 +60,8 @@ import {
   type WorkflowTriggerDeliveryRecord,
   type WorkflowTriggerDeliveryStatus,
   type SavedCatalogSearchRecord,
-  type RepositorySort
+  type RepositorySort,
+  type EventIngressRetryRecord
 } from './types';
 import type {
   BuildRow,
@@ -90,7 +91,8 @@ import type {
   WorkflowEventRow,
   WorkflowEventTriggerRow,
   WorkflowTriggerDeliveryRow,
-  SavedCatalogSearchRow
+  SavedCatalogSearchRow,
+  EventIngressRetryRow
 } from './rowTypes';
 import type { ServiceRecord, IngestionEvent } from './types';
 
@@ -1597,6 +1599,9 @@ export function mapWorkflowTriggerDeliveryRow(
     dedupeKey: row.dedupe_key ?? null,
     nextAttemptAt: row.next_attempt_at ?? null,
     throttledUntil: row.throttled_until ?? null,
+    retryState: (row.retry_state ?? 'pending') as WorkflowTriggerDeliveryRecord['retryState'],
+    retryAttempts: row.retry_attempts ?? 0,
+    retryMetadata: parseJsonColumn(row.retry_metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowTriggerDeliveryRecord;
@@ -1755,9 +1760,27 @@ export function mapWorkflowRunStepRow(
     lastHeartbeatAt: row.last_heartbeat_at,
     retryCount: row.retry_count ?? 0,
     failureReason: row.failure_reason ?? null,
+    nextAttemptAt: row.next_attempt_at ?? null,
+    retryState: (row.retry_state ?? 'pending') as WorkflowRunStepRecord['retryState'],
+    retryAttempts: row.retry_attempts ?? 0,
+    retryMetadata: parseJsonColumn(row.retry_metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies WorkflowRunStepRecord;
+}
+
+export function mapEventIngressRetryRow(row: EventIngressRetryRow): EventIngressRetryRecord {
+  return {
+    eventId: row.event_id,
+    source: row.source,
+    retryState: row.retry_state as EventIngressRetryRecord['retryState'],
+    attempts: row.attempts ?? 0,
+    nextAttemptAt: row.next_attempt_at,
+    lastError: row.last_error ?? null,
+    metadata: parseJsonColumn(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  } satisfies EventIngressRetryRecord;
 }
 
 export function mapWorkflowExecutionHistoryRow(

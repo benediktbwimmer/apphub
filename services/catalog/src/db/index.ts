@@ -13,5 +13,6 @@ export * from './workflows';
 export * from './audit';
 export * from './workflowEvents';
 export * from './eventScheduler';
+export * from './eventIngressRetries';
 export * from './assetMaterializer';
 export * from './savedSearches';

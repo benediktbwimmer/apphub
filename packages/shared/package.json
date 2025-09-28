@@ -44,6 +44,11 @@
       "require": "./dist/filestoreFilters.js",
       "default": "./dist/filestoreFilters.js"
     },
+    "./retries/backoff": {
+      "types": "./dist/retries/backoff.d.ts",
+      "require": "./dist/retries/backoff.js",
+      "default": "./dist/retries/backoff.js"
+    },
     "./timestoreAdmin": {
       "types": "./dist/timestoreAdmin.d.ts",
       "require": "./dist/timestoreAdmin.js",

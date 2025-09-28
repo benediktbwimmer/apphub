@@ -959,6 +959,38 @@ const migrations: Migration[] = [
          ON saved_catalog_searches(owner_user_id)
          WHERE owner_user_id IS NOT NULL;`
     ]
+  },
+  {
+    id: '032_durable_retry_foundations',
+    statements: [
+      `ALTER TABLE workflow_trigger_deliveries
+         ADD COLUMN IF NOT EXISTS retry_state TEXT NOT NULL DEFAULT 'pending';`,
+      `ALTER TABLE workflow_trigger_deliveries
+         ADD COLUMN IF NOT EXISTS retry_attempts INTEGER NOT NULL DEFAULT 0;`,
+      `ALTER TABLE workflow_trigger_deliveries
+         ADD COLUMN IF NOT EXISTS retry_metadata JSONB;`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS retry_state TEXT NOT NULL DEFAULT 'pending';`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS retry_attempts INTEGER NOT NULL DEFAULT 0;`,
+      `ALTER TABLE workflow_run_steps
+         ADD COLUMN IF NOT EXISTS retry_metadata JSONB;`,
+      `CREATE TABLE IF NOT EXISTS event_ingress_retries (
+         event_id TEXT PRIMARY KEY REFERENCES workflow_events(id) ON DELETE CASCADE,
+         source TEXT NOT NULL,
+         retry_state TEXT NOT NULL DEFAULT 'pending',
+         attempts INTEGER NOT NULL DEFAULT 0,
+         next_attempt_at TIMESTAMPTZ NOT NULL,
+         last_error TEXT,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_ingress_retries_state_next_attempt
+         ON event_ingress_retries (retry_state, next_attempt_at);`
+    ]
   }
 ];
 

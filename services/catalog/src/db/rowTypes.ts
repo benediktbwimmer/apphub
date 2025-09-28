@@ -356,6 +356,10 @@ export type WorkflowRunStepRow = {
   last_heartbeat_at: string | null;
   retry_count: number;
   failure_reason: string | null;
+  next_attempt_at: string | null;
+  retry_state: string;
+  retry_attempts: number;
+  retry_metadata: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -491,6 +495,9 @@ export type WorkflowTriggerDeliveryRow = {
   dedupe_key: string | null;
   next_attempt_at: string | null;
   throttled_until: string | null;
+  retry_state: string;
+  retry_attempts: number;
+  retry_metadata: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -505,4 +512,16 @@ export type WorkflowEventRow = {
   correlation_id: string | null;
   ttl_ms: number | null;
   metadata: unknown;
+};
+
+export type EventIngressRetryRow = {
+  event_id: string;
+  source: string;
+  retry_state: string;
+  attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
 };

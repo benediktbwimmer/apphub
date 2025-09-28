@@ -685,6 +685,8 @@ export type WorkflowTriggerDeliveryStatus =
   | 'launched'
   | 'failed';
 
+export type RetryState = 'pending' | 'scheduled' | 'cancelled';
+
 export type WorkflowTriggerDeliveryRecord = {
   id: string;
   triggerId: string;
@@ -697,6 +699,9 @@ export type WorkflowTriggerDeliveryRecord = {
   dedupeKey: string | null;
   nextAttemptAt: string | null;
   throttledUntil: string | null;
+  retryState: RetryState;
+  retryAttempts: number;
+  retryMetadata: JsonValue | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -712,6 +717,9 @@ export type WorkflowTriggerDeliveryInsert = {
   dedupeKey?: string | null;
   nextAttemptAt?: string | null;
   throttledUntil?: string | null;
+  retryState?: RetryState;
+  retryAttempts?: number;
+  retryMetadata?: JsonValue | null;
 };
 
 export type WorkflowTriggerDeliveryUpdateInput = {
@@ -722,6 +730,9 @@ export type WorkflowTriggerDeliveryUpdateInput = {
   dedupeKey?: string | null;
   nextAttemptAt?: string | null;
   throttledUntil?: string | null;
+  retryState?: RetryState;
+  retryAttempts?: number;
+  retryMetadata?: JsonValue | null;
 };
 
 export type WorkflowTriggerDeliveryListOptions = {
@@ -730,6 +741,36 @@ export type WorkflowTriggerDeliveryListOptions = {
   status?: WorkflowTriggerDeliveryStatus;
   limit?: number;
   dedupeKey?: string | null;
+};
+
+export type EventIngressRetryRecord = {
+  eventId: string;
+  source: string;
+  retryState: RetryState;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EventIngressRetryUpsertInput = {
+  eventId: string;
+  source: string;
+  nextAttemptAt: string;
+  retryState?: RetryState;
+  attempts?: number;
+  lastError?: string | null;
+  metadata?: JsonValue | null;
+};
+
+export type EventIngressRetryUpdateInput = {
+  retryState?: RetryState;
+  attempts?: number;
+  nextAttemptAt?: string;
+  lastError?: string | null;
+  metadata?: JsonValue | null;
 };
 
 export type WorkflowScheduleWindow = {
@@ -1142,6 +1183,10 @@ export type WorkflowRunStepRecord = {
   lastHeartbeatAt: string | null;
   retryCount: number;
   failureReason: string | null;
+  nextAttemptAt: string | null;
+  retryState: RetryState;
+  retryAttempts: number;
+  retryMetadata: JsonValue | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1165,6 +1210,10 @@ export type WorkflowRunStepCreateInput = {
   lastHeartbeatAt?: string | null;
   retryCount?: number;
   failureReason?: string | null;
+  nextAttemptAt?: string | null;
+  retryState?: RetryState;
+  retryAttempts?: number;
+  retryMetadata?: JsonValue | null;
 };
 
 export type WorkflowRunStepUpdateInput = {
@@ -1185,6 +1234,10 @@ export type WorkflowRunStepUpdateInput = {
   lastHeartbeatAt?: string | null;
   retryCount?: number;
   failureReason?: string | null;
+  nextAttemptAt?: string | null;
+  retryState?: RetryState;
+  retryAttempts?: number;
+  retryMetadata?: JsonValue | null;
 };
 
 export type WorkflowExecutionHistoryRecord = {
