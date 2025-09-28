@@ -1,9 +1,5 @@
 import { parseCronExpression, type ParserOptions } from './workflows/cronParser';
-import {
-  createWorkflowRun,
-  listDueWorkflowSchedules,
-  updateWorkflowScheduleRuntimeMetadata
-} from './db/workflows';
+import * as workflowDb from './db/workflows';
 import type {
   WorkflowDefinitionRecord,
   WorkflowScheduleWindow,
@@ -11,7 +7,6 @@ import type {
   WorkflowScheduleWithDefinition,
   WorkflowAssetPartitioning
 } from './db/types';
-import { enqueueWorkflowRun } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
 import {
@@ -130,10 +125,30 @@ function determineWindowStart(
   return null;
 }
 
+type EnqueueWorkflowRun = (runId: string) => Promise<void>;
+
+type WorkflowSchedulerDependencies = {
+  createWorkflowRun: typeof workflowDb.createWorkflowRun;
+  enqueueWorkflowRun: EnqueueWorkflowRun;
+  listDueWorkflowSchedules: typeof workflowDb.listDueWorkflowSchedules;
+  updateWorkflowScheduleRuntimeMetadata: typeof workflowDb.updateWorkflowScheduleRuntimeMetadata;
+};
+
+const defaultDependencies: WorkflowSchedulerDependencies = {
+  createWorkflowRun: workflowDb.createWorkflowRun,
+  enqueueWorkflowRun: async (runId: string) => {
+    const { enqueueWorkflowRun } = await import('./queue');
+    return enqueueWorkflowRun(runId);
+  },
+  listDueWorkflowSchedules: workflowDb.listDueWorkflowSchedules,
+  updateWorkflowScheduleRuntimeMetadata: workflowDb.updateWorkflowScheduleRuntimeMetadata
+};
+
 async function materializeSchedule(
   entry: WorkflowScheduleWithDefinition,
   now: Date,
-  maxWindows: number
+  maxWindows: number,
+  deps: WorkflowSchedulerDependencies
 ): Promise<void> {
   const { schedule, workflow: definition } = entry;
 
@@ -143,6 +158,7 @@ async function materializeSchedule(
 
   const catchupEnabled = Boolean(schedule.catchUp);
   const occurrenceLimit = catchupEnabled ? Math.max(maxWindows, 1) : 1;
+  const upcomingFromNow = catchupEnabled ? null : computeNextOccurrence(schedule, now, { inclusive: true });
 
   const partitionSpecs = Array.from(collectPartitionedAssetsFromSteps(definition.steps).values());
   const referenceTimePartition = partitionSpecs.length > 0 && partitionSpecs.every((spec) => spec?.type === 'timeWindow')
@@ -158,14 +174,44 @@ async function materializeSchedule(
     );
   }
 
-  let cursor = parseScheduleDate(schedule.catchupCursor) ?? parseScheduleDate(schedule.nextRunAt);
-
-  if (!cursor) {
-    cursor = computeNextOccurrence(schedule, now, { inclusive: true });
+  let cursor: Date | null;
+  if (catchupEnabled) {
+    cursor = parseScheduleDate(schedule.catchupCursor) ?? parseScheduleDate(schedule.nextRunAt);
+  } else {
+    cursor = parseScheduleDate(schedule.nextRunAt);
   }
 
   if (!cursor) {
-    await updateWorkflowScheduleRuntimeMetadata(schedule.id, {
+    cursor = catchupEnabled ? computeNextOccurrence(schedule, now, { inclusive: true }) : upcomingFromNow;
+  }
+
+  if (!catchupEnabled) {
+    let latestDue: Date | null = null;
+
+    if (upcomingFromNow) {
+      if (upcomingFromNow.getTime() <= now.getTime()) {
+        latestDue = upcomingFromNow;
+      } else {
+        latestDue = computePreviousOccurrence(schedule, upcomingFromNow);
+      }
+    } else {
+      latestDue = computePreviousOccurrence(schedule, now);
+    }
+
+    if (!cursor && latestDue) {
+      cursor = latestDue;
+    } else if (
+      cursor &&
+      latestDue &&
+      latestDue.getTime() <= now.getTime() &&
+      cursor.getTime() < latestDue.getTime()
+    ) {
+      cursor = latestDue;
+    }
+  }
+
+  if (!cursor) {
+    await deps.updateWorkflowScheduleRuntimeMetadata(schedule.id, {
       nextRunAt: null,
       catchupCursor: null
     });
@@ -220,13 +266,13 @@ async function materializeSchedule(
     }
 
     try {
-      const run = await createWorkflowRun(definition.id, {
+      const run = await deps.createWorkflowRun(definition.id, {
         parameters: runParameters,
         trigger: triggerPayload,
         triggeredBy: 'scheduler',
         partitionKey
       });
-      await enqueueWorkflowRun(run.id);
+      await deps.enqueueWorkflowRun(run.id);
       log('Enqueued scheduled workflow run', {
         workflowId: definition.id,
         workflowSlug: definition.slug,
@@ -261,28 +307,41 @@ async function materializeSchedule(
 
   updates.lastWindow = lastWindow;
 
-  if (nextCursor) {
-    const nextIso = nextCursor.toISOString();
-    updates.nextRunAt = nextIso;
-    updates.catchupCursor = nextIso;
+  if (catchupEnabled) {
+    if (nextCursor) {
+      const nextIso = nextCursor.toISOString();
+      updates.nextRunAt = nextIso;
+      updates.catchupCursor = nextIso;
+    } else {
+      updates.nextRunAt = null;
+      updates.catchupCursor = null;
+    }
   } else {
-    updates.nextRunAt = null;
+    if (upcomingFromNow) {
+      updates.nextRunAt = upcomingFromNow.toISOString();
+    } else {
+      updates.nextRunAt = null;
+    }
     updates.catchupCursor = null;
   }
 
-  await updateWorkflowScheduleRuntimeMetadata(schedule.id, updates);
+  await deps.updateWorkflowScheduleRuntimeMetadata(schedule.id, updates);
 }
 
-async function processSchedules(batchSize: number, maxWindows: number): Promise<void> {
+async function processSchedules(
+  batchSize: number,
+  maxWindows: number,
+  deps: WorkflowSchedulerDependencies
+): Promise<void> {
   const now = new Date();
-  const due = await listDueWorkflowSchedules({ limit: batchSize, now });
+  const due = await deps.listDueWorkflowSchedules({ limit: batchSize, now });
   if (due.length === 0) {
     return;
   }
 
   for (const entry of due) {
     try {
-      await materializeSchedule(entry, now, maxWindows);
+      await materializeSchedule(entry, now, maxWindows, deps);
     } catch (err) {
       logError('Failed to materialize workflow schedule', {
         workflowId: entry.workflow.id,
@@ -302,7 +361,11 @@ export function startWorkflowScheduler({
   intervalMs?: number;
   batchSize?: number;
   maxWindows?: number;
-} = {}) {
+} = {}, dependencies: Partial<WorkflowSchedulerDependencies> = {}) {
+  const deps: WorkflowSchedulerDependencies = {
+    ...defaultDependencies,
+    ...dependencies
+  };
   const interval = Math.max(intervalMs, 500);
   const boundedBatch = Math.min(Math.max(batchSize, 1), 100);
   const boundedWindows = Math.max(maxWindows, 1);
@@ -317,7 +380,7 @@ export function startWorkflowScheduler({
     }
     running = true;
     try {
-      await processSchedules(boundedBatch, boundedWindows);
+      await processSchedules(boundedBatch, boundedWindows, deps);
     } catch (err) {
       logError('Workflow scheduler iteration failed', {
         error: (err as Error).message ?? 'unknown error'
