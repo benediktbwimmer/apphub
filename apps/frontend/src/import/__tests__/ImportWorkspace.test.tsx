@@ -1,12 +1,26 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import catalog from '../../../../../examples/catalog/scenarios.json';
 import ImportWorkspace from '../ImportWorkspace';
+import type { ExampleScenario } from '../examples';
 import type { ExampleBundleStatus } from '../exampleBundles';
 import scenarioCatalog from '../../../../../examples/catalog/scenarios.json';
 import type { ExampleScenario } from '../examples';
 
 const exampleScenarios: ExampleScenario[] = (scenarioCatalog as { scenarios?: ExampleScenario[] }).scenarios ?? [];
+
+const SCENARIO_FIXTURE_IDS = new Set([
+  'retail-sales-csv-loader-job',
+  'retail-sales-parquet-job',
+  'retail-sales-daily-ingest-workflow'
+]);
+
+const exampleCatalog = catalog as { scenarios: ExampleScenario[] };
+
+const exampleScenarios: ExampleScenario[] = exampleCatalog.scenarios.filter((scenario) =>
+  SCENARIO_FIXTURE_IDS.has(scenario.id)
+);
 
 const authorizedFetchMock = vi.fn<(url: string, options?: RequestInit) => Promise<Response>>();
 const pushToastMock = vi.fn();
@@ -49,6 +63,12 @@ beforeEach(() => {
     if (url.includes('/examples/bundles/status')) {
       return new Response(
         JSON.stringify({ data: { statuses: bundleStatuses } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    if (url.includes('/examples/catalog')) {
+      return new Response(
+        JSON.stringify({ data: { catalog: { scenarios: exampleScenarios } } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }

@@ -1,5 +1,7 @@
 import process from 'node:process';
 
+import { scheduleForcedExit, logActiveHandles } from './forceExit';
+
 type CleanupHandler = () => void | Promise<void>;
 
 type RunE2EContext = {
@@ -8,41 +10,8 @@ type RunE2EContext = {
 
 export type RunE2EOptions = {
   name?: string;
+  gracePeriodMs?: number;
 };
-
-type ProcessWithHandles = NodeJS.Process & {
-  _getActiveHandles?: () => unknown[];
-  _getActiveRequests?: () => unknown[];
-};
-
-function logLingeringHandles(name?: string): void {
-  const proc = process as ProcessWithHandles;
-  const getHandles = typeof proc._getActiveHandles === 'function' ? proc._getActiveHandles.bind(proc) : null;
-  const getRequests =
-    typeof proc._getActiveRequests === 'function' ? proc._getActiveRequests.bind(proc) : null;
-
-  if (!getHandles && !getRequests) {
-    console.warn('[runE2E] Active handle introspection unavailable');
-    return;
-  }
-
-  const handles = getHandles ? getHandles() : [];
-  const requests = getRequests ? getRequests() : [];
-  const label = name ? ` for ${name}` : '';
-
-  if (handles.length === 0 && requests.length === 0) {
-    console.info(`[runE2E] No lingering handles${label}`);
-    return;
-  }
-
-  console.warn(`[runE2E] Lingering handles detected${label}`);
-  if (handles.length > 0) {
-    console.warn(`[runE2E] Active handles (${handles.length}):`, handles);
-  }
-  if (requests.length > 0) {
-    console.warn(`[runE2E] Active requests (${requests.length}):`, requests);
-  }
-}
 
 async function runCleanupHandlers(handlers: CleanupHandler[]): Promise<boolean> {
   let encounteredFailure = false;
@@ -87,8 +56,17 @@ export async function runE2E(
   }
 
   if (process.env.APPHUB_E2E_DEBUG_HANDLES) {
-    logLingeringHandles(options.name);
+    logActiveHandles(options.name);
   }
 
-  process.exit(exitCode);
+  process.exitCode = exitCode;
+  scheduleForcedExit({
+    exitCode,
+    name: options.name,
+    gracePeriodMs: options.gracePeriodMs
+  });
+
+  return new Promise<never>(() => {
+    // Promise intentionally never resolves; forced exit terminates the process.
+  });
 }

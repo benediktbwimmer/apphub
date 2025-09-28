@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "rm -rf dist",
-    "test": "node --test --require ts-node/register src/__tests__/*.ts"
+    "test": "node --test --require ts-node/register --require ../../tests/helpers/node-test-force-exit.cjs src/__tests__/*.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.1",

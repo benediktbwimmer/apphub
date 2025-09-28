@@ -30,6 +30,14 @@ npm install
 
 All packages are managed through npm workspaces, so a single install at the repo root prepares every app, service, and shared module.
 
+### Run Tests
+
+```bash
+npm test
+```
+
+Executes every workspace's `test` script sequentially, ensuring unit, integration, and end-to-end suites stay green together.
+
 ### Catalog API
 
 ```bash

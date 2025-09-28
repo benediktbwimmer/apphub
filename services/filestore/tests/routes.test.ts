@@ -605,7 +605,13 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(uploadResponse.statusCode, 201, uploadResponse.body);
   const uploadBody = uploadResponse.json() as {
     data: {
-      node: { path: string; kind: string; sizeBytes: number; metadata: Record<string, unknown> } | null;
+      node: {
+        id: number;
+        path: string;
+        kind: string;
+        sizeBytes: number;
+        metadata: Record<string, unknown>;
+      } | null;
       result: { sizeBytes?: number };
     };
   };
