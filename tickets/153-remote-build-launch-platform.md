@@ -7,6 +7,7 @@
 Shift builds and launches onto a Kubernetes-native workflow so both the remote cluster and the minikube environment use the same orchestration path.
 
 ## Implementation
+- Decommission the Docker-in-Docker services and the existing custom Docker job runner; remove their Helm manifests, compose snippets, and catalog service wiring so new workloads no longer mount `/var/run/docker.sock` or depend on local Docker sockets.
 - Introduce a builder service that spawns BuildKit pods/jobs in Kubernetes. Define a custom resource or Job template that clones repos, runs builds, and pushes images to the configured registry (local: minikube registry; prod: managed registry).
 - Replace `buildRunner.ts` with a client that submits build jobs to the cluster, streams logs via Kubernetes API, and updates Postgres records accordingly.
 - Rework `launchRunner.ts` to create Deployment/Service (or ephemeral Pods) in the cluster instead of `docker run`. Capture runtime metadata (service URL, pod name) and expose preview URLs through an ingress controller (Traefik/NGINX) that works in minikube.

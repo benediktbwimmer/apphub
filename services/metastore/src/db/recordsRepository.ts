@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { writeAuditEntry } from './audit';
 import type {
   MetastoreRecord,
+  MetastoreRecordProjection,
   MetastoreRecordRow,
   RecordDeleteInput,
   RecordPatchInput,
@@ -28,6 +29,65 @@ function toRecord(row: MetastoreRecordRow): MetastoreRecord {
     createdBy: row.created_by,
     updatedBy: row.updated_by
   } satisfies MetastoreRecord;
+}
+
+function toProjectedRecord(row: Partial<MetastoreRecordRow>): MetastoreRecordProjection {
+  if (!row.namespace || !row.record_key) {
+    throw new Error('Projected metastore record is missing namespace or key');
+  }
+
+  const record: MetastoreRecordProjection = {
+    namespace: row.namespace,
+    key: row.record_key
+  } satisfies MetastoreRecordProjection;
+
+  if ('id' in row && typeof row.id === 'number') {
+    record.id = row.id;
+  }
+
+  if ('metadata' in row) {
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    record.metadata = normalizeMetadata(metadata);
+  }
+
+  if ('tags' in row) {
+    const tags = Array.isArray(row.tags) ? row.tags : null;
+    record.tags = normalizeTags(tags ?? undefined);
+  }
+
+  if ('owner' in row) {
+    record.owner = row.owner ?? null;
+  }
+
+  if ('schema_hash' in row) {
+    record.schemaHash = row.schema_hash ?? null;
+  }
+
+  if ('version' in row && typeof row.version === 'number') {
+    record.version = row.version;
+  }
+
+  if ('created_at' in row && row.created_at instanceof Date) {
+    record.createdAt = row.created_at;
+  }
+
+  if ('updated_at' in row && row.updated_at instanceof Date) {
+    record.updatedAt = row.updated_at;
+  }
+
+  if ('deleted_at' in row) {
+    record.deletedAt = row.deleted_at ?? null;
+  }
+
+  if ('created_by' in row) {
+    record.createdBy = row.created_by ?? null;
+  }
+
+  if ('updated_by' in row) {
+    record.updatedBy = row.updated_by ?? null;
+  }
+
+  return record;
 }
 
 function normalizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -484,7 +544,7 @@ export async function hardDeleteRecord(
 }
 
 export type SearchRecordsResult = {
-  records: MetastoreRecord[];
+  records: MetastoreRecordProjection[];
   total: number;
 };
 
@@ -493,7 +553,7 @@ export async function searchRecords(
   options: SearchOptions
 ): Promise<SearchRecordsResult> {
   const query = buildSearchQuery(options);
-  const result = await client.query<(MetastoreRecordRow & { total_count: string | number })>(
+  const result = await client.query<(Record<string, unknown> & { total_count: string | number })>(
     query.text,
     query.values
   );
@@ -502,7 +562,14 @@ export async function searchRecords(
     return { records: [], total: 0 };
   }
 
-  const records = result.rows.map((row) => toRecord(row));
+  const useFullRecord = !options.projection || options.projection.length === 0;
+  const records = result.rows.map((row) => {
+    const { total_count: _totalCount, ...rawRecord } = row;
+    if (useFullRecord) {
+      return toRecord(rawRecord as MetastoreRecordRow);
+    }
+    return toProjectedRecord(rawRecord as Partial<MetastoreRecordRow>);
+  });
   const totalRaw = result.rows[0]?.total_count ?? 0;
   const total = typeof totalRaw === 'string' ? Number.parseInt(totalRaw, 10) : Number(totalRaw);
 

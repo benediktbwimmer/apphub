@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseFilterNode } from './filters';
 import type { FilterNode, SortField } from '../search/types';
+import { resolveProjection } from '../search/projections';
 
 const namespaceSchema = z
   .string()
@@ -94,7 +95,8 @@ const searchSchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
   offset: z.number().int().min(0).optional(),
   sort: z.array(sortFieldSchema).max(5).optional(),
-  projection: projectionSchema
+  projection: projectionSchema,
+  summary: z.boolean().optional()
 });
 
 const bulkUpsertSchema = z.object({
@@ -203,6 +205,7 @@ export type ParsedSearchPayload = {
   preset?: string;
   sort?: SortField[];
   projection?: string[];
+  summary?: boolean;
 };
 
 export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
@@ -217,6 +220,9 @@ export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
     direction: entry.direction === 'asc' ? 'asc' : 'desc'
   }));
 
+  const summary = Boolean(parsed.summary);
+  const projection = resolveProjection(parsed.projection, summary);
+
   return {
     namespace: parsed.namespace,
     includeDeleted: parsed.includeDeleted,
@@ -226,7 +232,8 @@ export function parseSearchPayload(payload: unknown): ParsedSearchPayload {
     q: parsed.q,
     preset: parsed.preset,
     sort,
-    projection: parsed.projection
+    projection,
+    summary: summary ? true : undefined
   } satisfies ParsedSearchPayload;
 }
 

@@ -16,6 +16,10 @@ export type MetastoreRecord = {
   updatedBy: string | null;
 };
 
+export type MetastoreRecordProjection =
+  Pick<MetastoreRecord, 'namespace' | 'key'> &
+  Partial<Omit<MetastoreRecord, 'namespace' | 'key'>>;
+
 export type MetastoreRecordRow = {
   id: number;
   namespace: string;

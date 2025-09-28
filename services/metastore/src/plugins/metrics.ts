@@ -9,6 +9,7 @@ declare module 'fastify' {
       httpRequestDurationSeconds: Histogram<string>;
       namespaceRecords: Gauge<string>;
       namespaceDeletedRecords: Gauge<string>;
+      searchResponseBytes: Histogram<string>;
       enabled: boolean;
     };
   }
@@ -59,12 +60,21 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     registers: registry ? [registry] : undefined
   });
 
+  const searchResponseBytes = new Histogram({
+    name: 'metastore_search_response_bytes',
+    help: 'Size of metastore search responses in bytes',
+    labelNames: ['namespace', 'mode'],
+    buckets: [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072],
+    registers: registry ? [registry] : undefined
+  });
+
   app.decorate('metrics', {
     registry,
     httpRequestsTotal,
     httpRequestDurationSeconds,
     namespaceRecords,
     namespaceDeletedRecords,
+    searchResponseBytes,
     enabled
   });
 

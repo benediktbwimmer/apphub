@@ -1,4 +1,4 @@
-import type { MetastoreRecord } from '../db/types';
+import type { MetastoreRecord, MetastoreRecordProjection } from '../db/types';
 import type { RecordAuditView } from '../db/auditRepository';
 import type { NamespaceSummary } from '../db/namespacesRepository';
 
@@ -19,6 +19,21 @@ type SerializedRecord = {
 
 export type ProjectedSerializedRecord = Pick<SerializedRecord, 'namespace' | 'key'> &
   Partial<SerializedRecord>;
+
+function isCompleteRecord(record: MetastoreRecordProjection): record is MetastoreRecord {
+  return (
+    record.metadata !== undefined &&
+    record.tags !== undefined &&
+    record.owner !== undefined &&
+    record.schemaHash !== undefined &&
+    record.version !== undefined &&
+    record.createdAt instanceof Date &&
+    record.updatedAt instanceof Date &&
+    record.deletedAt !== undefined &&
+    record.createdBy !== undefined &&
+    record.updatedBy !== undefined
+  );
+}
 
 function isMetadataProjection(entry: string): boolean {
   return entry === 'metadata' || entry.startsWith('metadata.');
@@ -90,36 +105,39 @@ const SERIALIZABLE_FIELDS: Array<keyof SerializedRecord> = [
 ];
 
 export function serializeRecord(
-  record: MetastoreRecord,
+  record: MetastoreRecordProjection,
   projection?: string[]
 ): SerializedRecord | ProjectedSerializedRecord {
-  const baseRecord: SerializedRecord = {
-    namespace: record.namespace,
-    key: record.key,
-    metadata: record.metadata,
-    tags: record.tags,
-    owner: record.owner,
-    schemaHash: record.schemaHash,
-    version: record.version,
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
-    deletedAt: record.deletedAt ? record.deletedAt.toISOString() : null,
-    createdBy: record.createdBy,
-    updatedBy: record.updatedBy
-  } satisfies SerializedRecord;
-
   if (!projection || projection.length === 0) {
-    return baseRecord;
+    if (!isCompleteRecord(record)) {
+      throw new Error('serializeRecord requires a complete record when projection is omitted');
+    }
+
+    return {
+      namespace: record.namespace,
+      key: record.key,
+      metadata: record.metadata,
+      tags: record.tags,
+      owner: record.owner,
+      schemaHash: record.schemaHash,
+      version: record.version,
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      deletedAt: record.deletedAt ? record.deletedAt.toISOString() : null,
+      createdBy: record.createdBy,
+      updatedBy: record.updatedBy
+    } satisfies SerializedRecord;
   }
 
   const normalized = new Set(projection.map((entry) => entry.trim()).filter(Boolean));
   const projected: ProjectedSerializedRecord = {
-    namespace: baseRecord.namespace,
-    key: baseRecord.key
+    namespace: record.namespace,
+    key: record.key
   };
   const partial = projected as Partial<SerializedRecord>;
 
-  const metadataProjection = selectMetadata(baseRecord.metadata, Array.from(normalized));
+  const baseMetadata = record.metadata ?? {};
+  const metadataProjection = selectMetadata(baseMetadata, Array.from(normalized));
   if (Object.keys(metadataProjection).length > 0 || normalized.has('metadata')) {
     partial.metadata = metadataProjection;
   }
@@ -129,7 +147,32 @@ export function serializeRecord(
       continue;
     }
     if (normalized.has(field)) {
-      (partial as Record<string, unknown>)[field] = baseRecord[field];
+      const value = (record as Record<string, unknown>)[field];
+
+      switch (field) {
+        case 'tags': {
+          partial.tags = Array.isArray(value) ? (value as string[]) : [];
+          break;
+        }
+        case 'createdAt':
+        case 'updatedAt': {
+          if (value instanceof Date) {
+            partial[field] = value.toISOString();
+          }
+          break;
+        }
+        case 'deletedAt': {
+          if (value instanceof Date) {
+            partial.deletedAt = value.toISOString();
+          } else if (value == null) {
+            partial.deletedAt = null;
+          }
+          break;
+        }
+        default:
+          (partial as Record<string, unknown>)[field] = value as unknown;
+          break;
+      }
     }
   }
 

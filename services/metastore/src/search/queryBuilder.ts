@@ -1,4 +1,5 @@
 import type { FilterCondition, FilterNode, SearchOptions, SortField } from './types';
+import { normalizeProjectionInput } from './projections';
 
 const COLUMN_MAP: Record<
   string,
@@ -30,6 +31,24 @@ const NUMERIC_REGEX = /^-?\d+(?:\.\d+)?$/;
 const ISO_INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:/;
 
 type ComparisonCategory = 'number' | 'boolean' | 'timestamp' | 'text';
+
+const DEFAULT_COLUMN_ORDER = [
+  'namespace',
+  'record_key',
+  'metadata',
+  'tags',
+  'owner',
+  'schema_hash',
+  'version',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'created_by',
+  'updated_by',
+  'id'
+] as const;
+
+const TABLE_NAME = 'metastore_records';
 
 function parseField(field: string): FieldSpec {
   if (field.startsWith('metadata.')) {
@@ -165,6 +184,47 @@ function coerceValueForCategory(value: unknown, category: ComparisonCategory): u
     default:
       return typeof value === 'string' ? value : String(value ?? '');
   }
+}
+
+function buildSelectColumns(projection?: string[]): string[] | null {
+  const normalized = normalizeProjectionInput(projection);
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  const columns = new Set<string>(['namespace', 'record_key']);
+  let includeMetadata = false;
+
+  for (const field of normalized) {
+    if (field === 'metadata' || field.startsWith('metadata.')) {
+      includeMetadata = true;
+      continue;
+    }
+
+    if (field in COLUMN_MAP) {
+      columns.add(COLUMN_MAP[field].column);
+      continue;
+    }
+
+    if (field === 'id') {
+      columns.add('id');
+      continue;
+    }
+  }
+
+  if (includeMetadata) {
+    columns.add('metadata');
+  }
+
+  const orderIndex = (column: string): number => {
+    const index = DEFAULT_COLUMN_ORDER.indexOf(column as (typeof DEFAULT_COLUMN_ORDER)[number]);
+    return index === -1 ? DEFAULT_COLUMN_ORDER.length : index;
+  };
+
+  return Array.from(columns).sort((a, b) => {
+    const diff = orderIndex(a) - orderIndex(b);
+    return diff === 0 ? a.localeCompare(b) : diff;
+  });
 }
 
 function buildMetadataComparableExpression(path: string[], category: ComparisonCategory): string {
@@ -380,9 +440,15 @@ export function buildSearchQuery(options: SearchOptions): {
   const limitPlaceholder = builder.add(limit);
   const offsetPlaceholder = builder.add(offset);
 
+  const selectedColumns = buildSelectColumns(options.projection);
+  const columnSql =
+    selectedColumns === null
+      ? '*'
+      : selectedColumns.map((column) => `${TABLE_NAME}.${column}`).join(', ');
+
   const text = `
-    SELECT *, COUNT(*) OVER() AS total_count
-    FROM metastore_records
+    SELECT ${columnSql}, COUNT(*) OVER() AS total_count
+    FROM ${TABLE_NAME}
     ${whereClause}
     ${orderClause}
     LIMIT ${limitPlaceholder}

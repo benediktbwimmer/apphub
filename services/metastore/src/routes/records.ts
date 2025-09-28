@@ -514,14 +514,28 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
         })
       );
 
-      reply.send({
+      const mode = payload.projection
+        ? payload.summary
+          ? 'summary'
+          : 'projected'
+        : 'full';
+
+      const responsePayload = {
         pagination: {
           total,
           limit: payload.limit ?? 50,
           offset: payload.offset ?? 0
         },
         records: records.map((record) => serializeRecord(record, payload.projection))
-      });
+      };
+
+      if (app.metrics.enabled) {
+        const labels = [payload.namespace, mode] as const;
+        const size = Buffer.byteLength(JSON.stringify(responsePayload));
+        app.metrics.searchResponseBytes.labels(...labels).observe(size);
+      }
+
+      reply.send(responsePayload);
     } catch (err) {
       const error = mapError(err);
       reply.code(error.statusCode).send({

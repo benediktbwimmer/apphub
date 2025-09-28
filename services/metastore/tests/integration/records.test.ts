@@ -254,6 +254,31 @@ runE2E(async ({ registerCleanup }) => {
   assert.deepEqual(Object.keys(projectedRecord.metadata ?? {}).sort(), ['status']);
   assert.equal(projectedRecord.metadata.status, 'active');
 
+  const summarySearchResponse = await app.inject({
+    method: 'POST',
+    url: '/records/search',
+    payload: {
+      namespace: 'analytics',
+      summary: true
+    }
+  });
+  assert.equal(summarySearchResponse.statusCode, 200, summarySearchResponse.body);
+  const summaryBody = summarySearchResponse.json() as {
+    records: Array<Record<string, unknown>>;
+  };
+  const summaryRecord = summaryBody.records[0] ?? {};
+  assert.ok(!('metadata' in summaryRecord));
+  assert.deepEqual(
+    Object.keys(summaryRecord).sort(),
+    ['deletedAt', 'key', 'namespace', 'owner', 'schemaHash', 'tags', 'updatedAt', 'version']
+  );
+  assert.equal(summaryRecord.owner, null);
+  assert.equal(Array.isArray(summaryRecord.tags), true);
+  if (Array.isArray(summaryRecord.tags)) {
+    assert.deepEqual([...summaryRecord.tags].sort(), ['patched', 'pipelines']);
+  }
+  assert.equal(typeof summaryRecord.updatedAt, 'string');
+
   const querySearchResponse = await app.inject({
     method: 'POST',
     url: '/records/search',

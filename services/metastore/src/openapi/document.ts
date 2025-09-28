@@ -490,6 +490,11 @@ export const openApiDocument: OpenAPIV3.Document = {
                   offset: { type: 'integer', minimum: 0 },
                   includeDeleted: { type: 'boolean' },
                   projection: { type: 'array', items: { type: 'string' }, maxItems: 32 },
+                  summary: {
+                    type: 'boolean',
+                    description:
+                      'When true, return a lean default projection (namespace, key, version, updatedAt, owner, schemaHash, tags, deletedAt). Additional fields can be added via `projection`.'
+                  },
                   sort: {
                     type: 'array',
                     items: {
