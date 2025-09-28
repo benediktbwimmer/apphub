@@ -3040,6 +3040,27 @@ export async function listWorkflowRunSteps(
   });
 }
 
+export async function listScheduledWorkflowRunSteps(limit = 200): Promise<WorkflowRunStepRecord[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 500));
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowRunStepRow>(
+      `SELECT *
+         FROM workflow_run_steps
+        WHERE retry_state = 'scheduled'
+        ORDER BY next_attempt_at ASC NULLS LAST
+        LIMIT $1`,
+      [boundedLimit]
+    )
+  );
+  const assets = await useConnection((client) =>
+    fetchWorkflowRunStepAssets(
+      client,
+      rows.map((row) => row.id)
+    )
+  );
+  return rows.map((row) => mapWorkflowRunStepRow(row, assets.get(row.id) ?? []));
+}
+
 export async function getWorkflowRunStepById(stepId: string): Promise<WorkflowRunStepRecord | null> {
   return useConnection(async (client) => {
     const { rows } = await client.query<WorkflowRunStepRow>(

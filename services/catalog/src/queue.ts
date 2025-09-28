@@ -33,12 +33,19 @@ export const EVENT_TRIGGER_QUEUE_NAME =
 export const EVENT_TRIGGER_JOB_NAME = 'apphub.event.trigger';
 export const EVENT_TRIGGER_RETRY_JOB_NAME = 'apphub.event.trigger.retry';
 export const EVENT_RETRY_JOB_NAME = 'apphub.event.retry';
+export const WORKFLOW_RETRY_JOB_NAME = 'apphub.workflow.retry';
 
 export type EventTriggerJobData = {
   envelope?: EventEnvelope;
   deliveryId?: string;
   eventId?: string;
   retryKind?: 'trigger';
+};
+
+export type WorkflowRetryJobData = {
+  workflowRunId: string;
+  stepId?: string | null;
+  retryKind: 'workflow';
 };
 
 const QUEUE_KEYS = {
@@ -315,6 +322,58 @@ export async function scheduleEventTriggerRetryJob(
       {
         delay: computeDelayMs(runAtIso),
         jobId: `event-trigger-retry:${deliveryId}:${attempt}`,
+        removeOnComplete: 100,
+        removeOnFail: 100
+      }
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('jobId already exists')) {
+      return;
+    }
+    throw err;
+  }
+}
+
+function computeWorkflowRetryDelayMs(runAtIso: string): number {
+  if (!runAtIso) {
+    return 0;
+  }
+  const parsed = Date.parse(runAtIso);
+  if (Number.isNaN(parsed)) {
+    return 0;
+  }
+  return Math.max(parsed - Date.now(), 0);
+}
+
+export async function scheduleWorkflowRetryJob(
+  workflowRunId: string,
+  stepId: string | null,
+  runAtIso: string,
+  attempt: number
+): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    console.warn('[workflow-retry] Inline mode active; skipping retry scheduling', {
+      workflowRunId,
+      stepId,
+      runAtIso
+    });
+    return;
+  }
+
+  const queue = queueManager.getQueue<WorkflowRetryJobData>(QUEUE_KEYS.workflow);
+  const jobId = ['workflow-retry', workflowRunId, stepId ?? 'run', String(attempt)].join(':');
+
+  try {
+    await queue.add(
+      WORKFLOW_RETRY_JOB_NAME,
+      {
+        workflowRunId,
+        stepId,
+        retryKind: 'workflow'
+      },
+      {
+        delay: computeWorkflowRetryDelayMs(runAtIso),
+        jobId,
         removeOnComplete: 100,
         removeOnFail: 100
       }

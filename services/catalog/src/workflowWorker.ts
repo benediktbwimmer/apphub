@@ -2,10 +2,13 @@ import { Worker } from 'bullmq';
 import { runWorkflowOrchestration } from './workflowOrchestrator';
 import {
   WORKFLOW_QUEUE_NAME,
+  WORKFLOW_RETRY_JOB_NAME,
   getQueueConnection,
   closeQueueConnection,
   isInlineQueueMode,
-  enqueueWorkflowRun
+  enqueueWorkflowRun,
+  scheduleWorkflowRetryJob,
+  type WorkflowRetryJobData
 } from './queue';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
@@ -17,6 +20,7 @@ import {
   getWorkflowDefinitionById,
   appendWorkflowExecutionHistory,
   updateWorkflowRunStep,
+  listScheduledWorkflowRunSteps,
   type WorkflowStaleStepRef
 } from './db/workflows';
 import {
@@ -45,7 +49,21 @@ const HEARTBEAT_BATCH_LIMIT = Math.max(
   Number(process.env.WORKFLOW_HEARTBEAT_CHECK_BATCH ?? 20)
 );
 
+const WORKFLOW_RETRY_RECONCILIATION_INTERVAL_MS = Math.max(
+  10_000,
+  Number(process.env.WORKFLOW_RETRY_RECONCILIATION_INTERVAL_MS ?? 30_000)
+);
+
+const WORKFLOW_RETRY_RECONCILIATION_BATCH = Math.max(
+  10,
+  Number(process.env.WORKFLOW_RETRY_RECONCILIATION_BATCH ?? 200)
+);
+
 type HeartbeatMonitor = {
+  stop: () => Promise<void>;
+};
+
+type RetryReconciler = {
   stop: () => Promise<void>;
 };
 
@@ -58,6 +76,73 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+async function reconcileScheduledWorkflowRetries(batchSize = WORKFLOW_RETRY_RECONCILIATION_BATCH) {
+  if (useInlineQueue) {
+    return;
+  }
+
+  const scheduledSteps = await listScheduledWorkflowRunSteps(batchSize);
+  if (scheduledSteps.length === 0) {
+    return;
+  }
+
+  let reconciled = 0;
+
+  for (const step of scheduledSteps) {
+    if (step.retryState !== 'scheduled') {
+      continue;
+    }
+    const stepId = step.stepId ?? null;
+    const runAt = step.nextAttemptAt ?? new Date().toISOString();
+    const attempt = Math.max(step.retryAttempts ?? 1, 1);
+    try {
+      await scheduleWorkflowRetryJob(step.workflowRunId, stepId, runAt, attempt);
+      reconciled += 1;
+    } catch (err) {
+      logger.error('Failed to reconcile workflow retry scheduling', {
+        workflowRunId: step.workflowRunId,
+        stepId: stepId ?? 'run',
+        error: err instanceof Error ? err.message : 'unknown'
+      });
+    }
+  }
+
+  if (reconciled > 0) {
+    log('Reconciled scheduled workflow retries', { count: reconciled });
+  }
+}
+
+function startRetryReconciler(): RetryReconciler {
+  if (useInlineQueue) {
+    return {
+      stop: async () => {
+        // inline mode has no queue to reconcile
+      }
+    } satisfies RetryReconciler;
+  }
+
+  let stopped = false;
+  const loop = (async () => {
+    while (!stopped) {
+      try {
+        await reconcileScheduledWorkflowRetries();
+      } catch (err) {
+        logger.error('Workflow retry reconciliation failed', {
+          error: err instanceof Error ? err.message : 'unknown'
+        });
+      }
+      await sleep(WORKFLOW_RETRY_RECONCILIATION_INTERVAL_MS);
+    }
+  })();
+
+  return {
+    stop: async () => {
+      stopped = true;
+      await loop;
+    }
+  } satisfies RetryReconciler;
 }
 
 function resolveStepDefinition(
@@ -318,9 +403,24 @@ async function runQueueWorker() {
   const scheduler = startWorkflowScheduler();
   const connection = getQueueConnection();
   const heartbeatMonitor = startHeartbeatMonitor();
+  let retryReconciler: RetryReconciler | null = null;
   const worker = new Worker(
     WORKFLOW_QUEUE_NAME,
     async (job) => {
+      if (job.name === WORKFLOW_RETRY_JOB_NAME || (job.data as WorkflowRetryJobData)?.retryKind === 'workflow') {
+        const data = job.data as WorkflowRetryJobData;
+        if (!data.workflowRunId || typeof data.workflowRunId !== 'string') {
+          throw new Error('workflowRunId is required');
+        }
+        log('Processing workflow retry', {
+          jobId: job.id ?? 'unknown',
+          workflowRunId: data.workflowRunId,
+          stepId: data.stepId ?? null
+        });
+        await runWorkflowOrchestration(data.workflowRunId);
+        return;
+      }
+
       const { workflowRunId } = job.data as { workflowRunId?: string };
       if (!workflowRunId || typeof workflowRunId !== 'string') {
         throw new Error('workflowRunId is required');
@@ -351,6 +451,8 @@ async function runQueueWorker() {
       queue: WORKFLOW_QUEUE_NAME,
       concurrency: WORKFLOW_CONCURRENCY
     });
+    await reconcileScheduledWorkflowRetries();
+    retryReconciler = startRetryReconciler();
   } catch (err) {
     await heartbeatMonitor.stop();
     await scheduler.stop();
@@ -360,6 +462,9 @@ async function runQueueWorker() {
   const shutdown = async () => {
     log('Shutdown signal received');
     await worker.close();
+    if (retryReconciler) {
+      await retryReconciler.stop();
+    }
     await heartbeatMonitor.stop();
     await scheduler.stop();
     try {

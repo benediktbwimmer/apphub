@@ -41,9 +41,11 @@ import {
   executeJobRun,
   WORKFLOW_BUNDLE_CONTEXT_KEY
 } from './jobs/runtime';
+import { scheduleWorkflowRetryJob } from './queue';
 import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
+import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
@@ -56,6 +58,45 @@ type StepUpdateOptions = {
   eventType?: string;
   eventPayload?: StepHistoryPayload;
   heartbeat?: boolean;
+};
+
+const WORKFLOW_RETRY_BACKOFF = {
+  baseMs: normalizePositiveNumber(process.env.WORKFLOW_RETRY_BASE_MS, 5_000),
+  factor: normalizePositiveNumber(process.env.WORKFLOW_RETRY_FACTOR, 2),
+  maxMs: normalizePositiveNumber(process.env.WORKFLOW_RETRY_MAX_MS, 30 * 60_000),
+  jitterRatio: normalizeRatio(process.env.WORKFLOW_RETRY_JITTER_RATIO, 0.2)
+} as const;
+
+function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  if (parsed < minimum) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function normalizeRatio(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, 0), 1);
+}
+
+type ScheduledRetryInfo = {
+  stepId: string;
+  runAt: string;
+  attempts: number;
+  reason: string;
 };
 
 async function appendRunHistoryEvent(
@@ -173,6 +214,7 @@ type StepExecutionResult = {
   sharedPatch?: Record<string, JsonValue | null>;
   errorMessage?: string | null;
   fanOut?: FanOutExpansion;
+  scheduledRetry?: ScheduledRetryInfo;
 };
 
 type FanOutChildStep = {
@@ -1052,6 +1094,128 @@ function calculateRetryDelay(attempt: number, policy: JobRetryPolicy | null | un
   }
 
   return Math.floor(delay);
+}
+
+export function computeWorkflowRetryTimestamp(
+  nextAttemptNumber: number,
+  policy: JobRetryPolicy | null | undefined,
+  retryAttempts: number,
+  now: Date = new Date()
+): string {
+  let delay = calculateRetryDelay(nextAttemptNumber, policy ?? null);
+  if (delay <= 0) {
+    delay = computeExponentialBackoff(Math.max(1, retryAttempts), WORKFLOW_RETRY_BACKOFF);
+  }
+  if (delay <= 0) {
+    delay = WORKFLOW_RETRY_BACKOFF.baseMs;
+  }
+  return new Date(now.getTime() + delay).toISOString();
+}
+
+async function scheduleWorkflowStepRetry(
+  run: WorkflowRunRecord,
+  step: WorkflowStepDefinition,
+  stepRecord: WorkflowRunStepRecord,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  message: string | null,
+  reason: string
+): Promise<StepExecutionResult | null> {
+  const policy = (step as WorkflowJobStepDefinition | WorkflowServiceStepDefinition | WorkflowFanOutTemplateDefinition)?.retryPolicy;
+  const maxAttempts = Math.max(1, policy?.maxAttempts ?? 1);
+  const nextRetryAttempts = (stepRecord.retryAttempts ?? 0) + 1;
+  if (nextRetryAttempts >= maxAttempts) {
+    return null;
+  }
+
+  const nextAttemptNumber = (stepRecord.attempt ?? 1) + 1;
+  const nextAttemptAt = computeWorkflowRetryTimestamp(
+    nextAttemptNumber,
+    policy,
+    nextRetryAttempts
+  );
+
+  const updatePayload: WorkflowRunStepUpdateInput = {
+    status: 'pending',
+    retryState: 'scheduled',
+    retryAttempts: nextRetryAttempts,
+    retryCount: (stepRecord.retryCount ?? 0) + 1,
+    nextAttemptAt,
+    errorMessage: message ?? stepRecord.errorMessage ?? null,
+    completedAt: null,
+    lastHeartbeatAt: new Date().toISOString()
+  };
+
+  const updatedRecord =
+    (await applyStepUpdateWithHistory(stepRecord, updatePayload, {
+      eventType: 'retry-scheduled',
+      eventPayload: {
+        reason,
+        nextAttemptAt,
+        attempt: nextAttemptNumber,
+        retryAttempts: nextRetryAttempts
+      }
+    })) ?? {
+      ...stepRecord,
+      ...updatePayload
+    } satisfies WorkflowRunStepRecord;
+
+  await scheduleWorkflowRetryJob(run.id, step.id, nextAttemptAt, nextRetryAttempts);
+
+  const retryContext = updateStepContext(context, step.id, {
+    status: 'pending',
+    jobRunId: updatedRecord.jobRunId ?? null,
+    result: null,
+    errorMessage: updatedRecord.errorMessage ?? null,
+    logsUrl: updatedRecord.logsUrl ?? null,
+    metrics: updatedRecord.metrics ?? null,
+    attempt: updatedRecord.attempt,
+    startedAt: updatedRecord.startedAt,
+    completedAt: null,
+    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? [])
+  });
+
+  await applyRunContextPatch(run.id, step.id, retryContext.steps[step.id], {
+    currentStepId: step.id,
+    currentStepIndex: stepIndex
+  });
+
+  return {
+    context: retryContext,
+    stepStatus: 'pending',
+    completed: false,
+    stepPatch: retryContext.steps[step.id],
+    errorMessage: updatedRecord.errorMessage ?? null,
+    scheduledRetry: {
+      stepId: step.id,
+      runAt: nextAttemptAt,
+      attempts: nextRetryAttempts,
+      reason
+    }
+  } satisfies StepExecutionResult;
+}
+
+async function finalizeStepFailure(
+  run: WorkflowRunRecord,
+  step: WorkflowStepDefinition,
+  stepRecord: WorkflowRunStepRecord,
+  context: WorkflowRuntimeContext,
+  stepIndex: number,
+  message: string | null,
+  reason: string
+): Promise<StepExecutionResult> {
+  const scheduled = await scheduleWorkflowStepRetry(run, step, stepRecord, context, stepIndex, message, reason);
+  if (scheduled) {
+    return scheduled;
+  }
+
+  return {
+    context,
+    stepStatus: 'failed',
+    completed: false,
+    stepPatch: context.steps[step.id],
+    errorMessage: message ?? stepRecord.errorMessage ?? null
+  } satisfies StepExecutionResult;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1935,7 +2099,10 @@ async function executeJobStep(
       {
         status: 'running',
         startedAt,
-        input: parameters
+        input: parameters,
+        retryState: 'pending',
+        nextAttemptAt: null,
+        retryMetadata: null
       },
       {
         eventType: 'status',
@@ -2096,6 +2263,18 @@ async function executeJobStep(
     } satisfies StepExecutionResult;
   }
 
+  if (stepRecord.status === 'failed') {
+    return finalizeStepFailure(
+      run,
+      step,
+      stepRecord,
+      nextContext,
+      stepIndex,
+      stepRecord.errorMessage ?? executed.errorMessage ?? null,
+      'job_failed'
+    );
+  }
+
   return {
     context: nextContext,
     stepStatus: stepRecord.status,
@@ -2166,13 +2345,15 @@ async function executeServiceStep(
       currentStepIndex: stepIndex
     });
 
-    return {
-      context: failureContext,
-      stepStatus: 'failed',
-      completed: false,
-      stepPatch: failureContext.steps[step.id],
-      errorMessage
-    } satisfies StepExecutionResult;
+    return finalizeStepFailure(
+      run,
+      step,
+      stepRecord,
+      failureContext,
+      stepIndex,
+      errorMessage,
+      'service_prepare_failed'
+    );
   }
 
   let stepRecord = await loadOrCreateStepRecord(run.id, step, prepared.requestInput, {
@@ -2221,7 +2402,10 @@ async function executeServiceStep(
       {
         status: 'running',
         startedAt,
-        input: prepared.requestInput
+        input: prepared.requestInput,
+        retryState: 'pending',
+        nextAttemptAt: null,
+        retryMetadata: null
       },
       {
         eventType: 'status',
@@ -2324,6 +2508,18 @@ async function executeServiceStep(
         service: serviceContext
       });
       if (attempt < maxAttempts) {
+        const scheduled = await scheduleWorkflowStepRetry(
+          run,
+          step,
+          stepRecord,
+          finalContext,
+          stepIndex,
+          lastErrorMessage,
+          'service_missing'
+        );
+        if (scheduled) {
+          return scheduled;
+        }
         continue;
       }
       break;
@@ -2355,6 +2551,18 @@ async function executeServiceStep(
         service: serviceContext
       });
       if (attempt < maxAttempts) {
+        const scheduled = await scheduleWorkflowStepRetry(
+          run,
+          step,
+          stepRecord,
+          finalContext,
+          stepIndex,
+          lastErrorMessage,
+          'service_unavailable'
+        );
+        if (scheduled) {
+          return scheduled;
+        }
         continue;
       }
       break;
@@ -2496,6 +2704,18 @@ async function executeServiceStep(
     });
 
     if (attempt < maxAttempts) {
+      const scheduled = await scheduleWorkflowStepRetry(
+        run,
+        step,
+        stepRecord,
+        finalContext,
+        stepIndex,
+        lastErrorMessage,
+        'service_error'
+      );
+      if (scheduled) {
+        return scheduled;
+      }
       continue;
     }
 
@@ -2547,13 +2767,15 @@ async function executeServiceStep(
 
   await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id]);
 
-  return {
-    context: failureContext,
-    stepStatus: 'failed',
-    completed: false,
-    stepPatch: failureContext.steps[step.id],
-    errorMessage: failureMessage
-  } satisfies StepExecutionResult;
+  return finalizeStepFailure(
+    run,
+    step,
+    stepRecord,
+    failureContext,
+    stepIndex,
+    failureMessage,
+    'service_failed'
+  );
 }
 
 export async function runWorkflowOrchestration(workflowRunId: string): Promise<WorkflowRunRecord | null> {
@@ -2707,6 +2929,7 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
     >();
     const activeSteps = new Set<string>();
     let failure: { stepId: string; message: string } | null = null;
+    let pendingRetry: ScheduledRetryInfo | null = null;
 
     const updateRunMetrics = async () => {
       await updateWorkflowRun(run.id, {
@@ -3195,6 +3418,19 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       }
 
       if (!result.completed) {
+        if (result.scheduledRetry) {
+          pendingRetry = {
+            stepId,
+            runAt: result.scheduledRetry.runAt,
+            attempts: result.scheduledRetry.attempts,
+            reason: result.scheduledRetry.reason
+          } satisfies ScheduledRetryInfo;
+          statusById.set(stepId, 'pending');
+          readyQueue = [];
+          readySet.clear();
+          break;
+        }
+
         if (result.fanOut) {
           await registerFanOutExpansion(result.fanOut);
         }
@@ -3223,6 +3459,17 @@ export async function runWorkflowOrchestration(workflowRunId: string): Promise<W
       }
 
       trySchedule();
+    }
+
+    if (pendingRetry) {
+      await Promise.allSettled(Array.from(inFlight.values()));
+      log('Workflow run awaiting retry', {
+        workflowRunId: run.id,
+        stepId: pendingRetry.stepId,
+        nextAttemptAt: pendingRetry.runAt,
+        attempts: pendingRetry.attempts
+      });
+      return await getWorkflowRunById(run.id);
     }
 
     if (failure) {
