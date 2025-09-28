@@ -765,40 +765,48 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
   };
 
   const retriesRecord = toRecord(payload.retries);
+  const eventsRecord = toRecord(retriesRecord?.['events']);
+  const triggersRecordValue = toRecord(retriesRecord?.['triggers']);
+  const workflowStepsRecordValue = toRecord(retriesRecord?.['workflowSteps']);
+
+  const eventsEntries = eventsRecord?.['entries'];
+  const triggersEntries = triggersRecordValue?.['entries'];
+  const workflowStepEntries = workflowStepsRecordValue?.['entries'];
+
   const eventsRetryBacklog: RetryBacklog<EventRetryBacklogEntry> = {
-    summary: parseSummary(toRecord(retriesRecord?.events)?.summary ?? retriesRecord?.events?.summary),
-    entries: Array.isArray(toRecord(retriesRecord?.events)?.entries)
-      ? (toRecord(retriesRecord?.events)?.entries as unknown[])
+    summary: parseSummary(eventsRecord?.['summary']),
+    entries: Array.isArray(eventsEntries)
+      ? (eventsEntries as unknown[])
           .map((entry) => normalizeEventRetryEntry(entry))
           .filter((entry): entry is EventRetryBacklogEntry => Boolean(entry))
-      : Array.isArray(retriesRecord?.events)
-        ? (retriesRecord?.events as unknown[])
+      : Array.isArray(retriesRecord?.['events'])
+        ? (retriesRecord?.['events'] as unknown[])
             .map((entry) => normalizeEventRetryEntry(entry))
             .filter((entry): entry is EventRetryBacklogEntry => Boolean(entry))
         : []
   } satisfies RetryBacklog<EventRetryBacklogEntry>;
 
   const triggersRetryBacklog: RetryBacklog<TriggerRetryBacklogEntry> = {
-    summary: parseSummary(toRecord(retriesRecord?.triggers)?.summary ?? retriesRecord?.triggers?.summary),
-    entries: Array.isArray(toRecord(retriesRecord?.triggers)?.entries)
-      ? (toRecord(retriesRecord?.triggers)?.entries as unknown[])
+    summary: parseSummary(triggersRecordValue?.['summary']),
+    entries: Array.isArray(triggersEntries)
+      ? (triggersEntries as unknown[])
           .map((entry) => normalizeTriggerRetryEntry(entry))
           .filter((entry): entry is TriggerRetryBacklogEntry => Boolean(entry))
-      : Array.isArray(retriesRecord?.triggers)
-        ? (retriesRecord?.triggers as unknown[])
+      : Array.isArray(retriesRecord?.['triggers'])
+        ? (retriesRecord?.['triggers'] as unknown[])
             .map((entry) => normalizeTriggerRetryEntry(entry))
             .filter((entry): entry is TriggerRetryBacklogEntry => Boolean(entry))
         : []
   } satisfies RetryBacklog<TriggerRetryBacklogEntry>;
 
   const workflowStepRetryBacklog: RetryBacklog<WorkflowStepRetryBacklogEntry> = {
-    summary: parseSummary(toRecord(retriesRecord?.workflowSteps)?.summary ?? retriesRecord?.workflowSteps?.summary),
-    entries: Array.isArray(toRecord(retriesRecord?.workflowSteps)?.entries)
-      ? (toRecord(retriesRecord?.workflowSteps)?.entries as unknown[])
+    summary: parseSummary(workflowStepsRecordValue?.['summary']),
+    entries: Array.isArray(workflowStepEntries)
+      ? (workflowStepEntries as unknown[])
           .map((entry) => normalizeWorkflowStepRetryEntry(entry))
           .filter((entry): entry is WorkflowStepRetryBacklogEntry => Boolean(entry))
-      : Array.isArray(retriesRecord?.workflowSteps)
-        ? (retriesRecord?.workflowSteps as unknown[])
+      : Array.isArray(retriesRecord?.['workflowSteps'])
+        ? (retriesRecord?.['workflowSteps'] as unknown[])
             .map((entry) => normalizeWorkflowStepRetryEntry(entry))
             .filter((entry): entry is WorkflowStepRetryBacklogEntry => Boolean(entry))
         : []

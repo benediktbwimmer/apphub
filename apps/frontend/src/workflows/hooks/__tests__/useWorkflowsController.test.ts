@@ -66,6 +66,7 @@ const {
     id: 'run-1',
     workflowDefinitionId: definition.id,
     status: 'pending',
+    health: 'healthy',
     currentStepId: null,
     currentStepIndex: null,
     startedAt: null,
@@ -73,13 +74,19 @@ const {
     durationMs: null,
     errorMessage: null,
     triggeredBy: 'operator@apphub.test',
+    partitionKey: null,
     metrics: { totalSteps: 2, completedSteps: 0 },
     parameters: {},
     context: {},
     output: null,
     trigger: { type: 'manual' },
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    retrySummary: {
+      pendingSteps: 0,
+      overdueSteps: 0,
+      nextAttemptAt: null
+    }
   } as WorkflowRun;
 
   const steps = [

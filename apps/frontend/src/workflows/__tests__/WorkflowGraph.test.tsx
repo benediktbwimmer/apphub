@@ -58,6 +58,7 @@ describe('WorkflowGraph', () => {
       id: 'run-graph',
       workflowDefinitionId: workflow.id,
       status: 'running',
+      health: 'healthy',
       currentStepId: 'transform',
       currentStepIndex: 1,
       startedAt: new Date().toISOString(),
@@ -77,7 +78,12 @@ describe('WorkflowGraph', () => {
       output: null,
       trigger: { type: 'manual' },
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      retrySummary: {
+        pendingSteps: 0,
+        overdueSteps: 0,
+        nextAttemptAt: null
+      }
     };
 
     const steps: WorkflowRunStep[] = [
@@ -212,6 +218,7 @@ describe('WorkflowGraph', () => {
       id: 'run-fanout',
       workflowDefinitionId: workflow.id,
       status: 'succeeded',
+      health: 'healthy',
       currentStepId: null,
       currentStepIndex: null,
       startedAt,
@@ -230,7 +237,12 @@ describe('WorkflowGraph', () => {
       output: null,
       trigger: { type: 'manual' },
       createdAt: startedAt,
-      updatedAt: completedAt
+      updatedAt: completedAt,
+      retrySummary: {
+        pendingSteps: 0,
+        overdueSteps: 0,
+        nextAttemptAt: null
+      }
     };
 
     const steps: WorkflowRunStep[] = [
@@ -359,6 +371,7 @@ describe('WorkflowGraph', () => {
       id: 'run-overflow',
       workflowDefinitionId: workflow.id,
       status: 'succeeded',
+      health: 'healthy',
       currentStepId: null,
       currentStepIndex: null,
       startedAt: null,
@@ -373,7 +386,12 @@ describe('WorkflowGraph', () => {
       output: null,
       trigger: { type: 'manual' },
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      retrySummary: {
+        pendingSteps: 0,
+        overdueSteps: 0,
+        nextAttemptAt: null
+      }
     };
 
     const parentStep: WorkflowRunStep = {

@@ -124,6 +124,7 @@ const runResponse: WorkflowRun = {
   id: 'run-1',
   workflowDefinitionId: workflowDefinition.id,
   status: 'pending',
+  health: 'healthy',
   currentStepId: null,
   currentStepIndex: null,
   startedAt: null,
@@ -138,7 +139,12 @@ const runResponse: WorkflowRun = {
   output: null,
   trigger: { type: 'manual' },
   createdAt: nowIso,
-  updatedAt: nowIso
+  updatedAt: nowIso,
+  retrySummary: {
+    pendingSteps: 0,
+    overdueSteps: 0,
+    nextAttemptAt: null
+  }
 };
 
 const completedRun: WorkflowRun = {
@@ -159,6 +165,7 @@ const autoRun: WorkflowRun = {
   ...completedRun,
   id: 'auto-run-1',
   status: 'failed',
+  health: 'degraded',
   triggeredBy: 'asset-materializer',
   trigger: {
     type: 'auto-materialize',
@@ -501,6 +508,7 @@ describe('WorkflowsPage manual run flow', () => {
       ...autoRun,
       id: 'auto-run-2',
       status: 'succeeded',
+      health: 'healthy',
       trigger: {
         type: 'auto-materialize',
         reason: 'expiry',
