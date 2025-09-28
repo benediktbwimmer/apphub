@@ -148,6 +148,74 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   assert.equal(repeat.dataset.id, result.dataset.id);
 });
 
+test('processIngestionJob accumulates rows across multiple batches for a partition window', async () => {
+  const metadataModule = await import('../src/db/metadata');
+  const datasetSlug = `observatory-multi-batch-${randomUUID().slice(0, 8)}`;
+  const partitionKey = { window: '2024-02-01', dataset: 'observatory' };
+
+  const makeBatch = (batchIndex: number) => {
+    const startMinute = batchIndex * 10;
+    const batchRows = Array.from({ length: 10 }).map((_, rowIndex) => {
+      const minute = startMinute + rowIndex;
+      const timestamp = new Date(Date.UTC(2024, 1, 1, 0, minute)).toISOString();
+      return {
+        timestamp,
+        temperature_c: 18 + batchIndex,
+        humidity_percent: 60 - rowIndex
+      } satisfies Record<string, number | string>;
+    });
+
+    const rangeStart = new Date(Date.UTC(2024, 1, 1, 0, startMinute)).toISOString();
+    const rangeEnd = new Date(Date.UTC(2024, 1, 1, 0, startMinute + 9)).toISOString();
+
+    return ingestionTypesModule.ingestionJobPayloadSchema.parse({
+      datasetSlug,
+      datasetName: 'Observatory Multi Batch',
+      tableName: 'observations',
+      schema: {
+        fields: [
+          { name: 'timestamp', type: 'timestamp' },
+          { name: 'temperature_c', type: 'double' },
+          { name: 'humidity_percent', type: 'double' }
+        ]
+      },
+      partition: {
+        key: partitionKey,
+        timeRange: {
+          start: rangeStart,
+          end: rangeEnd
+        }
+      },
+      rows: batchRows,
+      idempotencyKey: `batch-${batchIndex}`,
+      receivedAt: rangeStart
+    });
+  };
+
+  // Regression: ensure consecutive per-file ingestions append rows for the same window instead of overwriting earlier payloads.
+  const firstResult = await ingestionModule.processIngestionJob(makeBatch(0));
+  assert.equal(firstResult.manifest.totalRows, 10);
+  assert.equal(firstResult.manifest.partitionCount, 1);
+
+  const secondResult = await ingestionModule.processIngestionJob(makeBatch(1));
+  assert.equal(secondResult.manifest.id, firstResult.manifest.id);
+  assert.equal(secondResult.manifest.totalRows, 20);
+  assert.equal(secondResult.manifest.partitionCount, 2);
+
+  const thirdResult = await ingestionModule.processIngestionJob(makeBatch(2));
+  assert.equal(thirdResult.manifest.id, firstResult.manifest.id);
+  assert.equal(thirdResult.manifest.totalRows, 30);
+  assert.equal(thirdResult.manifest.partitionCount, 3);
+  assert.equal(thirdResult.manifest.partitions.length, 3);
+  assert.ok(thirdResult.manifest.partitions.every((partition) => partition.partitionKey.window === '2024-02-01'));
+  assert.ok(thirdResult.manifest.partitions.every((partition) => partition.rowCount === 10));
+
+  const storedManifest = await metadataModule.getManifestById(thirdResult.manifest.id);
+  assert.ok(storedManifest);
+  assert.equal(storedManifest.totalRows, 30);
+  assert.equal(storedManifest.partitionCount, 3);
+});
+
 test('processIngestionJob shards manifests by partition start date', async () => {
   const metadataModule = await import('../src/db/metadata');
 

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { after, afterEach, before, test } from 'node:test';
 import EmbeddedPostgres from 'embedded-postgres';
+import fastify from 'fastify';
 import { resetCachedServiceConfig } from '../src/config/serviceConfig';
 
 let schemaModule: typeof import('../src/db/schema');
@@ -18,6 +19,7 @@ let ingestionTypesModule: typeof import('../src/ingestion/types');
 let queryPlannerModule: typeof import('../src/query/planner');
 let queryExecutorModule: typeof import('../src/query/executor');
 let manifestCacheModule: typeof import('../src/cache/manifestCache');
+let queryRoutesModule: typeof import('../src/routes/query');
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -62,6 +64,7 @@ before(async () => {
   process.env.TIMESTORE_PARTITION_INDEX_COLUMNS = 'temperature_c,humidity_percent';
   process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = 'temperature_c,humidity_percent';
   process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = 'temperature_c';
+  process.env.TIMESTORE_REQUIRE_SCOPE = 'query-scope';
 
   resetCachedServiceConfig();
 
@@ -74,6 +77,7 @@ before(async () => {
   queryPlannerModule = await import('../src/query/planner');
   queryExecutorModule = await import('../src/query/executor');
   manifestCacheModule = await import('../src/cache/manifestCache');
+  queryRoutesModule = await import('../src/routes/query');
   manifestCacheModule.__resetManifestCacheForTests();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
@@ -335,6 +339,81 @@ test('execute downsampled query with count and percentile', async () => {
   assert.equal(result.rows.length, 1);
   assert.equal(Number(result.rows[0]?.count), 6);
   assert.equal(Number(result.rows[0]?.p50_temp), 22);
+});
+
+test('query route returns cumulative rows after multi-batch ingestion', async () => {
+  const datasetSlug = `observatory-query-multi-${randomUUID().slice(0, 8)}`;
+  const partitionKey = { window: '2024-02-01', dataset: 'observatory' } as const;
+
+  const ingestBatch = async (startMinute: number) => {
+    const rows = Array.from({ length: 10 }).map((_, index) => {
+      const minute = startMinute + index;
+      return {
+        timestamp: new Date(Date.UTC(2024, 1, 1, 0, minute)).toISOString(),
+        temperature_c: 20 + minute,
+        humidity_percent: 50 - index
+      };
+    });
+
+    await ingestObservationPartition({
+      datasetSlug,
+      datasetName: 'Observatory Multi Query',
+      partitionKey,
+      timeRange: {
+        start: rows[0]!.timestamp,
+        end: rows[rows.length - 1]!.timestamp
+      },
+      rows
+    });
+  };
+
+  // Regression: ingest three per-file batches targeting the same partition window.
+  await ingestBatch(0);
+  await ingestBatch(10);
+  await ingestBatch(20);
+
+  const app = fastify();
+  await queryRoutesModule.registerQueryRoutes(app);
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/datasets/${datasetSlug}/query`,
+      payload: {
+        timeRange: {
+          start: '2024-02-01T00:00:00.000Z',
+          end: '2024-02-01T00:29:00.000Z'
+        },
+        timestampColumn: 'timestamp',
+        columns: ['timestamp', 'temperature_c'],
+        filters: {
+          partitionKey: {
+            dataset: { type: 'string', eq: 'observatory' },
+            window: { type: 'string', eq: '2024-02-01' }
+          }
+        }
+      },
+      headers: {
+        'x-iam-user': 'query-multi-tester',
+        'x-iam-scopes': 'query-scope'
+      }
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body) as {
+      rows: Array<Record<string, unknown>>;
+      columns: string[];
+      mode: string;
+    };
+
+    assert.equal(body.mode, 'raw');
+    assert.deepEqual(body.columns, ['timestamp', 'temperature_c']);
+    assert.equal(body.rows.length, 30);
+    const uniqueTimestamps = new Set(body.rows.map((row) => row.timestamp));
+    assert.equal(uniqueTimestamps.size, 30);
+  } finally {
+    await app.close();
+  }
 });
 
 test('query fills missing columns with nulls after additive schema evolution', async () => {
