@@ -14,6 +14,8 @@ import ReactFlow, {
   Background,
   MarkerType,
   Panel,
+  Handle,
+  Position,
   type Edge,
   type Node,
   type NodeProps,
@@ -89,6 +91,16 @@ type WorkflowGraphCanvasTooltip = {
 };
 
 const WorkflowGraphCanvasThemeContext = createContext<WorkflowGraphCanvasTheme | null>(null);
+
+const INVISIBLE_HANDLE_STYLE: CSSProperties = {
+  width: 14,
+  height: 14,
+  borderRadius: '9999px',
+  border: 0,
+  background: 'transparent',
+  opacity: 0,
+  pointerEvents: 'none'
+};
 
 function useWorkflowGraphCanvasTheme(): WorkflowGraphCanvasTheme {
   const theme = useContext(WorkflowGraphCanvasThemeContext);
@@ -371,7 +383,6 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
   const theme = useWorkflowGraphCanvasTheme();
   const variant = theme.nodes[data.kind];
   const isHighlighted = data.highlighted || selected;
-  const ariaLabel = `${describeNodeKind(data.kind)}: ${data.label}`;
   const status = data.status;
   const statusClassName = status ? STATUS_TONE_CLASSES[status.tone] ?? STATUS_TONE_CLASSES.neutral : null;
   const primaryBadge = !status && data.badges.length > 0 ? data.badges[0] : null;
@@ -388,21 +399,24 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
         color: variant.text,
         boxShadow: variant.shadow
       }}
-      role="button"
-      tabIndex={0}
-      aria-label={ariaLabel}
       title={data.subtitle ? `${data.label} • ${data.subtitle}` : data.label}
       onClick={(event) => {
         event.stopPropagation();
         data.onSelect?.(data);
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          data.onSelect?.(data);
-        }
-      }}
     >
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={INVISIBLE_HANDLE_STYLE}
+        isConnectable={false}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={INVISIBLE_HANDLE_STYLE}
+        isConnectable={false}
+      />
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <p className="text-sm font-semibold leading-5">
@@ -876,6 +890,15 @@ export function WorkflowGraphCanvas({
           nodeTypes={NODE_TYPES}
           className="h-full w-full"
           onInit={setInstance}
+          onNodeClick={(_, node) => {
+            if (!interactive) {
+              return;
+            }
+            const nodeData = node.data as WorkflowGraphCanvasNodeData | undefined;
+            if (nodeData) {
+              handleNodeSelect(node.id, nodeData);
+            }
+          }}
           fitView={false}
           panOnDrag={interactive}
           panOnScroll={interactive}

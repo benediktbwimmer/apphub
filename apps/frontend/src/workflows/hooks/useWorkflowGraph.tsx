@@ -75,6 +75,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
   const { authorizedFetch, pushToast } = useWorkflowAccess();
 
   const [graph, setGraph] = useState<WorkflowGraphNormalized | null>(null);
+  const graphRef = useRef<WorkflowGraphNormalized | null>(null);
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphRefreshing, setGraphRefreshing] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       if (typeof window !== 'undefined' && refreshTimerRef.current !== null) {
@@ -120,6 +122,10 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    graphRef.current = graph;
+  }, [graph]);
 
   useEffect(() => {
     pendingEventsRef.current = pendingEvents;
@@ -156,10 +162,15 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
     async (options: LoadWorkflowGraphOptions = {}) => {
       const { background = false } = options;
 
-      if (background) {
-        if (activeRequestRef.current) {
+      if (activeRequestRef.current) {
+        if (background) {
           return activeRequestRef.current;
         }
+        await activeRequestRef.current;
+        return;
+      }
+
+      if (background) {
         setGraphRefreshing(true);
       } else {
         setGraphLoading(true);
@@ -171,17 +182,18 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
       const fetchPromise = (async () => {
         try {
           const { graph: graphPayload, meta } = await fetchWorkflowTopologyGraph(authorizedFetch);
-          if (!isMountedRef.current || fetchGenerationRef.current !== fetchId) {
+          if (!isMountedRef.current) {
             return;
           }
           const normalized = normalizeWorkflowGraph(graphPayload);
           setGraph(normalized);
+          graphRef.current = normalized;
           setGraphError(null);
           setGraphStale(false);
           setGraphMeta(meta);
           setLastLoadedAt(normalized.generatedAt);
         } catch (err) {
-          if (!isMountedRef.current || fetchGenerationRef.current !== fetchId) {
+          if (!isMountedRef.current) {
             return;
           }
           const message = err instanceof Error ? err.message : 'Failed to load workflow graph';
@@ -195,10 +207,11 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
           }
           if (err instanceof ApiError && err.status === 401) {
             setGraph(null);
+            graphRef.current = null;
             setGraphMeta(null);
           }
         } finally {
-          if (!isMountedRef.current || fetchGenerationRef.current !== fetchId) {
+          if (!isMountedRef.current) {
             return;
           }
           if (background) {

@@ -30,7 +30,8 @@
     "dev:timestore:lifecycle": "npm run lifecycle --workspace @apphub/timestore",
     "dev:timestore:ingest": "npm run ingest --workspace @apphub/timestore",
     "obs:event:config": "tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts",
-    "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts"
+    "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts",
+    "test:ui": "npm run test:ui --workspace @apphub/frontend"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

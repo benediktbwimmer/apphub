@@ -1,6 +1,7 @@
 import classNames from 'classnames';
 import { useMemo, useState, useCallback, useEffect, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { ReactFlowProvider } from 'reactflow';
 import WorkflowGraphCanvas, {
   type WorkflowGraphCanvasThemeOverrides,
   type WorkflowGraphCanvasNodeData
@@ -458,22 +459,24 @@ export function WorkflowTopologyPanel({
           </button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <WorkflowGraphCanvas
-            graph={graph}
-            loading={graphLoading || graphRefreshing}
-            error={graphError}
-            theme={panelTheme}
-            height={640}
-            filters={canvasFilters}
-            searchTerm={canvasSearchTerm}
-            onNodeSelect={handleCanvasNodeSelect}
-            onCanvasClick={handleCanvasClick}
-            overlay={overlay ?? null}
-            {...selectionProps}
-          />
-          <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />
-        </div>
+        <ReactFlowProvider>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <WorkflowGraphCanvas
+              graph={graph}
+              loading={graphLoading || graphRefreshing}
+              error={graphError}
+              theme={panelTheme}
+              height={640}
+              filters={canvasFilters}
+              searchTerm={canvasSearchTerm}
+              onNodeSelect={handleCanvasNodeSelect}
+              onCanvasClick={handleCanvasClick}
+              overlay={overlay ?? null}
+              {...selectionProps}
+            />
+            <WorkflowTopologyNodeDetails graph={graph} node={selectedNode} onClear={handleCanvasClick} />
+          </div>
+        </ReactFlowProvider>
       </div>
     </section>
   );
