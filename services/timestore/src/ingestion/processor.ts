@@ -26,6 +26,7 @@ import { observeIngestionJob } from '../observability/metrics';
 import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
+import { deriveManifestShardKey } from '../service/manifestShard';
 
 export async function processIngestionJob(
   payload: IngestionJobPayload
@@ -116,7 +117,8 @@ export async function processIngestionJob(
       throw new Error('Partition end time must be greater than or equal to start time');
     }
 
-    const previousManifest = await getLatestPublishedManifest(dataset.id);
+    const manifestShard = deriveManifestShardKey(startTime);
+    const previousManifest = await getLatestPublishedManifest(dataset.id, { shard: manifestShard });
     const partitionInput = {
       id: partitionId,
       storageTargetId: storageTarget.id,
@@ -162,6 +164,7 @@ export async function processIngestionJob(
         datasetId: dataset.id,
         version: manifestVersion,
         status: 'published',
+        manifestShard,
         schemaVersionId: schemaVersion.id,
         parentManifestId: previousManifest?.id ?? null,
         summary: summaryPatch,

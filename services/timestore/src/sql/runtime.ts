@@ -3,7 +3,7 @@ import { loadDuckDb, isCloseable } from '@apphub/shared';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import {
   listDatasets,
-  getLatestPublishedManifest,
+  listPublishedManifestsWithPartitions,
   getSchemaVersionById,
   getStorageTargetById,
   type DatasetRecord,
@@ -264,11 +264,34 @@ async function buildSqlContext(): Promise<SqlContext> {
       continue;
     }
 
-    const manifest = await getLatestPublishedManifest(dataset.id);
-    const columns = await loadSchemaColumns(dataset, manifest, warnings);
-    const partitions = manifest
-      ? await mapPartitions(manifest.partitions, config, storageTargetCache, warnings)
-      : [];
+    const manifests = await listPublishedManifestsWithPartitions(dataset.id);
+    const manifestForSchema = manifests.reduce<DatasetManifestWithPartitions | null>((latest, current) => {
+      if (!latest || current.version > latest.version) {
+        return current;
+      }
+      return latest;
+    }, null);
+
+    if (manifests.length === 0) {
+      warnings.push(`Dataset ${dataset.slug} has no published manifests; skipping partitions.`);
+    }
+
+    const aggregatedPartitions = manifests.flatMap((entry) => entry.partitions);
+    const aggregatedTotals = aggregatedPartitions.reduce(
+      (acc, partition) => {
+        acc.rows += partition.rowCount ?? 0;
+        acc.bytes += partition.fileSizeBytes ?? 0;
+        return acc;
+      },
+      { rows: 0, bytes: 0 }
+    );
+    const aggregatedUpdatedAt = manifests.reduce((max, entry) => {
+      const ts = Date.parse(entry.updatedAt);
+      return Number.isFinite(ts) && ts > max ? ts : max;
+    }, manifestForSchema ? Date.parse(manifestForSchema.updatedAt) : 0);
+
+    const columns = await loadSchemaColumns(dataset, manifestForSchema, warnings);
+    const partitions = await mapPartitions(aggregatedPartitions, config, storageTargetCache, warnings);
     const partitionKeys = derivePartitionKeys(partitions);
     const { viewName, aliasWarning } = createViewName(dataset.slug);
     const aliasWarnings = aliasWarning ? [aliasWarning] : [];
@@ -276,9 +299,22 @@ async function buildSqlContext(): Promise<SqlContext> {
       warnings.push(aliasWarning);
     }
 
+    const aggregatedManifest = manifestForSchema
+      ? {
+          ...manifestForSchema,
+          updatedAt: Number.isFinite(aggregatedUpdatedAt) && aggregatedUpdatedAt > 0
+            ? new Date(aggregatedUpdatedAt).toISOString()
+            : manifestForSchema.updatedAt,
+          partitionCount: aggregatedPartitions.length,
+          totalRows: aggregatedTotals.rows,
+          totalBytes: aggregatedTotals.bytes,
+          partitions: aggregatedPartitions
+        }
+      : null;
+
     datasets.push({
       dataset,
-      manifest,
+      manifest: aggregatedManifest,
       columns,
       partitionKeys,
       partitions,

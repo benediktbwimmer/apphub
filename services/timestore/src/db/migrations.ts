@@ -223,6 +223,41 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_sql_saved_queries_updated
          ON sql_saved_queries(updated_at DESC);`
     ]
+  },
+  {
+    id: '008_timestore_manifest_shards',
+    statements: [
+      `ALTER TABLE dataset_manifests
+         ADD COLUMN IF NOT EXISTS manifest_shard TEXT NOT NULL DEFAULT 'root';`,
+      `ALTER TABLE dataset_partitions
+         ADD COLUMN IF NOT EXISTS manifest_shard TEXT NOT NULL DEFAULT 'root';`,
+      `UPDATE dataset_manifests
+          SET manifest_shard = COALESCE(manifest_shard, 'root');`,
+      `UPDATE dataset_partitions p
+          SET manifest_shard = m.manifest_shard
+         FROM dataset_manifests m
+        WHERE p.manifest_id = m.id;`,
+      `DROP INDEX IF EXISTS uq_dataset_manifests_published;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_manifests_published_shard
+         ON dataset_manifests(dataset_id, manifest_shard)
+         WHERE status = 'published';`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_manifests_dataset_shard_version
+         ON dataset_manifests(dataset_id, manifest_shard, version DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_manifests_shard_status
+         ON dataset_manifests(dataset_id, manifest_shard, status);`,
+      `CREATE INDEX IF NOT EXISTS idx_dataset_partitions_shard_time
+         ON dataset_partitions(dataset_id, manifest_shard, start_time, end_time);`,
+      `CREATE OR REPLACE VIEW dataset_manifest_current AS
+         SELECT dataset_id,
+                manifest_shard,
+                id AS manifest_id,
+                version,
+                schema_version_id,
+                updated_at,
+                published_at
+           FROM dataset_manifests
+          WHERE status = 'published';`
+    ]
   }
 ];
 

@@ -107,11 +107,13 @@ test('timestore metadata lifecycle', async () => {
   assert.equal(schemaVersion.version, 1);
 
   const now = new Date();
+  const manifestShard = now.toISOString().slice(0, 10);
   const manifest = await metadata.createDatasetManifest({
     id: `dm-${randomUUID()}`,
     datasetId,
     version: 1,
     status: 'published',
+    manifestShard,
     schemaVersionId: schemaVersion.id,
     summary: { rowsIngested: 240 },
     statistics: { minTimestamp: now.toISOString() },
@@ -163,6 +165,7 @@ test('timestore metadata lifecycle', async () => {
       datasetId,
       version: 1,
       status: 'draft',
+      manifestShard,
       partitions: []
     }),
     /Manifest version 1 is not greater/
@@ -210,6 +213,7 @@ test('listPartitionsForQuery applies typed partition filters', async () => {
     datasetId,
     version: 1,
     status: 'published',
+    manifestShard: '2024-02-01',
     summary: {},
     statistics: {},
     metadata: {},

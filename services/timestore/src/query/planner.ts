@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   getDatasetBySlug,
+  listPublishedManifestsForRange,
   listPartitionsForQuery,
   type PartitionWithTarget,
   type DatasetRecord,
@@ -71,7 +72,16 @@ export async function buildQueryPlan(
   }
 
   const config = loadServiceConfig();
-  const partitions = await listPartitionsForQuery(dataset.id, rangeStart, rangeEnd, request.filters ?? {});
+  const manifests = await listPublishedManifestsForRange(dataset.id, rangeStart, rangeEnd);
+  const shardKeys = Array.from(new Set(manifests.map((manifest) => manifest.manifestShard)));
+
+  const partitions = await listPartitionsForQuery(
+    dataset.id,
+    rangeStart,
+    rangeEnd,
+    request.filters ?? {},
+    { shards: shardKeys }
+  );
 
   const planPartitions = partitions.map((partition, index) =>
     buildPlanPartition(partition, index, config)

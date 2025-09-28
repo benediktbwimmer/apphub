@@ -108,7 +108,9 @@ test('compaction merges adjacent small partitions and removes old files', async 
     }
   ]);
 
-  const manifestBefore = await metadataModule.getLatestPublishedManifest(seed.datasetId);
+  const manifestBefore = await metadataModule.getLatestPublishedManifest(seed.datasetId, {
+    shard: seed.manifestShard
+  });
   assert.ok(manifestBefore);
   assert.equal(manifestBefore.partitionCount, 2);
   const oldPaths = manifestBefore.partitions.map((partition) => resolveLocalPath(partition.filePath));
@@ -128,8 +130,15 @@ test('compaction merges adjacent small partitions and removes old files', async 
   });
 
   assert.equal(report.operations[0]?.status, 'completed');
+  const compactionShards = (report.operations[0]?.details as { shards?: Array<Record<string, unknown>> } | null)?.shards;
+  assert.ok(Array.isArray(compactionShards));
+  assert.ok(
+    compactionShards?.some((entry) => entry?.shard === seed.manifestShard && entry?.status === 'completed')
+  );
 
-  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId);
+  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId, {
+    shard: seed.manifestShard
+  });
   assert.ok(manifestAfter);
   assert.equal(manifestAfter.partitionCount, 1);
   const newPartition = manifestAfter.partitions[0];
@@ -180,7 +189,9 @@ test('retention policy removes expired partitions', async () => {
     }
   });
 
-  const manifestBefore = await metadataModule.getLatestPublishedManifest(seed.datasetId);
+  const manifestBefore = await metadataModule.getLatestPublishedManifest(seed.datasetId, {
+    shard: seed.manifestShard
+  });
   assert.ok(manifestBefore);
   assert.equal(manifestBefore.partitionCount, 2);
 
@@ -198,8 +209,15 @@ test('retention policy removes expired partitions', async () => {
   });
 
   assert.equal(report.operations[0]?.status, 'completed');
+  const retentionShards = (report.operations[0]?.details as { shards?: Array<Record<string, unknown>> } | null)?.shards;
+  assert.ok(Array.isArray(retentionShards));
+  assert.ok(
+    retentionShards?.some((entry) => entry?.shard === seed.manifestShard && entry?.status === 'completed')
+  );
 
-  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId);
+  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId, {
+    shard: seed.manifestShard
+  });
   assert.ok(manifestAfter);
   assert.equal(manifestAfter.partitionCount, 1);
   assert.equal(manifestAfter.partitions[0]?.filePath, manifestBefore.partitions[1]?.filePath);
@@ -237,8 +255,15 @@ test('parquet export produces snapshot artifact', async () => {
   });
 
   assert.equal(report.operations[0]?.status, 'completed');
+  const exportShards = (report.operations[0]?.details as { shards?: Array<Record<string, unknown>> } | null)?.shards;
+  assert.ok(Array.isArray(exportShards));
+  assert.ok(
+    exportShards?.some((entry) => entry?.shard === seed.manifestShard && entry?.status === 'completed')
+  );
 
-  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId);
+  const manifestAfter = await metadataModule.getLatestPublishedManifest(seed.datasetId, {
+    shard: seed.manifestShard
+  });
   assert.ok(manifestAfter);
   const exportsMetadata = (manifestAfter.metadata.lifecycle as Record<string, unknown> | undefined)?.exports as
     | Record<string, unknown>
@@ -331,12 +356,16 @@ async function seedDatasetWithPartitions(
 
   const totalRows = partitionInputs.reduce((acc, partition) => acc + (partition.rowCount ?? 0), 0);
   const totalBytes = partitionInputs.reduce((acc, partition) => acc + (partition.fileSizeBytes ?? 0), 0);
+  const manifestShard = partitionInputs[0]
+    ? partitionInputs[0].startTime.toISOString().slice(0, 10)
+    : 'root';
 
   await metadataModule.createDatasetManifest({
     id: `dm-${randomUUID()}`,
     datasetId: dataset.id,
     version: 1,
     status: 'published',
+    manifestShard,
     schemaVersionId: schemaVersion.id,
     summary: {
       totalPartitions: partitionInputs.length
@@ -355,7 +384,7 @@ async function seedDatasetWithPartitions(
     partitions: partitionInputs
   });
 
-  return { datasetId: dataset.id };
+  return { datasetId: dataset.id, manifestShard };
 }
 
 function resolveLocalPath(relativePath: string): string {

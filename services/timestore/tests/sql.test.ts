@@ -180,6 +180,7 @@ async function seedDuckDbDataset(): Promise<void> {
     datasetId: dataset.id,
     version: 1,
     status: 'published',
+    manifestShard: '2024-01-01',
     schemaVersionId: schemaVersion.id,
     summary: { note: 'sql test manifest' },
     statistics: {

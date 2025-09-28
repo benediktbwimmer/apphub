@@ -136,6 +136,7 @@ async function seedDataset(slug: string) {
     datasetId: dataset.id,
     version: 1,
     status: 'published',
+    manifestShard: now.toISOString().slice(0, 10),
     schemaVersionId: schemaVersion.id,
     summary: { note: 'seed manifest' },
     statistics: { startTime: now.toISOString(), endTime: now.toISOString() },
@@ -599,7 +600,7 @@ test('updates dataset default storage target', async () => {
   assert.equal(payload.dataset.defaultStorageTargetId, storageTargetAlt.id);
 });
 
-test('fetches latest manifest', async () => {
+test('fetches manifest inventory and shard lookup', async () => {
   assert.ok(app);
   const response = await app!.inject({
     method: 'GET',
@@ -609,16 +610,38 @@ test('fetches latest manifest', async () => {
 
   assert.equal(response.statusCode, 200);
   const payload = response.json() as {
-    manifest: {
-      datasetId: string;
+    datasetId: string;
+    manifests: Array<{
+      id: string;
+      manifestShard: string;
       partitions: unknown[];
       schemaVersion: { id: string; version: number; fields: Array<{ name: string; type: string }> } | null;
+    }>;
+  };
+  assert.equal(payload.datasetId, datasetA.id);
+  assert.ok(Array.isArray(payload.manifests));
+  assert.ok(payload.manifests.length >= 1);
+  const first = payload.manifests[0];
+  assert.ok(first);
+  assert.ok(first.schemaVersion);
+  assert.ok(first.schemaVersion?.fields.some((field) => field.name === 'timestamp'));
+
+  const shardResponse = await app!.inject({
+    method: 'GET',
+    url: `/admin/datasets/${datasetA.slug}/manifest?shard=${encodeURIComponent(first.manifestShard)}`,
+    headers: adminHeaders()
+  });
+  assert.equal(shardResponse.statusCode, 200);
+  const shardPayload = shardResponse.json() as {
+    datasetId: string;
+    manifest: {
+      manifestShard: string;
+      partitions: unknown[];
     };
   };
-  assert.equal(payload.manifest.datasetId, datasetA.id);
-  assert.ok(Array.isArray(payload.manifest.partitions));
-  assert.ok(payload.manifest.schemaVersion);
-  assert.ok(payload.manifest.schemaVersion?.fields.some((field) => field.name === 'timestamp'));
+  assert.equal(shardPayload.datasetId, datasetA.id);
+  assert.equal(shardPayload.manifest.manifestShard, first.manifestShard);
+  assert.ok(Array.isArray(shardPayload.manifest.partitions));
 });
 
 test('lists storage targets', async () => {

@@ -23,6 +23,7 @@ import {
   getLatestPublishedManifest,
   getSchemaVersionById,
   getRetentionPolicy,
+  listPublishedManifestsWithPartitions,
   upsertRetentionPolicy,
   updateDatasetDefaultStorageTarget,
   getStorageTargetById,
@@ -71,6 +72,10 @@ const datasetListQuerySchema = z.object({
 
 const datasetParamsSchema = z.object({
   datasetId: z.string().min(1)
+});
+
+const manifestQuerySchema = z.object({
+  shard: z.string().min(1).optional()
 });
 
 const datasetAuditQuerySchema = z.object({
@@ -619,32 +624,67 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    const manifest = await getLatestPublishedManifest(dataset.id);
-    if (!manifest) {
-      reply.status(404);
+    const { shard } = manifestQuerySchema.parse(request.query);
+
+    if (shard) {
+      const manifest = await getLatestPublishedManifest(dataset.id, { shard });
+      if (!manifest) {
+        reply.status(404);
+        return {
+          error: `no published manifest for shard ${shard}`
+        };
+      }
+
+      const schemaVersion = manifest.schemaVersionId
+        ? await getSchemaVersionById(manifest.schemaVersionId)
+        : null;
+
+      const manifestWithSchema = {
+        ...manifest,
+        schemaVersion: schemaVersion
+          ? {
+              id: schemaVersion.id,
+              version: schemaVersion.version,
+              fields: extractSchemaFields(schemaVersion.schema)
+            }
+          : null
+      } as const;
+
       return {
-        error: 'no published manifest'
+        datasetId: dataset.id,
+        manifest: manifestWithSchema
       };
     }
 
-    const schemaVersion = manifest.schemaVersionId
-      ? await getSchemaVersionById(manifest.schemaVersionId)
-      : null;
+    const manifests = await listPublishedManifestsWithPartitions(dataset.id);
+    if (manifests.length === 0) {
+      reply.status(404);
+      return {
+        error: 'no published manifests'
+      };
+    }
 
-    const manifestWithSchema = {
-      ...manifest,
-      schemaVersion: schemaVersion
-        ? {
-            id: schemaVersion.id,
-            version: schemaVersion.version,
-            fields: extractSchemaFields(schemaVersion.schema)
-          }
-        : null
-    } as const;
+    const manifestsWithSchema = await Promise.all(
+      manifests.map(async (entry) => {
+        const schemaVersion = entry.schemaVersionId
+          ? await getSchemaVersionById(entry.schemaVersionId)
+          : null;
+        return {
+          ...entry,
+          schemaVersion: schemaVersion
+            ? {
+                id: schemaVersion.id,
+                version: schemaVersion.version,
+                fields: extractSchemaFields(schemaVersion.schema)
+              }
+            : null
+        } as const;
+      })
+    );
 
     return {
       datasetId: dataset.id,
-      manifest: manifestWithSchema
+      manifests: manifestsWithSchema
     };
   });
 

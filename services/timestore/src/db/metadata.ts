@@ -103,6 +103,7 @@ export interface DatasetManifestRecord {
   status: ManifestStatus;
   schemaVersionId: string | null;
   parentManifestId: string | null;
+  manifestShard: string;
   summary: JsonObject;
   statistics: JsonObject;
   metadata: JsonObject;
@@ -119,6 +120,7 @@ export interface DatasetPartitionRecord {
   id: string;
   datasetId: string;
   manifestId: string;
+  manifestShard: string;
   partitionKey: JsonObject;
   storageTargetId: string;
   fileFormat: FileFormat;
@@ -151,6 +153,7 @@ export interface CreateDatasetManifestInput {
   datasetId: string;
   version: number;
   status: ManifestStatus;
+  manifestShard: string;
   schemaVersionId?: string | null;
   parentManifestId?: string | null;
   summary?: JsonObject;
@@ -162,6 +165,10 @@ export interface CreateDatasetManifestInput {
 
 export interface DatasetManifestWithPartitions extends DatasetManifestRecord {
   partitions: DatasetPartitionRecord[];
+}
+
+export interface ManifestLookupOptions {
+  shard?: string | null;
 }
 
 export interface RetentionPolicyRecord {
@@ -270,6 +277,10 @@ export interface CreateIngestionBatchInput {
 
 export interface PartitionWithTarget extends DatasetPartitionRecord {
   storageTarget: StorageTargetRecord;
+}
+
+export interface PartitionQueryOptions {
+  shards?: string[] | null;
 }
 
 export async function upsertStorageTarget(input: CreateStorageTargetInput): Promise<StorageTargetRecord> {
@@ -453,12 +464,13 @@ export async function createDatasetManifest(
          status,
          schema_version_id,
          parent_manifest_id,
+         manifest_shard,
          summary,
          statistics,
          metadata,
          created_by,
          published_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12)
        RETURNING *` as const,
       [
         input.id,
@@ -467,6 +479,7 @@ export async function createDatasetManifest(
         input.status,
         input.schemaVersionId ?? null,
         input.parentManifestId ?? null,
+        input.manifestShard,
         JSON.stringify(input.summary ?? {}),
         JSON.stringify(input.statistics ?? {}),
         JSON.stringify(input.metadata ?? {}),
@@ -533,6 +546,7 @@ export async function appendPartitionsToManifest(
            id,
            dataset_id,
            manifest_id,
+           manifest_shard,
            partition_key,
            storage_target_id,
            file_format,
@@ -543,11 +557,12 @@ export async function appendPartitionsToManifest(
            end_time,
            checksum,
            metadata
-         ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)` as const,
+         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)` as const,
         [
           partition.id,
           datasetId,
           manifestId,
+          manifestRow.manifest_shard,
           JSON.stringify(partition.partitionKey),
           partition.storageTargetId,
           partition.fileFormat,
@@ -656,6 +671,7 @@ export async function replacePartitionsInManifest(
            id,
            dataset_id,
            manifest_id,
+           manifest_shard,
            partition_key,
            storage_target_id,
            file_format,
@@ -666,11 +682,12 @@ export async function replacePartitionsInManifest(
            end_time,
            checksum,
            metadata
-         ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)` as const,
+         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)` as const,
         [
           partition.id,
           datasetId,
           manifestId,
+          manifestRow.manifest_shard,
           JSON.stringify(partition.partitionKey),
           partition.storageTargetId,
           partition.fileFormat,
@@ -856,17 +873,25 @@ export async function updateDatasetDefaultStorageTarget(
 }
 
 export async function getLatestPublishedManifest(
-  datasetId: string
+  datasetId: string,
+  options: ManifestLookupOptions = {}
 ): Promise<DatasetManifestWithPartitions | null> {
   return withConnection(async (client) => {
-    const { rows } = await client.query<DatasetManifestRow>(
-      `SELECT *
-         FROM dataset_manifests
-        WHERE dataset_id = $1 AND status = 'published'
-        ORDER BY version DESC
-        LIMIT 1`,
-      [datasetId]
-    );
+    const params: unknown[] = [datasetId];
+    let whereClause = 'dataset_id = $1 AND status = '\''published'\''';
+
+    if (options.shard) {
+      params.push(options.shard);
+      whereClause += ` AND manifest_shard = $${params.length}`;
+    }
+
+    const query = `SELECT *
+                     FROM dataset_manifests
+                    WHERE ${whereClause}
+                    ORDER BY version DESC
+                    LIMIT 1`;
+
+    const { rows } = await client.query<DatasetManifestRow>(query, params);
 
     if (rows.length === 0) {
       return null;
@@ -878,6 +903,72 @@ export async function getLatestPublishedManifest(
       ...manifest,
       partitions
     };
+  });
+}
+
+export async function listPublishedManifests(
+  datasetId: string
+): Promise<DatasetManifestRecord[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetManifestRow>(
+      `SELECT *
+         FROM dataset_manifests
+        WHERE dataset_id = $1
+          AND status = 'published'
+        ORDER BY manifest_shard ASC, version DESC`,
+      [datasetId]
+    );
+
+    return rows.map(mapManifest);
+  });
+}
+
+export async function listPublishedManifestsForRange(
+  datasetId: string,
+  rangeStart: Date,
+  rangeEnd: Date
+): Promise<DatasetManifestRecord[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetManifestRow>(
+      `SELECT DISTINCT ON (m.manifest_shard) m.*
+         FROM dataset_manifests m
+         JOIN dataset_partitions p ON p.manifest_id = m.id
+        WHERE m.dataset_id = $1
+          AND m.status = 'published'
+          AND p.end_time >= $2
+          AND p.start_time <= $3
+        ORDER BY m.manifest_shard ASC, m.version DESC`,
+      [datasetId, rangeStart.toISOString(), rangeEnd.toISOString()]
+    );
+
+    return rows.map(mapManifest);
+  });
+}
+
+export async function listPublishedManifestsWithPartitions(
+  datasetId: string
+): Promise<DatasetManifestWithPartitions[]> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<DatasetManifestRow>(
+      `SELECT *
+         FROM dataset_manifests
+        WHERE dataset_id = $1
+          AND status = 'published'
+        ORDER BY manifest_shard ASC, version DESC`,
+      [datasetId]
+    );
+
+    const manifests: DatasetManifestWithPartitions[] = [];
+    for (const row of rows) {
+      const manifest = mapManifest(row);
+      const partitions = await fetchPartitions(client, manifest.id);
+      manifests.push({
+        ...manifest,
+        partitions
+      });
+    }
+
+    return manifests;
   });
 }
 
@@ -1381,7 +1472,8 @@ export async function listPartitionsForQuery(
   datasetId: string,
   rangeStart: Date,
   rangeEnd: Date,
-  filters: PartitionFilters = {}
+  filters: PartitionFilters = {},
+  options: PartitionQueryOptions = {}
 ): Promise<PartitionWithTarget[]> {
   return withConnection(async (client) => {
     const params: unknown[] = [
@@ -1400,6 +1492,16 @@ export async function listPartitionsForQuery(
       ? `\n         AND ${partitionClauses.join('\n         AND ')}`
       : '';
 
+    const shards = (options.shards ?? [])
+      .map((shard) => shard.trim())
+      .filter((shard) => shard.length > 0);
+
+    let shardClause = '';
+    if (shards.length > 0) {
+      const shardParam = pushParam(shards);
+      shardClause = `\n         AND p.manifest_shard = ANY(${shardParam}::text[])`;
+    }
+
     const query = `SELECT
          p.*,
          t.id AS storage_target_id,
@@ -1415,7 +1517,7 @@ export async function listPartitionsForQuery(
        WHERE p.dataset_id = $1
          AND m.status = 'published'
          AND p.end_time >= $2
-         AND p.start_time <= $3${partitionWhere}
+         AND p.start_time <= $3${shardClause}${partitionWhere}
        ORDER BY p.start_time ASC`;
 
     const { rows } = await client.query<PartitionWithTargetRow>(query, params);
@@ -1458,6 +1560,7 @@ async function insertPartitions(
          id,
          dataset_id,
          manifest_id,
+         manifest_shard,
          partition_key,
          storage_target_id,
          file_format,
@@ -1468,12 +1571,13 @@ async function insertPartitions(
          end_time,
          checksum,
          metadata
-       ) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
        RETURNING *` as const,
       [
         partition.id,
         input.datasetId,
         input.id,
+        input.manifestShard,
         JSON.stringify(partition.partitionKey),
         partition.storageTargetId,
         partition.fileFormat,
@@ -1597,6 +1701,7 @@ type DatasetManifestRow = {
   status: ManifestStatus;
   schema_version_id: string | null;
   parent_manifest_id: string | null;
+  manifest_shard: string;
   summary: JsonObject;
   statistics: JsonObject;
   metadata: JsonObject;
@@ -1613,6 +1718,7 @@ type DatasetPartitionRow = {
   id: string;
   dataset_id: string;
   manifest_id: string;
+  manifest_shard: string;
   partition_key: JsonObject;
   storage_target_id: string;
   file_format: FileFormat;
@@ -1736,6 +1842,7 @@ function mapManifest(row: DatasetManifestRow): DatasetManifestRecord {
     status: row.status,
     schemaVersionId: row.schema_version_id,
     parentManifestId: row.parent_manifest_id,
+    manifestShard: row.manifest_shard,
     summary: row.summary,
     statistics: row.statistics,
     metadata: row.metadata,
@@ -1754,6 +1861,7 @@ function mapPartition(row: DatasetPartitionRow): DatasetPartitionRecord {
     id: row.id,
     datasetId: row.dataset_id,
     manifestId: row.manifest_id,
+    manifestShard: row.manifest_shard,
     partitionKey: row.partition_key,
     storageTargetId: row.storage_target_id,
     fileFormat: row.file_format,

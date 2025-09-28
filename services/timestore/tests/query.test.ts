@@ -414,6 +414,57 @@ test('query planner applies partition key filters', async () => {
   );
 });
 
+test('planner restricts partitions to shards covering the requested window', async () => {
+  await ingestObservationPartition({
+    datasetSlug: 'observatory-timeseries',
+    partitionKey: { window: '2024-01-02', dataset: 'observatory' },
+    timeRange: {
+      start: '2024-01-02T00:00:00.000Z',
+      end: '2024-01-02T00:30:00.000Z'
+    },
+    rows: [
+      { timestamp: '2024-01-02T00:05:00.000Z', temperature_c: 18, humidity_percent: 55 }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug: 'observatory-timeseries',
+    partitionKey: { window: '2024-01-03', dataset: 'observatory' },
+    timeRange: {
+      start: '2024-01-03T00:00:00.000Z',
+      end: '2024-01-03T00:30:00.000Z'
+    },
+    rows: [
+      { timestamp: '2024-01-03T00:05:00.000Z', temperature_c: 19, humidity_percent: 53 }
+    ]
+  });
+
+  const dayTwoPlan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2024-01-02T00:00:00.000Z',
+      end: '2024-01-02T23:59:59.000Z'
+    },
+    columns: ['timestamp'],
+    timestampColumn: 'timestamp'
+  });
+
+  assert.equal(dayTwoPlan.partitions.length, 1);
+  assert.ok(dayTwoPlan.partitions[0]?.startTime.toISOString().startsWith('2024-01-02'));
+
+  const multiDayPlan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-03T12:00:00.000Z'
+    },
+    columns: ['timestamp'],
+    timestampColumn: 'timestamp'
+  });
+
+  assert.equal(multiDayPlan.partitions.length, 3);
+  const shardStarts = multiDayPlan.partitions.map((partition) => partition.startTime.toISOString().slice(0, 10));
+  assert.deepEqual(shardStarts.sort(), ['2024-01-01', '2024-01-02', '2024-01-03']);
+});
+
 test('returns empty result when no partitions match', async () => {
   const plan = await queryPlannerModule.buildQueryPlan('observatory-timeseries', {
     timeRange: {

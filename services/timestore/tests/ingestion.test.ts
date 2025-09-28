@@ -117,6 +117,7 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   assert.equal(result.manifest.partitionCount, 1);
   assert.equal(result.manifest.totalRows, 2);
   assert.equal(result.manifest.partitions[0]?.rowCount, 2);
+  assert.equal(result.manifest.manifestShard, '2024-01-01');
   assert.ok(storageRoot);
   const partitionPath = path.join(
     storageRoot!,
@@ -128,4 +129,60 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   const repeat = await ingestionModule.processIngestionJob(payload);
   assert.equal(repeat.manifest.id, result.manifest.id);
   assert.equal(repeat.dataset.id, result.dataset.id);
+});
+
+test('processIngestionJob shards manifests by partition start date', async () => {
+  const metadataModule = await import('../src/db/metadata');
+
+  const dayOnePayload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug: 'sharded-dataset',
+    datasetName: 'Sharded Dataset',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'value', type: 'double' }
+      ]
+    },
+    partition: {
+      key: { window: '2024-03-01' },
+      timeRange: {
+        start: '2024-03-01T00:00:00.000Z',
+        end: '2024-03-01T00:30:00.000Z'
+      }
+    },
+    rows: [
+      { timestamp: '2024-03-01T00:00:00.000Z', value: 1.23 },
+      { timestamp: '2024-03-01T00:10:00.000Z', value: 4.56 }
+    ],
+    idempotencyKey: 'day-one',
+    receivedAt: new Date().toISOString()
+  });
+
+  const dayTwoPayload = {
+    ...dayOnePayload,
+    partition: {
+      key: { window: '2024-03-02' },
+      timeRange: {
+        start: '2024-03-02T00:00:00.000Z',
+        end: '2024-03-02T00:30:00.000Z'
+      }
+    },
+    rows: [
+      { timestamp: '2024-03-02T00:05:00.000Z', value: 7.89 }
+    ],
+    idempotencyKey: 'day-two'
+  } satisfies typeof dayOnePayload;
+
+  const firstResult = await ingestionModule.processIngestionJob(dayOnePayload);
+  const secondResult = await ingestionModule.processIngestionJob(dayTwoPayload);
+
+  assert.equal(firstResult.manifest.manifestShard, '2024-03-01');
+  assert.equal(secondResult.manifest.manifestShard, '2024-03-02');
+  assert.notEqual(firstResult.manifest.id, secondResult.manifest.id);
+
+  const firstManifest = await metadataModule.getManifestById(firstResult.manifest.id);
+  const secondManifest = await metadataModule.getManifestById(secondResult.manifest.id);
+
+  assert.equal(firstManifest?.partitionCount, 1);
+  assert.equal(secondManifest?.partitionCount, 1);
 });
