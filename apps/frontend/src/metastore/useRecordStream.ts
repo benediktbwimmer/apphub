@@ -68,7 +68,7 @@ export function useMetastoreRecordStream(
     }
 
     let attempt = 0;
-    let reconnectTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let reconnectTimer: number | null = null;
     let currentSource: EventSource | null = null;
     let handleCreated: ((event: MessageEvent<string>) => void) | null = null;
     let handleUpdated: ((event: MessageEvent<string>) => void) | null = null;

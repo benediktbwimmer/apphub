@@ -110,7 +110,8 @@ const SAMPLE_LIFECYCLE: LifecycleStatusResponse = {
       retention: { count: 0, bytes: 0, partitions: 0 },
       parquetExport: { count: 0, bytes: 0, partitions: 0 }
     },
-    exportLatencyMs: []
+    exportLatencyMs: [],
+    compactionChunks: []
   }
 };
 

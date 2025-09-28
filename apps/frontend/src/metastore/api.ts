@@ -18,7 +18,6 @@ import type {
   MetastorePatchPayload,
   BulkRequestPayload,
   BulkResponsePayload,
-  MetastoreAuditEntry,
   MetastoreNamespaceListResponse,
   MetastoreAuditResponse,
   MetastoreAuditDiff,

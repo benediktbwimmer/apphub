@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import type { VirtualItem } from '@tanstack/react-virtual';
 import type { WorkflowEventSample, WorkflowEventSchema } from '../workflows/types';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { Spinner } from '../components/Spinner';
@@ -550,7 +551,7 @@ function EventsExplorerList({
             style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}
             className="w-full"
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            {rowVirtualizer.getVirtualItems().map((virtualRow: VirtualItem) => {
               const event = events[virtualRow.index];
               const isSelected = event.id === selectedId;
               const isHighlighted = highlightedIds.has(event.id);

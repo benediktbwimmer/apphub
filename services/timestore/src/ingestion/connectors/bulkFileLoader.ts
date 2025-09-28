@@ -34,7 +34,7 @@ const bulkFileSchema = z.object({
 
 export type BulkConnectorDependencies = {
   queueDepthProvider?: () => Promise<number>;
-  enqueue?: (payload: IngestionJobPayload) => Promise<unknown>;
+  enqueue?: (payload: IngestionJobPayload) => Promise<void>;
 };
 
 interface BulkCheckpointState {

@@ -6,7 +6,7 @@ export interface ConnectorCheckpointStore<State> {
   save(state: State): Promise<void>;
 }
 
-export class JsonFileCheckpointStore<State extends Record<string, unknown>> implements ConnectorCheckpointStore<State> {
+export class JsonFileCheckpointStore<State extends object> implements ConnectorCheckpointStore<State> {
   constructor(private readonly filePath: string) {}
 
   async load(defaultState: State): Promise<State> {

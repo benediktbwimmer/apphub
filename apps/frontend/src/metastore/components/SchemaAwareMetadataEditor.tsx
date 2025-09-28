@@ -28,13 +28,6 @@ type FieldErrorMap = Record<string, string>;
 
 type EnumOption = string | number | boolean;
 
-type FieldRenderContext = {
-  value: unknown;
-  error: string | null;
-  deprecated: boolean;
-  enumOptions: EnumOption[] | null;
-};
-
 function splitPath(path: string): string[] {
   return path.split('.').filter((segment) => segment.length > 0);
 }
@@ -562,8 +555,6 @@ export default function SchemaAwareMetadataEditor({
       const enumOptions = enumFields.get(field.path) ?? null;
       const deprecated = deprecatedFields.has(field.path);
 
-      const context: FieldRenderContext = { value, error, enumOptions, deprecated };
-
       const labelPieces = [field.path.split('.').pop() ?? field.path];
       if (field.required) {
         labelPieces.push('• required');
@@ -572,7 +563,8 @@ export default function SchemaAwareMetadataEditor({
         labelPieces.push('• deprecated');
       }
 
-      const description = field.description ?? field.metadata?.['description'];
+      const rawDescription = field.description ?? field.metadata?.['description'];
+      const description = typeof rawDescription === 'string' ? rawDescription : undefined;
 
       if (field.repeated) {
         const entries = Array.isArray(value) ? (value as unknown[]) : [];

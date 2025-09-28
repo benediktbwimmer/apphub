@@ -6,8 +6,8 @@ import {
   useState,
   useId,
   type ChangeEvent,
-  type KeyboardEvent,
-  type MouseEvent
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent
 } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
@@ -231,7 +231,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
     [updateFavorites]
   );
 
-  const handleFavoriteClick = (event: MouseEvent<HTMLButtonElement>, name: string) => {
+  const handleFavoriteClick = (event: ReactMouseEvent<HTMLButtonElement>, name: string) => {
     event.stopPropagation();
     event.preventDefault();
     toggleFavorite(name);
@@ -386,7 +386,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
     }
   };
 
-  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       const fallback = manualEntryCandidate ?? filteredFavorites[0] ?? filteredRecents[0] ?? filteredAll[0];
@@ -565,7 +565,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
 type NamespaceOptionRowProps = {
   option: NamespaceOption;
   onSelect: (name: string) => void;
-  onToggleFavorite: (event: MouseEvent<HTMLButtonElement>, name: string) => void;
+  onToggleFavorite: (event: ReactMouseEvent<HTMLButtonElement>, name: string) => void;
   isActive: boolean;
 };
 

@@ -339,11 +339,12 @@ export class GcsStorageDriver implements StorageDriver {
     const object = this.bucket.file(relativePath);
 
     if (request.sourceFilePath) {
-      const stats = await fs.stat(request.sourceFilePath);
-      const checksum = await computeFileChecksum(request.sourceFilePath);
+      const sourceFilePath = request.sourceFilePath;
+      const stats = await fs.stat(sourceFilePath);
+      const checksum = await computeFileChecksum(sourceFilePath);
 
       await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(request.sourceFilePath);
+        const readStream = createReadStream(sourceFilePath);
         const writeStream = object.createWriteStream({
           resumable: stats.size >= GCS_RESUMABLE_THRESHOLD_BYTES,
           contentType: 'application/octet-stream'

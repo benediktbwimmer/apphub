@@ -2,6 +2,10 @@ export type StringPartitionKeyPredicate = {
   type: 'string';
   eq?: string;
   in?: string[];
+  gt?: string;
+  gte?: string;
+  lt?: string;
+  lte?: string;
 };
 
 export type NumberPartitionKeyPredicate = {

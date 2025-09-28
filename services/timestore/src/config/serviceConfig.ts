@@ -10,7 +10,7 @@ export type QueryExecutionBackendKind = 'duckdb_local' | 'duckdb_cluster';
 export interface QueryExecutionBackendConfig {
   name: string;
   kind: QueryExecutionBackendKind;
-  queueName?: string | null;
+  queueName?: string;
   maxPartitionFanout?: number;
   maxWorkerConcurrency?: number;
 }
@@ -166,17 +166,22 @@ const streamingConnectorSchema = z
     startAtOldest: z.boolean().default(true),
     dlqPath: z.string().min(1).nullable().optional()
   })
-  .transform((value) => ({
-    id: value.id,
-    driver: 'file' as const,
-    path: value.path,
-    pollIntervalMs: value.pollIntervalMs,
-    batchSize: value.batchSize,
-    dedupeWindowMs: value.dedupeWindowMs,
-    checkpointPath: value.checkpointPath,
-    startAtOldest: value.startAtOldest,
-    dlqPath: value.dlqPath ?? null
-  } satisfies StreamingConnectorConfig));
+  .transform((value) => {
+    const normalized: StreamingConnectorConfig = {
+      id: value.id,
+      driver: 'file',
+      path: value.path,
+      pollIntervalMs: value.pollIntervalMs,
+      batchSize: value.batchSize,
+      dedupeWindowMs: value.dedupeWindowMs,
+      startAtOldest: value.startAtOldest,
+      dlqPath: value.dlqPath ?? null
+    };
+    if (value.checkpointPath) {
+      normalized.checkpointPath = value.checkpointPath;
+    }
+    return normalized;
+  });
 
 const bulkConnectorSchema = z
   .object({
@@ -191,18 +196,23 @@ const bulkConnectorSchema = z
     renameOnSuccess: z.boolean().default(true),
     dlqPath: z.string().min(1).nullable().optional()
   })
-  .transform((value) => ({
-    id: value.id,
-    driver: 'file' as const,
-    directory: value.directory,
-    filePattern: value.filePattern,
-    pollIntervalMs: value.pollIntervalMs,
-    chunkSize: value.chunkSize,
-    checkpointPath: value.checkpointPath,
-    deleteAfterLoad: value.deleteAfterLoad,
-    renameOnSuccess: value.renameOnSuccess,
-    dlqPath: value.dlqPath ?? null
-  } satisfies BulkConnectorConfig));
+  .transform((value) => {
+    const normalized: BulkConnectorConfig = {
+      id: value.id,
+      driver: 'file',
+      directory: value.directory,
+      filePattern: value.filePattern,
+      pollIntervalMs: value.pollIntervalMs,
+      chunkSize: value.chunkSize,
+      deleteAfterLoad: value.deleteAfterLoad,
+      renameOnSuccess: value.renameOnSuccess,
+      dlqPath: value.dlqPath ?? null
+    };
+    if (value.checkpointPath) {
+      normalized.checkpointPath = value.checkpointPath;
+    }
+    return normalized;
+  });
 
 const backpressureConfigSchema = z
   .object({
@@ -538,7 +548,7 @@ function normalizeExecutionConfig(
 
 function parseConnectorList<T>(
   raw: string | undefined,
-  schema: z.ZodType<T>,
+  schema: z.ZodTypeAny,
   kind: 'streaming' | 'bulk'
 ): T[] {
   if (!raw) {
@@ -553,7 +563,7 @@ function parseConnectorList<T>(
     const results: T[] = [];
     for (const entry of parsed) {
       try {
-        results.push(schema.parse(entry));
+        results.push(schema.parse(entry) as T);
       } catch (error) {
         console.warn(`[timestore] skipped invalid ${kind} connector configuration entry`, error);
       }
@@ -566,11 +576,11 @@ function parseConnectorList<T>(
 }
 
 function parseStreamingConnectors(raw: string | undefined): StreamingConnectorConfig[] {
-  return parseConnectorList(raw, streamingConnectorSchema, 'streaming');
+  return parseConnectorList<StreamingConnectorConfig>(raw, streamingConnectorSchema, 'streaming');
 }
 
 function parseBulkConnectors(raw: string | undefined): BulkConnectorConfig[] {
-  return parseConnectorList(raw, bulkConnectorSchema, 'bulk');
+  return parseConnectorList<BulkConnectorConfig>(raw, bulkConnectorSchema, 'bulk');
 }
 
 function parseConnectorBackpressure(raw: string | undefined): ConnectorBackpressureConfig {

@@ -289,7 +289,7 @@ export interface UpdateLifecycleJobRunInput {
 }
 
 export interface LifecycleAuditLogInput {
-  id: string;
+  id?: string;
   datasetId: string;
   manifestId?: string | null;
   eventType: string;

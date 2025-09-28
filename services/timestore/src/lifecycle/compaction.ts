@@ -70,6 +70,7 @@ interface CheckpointMetadataV1 {
   groups: CompactionPlanGroupSummary[];
   completedGroupIds: string[];
   chunkAttempts: Record<string, number>;
+  [key: string]: unknown;
 }
 
 interface ChunkHistoryEntry {
@@ -90,6 +91,7 @@ interface CheckpointStatsV1 {
   chunkHistory: ChunkHistoryEntry[];
   resumedAt?: string;
   lastError?: string | null;
+  [key: string]: unknown;
 }
 
 interface MaterializedPlanGroup {

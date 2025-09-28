@@ -544,19 +544,22 @@ export async function fetchWorkflowTopologyGraph(
   if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
     throw new ApiError('Invalid workflow graph response', response.status, payload);
   }
-  const version = (graph as { version?: unknown }).version;
+  const graphPayload = graph as { version?: unknown; edges?: unknown } & Record<string, unknown>;
+  const version = graphPayload.version;
   if (version !== 'v1' && version !== 'v2') {
-    throw new ApiError('Unsupported workflow graph version', response.status, graph);
+    throw new ApiError('Unsupported workflow graph version', response.status, graphPayload);
   }
-  if (!graph.edges || typeof graph.edges !== 'object' || Array.isArray(graph.edges)) {
-    throw new ApiError('Invalid workflow graph payload', response.status, graph);
+  const edges = graphPayload.edges;
+  if (!edges || typeof edges !== 'object' || Array.isArray(edges)) {
+    throw new ApiError('Invalid workflow graph payload', response.status, graphPayload);
   }
-  if (!Array.isArray((graph.edges as { stepToEventSource?: unknown }).stepToEventSource)) {
-    (graph.edges as { stepToEventSource: unknown[] }).stepToEventSource = [];
+  const edgePayload = edges as { stepToEventSource?: unknown[] } & Record<string, unknown>;
+  if (!Array.isArray(edgePayload.stepToEventSource)) {
+    edgePayload.stepToEventSource = [];
   }
   const cacheMeta = parseWorkflowGraphCacheMeta(payload.meta?.cache);
   return {
-    graph: graph as WorkflowTopologyGraph,
+    graph: graphPayload as WorkflowTopologyGraph,
     meta: { cache: cacheMeta }
   };
 }

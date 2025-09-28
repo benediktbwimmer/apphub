@@ -176,12 +176,12 @@ export function AuditTrailPanel({
     diffAbortRef.current?.abort();
     const controller = new AbortController();
     diffAbortRef.current = controller;
-    setDiffState((previous) => ({
+    setDiffState({
       ...INITIAL_DIFF_STATE,
       open: true,
       target: entry,
       loading: true
-    }));
+    });
 
     try {
       const diff = await fetchRecordAuditDiff(

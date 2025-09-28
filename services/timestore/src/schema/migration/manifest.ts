@@ -73,7 +73,7 @@ export interface ValidationOptions {
   maxPartitions?: number | null;
 }
 
-const FIELD_TYPES: FieldType[] = ['timestamp', 'string', 'double', 'integer', 'boolean'];
+const FIELD_TYPES = ['timestamp', 'string', 'double', 'integer', 'boolean'] as const satisfies readonly FieldType[];
 
 const fieldDefinitionSchema = z
   .object({

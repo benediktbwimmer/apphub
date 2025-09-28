@@ -1,4 +1,10 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent
+} from 'react';
 import Modal from '../../components/Modal';
 import { useToastHelpers } from '../../components/toast';
 import {

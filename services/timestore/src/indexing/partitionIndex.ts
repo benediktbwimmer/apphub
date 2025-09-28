@@ -433,27 +433,40 @@ function buildHistogramBins(
 
 function storedValue(value: CoercedValue, type: FieldType): number | string | boolean {
   switch (type) {
-    case 'timestamp':
+    case 'timestamp': {
+      if (value.type !== 'timestamp') {
+        throw new Error(`Expected timestamp value, received ${value.type}`);
+      }
       return new Date(value.numeric).toISOString();
+    }
     case 'double':
-    case 'integer':
+    case 'integer': {
+      if (value.type !== 'number' && value.type !== 'timestamp') {
+        throw new Error(`Numeric conversion not supported for value type ${value.type}`);
+      }
       return value.numeric;
-    case 'boolean':
+    }
+    case 'boolean': {
+      if (value.type !== 'boolean') {
+        throw new Error(`Boolean conversion not supported for value type ${value.type}`);
+      }
       return value.boolean;
+    }
     case 'string':
-    default:
+    default: {
+      if (value.type !== 'string') {
+        throw new Error(`String conversion not supported for value type ${value.type}`);
+      }
       return value.text;
+    }
   }
 }
 
 function numericValue(value: CoercedValue, type: FieldType): number {
-  if (type === 'timestamp') {
+  if (value.type === 'number' || value.type === 'timestamp') {
     return value.numeric;
   }
-  if (type === 'double' || type === 'integer') {
-    return value.numeric;
-  }
-  throw new Error(`Numeric conversion not supported for type ${type}`);
+  throw new Error(`Numeric conversion not supported for value type ${value.type} (${type})`);
 }
 
 function formatNumeric(value: number, type: FieldType): number | string {
@@ -463,11 +476,15 @@ function formatNumeric(value: number, type: FieldType): number | string {
   return value;
 }
 
-function compareValues(value: CoercedValue, baseline: number | string | boolean, type: FieldType): number {
+function compareValues(
+  value: CoercedValue,
+  baseline: number | string | boolean,
+  type: FieldType
+): number {
   switch (type) {
     case 'timestamp': {
-      const baselineTime = baseline instanceof Date
-        ? baseline.getTime()
+      const baselineTime = typeof baseline === 'number'
+        ? baseline
         : new Date(String(baseline)).getTime();
       return numericValue(value, type) - baselineTime;
     }
@@ -475,24 +492,49 @@ function compareValues(value: CoercedValue, baseline: number | string | boolean,
     case 'integer':
       return numericValue(value, type) - Number(baseline);
     case 'boolean':
+      if (value.type !== 'boolean') {
+        throw new Error(`Boolean comparison not supported for value type ${value.type}`);
+      }
       return Number(value.boolean) - Number(baseline);
     case 'string':
     default:
-      return value.text.localeCompare(String(baseline));
+      if (value.type !== 'string') {
+        if (value.type === 'number' || value.type === 'timestamp') {
+          return String(numericValue(value, type)).localeCompare(String(baseline));
+        }
+        if (value.type === 'boolean') {
+          return (value.boolean ? 'true' : 'false').localeCompare(String(baseline));
+        }
+      }
+      return value.type === 'string'
+        ? value.text.localeCompare(String(baseline))
+        : String(storedValue(value, type)).localeCompare(String(baseline));
   }
 }
 
 function valueToDistinctKey(value: CoercedValue, type: FieldType): string {
   switch (type) {
     case 'timestamp':
+      if (value.type !== 'timestamp' && value.type !== 'number') {
+        throw new Error(`Timestamp distinct key not supported for value type ${value.type}`);
+      }
       return new Date(value.numeric).toISOString();
     case 'double':
     case 'integer':
+      if (value.type !== 'number' && value.type !== 'timestamp') {
+        throw new Error(`Numeric distinct key not supported for value type ${value.type}`);
+      }
       return String(value.numeric);
     case 'boolean':
+      if (value.type !== 'boolean') {
+        throw new Error(`Boolean distinct key not supported for value type ${value.type}`);
+      }
       return value.boolean ? 'true' : 'false';
     case 'string':
     default:
+      if (value.type !== 'string') {
+        throw new Error(`String distinct key not supported for value type ${value.type}`);
+      }
       return value.text;
   }
 }
@@ -500,14 +542,26 @@ function valueToDistinctKey(value: CoercedValue, type: FieldType): string {
 function valueToBloomKey(value: CoercedValue, type: FieldType): string {
   switch (type) {
     case 'timestamp':
+      if (value.type !== 'timestamp' && value.type !== 'number') {
+        throw new Error(`Timestamp bloom key not supported for value type ${value.type}`);
+      }
       return new Date(value.numeric).toISOString();
     case 'double':
     case 'integer':
+      if (value.type !== 'number' && value.type !== 'timestamp') {
+        throw new Error(`Numeric bloom key not supported for value type ${value.type}`);
+      }
       return String(value.numeric);
     case 'boolean':
+      if (value.type !== 'boolean') {
+        throw new Error(`Boolean bloom key not supported for value type ${value.type}`);
+      }
       return value.boolean ? 'true' : 'false';
     case 'string':
     default:
+      if (value.type !== 'string') {
+        throw new Error(`String bloom key not supported for value type ${value.type}`);
+      }
       return value.text;
   }
 }

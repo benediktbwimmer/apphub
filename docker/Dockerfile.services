@@ -1,0 +1,120 @@
+# syntax=docker/dockerfile:1.9
+
+FROM node:24 AS workspace-deps
+WORKDIR /app
+
+ARG TARGETPLATFORM
+
+COPY package.json package-lock.json ./
+COPY tsconfig.json tsconfig.json
+COPY tsconfig.base.json tsconfig.base.json
+
+COPY apps/frontend/package.json apps/frontend/
+COPY apps/frontend/package-lock.json apps/frontend/
+COPY apps/cli/package.json apps/cli/
+COPY apps/cli/package-lock.json apps/cli/
+COPY services/catalog/package.json services/catalog/
+COPY services/catalog/package-lock.json services/catalog/
+COPY services/metastore/package.json services/metastore/
+COPY services/timestore/package.json services/timestore/
+COPY services/filestore/package.json services/filestore/
+COPY packages/shared/package.json packages/shared/
+COPY packages/example-bundler/package.json packages/example-bundler/
+COPY packages/examples/package.json packages/examples/
+COPY packages/filestore-client/package.json packages/filestore-client/
+COPY packages/event-bus/package.json packages/event-bus/
+COPY packages/filestore-cli/package.json packages/filestore-cli/
+COPY packages/docker-mock/package.json packages/docker-mock/
+COPY packages/kubectl-mock/package.json packages/kubectl-mock/
+RUN --mount=type=cache,id=npm-${TARGETPLATFORM},target=/root/.npm npm ci
+
+RUN set -eux; \
+    install_optional() { \
+      parent_pkg="$1"; \
+      optional_pkg="$2"; \
+      dest_dir="node_modules/${optional_pkg}"; \
+      if [ -d "${dest_dir}" ]; then \
+        return 0; \
+      fi; \
+      version="$(PARENT_NAME="${parent_pkg}" OPTIONAL_NAME="${optional_pkg}" node -e "const lock = require('./package-lock.json'); const entry = lock.packages['node_modules/' + process.env.PARENT_NAME]; const version = entry && entry.optionalDependencies && entry.optionalDependencies[process.env.OPTIONAL_NAME]; if (!version) { throw new Error('Missing optional dependency metadata for ' + process.env.OPTIONAL_NAME); } process.stdout.write(version);")"; \
+      tarball_url="https://registry.npmjs.org/${optional_pkg}/-/$(basename "${optional_pkg}")-${version}.tgz"; \
+      temp_dir="$(mktemp -d)"; \
+      curl -fsSL "${tarball_url}" | tar -xz -C "${temp_dir}"; \
+      mkdir -p "$(dirname "${dest_dir}")"; \
+      rm -rf "${dest_dir}"; \
+      mv "${temp_dir}/package" "${dest_dir}"; \
+      rm -rf "${temp_dir}"; \
+    }; \
+    case "${TARGETPLATFORM}" in \
+      "linux/arm64") \
+        install_optional "rollup" "@rollup/rollup-linux-arm64-gnu"; \
+        install_optional "lightningcss" "lightningcss-linux-arm64-gnu"; \
+        ;; \
+      "linux/amd64") \
+        install_optional "rollup" "@rollup/rollup-linux-x64-gnu"; \
+        install_optional "lightningcss" "lightningcss-linux-x64-gnu"; \
+        ;; \
+    esac
+
+FROM workspace-deps AS builder
+ARG VITE_API_BASE_URL=http://localhost:4000
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+COPY . .
+
+RUN npm run build --workspace @apphub/catalog \
+ && npm run build --workspace @apphub/metastore \
+ && npm run build:bundle --workspace @apphub/frontend \
+ && npm run build --workspace @apphub/timestore \
+ && npm run build --workspace @apphub/filestore \
+ && npm run build --workspace @apphub/filestore-client
+
+RUN npm prune --omit=dev
+
+# Remove nested node_modules copies to keep runtime layers small
+RUN find services -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \
+ && find apps -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} + \
+ && find packages -maxdepth 2 -type d -name node_modules -prune -exec rm -rf {} +
+
+# Common runtime base with shared node_modules and packages
+FROM node:24-slim AS runtime-base
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+
+# Catalog runtime (API + workers share this image)
+FROM runtime-base AS catalog-runtime
+COPY --from=builder /app/services/catalog ./services/catalog
+COPY --from=builder /app/apps/cli ./apps/cli
+COPY --from=builder /app/examples ./examples
+
+ENTRYPOINT ["node"]
+CMD ["services/catalog/dist/server.js"]
+
+# Metastore API runtime
+FROM runtime-base AS metastore-runtime
+COPY --from=builder /app/services/metastore ./services/metastore
+
+ENTRYPOINT ["node"]
+CMD ["services/metastore/dist/server.js"]
+
+# Filestore API / worker runtime
+FROM runtime-base AS filestore-runtime
+COPY --from=builder /app/services/filestore ./services/filestore
+
+ENTRYPOINT ["node"]
+CMD ["services/filestore/dist/server.js"]
+
+# Timestore API / worker runtime
+FROM runtime-base AS timestore-runtime
+COPY --from=builder /app/services/timestore ./services/timestore
+
+ENTRYPOINT ["node"]
+CMD ["services/timestore/dist/server.js"]
+
+# Frontend static assets served via nginx
+FROM nginx:1.27-alpine AS frontend-runtime
+COPY docker/frontend.nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html

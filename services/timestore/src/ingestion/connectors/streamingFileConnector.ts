@@ -31,7 +31,7 @@ const streamingEnvelopeSchema = z.object({
 
 export type StreamingConnectorDependencies = {
   queueDepthProvider?: () => Promise<number>;
-  enqueue?: (payload: IngestionJobPayload) => Promise<unknown>;
+  enqueue?: (payload: IngestionJobPayload) => Promise<void>;
 };
 
 interface StreamingCheckpointState {

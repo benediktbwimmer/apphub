@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     for (const manifest of latestByShard.values()) {
       try {
         const partitions = await getPartitionsWithTargetsForManifest(manifest.id);
-        const { partitions: _cachedPartitions, ...manifestRecord } = manifest;
+        const manifestRecord = { ...manifest };
         await refreshManifestCache({ id: dataset.id, slug: dataset.slug }, manifestRecord, partitions);
         primed += 1;
       } catch (err) {

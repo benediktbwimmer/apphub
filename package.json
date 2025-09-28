@@ -34,6 +34,7 @@
     "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts",
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/catalog",
     "migrate:example-bundles": "npm run migrate:example-bundles --workspace @apphub/catalog",
+    "docker:build:services": "bash scripts/docker-build-services.sh",
     "test:ui": "npm run test:ui --workspace @apphub/frontend"
   },
   "devDependencies": {

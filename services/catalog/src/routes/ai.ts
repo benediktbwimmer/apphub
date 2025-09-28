@@ -652,7 +652,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map((service) => serializeService(service));
+      const serviceCatalog = services.map((service) => serializeService(service, null));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
@@ -733,7 +733,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map((service) => serializeService(service));
+      const serviceCatalog = services.map((service) => serializeService(service, null));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
@@ -769,11 +769,11 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             ? Math.min(Math.max(providerOptions.openAiMaxOutputTokens, 256), 32_000)
             : OPENAI_DEFAULT_MAX_OUTPUT_TOKENS;
 
-      if (!openAiApiKey) {
-        reply.status(400);
-        await authResult.auth.log('failed', {
-          reason: 'invalid_payload',
-          details: { provider: 'openai', issue: 'missing_api_key' }
+        if (!openAiApiKey) {
+          reply.status(400);
+          await authResult.auth.log('failed', {
+            reason: 'invalid_payload',
+            details: { provider: 'openai', issue: 'missing_api_key' }
           });
           return { error: 'OpenAI API key is required' };
         }
@@ -1228,7 +1228,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map((service) => serializeService(service));
+      const serviceCatalog = services.map((service) => serializeService(service, null));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
