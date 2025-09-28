@@ -139,8 +139,11 @@ function resolveBackendRoot(config: EventDrivenObservatoryConfig): string {
     .filter(Boolean);
 
   if (inboxPrefixSegments.length > 0) {
-    let derived = directories[0];
+    let derived: string | null = directories[0];
     for (let index = 0; index < inboxPrefixSegments.length; index += 1) {
+      if (!derived) {
+        break;
+      }
       const parent = path.dirname(derived);
       if (parent === derived) {
         derived = null;
