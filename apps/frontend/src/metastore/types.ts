@@ -1,5 +1,21 @@
 import { z } from 'zod';
 
+export const recordStreamActionSchema = z.enum(['created', 'updated', 'deleted']);
+
+export const recordStreamEventSchema = z.object({
+  action: recordStreamActionSchema,
+  namespace: z.string(),
+  key: z.string(),
+  version: z.number().nullable(),
+  occurredAt: z.string(),
+  updatedAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+  actor: z.string().nullable(),
+  mode: z.enum(['soft', 'hard']).optional()
+});
+
+export type MetastoreRecordStreamEvent = z.infer<typeof recordStreamEventSchema>;
+
 export const recordMetadataSchema = z.object({}).passthrough();
 
 const recordBaseSchema = z.object({
@@ -249,6 +265,26 @@ export const restoreResponseSchema = z.object({
 });
 
 export type MetastoreRestoreResponse = z.infer<typeof restoreResponseSchema>;
+
+export const filestoreHealthSnapshotSchema = z.object({
+  status: z.enum(['disabled', 'ok', 'stalled']),
+  enabled: z.boolean(),
+  inline: z.boolean(),
+  thresholdSeconds: z.number().int().min(1),
+  lagSeconds: z.number().nullable(),
+  lastEvent: z.object({
+    type: z.string().nullable(),
+    observedAt: z.string().nullable(),
+    receivedAt: z.string().nullable()
+  }),
+  retries: z.object({
+    connect: z.number().int().nonnegative(),
+    processing: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative()
+  })
+});
+
+export type MetastoreFilestoreHealth = z.infer<typeof filestoreHealthSnapshotSchema>;
 
 export const namespaceOwnerCountSchema = z.object({
   owner: z.string(),

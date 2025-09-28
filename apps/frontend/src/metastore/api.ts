@@ -7,7 +7,8 @@ import {
   bulkResponseSchema,
   namespaceListResponseSchema,
   auditDiffSchema,
-  restoreResponseSchema
+  restoreResponseSchema,
+  filestoreHealthSnapshotSchema
 } from './types';
 import type {
   MetastoreSearchResponse,
@@ -21,7 +22,8 @@ import type {
   MetastoreAuditResponse,
   MetastoreAuditDiff,
   MetastoreRestorePayload,
-  MetastoreRestoreResponse
+  MetastoreRestoreResponse,
+  MetastoreFilestoreHealth
 } from './types';
 
 async function parseJsonOrError<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -222,4 +224,26 @@ export async function listNamespaces(
   }
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   return parseJsonOrError(response, namespaceListResponseSchema);
+}
+
+export async function fetchFilestoreHealth(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  options: { signal?: AbortSignal } = {}
+): Promise<MetastoreFilestoreHealth> {
+  const response = await authorizedFetch(`${METASTORE_BASE_URL}/filestore/health`, {
+    signal: options.signal
+  });
+  const text = await response.text();
+  if (!response.ok && response.status !== 503) {
+    throw new Error(extractErrorMessage(text, response.status));
+  }
+  let parsed: unknown = {};
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error('Failed to parse filestore health payload');
+    }
+  }
+  return filestoreHealthSnapshotSchema.parse(parsed);
 }

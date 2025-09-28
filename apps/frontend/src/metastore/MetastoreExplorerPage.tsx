@@ -15,6 +15,8 @@ import { ROUTE_PATHS } from '../routes/paths';
 import { Link } from 'react-router-dom';
 import JsonSyntaxHighlighter from '../components/JsonSyntaxHighlighter';
 import { AuditTrailPanel } from './components/AuditTrailPanel';
+import { RealtimeActivityRail } from './components/RealtimeActivityRail';
+import { FilestoreHealthRail } from './components/FilestoreHealthRail';
 import {
   buildQueryPayload,
   createEmptyClause,
@@ -699,7 +701,7 @@ export default function MetastoreExplorerPage() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)] xl:grid-cols-[minmax(0,320px),minmax(0,1fr),minmax(280px,1fr)]">
         <div className="flex flex-col gap-3">
           <RecordTable
             records={records}
@@ -939,6 +941,11 @@ export default function MetastoreExplorerPage() {
               Select a record to edit metadata, tags, and retention settings.
             </div>
           )}
+        </div>
+
+        <div className="flex flex-col gap-4 xl:sticky xl:top-24">
+          <RealtimeActivityRail namespace={namespace} enabled={hasReadScope} />
+          <FilestoreHealthRail enabled={hasReadScope} />
         </div>
       </div>
 
