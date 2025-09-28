@@ -45,6 +45,11 @@ import {
   type WorkflowStepRetryBacklogEntry,
   type WorkflowTimelineTriggerStatus
 } from './types';
+import type {
+  WorkflowEventDerived,
+  WorkflowEventLinkHints,
+  WorkflowEventSeverity
+} from '@apphub/shared/catalogEvents';
 
 export type WorkflowSummary = {
   workflow: WorkflowDefinition;
@@ -70,6 +75,117 @@ function normalizeStringArray(value: unknown): string[] | undefined {
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter((entry): entry is string => entry.length > 0);
   return normalized.length > 0 ? normalized : undefined;
+}
+
+const EVENT_SEVERITY_VALUES: WorkflowEventSeverity[] = ['critical', 'error', 'warning', 'info', 'debug'];
+const EVENT_SEVERITY_SET = new Set<WorkflowEventSeverity>(EVENT_SEVERITY_VALUES);
+
+function normalizeWorkflowEventSeverity(value: unknown): WorkflowEventSeverity | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase() as WorkflowEventSeverity;
+  if (!EVENT_SEVERITY_SET.has(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeWorkflowEventLinkHints(raw: unknown): WorkflowEventLinkHints | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const result: WorkflowEventLinkHints = {};
+  const assign = (key: keyof WorkflowEventLinkHints) => {
+    const value = record[key as string];
+    const normalized = normalizeStringArray(value);
+    if (normalized && normalized.length > 0) {
+      (result as Record<string, unknown>)[key] = normalized;
+    }
+  };
+
+  assign('workflowDefinitionIds');
+  assign('workflowIds');
+  assign('workflowRunIds');
+  assign('repositoryIds');
+  assign('datasetIds');
+  assign('datasetSlugs');
+  assign('assetIds');
+  assign('timestoreDatasetIds');
+
+  const metastoreRaw = record.metastoreRecords;
+  if (Array.isArray(metastoreRaw)) {
+    const entries = metastoreRaw
+      .map((entry) => {
+        const candidate = toRecord(entry);
+        if (!candidate) {
+          return null;
+        }
+        const namespace = typeof candidate.namespace === 'string' ? candidate.namespace : null;
+        const key = typeof candidate.key === 'string' ? candidate.key : null;
+        if (!namespace || !key) {
+          return null;
+        }
+        return { namespace, key };
+      })
+      .filter((entry): entry is { namespace: string; key: string } => Boolean(entry));
+    if (entries.length > 0) {
+      result.metastoreRecords = entries;
+    }
+  }
+
+  const filestoreRaw = record.filestoreNodes;
+  if (Array.isArray(filestoreRaw)) {
+    const entries = filestoreRaw
+      .map((entry) => {
+        const candidate = toRecord(entry);
+        if (!candidate) {
+          return null;
+        }
+        const backendMountIdRaw = candidate.backendMountId;
+        const nodeIdRaw = candidate.nodeId;
+        const backendMountId = typeof backendMountIdRaw === 'number' && Number.isFinite(backendMountIdRaw)
+          ? backendMountIdRaw
+          : Number.isFinite(Number(backendMountIdRaw))
+            ? Number(backendMountIdRaw)
+            : null;
+        if (backendMountId === null) {
+          return null;
+        }
+        const nodeId = typeof nodeIdRaw === 'number' && Number.isFinite(nodeIdRaw)
+          ? nodeIdRaw
+          : null;
+        const path = typeof candidate.path === 'string' ? candidate.path : null;
+        return {
+          backendMountId,
+          nodeId,
+          path
+        };
+      })
+      .filter((entry): entry is { backendMountId: number; nodeId: number | null; path: string | null } => Boolean(entry));
+    if (entries.length > 0) {
+      result.filestoreNodes = entries;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function normalizeWorkflowEventDerived(raw: unknown): WorkflowEventDerived | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const type = typeof record.type === 'string' ? record.type : null;
+  if (!type) {
+    return null;
+  }
+  return {
+    type,
+    payload: record.payload
+  } as WorkflowEventDerived;
 }
 
 const TIMELINE_STATUS_SET = new Set<string>(WORKFLOW_TIMELINE_TRIGGER_STATUSES);
@@ -428,15 +544,24 @@ export function normalizeWorkflowEventSample(raw: unknown): WorkflowEventSample 
     payload: 'payload' in record ? record.payload : null,
     correlationId: typeof record.correlationId === 'string' ? record.correlationId : null,
     ttlMs: normalizeNullableNumber(record.ttlMs),
-    metadata: 'metadata' in record ? record.metadata ?? null : null
+    metadata: 'metadata' in record ? record.metadata ?? null : null,
+    severity: normalizeWorkflowEventSeverity(record.severity),
+    links: normalizeWorkflowEventLinkHints(record.links),
+    derived: normalizeWorkflowEventDerived(record.derived)
   } satisfies WorkflowEventSample;
 }
 
 export function normalizeWorkflowEventSamples(raw: unknown): WorkflowEventSample[] {
-  if (!Array.isArray(raw)) {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => normalizeWorkflowEventSample(entry))
+      .filter((entry): entry is WorkflowEventSample => Boolean(entry));
+  }
+  const record = toRecord(raw);
+  if (!record || !Array.isArray(record.events)) {
     return [];
   }
-  return raw
+  return record.events
     .map((entry) => normalizeWorkflowEventSample(entry))
     .filter((entry): entry is WorkflowEventSample => Boolean(entry));
 }

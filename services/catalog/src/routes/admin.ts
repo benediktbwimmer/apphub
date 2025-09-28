@@ -41,6 +41,8 @@ import {
 } from '../db/workflows';
 import { emitApphubEvent } from '../events';
 import { getWorkflowEventById } from '../workflowEvents';
+import { buildWorkflowEventView } from '../workflowEventInsights';
+import { decodeWorkflowEventCursor, encodeWorkflowEventCursor } from '../workflowEventCursor';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
 
@@ -610,6 +612,19 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
     const type = typeof query.type === 'string' ? query.type.trim() : undefined;
     const source = typeof query.source === 'string' ? query.source.trim() : undefined;
+    const correlationId =
+      typeof query.correlationId === 'string' ? query.correlationId.trim() : undefined;
+    const jsonPath = typeof query.jsonPath === 'string' ? query.jsonPath.trim() : undefined;
+    const cursorParam = typeof query.cursor === 'string' ? query.cursor.trim() : undefined;
+
+    let cursor = null;
+    if (cursorParam && cursorParam.length > 0) {
+      cursor = decodeWorkflowEventCursor(cursorParam);
+      if (!cursor) {
+        reply.status(400);
+        return { error: 'Invalid cursor' };
+      }
+    }
 
     const parseTimestamp = (value: unknown, field: string): string | undefined => {
       if (value === undefined || value === null) {
@@ -651,17 +666,42 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const events = await listWorkflowEvents({
+      const result = await listWorkflowEvents({
         type: type && type.length > 0 ? type : undefined,
         source: source && source.length > 0 ? source : undefined,
+        correlationId: correlationId && correlationId.length > 0 ? correlationId : undefined,
         from,
         to,
-        limit
+        limit,
+        jsonPath: jsonPath && jsonPath.length > 0 ? jsonPath : undefined,
+        cursor: cursor ?? undefined
       });
-      const schema = buildWorkflowEventSchema(events);
+
+      const schema = buildWorkflowEventSchema(result.events);
+      const serialized = result.events.map((event) => buildWorkflowEventView(event));
+      const nextCursor = result.nextCursor ? encodeWorkflowEventCursor(result.nextCursor) : null;
+
       reply.status(200);
-      return { data: events, schema };
+      return {
+        data: {
+          events: serialized,
+          page: {
+            nextCursor,
+            hasMore: result.hasMore,
+            limit: result.limit
+          }
+        },
+        schema
+      };
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const code = typeof (err as { code?: unknown }).code === 'string' ? (err as { code: string }).code : null;
+      const isJsonPathError =
+        code === '22023' || message.toLowerCase().includes('jsonpath') || message.toLowerCase().includes('json path');
+      if (isJsonPathError) {
+        reply.status(400);
+        return { error: 'Invalid jsonPath filter expression' };
+      }
       request.log.error({ err }, 'Failed to list workflow events');
       reply.status(500);
       return { error: 'Failed to list workflow events' };

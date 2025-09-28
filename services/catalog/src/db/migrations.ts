@@ -991,6 +991,18 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_event_ingress_retries_state_next_attempt
          ON event_ingress_retries (retry_state, next_attempt_at);`
     ]
+  },
+  {
+    id: '033_unified_event_api',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_correlation_id
+         ON workflow_events (correlation_id)
+         WHERE correlation_id IS NOT NULL;`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_payload_jsonpath
+         ON workflow_events USING gin (payload jsonb_path_ops);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_occurred_id
+         ON workflow_events (occurred_at DESC, id DESC);`
+    ]
   }
 ];
 

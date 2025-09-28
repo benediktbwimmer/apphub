@@ -2,6 +2,7 @@ import { useConnection } from './utils';
 import {
   type WorkflowEventInsert,
   type WorkflowEventQueryOptions,
+  type WorkflowEventQueryResult,
   type WorkflowEventRecord
 } from './types';
 import type { WorkflowEventRow } from './rowTypes';
@@ -91,7 +92,7 @@ export async function insertWorkflowEvent(event: WorkflowEventInsert): Promise<W
 
 export async function listWorkflowEvents(
   options: WorkflowEventQueryOptions = {}
-): Promise<WorkflowEventRecord[]> {
+): Promise<WorkflowEventQueryResult> {
   const conditions: string[] = [];
   const params: Array<string | number> = [];
   let index = 1;
@@ -108,6 +109,12 @@ export async function listWorkflowEvents(
     index += 1;
   }
 
+  if (options.correlationId) {
+    conditions.push(`correlation_id = $${index}`);
+    params.push(options.correlationId);
+    index += 1;
+  }
+
   if (options.from) {
     conditions.push(`occurred_at >= $${index}`);
     params.push(options.from);
@@ -120,14 +127,44 @@ export async function listWorkflowEvents(
     index += 1;
   }
 
+  if (options.cursor) {
+    conditions.push(
+      `(occurred_at < $${index} OR (occurred_at = $${index} AND id < $${index + 1}))`
+    );
+    params.push(options.cursor.occurredAt);
+    params.push(options.cursor.id);
+    index += 2;
+  }
+
+  if (options.jsonPath) {
+    conditions.push(`jsonb_path_exists(payload, $${index}::jsonpath)`);
+    params.push(options.jsonPath);
+    index += 1;
+  }
+
   const limit = clampLimit(options.limit);
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const query = `SELECT * FROM workflow_events ${whereClause} ORDER BY occurred_at DESC, id DESC LIMIT $${index}`;
-  params.push(limit);
+  params.push(limit + 1);
 
   return useConnection(async (client) => {
     const { rows } = await client.query<WorkflowEventRow>(query, params);
-    return rows.map(mapWorkflowEventRow);
+    const mapped = rows.map(mapWorkflowEventRow);
+    const hasMore = mapped.length > limit;
+    const events = hasMore ? mapped.slice(0, limit) : mapped;
+    const nextCursor = hasMore
+      ? {
+          occurredAt: events[events.length - 1].occurredAt,
+          id: events[events.length - 1].id
+        }
+      : null;
+
+    return {
+      events,
+      hasMore,
+      limit,
+      nextCursor
+    } satisfies WorkflowEventQueryResult;
   });
 }
 

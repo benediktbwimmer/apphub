@@ -15,7 +15,15 @@ import type {
   WorkflowRunRecord,
   WorkflowEventRecord
 } from './db/index';
-import type { AssetExpiredEventData, AssetProducedEventData } from './assets/types';
+import type {
+  AssetExpiredEventData,
+  AssetProducedEventData,
+  MetastoreRecordEventData,
+  TimestoreDatasetExportCompletedEventData,
+  TimestorePartitionCreatedEventData,
+  TimestorePartitionDeletedEventData
+} from '@apphub/shared/catalogEvents';
+import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import type { ExampleBundleStatus } from './exampleBundles/statusStore';
 
 type WorkflowAnalyticsStatsEventPayload = {
@@ -74,8 +82,15 @@ export type ApphubEvent =
   | { type: 'workflow.run.canceled'; data: { run: WorkflowRunRecord } }
   | { type: 'asset.produced'; data: AssetProducedEventData }
   | { type: 'asset.expired'; data: AssetExpiredEventData }
+  | { type: 'metastore.record.created'; data: MetastoreRecordEventData }
+  | { type: 'metastore.record.updated'; data: MetastoreRecordEventData }
+  | { type: 'metastore.record.deleted'; data: MetastoreRecordEventData }
   | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
+  | FilestoreEvent
+  | { type: 'timestore.partition.created'; data: TimestorePartitionCreatedEventData }
+  | { type: 'timestore.partition.deleted'; data: TimestorePartitionDeletedEventData }
+  | { type: 'timestore.dataset.export.completed'; data: TimestoreDatasetExportCompletedEventData }
   | {
       type: 'retry.event.source.cancelled';
       data: {

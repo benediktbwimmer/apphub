@@ -1,9 +1,10 @@
 import type { EventEnvelope } from '@apphub/event-bus';
 import { insertWorkflowEvent, getWorkflowEventById } from './db/workflowEvents';
 import type { WorkflowEventRecord } from './db/types';
-import { emitApphubEvent } from './events';
+import { emitApphubEvent, type ApphubEvent } from './events';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
+import { deriveWorkflowEventSubtype } from './workflowEventInsights';
 
 export async function ingestWorkflowEvent(envelope: EventEnvelope): Promise<WorkflowEventRecord> {
   const record = await insertWorkflowEvent({
@@ -27,6 +28,10 @@ export async function ingestWorkflowEvent(envelope: EventEnvelope): Promise<Work
     })
   );
 
+  const derived = deriveWorkflowEventSubtype(record);
+  if (derived) {
+    emitApphubEvent({ type: derived.type, data: derived.payload } as ApphubEvent);
+  }
   emitApphubEvent({ type: 'workflow.event.received', data: { event: record } });
   return record;
 }

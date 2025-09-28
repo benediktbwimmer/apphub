@@ -19,7 +19,17 @@ import {
 } from './shared/serializers';
 import type { IngestionEvent } from '../db/index';
 import type { ExampleBundleStatus } from '../exampleBundles/statusStore';
-import type { WorkflowEventRecord } from '../db/types';
+import {
+  type AssetExpiredEventData,
+  type AssetProducedEventData,
+  type MetastoreRecordEventData,
+  type TimestoreDatasetExportCompletedEventData,
+  type TimestorePartitionCreatedEventData,
+  type TimestorePartitionDeletedEventData,
+  type WorkflowEventRecordView
+} from '@apphub/shared/catalogEvents';
+import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
+import { buildWorkflowEventView } from '../workflowEventInsights';
 
 type WorkflowAnalyticsSnapshotData = Extract<
   ApphubEvent,
@@ -44,7 +54,16 @@ type OutboundEvent =
   | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
   | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData }
   | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
-  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
+  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecordView } }
+  | { type: 'asset.produced'; data: AssetProducedEventData }
+  | { type: 'asset.expired'; data: AssetExpiredEventData }
+  | { type: 'metastore.record.created'; data: MetastoreRecordEventData }
+  | { type: 'metastore.record.updated'; data: MetastoreRecordEventData }
+  | { type: 'metastore.record.deleted'; data: MetastoreRecordEventData }
+  | FilestoreEvent
+  | { type: 'timestore.partition.created'; data: TimestorePartitionCreatedEventData }
+  | { type: 'timestore.partition.deleted'; data: TimestorePartitionDeletedEventData }
+  | { type: 'timestore.dataset.export.completed'; data: TimestoreDatasetExportCompletedEventData }
   | {
       type: 'retry.event.source.cancelled';
       data: Extract<ApphubEvent, { type: 'retry.event.source.cancelled' }>['data'];
@@ -71,6 +90,9 @@ type OutboundEvent =
     };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
+  if (event.type.startsWith('filestore.')) {
+    return event as FilestoreEvent;
+  }
   switch (event.type) {
     case 'repository.updated':
       return {
@@ -128,8 +150,17 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
     case 'workflow.event.received':
       return {
         type: 'workflow.event.received',
-        data: { event: event.data.event }
+        data: { event: buildWorkflowEventView(event.data.event) }
       };
+    case 'asset.produced':
+    case 'asset.expired':
+    case 'metastore.record.created':
+    case 'metastore.record.updated':
+    case 'metastore.record.deleted':
+    case 'timestore.partition.created':
+    case 'timestore.partition.deleted':
+    case 'timestore.dataset.export.completed':
+      return event;
     case 'retry.event.source.cancelled':
     case 'retry.event.source.forced':
     case 'retry.trigger.delivery.cancelled':

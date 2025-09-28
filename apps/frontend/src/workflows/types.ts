@@ -1,3 +1,9 @@
+import type {
+  WorkflowEventDerived,
+  WorkflowEventLinkHints,
+  WorkflowEventSeverity
+} from '@apphub/shared/catalogEvents';
+
 export type WorkflowFanOutTemplateStep = {
   id: string;
   name: string;
@@ -149,6 +155,9 @@ export type WorkflowEventSample = {
   correlationId: string | null;
   ttlMs: number | null;
   metadata: unknown;
+  severity: WorkflowEventSeverity | null;
+  links: WorkflowEventLinkHints | null;
+  derived: WorkflowEventDerived | null;
 };
 
 export type WorkflowEventSchemaValueType = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';

@@ -257,11 +257,19 @@ export type WorkflowEventSampleQuery = {
   from?: string;
   to?: string;
   limit?: number;
+  correlationId?: string;
+  jsonPath?: string;
+  cursor?: string;
 };
 
 export type WorkflowEventSamplesResponse = {
   samples: WorkflowEventSample[];
   schema: WorkflowEventSchema | null;
+  page: {
+    nextCursor: string | null;
+    hasMore: boolean;
+    limit: number;
+  } | null;
 };
 
 export type WorkflowTimelineQuery = {
@@ -887,13 +895,42 @@ export async function listWorkflowEventSamples(
   if (query.limit !== undefined) {
     params.set('limit', String(query.limit));
   }
+  if (query.correlationId) {
+    params.set('correlationId', query.correlationId);
+  }
+  if (query.jsonPath) {
+    params.set('jsonPath', query.jsonPath);
+  }
+  if (query.cursor) {
+    params.set('cursor', query.cursor);
+  }
   const search = params.toString();
   const response = await fetcher(`${API_BASE_URL}/admin/events${search ? `?${search}` : ''}`);
   await ensureOk(response, 'Failed to load workflow events');
   const payload = await parseJson<{ data?: unknown; schema?: unknown }>(response);
-  const samples = normalizeWorkflowEventSamples(payload.data);
+  let eventsSource: unknown = payload.data;
+  let page: WorkflowEventSamplesResponse['page'] = null;
+  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    const record = payload.data as Record<string, unknown>;
+    if ('events' in record) {
+      eventsSource = record.events;
+    }
+    const pageValue = record.page;
+    if (pageValue && typeof pageValue === 'object' && !Array.isArray(pageValue)) {
+      const pageRecord = pageValue as Record<string, unknown>;
+      const nextCursor = typeof pageRecord.nextCursor === 'string' ? pageRecord.nextCursor : null;
+      const hasMore = Boolean(pageRecord.hasMore);
+      const limitValue = Number(pageRecord.limit);
+      page = {
+        nextCursor,
+        hasMore,
+        limit: Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 0
+      };
+    }
+  }
+  const samples = normalizeWorkflowEventSamples(eventsSource);
   const schema = normalizeWorkflowEventSchema(payload.schema);
-  return { samples, schema: schema ?? null };
+  return { samples, schema: schema ?? null, page };
 }
 
 export async function getWorkflowEventHealth(

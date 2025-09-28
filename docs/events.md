@@ -72,13 +72,52 @@ The event trigger worker (`npm run event-triggers --workspace @apphub/catalog`) 
 
 ## Inspecting Events
 
-An internal admin endpoint returns recent events with optional filters:
+Use the catalog admin API to explore historical envelopes with flexible filters and cursor pagination:
 
 ```
-GET /admin/events?type=metastore.record.updated&source=metastore.api&from=2024-12-01T00:00:00Z&limit=50
+GET /admin/events?type=metastore.record.updated&source=metastore.api&correlationId=req-41ac2fd3&from=2024-12-01T00:00:00Z&limit=50
 ```
 
-Filtering combines on `type`, `source`, `from`, `to`, and `limit` (1–200, default `100`). Entries are ordered by `occurred_at DESC`.
+Supported query parameters:
+
+- `type`, `source`, `correlationId` — exact matches on event metadata.
+- `from`, `to` — inclusive ISO-8601 bounds applied to `occurred_at`.
+- `jsonPath` — Postgres JSONPath expression evaluated against the payload (`jsonb_path_exists`).
+- `limit` — page size (1–200, default `100`).
+- `cursor` — opaque token returned in `page.nextCursor` for follow-up requests.
+
+Responses now include derived insights alongside the raw row:
+
+```json
+{
+  "data": {
+    "events": [
+      {
+        "id": "evt-001",
+        "type": "asset.produced",
+        "severity": "warning",
+        "links": {
+          "workflowDefinitionIds": ["wf-alpha"],
+          "datasetSlugs": ["weather"]
+        },
+        "derived": {
+          "type": "asset.produced",
+          "payload": { "assetId": "asset-7", "workflowRunId": "run-42" }
+        },
+        "payload": { ... }
+      }
+    ],
+    "page": {
+      "nextCursor": "eyJ2IjoidjEiLCJvY2N1cnJlZEF0IjoiMjAyNC0xMi0wMVQwMDowMDowMC4wMDBaIiwiaWQiOiJldnQtMDAxIn0",
+      "hasMore": true,
+      "limit": 50
+    }
+  },
+  "schema": { ... }
+}
+```
+
+The WebSocket stream at `/ws` emits the same enriched structure via `workflow.event.received`, along with dedicated frames for platform sub-systems (`asset.produced`, `metastore.record.updated`, `timestore.partition.created`, and Filestore node events). Clients can derive severity chips or cross-links without reparsing raw payloads.
 
 ## Publishing Checklist
 

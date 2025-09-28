@@ -1,4 +1,7 @@
-import type { WorkflowAssetFreshness } from '../db/types';
+import type {
+  AssetExpiredEventData,
+  AssetProducedEventData
+} from '@apphub/shared/catalogEvents';
 
 export type AssetExpiryReason = 'ttl' | 'cadence' | 'manual';
 
@@ -9,32 +12,7 @@ export type AssetAutoMaterializePolicy = {
 
 export type AutoMaterializeTriggerReason = 'upstream-update' | 'expiry';
 
-export type AssetProducedEventData = {
-  assetId: string;
-  workflowDefinitionId: string;
-  workflowSlug: string;
-  workflowRunId: string;
-  workflowRunStepId: string;
-  stepId: string;
-  producedAt: string;
-  freshness: WorkflowAssetFreshness | null;
-  partitionKey: string | null;
-};
-
-export type AssetExpiredEventData = {
-  assetId: string;
-  workflowDefinitionId: string;
-  workflowSlug: string;
-  workflowRunId: string;
-  workflowRunStepId: string;
-  stepId: string;
-  producedAt: string;
-  expiresAt: string;
-  requestedAt: string;
-  reason: AssetExpiryReason;
-  freshness: WorkflowAssetFreshness | null;
-  partitionKey: string | null;
-};
+export type { AssetProducedEventData, AssetExpiredEventData };
 
 export type AssetExpiryJobData = {
   assetKey: string;

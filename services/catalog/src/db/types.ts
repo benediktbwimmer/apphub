@@ -1,4 +1,5 @@
 import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
+import type { WorkflowEventCursorPayload } from '@apphub/shared/catalogEvents';
 
 export type TagKV = {
   key: string;
@@ -321,12 +322,24 @@ export type WorkflowEventInsert = {
   receivedAt?: string;
 };
 
+export type WorkflowEventCursor = WorkflowEventCursorPayload;
+
 export type WorkflowEventQueryOptions = {
   type?: string | null;
   source?: string | null;
+  correlationId?: string | null;
   from?: string | null;
   to?: string | null;
+  jsonPath?: string | null;
   limit?: number;
+  cursor?: WorkflowEventCursor | null;
+};
+
+export type WorkflowEventQueryResult = {
+  events: WorkflowEventRecord[];
+  limit: number;
+  hasMore: boolean;
+  nextCursor: WorkflowEventCursor | null;
 };
 
 export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
