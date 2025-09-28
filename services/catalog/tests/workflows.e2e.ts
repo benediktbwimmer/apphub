@@ -227,6 +227,7 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
   await ensureEmbeddedPostgres();
   const previousRedisUrl = process.env.REDIS_URL;
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   const { buildServer } = await import('../src/server');
   const app = await buildServer();
   await app.ready();

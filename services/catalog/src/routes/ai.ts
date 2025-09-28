@@ -652,7 +652,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map(serializeService);
+      const serviceCatalog = services.map((service) => serializeService(service));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
@@ -733,7 +733,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map(serializeService);
+      const serviceCatalog = services.map((service) => serializeService(service));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({
@@ -1228,7 +1228,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
       const bundleContexts = await collectBundleContexts(jobs);
       const jobCatalog = jobs.map(serializeJobDefinition);
-      const serviceCatalog = services.map(serializeService);
+      const serviceCatalog = services.map((service) => serializeService(service));
       const workflowCatalog = workflows.map(serializeWorkflowDefinition);
       const metadataSummary = buildAiMetadataSummary({ jobs, services, workflows, bundles: bundleContexts });
       const contextFiles = buildCodexContextFiles({

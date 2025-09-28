@@ -87,6 +87,16 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function allowInlineMode(): boolean {
+  return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE, false);
+}
+
+function assertInlineAllowed(context: string): void {
+  if (!allowInlineMode()) {
+    throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
+  }
+}
+
 const KNOWN_SCOPES: TokenScope[] = ['metastore:read', 'metastore:write', 'metastore:delete', 'metastore:admin'];
 
 function parsePresetScopes(raw: unknown): TokenScope[] {
@@ -345,12 +355,19 @@ export function loadServiceConfig(): ServiceConfig {
     10_000
   );
   const filestoreSyncEnabled = parseBoolean(process.env.METASTORE_FILESTORE_SYNC_ENABLED, true);
-  const filestoreRedisUrl = process.env.FILESTORE_REDIS_URL || process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const filestoreRedisSource = process.env.FILESTORE_REDIS_URL || process.env.REDIS_URL;
+  if (!filestoreRedisSource || !filestoreRedisSource.trim()) {
+    throw new Error('Set FILESTORE_REDIS_URL or REDIS_URL to a redis:// connection string');
+  }
+  const filestoreRedisUrl = filestoreRedisSource.trim();
   const filestoreChannel = process.env.FILESTORE_EVENTS_CHANNEL || 'apphub:filestore';
   const filestoreNamespace = process.env.METASTORE_FILESTORE_NAMESPACE || 'filestore';
   const filestoreRetryDelayMs = parseInt(process.env.METASTORE_FILESTORE_RETRY_MS ?? '', 10);
   const retryDelayMs = Number.isFinite(filestoreRetryDelayMs) && filestoreRetryDelayMs > 0 ? filestoreRetryDelayMs : 3000;
   const inline = filestoreRedisUrl === 'inline';
+  if (inline) {
+    assertInlineAllowed('FILESTORE_REDIS_URL');
+  }
   const stallThresholdCandidate = parseNumber(
     process.env.METASTORE_FILESTORE_STALL_THRESHOLD_SECONDS,
     60

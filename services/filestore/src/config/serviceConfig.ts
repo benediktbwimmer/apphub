@@ -73,6 +73,16 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function allowInlineMode(): boolean {
+  return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE, false);
+}
+
+function assertInlineAllowed(context: string): void {
+  if (!allowInlineMode()) {
+    throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
+  }
+}
+
 function resolveLogLevel(value: string | undefined): LogLevel {
   const normalized = (value || 'info').trim().toLowerCase();
   switch (normalized) {
@@ -106,7 +116,11 @@ export function loadServiceConfig(): ServiceConfig {
     10_000
   );
   const metricsEnabled = parseBoolean(env.FILESTORE_METRICS_ENABLED, true);
-  const redisUrl = env.FILESTORE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const redisUrlSource = env.FILESTORE_REDIS_URL || env.REDIS_URL;
+  if (!redisUrlSource || !redisUrlSource.trim()) {
+    throw new Error('Set FILESTORE_REDIS_URL or REDIS_URL to a redis:// connection string');
+  }
+  const redisUrl = redisUrlSource.trim();
   const redisKeyPrefix = env.FILESTORE_REDIS_KEY_PREFIX || 'filestore';
   const rollupQueueName = env.FILESTORE_ROLLUP_QUEUE_NAME || 'filestore_rollup_queue';
   const rollupCacheTtlSeconds = parseNumber(env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS, 300);
@@ -121,13 +135,20 @@ export function loadServiceConfig(): ServiceConfig {
   const reconcileAuditBatchSize = parseNumber(env.FILESTORE_RECONCILE_AUDIT_BATCH_SIZE, 100);
   const eventsModeEnv = (env.FILESTORE_EVENTS_MODE || '').trim().toLowerCase();
   const derivedRedisInline = redisUrl === 'inline';
-  const eventsMode: 'inline' | 'redis' = eventsModeEnv === 'inline'
+  if (derivedRedisInline) {
+    assertInlineAllowed('FILESTORE_REDIS_URL');
+  }
+  const eventsModeCandidate: 'inline' | 'redis' = eventsModeEnv === 'inline'
     ? 'inline'
     : eventsModeEnv === 'redis'
       ? 'redis'
       : derivedRedisInline
         ? 'inline'
         : 'redis';
+  if (eventsModeCandidate === 'inline') {
+    assertInlineAllowed('FILESTORE_EVENTS_MODE');
+  }
+  const eventsMode = eventsModeCandidate;
   const eventsChannel = env.FILESTORE_EVENTS_CHANNEL || `${redisKeyPrefix}:filestore`;
 
   const candidateConfig: ServiceConfig = {

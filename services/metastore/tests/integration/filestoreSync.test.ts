@@ -56,6 +56,7 @@ before(async () => {
 
   process.env.DATABASE_URL = `postgres://postgres:postgres@127.0.0.1:${port}/apphub`;
   process.env.FILESTORE_REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.FILESTORE_EVENTS_CHANNEL = 'apphub:filestore';
   process.env.METASTORE_FILESTORE_NAMESPACE = `filestore_sync_${randomUUID().slice(0, 6)}`;
   process.env.METASTORE_FILESTORE_SYNC_ENABLED = 'true';

@@ -7,8 +7,22 @@ import EventsHealthRail from '../EventsHealthRail';
 const sampleHealth: WorkflowEventSchedulerHealth = {
   generatedAt: '2025-01-02T00:00:00.000Z',
   queues: {
-    ingress: { mode: 'queue', counts: { pending: 4 } },
-    triggers: { mode: 'queue', counts: { pending: 2 } }
+    ingress: {
+      mode: 'queue',
+      counts: { waiting: 4, active: 1 },
+      metrics: {
+        waitingAvgMs: 320,
+        processingAvgMs: 210
+      }
+    },
+    triggers: {
+      mode: 'queue',
+      counts: { waiting: 2, failed: 1 },
+      metrics: {
+        waitingAvgMs: 150,
+        processingAvgMs: 95
+      }
+    }
   },
   sources: {
     'metastore.api': {
@@ -132,6 +146,9 @@ describe('EventsHealthRail', () => {
     );
 
     expect(screen.getByText('Scheduler health')).toBeInTheDocument();
+    expect(screen.getByText('Ingress queue')).toBeInTheDocument();
+    expect(screen.getByText(/waiting: 4/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Avg wait/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/metastore\.api/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Total 120/)).toBeInTheDocument();
     expect(screen.getAllByText(/Retry backlog/i).length).toBeGreaterThan(0);

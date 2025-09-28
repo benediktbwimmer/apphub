@@ -71,6 +71,7 @@ before(async () => {
   process.env.TIMESTORE_STORAGE_DRIVER = 'local';
   process.env.REDIS_URL = 'inline';
   process.env.FILESTORE_REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.FILESTORE_EVENTS_CHANNEL = 'apphub:filestore';
   process.env.TIMESTORE_FILESTORE_DATASET_SLUG = `filestore_activity_${randomUUID().slice(0, 6)}`;
   process.env.TIMESTORE_FILESTORE_SYNC_ENABLED = 'true';

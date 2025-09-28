@@ -17,6 +17,7 @@ import {
   type ServiceNetworkLaunchMemberInput,
   type ServiceNetworkLaunchMemberRecord,
   type LaunchRecord,
+  type BuildRecord,
   type RepositoryRecord,
   type ServiceNetworkRecord,
   type ServiceNetworkMemberRecord

@@ -16,7 +16,7 @@
 | Item | Description | Owner | Status |
 | --- | --- | --- | --- |
 | ✅ Filestore schema migrated | `npm run migrate --workspace @apphub/filestore` applied for target environment. | Platform | |
-| ✅ Redis connectivity | `FILESTORE_REDIS_URL` reachable; inline mode only for dev/staging. | Platform | |
+| ✅ Redis connectivity | `FILESTORE_REDIS_URL` reachable; inline mode only for dev/staging with `APPHUB_ALLOW_INLINE_MODE=true`. | Platform | |
 | ✅ Reconciliation worker | `npm run reconcile --workspace @apphub/filestore` (or container) deployed with queue concurrency sized for environment. | Platform | |
 | ✅ Metastore/Timestore consumers | `METASTORE_FILESTORE_SYNC_ENABLED`/`TIMESTORE_FILESTORE_SYNC_ENABLED` enabled with correct channel/key prefix. | Platform | |
 | ✅ IAM/token updates | `FILESTORE_TOKEN` issued with `filestore:write` (operators) and service-specific tokens distributed. | Security / Service Owner | |
@@ -139,4 +139,3 @@
 | Follow-up actions |  |
 
 > Store completed templates in the operational wiki and update this runbook with lessons learned.
-

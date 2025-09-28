@@ -19,6 +19,7 @@ process.env.APPHUB_DISABLE_ANALYTICS = '1';
 process.env.APPHUB_ANALYTICS_INTERVAL_MS = '0';
 process.env.APPHUB_EVENTS_MODE = 'inline';
 process.env.REDIS_URL = 'inline';
+process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
 let buildWorkflowDagMetadata: (typeof import('../src/workflows/dag'))['buildWorkflowDagMetadata'];
 let assembleWorkflowTopologyGraph: (typeof import('../src/workflows/workflowGraph'))['assembleWorkflowTopologyGraph'];

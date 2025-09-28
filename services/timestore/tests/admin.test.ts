@@ -31,6 +31,7 @@ before(async () => {
   process.env.TIMESTORE_ADMIN_SCOPE = 'admin-scope';
   process.env.TIMESTORE_REQUIRE_SCOPE = 'query-scope';
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-admin-pg-'));
   storageRoot = await mkdtemp(path.join(tmpdir(), 'timestore-admin-storage-'));

@@ -91,6 +91,7 @@ async function withCatalogServer(
   await ensureEmbeddedPostgres();
   process.env.APPHUB_EVENTS_MODE = 'inline';
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
   const db = await import('../src/db');
   await db.ensureDatabase();

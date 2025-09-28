@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import WebSocket, { type RawData } from 'ws';
 import { computeRunMetrics } from '../observability/metrics';
+import { getPrometheusMetrics, getPrometheusContentType } from '../observability/queueTelemetry';
 import { subscribeToApphubEvents, type ApphubEvent } from '../events';
 import {
   serializeBuild,
@@ -268,6 +269,12 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
       reply.status(500);
       return { error: 'Failed to compute metrics' };
     }
+  });
+
+  app.get('/metrics/prometheus', async (_request, reply) => {
+    const metrics = await getPrometheusMetrics();
+    reply.header('Content-Type', getPrometheusContentType());
+    reply.status(200).send(metrics);
   });
 }
 

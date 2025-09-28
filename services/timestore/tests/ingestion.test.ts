@@ -47,6 +47,7 @@ before(async () => {
   process.env.TIMESTORE_PGPOOL_MAX = '4';
   process.env.TIMESTORE_STORAGE_ROOT = storageRoot;
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.TIMESTORE_PARTITION_INDEX_COLUMNS = 'temperature_c,humidity_percent';
   process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = 'temperature_c';
   process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = 'temperature_c';

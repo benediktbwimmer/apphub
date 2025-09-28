@@ -65,7 +65,8 @@ async function shutdownEmbeddedPostgres(): Promise<void> {
 
 async function setupRegistry() {
   process.env.APPHUB_EVENTS_MODE = 'inline';
-  process.env.REDIS_URL = 'inline';
+process.env.REDIS_URL = 'inline';
+process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.APPHUB_DISABLE_SERVICE_POLLING = '1';
   await ensureEmbeddedPostgres();
   return initializeServiceRegistry({ enablePolling: false });

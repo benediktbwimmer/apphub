@@ -18,22 +18,25 @@ inlineEmitter.setMaxListeners(0);
 
 const DEFAULT_STALL_THRESHOLD_SECONDS = 60;
 
-type FilestoreHealthStatus = 'disabled' | 'ok' | 'stalled';
+type FilestoreHealthStatus = 'disabled' | 'ok' | 'stalled' | 'error';
 
 type FilestoreHealthState = {
   enabled: boolean;
   inline: boolean;
+  connected: boolean;
   stallThresholdSeconds: number;
   lastEventType: string | null;
   lastObservedAt: Date | null;
   lastReceivedAt: Date | null;
   connectionRetries: number;
   processingFailures: number;
+  lastError: string | null;
 };
 
 export type FilestoreHealthSnapshot = {
   status: FilestoreHealthStatus;
   enabled: boolean;
+  connected: boolean;
   inline: boolean;
   thresholdSeconds: number;
   lagSeconds: number | null;
@@ -47,17 +50,20 @@ export type FilestoreHealthSnapshot = {
     processing: number;
     total: number;
   };
+  lastError: string | null;
 };
 
 const healthState: FilestoreHealthState = {
   enabled: false,
   inline: false,
+  connected: false,
   stallThresholdSeconds: DEFAULT_STALL_THRESHOLD_SECONDS,
   lastEventType: null,
   lastObservedAt: null,
   lastReceivedAt: null,
   connectionRetries: 0,
-  processingFailures: 0
+  processingFailures: 0,
+  lastError: null
 };
 
 let metricsHandle: MetastoreMetrics | null = null;
@@ -70,12 +76,14 @@ function bindMetrics(metrics: MetastoreMetrics | undefined): void {
 function resetHealthState(config: ServiceConfig['filestoreSync']): void {
   healthState.enabled = config.enabled;
   healthState.inline = config.inline;
+  healthState.connected = config.inline;
   healthState.stallThresholdSeconds = config.stallThresholdSeconds;
   healthState.lastEventType = null;
   healthState.lastObservedAt = null;
   healthState.lastReceivedAt = null;
   healthState.connectionRetries = 0;
   healthState.processingFailures = 0;
+  healthState.lastError = null;
   updateMetrics();
 }
 
@@ -119,6 +127,9 @@ function computeStatus(now: Date = new Date()): FilestoreHealthStatus {
   if (!healthState.enabled) {
     return 'disabled';
   }
+  if (!healthState.inline && !healthState.connected) {
+    return 'error';
+  }
   const lagSeconds = computeLagSeconds(now);
   if (lagSeconds !== null && lagSeconds > healthState.stallThresholdSeconds) {
     return 'stalled';
@@ -132,14 +143,27 @@ function updateMetrics(now: Date = new Date()): void {
   }
   const lagSeconds = computeLagSeconds(now);
   metricsHandle.filestoreLagSeconds.set(lagSeconds ?? 0);
-  metricsHandle.filestoreStalled.set(computeStatus(now) === 'stalled' ? 1 : 0);
+  const status = computeStatus(now);
+  metricsHandle.filestoreStalled.set(status === 'stalled' || status === 'error' ? 1 : 0);
 }
 
-function recordConnectionRetry(): void {
+function recordConnectionFailure(err?: unknown): void {
   healthState.connectionRetries += 1;
+  healthState.connected = healthState.inline;
+  if (!healthState.inline) {
+    const message = err instanceof Error ? err.message : typeof err === 'string' ? err : null;
+    healthState.lastError = message;
+    updateMetrics();
+  }
   if (metricsHandle && metricsHandle.enabled) {
     metricsHandle.filestoreRetryTotal.inc({ kind: 'connect' });
   }
+}
+
+function markConnectionReady(): void {
+  healthState.connected = true;
+  healthState.lastError = null;
+  updateMetrics();
 }
 
 function recordProcessingFailure(): void {
@@ -256,6 +280,7 @@ export class FilestoreSyncConsumer {
       };
       inlineEmitter.on('event', listener);
       this.inlineListener = listener;
+      markConnectionReady();
       return;
     }
 
@@ -265,14 +290,24 @@ export class FilestoreSyncConsumer {
     });
 
     redis.on('error', (err) => {
+      recordConnectionFailure(err);
       this.options.logger.error({ err }, '[metastore:filestore] redis error');
     });
 
     redis.on('end', () => {
+      recordConnectionFailure('connection closed');
       if (this.stopped) {
         return;
       }
-      this.options.logger.warn('[metastore:filestore] redis connection closed, will retry');
+      this.options.logger.warn('[metastore:filestore] redis connection closed');
+    });
+
+    redis.on('close', () => {
+      recordConnectionFailure('connection closed');
+    });
+
+    redis.on('ready', () => {
+      markConnectionReady();
     });
 
     redis.on('message', (_channel, message) => {
@@ -284,23 +319,27 @@ export class FilestoreSyncConsumer {
       this.enqueue(envelope.event);
     });
 
-    const attemptSubscribe = async () => {
-      try {
+    try {
+      if (redis.status === 'wait') {
         await redis.connect();
-        await redis.subscribe(this.options.config.channel);
-        this.options.logger.info({ channel: this.options.config.channel }, '[metastore:filestore] subscribed to channel');
-      } catch (err) {
-        recordConnectionRetry();
-        this.options.logger.error({ err }, '[metastore:filestore] failed to subscribe to filestore events');
-        await redis.quit().catch(() => undefined);
-        if (!this.stopped) {
-          await new Promise((resolve) => setTimeout(resolve, this.options.config.retryDelayMs));
-          await attemptSubscribe();
-        }
       }
-    };
+      await new Promise<void>((resolve, reject) => {
+        redis.subscribe(this.options.config.channel, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+      this.options.logger.info({ channel: this.options.config.channel }, '[metastore:filestore] subscribed to channel');
+      markConnectionReady();
+    } catch (err) {
+      recordConnectionFailure(err);
+      await redis.quit().catch(() => undefined);
+      throw err instanceof Error ? err : new Error(String(err));
+    }
 
-    await attemptSubscribe();
     this.subscriber = redis;
   }
 
@@ -424,6 +463,7 @@ function buildHealthSnapshot(now: Date = new Date()): FilestoreHealthSnapshot {
   return {
     status,
     enabled: healthState.enabled,
+    connected: healthState.inline ? true : healthState.connected,
     inline: healthState.inline,
     thresholdSeconds: healthState.stallThresholdSeconds,
     lagSeconds,
@@ -436,7 +476,8 @@ function buildHealthSnapshot(now: Date = new Date()): FilestoreHealthSnapshot {
       connect: healthState.connectionRetries,
       processing: healthState.processingFailures,
       total: healthState.connectionRetries + healthState.processingFailures
-    }
+    },
+    lastError: healthState.inline ? null : healthState.lastError
   } satisfies FilestoreHealthSnapshot;
 }
 

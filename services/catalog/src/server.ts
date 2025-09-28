@@ -6,7 +6,7 @@ import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
 import { initializeServiceRegistry } from './serviceRegistry';
 import { registerDefaultServices } from './startup/registerDefaultServices';
-import { stopAnalyticsSnapshots } from './events';
+import { stopAnalyticsSnapshots, verifyEventBusConnectivity } from './events';
 import { registerCoreRoutes } from './routes/core';
 import { registerAuthRoutes } from './routes/auth';
 import { registerJobRoutes } from './routes/jobs';
@@ -23,6 +23,8 @@ import { openApiDocument } from './openapi/document';
 import { registerServiceProxyRoutes } from './routes/serviceProxy';
 import { registerSavedSearchRoutes } from './routes/savedSearches';
 import { registerEventSavedViewRoutes } from './routes/eventSavedViews';
+import './queue';
+import { queueManager } from './queueManager';
 
 export async function buildServer() {
   const app = Fastify();
@@ -58,6 +60,14 @@ export async function buildServer() {
   });
 
   await registerDefaultServices(app.log);
+
+  try {
+    await queueManager.verifyConnectivity();
+    await verifyEventBusConnectivity();
+  } catch (err) {
+    app.log.error({ err }, 'Redis connectivity check failed during startup');
+    throw err;
+  }
 
   const registry = await initializeServiceRegistry();
 

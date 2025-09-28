@@ -258,10 +258,18 @@ export type WorkflowEventSchedulerHealth = {
     ingress: {
       mode: 'inline' | 'queue' | 'disabled';
       counts?: Record<string, number>;
+      metrics?: {
+        processingAvgMs?: number | null;
+        waitingAvgMs?: number | null;
+      } | null;
     };
     triggers: {
       mode: 'inline' | 'queue' | 'disabled';
       counts?: Record<string, number>;
+      metrics?: {
+        processingAvgMs?: number | null;
+        waitingAvgMs?: number | null;
+      } | null;
     };
   };
   triggers: Record<string, WorkflowEventTriggerMetrics>;

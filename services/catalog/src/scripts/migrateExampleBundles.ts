@@ -152,8 +152,9 @@ async function migrateStatus(status: LegacyExampleBundleStatus): Promise<void> {
     data: artifact.data,
     checksum: status.checksum ?? computeChecksum(artifact.data),
     filename: status.filename ?? path.basename(artifact.path),
-    contentType: guessContentType(status.filename)
+    contentType: guessContentType(status.filename ?? null)
   };
+  const artifactFilename = artifactInput.filename ?? null;
 
   const saveResult = await saveExampleBundleArtifact(artifactInput, { force: true });
 
@@ -161,14 +162,14 @@ async function migrateStatus(status: LegacyExampleBundleStatus): Promise<void> {
     {
       ...baseInput,
       checksum: saveResult.checksum,
-      filename: artifactInput.filename ?? null
+      filename: artifactFilename
     },
     {
       slug,
       fingerprint,
       version: status.version ?? null,
       checksum: saveResult.checksum,
-      filename: artifactInput.filename ?? null,
+      filename: artifactFilename,
       storageKind: saveResult.storageKind,
       storageKey: saveResult.storageKey,
       storageUrl: saveResult.storageUrl,

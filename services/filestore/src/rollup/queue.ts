@@ -28,51 +28,118 @@ export class RollupQueue {
   private connection: Redis | null = null;
   private queue: BullQueue<RollupJobPayload> | null = null;
   private worker: Worker<RollupJobPayload> | null = null;
+  private workerConnection: Redis | null = null;
+  private readyPromise: Promise<void> | null = null;
 
   constructor(options: RollupQueueOptions, processor: RollupJobProcessor) {
     this.options = options;
     this.processor = processor;
-
-    if (!options.inlineMode) {
-      this.initializeQueue();
-    }
   }
 
-  private initializeQueue(): void {
+  private async ensureQueue(): Promise<void> {
+    if (this.options.inlineMode) {
+      return;
+    }
+
     if (this.queue) {
       return;
     }
 
-    this.connection = new IORedis(this.options.redisUrl, {
-      maxRetriesPerRequest: null
+    if (!this.readyPromise) {
+      this.readyPromise = this.createQueue();
+    }
+
+    await this.readyPromise;
+  }
+
+  private async createQueue(): Promise<void> {
+    const connection = new IORedis(this.options.redisUrl, {
+      maxRetriesPerRequest: null,
+      lazyConnect: true
     });
-    this.connection.on('error', (err) => {
+
+    connection.on('error', (err) => {
       console.error('[filestore:rollup-queue] Redis connection error', err);
     });
 
-    this.queue = new Queue<RollupJobPayload>(this.options.queueName, {
-      connection: this.connection,
-      prefix: `${this.options.keyPrefix}:bull`
-    });
+    let workerConnection: Redis | null = null;
+    let worker: Worker<RollupJobPayload> | null = null;
+    let queue: BullQueue<RollupJobPayload> | null = null;
 
-    const workerConnection = this.connection.duplicate();
-    this.worker = new Worker<RollupJobPayload>(
-      this.options.queueName,
-      async (job: Job<RollupJobPayload>) => {
-        await this.processor(job.data);
-        this.options.metrics.recordRecalculation(job.data.reason);
-        void this.refreshQueueDepth();
-      },
-      {
-        connection: workerConnection,
-        concurrency: this.options.concurrency ?? 1,
-        prefix: `${this.options.keyPrefix}:bull`
+    try {
+      if (connection.status === 'wait') {
+        await connection.connect();
       }
-    );
+      await connection.ping();
 
-    this.worker.on('error', (err) => {
-      console.error('[filestore:rollup-queue] Worker error', err);
-    });
+      queue = new Queue<RollupJobPayload>(this.options.queueName, {
+        connection,
+        prefix: `${this.options.keyPrefix}:bull`
+      });
+
+      workerConnection = connection.duplicate();
+      if (workerConnection.status === 'wait') {
+        await workerConnection.connect();
+      }
+
+      worker = new Worker<RollupJobPayload>(
+        this.options.queueName,
+        async (job: Job<RollupJobPayload>) => {
+          await this.processor(job.data);
+          this.options.metrics.recordRecalculation(job.data.reason);
+          void this.refreshQueueDepth();
+        },
+        {
+          connection: workerConnection,
+          concurrency: this.options.concurrency ?? 1,
+          prefix: `${this.options.keyPrefix}:bull`
+        }
+      );
+
+      worker.on('error', (err) => {
+        console.error('[filestore:rollup-queue] Worker error', err);
+      });
+
+      await worker.waitUntilReady();
+
+      this.connection = connection;
+      this.queue = queue;
+      this.worker = worker;
+      this.workerConnection = workerConnection;
+    } catch (err) {
+      if (worker) {
+        try {
+          await worker.close();
+        } catch {
+          // ignore close errors during init failure
+        }
+      }
+      if (queue) {
+        try {
+          await queue.close();
+        } catch {
+          // ignore close errors during init failure
+        }
+      }
+      if (workerConnection) {
+        try {
+          await workerConnection.quit();
+        } catch {
+          // ignore close errors during init failure
+        }
+      }
+      connection.removeAllListeners();
+      try {
+        await connection.quit();
+      } catch {
+        // ignore close errors during init failure
+      }
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  async ensureReady(): Promise<void> {
+    await this.ensureQueue();
   }
 
   async enqueue(payload: RollupJobPayload): Promise<void> {
@@ -83,9 +150,7 @@ export class RollupQueue {
       return;
     }
 
-    if (!this.queue) {
-      this.initializeQueue();
-    }
+    await this.ensureQueue();
 
     if (!this.queue) {
       throw new Error('Rollup queue not initialised');
@@ -124,6 +189,15 @@ export class RollupQueue {
       this.worker = null;
     }
 
+    if (this.workerConnection) {
+      try {
+        await this.workerConnection.quit();
+      } catch (err) {
+        console.error('[filestore:rollup-queue] failed to close worker redis connection', err);
+      }
+      this.workerConnection = null;
+    }
+
     if (this.queue) {
       try {
         await this.queue.close();
@@ -141,5 +215,7 @@ export class RollupQueue {
       }
       this.connection = null;
     }
+
+    this.readyPromise = null;
   }
 }

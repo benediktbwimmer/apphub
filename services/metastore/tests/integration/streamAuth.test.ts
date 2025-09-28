@@ -71,6 +71,7 @@ async function setupMetastore(): Promise<TestContext> {
   process.env.APPHUB_METRICS_ENABLED = '0';
   process.env.METASTORE_FILESTORE_SYNC_ENABLED = 'false';
   process.env.FILESTORE_REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.METASTORE_FILESTORE_NAMESPACE = 'filestore-auth';
   process.env.APPHUB_METASTORE_TOKENS = JSON.stringify([
     {

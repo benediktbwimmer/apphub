@@ -26,6 +26,23 @@ function formatMs(value: number | null | undefined): string {
   return `${Math.round(hours * 10) / 10}h`;
 }
 
+function summarizeQueueCounts(counts?: Record<string, number>): string[] {
+  if (!counts) {
+    return ['No queue data'];
+  }
+  const entries: string[] = [];
+  for (const key of ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused']) {
+    const value = counts[key];
+    if (typeof value === 'number' && value > 0) {
+      entries.push(`${key}: ${value}`);
+    }
+  }
+  if (entries.length === 0) {
+    entries.push('All clear');
+  }
+  return entries;
+}
+
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return '—';
@@ -170,6 +187,38 @@ export function EventsHealthRail({ health, loading, refreshing, error, lastUpdat
               </div>
             ) : health ? (
               <>
+                <section className="flex flex-col gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Queues
+                  </h3>
+                  {(['Ingress queue', 'Trigger queue'] as const).map((label, index) => {
+                    const queue = index === 0 ? health.queues.ingress : health.queues.triggers;
+                    const countsSummary =
+                      queue.mode === 'inline' ? ['Inline execution'] : summarizeQueueCounts(queue.counts);
+                    return (
+                      <div
+                        key={label}
+                        className="rounded-lg border border-slate-200/70 bg-white/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+                          <span className="text-slate-500 dark:text-slate-400">Mode {queue.mode}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {countsSummary.map((entry) => (
+                            <span key={entry}>{entry}</span>
+                          ))}
+                        </div>
+                        {queue.mode === 'queue' && queue.metrics ? (
+                          <div className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                            Avg wait {formatMs(queue.metrics.waitingAvgMs)} · Avg processing {formatMs(queue.metrics.processingAvgMs)}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </section>
+
                 <section className="flex flex-col gap-3">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Sources

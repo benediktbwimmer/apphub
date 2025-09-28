@@ -258,8 +258,9 @@ APPHUB_HOST_ROOT=                      # Optional host root used for automatic h
 **Redis, queues & events**
 
 ```bash
-REDIS_URL=redis://127.0.0.1:6379         # Set to "inline" to execute queues without Redis
-APPHUB_EVENTS_MODE=                    # "inline" to bypass Redis publish/subscribe
+APPHUB_ALLOW_INLINE_MODE=false           # Set true only for single-process smoke tests
+REDIS_URL=redis://127.0.0.1:6379         # Use "inline" together with APPHUB_ALLOW_INLINE_MODE=true for test-only inline execution
+APPHUB_EVENTS_MODE=                    # "inline" (requires APPHUB_ALLOW_INLINE_MODE=true) to bypass Redis publish/subscribe
 APPHUB_EVENTS_CHANNEL=apphub:events
 INGEST_QUEUE_NAME=apphub_queue
 BUILD_QUEUE_NAME=apphub_build_queue

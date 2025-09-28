@@ -79,13 +79,13 @@ graph TD
 
 ### Workers & Watchers
 - **Rollup workers** recalculate directory aggregates using BullMQ queues (`filestore_rollup_queue`). Small trees update inline; large trees queue background jobs and publish completion events.
-- **Reconciliation workers** consume drift jobs (`filestore_reconcile_queue`) emitted by watchers or scheduled audits. Each job re-stats the physical backend (local or S3), updates `nodes.consistency_state` / `consistency_checked_at`, refreshes rollups, and publishes `filestore.node.reconciled` or `filestore.node.missing` events. Inline Redis mode processes jobs synchronously during tests; the standalone worker (`npm run reconcile --workspace @apphub/filestore`) runs the BullMQ consumer and periodic audit sweep in development.
+- **Reconciliation workers** consume drift jobs (`filestore_reconcile_queue`) emitted by watchers or scheduled audits. Each job re-stats the physical backend (local or S3), updates `nodes.consistency_state` / `consistency_checked_at`, refreshes rollups, and publishes `filestore.node.reconciled` or `filestore.node.missing` events. Inline Redis mode (enabled only when `APPHUB_ALLOW_INLINE_MODE=true`) processes jobs synchronously during tests; the standalone worker (`npm run reconcile --workspace @apphub/filestore`) runs the BullMQ consumer and periodic audit sweep in development.
 - **Watchers**: per-mount adapters (chokidar for local, S3 notification/listing) detect out-of-band changes, tag nodes as `INCONSISTENT`, and enqueue reconciliation work.
 
 ### Event Pipeline
 - Redis pub/sub channel (default `apphub:filestore`) still powers in-process listeners and broadcasts events like `filestore.node.created`, `filestore.node.uploaded`, `filestore.node.moved`, `filestore.node.copied`, `filestore.node.updated`, `filestore.node.deleted`, `filestore.command.completed`, and `filestore.drift.detected`, while the orchestrator forwards every successful command as `filestore.command.completed` on the shared event bus.
 - Catalog’s existing WebSocket relay can be extended to proxy these events to the frontend without introducing Kafka.
-- Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline`.
+- Consumers (Metastore, Timestore, CLI) subscribe via the shared event bus and can fall back to inline dispatch when `FILESTORE_EVENTS_MODE=inline` or `REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true`.
 - Commands receive payloads containing the journal ID, backend mount, node metadata, and idempotency key when present—ideal for syncing mirrors or triggering downstream workflows.
 
 ## Operator Explorer
@@ -133,13 +133,13 @@ stateDiagram-v2
 ```
 
 ## Integrations
-- **Metastore** subscribes to node events and stores tags, owners, and business metadata keyed by `node_id`. Mutations propagate using Redis pub/sub so clients always see aligned metadata. Configure the consumer with `METASTORE_FILESTORE_SYNC_ENABLED`, `METASTORE_FILESTORE_NAMESPACE`, `FILESTORE_REDIS_URL`, and `FILESTORE_EVENTS_CHANNEL` (set `FILESTORE_REDIS_URL=inline` for tests).
+- **Metastore** subscribes to node events and stores tags, owners, and business metadata keyed by `node_id`. Mutations propagate using Redis pub/sub so clients always see aligned metadata. Configure the consumer with `METASTORE_FILESTORE_SYNC_ENABLED`, `METASTORE_FILESTORE_NAMESPACE`, `FILESTORE_REDIS_URL`, and `FILESTORE_EVENTS_CHANNEL` (set `FILESTORE_REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true` for tests).
 - **Timestore** ingests command journal entries into a `filestore_activity` dataset, enabling time-based analysis (growth, churn, reconciliation lag). Events include deltas to support rollup queries without scanning the entire journal. Tune the sink using `TIMESTORE_FILESTORE_*` variables (`TIMESTORE_FILESTORE_DATASET_SLUG`, `TIMESTORE_FILESTORE_TABLE_NAME`, `TIMESTORE_FILESTORE_RETRY_MS`) and the same Redis channel configuration.
 - **Catalog / Frontend** consume WebSocket events to refresh dashboards and surface storage metrics alongside app/build metadata.
 
 ## SDK & CLI Tooling
 - **TypeScript SDK** (`@apphub/filestore-client`) wraps the REST API with typed helpers for idempotent command execution, node lookups, reconciliation enqueueing, and Server-Sent Events streaming. Configure it with `baseUrl`, optional bearer `token`, and it will automatically set `Idempotency-Key` headers and translate HTTP failures into `FilestoreClientError` instances.
-- **CLI** (`@apphub/filestore-cli`) provides operator-friendly commands backed by the SDK: create directories, delete nodes, enqueue reconciliation jobs, and tail live events using the new `/v1/events/stream` endpoint. Point it at a local inline setup via environment variables (`FILESTORE_BASE_URL`, `FILESTORE_TOKEN`) and run `npx filestore nodes:stat <backend> <path>` to inspect metadata without touching the filesystem directly.
+- **CLI** (`@apphub/filestore-cli`) provides operator-friendly commands backed by the SDK: create directories, delete nodes, enqueue reconciliation jobs, and tail live events using the new `/v1/events/stream` endpoint. Point it at a local inline setup by exporting `APPHUB_ALLOW_INLINE_MODE=true` alongside `FILESTORE_BASE_URL`, `FILESTORE_TOKEN`, and `FILESTORE_REDIS_URL=inline`, then run `npx filestore nodes:stat <backend> <path>` to inspect metadata without touching the filesystem directly.
 - The CLI uses the same SSE stream as the SDK, so it works in both Redis and inline event modes. Use `filestore events:tail` to monitor activity during migrations or reconciliation runs.
 
 ## Frontend Explorer UX
@@ -164,7 +164,7 @@ npm run dev --workspace @apphub/filestore
 npm run reconcile --workspace @apphub/filestore
 ```
 
-- Defaults to inline Redis mode (`REDIS_URL=inline`) so BullMQ queues execute synchronously.
+- Inline Redis mode (`REDIS_URL=inline` with `APPHUB_ALLOW_INLINE_MODE=true`) is now reserved for tests and single-process demos; production and shared environments must point to a Redis instance.
 - Postgres connection points to the shared development database; migrations run automatically on boot.
 - Mount configuration pulled from `FILESTORE_BACKENDS_PATH` (JSON or YAML) describing local directories and mock S3 buckets (e.g., MinIO).
 - Watchers and reconciliation workers can be launched via `npm run dev:filestore:watchers` and either `npm run dev:filestore:workers` or `npm run reconcile --workspace @apphub/filestore` to simulate drift handling end-to-end.

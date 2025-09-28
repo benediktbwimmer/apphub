@@ -18,7 +18,8 @@ import {
 } from '../events/publisher';
 import {
   finalizeRollupPlan,
-  ensureRollupManager
+  ensureRollupManager,
+  initializeRollupManager
 } from '../rollup/manager';
 import type { AppliedRollupPlan, RollupPlan } from '../rollup/types';
 import { createReconciliationMetrics, type ReconciliationMetrics } from './metrics';
@@ -556,6 +557,11 @@ export async function initializeReconciliationManager(options: InitializeOptions
     return managerInstance;
   }
   const config = options.config ?? loadServiceConfig();
+  await initializeRollupManager({
+    config,
+    registry: options.registry ?? null,
+    metricsEnabled: options.metricsEnabled ?? config.metricsEnabled
+  });
   managerInstance = new ReconciliationManager(config, {
     registry: options.registry ?? null,
     metricsEnabled: options.metricsEnabled ?? config.metricsEnabled
@@ -565,10 +571,7 @@ export async function initializeReconciliationManager(options: InitializeOptions
 
 export function ensureReconciliationManager(): ReconciliationManager {
   if (!managerInstance) {
-    void initializeReconciliationManager();
-    if (!managerInstance) {
-      throw new Error('Failed to initialise reconciliation manager');
-    }
+    throw new Error('Reconciliation manager not initialised. Call initializeReconciliationManager() first.');
   }
   return managerInstance;
 }

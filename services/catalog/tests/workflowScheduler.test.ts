@@ -16,6 +16,7 @@ process.env.APPHUB_ANALYTICS_INTERVAL_MS = '0';
 process.env.APPHUB_EVENTS_MODE = 'inline';
 process.env.APPHUB_DISABLE_SERVICE_POLLING = '1';
 process.env.REDIS_URL = 'inline';
+process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 process.env.WORKFLOW_SCHEDULER_ADVISORY_LOCKS = '0';
 
 beforeEach(() => {

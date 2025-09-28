@@ -11,6 +11,7 @@ import { resetServiceManifestState } from '../serviceRegistry';
 import {
   getEventQueueStats,
   getEventTriggerQueueStats,
+  getQueueHealthSnapshot,
   removeEventRetryJob,
   removeEventTriggerRetryJob,
   removeWorkflowRetryJob,
@@ -180,6 +181,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       request.log.error({ err }, 'Failed to collect workflow event sampling snapshot');
       reply.status(500).send({ error: 'Failed to collect event sampling snapshot' });
+    }
+  });
+
+  app.get('/admin/queue-health', async (request, reply) => {
+    try {
+      const snapshot = await getQueueHealthSnapshot();
+      reply.status(200).send({ data: snapshot });
+    } catch (err) {
+      request.log.error({ err }, 'Failed to collect queue health');
+      reply.status(500).send({ error: 'Failed to collect queue health' });
     }
   });
 

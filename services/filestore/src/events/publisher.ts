@@ -38,18 +38,50 @@ let publisher: Redis | null = null;
 let subscriber: Redis | null = null;
 let configRef: ServiceConfig | null = null;
 let commandListener: ((payload: CommandCompletedEvent) => void) | null = null;
-let redisFailureNotified = false;
+let eventsReady = false;
+let lastRedisError: string | null = null;
 const originId = `${process.pid}:${randomUUID()}`;
+
+function allowInlineMode(): boolean {
+  const value = process.env.APPHUB_ALLOW_INLINE_MODE;
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function assertInlineAllowed(context: string): void {
+  if (!allowInlineMode()) {
+    throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
+  }
+}
 
 function resolveInlineMode(config: ServiceConfig): boolean {
   const explicit = (process.env.FILESTORE_EVENTS_MODE ?? '').trim().toLowerCase();
   if (explicit === 'inline') {
+    assertInlineAllowed('FILESTORE_EVENTS_MODE');
     return true;
   }
   if (explicit === 'redis') {
     return false;
   }
-  return config.events.mode === 'inline';
+  if (config.events.mode === 'inline') {
+    assertInlineAllowed('service configuration');
+    return true;
+  }
+  return false;
+}
+
+function markEventsReady(): void {
+  lastRedisError = null;
+  eventsReady = true;
+}
+
+function recordRedisFailure(reason: string, err?: unknown): void {
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : null;
+  lastRedisError = message ? `${reason}: ${message}` : reason;
+  eventsReady = false;
 }
 
 function computeChannel(config: ServiceConfig): string {
@@ -207,75 +239,117 @@ async function handleCommandCompleted(payload: CommandCompletedEvent): Promise<v
   }
 }
 
-function disableRedis(reason: string) {
-  if (inlineMode) {
-    return;
-  }
-  inlineMode = true;
-  if (!redisFailureNotified) {
-    console.warn(`[filestore:events] Falling back to inline mode: ${reason}`);
-    redisFailureNotified = true;
-  }
+async function disposeRedisConnections(): Promise<void> {
   if (publisher) {
     publisher.removeAllListeners();
-    publisher.quit().catch(() => undefined);
+    try {
+      await publisher.quit();
+    } catch (err) {
+      console.error('[filestore:events] Failed to close publisher connection', err);
+    }
     publisher = null;
   }
   if (subscriber) {
     subscriber.removeAllListeners();
-    subscriber.quit().catch(() => undefined);
+    try {
+      await subscriber.unsubscribe(channelName);
+    } catch (err) {
+      console.error('[filestore:events] Failed to unsubscribe from channel', err);
+    }
+    try {
+      await subscriber.quit();
+    } catch (err) {
+      console.error('[filestore:events] Failed to close subscriber connection', err);
+    }
     subscriber = null;
   }
 }
 
-function ensureRedis(config: ServiceConfig): void {
-  if (inlineMode || publisher || subscriber) {
+async function ensureRedis(config: ServiceConfig): Promise<void> {
+  if (inlineMode) {
+    markEventsReady();
     return;
   }
 
-  const connectionOptions = { maxRetriesPerRequest: null } as const;
+  if (publisher && subscriber) {
+    return;
+  }
+
+  const connectionOptions = { maxRetriesPerRequest: null, lazyConnect: true } as const;
   const redisUrl = config.redis.url;
 
-  publisher = new IORedis(redisUrl, connectionOptions);
-  publisher.on('error', (err) => {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('ECONNREFUSED')) {
-      disableRedis('Redis unavailable for publisher');
-      return;
-    }
-    console.error('[filestore:events] Redis publish error', err);
-  });
+  const nextPublisher = new IORedis(redisUrl, connectionOptions);
+  const nextSubscriber = new IORedis(redisUrl, connectionOptions);
 
-  subscriber = new IORedis(redisUrl, connectionOptions);
-  subscriber.on('error', (err) => {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('ECONNREFUSED')) {
-      disableRedis('Redis unavailable for subscriber');
-      return;
-    }
-    console.error('[filestore:events] Redis subscribe error', err);
-  });
+  const handleError = (source: 'publisher' | 'subscriber') => (err: unknown) => {
+    recordRedisFailure(`${source} error`, err);
+    console.error(`[filestore:events] Redis ${source} error`, err);
+  };
 
-  subscriber.subscribe(channelName, (err) => {
-    if (err) {
-      console.error('[filestore:events] Failed to subscribe to channel', err);
-      disableRedis('subscription error');
-    }
-  });
+  const handleClose = (source: 'publisher' | 'subscriber') => () => {
+    recordRedisFailure(`${source} connection closed`);
+  };
 
-  subscriber.on('message', (_channel, message) => {
+  nextPublisher.on('error', handleError('publisher'));
+  nextSubscriber.on('error', handleError('subscriber'));
+  nextPublisher.on('end', handleClose('publisher'));
+  nextSubscriber.on('end', handleClose('subscriber'));
+  nextPublisher.on('close', handleClose('publisher'));
+  nextSubscriber.on('close', handleClose('subscriber'));
+  nextPublisher.on('ready', markEventsReady);
+  nextSubscriber.on('ready', markEventsReady);
+
+  try {
+    if (nextPublisher.status !== 'ready') {
+      await nextPublisher.connect();
+    }
+    if (nextSubscriber.status !== 'ready') {
+      await nextSubscriber.connect();
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      nextSubscriber.subscribe(channelName, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    publisher = nextPublisher;
+    subscriber = nextSubscriber;
+    markEventsReady();
+
+    subscriber.on('message', (_channel, message) => {
+      try {
+        const envelope = JSON.parse(message) as { origin?: string; event: FilestoreEvent };
+        if (envelope.origin && envelope.origin === originId) {
+          return;
+        }
+        if (envelope.event) {
+          eventEmitter.emit('event', envelope.event);
+        }
+      } catch (err) {
+        console.error('[filestore:events] Failed to parse event payload', err);
+      }
+    });
+  } catch (err) {
+    nextPublisher.removeAllListeners();
+    nextSubscriber.removeAllListeners();
     try {
-      const envelope = JSON.parse(message) as { origin?: string; event: FilestoreEvent };
-      if (envelope.origin && envelope.origin === originId) {
-        return;
-      }
-      if (envelope.event) {
-        eventEmitter.emit('event', envelope.event);
-      }
-    } catch (err) {
-      console.error('[filestore:events] Failed to parse event payload', err);
+      await nextPublisher.quit();
+    } catch (quitErr) {
+      console.error('[filestore:events] Failed to close publisher after init error', quitErr);
     }
-  });
+    try {
+      await nextSubscriber.quit();
+    } catch (quitErr) {
+      console.error('[filestore:events] Failed to close subscriber after init error', quitErr);
+    }
+    recordRedisFailure('Redis initialisation failure', err);
+    throw err instanceof Error ? err : new Error(String(err));
+  }
 }
 
 export async function initializeFilestoreEvents(options: { config: ServiceConfig }): Promise<void> {
@@ -286,11 +360,10 @@ export async function initializeFilestoreEvents(options: { config: ServiceConfig
   configRef = config;
   inlineMode = resolveInlineMode(config);
   channelName = computeChannel(config);
-  redisFailureNotified = false;
+  eventsReady = false;
+  lastRedisError = null;
 
-  if (!inlineMode) {
-    ensureRedis(config);
-  }
+  await ensureRedis(config);
 
   commandListener = (payload: CommandCompletedEvent) => {
     void handleCommandCompleted(payload);
@@ -304,25 +377,8 @@ export async function shutdownFilestoreEvents(): Promise<void> {
     filestoreEvents.off('command.completed', commandListener);
     commandListener = null;
   }
-  if (subscriber) {
-    try {
-      subscriber.removeAllListeners();
-      await subscriber.unsubscribe(channelName);
-      await subscriber.quit();
-    } catch (err) {
-      console.error('[filestore:events] Failed to close subscriber', err);
-    }
-    subscriber = null;
-  }
-  if (publisher) {
-    try {
-      publisher.removeAllListeners();
-      await publisher.quit();
-    } catch (err) {
-      console.error('[filestore:events] Failed to close publisher', err);
-    }
-    publisher = null;
-  }
+  eventsReady = inlineMode;
+  await disposeRedisConnections();
   initialized = false;
 }
 
@@ -330,7 +386,9 @@ export function resetFilestoreEventsForTests(): void {
   initialized = false;
   inlineMode = true;
   channelName = 'apphub:filestore';
-  redisFailureNotified = false;
+  eventsReady = false;
+  lastRedisError = null;
+  void disposeRedisConnections();
   configRef = null;
   if (commandListener) {
     filestoreEvents.off('command.completed', commandListener);
@@ -469,7 +527,8 @@ export async function emitFilestoreEvent(event: FilestoreEvent): Promise<void> {
     await publisher.publish(channelName, envelope);
   } catch (err) {
     console.error('[filestore:events] Failed to publish event', err);
-    disableRedis('publish failure');
+    recordRedisFailure('publish failure', err);
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -559,6 +618,22 @@ export function getFilestoreEventsChannel(): string {
 
 export function getFilestoreEventsConfig(): ServiceConfig | null {
   return configRef;
+}
+
+export function isFilestoreEventsReady(): boolean {
+  return inlineMode ? true : eventsReady;
+}
+
+export function getFilestoreEventsHealth(): {
+  mode: 'inline' | 'redis';
+  ready: boolean;
+  lastError: string | null;
+} {
+  return {
+    mode: getFilestoreEventsMode(),
+    ready: isFilestoreEventsReady(),
+    lastError: inlineMode ? null : lastRedisError
+  };
 }
 
 const DEFAULT_SOURCE = process.env.FILESTORE_EVENT_SOURCE ?? 'filestore.service';

@@ -12,7 +12,8 @@ import {
   createLifecycleWorker,
   ensureLifecycleQueue,
   ensureLifecycleScheduler,
-  isLifecycleInlineMode
+  isLifecycleInlineMode,
+  verifyLifecycleQueueConnection
 } from '../lifecycle/queue';
 import type { LifecycleJobPayload, LifecycleOperation } from '../lifecycle/types';
 
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  await verifyLifecycleQueueConnection();
   const queue = ensureLifecycleQueue(config);
   const scheduler = ensureLifecycleScheduler(config);
   await scheduler.waitUntilReady();

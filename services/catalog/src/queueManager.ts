@@ -1,5 +1,6 @@
 import { Queue, type JobsOptions } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
+import { handleQueueTelemetry } from './observability/queueTelemetry';
 
 type QueueMode = 'inline' | 'queue';
 
@@ -11,7 +12,9 @@ type QueueTelemetryEvent = {
     | 'queue-disposed'
     | 'worker-loaded'
     | 'metrics-error'
-    | 'connection-error';
+    | 'connection-error'
+    | 'telemetry-registered'
+    | 'metrics';
   queue: string;
   mode: QueueMode;
   meta?: Record<string, unknown>;
@@ -43,16 +46,45 @@ function isInlineValue(value: string | undefined): boolean {
   return normalize(value)?.toLowerCase() === 'inline';
 }
 
-function computeInlineMode(): boolean {
+function parseBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function inlineModeRequested(): boolean {
   return isInlineValue(process.env.REDIS_URL) || isInlineValue(process.env.APPHUB_EVENTS_MODE);
+}
+
+function inlineModeAllowed(): boolean {
+  return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE);
+}
+
+function computeInlineMode(): boolean {
+  if (!inlineModeRequested()) {
+    return false;
+  }
+
+  if (!inlineModeAllowed()) {
+    throw new Error(
+      'Inline queue mode requested via REDIS_URL or APPHUB_EVENTS_MODE, but APPHUB_ALLOW_INLINE_MODE is not enabled.'
+    );
+  }
+
+  return true;
 }
 
 function resolveRedisUrl(): string {
   const normalized = normalize(process.env.REDIS_URL);
-  if (isInlineValue(normalized)) {
-    throw new Error('Redis URL requested while inline queue mode is active');
+  if (!normalized) {
+    throw new Error('REDIS_URL must be set to a redis:// connection string');
   }
-  return normalized ?? 'redis://127.0.0.1:6379';
+  if (isInlineValue(normalized)) {
+    throw new Error('REDIS_URL=inline is only supported when inline queue mode is enabled');
+  }
+  return normalized;
 }
 
 export class QueueManager {
@@ -61,7 +93,11 @@ export class QueueManager {
   private readonly registrations = new Map<string, QueueRegistrationInternal>();
   private readonly queues = new Map<string, Queue>();
 
-  constructor(private readonly options: QueueManagerOptions = {}) {}
+  constructor(private readonly options: QueueManagerOptions = {}) {
+    if (options.telemetry) {
+      this.emit({ type: 'telemetry-registered', queue: '*', mode: this.inlineMode ? 'inline' : 'queue' });
+    }
+  }
 
   registerQueue<TData>(registration: QueueRegistration<TData>): void {
     if (this.registrations.has(registration.key)) {
@@ -133,6 +169,74 @@ export class QueueManager {
       return null;
     }
     return (this.ensureQueue(key) as Queue<TData> | null) ?? null;
+  }
+
+  async getQueueStatistics(key: string): Promise<{
+    queueName: string;
+    mode: QueueMode;
+    counts?: Record<string, number>;
+    metrics?: {
+      processingAvgMs?: number | null;
+      waitingAvgMs?: number | null;
+    };
+  }> {
+    this.ensureMode();
+    if (this.inlineMode) {
+      this.emit({
+        type: 'metrics',
+        queue: key,
+        mode: 'inline',
+        meta: { key, counts: {}, metrics: null }
+      });
+      return { queueName: key, mode: 'inline' };
+    }
+
+    const queue = this.ensureQueue(key);
+    if (!queue) {
+      const error = new Error(`Queue ${key} not initialised`);
+      this.emit({
+        type: 'metrics-error',
+        queue: key,
+        mode: 'queue',
+        meta: { error: error.message }
+      });
+      throw error;
+    }
+
+    const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused');
+
+    const metrics: { processingAvgMs?: number | null; waitingAvgMs?: number | null } = {};
+
+    try {
+      const completed = await queue.getMetrics('completed');
+      if (completed && Array.isArray(completed.data) && completed.data.length > 0) {
+        const total = completed.data.reduce((sum, value) => sum + value, 0);
+        metrics.processingAvgMs = total / completed.data.length;
+      }
+    } catch (err) {
+      this.emit({
+        type: 'metrics-error',
+        queue: queue.name,
+        mode: 'queue',
+        meta: { error: err instanceof Error ? err.message : String(err), scope: 'completed' }
+      });
+    }
+
+    const snapshot = {
+      queueName: queue.name,
+      mode: 'queue' as QueueMode,
+      counts,
+      metrics
+    };
+
+    this.emit({
+      type: 'metrics',
+      queue: queue.name,
+      mode: 'queue',
+      meta: { key, counts, metrics }
+    });
+
+    return snapshot;
   }
 
   async closeConnection(instance?: Redis | null): Promise<void> {
@@ -208,12 +312,62 @@ export class QueueManager {
 
   private createConnection(): Redis {
     const redisUrl = resolveRedisUrl();
-    const instance = this.options.createRedis ? this.options.createRedis(redisUrl) : new IORedis(redisUrl, { maxRetriesPerRequest: null });
+    const instance = this.options.createRedis
+      ? this.options.createRedis(redisUrl)
+      : new IORedis(redisUrl, { maxRetriesPerRequest: null, lazyConnect: true });
     instance.on('error', (err) => {
       const meta = err instanceof Error ? { message: err.message } : { message: String(err) };
       this.emit({ type: 'connection-error', queue: '*', mode: 'queue', meta });
     });
     return instance;
+  }
+
+  async verifyConnectivity(options: { timeoutMs?: number } = {}): Promise<void> {
+    this.ensureMode();
+    if (this.inlineMode) {
+      return;
+    }
+
+    if (!this.connection) {
+      this.connection = this.createConnection();
+    }
+
+    const connection = this.connection;
+    const attempt = async () => {
+      if (connection.status === 'end' || connection.status === 'close') {
+        throw new Error('Redis connection already closed');
+      }
+      if (connection.status !== 'ready') {
+        await connection.connect();
+      }
+      await connection.ping();
+    };
+
+    const timeoutMs = options.timeoutMs ?? 5000;
+    let timeoutHandle: NodeJS.Timeout | null = null;
+
+    try {
+      await Promise.race([
+        attempt(),
+        new Promise<void>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`Timed out after ${timeoutMs}ms while verifying Redis connectivity`));
+          }, timeoutMs);
+        })
+      ]);
+
+      for (const key of this.registrations.keys()) {
+        this.ensureQueue(key);
+      }
+    } catch (err) {
+      const meta = err instanceof Error ? { message: err.message } : { message: String(err) };
+      this.emit({ type: 'connection-error', queue: '*', mode: 'queue', meta });
+      throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   private ensureQueue(key: string): Queue | null {
@@ -271,4 +425,4 @@ function isConnectionClosed(instance: Redis): boolean {
   return instance.status === 'end' || instance.status === 'close';
 }
 
-export const queueManager = new QueueManager();
+export const queueManager = new QueueManager({ telemetry: handleQueueTelemetry });

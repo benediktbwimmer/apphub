@@ -57,6 +57,7 @@ before(async () => {
   process.env.FILESTORE_REDIS_URL = 'inline';
   process.env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS = '60';
   process.env.FILESTORE_EVENTS_MODE = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
   const modulePaths = [
     '../src/db/nodes',

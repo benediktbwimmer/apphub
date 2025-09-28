@@ -36,7 +36,7 @@ import {
 } from '../db/metadata';
 import type { DatasetRecord, JsonObject } from '../db/metadata';
 import { runLifecycleJob, getMaintenanceMetrics } from '../lifecycle/maintenance';
-import { enqueueLifecycleJob, isLifecycleInlineMode } from '../lifecycle/queue';
+import { enqueueLifecycleJob, getLifecycleQueueHealth } from '../lifecycle/queue';
 import {
   createDefaultRetentionPolicy,
   parseRetentionPolicy,
@@ -121,11 +121,21 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       scheduledFor: null
     };
 
+    const lifecycleHealth = getLifecycleQueueHealth();
+
     if ((body.mode ?? 'inline') === 'queue') {
-      if (isLifecycleInlineMode()) {
+      if (lifecycleHealth.inline) {
         reply.status(400);
         return {
-          error: 'queue mode unavailable when REDIS_URL=inline'
+          error: 'queue mode unavailable when REDIS_URL=inline',
+          lifecycle: lifecycleHealth
+        };
+      }
+      if (!lifecycleHealth.ready) {
+        reply.status(503);
+        return {
+          error: lifecycleHealth.lastError ?? 'lifecycle queue not ready',
+          lifecycle: lifecycleHealth
         };
       }
       await enqueueLifecycleJob(config, payload, {
@@ -170,10 +180,19 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/admin/lifecycle/reschedule', async (request, reply) => {
     await authorizeAdminAccess(request as FastifyRequest);
-    if (isLifecycleInlineMode()) {
+    const lifecycleHealth = getLifecycleQueueHealth();
+    if (lifecycleHealth.inline) {
       reply.status(400);
       return {
-        error: 'reschedule unavailable when REDIS_URL=inline'
+        error: 'reschedule unavailable when REDIS_URL=inline',
+        lifecycle: lifecycleHealth
+      };
+    }
+    if (!lifecycleHealth.ready) {
+      reply.status(503);
+      return {
+        error: lifecycleHealth.lastError ?? 'lifecycle queue not ready',
+        lifecycle: lifecycleHealth
       };
     }
 

@@ -52,6 +52,7 @@ before(async () => {
   process.env.TIMESTORE_PGPOOL_MAX = '4';
   process.env.TIMESTORE_STORAGE_ROOT = storageDir;
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
   configModule = await import('../src/config/serviceConfig');
   configModule.resetCachedServiceConfig();

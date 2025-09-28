@@ -111,7 +111,7 @@ Filestore introduces a dedicated Fastify API (`services/filestore`) that owns ca
 - **Rollups & caching**: directory aggregates update inline for small trees and enqueue BullMQ jobs for larger recalculations. Redis caches store hot rollup data, invalidated by pub/sub messages to keep responses fast.
 - **Drift detection**: chokidar-based watchers and scheduled S3 audits mark nodes `INCONSISTENT` when out-of-band changes occur. Reconciliation workers stat the physical filesystem, repair metadata, and publish `filestore.node.reconciled` or `filestore.node.missing` events.
 - **Downstream integrations**: Metastore subscribes to filestore events to sync tags/annotations, while Timestore ingests journal deltas into a `filestore_activity` dataset so operators can chart storage growth and reconciliation lag.
-- **Developer experience**: local dev defaults Redis to inline mode, letting engineers run the API, watchers, and workers alongside catalog/metastore/timestore via `npm run dev`. Configuration comes from backend mount manifests that describe local directories or mock S3 buckets.
+- **Developer experience**: local dev can opt into inline mode by exporting `APPHUB_ALLOW_INLINE_MODE=true` (e.g., for single-process smoke tests); the default uses the bundled Redis instance started by `npm run dev`. Configuration comes from backend mount manifests that describe local directories or mock S3 buckets.
 
 Operational cutovers are documented in the [Filestore Cutover Runbook](runbooks/filestore-cutover.md), including SLO targets, dashboards, and rollback steps.
 

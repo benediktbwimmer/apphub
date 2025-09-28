@@ -91,6 +91,7 @@ runE2E(async ({ registerCleanup }) => {
   process.env.FILESTORE_REDIS_URL = 'inline';
   process.env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS = '60';
   process.env.FILESTORE_EVENTS_MODE = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
 
   const configModulePath = require.resolve('../src/config/serviceConfig');
   delete require.cache[configModulePath];

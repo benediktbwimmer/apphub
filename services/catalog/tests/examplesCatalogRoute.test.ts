@@ -4,7 +4,8 @@ import path from 'node:path';
 
 async function run(): Promise<void> {
   process.env.APPHUB_EVENTS_MODE = 'inline';
-  process.env.REDIS_URL = 'inline';
+process.env.REDIS_URL = 'inline';
+process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.APPHUB_REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
   const [{ buildServer }, { queueManager }, { invalidateExampleCatalog }] = await Promise.all([
     import('../src/server'),

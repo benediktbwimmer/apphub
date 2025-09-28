@@ -65,6 +65,7 @@ before(async () => {
   process.env.TIMESTORE_PGPOOL_MAX = '4';
   process.env.TIMESTORE_STORAGE_ROOT = storageRoot;
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.TIMESTORE_PARTITION_INDEX_COLUMNS = '';
   process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = '';
   process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = '';

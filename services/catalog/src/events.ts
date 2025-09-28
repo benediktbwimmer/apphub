@@ -185,19 +185,31 @@ const ANALYTICS_BUCKET_KEY = 'hour';
 const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
-const configuredMode = process.env.APPHUB_EVENTS_MODE;
-const envRedisUrl = process.env.REDIS_URL;
+const configuredModeRaw = (process.env.APPHUB_EVENTS_MODE ?? '').trim().toLowerCase();
+const envRedisUrlRaw = (process.env.REDIS_URL ?? '').trim();
 
 let inlineMode: boolean;
-if (configuredMode === 'inline') {
+if (configuredModeRaw === 'inline' || envRedisUrlRaw === 'inline') {
   inlineMode = true;
-} else if (configuredMode === 'redis') {
-  inlineMode = false;
 } else {
-  inlineMode = envRedisUrl === 'inline';
+  inlineMode = false;
 }
 
-const redisUrl = inlineMode ? null : envRedisUrl ?? 'redis://127.0.0.1:6379';
+if (inlineMode) {
+  assertInlineAllowed('Catalog events');
+}
+
+const redisUrl = inlineMode
+  ? null
+  : (() => {
+      if (!envRedisUrlRaw) {
+        throw new Error('Set REDIS_URL to a redis:// connection string for catalog events');
+      }
+      if (configuredModeRaw === 'inline') {
+        assertInlineAllowed('APPHUB_EVENTS_MODE');
+      }
+      return envRedisUrlRaw;
+    })();
 const eventChannel = process.env.APPHUB_EVENTS_CHANNEL ?? 'apphub:events';
 const originId = `${process.pid}:${randomUUID()}`;
 
@@ -207,6 +219,16 @@ function envFlagEnabled(value: string | undefined): boolean {
   }
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function allowInlineMode(): boolean {
+  return envFlagEnabled(process.env.APPHUB_ALLOW_INLINE_MODE);
+}
+
+function assertInlineAllowed(context: string): void {
+  if (!allowInlineMode()) {
+    throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
+  }
 }
 
 const analyticsDisabled = envFlagEnabled(process.env.APPHUB_DISABLE_ANALYTICS);
@@ -245,7 +267,21 @@ async function loadWorkflowAnalyticsModule(): Promise<WorkflowAnalyticsModule> {
   return workflowAnalyticsModule;
 }
 
+function crashOnRedisFailure(reason: string): void {
+  if (redisFailureNotified) {
+    return;
+  }
+  redisFailureNotified = true;
+  setImmediate(() => {
+    throw new Error(`[events] Redis unavailable: ${reason}`);
+  });
+}
+
 function disableRedisEvents(reason: string) {
+  if (!allowInlineMode()) {
+    crashOnRedisFailure(reason);
+    return;
+  }
   if (inlineMode) {
     return;
   }
@@ -514,6 +550,30 @@ const scheduleAnalyticsStart: (callback: () => void) => void =
     : (callback: () => void) => {
         setTimeout(callback, 0);
       };
+
+export async function verifyEventBusConnectivity(options: { timeoutMs?: number } = {}): Promise<void> {
+  if (inlineMode) {
+    return;
+  }
+  const timeoutMs = options.timeoutMs ?? 5000;
+  if (!publisher || !subscriber) {
+    throw new Error('Catalog event bus Redis connections are not initialised');
+  }
+
+  const ensureConnection = async (connection: Redis) => {
+    if (connection.status === 'wait') {
+      await connection.connect();
+    }
+    await connection.ping();
+  };
+
+  await Promise.race([
+    Promise.all([ensureConnection(publisher), ensureConnection(subscriber)]),
+    new Promise<void>((_, reject) => {
+      setTimeout(() => reject(new Error('Timed out verifying catalog events Redis connectivity')), timeoutMs);
+    })
+  ]);
+}
 
 scheduleAnalyticsStart(() => {
   try {

@@ -348,6 +348,16 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function allowInlineMode(): boolean {
+  return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE, false);
+}
+
+function assertInlineAllowed(context: string): void {
+  if (!allowInlineMode()) {
+    throw new Error(`${context} requested inline mode but APPHUB_ALLOW_INLINE_MODE is not enabled`);
+  }
+}
+
 function resolveStorageRoot(envValue: string | undefined): string {
   if (envValue) {
     return envValue;
@@ -582,6 +592,13 @@ export function loadServiceConfig(): ServiceConfig {
   }
 
   const env = process.env;
+  const redisUrlEnv = env.REDIS_URL;
+  if (!redisUrlEnv || !redisUrlEnv.trim()) {
+    throw new Error('REDIS_URL must be set to a redis:// connection string for timestore');
+  }
+  if (redisUrlEnv.trim() === 'inline') {
+    assertInlineAllowed('REDIS_URL');
+  }
   const host = env.TIMESTORE_HOST || env.HOST || '127.0.0.1';
   const port = parseNumber(env.TIMESTORE_PORT || env.PORT, 4100);
   const logLevel = (env.TIMESTORE_LOG_LEVEL || 'info') as LogLevel;
@@ -626,10 +643,17 @@ export function loadServiceConfig(): ServiceConfig {
     true
   );
   const manifestCacheEnabled = parseBoolean(env.TIMESTORE_MANIFEST_CACHE_ENABLED, true);
-  const manifestCacheRedisUrl = env.TIMESTORE_MANIFEST_CACHE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const manifestCacheRedisSource = env.TIMESTORE_MANIFEST_CACHE_REDIS_URL || env.REDIS_URL;
+  if (!manifestCacheRedisSource || !manifestCacheRedisSource.trim()) {
+    throw new Error('Set TIMESTORE_MANIFEST_CACHE_REDIS_URL or REDIS_URL to a redis:// connection string');
+  }
+  const manifestCacheRedisUrl = manifestCacheRedisSource.trim();
   const manifestCacheKeyPrefix = env.TIMESTORE_MANIFEST_CACHE_KEY_PREFIX || 'timestore:manifest';
   const manifestCacheTtlSeconds = parseNumber(env.TIMESTORE_MANIFEST_CACHE_TTL_SECONDS, 300);
   const manifestCacheInline = manifestCacheRedisUrl === 'inline';
+  if (manifestCacheInline) {
+    assertInlineAllowed('TIMESTORE_MANIFEST_CACHE_REDIS_URL');
+  }
   const partitionIndexConfigJson = env.TIMESTORE_PARTITION_INDEX_CONFIG;
   const partitionIndexColumnsEnv = env.TIMESTORE_PARTITION_INDEX_COLUMNS;
   const partitionIndexHistogramColumns = env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS;
@@ -661,13 +685,20 @@ export function loadServiceConfig(): ServiceConfig {
   const tracingEnabled = parseBoolean(env.TIMESTORE_TRACING_ENABLED, false);
   const tracingServiceName = env.TIMESTORE_TRACING_SERVICE_NAME || 'timestore';
   const filestoreEnabled = parseBoolean(env.TIMESTORE_FILESTORE_SYNC_ENABLED, true);
-  const filestoreRedisUrl = env.FILESTORE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const filestoreRedisSource = env.FILESTORE_REDIS_URL || env.REDIS_URL;
+  if (!filestoreRedisSource || !filestoreRedisSource.trim()) {
+    throw new Error('Set FILESTORE_REDIS_URL or REDIS_URL to a redis:// connection string');
+  }
+  const filestoreRedisUrl = filestoreRedisSource.trim();
   const filestoreChannel = env.FILESTORE_EVENTS_CHANNEL || 'apphub:filestore';
   const filestoreDatasetSlug = env.TIMESTORE_FILESTORE_DATASET_SLUG || 'filestore_activity';
   const filestoreDatasetName = env.TIMESTORE_FILESTORE_DATASET_NAME || 'Filestore Activity';
   const filestoreTableName = env.TIMESTORE_FILESTORE_TABLE_NAME || 'filestore_activity';
   const filestoreRetryMs = parseNumber(env.TIMESTORE_FILESTORE_RETRY_MS, 3_000);
   const filestoreInline = filestoreRedisUrl === 'inline';
+  if (filestoreInline) {
+    assertInlineAllowed('FILESTORE_REDIS_URL');
+  }
   const executionDefaultBackendRaw = env.TIMESTORE_QUERY_EXECUTION_DEFAULT;
   const executionDefaultBackend = executionDefaultBackendRaw && executionDefaultBackendRaw.trim().length > 0
     ? executionDefaultBackendRaw.trim()

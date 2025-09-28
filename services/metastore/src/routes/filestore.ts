@@ -9,7 +9,7 @@ export async function registerFilestoreRoutes(app: FastifyInstance): Promise<voi
     }
 
     const snapshot = getFilestoreHealthSnapshot();
-    const statusCode = snapshot.status === 'stalled' ? 503 : 200;
+    const statusCode = snapshot.status === 'stalled' || snapshot.status === 'error' ? 503 : 200;
     reply.code(statusCode).send(snapshot);
   });
 }

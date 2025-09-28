@@ -635,6 +635,28 @@ export function normalizeWorkflowEventSchema(raw: unknown): WorkflowEventSchema 
   } satisfies WorkflowEventSchema;
 }
 
+function normalizeQueueMetrics(raw: unknown): {
+  processingAvgMs?: number | null;
+  waitingAvgMs?: number | null;
+} | null {
+  const record = toRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const processing = normalizeNullableNumber(record.processingAvgMs);
+  const waiting = normalizeNullableNumber(record.waitingAvgMs);
+
+  if (processing === null && waiting === null) {
+    return null;
+  }
+
+  return {
+    processingAvgMs: processing,
+    waitingAvgMs: waiting
+  };
+}
+
 export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedulerHealth | null {
   const root = toRecord(raw);
   const payload = toRecord(root?.data ?? root);
@@ -645,6 +667,8 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
   const queuesRaw = toRecord(payload.queues);
   const ingressQueues = toRecord(queuesRaw?.ingress) ?? {};
   const triggerQueues = toRecord(queuesRaw?.triggers) ?? {};
+  const ingressMetrics = normalizeQueueMetrics(ingressQueues.metrics);
+  const triggerMetrics = normalizeQueueMetrics(triggerQueues.metrics);
 
   const metricsRaw = toRecord(payload.metrics);
   const generatedAt = typeof metricsRaw?.generatedAt === 'string' ? metricsRaw.generatedAt : new Date().toISOString();
@@ -948,7 +972,8 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
         counts:
           ingressQueues.counts && typeof ingressQueues.counts === 'object'
             ? (ingressQueues.counts as Record<string, number>)
-            : undefined
+            : undefined,
+        metrics: ingressMetrics
       },
       triggers: {
         mode:
@@ -958,7 +983,8 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
         counts:
           triggerQueues.counts && typeof triggerQueues.counts === 'object'
             ? (triggerQueues.counts as Record<string, number>)
-            : undefined
+            : undefined,
+        metrics: triggerMetrics
       }
     },
     triggers,

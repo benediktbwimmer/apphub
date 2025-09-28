@@ -30,6 +30,7 @@ before(async () => {
   process.env.TIMESTORE_SQL_READ_SCOPE = 'sql:read';
   process.env.TIMESTORE_SQL_EXEC_SCOPE = 'sql:exec';
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS = '60000';
 
   dataDirectory = await mkdtemp(path.join(tmpdir(), 'timestore-sql-pg-'));

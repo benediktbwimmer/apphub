@@ -9,7 +9,7 @@ import { registerQueryRoutes } from './routes/query';
 import { registerAdminRoutes } from './routes/admin';
 import { registerSqlRoutes } from './routes/sql';
 import { ensureDefaultStorageTarget } from './service/bootstrap';
-import { closeLifecycleQueue } from './lifecycle/queue';
+import { closeLifecycleQueue, verifyLifecycleQueueConnection } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
 import { setupTracing } from './observability/tracing';
 import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
@@ -51,6 +51,7 @@ async function start(): Promise<void> {
   await ensureSchemaExists(POSTGRES_SCHEMA);
   await runMigrations();
   await ensureDefaultStorageTarget();
+  await verifyLifecycleQueueConnection();
   await initializeFilestoreActivity({ config, logger: app.log });
   await initializeIngestionConnectors({ config, logger: app.log });
 

@@ -452,43 +452,112 @@ export async function removeWorkflowRetryJob(
   }
 }
 
+export type QueueStats = {
+  key: string;
+  queueName: string;
+  mode: 'inline' | 'queue';
+  counts?: Record<string, number>;
+  metrics?: {
+    processingAvgMs?: number | null;
+    waitingAvgMs?: number | null;
+  } | null;
+  error?: string;
+};
+
+async function resolveQueueStats(key: string): Promise<QueueStats> {
+  const inlineMode = queueManager.isInlineMode();
+  if (inlineMode) {
+    return {
+      key,
+      queueName: key,
+      mode: 'inline'
+    };
+  }
+
+  try {
+    const snapshot = await queueManager.getQueueStatistics(key);
+    return {
+      key,
+      queueName: snapshot.queueName,
+      mode: snapshot.mode,
+      counts: snapshot.counts,
+      metrics: snapshot.metrics ?? null
+    };
+  } catch (err) {
+    return {
+      key,
+      queueName: key,
+      mode: 'queue',
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
 export async function getEventQueueStats(): Promise<{
   mode: 'inline' | 'queue' | 'disabled';
   counts?: Record<string, number>;
+  metrics?: QueueStats['metrics'];
 }> {
-  const inlineMode = queueManager.isInlineMode();
-  if (inlineMode) {
+  const stats = await resolveQueueStats(QUEUE_KEYS.event);
+  if (stats.mode === 'inline') {
     return { mode: 'inline' };
   }
-
-  const queue = queueManager.tryGetQueue<EventIngressJobData>(QUEUE_KEYS.event);
-  if (!queue) {
+  if (stats.error) {
     return { mode: 'disabled' };
   }
-
   return {
     mode: 'queue',
-    counts: await queueManager.getQueueCounts(QUEUE_KEYS.event)
+    counts: stats.counts ?? {},
+    metrics: stats.metrics ?? null
   };
 }
 
 export async function getEventTriggerQueueStats(): Promise<{
   mode: 'inline' | 'queue' | 'disabled';
   counts?: Record<string, number>;
+  metrics?: QueueStats['metrics'];
 }> {
-  const inlineMode = queueManager.isInlineMode();
-  if (inlineMode) {
+  const stats = await resolveQueueStats(QUEUE_KEYS.eventTrigger);
+  if (stats.mode === 'inline') {
     return { mode: 'inline' };
   }
-
-  const queue = queueManager.tryGetQueue<EventTriggerJobData>(QUEUE_KEYS.eventTrigger);
-  if (!queue) {
+  if (stats.error) {
     return { mode: 'disabled' };
   }
-
   return {
     mode: 'queue',
-    counts: await queueManager.getQueueCounts(QUEUE_KEYS.eventTrigger)
+    counts: stats.counts ?? {},
+    metrics: stats.metrics ?? null
+  };
+}
+
+const QUEUE_HEALTH_KEYS = [
+  { key: QUEUE_KEYS.ingest, label: 'ingest' },
+  { key: QUEUE_KEYS.build, label: 'build' },
+  { key: QUEUE_KEYS.launch, label: 'launch' },
+  { key: QUEUE_KEYS.workflow, label: 'workflow' },
+  { key: QUEUE_KEYS.exampleBundle, label: 'exampleBundle' },
+  { key: QUEUE_KEYS.event, label: 'event' },
+  { key: QUEUE_KEYS.eventTrigger, label: 'eventTrigger' }
+] as const;
+
+export async function getQueueHealthSnapshot(): Promise<{
+  generatedAt: string;
+  inlineMode: boolean;
+  queues: Array<QueueStats & { label: string }>;
+}> {
+  const inlineMode = queueManager.isInlineMode();
+  const results = await Promise.all(
+    QUEUE_HEALTH_KEYS.map(async ({ key, label }) => {
+      const stats = await resolveQueueStats(key);
+      return { ...stats, label };
+    })
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    inlineMode,
+    queues: results
   };
 }
 

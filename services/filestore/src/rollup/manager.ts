@@ -42,6 +42,7 @@ class RollupManager {
   private readonly metrics: RollupMetrics;
   private readonly cache: RollupCache;
   private readonly queue: RollupQueue;
+  private readonly readyPromise: Promise<void>;
   private destroyed = false;
 
   constructor(config: ServiceConfig, options: { registry?: Registry | null; metricsEnabled?: boolean }) {
@@ -74,6 +75,8 @@ class RollupManager {
         await this.processRollupJob(payload);
       }
     );
+
+    this.readyPromise = this.queue.ensureReady();
   }
 
   getConfig(): ServiceConfig {
@@ -176,6 +179,10 @@ class RollupManager {
     await this.cache.shutdown();
   }
 
+  async ensureReady(): Promise<void> {
+    await this.readyPromise;
+  }
+
   private selectJobs(plan: RollupPlan): RollupJobPayload[] {
     const jobs: RollupJobPayload[] = [];
     const depthThreshold = this.config.rollups.recalcDepthThreshold;
@@ -224,25 +231,37 @@ class RollupManager {
 }
 
 let managerInstance: RollupManager | null = null;
+let managerPromise: Promise<RollupManager> | null = null;
 
 export async function initializeRollupManager(options: InitializeOptions = {}): Promise<RollupManager> {
   if (managerInstance) {
     return managerInstance;
   }
-  const config = options.config ?? loadServiceConfig();
-  managerInstance = new RollupManager(config, {
-    registry: options.registry ?? null,
-    metricsEnabled: options.metricsEnabled ?? config.metricsEnabled
-  });
-  return managerInstance;
+  if (managerPromise) {
+    return managerPromise;
+  }
+
+  managerPromise = (async () => {
+    const config = options.config ?? loadServiceConfig();
+    const manager = new RollupManager(config, {
+      registry: options.registry ?? null,
+      metricsEnabled: options.metricsEnabled ?? config.metricsEnabled
+    });
+    try {
+      await manager.ensureReady();
+      managerInstance = manager;
+      return manager;
+    } finally {
+      managerPromise = null;
+    }
+  })();
+
+  return managerPromise;
 }
 
 export function ensureRollupManager(): RollupManager {
   if (!managerInstance) {
-    void initializeRollupManager();
-    if (!managerInstance) {
-      throw new Error('Failed to initialise rollup manager');
-    }
+    throw new Error('Rollup manager not initialised. Call initializeRollupManager() first.');
   }
   return managerInstance;
 }
@@ -253,6 +272,7 @@ export async function shutdownRollupManager(): Promise<void> {
   }
   await managerInstance.shutdown();
   managerInstance = null;
+  managerPromise = null;
 }
 
 export function resetRollupManagerForTests(): void {

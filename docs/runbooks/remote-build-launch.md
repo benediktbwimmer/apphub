@@ -31,11 +31,31 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
    minikube addons enable ingress
    minikube addons enable registry
    ```
-2. **Expose the registry endpoint**
+2. **Provision Redis for queues (matches staging/prod credentials)**
+   ```bash
+   helm repo add bitnami https://charts.bitnami.com/bitnami
+   helm upgrade --install apphub-redis bitnami/redis \
+     --namespace apphub \
+     --create-namespace \
+     --set auth.enabled=false
+   kubectl rollout status statefulset/apphub-redis-master -n apphub
+   ```
+   Point catalog, filestore, metastore, and timestore at the instance:
+   ```bash
+   export REDIS_URL=redis://apphub-redis-master.apphub.svc.cluster.local:6379
+   export FILESTORE_REDIS_URL=$REDIS_URL
+   export APPHUB_ALLOW_INLINE_MODE=false
+   ```
+   For debugging, port-forward locally:
+   ```bash
+   kubectl port-forward svc/apphub-redis-master -n apphub 6379:6379
+   ```
+
+3. **Expose the registry endpoint**
    ```bash
    kubectl port-forward --namespace kube-system svc/registry 5000:80
    ```
-3. **Configure the catalog environment**
+4. **Configure the catalog environment**
    ```bash
    export APPHUB_BUILD_EXECUTION_MODE=kubernetes
    export APPHUB_LAUNCH_EXECUTION_MODE=kubernetes
@@ -62,11 +82,11 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
    export APPHUB_K8S_BUILDER_SERVICE_ACCOUNT=apphub-builder
    export APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT=apphub-preview
    ```
-4. **Configure DNS for preview URLs (optional)**
+5. **Configure DNS for preview URLs (optional)**
    - Add a wildcard entry in `/etc/hosts` for `preview.minikube.local` pointing to `$(minikube ip)`.
    - Alternatively, use `kubectl port-forward` to reach the preview Service manually.
 
-5. **Restart the catalog workers**
+6. **Restart the catalog workers**
    Ensure the catalog API and worker processes inherit the environment variables above. Builds will render as Kubernetes Jobs and previews as Deployments/Services/Ingress resources in the `apphub` namespace.
 
 ## Production Checklist

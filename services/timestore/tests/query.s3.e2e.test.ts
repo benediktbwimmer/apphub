@@ -77,6 +77,7 @@ before(async () => {
   process.env.TIMESTORE_QUERY_CACHE_MAX_BYTES = String(16 * 1024 * 1024);
   process.env.TIMESTORE_QUERY_CACHE_ENABLED = 'false';
   process.env.REDIS_URL = 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = 'true';
   process.env.TIMESTORE_METRICS_ENABLED = 'false';
 
   resetCachedServiceConfig();
