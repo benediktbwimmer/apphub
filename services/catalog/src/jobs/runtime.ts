@@ -28,9 +28,13 @@ import {
   type SandboxExecutionResult
 } from './sandbox/runner';
 import { pythonSandboxRunner } from './sandbox/pythonRunner';
+import { dockerJobRunner } from './docker/runner';
 import { shouldAllowLegacyFallback, shouldUseJobBundle } from '../config/jobBundles';
 import { attemptBundleRecovery, type BundleBinding } from './bundleRecovery';
 import { parseBundleEntryPoint } from './bundleBinding';
+import { safeParseDockerJobMetadata } from './dockerMetadata';
+import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
+import { resolveJobRuntime, type JobRuntimeKind } from './runtimeKind';
 
 const handlers = new Map<string, JobHandler>();
 
@@ -168,7 +172,9 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     bundleBinding = workflowBundleOverride;
   }
 
-  if (!staticHandler && !bundleBinding) {
+  const runtimeKind = resolveJobRuntime(definition);
+
+  if (!staticHandler && !bundleBinding && runtimeKind !== 'docker') {
     await completeJobRun(runId, 'failed', {
       errorMessage: `No handler registered for job ${definition.slug}`
     });
@@ -238,6 +244,92 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       return result.value;
     }
   };
+
+  if (runtimeKind === 'docker') {
+    if (!isDockerRuntimeEnabled()) {
+      context.logger('Docker runtime disabled, failing job run', {
+        jobRunId: runId,
+        jobSlug: definition.slug
+      });
+      const completed = await completeJobRun(runId, 'failed', {
+        errorMessage: 'Docker runtime is disabled',
+        context: {
+          docker: {
+            enabled: false
+          }
+        } satisfies Record<string, JsonValue>
+      });
+      return completed ?? currentRun;
+    }
+
+    const metadataValue = definition.metadata ?? {};
+    const parsedMetadata = safeParseDockerJobMetadata(metadataValue);
+    if (!parsedMetadata.success) {
+      const flattened = parsedMetadata.error.flatten();
+      context.logger('Docker metadata validation failed', {
+        jobRunId: runId,
+        formErrors: flattened.formErrors,
+        fieldErrors: flattened.fieldErrors
+      });
+      const errorContext = {
+        docker: {
+          validationErrors: flattened.fieldErrors,
+          formErrors: flattened.formErrors
+        }
+      } satisfies Record<string, JsonValue>;
+      const completed = await completeJobRun(runId, 'failed', {
+        errorMessage: 'Docker job metadata is invalid',
+        context: errorContext
+      });
+      return completed ?? currentRun;
+    }
+
+    const timeoutMs = latestRun.timeoutMs ?? definition.timeoutMs ?? null;
+
+    try {
+      const execution = await dockerJobRunner.execute({
+        definition,
+        run: latestRun,
+        metadata: parsedMetadata.data.docker,
+        parameters: context.parameters,
+        timeoutMs,
+        logger: context.logger,
+        update: context.update,
+        resolveSecret: context.resolveSecret
+      });
+
+      const finalStatus = execution.jobResult.status ?? 'succeeded';
+      const completion: JobRunCompletionInput = {
+        result: execution.jobResult.result ?? null,
+        errorMessage: execution.jobResult.errorMessage ?? null,
+        logsUrl: execution.jobResult.logsUrl ?? null,
+        metrics: execution.jobResult.metrics ?? null,
+        context: execution.jobResult.context ?? null,
+        durationMs: Math.round(execution.telemetry.durationMs),
+        completedAt: execution.telemetry.completedAt
+      } satisfies JobRunCompletionInput;
+
+      const completed = await completeJobRun(runId, finalStatus, completion);
+      return completed ?? currentRun;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Docker execution failed';
+      context.logger('Docker runner threw error', {
+        jobRunId: runId,
+        error: message,
+        errorName: err instanceof Error ? err.name : 'unknown'
+      });
+      const errorContext = {
+        docker: {
+          error: message
+        }
+      } satisfies Record<string, JsonValue>;
+      const completed = await completeJobRun(runId, 'failed', {
+        errorMessage: message,
+        context: errorContext
+      });
+      return completed ?? currentRun;
+    }
+  }
 
   let sandboxTelemetry: SandboxExecutionResult | null = null;
 
@@ -562,52 +654,4 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
     normalized.ipcMessagesReceived = extended.ipcMessagesReceived;
   }
   return normalized;
-}
-
-type JobRuntimeKind = 'node' | 'python' | 'docker';
-
-function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
-  if (definition.runtime === 'python') {
-    return 'python';
-  }
-  if (definition.runtime === 'node') {
-    return 'node';
-  }
-  if (definition.runtime === 'docker') {
-    return 'docker';
-  }
-  const metadata = definition.metadata;
-  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
-    const record = metadata as Record<string, unknown>;
-    const rawRuntime = record.runtime;
-    if (typeof rawRuntime === 'string') {
-      const normalized = rawRuntime.trim().toLowerCase();
-      if (normalized.startsWith('python')) {
-        return 'python';
-      }
-      if (normalized.startsWith('docker')) {
-        return 'docker';
-      }
-      if (normalized.startsWith('node')) {
-        return 'node';
-      }
-    } else if (rawRuntime && typeof rawRuntime === 'object' && !Array.isArray(rawRuntime)) {
-      const runtimeRecord = rawRuntime as Record<string, unknown>;
-      const type = runtimeRecord.type;
-      if (typeof type === 'string') {
-        const normalized = type.trim().toLowerCase();
-        if (normalized.startsWith('python')) {
-          return 'python';
-        }
-        if (normalized.startsWith('docker')) {
-          return 'docker';
-        }
-        if (normalized.startsWith('node')) {
-          return 'node';
-        }
-      }
-    }
-  }
-
-  return 'node';
 }
