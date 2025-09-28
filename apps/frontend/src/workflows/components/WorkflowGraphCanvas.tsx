@@ -204,13 +204,13 @@ const LIGHT_THEME: WorkflowGraphCanvasTheme = {
 const DARK_THEME: WorkflowGraphCanvasTheme = {
   surface: 'rgba(15, 23, 42, 0.78)',
   surfaceMuted: 'rgba(15, 23, 42, 0.6)',
-  gridColor: 'rgba(148, 163, 184, 0.25)',
-  edgeDefault: 'rgba(226, 232, 240, 0.65)',
-  edgeMuted: 'rgba(100, 116, 139, 0.55)',
-  edgeHighlight: '#a855f7',
-  edgeDashed: 'rgba(148, 163, 184, 0.42)',
-  labelBackground: 'rgba(15, 23, 42, 0.88)',
-  labelText: '#e2e8f0',
+  gridColor: 'rgba(148, 163, 184, 0.32)',
+  edgeDefault: '#dbeafe',
+  edgeMuted: 'rgba(148, 163, 184, 0.7)',
+  edgeHighlight: '#c084fc',
+  edgeDashed: '#94a3b8',
+  labelBackground: 'rgba(15, 23, 42, 0.92)',
+  labelText: '#f8fafc',
   nodes: {
     workflow: {
       background: 'linear-gradient(135deg, rgba(76, 29, 149, 0.48), rgba(37, 99, 235, 0.32))',
@@ -273,8 +273,8 @@ const DARK_THEME: WorkflowGraphCanvasTheme = {
       shadow: '0 16px 40px -28px rgba(37, 99, 235, 0.5)'
     },
     schedule: {
-      background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.65))',
-      border: 'rgba(148, 163, 184, 0.48)',
+      background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.65))',
+      border: 'rgba(148, 163, 184, 0.54)',
       borderHighlighted: '#94a3b8',
       text: '#f1f5f9',
       mutedText: 'rgba(203, 213, 225, 0.7)',
@@ -283,9 +283,9 @@ const DARK_THEME: WorkflowGraphCanvasTheme = {
       shadow: '0 14px 32px -24px rgba(148, 163, 184, 0.45)'
     },
     asset: {
-      background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.22), rgba(248, 113, 113, 0.32))',
-      border: 'rgba(248, 113, 113, 0.52)',
-      borderHighlighted: '#fb7185',
+      background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.3), rgba(248, 113, 113, 0.38))',
+      border: 'rgba(248, 113, 113, 0.62)',
+      borderHighlighted: '#fda4af',
       text: '#f8fafc',
       mutedText: 'rgba(254, 226, 226, 0.7)',
       badgeBackground: 'rgba(248, 113, 113, 0.28)',
@@ -873,7 +873,7 @@ export function WorkflowGraphCanvas({
           nodesDraggable={false}
           nodesFocusable
           selectionOnDrag={false}
-          onlyRenderVisibleElements
+          onlyRenderVisibleElements={false}
           onNodeMouseEnter={handleNodeMouseEnter}
           onNodeMouseMove={handleNodeMouseMove}
           onNodeMouseLeave={handleNodeMouseLeave}
