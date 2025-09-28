@@ -1,5 +1,5 @@
 import fp from 'fastify-plugin';
-import { collectDefaultMetrics, Counter, Histogram, Registry } from 'prom-client';
+import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -7,6 +7,8 @@ declare module 'fastify' {
       registry: Registry;
       httpRequestsTotal: Counter<string>;
       httpRequestDurationSeconds: Histogram<string>;
+      namespaceRecords: Gauge<string>;
+      namespaceDeletedRecords: Gauge<string>;
       enabled: boolean;
     };
   }
@@ -43,10 +45,26 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     registers: registry ? [registry] : undefined
   });
 
+  const namespaceRecords = new Gauge({
+    name: 'metastore_namespace_records',
+    help: 'Total number of records per namespace',
+    labelNames: ['namespace'],
+    registers: registry ? [registry] : undefined
+  });
+
+  const namespaceDeletedRecords = new Gauge({
+    name: 'metastore_namespace_deleted_records',
+    help: 'Soft-deleted records per namespace',
+    labelNames: ['namespace'],
+    registers: registry ? [registry] : undefined
+  });
+
   app.decorate('metrics', {
     registry,
     httpRequestsTotal,
     httpRequestDurationSeconds,
+    namespaceRecords,
+    namespaceDeletedRecords,
     enabled
   });
 

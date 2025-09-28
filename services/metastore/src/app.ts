@@ -9,6 +9,7 @@ import { registerSystemRoutes } from './routes/system';
 import { closePool, ensureSchemaReady } from './db/client';
 import { openApiDocument } from './openapi/document';
 import { registerRecordRoutes } from './routes/records';
+import { registerNamespaceRoutes } from './routes/namespaces';
 import { registerAdminRoutes } from './routes/admin';
 import { initializeFilestoreSync, shutdownFilestoreSync } from './filestore/consumer';
 
@@ -50,6 +51,7 @@ export async function buildApp(options?: BuildAppOptions) {
 
   await registerSystemRoutes(app);
   await registerRecordRoutes(app);
+  await registerNamespaceRoutes(app);
   await registerAdminRoutes(app);
 
   app.get('/openapi.json', async () => openApiDocument);

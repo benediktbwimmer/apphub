@@ -1,5 +1,6 @@
 import type { MetastoreRecord } from '../db/types';
 import type { RecordAuditView } from '../db/auditRepository';
+import type { NamespaceSummary } from '../db/namespacesRepository';
 
 type SerializedRecord = {
   namespace: string;
@@ -165,4 +166,32 @@ export function serializeAuditEntry(entry: RecordAuditView): SerializedAuditEntr
     previousMetadata: entry.previousMetadata,
     createdAt: entry.createdAt.toISOString()
   } satisfies SerializedAuditEntry;
+}
+
+export type SerializedNamespaceSummary = {
+  name: string;
+  totalRecords: number;
+  deletedRecords: number;
+  lastUpdatedAt: string | null;
+  ownerCounts?: Array<{ owner: string; count: number }>;
+};
+
+export function serializeNamespaceSummary(summary: NamespaceSummary): SerializedNamespaceSummary {
+  const owners = summary.ownerCounts
+    .filter((entry) => typeof entry.owner === 'string' && entry.owner.length > 0)
+    .map((entry) => ({ owner: entry.owner, count: entry.count }))
+    .filter((entry) => entry.count > 0);
+
+  const serialized: SerializedNamespaceSummary = {
+    name: summary.name,
+    totalRecords: summary.totalRecords,
+    deletedRecords: summary.deletedRecords,
+    lastUpdatedAt: summary.lastUpdatedAt ? summary.lastUpdatedAt.toISOString() : null
+  } satisfies SerializedNamespaceSummary;
+
+  if (owners.length > 0) {
+    serialized.ownerCounts = owners;
+  }
+
+  return serialized;
 }

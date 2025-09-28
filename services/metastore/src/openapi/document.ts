@@ -77,6 +77,7 @@ export const openApiDocument: OpenAPIV3.Document = {
   ],
   tags: [
     { name: 'Records', description: 'Metadata record CRUD and search' },
+    { name: 'Namespaces', description: 'Namespace discovery and summaries' },
     { name: 'System', description: 'Health and metrics' }
   ],
   paths: {
@@ -134,6 +135,68 @@ export const openApiDocument: OpenAPIV3.Document = {
             }
           },
           '409': { description: 'Conflict (record soft-deleted)' }
+        }
+      }
+    },
+    '/namespaces': {
+      get: {
+        tags: ['Namespaces'],
+        summary: 'List namespace summaries',
+        operationId: 'listNamespaces',
+        parameters: [
+          {
+            name: 'prefix',
+            in: 'query',
+            required: false,
+            schema: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 128,
+              pattern: '^[A-Za-z0-9][A-Za-z0-9:_-]*$'
+            },
+            description: 'Return namespaces beginning with the provided prefix'
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 200, default: 25 }
+          },
+          {
+            name: 'offset',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 0, default: 0 }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Namespace summaries',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    pagination: {
+                      type: 'object',
+                      required: ['total', 'limit', 'offset'],
+                      properties: {
+                        total: { type: 'integer', minimum: 0 },
+                        limit: { type: 'integer', minimum: 1, maximum: 200 },
+                        offset: { type: 'integer', minimum: 0 },
+                        nextOffset: { type: 'integer', minimum: 0 }
+                      }
+                    },
+                    namespaces: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/NamespaceSummary' }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          '403': { description: 'Forbidden' }
         }
       }
     },
@@ -591,6 +654,30 @@ export const openApiDocument: OpenAPIV3.Document = {
   },
   components: {
     schemas: {
+      NamespaceOwnerCount: {
+        type: 'object',
+        required: ['owner', 'count'],
+        properties: {
+          owner: { type: 'string' },
+          count: { type: 'integer', minimum: 1 }
+        },
+        additionalProperties: false
+      },
+      NamespaceSummary: {
+        type: 'object',
+        required: ['name', 'totalRecords', 'deletedRecords', 'lastUpdatedAt'],
+        properties: {
+          name: { type: 'string' },
+          totalRecords: { type: 'integer', minimum: 0 },
+          deletedRecords: { type: 'integer', minimum: 0 },
+          lastUpdatedAt: { type: 'string', format: 'date-time', nullable: true },
+          ownerCounts: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/NamespaceOwnerCount' }
+          }
+        },
+        additionalProperties: false
+      },
       MetastoreRecord: recordSchema,
       SearchFilter: searchFilterSchema,
       MetastoreAuditEntry: {
