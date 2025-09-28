@@ -35,6 +35,7 @@ import { compileQueryString, mergeFilterNodes } from '../search/queryCompiler';
 import { getRecordAuditById, getRecordAuditByVersion, listRecordAudits } from '../db/auditRepository';
 import { serializeAuditEntry } from './serializers';
 import { publishMetastoreRecordEvent } from '../events/publisher';
+import { emitRecordStreamEvent, type RecordStreamAction } from '../events/recordStream';
 import { buildAuditDiff } from '../audit/diff';
 
 const includeDeletedQuerySchema = z.object({
@@ -56,6 +57,29 @@ function mapError(err: unknown): HttpError {
     return httpLike;
   }
   return new HttpError(500, 'internal_error', err instanceof Error ? err.message : 'Unknown error');
+}
+
+function broadcastRecordStreamEvent(
+  action: RecordStreamAction,
+  record: ReturnType<typeof serializeRecord>,
+  actor: string | null,
+  mode?: 'soft' | 'hard'
+): void {
+  const version = typeof record.version === 'number' ? record.version : null;
+  const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : null;
+  const deletedAt = record.deletedAt === undefined ? null : record.deletedAt;
+
+  emitRecordStreamEvent({
+    action,
+    namespace: record.namespace,
+    key: record.key,
+    version,
+    occurredAt: new Date().toISOString(),
+    updatedAt,
+    deletedAt: deletedAt ?? null,
+    actor,
+    mode
+  });
 }
 
 export async function registerRecordRoutes(app: FastifyInstance, config: ServiceConfig): Promise<void> {
@@ -91,13 +115,16 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
         );
       }
 
+      const serialized = serializeRecord(record);
+
       if (created) {
+        broadcastRecordStreamEvent('created', serialized, request.identity?.subject ?? null);
         try {
           await publishMetastoreRecordEvent('created', {
-            namespace: record.namespace,
-            key: record.key,
+            namespace: serialized.namespace,
+            key: serialized.key,
             actor: request.identity?.subject ?? null,
-            record: serializeRecord(record)
+            record: serialized
           });
         } catch (err) {
           request.log.error({ err }, 'Failed to publish metastore record.created event');
@@ -106,7 +133,7 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
 
       reply.code(created ? 201 : 200).send({
         created,
-        record: serializeRecord(record)
+        record: serialized
       });
     } catch (err) {
       const error = mapError(err);
@@ -151,12 +178,17 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
         throw new HttpError(500, 'upsert_failed', 'Failed to upsert record');
       }
 
+      const serialized = serializeRecord(result.record);
+      const action: RecordStreamAction = result.created ? 'created' : 'updated';
+
+      broadcastRecordStreamEvent(action, serialized, request.identity?.subject ?? null);
+
       try {
         await publishMetastoreRecordEvent(result.created ? 'created' : 'updated', {
           namespace,
           key,
           actor: request.identity?.subject ?? null,
-          record: serializeRecord(result.record)
+          record: serialized
         });
       } catch (err) {
         request.log.error({ err }, 'Failed to publish metastore record upsert event');
@@ -164,7 +196,7 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
 
       reply.code(result.created ? 201 : 200).send({
         created: result.created,
-        record: serializeRecord(result.record)
+        record: serialized
       });
     } catch (err) {
       const error = mapError(err);
@@ -222,19 +254,23 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
         return;
       }
 
+      const serialized = serializeRecord(updated);
+
+      broadcastRecordStreamEvent('updated', serialized, request.identity?.subject ?? null);
+
       try {
         await publishMetastoreRecordEvent('updated', {
           namespace,
           key,
           actor: request.identity?.subject ?? null,
-          record: serializeRecord(updated)
+          record: serialized
         });
       } catch (err) {
         request.log.error({ err }, 'Failed to publish metastore record.updated event');
       }
 
       reply.send({
-        record: serializeRecord(updated)
+        record: serialized
       });
     } catch (err) {
       const error = mapError(err);
@@ -442,12 +478,16 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
         return;
       }
 
+      const serialized = serializeRecord(restored);
+
+      broadcastRecordStreamEvent('updated', serialized, request.identity?.subject ?? null);
+
       try {
         await publishMetastoreRecordEvent('updated', {
           namespace,
           key,
           actor: request.identity?.subject ?? null,
-          record: serializeRecord(restored),
+          record: serialized,
           restoredFrom: {
             auditId: entry.id,
             version: entry.version
@@ -459,7 +499,7 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
 
       reply.send({
         restored: true,
-        record: serializeRecord(restored),
+        record: serialized,
         restoredFrom: {
           auditId: entry.id,
           version: entry.version
@@ -510,6 +550,8 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
       }
 
       const serialized = serializeRecord(record);
+
+      broadcastRecordStreamEvent('deleted', serialized, request.identity?.subject ?? null, 'soft');
 
       try {
         await publishMetastoreRecordEvent('deleted', {
@@ -571,6 +613,8 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
       }
 
       const serialized = serializeRecord(record);
+
+      broadcastRecordStreamEvent('deleted', serialized, request.identity?.subject ?? null, 'hard');
 
       try {
         await publishMetastoreRecordEvent('deleted', {

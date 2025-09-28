@@ -78,7 +78,12 @@ export const openApiDocument: OpenAPIV3.Document = {
   tags: [
     { name: 'Records', description: 'Metadata record CRUD and search' },
     { name: 'Namespaces', description: 'Namespace discovery and summaries' },
-    { name: 'System', description: 'Health and metrics' }
+    { name: 'System', description: 'Health and metrics' },
+    { name: 'Streams', description: 'Realtime record change notifications' },
+    {
+      name: 'Filestore',
+      description: 'Filestore sync health and lag monitoring'
+    }
   ],
   paths: {
     '/records': {
@@ -727,6 +732,55 @@ export const openApiDocument: OpenAPIV3.Document = {
         }
       }
     },
+    '/filestore/health': {
+      get: {
+        tags: ['Filestore'],
+        summary: 'Filestore sync health',
+        operationId: 'filestoreHealth',
+        responses: {
+          '200': {
+            description: 'Filestore consumer healthy or disabled',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FilestoreHealth' }
+              }
+            }
+          },
+          '503': {
+            description: 'Filestore consumer stalled beyond threshold',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FilestoreHealth' }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/stream/records': {
+      get: {
+        tags: ['Streams'],
+        summary: 'Stream record lifecycle events',
+        operationId: 'streamRecords',
+        description:
+          'Establishes a server-sent events feed of metastore record create/update/delete notifications. Clients may optionally upgrade to WebSocket to receive the same payloads.',
+        responses: {
+          '200': {
+            description: 'SSE stream of record lifecycle notifications',
+            content: {
+              'text/event-stream': {
+                schema: {
+                  type: 'string',
+                  description: 'Server-sent events payload (event: metastore.record.*)'
+                }
+              }
+            }
+          },
+          '401': { description: 'Missing or invalid bearer token' },
+          '403': { description: 'Missing metastore:read scope' }
+        }
+      }
+    },
     '/admin/tokens/reload': {
       post: {
         tags: ['System'],
@@ -779,6 +833,36 @@ export const openApiDocument: OpenAPIV3.Document = {
       },
       MetastoreRecord: recordSchema,
       SearchFilter: searchFilterSchema,
+      FilestoreHealth: {
+        type: 'object',
+        required: ['status', 'enabled', 'inline', 'thresholdSeconds', 'retries', 'lastEvent'],
+        properties: {
+          status: { type: 'string', enum: ['disabled', 'ok', 'stalled'] },
+          enabled: { type: 'boolean' },
+          inline: { type: 'boolean' },
+          thresholdSeconds: { type: 'integer', minimum: 1 },
+          lagSeconds: { type: 'number', nullable: true },
+          lastEvent: {
+            type: 'object',
+            required: ['type', 'observedAt', 'receivedAt'],
+            properties: {
+              type: { type: 'string', nullable: true },
+              observedAt: { type: 'string', format: 'date-time', nullable: true },
+              receivedAt: { type: 'string', format: 'date-time', nullable: true }
+            }
+          },
+          retries: {
+            type: 'object',
+            required: ['connect', 'processing', 'total'],
+            properties: {
+              connect: { type: 'integer', minimum: 0 },
+              processing: { type: 'integer', minimum: 0 },
+              total: { type: 'integer', minimum: 0 }
+            }
+          }
+        },
+        additionalProperties: false
+      },
       MetastoreAuditEntry: {
         type: 'object',
         required: ['id', 'namespace', 'key', 'action', 'createdAt'],

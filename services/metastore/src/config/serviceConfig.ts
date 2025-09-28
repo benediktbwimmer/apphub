@@ -36,6 +36,7 @@ export type ServiceConfig = {
     namespace: string;
     retryDelayMs: number;
     inline: boolean;
+    stallThresholdSeconds: number;
   };
 };
 
@@ -344,6 +345,11 @@ export function loadServiceConfig(): ServiceConfig {
   const filestoreRetryDelayMs = parseInt(process.env.METASTORE_FILESTORE_RETRY_MS ?? '', 10);
   const retryDelayMs = Number.isFinite(filestoreRetryDelayMs) && filestoreRetryDelayMs > 0 ? filestoreRetryDelayMs : 3000;
   const inline = filestoreRedisUrl === 'inline';
+  const stallThresholdCandidate = parseNumber(
+    process.env.METASTORE_FILESTORE_STALL_THRESHOLD_SECONDS,
+    60
+  );
+  const stallThresholdSeconds = stallThresholdCandidate > 0 ? stallThresholdCandidate : 60;
 
   cachedConfig = {
     host,
@@ -365,7 +371,8 @@ export function loadServiceConfig(): ServiceConfig {
       channel: filestoreChannel,
       namespace: filestoreNamespace,
       retryDelayMs,
-      inline
+      inline,
+      stallThresholdSeconds
     }
   } satisfies ServiceConfig;
 

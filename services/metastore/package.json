@@ -19,6 +19,7 @@
     "@fastify/cors": "^11.1.0",
     "@fastify/swagger": "^9.5.2",
     "@fastify/swagger-ui": "^5.2.3",
+    "@fastify/websocket": "^11.2.0",
     "@apphub/event-bus": "0.1.0",
     "fastify": "^5.6.1",
     "fastify-plugin": "^5.0.1",

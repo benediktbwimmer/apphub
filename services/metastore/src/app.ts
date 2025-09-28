@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
+import websocket from '@fastify/websocket';
 import { loadServiceConfig } from './config/serviceConfig';
 import { authPlugin } from './auth/plugin';
 import { metricsPlugin } from './plugins/metrics';
@@ -11,6 +12,8 @@ import { openApiDocument } from './openapi/document';
 import { registerRecordRoutes } from './routes/records';
 import { registerNamespaceRoutes } from './routes/namespaces';
 import { registerAdminRoutes } from './routes/admin';
+import { registerStreamRoutes } from './routes/stream';
+import { registerFilestoreRoutes } from './routes/filestore';
 import { initializeFilestoreSync, shutdownFilestoreSync } from './filestore/consumer';
 
 export type BuildAppOptions = {
@@ -46,6 +49,12 @@ export async function buildApp(options?: BuildAppOptions) {
     }
   });
 
+  await app.register(websocket, {
+    options: {
+      maxPayload: 1_048_576
+    }
+  });
+
   await app.register(authPlugin, { config });
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
 
@@ -53,12 +62,14 @@ export async function buildApp(options?: BuildAppOptions) {
   await registerRecordRoutes(app, config);
   await registerNamespaceRoutes(app);
   await registerAdminRoutes(app);
+  await registerFilestoreRoutes(app);
+  await registerStreamRoutes(app);
 
   app.get('/openapi.json', async () => openApiDocument);
 
   app.addHook('onReady', async () => {
     await ensureSchemaReady();
-    await initializeFilestoreSync({ config, logger: app.log });
+    await initializeFilestoreSync({ config, logger: app.log, metrics: app.metrics });
   });
 
   app.addHook('onClose', async () => {

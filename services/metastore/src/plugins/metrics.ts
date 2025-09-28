@@ -1,17 +1,23 @@
 import fp from 'fastify-plugin';
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 
+export type MetastoreMetrics = {
+  registry: Registry;
+  httpRequestsTotal: Counter<string>;
+  httpRequestDurationSeconds: Histogram<string>;
+  namespaceRecords: Gauge<string>;
+  namespaceDeletedRecords: Gauge<string>;
+  searchResponseBytes: Histogram<string>;
+  recordStreamSubscribers: Gauge<string>;
+  filestoreLagSeconds: Gauge<string>;
+  filestoreStalled: Gauge<string>;
+  filestoreRetryTotal: Counter<string>;
+  enabled: boolean;
+};
+
 declare module 'fastify' {
   interface FastifyInstance {
-    metrics: {
-      registry: Registry;
-      httpRequestsTotal: Counter<string>;
-      httpRequestDurationSeconds: Histogram<string>;
-      namespaceRecords: Gauge<string>;
-      namespaceDeletedRecords: Gauge<string>;
-      searchResponseBytes: Histogram<string>;
-      enabled: boolean;
-    };
+    metrics: MetastoreMetrics;
   }
 
   interface FastifyRequest {
@@ -68,6 +74,40 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     registers: registry ? [registry] : undefined
   });
 
+  const recordStreamSubscribers = new Gauge({
+    name: 'metastore_record_stream_subscribers',
+    help: 'Active metastore record stream subscribers by transport',
+    labelNames: ['transport'],
+    registers: registry ? [registry] : undefined
+  });
+
+  const filestoreLagSeconds = new Gauge({
+    name: 'metastore_filestore_lag_seconds',
+    help: 'Age in seconds of the most recent filestore event observed by the metastore',
+    registers: registry ? [registry] : undefined
+  });
+
+  const filestoreStalled = new Gauge({
+    name: 'metastore_filestore_consumer_stalled',
+    help: 'Indicator that the filestore consumer is stalled beyond the configured threshold',
+    registers: registry ? [registry] : undefined
+  });
+
+  const filestoreRetryTotal = new Counter({
+    name: 'metastore_filestore_retry_total',
+    help: 'Total number of retry attempts performed by the filestore consumer',
+    labelNames: ['kind'],
+    registers: registry ? [registry] : undefined
+  });
+
+  recordStreamSubscribers.labels('sse').set(0);
+  recordStreamSubscribers.labels('websocket').set(0);
+  recordStreamSubscribers.labels('total').set(0);
+  filestoreLagSeconds.set(0);
+  filestoreStalled.set(0);
+  filestoreRetryTotal.labels('connect').inc(0);
+  filestoreRetryTotal.labels('processing').inc(0);
+
   app.decorate('metrics', {
     registry,
     httpRequestsTotal,
@@ -75,6 +115,10 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     namespaceRecords,
     namespaceDeletedRecords,
     searchResponseBytes,
+    recordStreamSubscribers,
+    filestoreLagSeconds,
+    filestoreStalled,
+    filestoreRetryTotal,
     enabled
   });
 

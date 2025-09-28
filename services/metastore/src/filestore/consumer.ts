@@ -10,10 +10,153 @@ import { parseFilestoreEventEnvelope } from '@apphub/shared/filestoreEvents';
 import type { ServiceConfig } from '../config/serviceConfig';
 import { withConnection } from '../db/client';
 import { createRecord, softDeleteRecord, updateRecord } from '../db/recordsRepository';
+import type { MetastoreMetrics } from '../plugins/metrics';
 
 const SYSTEM_ACTOR = 'filestore-sync';
 const inlineEmitter = new EventEmitter();
 inlineEmitter.setMaxListeners(0);
+
+const DEFAULT_STALL_THRESHOLD_SECONDS = 60;
+
+type FilestoreHealthStatus = 'disabled' | 'ok' | 'stalled';
+
+type FilestoreHealthState = {
+  enabled: boolean;
+  inline: boolean;
+  stallThresholdSeconds: number;
+  lastEventType: string | null;
+  lastObservedAt: Date | null;
+  lastReceivedAt: Date | null;
+  connectionRetries: number;
+  processingFailures: number;
+};
+
+export type FilestoreHealthSnapshot = {
+  status: FilestoreHealthStatus;
+  enabled: boolean;
+  inline: boolean;
+  thresholdSeconds: number;
+  lagSeconds: number | null;
+  lastEvent: {
+    type: string | null;
+    observedAt: string | null;
+    receivedAt: string | null;
+  };
+  retries: {
+    connect: number;
+    processing: number;
+    total: number;
+  };
+};
+
+const healthState: FilestoreHealthState = {
+  enabled: false,
+  inline: false,
+  stallThresholdSeconds: DEFAULT_STALL_THRESHOLD_SECONDS,
+  lastEventType: null,
+  lastObservedAt: null,
+  lastReceivedAt: null,
+  connectionRetries: 0,
+  processingFailures: 0
+};
+
+let metricsHandle: MetastoreMetrics | null = null;
+
+function bindMetrics(metrics: MetastoreMetrics | undefined): void {
+  metricsHandle = metrics && metrics.enabled ? metrics : null;
+  updateMetrics();
+}
+
+function resetHealthState(config: ServiceConfig['filestoreSync']): void {
+  healthState.enabled = config.enabled;
+  healthState.inline = config.inline;
+  healthState.stallThresholdSeconds = config.stallThresholdSeconds;
+  healthState.lastEventType = null;
+  healthState.lastObservedAt = null;
+  healthState.lastReceivedAt = null;
+  healthState.connectionRetries = 0;
+  healthState.processingFailures = 0;
+  updateMetrics();
+}
+
+function toDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed);
+    }
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value);
+  }
+  return null;
+}
+
+function extractObservedAt(event: FilestoreEvent): Date | null {
+  const data = event.data as Record<string, unknown> | null | undefined;
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  return toDate(data.observedAt);
+}
+
+function computeLagSeconds(now: Date = new Date()): number | null {
+  const observedAt = healthState.lastObservedAt;
+  if (!observedAt) {
+    return null;
+  }
+  const diffMs = now.getTime() - observedAt.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) {
+    return 0;
+  }
+  return diffMs / 1000;
+}
+
+function computeStatus(now: Date = new Date()): FilestoreHealthStatus {
+  if (!healthState.enabled) {
+    return 'disabled';
+  }
+  const lagSeconds = computeLagSeconds(now);
+  if (lagSeconds !== null && lagSeconds > healthState.stallThresholdSeconds) {
+    return 'stalled';
+  }
+  return 'ok';
+}
+
+function updateMetrics(now: Date = new Date()): void {
+  if (!metricsHandle || !metricsHandle.enabled) {
+    return;
+  }
+  const lagSeconds = computeLagSeconds(now);
+  metricsHandle.filestoreLagSeconds.set(lagSeconds ?? 0);
+  metricsHandle.filestoreStalled.set(computeStatus(now) === 'stalled' ? 1 : 0);
+}
+
+function recordConnectionRetry(): void {
+  healthState.connectionRetries += 1;
+  if (metricsHandle && metricsHandle.enabled) {
+    metricsHandle.filestoreRetryTotal.inc({ kind: 'connect' });
+  }
+}
+
+function recordProcessingFailure(): void {
+  healthState.processingFailures += 1;
+  if (metricsHandle && metricsHandle.enabled) {
+    metricsHandle.filestoreRetryTotal.inc({ kind: 'processing' });
+  }
+}
+
+function recordProcessedEvent(event: FilestoreEvent): void {
+  const now = new Date();
+  const observedAt = extractObservedAt(event) ?? now;
+  healthState.lastEventType = event.type;
+  healthState.lastObservedAt = observedAt;
+  healthState.lastReceivedAt = now;
+  updateMetrics(now);
+}
 
 interface ConsumerOptions {
   config: ServiceConfig['filestoreSync'];
@@ -102,6 +245,7 @@ export class FilestoreSyncConsumer {
   async start(): Promise<void> {
     if (!this.options.config.enabled) {
       this.options.logger.info('[metastore:filestore] sync disabled');
+      updateMetrics();
       return;
     }
 
@@ -146,6 +290,7 @@ export class FilestoreSyncConsumer {
         await redis.subscribe(this.options.config.channel);
         this.options.logger.info({ channel: this.options.config.channel }, '[metastore:filestore] subscribed to channel');
       } catch (err) {
+        recordConnectionRetry();
         this.options.logger.error({ err }, '[metastore:filestore] failed to subscribe to filestore events');
         await redis.quit().catch(() => undefined);
         if (!this.stopped) {
@@ -197,7 +342,9 @@ export class FilestoreSyncConsumer {
       .then(async () => {
         try {
           await this.handleEvent(event);
+          recordProcessedEvent(event);
         } catch (err) {
+          recordProcessingFailure();
           this.options.logger.error({ err }, '[metastore:filestore] failed to process event');
         }
       });
@@ -271,12 +418,40 @@ export class FilestoreSyncConsumer {
   }
 }
 
+function buildHealthSnapshot(now: Date = new Date()): FilestoreHealthSnapshot {
+  const lagSeconds = computeLagSeconds(now);
+  const status = computeStatus(now);
+  return {
+    status,
+    enabled: healthState.enabled,
+    inline: healthState.inline,
+    thresholdSeconds: healthState.stallThresholdSeconds,
+    lagSeconds,
+    lastEvent: {
+      type: healthState.lastEventType,
+      observedAt: healthState.lastObservedAt ? healthState.lastObservedAt.toISOString() : null,
+      receivedAt: healthState.lastReceivedAt ? healthState.lastReceivedAt.toISOString() : null
+    },
+    retries: {
+      connect: healthState.connectionRetries,
+      processing: healthState.processingFailures,
+      total: healthState.connectionRetries + healthState.processingFailures
+    }
+  } satisfies FilestoreHealthSnapshot;
+}
+
 let consumerInstance: FilestoreSyncConsumer | null = null;
 
-export async function initializeFilestoreSync(options: { config: ServiceConfig; logger: FastifyBaseLogger }): Promise<FilestoreSyncConsumer> {
+export async function initializeFilestoreSync(options: {
+  config: ServiceConfig;
+  logger: FastifyBaseLogger;
+  metrics?: MetastoreMetrics;
+}): Promise<FilestoreSyncConsumer> {
   if (consumerInstance) {
     return consumerInstance;
   }
+  bindMetrics(options.metrics);
+  resetHealthState(options.config.filestoreSync);
   const consumer = new FilestoreSyncConsumer({
     config: options.config.filestoreSync,
     namespace: options.config.filestoreSync.namespace,
@@ -295,6 +470,10 @@ export async function shutdownFilestoreSync(): Promise<void> {
   consumerInstance = null;
 }
 
+export function getFilestoreHealthSnapshot(): FilestoreHealthSnapshot {
+  return buildHealthSnapshot();
+}
+
 export function emitFilestoreEventInline(event: FilestoreEvent): void {
   inlineEmitter.emit('event', event);
 }
@@ -309,4 +488,14 @@ export async function waitForFilestoreSyncIdle(): Promise<void> {
 export function resetFilestoreSyncForTests(): void {
   consumerInstance = null;
   inlineEmitter.removeAllListeners();
+  resetHealthState({
+    enabled: false,
+    inline: true,
+    redisUrl: 'inline',
+    channel: '',
+    namespace: '',
+    retryDelayMs: 1000,
+    stallThresholdSeconds: DEFAULT_STALL_THRESHOLD_SECONDS
+  });
+  bindMetrics(undefined);
 }

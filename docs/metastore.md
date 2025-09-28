@@ -157,6 +157,12 @@ Emitted event types include:
 - `metastore.record.updated` for PATCH/PUT mutations (including restores).
 - `metastore.record.deleted` for soft deletes (`mode: "soft"`) and purges (`mode: "hard"`).
 
+## Realtime Monitoring
+
+- `GET /stream/records` streams record lifecycle events as server-sent events (or via WebSocket if the client upgrades). Each payload includes the namespace, key, action, version, and timestamps so operators can drive dashboards without polling.
+- Heartbeats (`: ping`) are sent every 15 seconds with a `retry: 5000` directive so clients auto-reconnect on transient network issues. Metrics report active subscribers per transport under `metastore_record_stream_subscribers`.
+- `GET /filestore/health` surfaces the filestore consumer lag, most recent event timestamps, and retry counters. When the consumer falls behind longer than `METASTORE_FILESTORE_STALL_THRESHOLD_SECONDS` (default 60s) the endpoint returns HTTP 503 and the metric `metastore_filestore_consumer_stalled` flips to `1`.
+
 ## Operator UI
 
 The frontend exposes a full-crud Metastore explorer under `/services/metastore`. Operators can:
