@@ -69,7 +69,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
 
       const fetchId = ++fetchGenerationRef.current;
 
-      const request = (async () => {
+      const fetchPromise = (async () => {
         try {
           const { graph: graphPayload, meta } = await fetchWorkflowTopologyGraph(authorizedFetch);
           if (!isMountedRef.current || fetchGenerationRef.current !== fetchId) {
@@ -99,9 +99,6 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
             setGraphMeta(null);
           }
         } finally {
-          if (activeRequestRef.current === request) {
-            activeRequestRef.current = null;
-          }
           if (!isMountedRef.current || fetchGenerationRef.current !== fetchId) {
             return;
           }
@@ -113,8 +110,14 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
         }
       })();
 
-      activeRequestRef.current = request;
-      await request;
+      activeRequestRef.current = fetchPromise;
+      try {
+        await fetchPromise;
+      } finally {
+        if (activeRequestRef.current === fetchPromise) {
+          activeRequestRef.current = null;
+        }
+      }
     },
     [authorizedFetch, pushToast]
   );

@@ -368,11 +368,12 @@ function buildTriggerNodes(
         meta.push(`Schedule · ${trigger.schedule.cron}`);
       }
     }
+    const label = isEventTrigger(trigger) ? trigger.name ?? trigger.id : trigger.triggerType;
     return {
       id,
       refId: trigger.id,
       kind,
-      label: trigger.name ?? trigger.id,
+      label,
       subtitle,
       badges: badges.slice(0, 2),
       meta,

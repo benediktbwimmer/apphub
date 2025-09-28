@@ -258,7 +258,7 @@ function mapSetToSortedRecord(source: Map<string, Set<string>>): Record<string, 
   return record;
 }
 
-function sortEdgeRecord<T extends { toStepId?: string; stepId?: string; normalizedAssetId?: string; workflowId?: string }>(
+function sortEdgeRecord<T>(
   record: Record<string, T[]>,
   sorter: (a: T, b: T) => number
 ): Record<string, T[]> {
@@ -382,7 +382,8 @@ function buildAdjacency(
 
   for (const edge of graph.edges.triggerToWorkflow) {
     pushEdge(workflowTriggerEdges, edge.workflowId, edge);
-    pushEdge(triggerWorkflowEdges, edge.triggerId, edge);
+    const lookupKey = edge.kind === 'schedule' ? edge.scheduleId : edge.triggerId;
+    pushEdge(triggerWorkflowEdges, lookupKey, edge);
   }
 
   const eventSourceTriggerEdges: Record<string, WorkflowTopologyEventSourceTriggerEdge[]> = {};

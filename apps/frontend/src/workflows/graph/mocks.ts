@@ -129,39 +129,43 @@ const DEMO_GRAPH: WorkflowTopologyGraph = {
         idempotencyKeyExpression: '{{ event.id }}',
         metadata: null,
         createdAt: '2024-03-10T00:00:00.000Z',
-        updatedAt: '2024-03-30T00:10:00.000Z'
+        updatedAt: '2024-03-30T00:10:00.000Z',
+        createdBy: 'orders@apphub.example',
+        updatedBy: 'orders@apphub.example'
       },
       {
-        id: 'trigger-metrics-schedule',
+        id: 'trigger-metrics-definition',
         workflowId: 'wf-metrics',
         kind: 'definition',
-        name: 'Daily Catch-up',
-        description: 'Ensure dashboards refresh even if events are missing.',
-        status: 'active',
-        eventType: 'scheduler',
-        eventSource: null,
-        predicates: [],
-        parameterTemplate: null,
-        throttleWindowMs: null,
-        throttleCount: null,
-        maxConcurrency: 1,
-        idempotencyKeyExpression: null,
-        metadata: null,
-        createdAt: '2024-02-04T00:00:00.000Z',
-        updatedAt: '2024-03-15T00:00:00.000Z'
+        triggerType: 'scheduled',
+        options: {
+          retryLimit: 3
+        },
+        schedule: {
+          cron: '0 5 * * *',
+          timezone: 'UTC',
+          startWindow: null,
+          endWindow: null,
+          catchUp: true
+        }
       }
     ],
     schedules: [
       {
         id: 'schedule-metrics',
         workflowId: 'wf-metrics',
-        triggerId: 'trigger-metrics-schedule',
-        slug: 'daily-metrics-cron',
+        name: 'Daily Metrics Cron',
+        description: 'Run metrics pipeline every morning.',
         cron: '0 5 * * *',
         timezone: 'UTC',
+        parameters: null,
         startWindow: null,
         endWindow: null,
-        catchUp: true
+        catchUp: true,
+        nextRunAt: '2024-04-03T05:00:00.000Z',
+        isActive: true,
+        createdAt: '2024-02-04T00:00:00.000Z',
+        updatedAt: '2024-03-15T00:00:00.000Z'
       }
     ],
     assets: [
@@ -202,7 +206,7 @@ const DEMO_GRAPH: WorkflowTopologyGraph = {
       {
         kind: 'definition-trigger',
         workflowId: 'wf-metrics',
-        triggerId: 'trigger-metrics-schedule'
+        triggerId: 'trigger-metrics-definition'
       },
       {
         kind: 'schedule',

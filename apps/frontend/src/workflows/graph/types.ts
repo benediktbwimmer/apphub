@@ -15,6 +15,7 @@ import type {
 } from '@apphub/shared/workflowTopology';
 import type { AppHubSocketEvent } from '../../events/context';
 import type { WorkflowGraphFetchMeta } from '../api';
+export type { WorkflowGraphFetchMeta } from '../api';
 
 export type WorkflowGraphNodeMap<Node extends { id: string }> = Record<string, Node>;
 

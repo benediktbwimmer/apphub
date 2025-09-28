@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactElement } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import WorkflowTopologyPanel from '../WorkflowTopologyPanel';
 import { createSmallWorkflowGraphNormalized } from '../../graph/mocks';
@@ -22,11 +22,21 @@ const SAMPLE_META: WorkflowGraphFetchMeta = {
 
 const SAMPLE_GRAPH = createSmallWorkflowGraphNormalized();
 
-const meta = {
+type StoryMetadata<Component> = {
+  title: string;
+  component: Component;
+  decorators?: Array<(Story: () => ReactElement) => ReactElement>;
+};
+
+type StoryDefinition<Props> = {
+  args: Props;
+};
+
+const meta: StoryMetadata<typeof WorkflowTopologyPanel> = {
   title: 'Workflows/WorkflowTopologyPanel',
   component: WorkflowTopologyPanel,
   decorators: [
-    (Story) => (
+    (Story: () => ReactElement) => (
       <ReactFlowProvider>
         <div style={{ maxWidth: 1200 }}>
           <Story />
@@ -38,23 +48,18 @@ const meta = {
 
 export default meta;
 
-type StoryProps = ComponentProps<typeof WorkflowTopologyPanel>;
+type Story = StoryDefinition<ComponentProps<typeof WorkflowTopologyPanel>>;
 
-const Template = (args: StoryProps) => (
-  <ReactFlowProvider>
-    <WorkflowTopologyPanel {...args} />
-  </ReactFlowProvider>
-);
-
-export const Default = Template.bind({});
-Default.args = {
-  graph: SAMPLE_GRAPH,
-  graphLoading: false,
-  graphRefreshing: false,
-  graphError: null,
-  graphStale: false,
-  lastLoadedAt: new Date().toISOString(),
-  meta: SAMPLE_META,
-  onRefresh: () => undefined,
-  selection: {}
+export const Default: Story = {
+  args: {
+    graph: SAMPLE_GRAPH,
+    graphLoading: false,
+    graphRefreshing: false,
+    graphError: null,
+    graphStale: false,
+    lastLoadedAt: new Date().toISOString(),
+    meta: SAMPLE_META,
+    onRefresh: () => undefined,
+    selection: {}
+  }
 };

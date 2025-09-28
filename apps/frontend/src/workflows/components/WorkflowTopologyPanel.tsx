@@ -60,8 +60,17 @@ export function WorkflowTopologyPanel({
   selection
 }: WorkflowTopologyPanelProps) {
   const stats = graph?.stats ?? null;
-  const cacheHitRate = meta?.cache?.stats?.hitRate ?? null;
-  const cacheAgeSeconds = meta?.cache?.stats?.ageSeconds ?? null;
+  const cacheStats = meta?.cache?.stats ?? null;
+  let cacheHitRate: number | null = null;
+  if (cacheStats) {
+    const total = cacheStats.hits + cacheStats.misses;
+    if (total > 0) {
+      cacheHitRate = cacheStats.hits / total;
+    }
+  }
+  const cacheAgeSeconds = meta?.cache?.ageMs !== null && meta?.cache?.ageMs !== undefined
+    ? Math.round(meta.cache.ageMs / 1000)
+    : null;
 
   const statusMessage = useMemo(() => {
     if (graphError) {
@@ -561,8 +570,10 @@ function buildNodeDetails(
         actions.push({ label: 'View workflow', to: base });
         actions.push({ label: 'Workflow triggers', to: `${base}#triggers` });
       }
+      const title = trigger.kind === 'event' ? trigger.name ?? trigger.id : trigger.triggerType;
+
       return {
-        title: trigger.name ?? trigger.id,
+        title,
         subtitle: node.subtitle,
         description: 'description' in trigger ? trigger.description ?? null : null,
         badges: node.badges ?? [],

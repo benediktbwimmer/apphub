@@ -74,20 +74,27 @@ const SAMPLE_GRAPH: WorkflowTopologyGraph = {
         idempotencyKeyExpression: null,
         metadata: null,
         createdAt: '2024-03-01T00:00:00.000Z',
-        updatedAt: '2024-03-01T00:00:00.000Z'
+        updatedAt: '2024-03-01T00:00:00.000Z',
+        createdBy: 'etl@apphub.example',
+        updatedBy: 'etl@apphub.example'
       }
     ],
     schedules: [
       {
         id: 'schedule-1',
         workflowId: 'wf-1',
-        triggerId: 'trigger-1',
-        slug: 'wf-1-daily',
+        name: 'Daily run',
+        description: 'Ensure workflow runs daily',
         cron: '0 2 * * *',
         timezone: 'UTC',
+        parameters: null,
         startWindow: null,
         endWindow: null,
-        catchUp: false
+        catchUp: false,
+        nextRunAt: '2024-04-03T02:00:00.000Z',
+        isActive: true,
+        createdAt: '2024-03-01T00:00:00.000Z',
+        updatedAt: '2024-03-01T00:00:00.000Z'
       }
     ],
     assets: [
@@ -194,7 +201,13 @@ describe('normalizeWorkflowGraph', () => {
     expect(normalized.adjacency.assetProducers['warehouse.dataset']).toHaveLength(1);
     expect(normalized.adjacency.assetConsumers['warehouse.dataset']).toHaveLength(1);
 
-    expect(normalized.adjacency.workflowTriggerEdges['wf-1'][0]?.triggerId).toBe('trigger-1');
+    const firstWorkflowTriggerEdge = normalized.adjacency.workflowTriggerEdges['wf-1'][0];
+    expect(firstWorkflowTriggerEdge?.kind).toBe('event-trigger');
+    if (firstWorkflowTriggerEdge && firstWorkflowTriggerEdge.kind !== 'schedule') {
+      expect(firstWorkflowTriggerEdge.triggerId).toBe('trigger-1');
+    } else {
+      throw new Error('Expected an event trigger edge for wf-1');
+    }
     expect(normalized.adjacency.eventSourceTriggerEdges['source-1'][0]?.triggerId).toBe('trigger-1');
 
     expect(normalized.stats).toEqual({
