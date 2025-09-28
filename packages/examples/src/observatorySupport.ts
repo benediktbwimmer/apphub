@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
+import { resolveContainerPath as resolveSharedContainerPath, resolveHostRootMount } from './containerPaths';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types';
 
@@ -17,43 +17,10 @@ const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-daily-publication'
 ]);
 
-function resolveHostRootMount(): string | null {
-  const raw = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH;
-  if (!raw) {
-    return null;
-  }
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const resolved = path.resolve(trimmed);
-  if (!path.isAbsolute(resolved)) {
-    return null;
-  }
-  return resolved;
-}
-
 const HOST_ROOT_MOUNT = resolveHostRootMount();
 
 function resolveContainerPath(targetPath: string): string {
-  const absolute = path.resolve(targetPath);
-  if (!HOST_ROOT_MOUNT) {
-    return absolute;
-  }
-  if (existsSync(absolute)) {
-    return absolute;
-  }
-  if (
-    absolute === HOST_ROOT_MOUNT ||
-    absolute.startsWith(`${HOST_ROOT_MOUNT}${path.sep}`)
-  ) {
-    return absolute;
-  }
-  const relativeFromRoot = path.relative('/', absolute);
-  if (!relativeFromRoot || relativeFromRoot.startsWith('..')) {
-    return absolute;
-  }
-  return path.join(HOST_ROOT_MOUNT, relativeFromRoot);
+  return resolveSharedContainerPath(targetPath, { hostRoot: HOST_ROOT_MOUNT });
 }
 
 function isWithinDirectory(base: string, target: string): boolean {
