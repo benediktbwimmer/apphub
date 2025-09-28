@@ -102,6 +102,36 @@ const INVISIBLE_HANDLE_STYLE: CSSProperties = {
   pointerEvents: 'none'
 };
 
+function serializeFilters(filters?: WorkflowGraphCanvasFilters): string {
+  if (!filters) {
+    return '';
+  }
+  return Object.entries(filters)
+    .map(([key, values]) => `${key}:${[...values].sort().join('|')}`)
+    .sort()
+    .join(';');
+}
+
+function serializeSelection(selection?: WorkflowGraphCanvasSelection): string {
+  if (!selection) {
+    return '';
+  }
+  const entries: string[] = [];
+  if (selection.workflowId) {
+    entries.push(`workflow:${selection.workflowId}`);
+  }
+  if (selection.stepId) {
+    entries.push(`step:${selection.stepId}`);
+  }
+  if (selection.triggerId) {
+    entries.push(`trigger:${selection.triggerId}`);
+  }
+  if (selection.assetNormalizedId) {
+    entries.push(`asset:${selection.assetNormalizedId}`);
+  }
+  return entries.sort().join(';');
+}
+
 function useWorkflowGraphCanvasTheme(): WorkflowGraphCanvasTheme {
   const theme = useContext(WorkflowGraphCanvasThemeContext);
   if (!theme) {
@@ -529,6 +559,10 @@ export function WorkflowGraphCanvas({
   const mergedTheme = useMemo(() => mergeTheme(baseTheme, theme), [baseTheme, theme]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [tooltip, setTooltip] = useState<WorkflowGraphCanvasTooltip | null>(null);
+  const shouldAutoFitRef = useRef(true);
+  const filtersSignatureRef = useRef<string>('');
+  const selectionSignatureRef = useRef<string>('');
+  const searchSignatureRef = useRef<string | null>(null);
 
   const model = useMemo(() => {
     if (!graph) {
@@ -637,6 +671,38 @@ export function WorkflowGraphCanvas({
   const interactive = interactionMode === 'interactive';
   const hasRenderableNodes = Boolean(resolvedModel && resolvedModel.nodes.length > 0);
   const showLoadingOverlay = loading && !hasRenderableNodes;
+
+  useEffect(() => {
+    if (!autoFit) {
+      return;
+    }
+    const nextFiltersSignature = serializeFilters(filters);
+    const nextSelectionSignature = serializeSelection(selection);
+    const nextSearchSignature = searchTerm ?? null;
+
+    if (
+      shouldAutoFitRef.current === false &&
+      (filtersSignatureRef.current !== nextFiltersSignature ||
+        selectionSignatureRef.current !== nextSelectionSignature ||
+        searchSignatureRef.current !== nextSearchSignature)
+    ) {
+      shouldAutoFitRef.current = true;
+    }
+
+    filtersSignatureRef.current = nextFiltersSignature;
+    selectionSignatureRef.current = nextSelectionSignature;
+    searchSignatureRef.current = nextSearchSignature;
+  }, [autoFit, filters, selection, searchTerm]);
+
+  useEffect(() => {
+    if (!autoFit) {
+      return;
+    }
+    if (!resolvedModel || resolvedModel.nodes.length > 0) {
+      return;
+    }
+    shouldAutoFitRef.current = true;
+  }, [autoFit, resolvedModel]);
 
   const panBy = useCallback(
     (deltaX: number, deltaY: number, duration = 160) => {
@@ -768,9 +834,13 @@ export function WorkflowGraphCanvas({
     if (!instance || !resolvedModel || !autoFit || resolvedModel.nodes.length === 0) {
       return;
     }
+    if (!shouldAutoFitRef.current) {
+      return;
+    }
     const id = window.setTimeout(() => {
       instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true });
     }, 16);
+    shouldAutoFitRef.current = false;
     return () => {
       window.clearTimeout(id);
     };

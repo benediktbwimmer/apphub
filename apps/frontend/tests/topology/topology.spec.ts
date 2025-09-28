@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { createSmallWorkflowGraph } from '../../src/workflows/graph/mocks';
 
 const graphFixture = createSmallWorkflowGraph();
@@ -101,6 +101,24 @@ async function waitForTopologyRender(page: Page) {
   const canvasRegion = page.getByRole('region', { name: 'Workflow topology graph canvas' });
   await expect(canvasRegion).toBeVisible();
   return canvasRegion;
+}
+
+type ViewportState = {
+  x: number;
+  y: number;
+  zoom: number;
+};
+
+async function readViewportState(canvasRegion: Locator): Promise<ViewportState> {
+  return canvasRegion.locator('.react-flow__viewport').evaluate((element) => {
+    const computed = window.getComputedStyle(element);
+    const matrix = new DOMMatrixReadOnly(computed.transform);
+    return {
+      x: Math.round(matrix.m41 * 100) / 100,
+      y: Math.round(matrix.m42 * 100) / 100,
+      zoom: Math.round(matrix.a * 1000) / 1000
+    } as ViewportState;
+  });
 }
 
 test.describe('Workflow topology explorer', () => {
@@ -298,6 +316,12 @@ test.describe('Workflow topology explorer', () => {
     const nodes = canvasRegion.locator('.react-flow__node');
     await expect(nodes).toHaveCount(totalNodeCount);
 
+    const initialViewport = await readViewportState(canvasRegion);
+    await page.getByRole('button', { name: 'Zoom in' }).click();
+    await page.waitForTimeout(150);
+    const zoomedViewport = await readViewportState(canvasRegion);
+    expect(zoomedViewport.zoom).toBeGreaterThan(initialViewport.zoom);
+
     await page.evaluate(() => {
       window.__apphubSocketEmit?.({
         type: 'workflow.definition.updated',
@@ -315,6 +339,12 @@ test.describe('Workflow topology explorer', () => {
       resolveRefresh?.();
     }
 
+    await page.waitForTimeout(120);
+
     await expect(nodes).toHaveCount(totalNodeCount);
+    const finalViewport = await readViewportState(canvasRegion);
+    expect(finalViewport.zoom).toBeCloseTo(zoomedViewport.zoom, 3);
+    expect(finalViewport.x).toBeCloseTo(zoomedViewport.x, 1);
+    expect(finalViewport.y).toBeCloseTo(zoomedViewport.y, 1);
   });
 });
