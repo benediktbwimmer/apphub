@@ -272,7 +272,7 @@ export async function getRetryBacklogSnapshot(
       }>(
         `SELECT s.id,
                 s.workflow_run_id,
-                s.workflow_definition_id,
+                wr.workflow_definition_id AS workflow_definition_id,
                 s.step_id,
                 s.status,
                 s.attempt,
@@ -285,7 +285,8 @@ export async function getRetryBacklogSnapshot(
                 s.updated_at,
                 wd.slug AS workflow_slug
            FROM workflow_run_steps s
-           LEFT JOIN workflow_definitions wd ON wd.id = s.workflow_definition_id
+           JOIN workflow_runs wr ON wr.id = s.workflow_run_id
+           LEFT JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
           WHERE s.retry_state = 'scheduled'
           ORDER BY s.next_attempt_at ASC NULLS LAST
           LIMIT $1`,

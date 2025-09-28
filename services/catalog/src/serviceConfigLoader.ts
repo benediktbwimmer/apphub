@@ -944,6 +944,10 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
 
   if (config.manifests?.length) {
     for (const manifest of config.manifests) {
+      if (manifest.kind === 'bundle') {
+        // Bundles are handled by the job importer; skip them here so service manifest imports do not fail.
+        continue;
+      }
       await loadManifestFile(manifest.path);
     }
   }
