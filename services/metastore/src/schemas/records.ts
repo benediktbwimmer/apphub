@@ -43,7 +43,7 @@ const ownerSchema = z
   .max(256)
   .optional();
 
-const schemaHashSchema = z
+export const schemaHashSchema = z
   .string()
   .min(6)
   .max(256)

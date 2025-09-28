@@ -38,6 +38,12 @@ export type ServiceConfig = {
     inline: boolean;
     stallThresholdSeconds: number;
   };
+  schemaRegistry: {
+    cacheTtlMs: number;
+    negativeCacheTtlMs: number;
+    refreshAheadMs: number;
+    refreshIntervalMs: number;
+  };
 };
 
 export type SearchPresetDefinition = {
@@ -351,6 +357,28 @@ export function loadServiceConfig(): ServiceConfig {
   );
   const stallThresholdSeconds = stallThresholdCandidate > 0 ? stallThresholdCandidate : 60;
 
+  const schemaCacheTtlSeconds = parseNumber(process.env.APPHUB_METASTORE_SCHEMA_CACHE_TTL_SECONDS, 300);
+  const schemaCacheNegativeTtlSeconds = parseNumber(
+    process.env.APPHUB_METASTORE_SCHEMA_CACHE_NEGATIVE_TTL_SECONDS,
+    60
+  );
+  const schemaCacheRefreshAheadSeconds = parseNumber(
+    process.env.APPHUB_METASTORE_SCHEMA_CACHE_REFRESH_AHEAD_SECONDS,
+    60
+  );
+  const schemaCacheRefreshIntervalSeconds = parseNumber(
+    process.env.APPHUB_METASTORE_SCHEMA_CACHE_REFRESH_INTERVAL_SECONDS,
+    30
+  );
+
+  const cacheTtlMs = schemaCacheTtlSeconds > 0 ? schemaCacheTtlSeconds * 1000 : 0;
+  const negativeCacheTtlMs = schemaCacheNegativeTtlSeconds > 0 ? schemaCacheNegativeTtlSeconds * 1000 : 0;
+  const refreshAheadMs = schemaCacheRefreshAheadSeconds > 0 ? schemaCacheRefreshAheadSeconds * 1000 : 0;
+  const refreshIntervalCandidateMs = schemaCacheRefreshIntervalSeconds > 0
+    ? schemaCacheRefreshIntervalSeconds * 1000
+    : 30_000;
+  const refreshIntervalMs = Math.max(1_000, refreshIntervalCandidateMs);
+
   cachedConfig = {
     host,
     port,
@@ -373,6 +401,12 @@ export function loadServiceConfig(): ServiceConfig {
       retryDelayMs,
       inline,
       stallThresholdSeconds
+    },
+    schemaRegistry: {
+      cacheTtlMs,
+      negativeCacheTtlMs,
+      refreshAheadMs,
+      refreshIntervalMs
     }
   } satisfies ServiceConfig;
 

@@ -12,6 +12,8 @@ export type MetastoreMetrics = {
   filestoreLagSeconds: Gauge<string>;
   filestoreStalled: Gauge<string>;
   filestoreRetryTotal: Counter<string>;
+  schemaRegistryCacheHitsTotal: Counter<string>;
+  schemaRegistryCacheMissesTotal: Counter<string>;
   enabled: boolean;
 };
 
@@ -100,6 +102,20 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     registers: registry ? [registry] : undefined
   });
 
+  const schemaRegistryCacheHitsTotal = new Counter({
+    name: 'metastore_schema_cache_hits_total',
+    help: 'Total number of schema registry cache hits',
+    labelNames: ['kind'],
+    registers: registry ? [registry] : undefined
+  });
+
+  const schemaRegistryCacheMissesTotal = new Counter({
+    name: 'metastore_schema_cache_misses_total',
+    help: 'Total number of schema registry cache misses',
+    labelNames: ['reason'],
+    registers: registry ? [registry] : undefined
+  });
+
   recordStreamSubscribers.labels('sse').set(0);
   recordStreamSubscribers.labels('websocket').set(0);
   recordStreamSubscribers.labels('total').set(0);
@@ -107,6 +123,10 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
   filestoreStalled.set(0);
   filestoreRetryTotal.labels('connect').inc(0);
   filestoreRetryTotal.labels('processing').inc(0);
+  schemaRegistryCacheHitsTotal.labels('positive').inc(0);
+  schemaRegistryCacheHitsTotal.labels('negative').inc(0);
+  schemaRegistryCacheMissesTotal.labels('cold').inc(0);
+  schemaRegistryCacheMissesTotal.labels('expired').inc(0);
 
   app.decorate('metrics', {
     registry,
@@ -119,6 +139,8 @@ export const metricsPlugin = fp<MetricsPluginOptions>(async (app, options) => {
     filestoreLagSeconds,
     filestoreStalled,
     filestoreRetryTotal,
+    schemaRegistryCacheHitsTotal,
+    schemaRegistryCacheMissesTotal,
     enabled
   });
 

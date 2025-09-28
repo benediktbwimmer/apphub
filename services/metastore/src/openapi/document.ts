@@ -83,7 +83,8 @@ export const openApiDocument: OpenAPIV3.Document = {
     {
       name: 'Filestore',
       description: 'Filestore sync health and lag monitoring'
-    }
+    },
+    { name: 'Schemas', description: 'Schema registry introspection and administration' }
   ],
   paths: {
     '/records': {
@@ -201,6 +202,101 @@ export const openApiDocument: OpenAPIV3.Document = {
               }
             }
           },
+          '403': { description: 'Forbidden' }
+        }
+      }
+    },
+    '/schemas/{hash}': {
+      get: {
+        tags: ['Schemas'],
+        summary: 'Fetch schema definition by hash',
+        operationId: 'getSchemaDefinition',
+        parameters: [
+          {
+            name: 'hash',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'Schema hash (for example, sha256:...)'
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Schema definition for the supplied hash',
+            headers: {
+              'Cache-Control': {
+                schema: { type: 'string' },
+                description: 'Caching directives for schema consumers'
+              }
+            },
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/SchemaDefinition' },
+                    {
+                      type: 'object',
+                      required: ['cache'],
+                      properties: {
+                        cache: { type: 'string', enum: ['cache', 'database'] }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          '400': { description: 'Invalid schema hash' },
+          '403': { description: 'Forbidden' },
+          '404': { description: 'Schema not registered' }
+        }
+      }
+    },
+    '/admin/schemas': {
+      post: {
+        tags: ['Schemas'],
+        summary: 'Register or update a schema definition',
+        operationId: 'registerSchemaDefinition',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SchemaDefinitionInput' }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Schema definition updated',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['created', 'schema'],
+                  properties: {
+                    created: { type: 'boolean' },
+                    schema: { $ref: '#/components/schemas/SchemaDefinition' }
+                  }
+                }
+              }
+            }
+          },
+          '201': {
+            description: 'Schema definition created',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['created', 'schema'],
+                  properties: {
+                    created: { type: 'boolean' },
+                    schema: { $ref: '#/components/schemas/SchemaDefinition' }
+                  }
+                }
+              }
+            }
+          },
+          '400': { description: 'Invalid schema definition payload' },
           '403': { description: 'Forbidden' }
         }
       }
@@ -832,6 +928,54 @@ export const openApiDocument: OpenAPIV3.Document = {
         additionalProperties: false
       },
       MetastoreRecord: recordSchema,
+      SchemaFieldDefinition: {
+        type: 'object',
+        required: ['path', 'type'],
+        properties: {
+          path: { type: 'string' },
+          type: { type: 'string' },
+          description: { type: 'string', nullable: true },
+          required: { type: 'boolean' },
+          repeated: { type: 'boolean' },
+          constraints: { type: 'object', additionalProperties: true },
+          hints: { type: 'object', additionalProperties: true },
+          examples: { type: 'array', items: {} },
+          metadata: { type: 'object', additionalProperties: true }
+        },
+        additionalProperties: false
+      },
+      SchemaDefinitionInput: {
+        type: 'object',
+        required: ['schemaHash', 'fields'],
+        properties: {
+          schemaHash: { type: 'string' },
+          name: { type: 'string', nullable: true },
+          description: { type: 'string', nullable: true },
+          version: {
+            oneOf: [{ type: 'string' }, { type: 'number' }],
+            nullable: true
+          },
+          metadata: { type: 'object', additionalProperties: true, nullable: true },
+          fields: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/SchemaFieldDefinition' }
+          }
+        },
+        additionalProperties: false
+      },
+      SchemaDefinition: {
+        allOf: [
+          { $ref: '#/components/schemas/SchemaDefinitionInput' },
+          {
+            type: 'object',
+            required: ['schemaHash', 'fields', 'createdAt', 'updatedAt'],
+            properties: {
+              createdAt: { type: 'string', format: 'date-time' },
+              updatedAt: { type: 'string', format: 'date-time' }
+            }
+          }
+        ]
+      },
       SearchFilter: searchFilterSchema,
       FilestoreHealth: {
         type: 'object',

@@ -15,6 +15,12 @@ import { registerAdminRoutes } from './routes/admin';
 import { registerStreamRoutes } from './routes/stream';
 import { registerFilestoreRoutes } from './routes/filestore';
 import { initializeFilestoreSync, shutdownFilestoreSync } from './filestore/consumer';
+import { registerSchemaRoutes } from './routes/schemas';
+import {
+  configureSchemaRegistry,
+  startSchemaRegistryRefresh,
+  stopSchemaRegistryRefresh
+} from './schemaRegistry/service';
 
 export type BuildAppOptions = {
   config?: ReturnType<typeof loadServiceConfig>;
@@ -58,22 +64,32 @@ export async function buildApp(options?: BuildAppOptions) {
   await app.register(authPlugin, { config });
   await app.register(metricsPlugin, { enabled: config.metricsEnabled });
 
+  configureSchemaRegistry({
+    ttlMs: config.schemaRegistry.cacheTtlMs,
+    refreshAheadMs: config.schemaRegistry.refreshAheadMs,
+    refreshIntervalMs: config.schemaRegistry.refreshIntervalMs,
+    negativeTtlMs: config.schemaRegistry.negativeCacheTtlMs
+  });
+
   await registerSystemRoutes(app);
   await registerRecordRoutes(app, config);
   await registerNamespaceRoutes(app);
   await registerAdminRoutes(app);
   await registerFilestoreRoutes(app);
   await registerStreamRoutes(app);
+  await registerSchemaRoutes(app, config);
 
   app.get('/openapi.json', async () => openApiDocument);
 
   app.addHook('onReady', async () => {
     await ensureSchemaReady();
     await initializeFilestoreSync({ config, logger: app.log, metrics: app.metrics });
+    startSchemaRegistryRefresh(app.log);
   });
 
   app.addHook('onClose', async () => {
     await shutdownFilestoreSync();
+    stopSchemaRegistryRefresh();
     await closePool();
   });
 

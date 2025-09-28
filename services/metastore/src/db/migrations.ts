@@ -69,6 +69,19 @@ const migrations: Migration[] = [
       `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS schema_hash TEXT;`,
       `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS previous_schema_hash TEXT;`
     ]
+  },
+  {
+    id: '003_metastore_schema_registry',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS metastore_schema_registry (
+         schema_hash TEXT PRIMARY KEY,
+         definition JSONB NOT NULL,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_metastore_schema_registry_updated
+         ON metastore_schema_registry(updated_at DESC);`
+    ]
   }
 ];
 

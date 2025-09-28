@@ -129,4 +129,13 @@ runE2E(async ({ registerCleanup }) => {
   });
 
   assert.equal(tableSchema, 'metastore');
+
+  const schemaRegistrySchema = await withConnection(async (client) => {
+    const { rows } = await client.query<{ schemaname: string }>(
+      `SELECT schemaname FROM pg_tables WHERE tablename = 'metastore_schema_registry'`
+    );
+    return rows[0]?.schemaname;
+  });
+
+  assert.equal(schemaRegistrySchema, 'metastore');
 }, { name: 'metastore-auto-migrations' });

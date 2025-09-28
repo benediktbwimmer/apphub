@@ -10,6 +10,7 @@
     "lint": "tsc -b --pretty false",
     "start": "node dist/server.js",
     "migrate": "tsx src/scripts/runMigrations.ts",
+    "register-schema": "tsx src/scripts/registerSchema.ts",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --import tsx --test tests/unit/*.test.ts",
     "test:integration": "tsx tests/integration/*.test.ts"
