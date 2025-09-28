@@ -11,6 +11,10 @@ import type {
 } from './runner';
 import { SandboxCrashError, SandboxTimeoutError } from './runner';
 import type { SandboxChildMessage, SandboxParentMessage } from './messages';
+import {
+  serializeWorkflowEventContext,
+  WORKFLOW_EVENT_CONTEXT_ENV
+} from '../../workflowEventContext';
 
 const DEFAULT_MAX_SANDBOX_LOGS = Number(process.env.APPHUB_JOB_BUNDLE_SANDBOX_MAX_LOGS ?? 200);
 
@@ -101,6 +105,11 @@ export class PythonSandboxRunner {
     };
     if (shouldPrefixHostPaths && hostRootPrefix) {
       childEnv.APPHUB_SANDBOX_HOST_ROOT_PREFIX = hostRootPrefix;
+    }
+    if (options.workflowEventContext) {
+      childEnv[WORKFLOW_EVENT_CONTEXT_ENV] = serializeWorkflowEventContext(
+        options.workflowEventContext
+      );
     }
 
     const harness = resolvePythonHarnessPath();
@@ -374,7 +383,8 @@ export class PythonSandboxRunner {
             run: sanitizeForIpc(options.run),
             parameters: sanitizeForIpc(options.parameters ?? null),
             timeoutMs: options.timeoutMs ?? null
-          }
+          },
+          workflowEventContext: sanitizeForIpc(options.workflowEventContext ?? null)
         }
       };
 

@@ -41,6 +41,7 @@ import {
   executeJobRun,
   WORKFLOW_BUNDLE_CONTEXT_KEY
 } from './jobs/runtime';
+import { runWithWorkflowEventContext } from './workflowEventContext';
 import { scheduleWorkflowRetryJob } from './queue';
 import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
@@ -2190,7 +2191,16 @@ async function executeJobStep(
     }
   );
 
-  const executed = await executeJobRun(jobRun.id);
+  const executed = await runWithWorkflowEventContext(
+    {
+      workflowDefinitionId: definition.id,
+      workflowRunId: run.id,
+      workflowRunStepId: stepRecord.id,
+      jobRunId: jobRun.id,
+      jobSlug: step.jobSlug
+    },
+    () => executeJobRun(jobRun.id)
+  );
   if (!executed) {
     throw new Error(`Job run ${jobRun.id} not found after execution`);
   }

@@ -42,6 +42,18 @@ await publisher.publish({
 - `EVENT_INGRESS_CONCURRENCY` tunes worker parallelism (default `5`).
 - `APPHUB_EVENTS_MODE=inline` keeps publishing synchronous and skips the dedicated worker—useful for local development.
 
+### Workflow Event Context
+
+Workflow job executions now carry a lightweight context payload so downstream publishers can link emitted events back to their workflow topology. The orchestrator seeds an AsyncLocalStorage scope with
+
+- `workflowDefinitionId`
+- `workflowRunId`
+- `workflowRunStepId`
+- `jobRunId`
+- `jobSlug`
+
+Node handlers running in-process can call `getWorkflowEventContext()` from `@apphub/catalog/jobs/runtime` to read the current store. Sandbox and Docker adapters serialize the same payload into the `APPHUB_WORKFLOW_EVENT_CONTEXT` environment variable; the sandbox context object also exposes `workflowEventContext` plus `getWorkflowEventContext()` (Python bundles receive matching attributes) for convenience. Child bootstrap code keeps the AsyncLocalStorage scope active so downstream imports resolve the same data.
+
 ## Ingress Worker & Persistence
 
 The catalog worker (`npm run events --workspace @apphub/catalog`) consumes the queue and writes into `workflow_events`:

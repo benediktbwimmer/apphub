@@ -36,6 +36,9 @@ import { safeParseDockerJobMetadata } from './dockerMetadata';
 import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
 import { resolveJobRuntime, type JobRuntimeKind } from './runtimeKind';
 import { mergeJsonObjects, asJsonObject } from './jsonMerge';
+import { getWorkflowEventContext, type WorkflowEventContext } from '../workflowEventContext';
+
+export { getWorkflowEventContext } from '../workflowEventContext';
 
 const handlers = new Map<string, JobHandler>();
 
@@ -174,6 +177,7 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
   }
 
   const runtimeKind = resolveJobRuntime(definition);
+  const workflowEventContext = getWorkflowEventContext();
 
   if (!staticHandler && !bundleBinding && runtimeKind !== 'docker') {
     await completeJobRun(runId, 'failed', {
@@ -303,7 +307,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         timeoutMs,
         logger: context.logger,
         update: context.update,
-        resolveSecret: context.resolveSecret
+        resolveSecret: context.resolveSecret,
+        workflowEventContext
       });
 
       const metricsRecord = asJsonObject(execution.jobResult.metrics);
@@ -360,7 +365,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
           binding: bundleBinding,
           context,
           definition,
-          run: latestRun
+          run: latestRun,
+          workflowEventContext
         });
         sandboxTelemetry = dynamic.telemetry;
         handlerResult = dynamic.result;
@@ -403,7 +409,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
           binding: bundleBinding,
           context,
           definition,
-          run: latestRun
+          run: latestRun,
+          workflowEventContext
         });
         sandboxTelemetry = dynamic.telemetry;
         handlerResult = dynamic.result;
@@ -488,6 +495,7 @@ type DynamicExecutionParams = {
   context: JobRunContext;
   definition: JobDefinitionRecord;
   run: JobRunRecord;
+  workflowEventContext: WorkflowEventContext | null;
 };
 
 async function executeDynamicHandler(params: DynamicExecutionParams): Promise<DynamicExecutionOutcome> {
@@ -566,7 +574,8 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
           runtime: runtimeKind
         }),
       update: context.update,
-      resolveSecret: context.resolveSecret
+      resolveSecret: context.resolveSecret,
+      workflowEventContext: params.workflowEventContext
     });
 
     context.logger('Sandbox execution finished', {

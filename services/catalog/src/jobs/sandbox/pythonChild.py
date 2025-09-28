@@ -19,6 +19,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 HOST_ROOT_PREFIX_ENV = "APPHUB_SANDBOX_HOST_ROOT_PREFIX"
+WORKFLOW_EVENT_CONTEXT_ENV = "APPHUB_WORKFLOW_EVENT_CONTEXT"
 
 message_queue: Optional["asyncio.Queue[Dict[str, Any]]"] = None
 pending_requests: Dict[str, Tuple[str, asyncio.Future[Any]]] = {}
@@ -391,10 +392,16 @@ class JobContext:
         self.run = payload["job"]["run"]
         self.parameters = payload["job"]["parameters"]
         self._task_id = task_id
+        workflow_context = payload.get("workflowEventContext")
+        self.workflowEventContext = workflow_context
+        self.workflow_event_context = workflow_context
 
     def logger(self, message: str, meta: Optional[Dict[str, Any]] = None) -> None:
         normalized = normalize_meta(self._task_id, meta) or {"sandboxTaskId": self._task_id}
         send_message({"type": "log", "level": "info", "message": message, "meta": normalized})
+
+    def getWorkflowEventContext(self) -> Any:
+        return self.workflowEventContext
 
     async def update(self, updates: Dict[str, Any]) -> Any:
         request_id = str(uuid.uuid4())
@@ -424,6 +431,9 @@ class JobContext:
 
     async def resolve_secret(self, reference: Dict[str, Any]) -> Optional[str]:
         return await self.resolveSecret(reference)
+
+    def get_workflow_event_context(self) -> Any:
+        return self.getWorkflowEventContext()
 
 
 def normalize_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -535,6 +545,14 @@ async def execute_start(payload: Dict[str, Any]) -> None:
     bundle_dir = bundle["directory"]
     entry_file = os.path.realpath(bundle["entryFile"])
     ensure_within_bundle(bundle_dir, entry_file)
+
+    workflow_context = payload.get("workflowEventContext")
+    if workflow_context is not None:
+        try:
+            serialized = json.dumps(workflow_context, separators=(",", ":"), ensure_ascii=False)
+            os.environ[WORKFLOW_EVENT_CONTEXT_ENV] = serialized
+        except Exception:
+            os.environ.pop(WORKFLOW_EVENT_CONTEXT_ENV, None)
 
     os.chdir(bundle_dir)
     capabilities = bundle.get("manifest", {}).get("capabilities") or []

@@ -5,6 +5,7 @@ import type {
   SecretReference
 } from '../../db/types';
 import type { JobResult } from '../runtime';
+import type { WorkflowEventContext } from '../../workflowEventContext';
 
 export type SandboxCapability = string;
 
@@ -32,6 +33,7 @@ export type SandboxStartPayload = {
     parameters: JsonValue;
     timeoutMs?: number | null;
   };
+  workflowEventContext?: WorkflowEventContext | null;
 };
 
 export type SandboxParentMessage =

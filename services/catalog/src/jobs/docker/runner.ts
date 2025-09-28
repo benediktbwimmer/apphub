@@ -24,6 +24,11 @@ import type {
   SecretReference
 } from '../../db/types';
 import type { JobResult } from '../runtime';
+import {
+  serializeWorkflowEventContext,
+  WORKFLOW_EVENT_CONTEXT_ENV,
+  type WorkflowEventContext
+} from '../../workflowEventContext';
 
 const DEFAULT_LOG_LIMIT = Math.max(
   1024,
@@ -286,6 +291,7 @@ async function buildDockerCommand(options: {
   resolveSecret: (reference: SecretReference) => string | null | Promise<string | null>;
   logger: (message: string, meta?: Record<string, unknown>) => void;
   config: DockerRuntimeConfig;
+  workflowEventContext: WorkflowEventContext | null;
 }): Promise<DockerCommandPlan> {
   const containerName = buildContainerName(options.definition, options.run);
   const args: string[] = ['run', '--rm', '--name', containerName];
@@ -329,6 +335,10 @@ async function buildDockerCommand(options: {
       value = resolved;
     }
     args.push('-e', `${name}=${value ?? ''}`);
+  }
+  if (options.workflowEventContext) {
+    const serialized = serializeWorkflowEventContext(options.workflowEventContext);
+    args.push('-e', `${WORKFLOW_EVENT_CONTEXT_ENV}=${serialized}`);
   }
   let configMountPath: string | null = null;
   if (options.metadata.configFile) {
@@ -588,6 +598,7 @@ export class DockerJobRunner {
       }
     ) => Promise<JobRunRecord>;
     resolveSecret: (reference: SecretReference) => string | null | Promise<string | null>;
+    workflowEventContext: WorkflowEventContext | null;
   }): Promise<DockerExecutionResult> {
     const runtimeConfig = getDockerRuntimeConfig();
     const workspace = await ensureWorkspace(options.run.id, runtimeConfig.workspaceRoot);
@@ -658,6 +669,7 @@ export class DockerJobRunner {
         resolveSecret: options.resolveSecret,
         logger: options.logger,
         config: runtimeConfig,
+        workflowEventContext: options.workflowEventContext,
       });
       containerName = commandPlan.containerName;
 

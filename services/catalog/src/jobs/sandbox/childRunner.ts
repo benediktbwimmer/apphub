@@ -6,6 +6,13 @@ import fs from 'node:fs';
 import type { SandboxParentMessage, SandboxChildMessage, SandboxStartPayload } from './messages';
 import type { SecretReference, JsonValue } from '../../db/types';
 import type { JobResult } from '../runtime';
+import {
+  parseWorkflowEventContext,
+  runWithWorkflowEventContext,
+  serializeWorkflowEventContext,
+  WORKFLOW_EVENT_CONTEXT_ENV,
+  type WorkflowEventContext
+} from '../../workflowEventContext';
 
 const builtinModules = new Set(Module.builtinModules);
 for (const name of Module.builtinModules) {
@@ -558,6 +565,29 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
   }
   invocationParams.parameters = context.parameters;
 
+  const resolveWorkflowEventContext = (): WorkflowEventContext | null => {
+    let parsedContext: WorkflowEventContext | null = null;
+    if (payload.workflowEventContext) {
+      try {
+        const serialized = JSON.stringify(payload.workflowEventContext);
+        parsedContext = parseWorkflowEventContext(serialized);
+      } catch {
+        parsedContext = null;
+      }
+    }
+    if (!parsedContext) {
+      parsedContext = parseWorkflowEventContext(process.env[WORKFLOW_EVENT_CONTEXT_ENV] ?? null);
+    }
+    return parsedContext;
+  };
+
+  const workflowEventContext = resolveWorkflowEventContext();
+  if (workflowEventContext && !process.env[WORKFLOW_EVENT_CONTEXT_ENV]) {
+    process.env[WORKFLOW_EVENT_CONTEXT_ENV] = serializeWorkflowEventContext(workflowEventContext);
+  }
+  (context as Record<string, unknown>).workflowEventContext = workflowEventContext;
+  (context as Record<string, unknown>).getWorkflowEventContext = () => workflowEventContext;
+
   const normalizeJobResult = (value: unknown): JobResult => {
     if (value === null || value === undefined) {
       return {} satisfies JobResult;
@@ -583,12 +613,16 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
   };
 
   try {
-    const handlerOutput = await Promise.resolve(
-      (handler as (params: Record<string, unknown>, ctx: typeof context) => unknown)(
-        invocationParams,
-        context
-      )
-    );
+    const invokeHandler = () =>
+      Promise.resolve(
+        (handler as (params: Record<string, unknown>, ctx: typeof context) => unknown)(
+          invocationParams,
+          context
+        )
+      );
+    const handlerOutput = workflowEventContext
+      ? await runWithWorkflowEventContext(workflowEventContext, invokeHandler)
+      : await invokeHandler();
     const jobResult = sanitizeForIpc(normalizeJobResult(handlerOutput));
     const durationMs = Date.now() - startTime;
     send({
