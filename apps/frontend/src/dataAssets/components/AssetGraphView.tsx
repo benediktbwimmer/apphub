@@ -1,8 +1,9 @@
 import { useMemo, type JSX } from 'react';
-import ReactFlow, { Background, Controls, type Edge, type Node } from 'reactflow';
+import ReactFlow, { Background, Controls, MarkerType, type Edge, type Node } from 'reactflow';
 import dagre from 'dagre';
 import type { AssetGraphData } from '../types';
 import 'reactflow/dist/style.css';
+import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 
 type AssetGraphViewProps = {
   data: AssetGraphData | null;
@@ -12,6 +13,79 @@ type AssetGraphViewProps = {
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 90;
+
+type NodeVisualTokens = {
+  border: string;
+  background: string;
+  shadow: string;
+};
+
+const LIGHT_NODE_BASE: NodeVisualTokens = {
+  border: '1px solid rgba(148, 163, 184, 0.6)',
+  background: '#ffffff',
+  shadow: '0 18px 32px -24px rgba(15, 23, 42, 0.45)'
+};
+
+const LIGHT_NODE_OUTDATED: NodeVisualTokens = {
+  border: '2px solid #0ea5e9',
+  background: 'rgba(224, 242, 254, 0.65)',
+  shadow: '0 22px 40px -28px rgba(14, 165, 233, 0.45)'
+};
+
+const LIGHT_NODE_STALE: NodeVisualTokens = {
+  border: '2px solid #f97316',
+  background: 'rgba(254, 215, 170, 0.35)',
+  shadow: '0 22px 40px -28px rgba(249, 115, 22, 0.4)'
+};
+
+const DARK_NODE_BASE: NodeVisualTokens = {
+  border: '1px solid rgba(148, 163, 184, 0.45)',
+  background: 'rgba(15, 23, 42, 0.78)',
+  shadow: '0 28px 48px -32px rgba(15, 23, 42, 0.85)'
+};
+
+const DARK_NODE_OUTDATED: NodeVisualTokens = {
+  border: '2px solid rgba(56, 189, 248, 0.85)',
+  background: 'rgba(14, 165, 233, 0.18)',
+  shadow: '0 28px 48px -30px rgba(14, 165, 233, 0.55)'
+};
+
+const DARK_NODE_STALE: NodeVisualTokens = {
+  border: '2px solid rgba(251, 146, 60, 0.85)',
+  background: 'rgba(249, 115, 22, 0.22)',
+  shadow: '0 28px 48px -30px rgba(251, 146, 60, 0.55)'
+};
+
+function resolveNodeTokens(
+  hasStalePartitions: boolean,
+  hasOutdatedUpstreams: boolean,
+  darkMode: boolean
+): NodeVisualTokens {
+  if (hasStalePartitions) {
+    return darkMode ? DARK_NODE_STALE : LIGHT_NODE_STALE;
+  }
+  if (hasOutdatedUpstreams) {
+    return darkMode ? DARK_NODE_OUTDATED : LIGHT_NODE_OUTDATED;
+  }
+  return darkMode ? DARK_NODE_BASE : LIGHT_NODE_BASE;
+}
+
+function buildGraphKey(data: AssetGraphData | null, darkMode: boolean): string {
+  if (!data) {
+    return `empty-${darkMode ? 'dark' : 'light'}`;
+  }
+  const assetKey = data.assets
+    .map((asset) => asset.normalizedAssetId)
+    .sort()
+    .join('|');
+  const edgeKey = data.edges
+    .map(
+      (edge) => `${edge.fromAssetNormalizedId}->${edge.toAssetNormalizedId}@${edge.workflowId}:${edge.stepId}`
+    )
+    .sort()
+    .join('|');
+  return `${darkMode ? 'dark' : 'light'}:${assetKey}::${edgeKey}`;
+}
 
 function layoutGraph(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
   const dagreGraph = new dagre.graphlib.Graph();
@@ -45,10 +119,19 @@ function layoutGraph(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge
 }
 
 export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGraphViewProps) {
+  const isDarkMode = useIsDarkMode();
   const { nodes, edges } = useMemo(() => {
     if (!data) {
       return { nodes: [] as Node[], edges: [] as Edge[] };
     }
+
+    const edgeStroke = isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(71, 85, 105, 0.8)';
+    const edgeLabelBgStyle = isDarkMode
+      ? { fill: 'rgba(15, 23, 42, 0.92)', stroke: 'rgba(51, 65, 85, 0.85)' }
+      : { fill: '#f8fafc', stroke: '#e2e8f0' };
+    const edgeLabelStyle = {
+      color: isDarkMode ? '#e2e8f0' : '#334155'
+    };
 
     const coreNodes: Node[] = data.assets.map((asset) => {
       const badges: JSX.Element[] = [];
@@ -73,16 +156,7 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
         );
       }
 
-      const border = asset.hasStalePartitions
-        ? '2px solid #f97316'
-        : asset.hasOutdatedUpstreams
-          ? '2px solid #0ea5e9'
-          : '1px solid rgba(148, 163, 184, 0.6)';
-      const background = asset.hasStalePartitions
-        ? 'rgba(254, 215, 170, 0.3)'
-        : asset.hasOutdatedUpstreams
-          ? 'rgba(224, 242, 254, 0.6)'
-          : '#ffffff';
+      const tokens = resolveNodeTokens(asset.hasStalePartitions, asset.hasOutdatedUpstreams, isDarkMode);
 
       return {
         id: asset.normalizedAssetId,
@@ -111,10 +185,11 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
           width: NODE_WIDTH,
           height: NODE_HEIGHT,
           borderRadius: 18,
-          border,
-          background,
-          boxShadow: '0 18px 32px -24px rgba(15, 23, 42, 0.45)',
-          padding: 12
+          border: tokens.border,
+          background: tokens.background,
+          boxShadow: tokens.shadow,
+          padding: 12,
+          transition: 'border 120ms ease, box-shadow 120ms ease'
         }
       } satisfies Node;
     });
@@ -126,12 +201,21 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
       label: `${edge.workflowSlug} · ${edge.stepName}`,
       labelBgPadding: [6, 3],
       labelBgBorderRadius: 6,
-      labelBgStyle: { fill: '#f8fafc', stroke: '#e2e8f0' },
-      style: { strokeWidth: 1.5 }
+      labelBgStyle: edgeLabelBgStyle,
+      labelStyle: edgeLabelStyle,
+      style: { strokeWidth: 1.5, stroke: edgeStroke },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 20,
+        height: 20,
+        color: edgeStroke
+      }
     }));
 
     return layoutGraph(coreNodes, coreEdges);
-  }, [data]);
+  }, [data, isDarkMode]);
+
+  const graphKey = useMemo(() => buildGraphKey(data, isDarkMode), [data, isDarkMode]);
 
   if (!data) {
     return (
@@ -154,8 +238,10 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
     const baseStyle = { ...(node.style ?? {}) };
     if (isSelected) {
       Object.assign(baseStyle, {
-        border: '2px solid #4f46e5',
-        boxShadow: '0 22px 40px -24px rgba(79, 70, 229, 0.45)'
+        border: isDarkMode ? '2px solid rgba(129, 140, 248, 0.85)' : '2px solid #4f46e5',
+        boxShadow: isDarkMode
+          ? '0 30px 48px -30px rgba(129, 140, 248, 0.6)'
+          : '0 22px 40px -24px rgba(79, 70, 229, 0.45)'
       });
     }
     return {
@@ -167,18 +253,26 @@ export function AssetGraphView({ data, selectedAssetId, onSelectAsset }: AssetGr
   return (
     <div className="h-[520px] rounded-3xl border border-slate-200/70 bg-white/90 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/40">
       <ReactFlow
+        key={graphKey}
         nodes={mappedNodes}
         edges={edges}
         fitView
+        fitViewOptions={{ padding: 0.28 }}
         nodesDraggable={false}
         nodesFocusable={false}
         panOnDrag
         selectionOnDrag
         onNodeClick={(_, node) => onSelectAsset(node.id)}
         proOptions={{ hideAttribution: true }}
+        minZoom={0.25}
+        maxZoom={1.6}
       >
-        <Background gap={24} color="#dbeafe" size={1} />
-        <Controls showInteractive={false} position="top-right" />
+        <Background gap={24} color={isDarkMode ? '#1e293b' : '#dbeafe'} size={1} />
+        <Controls
+          showInteractive={false}
+          position="top-right"
+          className="rounded-xl border border-slate-200/60 bg-white/80 text-slate-500 shadow-[0_18px_32px_-24px_rgba(15,23,42,0.55)] backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-300"
+        />
       </ReactFlow>
     </div>
   );
