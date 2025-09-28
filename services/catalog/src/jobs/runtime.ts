@@ -266,22 +266,22 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     const parsedMetadata = safeParseDockerJobMetadata(metadataValue);
     if (!parsedMetadata.success) {
       const flattened = parsedMetadata.error.flatten();
-      const validationErrors = Object.entries(flattened.fieldErrors).reduce<Record<string, string[]>>(
-        (acc, [key, errors]) => {
-          acc[key] = errors ?? [];
-          return acc;
-        },
-        {}
-      );
       context.logger('Docker metadata validation failed', {
         jobRunId: runId,
         formErrors: flattened.formErrors,
         fieldErrors: flattened.fieldErrors
       });
+      const validationErrors: Record<string, JsonValue> = {};
+      for (const [key, value] of Object.entries(flattened.fieldErrors)) {
+        if (Array.isArray(value) && value.length > 0) {
+          validationErrors[key] = [...value];
+        }
+      }
+      const formErrors = [...flattened.formErrors];
       const errorContext = {
         docker: {
           validationErrors,
-          formErrors: flattened.formErrors
+          formErrors
         }
       } satisfies Record<string, JsonValue>;
       const completed = await completeJobRun(runId, 'failed', {

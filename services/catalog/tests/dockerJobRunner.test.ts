@@ -5,8 +5,24 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+vi.mock('../src/jobs/docker/filestoreClient', () => ({
+  getFilestoreClient: vi.fn()
+}));
+
+vi.mock('../src/jobs/docker/filestoreArtifacts', () => ({
+  stageFilestoreInputs: vi.fn(),
+  collectFilestoreOutputs: vi.fn()
+}));
+
 import { DockerJobRunner } from '../src/jobs/docker/runner';
 import type { DockerExecutionResult } from '../src/jobs/docker/runner';
+import { getFilestoreClient } from '../src/jobs/docker/filestoreClient';
+import {
+  stageFilestoreInputs,
+  collectFilestoreOutputs,
+  type StageFilestoreInputsResult,
+  type CollectFilestoreOutputsResult
+} from '../src/jobs/docker/filestoreArtifacts';
 import type {
   DockerJobMetadata,
   JobDefinitionRecord,
@@ -16,6 +32,10 @@ import type {
 } from '../src/db/types';
 
 const baseDate = new Date('2024-01-01T00:00:00.000Z');
+
+const getFilestoreClientMock = getFilestoreClient as unknown as vi.Mock;
+const stageFilestoreInputsMock = stageFilestoreInputs as unknown as vi.Mock;
+const collectFilestoreOutputsMock = collectFilestoreOutputs as unknown as vi.Mock;
 
 function buildDefinition(metadata: JsonValue): JobDefinitionRecord {
   return {
@@ -94,10 +114,14 @@ describe('DockerJobRunner', () => {
   beforeEach(async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'docker-runner-test-'));
     process.env.CATALOG_DOCKER_WORKSPACE_ROOT = workspaceRoot;
+    getFilestoreClientMock.mockReset();
+    stageFilestoreInputsMock.mockReset();
+    collectFilestoreOutputsMock.mockReset();
   });
 
   afterEach(async () => {
     delete process.env.CATALOG_DOCKER_WORKSPACE_ROOT;
+    vi.clearAllMocks();
     await rm(workspaceRoot, { recursive: true, force: true });
   });
 
@@ -209,5 +233,158 @@ describe('DockerJobRunner', () => {
     expect(result.jobResult.status).toBe('expired');
     const killCalls = runDockerCommandMock.mock.calls.filter((call) => call[0][0] === 'kill');
     expect(killCalls.length).toBeGreaterThan(0);
+  });
+
+  test('stages filestore inputs and collects outputs', async () => {
+    const stageResult: StageFilestoreInputsResult = {
+      inputs: [
+        {
+          id: 'config',
+          workspacePath: 'inputs/data.txt',
+          source: { type: 'filestoreNode', nodeId: 11 },
+          nodeId: 101,
+          backendMountId: 5,
+          path: '/datasets/data.txt',
+          kind: 'file',
+          sizeBytes: 128,
+          checksum: 'sha256:abc',
+          contentHash: 'hash-1',
+          bytesDownloaded: 128,
+          filesDownloaded: 1,
+          checksumVerified: true
+        }
+      ],
+      bytesDownloaded: 128,
+      filesDownloaded: 1
+    };
+    const collectResult: CollectFilestoreOutputsResult = {
+      outputs: [
+        {
+          id: 'report',
+          workspacePath: 'outputs/report.txt',
+          backendMountId: 7,
+          resolvedPath: '/reports/run-1/report.txt',
+          declaredPathTemplate: 'reports/${runId}/report.txt',
+          nodeId: 707,
+          bytesUploaded: 256,
+          fileCount: 1,
+          checksum: 'sha256:def',
+          contentHash: 'hash-2'
+        }
+      ],
+      bytesUploaded: 256,
+      filesUploaded: 1
+    };
+
+    getFilestoreClientMock.mockResolvedValue({
+      client: {} as unknown,
+      config: {
+        baseUrl: 'http://filestore.local',
+        token: null,
+        userAgent: 'test-agent',
+        fetchTimeoutMs: null,
+        source: 'env'
+      }
+    });
+    stageFilestoreInputsMock.mockResolvedValue(stageResult);
+    collectFilestoreOutputsMock.mockResolvedValue(collectResult);
+
+    const spawnMock = vi.fn(() => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child: any = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        return true;
+      });
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({
+      docker: {
+        ...metadata,
+        inputs: [
+          {
+            id: 'config',
+            source: { type: 'filestoreNode', nodeId: 11 },
+            workspacePath: 'inputs/data.txt'
+          }
+        ],
+        outputs: [
+          {
+            id: 'report',
+            workspacePath: 'outputs/report.txt',
+            upload: {
+              backendMountId: 7,
+              pathTemplate: 'reports/${runId}/report.txt'
+            }
+          }
+        ]
+      }
+    } satisfies JsonValue);
+
+    const result = (await runner.execute({
+      definition,
+      run,
+      metadata: definition.metadata?.docker as DockerJobMetadata['docker'],
+      parameters: run.parameters,
+      timeoutMs: null,
+      logger: vi.fn(),
+      update: vi.fn(async () => run),
+      resolveSecret,
+    })) as DockerExecutionResult;
+
+    expect(getFilestoreClientMock).toHaveBeenCalledTimes(1);
+    expect(stageFilestoreInputsMock).toHaveBeenCalledTimes(1);
+    expect(collectFilestoreOutputsMock).toHaveBeenCalledTimes(1);
+
+    const context = result.jobResult.context as Record<string, unknown>;
+    expect(context?.filestore).toEqual({
+      baseUrl: 'http://filestore.local',
+      source: 'env',
+      bytesDownloaded: stageResult.bytesDownloaded,
+      filesDownloaded: stageResult.filesDownloaded,
+      bytesUploaded: collectResult.bytesUploaded,
+      filesUploaded: collectResult.filesUploaded,
+      inputs: stageResult.inputs,
+      outputs: collectResult.outputs
+    });
+
+    const resultPayload = result.jobResult.result as Record<string, unknown>;
+    expect(resultPayload.filestore).toEqual({
+      inputs: stageResult.inputs.map((entry) => ({
+        id: entry.id,
+        backendMountId: entry.backendMountId,
+        nodeId: entry.nodeId,
+        path: entry.path,
+        workspacePath: entry.workspacePath,
+        bytesDownloaded: entry.bytesDownloaded,
+        filesDownloaded: entry.filesDownloaded,
+      })),
+      outputs: collectResult.outputs.map((entry) => ({
+        id: entry.id,
+        backendMountId: entry.backendMountId,
+        nodeId: entry.nodeId,
+        path: entry.resolvedPath,
+        workspacePath: entry.workspacePath,
+        bytesUploaded: entry.bytesUploaded,
+        fileCount: entry.fileCount,
+      })),
+    });
   });
 });

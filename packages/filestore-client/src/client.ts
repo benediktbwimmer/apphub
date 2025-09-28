@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fetch, Headers, FormData } from 'undici';
+import { fetch, Headers, FormData as UndiciFormData } from 'undici';
 import type { RequestInit, Response } from 'undici';
 import { Blob, Buffer } from 'node:buffer';
+import { Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import FormData from 'form-data';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { FilestoreClientError, FilestoreStreamClosedError } from './errors';
 import { encodeFilestoreNodeFiltersParam } from '@apphub/shared/filestoreFilters';
@@ -20,7 +23,10 @@ import type {
   ListNodesResult,
   CopyNodeInput,
   MoveNodeInput,
-  UploadFileInput
+  UploadFileInput,
+  DownloadFileOptions,
+  DownloadFileResult,
+  UploadFileContent
 } from './types';
 
 interface RequestOptions {
@@ -104,32 +110,72 @@ export class FilestoreClient {
     input: UploadFileInput
   ): Promise<CommandResponse<T>> {
     const idempotencyKey = input.idempotencyKey ?? randomUUID();
-    const form = new FormData();
-    form.set('backendMountId', String(input.backendMountId));
-    form.set('path', input.path);
-    if (input.metadata) {
-      form.set('metadata', JSON.stringify(input.metadata));
-    }
-    if (input.overwrite !== undefined) {
-      form.set('overwrite', input.overwrite ? 'true' : 'false');
-    }
-    form.set('idempotencyKey', idempotencyKey);
-
-    const contentBuffer =
-      typeof input.content === 'string' ? Buffer.from(input.content) : Buffer.from(input.content);
-    const blob = new Blob([contentBuffer], {
-      type: input.contentType ?? 'application/octet-stream'
-    });
-    const filename = input.filename ?? input.path.split('/').pop() ?? 'upload.bin';
-    form.append('file', blob, filename);
-
     const headers = this.buildHeaders(input.principal);
     headers.set('Idempotency-Key', idempotencyKey);
+
+    const filename = input.filename ?? input.path.split('/').pop() ?? 'upload.bin';
+    const isStream =
+      input.content && typeof input.content === 'object' && 'pipe' in input.content &&
+      typeof (input.content as NodeJS.ReadableStream).pipe === 'function';
+
+    let body: unknown;
+
+    if (isStream) {
+      const form = new FormData();
+      form.append('backendMountId', String(input.backendMountId));
+      form.append('path', input.path);
+      if (input.metadata) {
+        form.append('metadata', JSON.stringify(input.metadata));
+      }
+      if (input.overwrite !== undefined) {
+        form.append('overwrite', input.overwrite ? 'true' : 'false');
+      }
+      form.append('idempotencyKey', idempotencyKey);
+
+      const appendOptions: FormData.AppendOptions = {
+        filename,
+        contentType: input.contentType ?? 'application/octet-stream'
+      };
+      if (typeof input.contentLength === 'number' && Number.isFinite(input.contentLength)) {
+        appendOptions.knownLength = input.contentLength;
+      }
+      form.append('file', input.content as NodeJS.ReadableStream, appendOptions);
+
+      const formHeaders = form.getHeaders();
+      for (const [key, value] of Object.entries(formHeaders)) {
+        if (typeof value === 'string') {
+          headers.set(key, value);
+        }
+      }
+      body = form as unknown as NodeJS.ReadableStream;
+    } else {
+      const form = new UndiciFormData();
+      form.set('backendMountId', String(input.backendMountId));
+      form.set('path', input.path);
+      if (input.metadata) {
+        form.set('metadata', JSON.stringify(input.metadata));
+      }
+      if (input.overwrite !== undefined) {
+        form.set('overwrite', input.overwrite ? 'true' : 'false');
+      }
+      form.set('idempotencyKey', idempotencyKey);
+
+      const contentValue = input.content as Exclude<UploadFileContent, NodeJS.ReadableStream>;
+      const contentBuffer =
+        typeof contentValue === 'string'
+          ? Buffer.from(contentValue)
+          : Buffer.from(contentValue);
+      const blob = new Blob([contentBuffer], {
+        type: input.contentType ?? 'application/octet-stream'
+      });
+      form.append('file', blob, filename);
+      body = form;
+    }
 
     const response = await this.fetchRaw(this.buildUrl('/v1/files'), {
       method: 'POST',
       headers,
-      body: form
+      body: body as any
     });
 
     if (!response.ok) {
@@ -138,6 +184,73 @@ export class FilestoreClient {
 
     const envelope = (await response.json()) as ApiEnvelope<CommandResponse<T>>;
     return envelope.data;
+  }
+
+  async downloadFile(id: number, options: DownloadFileOptions = {}): Promise<DownloadFileResult> {
+    const headers = this.buildHeaders(options.principal);
+    if (options.range) {
+      const start = Math.max(0, options.range.start);
+      const end = Math.max(start, options.range.end);
+      headers.set('Range', `bytes=${start}-${end}`);
+    }
+
+    const response = await this.fetchRaw(this.buildUrl(`/v1/files/${id}/content`), {
+      method: 'GET',
+      headers,
+      signal: options.signal
+    });
+
+    if (!response.ok) {
+      await this.handleErrorResponse(response);
+    }
+
+    if (!response.body) {
+      throw new FilestoreClientError('Filestore download response is missing a body', {
+        statusCode: response.status
+      });
+    }
+
+    const stream = Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>);
+
+    const headerMap: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headerMap[key.toLowerCase()] = value;
+    });
+
+    const parseSize = (value: string | null): number | null => {
+      if (!value) {
+        return null;
+      }
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    };
+
+    const contentLength = parseSize(response.headers.get('content-length'));
+    const contentRange = response.headers.get('content-range');
+    let totalSize: number | null = null;
+    if (contentRange) {
+      const match = /bytes\s+\d+-\d+\/(\d+|\*)/i.exec(contentRange);
+      if (match) {
+        totalSize = match[1] === '*' ? null : parseSize(match[1]) ?? null;
+      }
+    }
+
+    const checksum = response.headers.get('x-filestore-checksum');
+    const contentHash = response.headers.get('x-filestore-content-hash');
+    const contentType = response.headers.get('content-type');
+    const lastModified = response.headers.get('last-modified');
+
+    return {
+      stream,
+      status: response.status,
+      contentLength,
+      totalSize,
+      checksum,
+      contentHash,
+      contentType,
+      lastModified,
+      headers: headerMap
+    } satisfies DownloadFileResult;
   }
 
   async deleteNode<T = Record<string, unknown>>(

@@ -46,16 +46,37 @@ export interface EnqueueReconciliationInput {
   requestedHash?: boolean;
 }
 
+export type UploadFileContent = string | Uint8Array | NodeJS.ReadableStream;
+
 export interface UploadFileInput {
   backendMountId: number;
   path: string;
-  content: string | Uint8Array;
+  content: UploadFileContent;
   contentType?: string;
   metadata?: Record<string, unknown>;
   overwrite?: boolean;
   idempotencyKey?: string;
   principal?: string;
   filename?: string;
+  contentLength?: number;
+}
+
+export interface DownloadFileOptions {
+  signal?: AbortSignal;
+  principal?: string;
+  range?: { start: number; end: number };
+}
+
+export interface DownloadFileResult {
+  stream: NodeJS.ReadableStream;
+  status: number;
+  contentLength: number | null;
+  totalSize: number | null;
+  checksum: string | null;
+  contentHash: string | null;
+  contentType: string | null;
+  lastModified: string | null;
+  headers: Record<string, string>;
 }
 
 export interface MoveNodeInput {

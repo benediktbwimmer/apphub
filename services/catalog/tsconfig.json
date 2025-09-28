@@ -30,6 +30,9 @@
     },
     {
       "path": "../../packages/event-bus"
+    },
+    {
+      "path": "../../packages/filestore-client"
     }
   ]
 }

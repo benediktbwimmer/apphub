@@ -6,6 +6,13 @@ import { performance } from 'node:perf_hooks';
 import { stringify as stringifyYaml } from 'yaml';
 
 import { runDockerCommand } from '../../docker';
+import { getFilestoreClient } from './filestoreClient';
+import {
+  collectFilestoreOutputs,
+  stageFilestoreInputs,
+  type CollectFilestoreOutputsResult,
+  type StageFilestoreInputsResult
+} from './filestoreArtifacts';
 import type {
   DockerJobMetadata,
   JobDefinitionRecord,
@@ -432,10 +439,55 @@ export class DockerJobRunner {
     resolveSecret: (reference: SecretReference) => string | null | Promise<string | null>;
   }): Promise<DockerExecutionResult> {
     const workspace = await ensureWorkspace(options.run.id);
+    const resolvePath = (relative: string) => resolveWorkspacePath(workspace.workDir, relative);
+    const requiresFilestore = Boolean(
+      (options.metadata.inputs && options.metadata.inputs.length > 0) ||
+        (options.metadata.outputs && options.metadata.outputs.length > 0)
+    );
+    let filestoreClient: Awaited<ReturnType<typeof getFilestoreClient>> | null = null;
+    const filestoreSummary: {
+      inputs: StageFilestoreInputsResult['inputs'];
+      outputs: CollectFilestoreOutputsResult['outputs'];
+      bytesDownloaded: number;
+      filesDownloaded: number;
+      bytesUploaded: number;
+      filesUploaded: number;
+    } = {
+      inputs: [],
+      outputs: [],
+      bytesDownloaded: 0,
+      filesDownloaded: 0,
+      bytesUploaded: 0,
+      filesUploaded: 0
+    };
+
+    if (requiresFilestore) {
+      filestoreClient = await getFilestoreClient();
+      options.logger('Resolved filestore client configuration for docker job', {
+        baseUrl: filestoreClient.config.baseUrl,
+        source: filestoreClient.config.source
+      });
+    }
+
     const timeoutMs = options.timeoutMs ?? null;
     let telemetry: DockerExecutionTelemetry | null = null;
     let containerName: string | null = null;
     try {
+      if (filestoreClient && options.metadata.inputs && options.metadata.inputs.length > 0) {
+        const staged = await stageFilestoreInputs({
+          client: filestoreClient.client,
+          inputs: options.metadata.inputs,
+          resolveWorkspacePath: resolvePath,
+          workDir: workspace.workDir,
+          definition: options.definition,
+          run: options.run,
+          logger: options.logger
+        });
+        filestoreSummary.inputs = staged.inputs;
+        filestoreSummary.bytesDownloaded = staged.bytesDownloaded;
+        filestoreSummary.filesDownloaded = staged.filesDownloaded;
+      }
+
       const commandPlan = await buildDockerCommand({
         metadata: options.metadata,
         paths: workspace,
@@ -484,6 +536,20 @@ export class DockerJobRunner {
         ...execution.logs,
       } satisfies DockerExecutionTelemetry;
 
+      if (filestoreClient && options.metadata.outputs && options.metadata.outputs.length > 0) {
+        const collected = await collectFilestoreOutputs({
+          client: filestoreClient.client,
+          outputs: options.metadata.outputs,
+          resolveWorkspacePath: resolvePath,
+          definition: options.definition,
+          run: options.run,
+          logger: options.logger
+        });
+        filestoreSummary.outputs = collected.outputs;
+        filestoreSummary.bytesUploaded = collected.bytesUploaded;
+        filestoreSummary.filesUploaded = collected.filesUploaded;
+      }
+
       const metrics: JsonValue = {
         docker: {
           containerName: commandPlan.containerName,
@@ -493,6 +559,14 @@ export class DockerJobRunner {
           durationMs: Math.round(execution.durationMs),
           timedOut: execution.timedOut,
         },
+        filestore: filestoreClient
+          ? {
+              bytesDownloaded: filestoreSummary.bytesDownloaded,
+              filesDownloaded: filestoreSummary.filesDownloaded,
+              bytesUploaded: filestoreSummary.bytesUploaded,
+              filesUploaded: filestoreSummary.filesUploaded,
+            }
+          : null,
       } satisfies JsonValue;
 
       const context: JsonValue = {
@@ -507,7 +581,42 @@ export class DockerJobRunner {
           completedAt: execution.completedAt,
           workspacePath: workspace.workDir,
         },
+        filestore: filestoreClient
+          ? {
+              baseUrl: filestoreClient.config.baseUrl,
+              source: filestoreClient.config.source,
+              bytesDownloaded: filestoreSummary.bytesDownloaded,
+              filesDownloaded: filestoreSummary.filesDownloaded,
+              bytesUploaded: filestoreSummary.bytesUploaded,
+              filesUploaded: filestoreSummary.filesUploaded,
+              inputs: filestoreSummary.inputs,
+              outputs: filestoreSummary.outputs,
+            }
+          : null,
       } satisfies JsonValue;
+
+      const filestoreResult = filestoreClient
+        ? {
+            inputs: filestoreSummary.inputs.map((entry) => ({
+              id: entry.id,
+              backendMountId: entry.backendMountId,
+              nodeId: entry.nodeId,
+              path: entry.path,
+              workspacePath: entry.workspacePath,
+              bytesDownloaded: entry.bytesDownloaded,
+              filesDownloaded: entry.filesDownloaded,
+            })),
+            outputs: filestoreSummary.outputs.map((entry) => ({
+              id: entry.id,
+              backendMountId: entry.backendMountId,
+              nodeId: entry.nodeId,
+              path: entry.resolvedPath,
+              workspacePath: entry.workspacePath,
+              bytesUploaded: entry.bytesUploaded,
+              fileCount: entry.fileCount,
+            })),
+          }
+        : null;
 
       const resultPayload: JsonValue = {
         exitCode: execution.exitCode,
@@ -515,6 +624,7 @@ export class DockerJobRunner {
         containerName: commandPlan.containerName,
         image: options.metadata.image,
         timedOut: execution.timedOut,
+        filestore: filestoreResult,
       } satisfies JsonValue;
 
       const jobResult: JobResult = {
