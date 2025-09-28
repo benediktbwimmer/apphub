@@ -514,7 +514,7 @@ function EventsExplorerList({
   const rowVirtualizer = useVirtualizer({
     count: events.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: () => 96,
+    estimateSize: () => 80,
     overscan: 12
   });
 
@@ -590,9 +590,6 @@ function EventsExplorerList({
                     {event.correlationId ? <span>Correlation: {event.correlationId}</span> : null}
                     <span>Received: {formatDateTime(event.receivedAt)}</span>
                   </div>
-                  <pre className="mt-2 max-h-24 overflow-hidden text-xs text-slate-600 dark:text-slate-300">
-                    {JSON.stringify(event.payload, null, 2)}
-                  </pre>
                 </article>
               );
             })}
