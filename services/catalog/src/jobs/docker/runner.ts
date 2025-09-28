@@ -97,6 +97,11 @@ type DockerRunnerDependencies = {
   runDockerCommand: typeof runDockerCommand;
 };
 
+type DockerRunnerOptions = {
+  deps?: Partial<DockerRunnerDependencies>;
+  getFilestoreClient?: typeof getFilestoreClient;
+};
+
 type WorkspacePaths = {
   base: string;
   workDir: string;
@@ -554,7 +559,17 @@ async function runDockerAndCapture(options: {
  * issuing `docker kill` and forcing termination on timeout.
  */
 export class DockerJobRunner {
-  constructor(private readonly deps: DockerRunnerDependencies = { spawn, runDockerCommand }) {}
+  private readonly deps: DockerRunnerDependencies;
+  private readonly getFilestoreClientFn: typeof getFilestoreClient;
+
+  constructor(options: DockerRunnerOptions = {}) {
+    this.deps = {
+      spawn,
+      runDockerCommand,
+      ...options.deps,
+    } satisfies DockerRunnerDependencies;
+    this.getFilestoreClientFn = options.getFilestoreClient ?? getFilestoreClient;
+  }
 
   async execute(options: {
     definition: JobDefinitionRecord;
@@ -599,7 +614,7 @@ export class DockerJobRunner {
     };
 
     if (requiresFilestore) {
-      filestoreClient = await getFilestoreClient();
+      filestoreClient = await this.getFilestoreClientFn();
       options.logger('Resolved filestore client configuration for docker job', {
         baseUrl: filestoreClient.config.baseUrl,
         source: filestoreClient.config.source

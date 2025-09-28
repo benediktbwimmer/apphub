@@ -163,8 +163,10 @@ describe('DockerJobRunner', () => {
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
@@ -255,8 +257,10 @@ describe('DockerJobRunner', () => {
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
@@ -312,8 +316,10 @@ describe('DockerJobRunner', () => {
     });
 
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
@@ -361,8 +367,10 @@ describe('DockerJobRunner', () => {
 
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
@@ -419,8 +427,10 @@ describe('DockerJobRunner', () => {
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: { ...metadata, requiresGpu: true } satisfies JsonValue });
@@ -449,8 +459,10 @@ describe('DockerJobRunner', () => {
     const spawnMock = vi.fn();
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({ docker: { ...metadata, requiresGpu: true } satisfies JsonValue });
@@ -497,8 +509,10 @@ describe('DockerJobRunner', () => {
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({
@@ -568,8 +582,10 @@ describe('DockerJobRunner', () => {
     const spawnMock = vi.fn();
     const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
     const runner = new DockerJobRunner({
-      spawn: spawnMock as unknown as typeof spawn,
-      runDockerCommand: runDockerCommandMock,
+      deps: {
+        spawn: spawnMock as unknown as typeof spawn,
+        runDockerCommand: runDockerCommandMock,
+      }
     });
 
     const definition = buildDefinition({
