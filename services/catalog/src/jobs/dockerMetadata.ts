@@ -52,23 +52,21 @@ function isSafePathTemplate(value: string): boolean {
   return true;
 }
 
-const secretReferenceSchema = z
-  .union([
-    z
-      .object({
-        source: z.literal('env'),
-        key: z.string().min(1).max(256)
-      })
-      .strict(),
-    z
-      .object({
-        source: z.literal('store'),
-        key: z.string().min(1).max(256),
-        version: z.string().min(1).max(128).optional()
-      })
-      .strict()
-  ])
-  .strict();
+const secretReferenceSchema = z.union([
+  z
+    .object({
+      source: z.literal('env'),
+      key: z.string().min(1).max(256)
+    })
+    .strict(),
+  z
+    .object({
+      source: z.literal('store'),
+      key: z.string().min(1).max(256),
+      version: z.string().min(1).max(128).optional()
+    })
+    .strict()
+]);
 
 const commandArraySchema = z
   .array(z.string().min(1).max(400))
@@ -144,7 +142,7 @@ const filestorePathSourceSchema = z
   })
   .strict();
 
-const dockerInputSourceSchema = z.union([filestoreNodeSourceSchema, filestorePathSourceSchema]).strict();
+const dockerInputSourceSchema = z.union([filestoreNodeSourceSchema, filestorePathSourceSchema]);
 
 const dockerInputDescriptorSchema = z
   .object({
@@ -186,6 +184,10 @@ const dockerOutputDescriptorSchema = z
   })
   .strict();
 
+type DockerEnvVarInput = z.infer<typeof dockerEnvVarSchema>;
+type DockerInputDescriptorInput = z.infer<typeof dockerInputDescriptorSchema>;
+type DockerOutputDescriptorInput = z.infer<typeof dockerOutputDescriptorSchema>;
+
 const dockerMetadataCoreSchema = z
   .object({
     image: z
@@ -210,58 +212,56 @@ const dockerMetadataCoreSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.environment) {
-      const seen = new Set<string>();
-      for (let index = 0; index < value.environment.length; index += 1) {
-        const entry = value.environment[index];
-        const normalized = entry.name.toUpperCase();
-        if (seen.has(normalized)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['environment', index, 'name'],
-            message: `Duplicate environment variable: ${entry.name}`
-          });
-        } else {
-          seen.add(normalized);
-        }
+    const environmentEntries = (value.environment ?? []) as DockerEnvVarInput[];
+    const seenEnv = new Set<string>();
+    environmentEntries.forEach((entry, index) => {
+      const normalized = entry.name.toUpperCase();
+      if (seenEnv.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['environment', index, 'name'],
+          message: `Duplicate environment variable: ${entry.name}`
+        });
+        return;
       }
-    }
-    if (value.inputs) {
-      const seenIds = new Set<string>();
-      for (let index = 0; index < value.inputs.length; index += 1) {
-        const entry = value.inputs[index];
-        if (entry.id) {
-          const normalized = entry.id.toLowerCase();
-          if (seenIds.has(normalized)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['inputs', index, 'id'],
-              message: `Duplicate input id: ${entry.id}`
-            });
-          } else {
-            seenIds.add(normalized);
-          }
-        }
+      seenEnv.add(normalized);
+    });
+
+    const inputEntries = (value.inputs ?? []) as DockerInputDescriptorInput[];
+    const seenInputIds = new Set<string>();
+    inputEntries.forEach((entry, index) => {
+      if (!entry.id) {
+        return;
       }
-    }
-    if (value.outputs) {
-      const seenIds = new Set<string>();
-      for (let index = 0; index < value.outputs.length; index += 1) {
-        const entry = value.outputs[index];
-        if (entry.id) {
-          const normalized = entry.id.toLowerCase();
-          if (seenIds.has(normalized)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['outputs', index, 'id'],
-              message: `Duplicate output id: ${entry.id}`
-            });
-          } else {
-            seenIds.add(normalized);
-          }
-        }
+      const normalized = entry.id.toLowerCase();
+      if (seenInputIds.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['inputs', index, 'id'],
+          message: `Duplicate input id: ${entry.id}`
+        });
+        return;
       }
-    }
+      seenInputIds.add(normalized);
+    });
+
+    const outputEntries = (value.outputs ?? []) as DockerOutputDescriptorInput[];
+    const seenOutputIds = new Set<string>();
+    outputEntries.forEach((entry, index) => {
+      if (!entry.id) {
+        return;
+      }
+      const normalized = entry.id.toLowerCase();
+      if (seenOutputIds.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['outputs', index, 'id'],
+          message: `Duplicate output id: ${entry.id}`
+        });
+        return;
+      }
+      seenOutputIds.add(normalized);
+    });
   });
 
 export const dockerJobMetadataSchema = z

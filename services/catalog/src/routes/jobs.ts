@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
+import { z, type typeToFlattenedError } from 'zod';
 import {
   createJobDefinition,
   createJobRun,
@@ -64,6 +64,22 @@ import {
   DEFAULT_AI_BUILDER_SYSTEM_PROMPT
 } from '../ai/prompts';
 import { safeParseDockerJobMetadata } from '../jobs/dockerMetadata';
+
+type FlattenedZodError = typeToFlattenedError<unknown>;
+
+function flattenErrorToJson(flattened: FlattenedZodError): JsonValue {
+  const fieldErrors: Record<string, string[]> = {};
+  const rawFieldErrors = flattened.fieldErrors as Record<string, string[] | undefined>;
+  for (const [key, value] of Object.entries(rawFieldErrors)) {
+    if (value && value.length > 0) {
+      fieldErrors[key] = value;
+    }
+  }
+  return {
+    formErrors: flattened.formErrors,
+    fieldErrors
+  };
+}
 
 const jobRunRequestSchema = z
   .object({
@@ -521,11 +537,12 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       const metadataResult = safeParseDockerJobMetadata(normalizedMetadata ?? {});
       if (!metadataResult.success) {
         reply.status(400);
+        const errorDetails = flattenErrorToJson(metadataResult.error.flatten());
         await authResult.auth.log('failed', {
           reason: 'invalid_payload',
-          details: metadataResult.error.flatten()
+          details: errorDetails
         });
-        return { error: metadataResult.error.flatten() };
+        return { error: errorDetails };
       }
       normalizedMetadata = metadataResult.data as JsonValue;
     }
@@ -619,12 +636,13 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       const metadataResult = safeParseDockerJobMetadata(normalizedMetadata ?? {});
       if (!metadataResult.success) {
         reply.status(400);
+        const errorDetails = flattenErrorToJson(metadataResult.error.flatten());
         await authResult.auth.log('failed', {
           reason: 'invalid_payload',
           jobSlug: parseParams.data.slug,
-          details: metadataResult.error.flatten()
+          details: errorDetails
         });
-        return { error: metadataResult.error.flatten() };
+        return { error: errorDetails };
       }
       normalizedMetadata = metadataResult.data as JsonValue;
     }
