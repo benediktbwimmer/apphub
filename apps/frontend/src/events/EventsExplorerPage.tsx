@@ -260,18 +260,10 @@ export default function EventsExplorerPage() {
             mutationState={savedViews.mutationState}
             viewerSubject={savedViews.viewerSubject}
             onCreate={handleCreateSavedView}
-            onApply={(view) => {
-              void handleApplySavedView(view);
-            }}
-            onRename={(view, nextName) => {
-              void handleRenameSavedView(view, nextName);
-            }}
-            onDelete={(view) => {
-              void handleDeleteSavedView(view);
-            }}
-            onShare={(view) => {
-              void handleShareSavedView(view);
-            }}
+            onApply={handleApplySavedView}
+            onRename={handleRenameSavedView}
+            onDelete={handleDeleteSavedView}
+            onShare={handleShareSavedView}
             activeSlug={activeSavedViewSlug}
           />
 

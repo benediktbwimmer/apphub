@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { EventSavedViewRecord } from '@apphub/shared/eventsExplorer';
-import { SavedEventViewMutationState } from './useSavedEventViews';
+import type { SavedEventViewMutationState } from './useSavedEventViews';
 
 function formatPercentage(value: number): string {
   if (!Number.isFinite(value)) {
