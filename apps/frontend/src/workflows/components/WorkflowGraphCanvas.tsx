@@ -636,6 +636,7 @@ export function WorkflowGraphCanvas({
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
   const interactive = interactionMode === 'interactive';
   const hasRenderableNodes = Boolean(resolvedModel && resolvedModel.nodes.length > 0);
+  const showLoadingOverlay = loading && !hasRenderableNodes;
 
   const panBy = useCallback(
     (deltaX: number, deltaY: number, duration = 160) => {
@@ -819,7 +820,7 @@ export function WorkflowGraphCanvas({
         onKeyDown={handleCanvasKeyDown}
         onMouseLeave={handleContainerMouseLeave}
       >
-        {loading && (
+        {showLoadingOverlay && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 text-sm font-semibold text-slate-500 dark:bg-slate-950/60 dark:text-slate-300">
             Rendering workflow topology…
           </div>

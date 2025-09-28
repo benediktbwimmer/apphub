@@ -40,6 +40,13 @@ const eventHealthResponse = {
 
 let topologyOrigin: string;
 
+declare global {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+  interface Window {
+    __apphubSocketEmit?: (message: unknown) => void;
+  }
+}
+
 async function fulfillJson(route: Route, body: unknown, origin: string, status = 200) {
   await route.fulfill({
     status,
@@ -98,6 +105,75 @@ async function waitForTopologyRender(page: Page) {
 
 test.describe('Workflow topology explorer', () => {
   test.beforeEach(async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const globalWindow = window as unknown as Record<string, unknown>;
+
+      class MockWebSocket {
+        constructor(url: string) {
+          this.url = url;
+          this.readyState = MockWebSocket.CONNECTING;
+          this.onopen = null;
+          this.onclose = null;
+          this.onerror = null;
+          this.onmessage = null;
+          globalWindow.__apphubActiveSocket = this;
+          setTimeout(() => {
+            this.readyState = MockWebSocket.OPEN;
+            if (typeof this.onopen === 'function') {
+              this.onopen({ target: this });
+            }
+            if (typeof this.onmessage === 'function') {
+              this.onmessage({ data: JSON.stringify({ type: 'connection.ack' }) });
+            }
+          }, 0);
+        }
+
+        url: string;
+
+        readyState: number;
+
+        onopen: ((event: { target: MockWebSocket }) => void) | null;
+
+        onclose: ((event: { target: MockWebSocket }) => void) | null;
+
+        onerror: ((event: { target: MockWebSocket }) => void) | null;
+
+        onmessage: ((event: { data: string }) => void) | null;
+
+        send(data: string) {
+          if (data === 'ping' && typeof this.onmessage === 'function') {
+            setTimeout(() => {
+              this.onmessage?.({ data: JSON.stringify({ type: 'pong' }) });
+            }, 0);
+          }
+        }
+
+        close() {
+          if (this.readyState === MockWebSocket.CLOSED) {
+            return;
+          }
+          this.readyState = MockWebSocket.CLOSED;
+          if (typeof this.onclose === 'function') {
+            this.onclose({ target: this });
+          }
+        }
+      }
+
+      MockWebSocket.CONNECTING = 0;
+      MockWebSocket.OPEN = 1;
+      MockWebSocket.CLOSING = 2;
+      MockWebSocket.CLOSED = 3;
+
+      globalWindow.WebSocket = MockWebSocket;
+      globalWindow.__apphubSocketEmit = (message: unknown) => {
+        const socket = (globalWindow.__apphubActiveSocket ?? null) as MockWebSocket | null;
+        if (!socket || typeof socket.onmessage !== 'function') {
+          return;
+        }
+        socket.onmessage({ data: JSON.stringify(message) });
+      };
+    });
+
     const baseURL = testInfo.project.use?.baseURL ?? 'http://127.0.0.1:4173';
     topologyOrigin = new URL(baseURL).origin;
     await stubTopologyApi(page, topologyOrigin);
@@ -193,5 +269,52 @@ test.describe('Workflow topology explorer', () => {
     await expect(nodes).toHaveCount(totalNodeCount);
     const edges = canvasRegion.locator('path.react-flow__edge-path');
     await expect(edges).toHaveCount(totalEdgeCount);
+  });
+
+  test('keeps canvas visible during background refresh', async ({ page }) => {
+    await page.unroute('**/workflows/graph');
+    let requestCount = 0;
+    let resolveRefresh: (() => void) | null = null;
+    const refreshGate = new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    await page.route('**/workflows/graph', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      await refreshGate;
+      await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+    });
+
+    await page.goto('/topology');
+    const canvasRegion = await waitForTopologyRender(page);
+    const nodes = canvasRegion.locator('.react-flow__node');
+    await expect(nodes).toHaveCount(totalNodeCount);
+
+    await page.evaluate(() => {
+      window.__apphubSocketEmit?.({
+        type: 'workflow.definition.updated',
+        data: { workflowId: 'wf-orders' }
+      });
+    });
+
+    await expect.poll(() => requestCount).toBe(2);
+
+    const loadingBanner = page.getByText('Rendering workflow topology…');
+
+    try {
+      await expect(loadingBanner).not.toBeVisible();
+    } finally {
+      resolveRefresh?.();
+    }
+
+    await expect(nodes).toHaveCount(totalNodeCount);
   });
 });
