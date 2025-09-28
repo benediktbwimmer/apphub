@@ -28,7 +28,8 @@ import {
   type WorkflowGraphCanvasFilters,
   type WorkflowGraphCanvasLayoutConfig,
   type WorkflowGraphCanvasNodeKind,
-  type WorkflowGraphCanvasEdgeKind
+  type WorkflowGraphCanvasEdgeKind,
+  type WorkflowGraphCanvasModel
 } from '../graph/canvasModel';
 import type { WorkflowGraphLiveOverlay, WorkflowGraphNormalized } from '../graph';
 
@@ -202,14 +203,14 @@ const LIGHT_THEME: WorkflowGraphCanvasTheme = {
 };
 
 const DARK_THEME: WorkflowGraphCanvasTheme = {
-  surface: 'rgba(15, 23, 42, 0.78)',
-  surfaceMuted: 'rgba(15, 23, 42, 0.6)',
-  gridColor: 'rgba(148, 163, 184, 0.32)',
-  edgeDefault: '#dbeafe',
-  edgeMuted: 'rgba(148, 163, 184, 0.7)',
-  edgeHighlight: '#c084fc',
-  edgeDashed: '#94a3b8',
-  labelBackground: 'rgba(15, 23, 42, 0.92)',
+  surface: 'rgba(15, 23, 42, 0.82)',
+  surfaceMuted: 'rgba(15, 23, 42, 0.68)',
+  gridColor: 'rgba(71, 85, 105, 0.2)',
+  edgeDefault: '#a855f7',
+  edgeMuted: 'rgba(168, 85, 247, 0.5)',
+  edgeHighlight: '#f472b6',
+  edgeDashed: '#38bdf8',
+  labelBackground: 'rgba(15, 23, 42, 0.94)',
   labelText: '#f8fafc',
   nodes: {
     workflow: {
@@ -293,11 +294,11 @@ const DARK_THEME: WorkflowGraphCanvasTheme = {
       shadow: '0 18px 46px -28px rgba(248, 113, 113, 0.55)'
     },
     'event-source': {
-      background: 'linear-gradient(135deg, rgba(22, 163, 74, 0.4), rgba(34, 197, 94, 0.32))',
-      border: 'rgba(34, 197, 94, 0.52)',
+      background: 'linear-gradient(135deg, rgba(22, 163, 74, 0.36), rgba(34, 197, 94, 0.28))',
+      border: 'rgba(34, 197, 94, 0.6)',
       borderHighlighted: '#4ade80',
       text: '#f8fafc',
-      mutedText: 'rgba(209, 250, 229, 0.72)',
+      mutedText: 'rgba(209, 250, 229, 0.78)',
       badgeBackground: 'rgba(34, 197, 94, 0.32)',
       badgeText: '#bbf7d0',
       shadow: '0 16px 36px -26px rgba(34, 197, 94, 0.55)'
@@ -522,9 +523,23 @@ export function WorkflowGraphCanvas({
     return buildWorkflowGraphCanvasModel(graph, { layout, selection, filters, searchTerm, overlay });
   }, [graph, layout, selection, filters, searchTerm, overlay]);
 
+  const lastNonEmptyModelRef = useRef<WorkflowGraphCanvasModel | null>(null);
+  useEffect(() => {
+    if (model && model.nodes.length > 0) {
+      lastNonEmptyModelRef.current = model;
+    }
+  }, [model]);
+
+  const resolvedModel = useMemo(() => {
+    if (model && (model.nodes.length > 0 || model.filtersApplied || model.searchApplied)) {
+      return model;
+    }
+    return lastNonEmptyModelRef.current;
+  }, [model]);
+
   useEffect(() => {
     setTooltip(null);
-  }, [model, interactionMode]);
+  }, [resolvedModel, interactionMode]);
 
   const handleNodeSelect = useCallback(
     (nodeId: string, payload: WorkflowGraphCanvasNodeData) => {
@@ -535,10 +550,10 @@ export function WorkflowGraphCanvas({
   );
 
   const reactFlowNodes = useMemo<Node<WorkflowGraphCanvasNodeData>[]>(() => {
-    if (!model) {
+    if (!resolvedModel) {
       return [];
     }
-    return model.nodes.map((node) => ({
+    return resolvedModel.nodes.map((node) => ({
       id: node.id,
       position: node.position,
       data: {
@@ -564,13 +579,13 @@ export function WorkflowGraphCanvas({
         height: node.height
       }
     }));
-  }, [model, handleNodeSelect, onNodeSelect]);
+  }, [resolvedModel, handleNodeSelect, onNodeSelect]);
 
   const reactFlowEdges = useMemo<Edge<WorkflowGraphCanvasEdgeData>[]>(() => {
-    if (!model) {
+    if (!resolvedModel) {
       return [];
     }
-    return model.edges.map((edge) => {
+    return resolvedModel.edges.map((edge) => {
       const dashed = edge.kind === 'step-consumes' || edge.kind === 'event-source';
       const stroke = edge.highlighted ? mergedTheme.edgeHighlight : dashed ? mergedTheme.edgeDashed : mergedTheme.edgeDefault;
       return {
@@ -590,8 +605,9 @@ export function WorkflowGraphCanvas({
         type: 'smoothstep',
         style: {
           stroke,
-          strokeWidth: edge.highlighted ? 2.4 : 1.6,
-          strokeDasharray: dashed ? '6 4' : undefined
+          strokeWidth: edge.highlighted ? 3 : 2.2,
+          strokeDasharray: dashed ? '6 4' : undefined,
+          opacity: edge.highlighted ? 1 : 0.9
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -601,11 +617,11 @@ export function WorkflowGraphCanvas({
         }
       } satisfies Edge<WorkflowGraphCanvasEdgeData>;
     });
-  }, [model, mergedTheme.edgeDefault, mergedTheme.edgeDashed, mergedTheme.edgeHighlight, mergedTheme.edgeMuted, mergedTheme.labelBackground, mergedTheme.labelText]);
+  }, [resolvedModel, mergedTheme.edgeDefault, mergedTheme.edgeDashed, mergedTheme.edgeHighlight, mergedTheme.edgeMuted, mergedTheme.labelBackground, mergedTheme.labelText]);
 
   const [instance, setInstance] = useState<ReactFlowInstance | null>(null);
   const interactive = interactionMode === 'interactive';
-  const hasRenderableNodes = Boolean(model && model.nodes.length > 0);
+  const hasRenderableNodes = Boolean(resolvedModel && resolvedModel.nodes.length > 0);
 
   const panBy = useCallback(
     (deltaX: number, deltaY: number, duration = 160) => {
@@ -734,7 +750,7 @@ export function WorkflowGraphCanvas({
   }, []);
 
   useEffect(() => {
-    if (!instance || !model || !autoFit || model.nodes.length === 0) {
+    if (!instance || !resolvedModel || !autoFit || resolvedModel.nodes.length === 0) {
       return;
     }
     const id = window.setTimeout(() => {
@@ -743,14 +759,14 @@ export function WorkflowGraphCanvas({
     return () => {
       window.clearTimeout(id);
     };
-  }, [instance, model, autoFit, fitViewPadding]);
+  }, [instance, resolvedModel, autoFit, fitViewPadding]);
 
   const containerStyle: CSSProperties = {
     height: typeof height === 'number' ? `${height}px` : height,
     background: mergedTheme.surface
   };
 
-  const showEmptyState = !loading && !error && (!model || model.nodes.length === 0);
+  const showEmptyState = !loading && !error && (!resolvedModel || resolvedModel.nodes.length === 0);
   const filteredEmpty =
     !loading &&
     !error &&
