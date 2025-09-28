@@ -406,6 +406,8 @@ export type WorkflowEventProducerSamplingSnapshot = {
   perJob: WorkflowEventProducerSampleSummary[];
   stale: WorkflowEventProducerSampleRecord[];
   staleBefore: string | null;
+  staleCount: number;
+  replay: WorkflowEventProducerSamplingReplayState;
   generatedAt: string;
 };
 
@@ -416,6 +418,29 @@ export type WorkflowEventProducerInferenceEdge = {
   eventSource: string | null;
   sampleCount: number;
   lastSeenAt: string;
+};
+
+export type WorkflowEventSamplingReplayMetrics = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  lastProcessedAt: string | null;
+  lastFailure: {
+    eventId: string;
+    attempts: number;
+    error: string | null;
+    updatedAt: string;
+  } | null;
+};
+
+export type WorkflowEventProducerSamplingReplayState = {
+  metrics: WorkflowEventSamplingReplayMetrics;
+  pending: number;
+  lookback: {
+    from: string | null;
+    to: string;
+  };
 };
 
 export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';

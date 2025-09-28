@@ -48,6 +48,7 @@ import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { getWorkflowSchedulerMetricsSnapshot } from '../workflowSchedulerMetrics';
 import { getWorkflowEventProducerSamplingSnapshot } from '../db/workflowEventSamples';
+import { replayWorkflowEventSampling } from '../eventSamplingReplay';
 
 const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
   process.env.EVENT_SAMPLING_STALE_MINUTES,
@@ -191,6 +192,80 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       request.log.error({ err }, 'Failed to collect queue health');
       reply.status(500).send({ error: 'Failed to collect queue health' });
+    }
+  });
+
+  app.post<{
+    Body: {
+      lookbackMinutes?: number;
+      limit?: number;
+      maxAttempts?: number;
+      includeProcessed?: boolean;
+      dryRun?: boolean;
+    };
+  }>('/admin/event-sampling/replay', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'event-sampling.replay',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const payload = request.body ?? {};
+
+    const lookbackMinutes = payload.lookbackMinutes;
+    if (lookbackMinutes !== undefined) {
+      if (!Number.isFinite(lookbackMinutes) || lookbackMinutes <= 0) {
+        reply.status(400);
+        await authResult.auth.log('failed', { reason: 'invalid_lookback_minutes' });
+        return { error: 'lookbackMinutes must be a positive number' };
+      }
+    }
+
+    const limit = payload.limit;
+    if (limit !== undefined) {
+      if (!Number.isFinite(limit) || limit <= 0) {
+        reply.status(400);
+        await authResult.auth.log('failed', { reason: 'invalid_limit' });
+        return { error: 'limit must be a positive number' };
+      }
+    }
+
+    const maxAttempts = payload.maxAttempts;
+    if (maxAttempts !== undefined) {
+      if (!Number.isFinite(maxAttempts) || maxAttempts <= 0) {
+        reply.status(400);
+        await authResult.auth.log('failed', { reason: 'invalid_max_attempts' });
+        return { error: 'maxAttempts must be a positive number' };
+      }
+    }
+
+    try {
+      const summary = await replayWorkflowEventSampling({
+        lookbackMs:
+          lookbackMinutes && Number.isFinite(lookbackMinutes)
+            ? Math.floor(lookbackMinutes) * 60_000
+            : undefined,
+        limit: limit && Number.isFinite(limit) ? Math.floor(limit) : undefined,
+        maxAttempts:
+          maxAttempts && Number.isFinite(maxAttempts) ? Math.floor(maxAttempts) : undefined,
+        includeProcessed: Boolean(payload.includeProcessed),
+        dryRun: Boolean(payload.dryRun)
+      });
+
+      await authResult.auth.log('succeeded', {
+        dryRun: summary.dryRun,
+        processed: summary.processed
+      });
+
+      reply.status(200).send({ data: summary });
+    } catch (err) {
+      request.log.error({ err }, 'Failed to replay workflow event sampling');
+      await authResult.auth.log('failed', { reason: 'replay_failed' });
+      reply.status(500).send({ error: 'Failed to replay event sampling' });
     }
   });
 

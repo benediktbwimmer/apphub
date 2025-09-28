@@ -8,11 +8,19 @@ import type {
 } from './types';
 import { mapWorkflowEventProducerSampleRow } from './rowMappers';
 import type { WorkflowEventProducerSampleRow } from './rowTypes';
+import {
+  getEventSamplingReplayMetrics,
+  countPendingEventSamplingReplays
+} from './workflowEventSamplingReplay';
 
 const DEFAULT_SAMPLE_TTL_MS = resolveTtl(process.env.EVENT_SAMPLING_TTL_MS, 30 * 24 * 60 * 60 * 1000);
 const DEFAULT_INFERRED_EDGE_MAX_AGE_MS = resolveTtl(
   process.env.WORKFLOW_TOPOLOGY_INFERRED_EDGE_MAX_AGE_MS,
   30 * 24 * 60 * 60 * 1000
+);
+const DEFAULT_REPLAY_LOOKBACK_MS = resolveLookbackWindow(
+  process.env.EVENT_SAMPLING_REPLAY_LOOKBACK_MS,
+  7 * 24 * 60 * 60 * 1000
 );
 
 function resolveTtl(source: string | undefined, fallback: number): number {
@@ -63,6 +71,21 @@ function parseBigInt(value: string | number | null | undefined): number {
   }
   const parsed = typeof value === 'string' ? Number(value) : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resolveLookbackWindow(source: string | undefined, fallback: number): number {
+  if (!source) {
+    return fallback;
+  }
+  const parsed = Number(source);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const normalized = Math.floor(parsed);
+  if (Number.isNaN(normalized) || normalized < 0) {
+    return fallback;
+  }
+  return normalized;
 }
 
 export async function upsertWorkflowEventProducerSample(
@@ -133,7 +156,7 @@ export async function getWorkflowEventProducerSamplingSnapshot(options: {
   const staleLimit = clampPositive(options.staleLimit, 25, 200);
   const staleBeforeIso = options.staleBefore ? normalizeTimestamp(options.staleBefore) : null;
 
-  return useConnection(async (client) => {
+  const { totals, perJob, stale } = await useConnection(async (client) => {
     const totalsPromise = client.query<{ total_samples: string | null; row_count: string | null }>(
       `SELECT
          COALESCE(SUM(sample_count), 0)::bigint AS total_samples,
@@ -202,14 +225,39 @@ export async function getWorkflowEventProducerSamplingSnapshot(options: {
 
     const stale = staleResult.rows.map(mapWorkflowEventProducerSampleRow);
 
-    return {
-      totals,
-      perJob,
-      stale,
-      staleBefore: staleBeforeIso,
-      generatedAt: new Date().toISOString()
-    } satisfies WorkflowEventProducerSamplingSnapshot;
+    return { totals, perJob, stale };
   });
+
+  const generatedAt = new Date();
+  const lookbackMs = DEFAULT_REPLAY_LOOKBACK_MS;
+  const fromIso = lookbackMs > 0 ? new Date(generatedAt.getTime() - lookbackMs).toISOString() : null;
+  const toIso = generatedAt.toISOString();
+
+  const [replayMetrics, pending] = await Promise.all([
+    getEventSamplingReplayMetrics(),
+    countPendingEventSamplingReplays({
+      from: fromIso ?? undefined,
+      to: toIso,
+      includeProcessed: false
+    })
+  ]);
+
+  return {
+    totals,
+    perJob,
+    stale,
+    staleBefore: staleBeforeIso,
+    staleCount: stale.length,
+    replay: {
+      metrics: replayMetrics,
+      pending,
+      lookback: {
+        from: fromIso,
+        to: toIso
+      }
+    },
+    generatedAt: generatedAt.toISOString()
+  } satisfies WorkflowEventProducerSamplingSnapshot;
 }
 
 function resolveMaxAgeMs(candidate: number | null | undefined): number {

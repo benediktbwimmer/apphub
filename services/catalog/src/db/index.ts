@@ -21,3 +21,4 @@ export * from './assetMaterializer';
 export * from './savedSearches';
 export * from './eventSavedViews';
 export * from './workflowEventSamples';
+export * from './workflowEventSamplingReplay';

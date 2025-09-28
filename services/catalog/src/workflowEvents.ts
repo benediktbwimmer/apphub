@@ -1,10 +1,7 @@
 import type { EventEnvelope } from '@apphub/event-bus';
 import { insertWorkflowEvent, getWorkflowEventById } from './db/workflowEvents';
-import {
-  upsertWorkflowEventProducerSample,
-  type WorkflowEventProducerSampleRecord
-} from './db/workflowEventSamples';
-import type { WorkflowEventRecord } from './db/types';
+import { upsertWorkflowEventProducerSample } from './db/workflowEventSamples';
+import type { WorkflowEventRecord, WorkflowEventProducerSampleRecord } from './db/types';
 import { emitApphubEvent, type ApphubEvent } from './events';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';

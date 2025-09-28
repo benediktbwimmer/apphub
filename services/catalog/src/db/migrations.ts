@@ -1164,6 +1164,30 @@ const migrations: Migration[] = [
          ON workflow_event_producer_samples(expires_at)
          WHERE expires_at IS NOT NULL;`
     ]
+  },
+  {
+    id: '038_event_sampling_replay_state',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_event_sampling_replay_state (
+         event_id TEXT PRIMARY KEY REFERENCES workflow_events(id) ON DELETE CASCADE,
+         status TEXT NOT NULL,
+         attempts INTEGER NOT NULL DEFAULT 1,
+         workflow_definition_id TEXT,
+         workflow_run_id TEXT,
+         workflow_run_step_id TEXT,
+         job_run_id TEXT,
+         job_slug TEXT,
+         last_error TEXT,
+         processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CHECK (status IN ('succeeded', 'failed', 'skipped')),
+         CHECK (attempts >= 1)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_event_sampling_replay_status
+         ON workflow_event_sampling_replay_state(status, updated_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_event_sampling_replay_processed_at
+         ON workflow_event_sampling_replay_state(processed_at DESC);`
+    ]
   }
 ];
 

@@ -3199,6 +3199,30 @@ export async function getWorkflowRunStepById(stepId: string): Promise<WorkflowRu
   });
 }
 
+export async function getWorkflowRunStepByJobRunId(jobRunId: string): Promise<WorkflowRunStepRecord | null> {
+  const trimmed = jobRunId.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowRunStepRow>(
+      `SELECT *
+         FROM workflow_run_steps
+        WHERE job_run_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [trimmed]
+    )
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return mapWorkflowRunStepRow(rows[0]);
+}
+
 export async function getWorkflowRunStep(
   workflowRunId: string,
   stepId: string
