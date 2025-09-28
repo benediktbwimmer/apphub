@@ -33,7 +33,7 @@ function toMillis(value: string | null | undefined): number | null {
   return parsed;
 }
 
-function newerThan(previousIso: string | undefined, candidateMs: number): boolean {
+function newerThan(previousIso: string | null | undefined, candidateMs: number): boolean {
   if (!previousIso) {
     return true;
   }

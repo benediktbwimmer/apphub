@@ -125,13 +125,13 @@ type NodeStatusDescriptor = {
   tooltip?: string;
 };
 
-function formatTimestampLabel(value: string | null | undefined): string | null {
+function formatTimestampLabel(value: string | null | undefined): string | undefined {
   if (!value) {
-    return null;
+    return undefined;
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return null;
+    return undefined;
   }
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
@@ -280,7 +280,7 @@ function toTriggerNodeStatus(status: WorkflowGraphTriggerStatus | undefined): No
       tone = 'neutral';
   }
   const tooltipParts: string[] = [];
-  const updatedLabel = formatTimestampLabel(status.updatedAt ?? null);
+  const updatedLabel = formatTimestampLabel(status.updatedAt);
   if (status.reason) {
     tooltipParts.push(status.reason);
   }
@@ -477,7 +477,7 @@ function buildWorkflowNodes(
     if (overlayStatus?.runId) {
       meta.push(`Run · ${overlayStatus.runId}`);
     }
-    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : null;
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : undefined;
     if (updatedLabel) {
       meta.push(`Updated ${updatedLabel}`);
     }
@@ -524,7 +524,7 @@ function buildStepNodes(
       meta.push(`Run · ${overlayStatus.runId}`);
     }
     const statusDescriptor = overlay ? toStepNodeStatus(overlayStatus) : undefined;
-    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : null;
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : undefined;
     if (updatedLabel) {
       meta.push(`Updated ${updatedLabel}`);
     }
@@ -583,7 +583,7 @@ function buildTriggerNodes(
     const label = isEventTrigger(trigger) ? trigger.name ?? trigger.id : trigger.triggerType;
     const overlayStatus = overlay?.triggers[trigger.id];
     const statusDescriptor = overlay ? toTriggerNodeStatus(overlayStatus) : undefined;
-    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt ?? null) : null;
+    const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : undefined;
     if (updatedLabel) {
       meta.push(`Updated ${updatedLabel}`);
     }
@@ -645,7 +645,7 @@ function buildAssetNodes(
     if (overlayStatus?.partitionKey) {
       meta.push(`Partition · ${overlayStatus.partitionKey}`);
     }
-    const producedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.producedAt) : null;
+    const producedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.producedAt) : undefined;
     if (producedLabel) {
       meta.push(`Produced ${producedLabel}`);
     }

@@ -230,10 +230,6 @@ function mergeTheme(
   return merged;
 }
 
-function classNames(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ');
-}
-
 function describeNodeKind(kind: WorkflowGraphCanvasNodeKind): string {
   switch (kind) {
     case 'workflow':

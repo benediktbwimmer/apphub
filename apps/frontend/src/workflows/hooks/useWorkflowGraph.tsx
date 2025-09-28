@@ -53,17 +53,6 @@ function scheduleTimer(callback: () => void, delayMs: number): number | NodeJS.T
   return setTimeout(callback, delayMs);
 }
 
-function clearTimer(handle: number | NodeJS.Timeout | null): void {
-  if (handle === null) {
-    return;
-  }
-  if (typeof window !== 'undefined') {
-    window.clearTimeout(handle as number);
-  } else {
-    clearTimeout(handle as NodeJS.Timeout);
-  }
-}
-
 function scheduleInterval(callback: () => void, delayMs: number): number | NodeJS.Timeout {
   if (typeof window !== 'undefined') {
     return window.setInterval(callback, delayMs);
@@ -310,7 +299,7 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
   const clearPendingEvents = useCallback(() => {
     pendingEventsRef.current = [];
     setPendingEvents([]);
-    updateOverlayMeta((current) => ({
+    updateOverlayMeta(() => ({
       queueSize: 0,
       droppedEvents: droppedEventsRef.current
     }));
