@@ -1132,6 +1132,38 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_example_bundle_status_updated
          ON example_bundle_status(updated_at DESC);`
     ]
+  },
+  {
+    id: '037_catalog_event_sampling_store',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workflow_event_producer_samples (
+         workflow_definition_id TEXT NOT NULL,
+         workflow_run_step_id TEXT NOT NULL,
+         job_slug TEXT NOT NULL,
+         event_type TEXT NOT NULL,
+         event_source TEXT NOT NULL,
+         sample_count BIGINT NOT NULL DEFAULT 0,
+         first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         expires_at TIMESTAMPTZ,
+         cleanup_attempted_at TIMESTAMPTZ,
+         PRIMARY KEY (
+           workflow_definition_id,
+           workflow_run_step_id,
+           job_slug,
+           event_type,
+           event_source
+         ),
+         CHECK (sample_count >= 0)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_samples_job_slug
+         ON workflow_event_producer_samples(job_slug);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_samples_last_seen
+         ON workflow_event_producer_samples(last_seen_at DESC);`,
+      `CREATE INDEX IF NOT EXISTS idx_workflow_event_samples_expires_at
+         ON workflow_event_producer_samples(expires_at)
+         WHERE expires_at IS NOT NULL;`
+    ]
   }
 ];
 

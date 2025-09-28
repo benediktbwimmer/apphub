@@ -20,3 +20,4 @@ export * from './eventIngressRetries';
 export * from './assetMaterializer';
 export * from './savedSearches';
 export * from './eventSavedViews';
+export * from './workflowEventSamples';

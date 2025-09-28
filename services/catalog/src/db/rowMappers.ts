@@ -56,6 +56,7 @@ import {
   type WorkflowAssetStalePartitionRecord,
   type WorkflowAssetPartitionParametersRecord,
   type WorkflowEventRecord,
+  type WorkflowEventProducerSampleRecord,
   type WorkflowEventTriggerRecord,
   type WorkflowEventTriggerPredicate,
   type WorkflowEventTriggerStatus,
@@ -97,6 +98,7 @@ import type {
   WorkflowAssetStalePartitionRow,
   WorkflowAssetPartitionParametersRow,
   WorkflowEventRow,
+  WorkflowEventProducerSampleRow,
   WorkflowEventTriggerRow,
   WorkflowTriggerDeliveryRow,
   SavedCatalogSearchRow,
@@ -1525,6 +1527,26 @@ export function mapWorkflowEventRow(row: WorkflowEventRow): WorkflowEventRecord 
     ttlMs,
     metadata: metadata ?? null
   } satisfies WorkflowEventRecord;
+}
+
+export function mapWorkflowEventProducerSampleRow(
+  row: WorkflowEventProducerSampleRow
+): WorkflowEventProducerSampleRecord {
+  const rawCount = typeof row.sample_count === 'string' ? Number(row.sample_count) : row.sample_count;
+  const normalizedCount = Number.isFinite(rawCount) && rawCount >= 0 ? Number(rawCount) : 0;
+
+  return {
+    workflowDefinitionId: row.workflow_definition_id,
+    workflowRunStepId: row.workflow_run_step_id,
+    jobSlug: row.job_slug,
+    eventType: row.event_type,
+    eventSource: row.event_source,
+    sampleCount: normalizedCount,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    expiresAt: row.expires_at ?? null,
+    cleanupAttemptedAt: row.cleanup_attempted_at ?? null
+  } satisfies WorkflowEventProducerSampleRecord;
 }
 
 function normalizeTriggerStatus(value: string): WorkflowEventTriggerStatus {

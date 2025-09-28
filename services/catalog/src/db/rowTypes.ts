@@ -585,6 +585,19 @@ export type WorkflowEventRow = {
   metadata: unknown;
 };
 
+export type WorkflowEventProducerSampleRow = {
+  workflow_definition_id: string;
+  workflow_run_step_id: string;
+  job_slug: string;
+  event_type: string;
+  event_source: string;
+  sample_count: string | number;
+  first_seen_at: string;
+  last_seen_at: string;
+  expires_at: string | null;
+  cleanup_attempted_at: string | null;
+};
+
 export type EventIngressRetryRow = {
   event_id: string;
   source: string;

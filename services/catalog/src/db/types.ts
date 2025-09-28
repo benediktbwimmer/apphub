@@ -365,6 +365,50 @@ export type WorkflowEventQueryResult = {
   nextCursor: WorkflowEventCursor | null;
 };
 
+export type WorkflowEventProducerSampleRecord = {
+  workflowDefinitionId: string;
+  workflowRunStepId: string;
+  jobSlug: string;
+  eventType: string;
+  eventSource: string;
+  sampleCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  expiresAt: string | null;
+  cleanupAttemptedAt: string | null;
+};
+
+export type WorkflowEventProducerSampleUpsert = {
+  workflowDefinitionId: string;
+  workflowRunStepId: string;
+  jobSlug: string;
+  eventType: string;
+  eventSource: string;
+  observedAt: string;
+  ttlMs?: number | null;
+};
+
+export type WorkflowEventProducerSampleSummary = {
+  jobSlug: string;
+  eventType: string;
+  eventSource: string;
+  sampleCount: number;
+  distinctWorkflows: number;
+  workflowDefinitionIds: string[];
+  lastSeenAt: string;
+};
+
+export type WorkflowEventProducerSamplingSnapshot = {
+  totals: {
+    rows: number;
+    sampleCount: number;
+  };
+  perJob: WorkflowEventProducerSampleSummary[];
+  stale: WorkflowEventProducerSampleRecord[];
+  staleBefore: string | null;
+  generatedAt: string;
+};
+
 export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
 export type ServiceKind = string;

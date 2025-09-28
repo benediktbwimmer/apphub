@@ -46,6 +46,67 @@ import { decodeWorkflowEventCursor, encodeWorkflowEventCursor } from '../workflo
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { getWorkflowSchedulerMetricsSnapshot } from '../workflowSchedulerMetrics';
+import { getWorkflowEventProducerSamplingSnapshot } from '../db/workflowEventSamples';
+
+const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
+  process.env.EVENT_SAMPLING_STALE_MINUTES,
+  6 * 60
+);
+
+function normalizePositiveNumber(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function parseLimitParam(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  const normalized = Math.floor(parsed);
+  if (normalized <= 0) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function computeStaleBefore(
+  isoCandidate: string | undefined,
+  minutesCandidate: string | undefined
+): string | null {
+  const trimmedIso = isoCandidate?.trim();
+  if (trimmedIso) {
+    const parsed = Date.parse(trimmedIso);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+
+  if (minutesCandidate !== undefined) {
+    const parsedMinutes = Number(minutesCandidate);
+    if (Number.isFinite(parsedMinutes)) {
+      if (parsedMinutes <= 0) {
+        return null;
+      }
+      const durationMs = Math.floor(parsedMinutes) * 60_000;
+      return new Date(Date.now() - durationMs).toISOString();
+    }
+  }
+
+  if (DEFAULT_SAMPLING_STALE_MINUTES <= 0) {
+    return null;
+  }
+  return new Date(Date.now() - DEFAULT_SAMPLING_STALE_MINUTES * 60_000).toISOString();
+}
 
 function mergeMetadata(existing: JsonValue | null | undefined, patch: Record<string, unknown>): JsonValue {
   if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
@@ -90,6 +151,35 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       request.log.error({ err }, 'Failed to collect event health');
       reply.status(500).send({ error: 'Failed to collect event health' });
+    }
+  });
+
+  app.get<{
+    Querystring: {
+      perJobLimit?: string;
+      staleBefore?: string;
+      staleBeforeMinutes?: string;
+      staleLimit?: string;
+    };
+  }>('/admin/event-sampling', async (request, reply) => {
+    try {
+      const perJobLimit = parseLimitParam(request.query.perJobLimit);
+      const staleLimit = parseLimitParam(request.query.staleLimit);
+      const staleBefore = computeStaleBefore(
+        request.query.staleBefore,
+        request.query.staleBeforeMinutes
+      );
+
+      const snapshot = await getWorkflowEventProducerSamplingSnapshot({
+        perJobLimit,
+        staleBefore,
+        staleLimit
+      });
+
+      reply.status(200).send({ data: snapshot });
+    } catch (err) {
+      request.log.error({ err }, 'Failed to collect workflow event sampling snapshot');
+      reply.status(500).send({ error: 'Failed to collect event sampling snapshot' });
     }
   });
 
