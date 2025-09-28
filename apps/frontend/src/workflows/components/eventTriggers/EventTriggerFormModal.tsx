@@ -1019,10 +1019,10 @@ export default function EventTriggerFormModal({
     <Modal
       open={open}
       onClose={disableActions ? undefined : onClose}
-      className="items-start justify-center px-4 py-6 sm:items-center"
-      contentClassName="max-w-4xl max-h-[calc(100vh-4rem)] overflow-y-auto sm:max-h-[calc(100vh-6rem)]"
+      className="items-start justify-center px-4 py-6"
+      contentClassName="flex max-w-4xl flex-col overflow-hidden max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]"
     >
-      <form className="flex flex-col gap-4 p-6" onSubmit={handleSubmit}>
+      <form className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6" onSubmit={handleSubmit}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
