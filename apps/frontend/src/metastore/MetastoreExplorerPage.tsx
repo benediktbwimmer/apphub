@@ -17,6 +17,7 @@ import JsonSyntaxHighlighter from '../components/JsonSyntaxHighlighter';
 import { AuditTrailPanel } from './components/AuditTrailPanel';
 import { RealtimeActivityRail } from './components/RealtimeActivityRail';
 import { FilestoreHealthRail } from './components/FilestoreHealthRail';
+import SchemaAwareMetadataEditor from './components/SchemaAwareMetadataEditor';
 import {
   buildQueryPayload,
   createEmptyClause,
@@ -29,6 +30,7 @@ import {
   type QueryClause
 } from './queryComposer';
 import { MetastoreQueryBuilder } from './components/MetastoreQueryBuilder';
+import { useSchemaDefinition } from './useSchemaDefinition';
 
 const POLL_INTERVAL = 20000;
 const PAGE_SIZE = 25;
@@ -147,6 +149,10 @@ export default function MetastoreExplorerPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [metadataText, setMetadataText] = useState('');
+  const [metadataDraft, setMetadataDraft] = useState<Record<string, unknown>>({});
+  const [metadataMode, setMetadataMode] = useState<'schema' | 'json'>('json');
+  const [schemaValidationErrors, setSchemaValidationErrors] = useState<Record<string, string>>({});
+  const [metadataParseError, setMetadataParseError] = useState<string | null>(null);
   const [tagsText, setTagsText] = useState('');
   const [ownerText, setOwnerText] = useState('');
   const [schemaHashText, setSchemaHashText] = useState('');
@@ -158,10 +164,27 @@ export default function MetastoreExplorerPage() {
 
   const offset = page * PAGE_SIZE;
 
+  const schemaHashDisplay = useMemo(() => schemaHashText.trim(), [schemaHashText]);
+  const schemaLookupHash = useMemo(() => (schemaHashDisplay.length >= 6 ? schemaHashDisplay : null), [schemaHashDisplay]);
+
+  const schemaState = useSchemaDefinition(authorizedFetch, schemaLookupHash);
+
   const resetEditors = useCallback(
     (detail: MetastoreRecordDetail) => {
       setRecordDetail(detail);
-      setMetadataText(stringifyMetadata(detail.metadata));
+      let nextMetadata: Record<string, unknown> = {};
+      if (detail.metadata && typeof detail.metadata === 'object' && !Array.isArray(detail.metadata)) {
+        try {
+          nextMetadata = JSON.parse(JSON.stringify(detail.metadata)) as Record<string, unknown>;
+        } catch {
+          nextMetadata = { ...(detail.metadata as Record<string, unknown>) };
+        }
+      }
+      setMetadataDraft(nextMetadata);
+      setMetadataMode(detail.schemaHash ? 'schema' : 'json');
+      setMetadataParseError(null);
+      setSchemaValidationErrors({});
+      setMetadataText(stringifyMetadata(nextMetadata));
       setTagsText((detail.tags ?? []).join(', '));
       setOwnerText(detail.owner ?? '');
       setSchemaHashText(detail.schemaHash ?? '');
@@ -173,6 +196,12 @@ export default function MetastoreExplorerPage() {
     },
     [stringifyMetadata]
   );
+
+  useEffect(() => {
+    if (!schemaHashDisplay) {
+      setMetadataMode('json');
+    }
+  }, [schemaHashDisplay]);
 
   const handleNamespaceChange = (nextNamespace: string) => {
     const normalized = nextNamespace.trim() || 'default';
@@ -420,8 +449,36 @@ export default function MetastoreExplorerPage() {
     if (!recordDetail) {
       return;
     }
+    setMetadataError(null);
+
+    if (metadataMode === 'schema' && schemaState.status === 'ready') {
+      if (metadataParseError) {
+        setMetadataError(metadataParseError);
+        return;
+      }
+      if (Object.keys(schemaValidationErrors).length > 0) {
+        setMetadataError('Fix schema validation errors before saving.');
+        return;
+      }
+    }
+
+    let metadata: Record<string, unknown>;
     try {
-      const metadata = parseMetadataInput(metadataText);
+      if (metadataMode === 'schema' && schemaState.status === 'ready') {
+        metadata = metadataDraft;
+      } else {
+        const parsed = parseMetadataInput(metadataText);
+        metadata = parsed;
+        setMetadataDraft(parsed);
+        setMetadataParseError(null);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to parse metadata JSON';
+      setMetadataParseError(message);
+      setMetadataError(message);
+      return;
+    }
+    try {
       const tags = parseTagsInput(tagsText);
       const payload = {
         metadata,
@@ -433,7 +490,7 @@ export default function MetastoreExplorerPage() {
 
       const updated = await upsertRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, payload);
       showSuccess('Record updated', `Version ${updated.version}`);
-      setRecordDetail(updated);
+      resetEditors(updated);
       refetchSearch();
     } catch (err) {
       const message = mapMetastoreError(err);
@@ -463,7 +520,7 @@ export default function MetastoreExplorerPage() {
 
       const updated = await patchRecord(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, payload);
       showSuccess('Patch applied', `Version ${updated.version}`);
-      setRecordDetail(updated);
+      resetEditors(updated);
       refetchSearch();
     } catch (err) {
       const message = mapMetastoreError(err);
@@ -508,7 +565,7 @@ export default function MetastoreExplorerPage() {
         expectedVersion: recordDetail.version
       });
       showSuccess('Record restored');
-      setRecordDetail(restored);
+      resetEditors(restored);
       refetchSearch();
     } catch (err) {
       showError('Restore failed', err);
@@ -548,6 +605,8 @@ export default function MetastoreExplorerPage() {
   const searchErrorMessage = searchError instanceof Error ? searchError.message : searchError ? String(searchError) : null;
   const currentRecord = recordDetail;
   const crossLinks = extractCrossLinks(currentRecord);
+  const schemaBlockingErrors =
+    metadataMode === 'schema' && (metadataParseError !== null || Object.keys(schemaValidationErrors).length > 0);
   const activePreset = useMemo(() => METASTORE_PRESETS.find((preset) => preset.value === builderPreset) ?? null, [builderPreset]);
   const builderSummary = useMemo(() => {
     if (appliedQuery.mode !== 'builder') {
@@ -774,7 +833,7 @@ export default function MetastoreExplorerPage() {
                     <button
                       type="button"
                       onClick={handleRecordUpdate}
-                      disabled={!hasWriteScope}
+                      disabled={!hasWriteScope || schemaBlockingErrors}
                       className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Save record
@@ -823,45 +882,52 @@ export default function MetastoreExplorerPage() {
 
                 {metadataError && <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{metadataError}</p>}
 
-                <section className="mt-4 grid gap-4 lg:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                    <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Metadata</span>
-                    <textarea
-                      value={metadataText}
-                      onChange={(event) => setMetadataText(event.target.value)}
-                      rows={12}
-                      className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 font-mono text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-                    />
-                  </label>
-                  <div className="flex flex-col gap-4">
-                    <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                      <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Tags</span>
-                      <input
-                        type="text"
-                        value={tagsText}
-                        onChange={(event) => setTagsText(event.target.value)}
-                        placeholder="Comma-separated list"
-                        className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                      <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Owner</span>
-                      <input
-                        type="text"
-                        value={ownerText}
-                        onChange={(event) => setOwnerText(event.target.value)}
-                        className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                      <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Schema hash</span>
-                      <input
-                        type="text"
-                        value={schemaHashText}
-                        onChange={(event) => setSchemaHashText(event.target.value)}
-                        className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
-                      />
-                    </label>
+                <section className="mt-4 flex flex-col gap-6">
+                  <SchemaAwareMetadataEditor
+                    schemaHash={schemaHashDisplay ? schemaHashDisplay : null}
+                    schemaState={schemaState}
+                    metadataMode={metadataMode}
+                    onMetadataModeChange={setMetadataMode}
+                    metadataDraft={metadataDraft}
+                    onMetadataDraftChange={setMetadataDraft}
+                    metadataText={metadataText}
+                    onMetadataTextChange={setMetadataText}
+                    parseError={metadataParseError}
+                    onParseErrorChange={setMetadataParseError}
+                    onValidationChange={setSchemaValidationErrors}
+                    hasWriteScope={hasWriteScope}
+                  />
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
+                    <div className="flex flex-col gap-4">
+                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Tags</span>
+                        <input
+                          type="text"
+                          value={tagsText}
+                          onChange={(event) => setTagsText(event.target.value)}
+                          placeholder="Comma-separated list"
+                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Owner</span>
+                        <input
+                          type="text"
+                          value={ownerText}
+                          onChange={(event) => setOwnerText(event.target.value)}
+                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Schema hash</span>
+                        <input
+                          type="text"
+                          value={schemaHashText}
+                          onChange={(event) => setSchemaHashText(event.target.value)}
+                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                        />
+                      </label>
+                    </div>
                     <section className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
                       <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Patch payload (advanced)</h4>
                       <textarea

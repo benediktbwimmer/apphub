@@ -8,7 +8,8 @@ import {
   namespaceListResponseSchema,
   auditDiffSchema,
   restoreResponseSchema,
-  filestoreHealthSnapshotSchema
+  filestoreHealthSnapshotSchema,
+  schemaDefinitionSchema
 } from './types';
 import type {
   MetastoreSearchResponse,
@@ -23,7 +24,8 @@ import type {
   MetastoreAuditDiff,
   MetastoreRestorePayload,
   MetastoreRestoreResponse,
-  MetastoreFilestoreHealth
+  MetastoreFilestoreHealth,
+  MetastoreSchemaFetchResult
 } from './types';
 
 async function parseJsonOrError<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -224,6 +226,43 @@ export async function listNamespaces(
   }
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
   return parseJsonOrError(response, namespaceListResponseSchema);
+}
+
+export async function fetchSchemaDefinition(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  schemaHash: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<MetastoreSchemaFetchResult> {
+  const url = new URL(`/schemas/${encodeURIComponent(schemaHash)}`, METASTORE_BASE_URL);
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  const text = await response.text();
+
+  if (response.status === 404) {
+    let message = 'Schema metadata not registered.';
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { message?: unknown };
+        const candidate = parsed.message;
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+          message = candidate;
+        }
+      } catch {
+        // ignore parse failure and fall back to default
+      }
+    }
+    return { status: 'missing', message } satisfies MetastoreSchemaFetchResult;
+  }
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(text, response.status));
+  }
+
+  const payload = text ? (JSON.parse(text) as unknown) : {};
+  const schema = schemaDefinitionSchema.parse(payload);
+  return {
+    status: 'found',
+    schema
+  } satisfies MetastoreSchemaFetchResult;
 }
 
 export async function fetchFilestoreHealth(

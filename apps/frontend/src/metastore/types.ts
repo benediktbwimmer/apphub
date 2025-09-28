@@ -18,6 +18,42 @@ export type MetastoreRecordStreamEvent = z.infer<typeof recordStreamEventSchema>
 
 export const recordMetadataSchema = z.object({}).passthrough();
 
+export const schemaFieldDefinitionSchema = z
+  .object({
+    path: z.string(),
+    type: z.string(),
+    description: z.string().optional(),
+    required: z.boolean().optional(),
+    repeated: z.boolean().optional(),
+    constraints: z.record(z.unknown()).optional(),
+    hints: z.record(z.unknown()).optional(),
+    examples: z.array(z.unknown()).optional(),
+    metadata: z.record(z.unknown()).optional()
+  })
+  .strict();
+
+export type MetastoreSchemaFieldDefinition = z.infer<typeof schemaFieldDefinitionSchema>;
+
+export const schemaDefinitionSchema = z
+  .object({
+    schemaHash: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    version: z.union([z.string(), z.number()]).optional(),
+    metadata: z.record(z.unknown()).optional(),
+    fields: z.array(schemaFieldDefinitionSchema),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    cache: z.enum(['database', 'cache']).optional()
+  })
+  .strict();
+
+export type MetastoreSchemaDefinition = z.infer<typeof schemaDefinitionSchema>;
+
+export type MetastoreSchemaFetchResult =
+  | { status: 'found'; schema: MetastoreSchemaDefinition }
+  | { status: 'missing'; message: string };
+
 const recordBaseSchema = z.object({
   id: z.string(),
   namespace: z.string(),
