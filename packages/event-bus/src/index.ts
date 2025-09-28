@@ -50,7 +50,9 @@ export type EventEnvelopeInput = Omit<EventEnvelope, 'id' | 'occurredAt'> & {
 };
 
 export type EventIngressJobData = {
-  envelope: EventEnvelope;
+  envelope?: EventEnvelope;
+  eventId?: string;
+  retryKind?: 'source' | 'trigger';
 };
 
 export type PublishEventOptions = {

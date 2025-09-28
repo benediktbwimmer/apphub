@@ -31,6 +31,7 @@ export const EVENT_QUEUE_NAME = process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_E
 export const EVENT_TRIGGER_QUEUE_NAME =
   process.env.APPHUB_EVENT_TRIGGER_QUEUE_NAME ?? 'apphub_event_trigger_queue';
 export const EVENT_TRIGGER_JOB_NAME = 'apphub.event.trigger';
+export const EVENT_RETRY_JOB_NAME = 'apphub.event.retry';
 
 export type EventTriggerJobData = {
   envelope: EventEnvelope;
@@ -240,6 +241,50 @@ export async function enqueueEventTriggerEvaluation(envelope: EventEnvelope): Pr
 
   const queue = queueManager.getQueue<EventTriggerJobData>(QUEUE_KEYS.eventTrigger);
   await queue.add(EVENT_TRIGGER_JOB_NAME, { envelope });
+}
+
+function computeDelayMs(runAtIso: string): number {
+  if (!runAtIso) {
+    return 0;
+  }
+  const runAt = Date.parse(runAtIso);
+  if (Number.isNaN(runAt)) {
+    return 0;
+  }
+  return Math.max(runAt - Date.now(), 0);
+}
+
+export async function scheduleEventRetryJob(
+  eventId: string,
+  runAtIso: string,
+  attempt: number
+): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    console.warn('[event-retry] Inline mode active; skipping retry scheduling', {
+      eventId,
+      runAtIso
+    });
+    return;
+  }
+
+  const queue = queueManager.getQueue<EventIngressJobData>(QUEUE_KEYS.event);
+  try {
+    await queue.add(
+      EVENT_RETRY_JOB_NAME,
+      { eventId, retryKind: 'source' },
+      {
+        delay: computeDelayMs(runAtIso),
+        jobId: `event-retry:${eventId}:${attempt}`,
+        removeOnComplete: 100,
+        removeOnFail: 100
+      }
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('jobId already exists')) {
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function getEventQueueStats(): Promise<{

@@ -1,20 +1,258 @@
 import { Worker } from 'bullmq';
-import { DEFAULT_EVENT_JOB_NAME, validateEventEnvelope, type EventIngressJobData } from '@apphub/event-bus';
+import {
+  DEFAULT_EVENT_JOB_NAME,
+  validateEventEnvelope,
+  type EventEnvelope,
+  type EventIngressJobData
+} from '@apphub/event-bus';
 import {
   EVENT_QUEUE_NAME,
+  EVENT_RETRY_JOB_NAME,
   closeQueueConnection,
   enqueueEventTriggerEvaluation,
   getQueueConnection,
-  isInlineQueueMode
+  isInlineQueueMode,
+  scheduleEventRetryJob
 } from './queue';
-import { ingestWorkflowEvent } from './workflowEvents';
+import {
+  deleteEventIngressRetry,
+  getEventIngressRetryById,
+  listScheduledEventIngressRetries,
+  updateEventIngressRetry,
+  upsertEventIngressRetry
+} from './db/eventIngressRetries';
+import { getWorkflowEventById, ingestWorkflowEvent } from './workflowEvents';
 import { logger } from './observability/logger';
 import { normalizeMeta } from './observability/meta';
 import { recordEventIngress, recordEventIngressFailure } from './eventSchedulerMetrics';
 import { registerSourceEvent } from './eventSchedulerState';
+import { computeNextAttemptTimestamp } from '@apphub/shared/retries/backoff';
+import type { EventIngressRetryRecord, WorkflowEventRecord, JsonValue } from './db/types';
 
 const EVENT_WORKER_CONCURRENCY = Number(process.env.EVENT_INGRESS_CONCURRENCY ?? 5);
 const inlineMode = isInlineQueueMode();
+
+const EVENT_RETRY_BACKOFF = {
+  baseMs: normalizePositiveNumber(process.env.EVENT_RETRY_BASE_MS, 5_000),
+  factor: normalizePositiveNumber(process.env.EVENT_RETRY_FACTOR, 2),
+  maxMs: normalizePositiveNumber(process.env.EVENT_RETRY_MAX_MS, 10 * 60_000),
+  jitterRatio: normalizeRatio(process.env.EVENT_RETRY_JITTER_RATIO, 0.2)
+} as const;
+
+function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed >= minimum ? parsed : fallback;
+}
+
+function normalizeRatio(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, 0), 1);
+}
+
+function toEventEnvelope(record: WorkflowEventRecord): EventEnvelope {
+  const metadataValue =
+    record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+      ? (record.metadata as Record<string, JsonValue>)
+      : undefined;
+
+  return {
+    id: record.id,
+    type: record.type,
+    source: record.source ?? 'unknown',
+    occurredAt: record.occurredAt,
+    payload: record.payload ?? {},
+    correlationId: record.correlationId ?? undefined,
+    ttl: record.ttlMs ?? undefined,
+    metadata: metadataValue
+  } satisfies EventEnvelope;
+}
+
+function computeNextRunTimestamp(
+  attempts: number,
+  resumeAt?: string | null,
+  now: Date = new Date()
+): string {
+  const backoffAt = computeNextAttemptTimestamp(attempts, EVENT_RETRY_BACKOFF, now);
+  if (!resumeAt) {
+    return backoffAt;
+  }
+  const resumeTs = Date.parse(resumeAt);
+  const backoffTs = Date.parse(backoffAt);
+  if (Number.isNaN(resumeTs)) {
+    return backoffAt;
+  }
+  if (Number.isNaN(backoffTs)) {
+    return new Date(Math.max(resumeTs, now.getTime())).toISOString();
+  }
+  const scheduled = Math.max(resumeTs, backoffTs);
+  return new Date(scheduled).toISOString();
+}
+
+async function scheduleSourceRetry(
+  envelope: EventEnvelope,
+  evaluation: { reason?: string; until?: string | null },
+  existingState?: EventIngressRetryRecord | null
+): Promise<void> {
+  const current = existingState ?? (await getEventIngressRetryById(envelope.id));
+  if (current && current.retryState === 'cancelled') {
+    logger.info(
+      'Source retry cancelled; skipping reschedule',
+      normalizeMeta({ eventId: envelope.id, source: envelope.source ?? 'unknown' })
+    );
+    return;
+  }
+
+  const attempts = (current?.attempts ?? 0) + 1;
+  const nextAttemptAt = computeNextRunTimestamp(attempts, evaluation.until ?? null);
+
+  const metadata = {
+    reason: evaluation.reason ?? 'paused',
+    resumeAt: evaluation.until ?? null
+  } satisfies Record<string, JsonValue>;
+
+  await upsertEventIngressRetry({
+    eventId: envelope.id,
+    source: envelope.source ?? 'unknown',
+    retryState: 'scheduled',
+    attempts,
+    nextAttemptAt,
+    lastError: evaluation.reason ?? null,
+    metadata
+  });
+
+  try {
+    await scheduleEventRetryJob(envelope.id, nextAttemptAt, attempts);
+  } catch (err) {
+    logger.error(
+      'Failed to enqueue source retry job',
+      normalizeMeta({
+        eventId: envelope.id,
+        source: envelope.source ?? 'unknown',
+        attempts,
+        nextAttemptAt,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    );
+    throw err;
+  }
+
+  logger.info(
+    'Scheduled source event retry',
+    normalizeMeta({
+      eventId: envelope.id,
+      source: envelope.source ?? 'unknown',
+      attempts,
+      nextAttemptAt,
+      reason: evaluation.reason ?? 'paused'
+    })
+  );
+}
+
+async function processEventEnvelope(envelope: EventEnvelope): Promise<void> {
+  try {
+    await ingestWorkflowEvent(envelope);
+  } catch (err) {
+    await recordEventIngressFailure(envelope.source ?? 'unknown');
+    throw err;
+  }
+
+  const evaluation = await registerSourceEvent(envelope.source ?? 'unknown');
+  await recordEventIngress(envelope, {
+    throttled: evaluation.allowed === false,
+    dropped: false
+  });
+
+  if (!evaluation.allowed) {
+    await scheduleSourceRetry(envelope, evaluation);
+    return;
+  }
+
+  await deleteEventIngressRetry(envelope.id);
+
+  try {
+    await enqueueEventTriggerEvaluation(envelope);
+  } catch (err) {
+    await recordEventIngressFailure(envelope.source ?? 'unknown');
+    throw err;
+  }
+}
+
+async function processSourceRetry(eventId: string): Promise<void> {
+  const state = await getEventIngressRetryById(eventId);
+  if (state && state.retryState === 'cancelled') {
+    logger.info('Skipping cancelled source retry', normalizeMeta({ eventId }));
+    return;
+  }
+
+  const eventRecord = await getWorkflowEventById(eventId);
+  if (!eventRecord) {
+    logger.warn('Event record missing for retry; cleaning up state', normalizeMeta({ eventId }));
+    await deleteEventIngressRetry(eventId);
+    return;
+  }
+
+  if (state) {
+    await updateEventIngressRetry(eventId, { retryState: 'pending' });
+  }
+
+  const envelope = toEventEnvelope(eventRecord);
+  const evaluation = await registerSourceEvent(envelope.source ?? 'unknown');
+  await recordEventIngress(envelope, {
+    throttled: evaluation.allowed === false,
+    dropped: false
+  });
+
+  if (!evaluation.allowed) {
+    await scheduleSourceRetry(envelope, evaluation, state ?? null);
+    return;
+  }
+
+  await deleteEventIngressRetry(eventId);
+
+  try {
+    await enqueueEventTriggerEvaluation(envelope);
+  } catch (err) {
+    await recordEventIngressFailure(envelope.source ?? 'unknown');
+    throw err;
+  }
+}
+
+async function reconcileScheduledEventRetries(): Promise<void> {
+  const scheduled = await listScheduledEventIngressRetries();
+  if (scheduled.length === 0) {
+    return;
+  }
+
+  for (const entry of scheduled) {
+    try {
+      await scheduleEventRetryJob(entry.eventId, entry.nextAttemptAt, entry.attempts);
+    } catch (err) {
+      logger.error(
+        'Failed to requeue scheduled source retry',
+        normalizeMeta({
+          eventId: entry.eventId,
+          attempts: entry.attempts,
+          nextAttemptAt: entry.nextAttemptAt,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      );
+    }
+  }
+
+  logger.info('Reconciled scheduled source retries', normalizeMeta({ count: scheduled.length }));
+}
 
 async function runInlineMode(): Promise<void> {
   logger.info('Event ingress worker running in inline mode; events process synchronously via queue helpers');
@@ -25,38 +263,24 @@ async function runQueuedWorker(): Promise<void> {
   const worker = new Worker<EventIngressJobData>(
     EVENT_QUEUE_NAME,
     async (job) => {
-      const validated = validateEventEnvelope(job.data.envelope);
-      try {
-        await ingestWorkflowEvent(validated);
-      } catch (err) {
-        await recordEventIngressFailure(validated.source ?? 'unknown');
-        throw err;
-      }
-
-      const evaluation = await registerSourceEvent(validated.source ?? 'unknown');
-      await recordEventIngress(validated, {
-        throttled: evaluation.reason === 'rate_limit' && evaluation.allowed === false,
-        dropped: evaluation.allowed === false
-      });
-
-      if (!evaluation.allowed) {
-        logger.warn(
-          'Event dropped due to source pause or rate limit',
-          normalizeMeta({
-            source: validated.source ?? 'unknown',
-            reason: evaluation.reason ?? 'paused',
-            resumeAt: evaluation.until ?? null
-          })
-        );
+      if (job.name === EVENT_RETRY_JOB_NAME) {
+        const eventId = job.data.eventId;
+        if (!eventId) {
+          logger.warn('Received event retry job without eventId', normalizeMeta({ jobId: job.id }));
+          return;
+        }
+        await processSourceRetry(eventId);
         return;
       }
 
-      try {
-        await enqueueEventTriggerEvaluation(validated);
-      } catch (err) {
-        await recordEventIngressFailure(validated.source ?? 'unknown');
-        throw err;
+      const payload = job.data.envelope;
+      if (!payload) {
+        logger.warn('Event ingress job missing envelope payload', normalizeMeta({ jobId: job.id }));
+        return;
       }
+
+      const validated = validateEventEnvelope(payload);
+      await processEventEnvelope(validated);
     },
     {
       connection,
@@ -76,6 +300,7 @@ async function runQueuedWorker(): Promise<void> {
   });
 
   await worker.waitUntilReady();
+  await reconcileScheduledEventRetries();
   logger.info(
     'Event ingress worker ready',
     normalizeMeta({ queue: EVENT_QUEUE_NAME, concurrency: EVENT_WORKER_CONCURRENCY })

@@ -1,5 +1,5 @@
 import type { EventEnvelope } from '@apphub/event-bus';
-import { insertWorkflowEvent } from './db/workflowEvents';
+import { insertWorkflowEvent, getWorkflowEventById } from './db/workflowEvents';
 import type { WorkflowEventRecord } from './db/types';
 import { emitApphubEvent } from './events';
 import { logger } from './observability/logger';
@@ -30,3 +30,5 @@ export async function ingestWorkflowEvent(envelope: EventEnvelope): Promise<Work
   emitApphubEvent({ type: 'workflow.event.received', data: { event: record } });
   return record;
 }
+
+export { getWorkflowEventById };

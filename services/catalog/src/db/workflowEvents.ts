@@ -147,3 +147,20 @@ export async function listWorkflowEventsByIds(ids: string[]): Promise<WorkflowEv
     return rows.map(mapWorkflowEventRow);
   });
 }
+
+export async function getWorkflowEventById(eventId: string): Promise<WorkflowEventRecord | null> {
+  const trimmed = eventId.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowEventRow>('SELECT * FROM workflow_events WHERE id = $1', [trimmed])
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return mapWorkflowEventRow(rows[0]);
+}
