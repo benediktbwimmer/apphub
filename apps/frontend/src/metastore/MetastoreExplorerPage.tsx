@@ -7,35 +7,14 @@ import { useToastHelpers } from '../components/toast';
 import { Spinner } from '../components';
 import { RecordTable } from './components/RecordTable';
 import { NamespacePicker } from './components/NamespacePicker';
-import {
-  searchRecords,
-  fetchRecord,
-  fetchRecordAudits,
-  upsertRecord,
-  patchRecord,
-  deleteRecord,
-  purgeRecord,
-  bulkOperate
-} from './api';
-import type {
-  MetastoreRecordDetail,
-  MetastoreAuditEntry,
-  MetastoreUpsertPayload,
-  MetastorePatchPayload,
-  BulkRequestPayload
-} from './types';
+import { searchRecords, fetchRecord, upsertRecord, patchRecord, deleteRecord, purgeRecord, bulkOperate } from './api';
+import type { MetastoreRecordDetail, MetastoreUpsertPayload, MetastorePatchPayload, BulkRequestPayload } from './types';
 import { BulkOperationsDialog } from './components/BulkOperationsDialog';
-import {
-  stringifyMetadata,
-  parseMetadataInput,
-  parseTagsInput,
-  extractCrossLinks,
-  mapMetastoreError,
-  formatInstant
-} from './utils';
+import { stringifyMetadata, parseMetadataInput, parseTagsInput, extractCrossLinks, mapMetastoreError } from './utils';
 import { ROUTE_PATHS } from '../routes/paths';
 import { Link } from 'react-router-dom';
 import JsonSyntaxHighlighter from '../components/JsonSyntaxHighlighter';
+import { AuditTrailPanel } from './components/AuditTrailPanel';
 import {
   buildQueryPayload,
   createEmptyClause,
@@ -173,12 +152,25 @@ export default function MetastoreExplorerPage() {
   const [patchText, setPatchText] = useState('');
   const [metadataUnsetText, setMetadataUnsetText] = useState('');
   const [tagPatchText, setTagPatchText] = useState('');
-  const [audits, setAudits] = useState<MetastoreAuditEntry[]>([]);
-  const [auditsLoading, setAuditsLoading] = useState(false);
-  const [auditsError, setAuditsError] = useState<string | null>(null);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
 
   const offset = page * PAGE_SIZE;
+
+  const resetEditors = useCallback(
+    (detail: MetastoreRecordDetail) => {
+      setRecordDetail(detail);
+      setMetadataText(stringifyMetadata(detail.metadata));
+      setTagsText((detail.tags ?? []).join(', '));
+      setOwnerText(detail.owner ?? '');
+      setSchemaHashText(detail.schemaHash ?? '');
+      setMetadataError(null);
+      setPatchText('');
+      setMetadataUnsetText('');
+      setTagPatchText('');
+      setDetailError(null);
+    },
+    [stringifyMetadata]
+  );
 
   const handleNamespaceChange = (nextNamespace: string) => {
     const normalized = nextNamespace.trim() || 'default';
@@ -402,17 +394,7 @@ export default function MetastoreExplorerPage() {
       signal: controller.signal
     })
       .then((detail) => {
-        setRecordDetail(detail);
-        setMetadataText(stringifyMetadata(detail.metadata));
-        setTagsText((detail.tags ?? []).join(', '));
-        setOwnerText(detail.owner ?? '');
-        setSchemaHashText(detail.schemaHash ?? '');
-        setMetadataError(null);
-        setPatchText('');
-        setMetadataUnsetText('');
-        setTagPatchText('');
-        setAudits([]);
-        setAuditsError(null);
+        resetEditors(detail);
       })
       .catch((err) => {
         if (!controller.signal.aborted) {
@@ -430,7 +412,7 @@ export default function MetastoreExplorerPage() {
     return () => {
       controller.abort();
     };
-  }, [authorizedFetch, includeDeleted, selectedRecordId, records, showError]);
+  }, [authorizedFetch, includeDeleted, selectedRecordId, records, resetEditors, showError]);
 
   const handleRecordUpdate = async () => {
     if (!recordDetail) {
@@ -552,24 +534,6 @@ export default function MetastoreExplorerPage() {
       refetchSearch();
     } catch (err) {
       showError('Purge failed', err);
-    }
-  };
-
-  const loadAudits = async () => {
-    if (!recordDetail) {
-      return;
-    }
-    try {
-      setAuditsLoading(true);
-      setAuditsError(null);
-      const { entries } = await fetchRecordAudits(authorizedFetch, recordDetail.namespace, recordDetail.recordKey, {
-        limit: 50
-      });
-      setAudits(entries);
-    } catch (err) {
-      setAuditsError(err instanceof Error ? err.message : 'Failed to load audit entries');
-    } finally {
-      setAuditsLoading(false);
     }
   };
 
@@ -949,37 +913,18 @@ export default function MetastoreExplorerPage() {
                   </div>
                 </section>
 
-                <section className="mt-6 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Audit trail</h4>
-                    <button
-                      type="button"
-                      onClick={loadAudits}
-                      className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-                    >
-                      Refresh audit
-                    </button>
-                  </div>
-                  {auditsLoading ? (
-                    <p className="text-sm text-slate-600 dark:text-slate-300">Loading audit log…</p>
-                  ) : auditsError ? (
-                    <p className="text-sm text-rose-600 dark:text-rose-300">{auditsError}</p>
-                  ) : audits.length === 0 ? (
-                    <p className="text-sm text-slate-600 dark:text-slate-300">No audit entries recorded yet.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {audits.map((entry) => (
-                        <li key={entry.id} className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold capitalize text-slate-700 dark:text-slate-200">{entry.action}</span>
-                            <span>{formatInstant(entry.createdAt)}</span>
-                          </div>
-                          <div className="mt-1">Actor: {entry.actor ?? 'system'} • Version: {entry.version ?? 'n/a'}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                <AuditTrailPanel
+                  record={currentRecord}
+                  authorizedFetch={authorizedFetch}
+                  hasWriteScope={hasWriteScope}
+                  onRecordRestored={(restored) => {
+                    resetEditors(restored);
+                  }}
+                  onRefreshRecords={refetchSearch}
+                  showSuccess={showSuccess}
+                  showError={showError}
+                  showInfo={showInfo}
+                />
               </div>
 
               <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">

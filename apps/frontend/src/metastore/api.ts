@@ -5,7 +5,9 @@ import {
   searchResponseSchema,
   auditResponseSchema,
   bulkResponseSchema,
-  namespaceListResponseSchema
+  namespaceListResponseSchema,
+  auditDiffSchema,
+  restoreResponseSchema
 } from './types';
 import type {
   MetastoreSearchResponse,
@@ -15,7 +17,11 @@ import type {
   BulkRequestPayload,
   BulkResponsePayload,
   MetastoreAuditEntry,
-  MetastoreNamespaceListResponse
+  MetastoreNamespaceListResponse,
+  MetastoreAuditResponse,
+  MetastoreAuditDiff,
+  MetastoreRestorePayload,
+  MetastoreRestoreResponse
 } from './types';
 
 async function parseJsonOrError<T>(response: Response, schema: { parse: (input: unknown) => T }): Promise<T> {
@@ -84,7 +90,7 @@ export async function fetchRecordAudits(
   namespace: string,
   key: string,
   options: { limit?: number; offset?: number; signal?: AbortSignal } = {}
-): Promise<{ entries: MetastoreAuditEntry[]; total: number }> {
+): Promise<MetastoreAuditResponse> {
   const url = new URL(`/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit`, METASTORE_BASE_URL);
   if (options.limit) {
     url.searchParams.set('limit', String(options.limit));
@@ -93,11 +99,22 @@ export async function fetchRecordAudits(
     url.searchParams.set('offset', String(options.offset));
   }
   const response = await authorizedFetch(url.toString(), { signal: options.signal });
-  const parsed = await parseJsonOrError(response, auditResponseSchema);
-  return {
-    entries: parsed.entries,
-    total: parsed.pagination.total
-  };
+  return parseJsonOrError(response, auditResponseSchema);
+}
+
+export async function fetchRecordAuditDiff(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  namespace: string,
+  key: string,
+  auditId: number,
+  options: { signal?: AbortSignal } = {}
+): Promise<MetastoreAuditDiff> {
+  const url = new URL(
+    `/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/audit/${auditId}/diff`,
+    METASTORE_BASE_URL
+  );
+  const response = await authorizedFetch(url.toString(), { signal: options.signal });
+  return parseJsonOrError(response, auditDiffSchema);
 }
 
 export async function upsertRecord(
@@ -160,6 +177,20 @@ export async function purgeRecord(
     body: JSON.stringify(payload)
   });
   await ensureOk(response);
+}
+
+export async function restoreRecordFromAudit(
+  authorizedFetch: ReturnType<typeof useAuthorizedFetch>,
+  namespace: string,
+  key: string,
+  payload: MetastoreRestorePayload
+): Promise<MetastoreRestoreResponse> {
+  const response = await authorizedFetch(`${METASTORE_BASE_URL}/records/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  return parseJsonOrError(response, restoreResponseSchema);
 }
 
 export async function bulkOperate(

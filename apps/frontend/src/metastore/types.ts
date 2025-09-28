@@ -44,15 +44,28 @@ export const recordResponseSchema = z.object({
   record: recordDetailSchema
 });
 
+const auditActionSchema = z.enum(['create', 'update', 'delete', 'restore']);
+
+export type MetastoreAuditAction = z.infer<typeof auditActionSchema>;
+
 export const auditEntrySchema = z.object({
-  id: z.string(),
+  id: z.number().int().positive(),
   namespace: z.string(),
   recordKey: z.string(),
-  action: z.string(),
+  action: auditActionSchema,
   actor: z.string().nullable(),
-  version: z.number().nullable(),
-  metadata: z.record(z.unknown()),
-  createdAt: z.string()
+  previousVersion: z.number().int().positive().nullable(),
+  version: z.number().int().positive().nullable(),
+  metadata: z.record(z.unknown()).nullable(),
+  previousMetadata: z.record(z.unknown()).nullable(),
+  tags: z.array(z.string()).nullable(),
+  previousTags: z.array(z.string()).nullable(),
+  owner: z.string().nullable(),
+  previousOwner: z.string().nullable(),
+  schemaHash: z.string().nullable(),
+  previousSchemaHash: z.string().nullable(),
+  createdAt: z.string(),
+  correlationId: z.string().nullable().optional()
 });
 
 export type MetastoreAuditEntry = z.infer<typeof auditEntrySchema>;
@@ -66,6 +79,71 @@ export const auditResponseSchema = z.object({
   entries: z.array(auditEntrySchema)
 });
 
+export type MetastoreAuditResponse = z.infer<typeof auditResponseSchema>;
+
+const metadataDiffValueSchema = z.object({
+  path: z.string(),
+  value: z.unknown()
+});
+
+const metadataDiffChangeSchema = z.object({
+  path: z.string(),
+  before: z.unknown(),
+  after: z.unknown()
+});
+
+export const auditMetadataDiffSchema = z.object({
+  added: z.array(metadataDiffValueSchema),
+  removed: z.array(metadataDiffValueSchema),
+  changed: z.array(metadataDiffChangeSchema)
+});
+
+export type MetastoreAuditMetadataDiff = z.infer<typeof auditMetadataDiffSchema>;
+
+export const auditTagsDiffSchema = z.object({
+  added: z.array(z.string()),
+  removed: z.array(z.string())
+});
+
+export type MetastoreAuditTagsDiff = z.infer<typeof auditTagsDiffSchema>;
+
+export const auditScalarDiffSchema = <T extends z.ZodTypeAny>(schema: T) =>
+  z.object({
+    before: schema.nullable(),
+    after: schema.nullable(),
+    changed: z.boolean()
+  });
+
+export const auditSnapshotSchema = z.object({
+  metadata: z.record(z.unknown()).nullable(),
+  tags: z.array(z.string()),
+  owner: z.string().nullable(),
+  schemaHash: z.string().nullable()
+});
+
+export const auditDiffSchema = z.object({
+  audit: z.object({
+    id: z.number().int().positive(),
+    namespace: z.string(),
+    key: z.string(),
+    action: auditActionSchema,
+    actor: z.string().nullable(),
+    previousVersion: z.number().int().positive().nullable(),
+    version: z.number().int().positive().nullable(),
+    createdAt: z.string()
+  }),
+  metadata: auditMetadataDiffSchema,
+  tags: auditTagsDiffSchema,
+  owner: auditScalarDiffSchema(z.string()),
+  schemaHash: auditScalarDiffSchema(z.string()),
+  snapshots: z.object({
+    current: auditSnapshotSchema,
+    previous: auditSnapshotSchema
+  })
+});
+
+export type MetastoreAuditDiff = z.infer<typeof auditDiffSchema>;
+
 export const upsertPayloadSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
@@ -75,6 +153,21 @@ export const upsertPayloadSchema = z.object({
 });
 
 export type MetastoreUpsertPayload = z.infer<typeof upsertPayloadSchema>;
+
+export const restorePayloadSchema = z
+  .object({
+    auditId: z.number().int().positive().optional(),
+    version: z.number().int().positive().optional(),
+    expectedVersion: z.number().optional()
+  })
+  .refine((value) => value.auditId !== undefined || value.version !== undefined, {
+    message: 'Either auditId or version must be provided'
+  })
+  .refine((value) => !(value.auditId !== undefined && value.version !== undefined), {
+    message: 'Specify either auditId or version, not both'
+  });
+
+export type MetastoreRestorePayload = z.infer<typeof restorePayloadSchema>;
 
 export const patchPayloadSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
@@ -145,6 +238,17 @@ export const bulkResponseSchema = z.object({
 });
 
 export type BulkResponsePayload = z.infer<typeof bulkResponseSchema>;
+
+export const restoreResponseSchema = z.object({
+  restored: z.boolean(),
+  record: recordDetailSchema,
+  restoredFrom: z.object({
+    auditId: z.number().int().positive(),
+    version: z.number().int().positive().nullable()
+  })
+});
+
+export type MetastoreRestoreResponse = z.infer<typeof restoreResponseSchema>;
 
 export const namespaceOwnerCountSchema = z.object({
   owner: z.string(),
