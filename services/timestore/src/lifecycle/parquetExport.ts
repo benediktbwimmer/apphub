@@ -127,7 +127,11 @@ export async function performParquetExport(
     console.error('[timestore] failed to publish dataset.export completed event', err);
   }
 
-  invalidateSqlRuntimeCache();
+  invalidateSqlRuntimeCache({
+    datasetId: context.dataset.id,
+    datasetSlug: context.dataset.slug,
+    reason: 'parquet-export'
+  });
 
   return {
     operation: 'parquetExport',

@@ -475,4 +475,144 @@ describe('sql runtime cache', () => {
       duckdbModule.Database = OriginalDatabase as unknown as typeof duckdbModule.Database;
     }
   });
+
+  test('dataset-scoped invalidation triggers incremental refresh', async () => {
+    assert.ok(runtimeModule);
+    runtimeModule.resetSqlRuntimeCache();
+
+    const baseContext = await runtimeModule.loadSqlContext();
+    assert.ok(baseContext.datasets.length > 0);
+
+    const dataset = await metadataModule.getDatasetBySlug(datasetSlug);
+    assert.ok(dataset);
+    assert.ok(dataset.defaultStorageTargetId);
+
+    const storageTarget = await metadataModule.getStorageTargetById(dataset.defaultStorageTargetId!);
+    assert.ok(storageTarget);
+
+    const latestManifest = await metadataModule.getLatestPublishedManifest(dataset.id);
+    assert.ok(latestManifest);
+    assert.ok(latestManifest?.schemaVersionId);
+
+    const config = loadServiceConfig();
+    const driver = storageModule.createStorageDriver(config, storageTarget);
+
+    const partitionId = `part-${randomUUID()}`;
+    const startTime = new Date('2024-01-02T00:00:00Z');
+    const endTime = new Date('2024-01-02T00:10:00Z');
+    const rows = [
+      { timestamp: startTime, site: 'gamma', value: 51.4 },
+      { timestamp: endTime, site: 'delta', value: 47.9 }
+    ];
+
+    const schemaFields: FieldDefinition[] = [
+      { name: 'timestamp', type: 'timestamp' },
+      { name: 'site', type: 'string' },
+      { name: 'value', type: 'double' }
+    ];
+
+    const writeResult = await driver.writePartition({
+      datasetSlug: dataset.slug,
+      partitionId,
+      partitionKey: { day: '2024-01-02' },
+      tableName: 'records',
+      schema: schemaFields,
+      rows
+    });
+
+    const manifestVersion = (latestManifest?.version ?? 0) + 1;
+
+    await metadataModule.createDatasetManifest({
+      id: `dm-${randomUUID()}`,
+      datasetId: dataset.id,
+      version: manifestVersion,
+      status: 'published',
+      manifestShard: '2024-01-02',
+      schemaVersionId: latestManifest!.schemaVersionId,
+      summary: { note: 'incremental refresh test' },
+      statistics: {
+        rowCount: writeResult.rowCount,
+        fileSizeBytes: writeResult.fileSizeBytes,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString()
+      },
+      metadata: { tableName: 'records' },
+      createdBy: 'tests',
+      partitions: [
+        {
+          id: partitionId,
+          storageTargetId: storageTarget.id,
+          fileFormat: 'duckdb',
+          filePath: writeResult.relativePath,
+          fileSizeBytes: writeResult.fileSizeBytes,
+          rowCount: writeResult.rowCount,
+          startTime,
+          endTime,
+          checksum: writeResult.checksum,
+          partitionKey: { day: '2024-01-02' },
+          metadata: { tableName: 'records' },
+          columnStatistics: {},
+          columnBloomFilters: {}
+        }
+      ]
+    });
+
+    runtimeModule.invalidateSqlRuntimeCache({
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      reason: 'test'
+    });
+
+    const refreshedContext = await runtimeModule.loadSqlContext();
+    assert.notStrictEqual(refreshedContext, baseContext);
+
+    const refreshedDataset = refreshedContext.datasets.find(
+      (entry) => entry.dataset.id === dataset.id
+    );
+    assert.ok(refreshedDataset, 'expected dataset to be present after refresh');
+    assert.ok(
+      refreshedDataset?.partitions.some((partition) => partition.id === partitionId),
+      'expected new partition to be attached'
+    );
+
+    const cachedAgain = await runtimeModule.loadSqlContext();
+    assert.strictEqual(cachedAgain, refreshedContext);
+  });
+
+  test('dataset invalidation falls back to full rebuild when incremental mode disabled', async () => {
+    assert.ok(runtimeModule);
+
+    const previousFlag = process.env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED;
+    try {
+      process.env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED = 'false';
+      resetCachedServiceConfig();
+      runtimeModule.resetSqlRuntimeCache();
+
+      const initialContext = await runtimeModule.loadSqlContext();
+      assert.ok(initialContext.datasets.length > 0);
+
+      const dataset = await metadataModule.getDatasetBySlug(datasetSlug);
+      assert.ok(dataset);
+
+      runtimeModule.invalidateSqlRuntimeCache({
+        datasetId: dataset.id,
+        datasetSlug: dataset.slug,
+        reason: 'forced-full'
+      });
+
+      const snapshot = runtimeModule.getSqlRuntimeCacheSnapshot();
+      assert.equal(snapshot.cachePresent, false, 'expected cache to be cleared');
+
+      const rebuiltContext = await runtimeModule.loadSqlContext();
+      assert.notStrictEqual(rebuiltContext, initialContext);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED;
+      } else {
+        process.env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED = previousFlag;
+      }
+      resetCachedServiceConfig();
+      runtimeModule.resetSqlRuntimeCache();
+    }
+  });
 });

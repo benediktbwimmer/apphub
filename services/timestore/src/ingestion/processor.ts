@@ -344,7 +344,11 @@ export async function processIngestionJob(
       }
     }
 
-    invalidateSqlRuntimeCache();
+    invalidateSqlRuntimeCache({
+      datasetId: dataset.id,
+      datasetSlug,
+      reason: 'ingestion'
+    });
 
     endSpan(span);
     return {

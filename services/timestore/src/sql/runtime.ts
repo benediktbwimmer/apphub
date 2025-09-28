@@ -6,6 +6,8 @@ import {
   listPublishedManifestsWithPartitions,
   getSchemaVersionById,
   getStorageTargetById,
+  getDatasetById,
+  type DatasetStatus,
   type DatasetRecord,
   type DatasetManifestWithPartitions,
   type DatasetPartitionRecord,
@@ -22,6 +24,9 @@ import { configureS3Support, configureGcsSupport, configureAzureSupport } from '
 import {
   recordRuntimeCacheEvent,
   observeRuntimeCacheRebuild,
+  recordRuntimeDatasetRefresh,
+  observeRuntimeDatasetRefreshDuration,
+  setRuntimeCacheStaleness,
   type RuntimeCacheEvent
 } from '../observability/metrics';
 
@@ -36,14 +41,6 @@ type VersionedSqlContext = SqlContext & {
   [CONTEXT_VERSION_SYMBOL]?: number;
 };
 
-interface ContextCacheEntry {
-  context: VersionedSqlContext;
-  expiresAt: number;
-  builtAt: number;
-  version: number;
-  signature: string;
-}
-
 interface ConnectionCacheEntry {
   signature: string;
   db: any;
@@ -54,12 +51,94 @@ interface ConnectionCacheEntry {
   closePromise: Promise<void> | null;
 }
 
+interface DatasetCacheState {
+  datasetId: string;
+  datasetSlug: string;
+  datasetStatus: DatasetStatus;
+  datasetUpdatedAt: string;
+  signature: string;
+  included: boolean;
+  context: SqlDatasetContext | null;
+  warnings: string[];
+  lastRefreshedAt: number;
+  lastBuildDurationMs: number;
+  lastError: string | null;
+  manifestVersion: number | null;
+  manifestUpdatedAt: string | null;
+  partitionCount: number;
+  totalRows: number;
+  totalBytes: number;
+  refreshReason: string | null;
+}
+
+interface ContextCacheEntry {
+  context: VersionedSqlContext;
+  expiresAt: number;
+  builtAt: number;
+  version: number;
+  signature: string;
+  datasets: Map<string, DatasetCacheState>;
+  warnings: string[];
+  mode: 'full' | 'incremental';
+}
+
+interface DatasetInvalidationRequest {
+  datasetId: string;
+  datasetSlug: string | null;
+  reason: string | null;
+  requestedAt: number;
+}
+
+interface SqlRuntimeBuildResult {
+  context: SqlContext;
+  datasets: Map<string, DatasetCacheState>;
+  warnings: string[];
+  durationSeconds: number;
+}
+
+export interface SqlRuntimeCacheSnapshot {
+  incrementalEnabled: boolean;
+  ttlMs: number;
+  cachePresent: boolean;
+  cacheMode: 'full' | 'incremental' | null;
+  version: number | null;
+  signature: string | null;
+  builtAt: string | null;
+  expiresAt: string | null;
+  stalenessSeconds: number | null;
+  datasetCount: number;
+  datasets: Array<{
+    datasetId: string;
+    datasetSlug: string;
+    status: DatasetStatus;
+    updatedAt: string;
+    included: boolean;
+    signature: string;
+    lastRefreshedAt: string | null;
+    lastBuildDurationMs: number;
+    lastError: string | null;
+    manifestVersion: number | null;
+    manifestUpdatedAt: string | null;
+    partitionCount: number;
+    totalRows: number;
+    totalBytes: number;
+    refreshReason: string | null;
+  }>;
+  pendingInvalidations: Array<{
+    datasetId: string;
+    datasetSlug: string | null;
+    reason: string | null;
+    requestedAt: string;
+  }>;
+}
+
 let contextCacheEntry: ContextCacheEntry | null = null;
 let contextBuildPromise: Promise<VersionedSqlContext> | null = null;
 let contextVersionCounter = 0;
 let cacheGeneration = 0;
 const connectionCache = new Map<string, ConnectionCacheEntry>();
 const connectionBuildPromises = new Map<string, Promise<void>>();
+const pendingDatasetInvalidations = new Map<string, DatasetInvalidationRequest>();
 
 function getRuntimeCacheTtlMs(): number {
   const config = loadServiceConfig();
@@ -68,6 +147,14 @@ function getRuntimeCacheTtlMs(): number {
     return Math.max(value, 0);
   }
   return DEFAULT_SQL_RUNTIME_CACHE_TTL_MS;
+}
+
+function isIncrementalCacheEnabled(): boolean {
+  const config = loadServiceConfig();
+  if (typeof config.sql.runtimeIncrementalCacheEnabled === 'boolean') {
+    return config.sql.runtimeIncrementalCacheEnabled;
+  }
+  return true;
 }
 
 function computeContextSignature(context: SqlContext): string {
@@ -116,6 +203,235 @@ function annotateContext(
     configurable: true
   });
   return target;
+}
+
+function computeDatasetSignature(dataset: DatasetRecord, datasetContext: SqlDatasetContext | null): string {
+  const hash = createHash('sha1');
+  hash.update(String(dataset.id));
+  hash.update('|');
+  hash.update(String(dataset.slug));
+  hash.update('|');
+  hash.update(String(dataset.status));
+  hash.update('|');
+  hash.update(String(dataset.writeFormat));
+  hash.update('|');
+  hash.update(String(dataset.updatedAt ?? ''));
+  hash.update('|');
+  hash.update(String(dataset.defaultStorageTargetId ?? ''));
+  hash.update('|');
+  hash.update(JSON.stringify(dataset.metadata ?? {}));
+  hash.update('|');
+
+  if (!datasetContext) {
+    hash.update('context:none');
+    return hash.digest('hex');
+  }
+
+  const manifest = datasetContext.manifest;
+  if (manifest) {
+    hash.update(String(manifest.id ?? ''));
+    hash.update('|');
+    hash.update(String(manifest.version ?? ''));
+    hash.update('|');
+    hash.update(String(manifest.updatedAt ?? ''));
+    hash.update('|');
+    hash.update(String(manifest.partitionCount ?? datasetContext.partitions.length));
+    hash.update('|');
+    hash.update(String(manifest.totalRows ?? 0));
+    hash.update('|');
+    hash.update(String(manifest.totalBytes ?? 0));
+  } else {
+    hash.update('manifest:none');
+  }
+
+  hash.update('|');
+  hash.update(datasetContext.viewName);
+  hash.update('|');
+  const sortedColumns = [...datasetContext.columns].sort((a, b) => a.name.localeCompare(b.name));
+  for (const column of sortedColumns) {
+    hash.update(column.name);
+    hash.update(':');
+    hash.update(column.type ?? '');
+    hash.update(':');
+    hash.update(String(column.nullable ?? ''));
+    hash.update(':');
+    hash.update(String(column.description ?? ''));
+    hash.update(';');
+  }
+
+  hash.update('|');
+  const sortedPartitionKeys = [...datasetContext.partitionKeys].sort();
+  for (const key of sortedPartitionKeys) {
+    hash.update(key);
+    hash.update(',');
+  }
+
+  hash.update('|');
+  const sortedPartitions = [...datasetContext.partitions].sort((a, b) =>
+    a.id.localeCompare(b.id)
+  );
+  for (const partition of sortedPartitions) {
+    hash.update(String(partition.id));
+    hash.update(':');
+    hash.update(String(partition.tableName));
+    hash.update(':');
+    hash.update(String(partition.rowCount ?? ''));
+    hash.update(':');
+    hash.update(String(partition.startTime ?? ''));
+    hash.update(':');
+    hash.update(String(partition.endTime ?? ''));
+    hash.update(':');
+    hash.update(String(partition.location ?? ''));
+    hash.update(';');
+  }
+
+  return hash.digest('hex');
+}
+
+function compareDatasetStates(a: DatasetCacheState, b: DatasetCacheState): number {
+  if (a.datasetUpdatedAt !== b.datasetUpdatedAt) {
+    const diff = Date.parse(b.datasetUpdatedAt) - Date.parse(a.datasetUpdatedAt);
+    if (diff !== 0 && Number.isFinite(diff)) {
+      return diff;
+    }
+  }
+  return b.datasetId.localeCompare(a.datasetId);
+}
+
+function composeSqlContextFromStates(
+  config: ServiceConfig,
+  datasetStates: Map<string, DatasetCacheState>,
+  baseWarnings: string[] = []
+): { context: SqlContext; warnings: string[] } {
+  const datasets: SqlDatasetContext[] = [];
+  const warnings: string[] = [...baseWarnings];
+
+  const sortedStates = [...datasetStates.values()].sort(compareDatasetStates);
+  for (const state of sortedStates) {
+    if (state.warnings.length > 0) {
+      warnings.push(...state.warnings);
+    }
+    if (state.context) {
+      datasets.push(state.context);
+    }
+  }
+
+  const context: SqlContext = {
+    config,
+    datasets,
+    warnings
+  } satisfies SqlContext;
+
+  return { context, warnings };
+}
+
+async function buildDatasetCacheState(
+  dataset: DatasetRecord,
+  config: ServiceConfig,
+  storageTargetCache: Map<string, StorageTargetRecord | null>,
+  refreshReason: string | null = null
+): Promise<DatasetCacheState> {
+  const started = process.hrtime.bigint();
+  const warnings: string[] = [];
+  let context: SqlDatasetContext | null = null;
+  let included = false;
+  let manifestVersion: number | null = null;
+  let manifestUpdatedAt: string | null = null;
+  let partitionCount = 0;
+  let totalRows = 0;
+  let totalBytes = 0;
+
+  if (dataset.writeFormat !== 'duckdb') {
+    warnings.push(`Dataset ${dataset.slug} is not backed by DuckDB partitions; skipping.`);
+  } else {
+    const manifests = await listPublishedManifestsWithPartitions(dataset.id);
+    const manifestForSchema = manifests.reduce<DatasetManifestWithPartitions | null>((latest, current) => {
+      if (!latest || current.version > latest.version) {
+        return current;
+      }
+      return latest;
+    }, null);
+
+    if (manifests.length === 0) {
+      warnings.push(`Dataset ${dataset.slug} has no published manifests; skipping partitions.`);
+    }
+
+    const aggregatedPartitions = manifests.flatMap((entry) => entry.partitions);
+    const aggregatedTotals = aggregatedPartitions.reduce(
+      (acc, partition) => {
+        acc.rows += partition.rowCount ?? 0;
+        acc.bytes += partition.fileSizeBytes ?? 0;
+        return acc;
+      },
+      { rows: 0, bytes: 0 }
+    );
+    const aggregatedUpdatedAt = manifests.reduce((max, entry) => {
+      const ts = Date.parse(entry.updatedAt);
+      return Number.isFinite(ts) && ts > max ? ts : max;
+    }, manifestForSchema ? Date.parse(manifestForSchema.updatedAt) : 0);
+
+    const columns = await loadSchemaColumns(dataset, manifestForSchema, warnings);
+    const partitions = await mapPartitions(aggregatedPartitions, config, storageTargetCache, warnings);
+    const partitionKeys = derivePartitionKeys(partitions);
+    const { viewName, aliasWarning } = createViewName(dataset.slug);
+    const aliasWarnings = aliasWarning ? [aliasWarning] : [];
+    if (aliasWarning) {
+      warnings.push(aliasWarning);
+    }
+
+    const aggregatedManifest = manifestForSchema
+      ? {
+          ...manifestForSchema,
+          updatedAt: Number.isFinite(aggregatedUpdatedAt) && aggregatedUpdatedAt > 0
+            ? new Date(aggregatedUpdatedAt).toISOString()
+            : manifestForSchema.updatedAt,
+          partitionCount: aggregatedPartitions.length,
+          totalRows: aggregatedTotals.rows,
+          totalBytes: aggregatedTotals.bytes,
+          partitions: aggregatedPartitions
+        }
+      : null;
+
+    manifestVersion = aggregatedManifest?.version ?? null;
+    manifestUpdatedAt = aggregatedManifest?.updatedAt ?? null;
+    partitionCount = aggregatedManifest?.partitionCount ?? aggregatedPartitions.length;
+    totalRows = aggregatedManifest?.totalRows ?? aggregatedTotals.rows;
+    totalBytes = aggregatedManifest?.totalBytes ?? aggregatedTotals.bytes;
+
+    context = {
+      dataset,
+      manifest: aggregatedManifest,
+      columns,
+      partitionKeys,
+      partitions,
+      viewName,
+      aliasWarnings
+    } satisfies SqlDatasetContext;
+    included = true;
+  }
+
+  const signature = computeDatasetSignature(dataset, context);
+  const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+
+  return {
+    datasetId: dataset.id,
+    datasetSlug: dataset.slug,
+    datasetStatus: dataset.status,
+    datasetUpdatedAt: dataset.updatedAt,
+    signature,
+    included,
+    context,
+    warnings,
+    lastRefreshedAt: Date.now(),
+    lastBuildDurationMs: durationMs,
+    lastError: null,
+    manifestVersion,
+    manifestUpdatedAt,
+    partitionCount,
+    totalRows,
+    totalBytes,
+    refreshReason
+  } satisfies DatasetCacheState;
 }
 
 function getContextSignature(context: SqlContext): string {
@@ -250,101 +566,60 @@ export interface SqlRuntimeConnection {
   warnings: string[];
 }
 
-async function buildSqlContext(): Promise<SqlContext> {
+async function buildSqlRuntimeState(): Promise<SqlRuntimeBuildResult> {
+  const start = process.hrtime.bigint();
   const config = loadServiceConfig();
-  const warnings: string[] = [];
-  const datasets: SqlDatasetContext[] = [];
-
+  const datasetStates = new Map<string, DatasetCacheState>();
   const datasetRecords = await loadAllDatasets();
   const storageTargetCache = new Map<string, StorageTargetRecord | null>();
 
   for (const dataset of datasetRecords) {
-    if (dataset.writeFormat !== 'duckdb') {
-      warnings.push(`Dataset ${dataset.slug} is not backed by DuckDB partitions; skipping.`);
-      continue;
-    }
-
-    const manifests = await listPublishedManifestsWithPartitions(dataset.id);
-    const manifestForSchema = manifests.reduce<DatasetManifestWithPartitions | null>((latest, current) => {
-      if (!latest || current.version > latest.version) {
-        return current;
-      }
-      return latest;
-    }, null);
-
-    if (manifests.length === 0) {
-      warnings.push(`Dataset ${dataset.slug} has no published manifests; skipping partitions.`);
-    }
-
-    const aggregatedPartitions = manifests.flatMap((entry) => entry.partitions);
-    const aggregatedTotals = aggregatedPartitions.reduce(
-      (acc, partition) => {
-        acc.rows += partition.rowCount ?? 0;
-        acc.bytes += partition.fileSizeBytes ?? 0;
-        return acc;
-      },
-      { rows: 0, bytes: 0 }
-    );
-    const aggregatedUpdatedAt = manifests.reduce((max, entry) => {
-      const ts = Date.parse(entry.updatedAt);
-      return Number.isFinite(ts) && ts > max ? ts : max;
-    }, manifestForSchema ? Date.parse(manifestForSchema.updatedAt) : 0);
-
-    const columns = await loadSchemaColumns(dataset, manifestForSchema, warnings);
-    const partitions = await mapPartitions(aggregatedPartitions, config, storageTargetCache, warnings);
-    const partitionKeys = derivePartitionKeys(partitions);
-    const { viewName, aliasWarning } = createViewName(dataset.slug);
-    const aliasWarnings = aliasWarning ? [aliasWarning] : [];
-    if (aliasWarning) {
-      warnings.push(aliasWarning);
-    }
-
-    const aggregatedManifest = manifestForSchema
-      ? {
-          ...manifestForSchema,
-          updatedAt: Number.isFinite(aggregatedUpdatedAt) && aggregatedUpdatedAt > 0
-            ? new Date(aggregatedUpdatedAt).toISOString()
-            : manifestForSchema.updatedAt,
-          partitionCount: aggregatedPartitions.length,
-          totalRows: aggregatedTotals.rows,
-          totalBytes: aggregatedTotals.bytes,
-          partitions: aggregatedPartitions
-        }
-      : null;
-
-    datasets.push({
-      dataset,
-      manifest: aggregatedManifest,
-      columns,
-      partitionKeys,
-      partitions,
-      viewName,
-      aliasWarnings
-    });
+    const state = await buildDatasetCacheState(dataset, config, storageTargetCache, 'full-build');
+    datasetStates.set(dataset.id, state);
   }
 
+  const { context, warnings } = composeSqlContextFromStates(config, datasetStates);
+  const durationSeconds = Number(process.hrtime.bigint() - start) / 1_000_000_000;
+
   return {
-    config,
-    datasets,
-    warnings
-  } satisfies SqlContext;
+    context,
+    datasets: datasetStates,
+    warnings,
+    durationSeconds
+  } satisfies SqlRuntimeBuildResult;
 }
 
 export async function loadSqlContext(): Promise<SqlContext> {
   const ttlMs = getRuntimeCacheTtlMs();
   if (ttlMs <= 0) {
-    const context = (await buildSqlContext()) as VersionedSqlContext;
+    const { context } = await buildSqlRuntimeState();
     const signature = computeContextSignature(context);
     const version = ++contextVersionCounter;
+    setRuntimeCacheStaleness('context', 0);
     return annotateContext(context, signature, version);
   }
 
   const now = Date.now();
   pruneExpiredConnectionEntries(now);
 
+  const incrementalEnabled = isIncrementalCacheEnabled();
+
   if (contextCacheEntry && contextCacheEntry.expiresAt > now) {
+    if (incrementalEnabled && pendingDatasetInvalidations.size > 0) {
+      if (!contextBuildPromise) {
+        contextBuildPromise = refreshCachedContext(ttlMs).catch((error) => {
+          contextBuildPromise = null;
+          throw error;
+        });
+      }
+      return contextBuildPromise;
+    }
+
     contextCacheEntry.expiresAt = now + ttlMs;
     recordRuntimeCacheEvent('context', 'hit');
+    if (contextCacheEntry.builtAt) {
+      setRuntimeCacheStaleness('context', Math.max((now - contextCacheEntry.builtAt) / 1_000, 0));
+    }
     return contextCacheEntry.context;
   }
 
@@ -366,25 +641,154 @@ export async function loadSqlContext(): Promise<SqlContext> {
 }
 
 async function buildAndCacheContext(ttlMs: number): Promise<VersionedSqlContext> {
-  const start = process.hrtime.bigint();
   const generation = cacheGeneration;
   try {
-    const context = (await buildSqlContext()) as VersionedSqlContext;
-    const signature = computeContextSignature(context);
+    const result = await buildSqlRuntimeState();
+    const signature = computeContextSignature(result.context);
     const version = ++contextVersionCounter;
-    annotateContext(context, signature, version);
+    const context = annotateContext(result.context, signature, version);
     const builtAt = Date.now();
     recordRuntimeCacheEvent('context', 'miss');
-    observeRuntimeCacheRebuild('context', Number(process.hrtime.bigint() - start) / 1_000_000_000);
+    observeRuntimeCacheRebuild('context', result.durationSeconds);
+    for (const state of result.datasets.values()) {
+      const reasonLabel = state.refreshReason ?? 'full-build';
+      recordRuntimeDatasetRefresh(state.datasetSlug, reasonLabel, 'success');
+      observeRuntimeDatasetRefreshDuration(
+        state.datasetSlug,
+        reasonLabel,
+        Math.max(state.lastBuildDurationMs / 1_000, 0)
+      );
+    }
     if (generation === cacheGeneration) {
       contextCacheEntry = {
         context,
         expiresAt: builtAt + ttlMs,
         builtAt,
         version,
-        signature
+        signature,
+        datasets: result.datasets,
+        warnings: [...result.warnings],
+        mode: 'full'
       } satisfies ContextCacheEntry;
+      pendingDatasetInvalidations.clear();
+      setRuntimeCacheStaleness('context', 0);
     }
+    return context;
+  } finally {
+    contextBuildPromise = null;
+  }
+}
+
+async function refreshCachedContext(ttlMs: number): Promise<VersionedSqlContext> {
+  const generation = cacheGeneration;
+  try {
+    const currentEntry = contextCacheEntry;
+    if (!currentEntry) {
+      return buildAndCacheContext(ttlMs);
+    }
+
+    const requests = Array.from(pendingDatasetInvalidations.values());
+    if (requests.length === 0) {
+      const refreshedAt = Date.now();
+      currentEntry.expiresAt = refreshedAt + ttlMs;
+      setRuntimeCacheStaleness('context', Math.max((refreshedAt - currentEntry.builtAt) / 1_000, 0));
+      return currentEntry.context;
+    }
+
+    const config = loadServiceConfig();
+    const datasetStates = new Map(currentEntry.datasets);
+    const storageTargetCache = new Map<string, StorageTargetRecord | null>();
+    const start = process.hrtime.bigint();
+    const processedIds = new Set<string>();
+    const failedIds = new Set<string>();
+    const refreshedStates: DatasetCacheState[] = [];
+
+    for (const request of requests) {
+      processedIds.add(request.datasetId);
+      const existingState = datasetStates.get(request.datasetId);
+      try {
+        const dataset = await getDatasetById(request.datasetId);
+        if (!dataset) {
+          datasetStates.delete(request.datasetId);
+          const slug = request.datasetSlug ?? existingState?.datasetSlug ?? request.datasetId;
+          recordRuntimeDatasetRefresh(slug, 'dataset-removed', 'success');
+          observeRuntimeDatasetRefreshDuration(slug, 'dataset-removed', 0);
+          continue;
+        }
+        const state = await buildDatasetCacheState(
+          dataset,
+          config,
+          storageTargetCache,
+          request.reason ?? null
+        );
+        datasetStates.set(dataset.id, state);
+        refreshedStates.push(state);
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        const slug = existingState?.datasetSlug ?? request.datasetSlug ?? request.datasetId;
+        recordRuntimeDatasetRefresh(slug, request.reason ?? null, 'failure');
+        if (existingState) {
+          existingState.lastError = err.message;
+          existingState.lastRefreshedAt = Date.now();
+          existingState.refreshReason = request.reason ?? null;
+        }
+        failedIds.add(request.datasetId);
+      }
+    }
+
+    for (const id of processedIds) {
+      if (failedIds.has(id)) {
+        const pending = pendingDatasetInvalidations.get(id);
+        if (pending) {
+          pendingDatasetInvalidations.set(id, {
+            ...pending,
+            requestedAt: Date.now()
+          });
+        }
+      } else {
+        pendingDatasetInvalidations.delete(id);
+      }
+    }
+
+    for (const state of refreshedStates) {
+      const reasonLabel = state.refreshReason ?? 'incremental';
+      recordRuntimeDatasetRefresh(state.datasetSlug, reasonLabel, 'success');
+      observeRuntimeDatasetRefreshDuration(
+        state.datasetSlug,
+        reasonLabel,
+        Math.max(state.lastBuildDurationMs / 1_000, 0)
+      );
+    }
+
+    const { context: rebuiltContext, warnings } = composeSqlContextFromStates(config, datasetStates);
+    const signature = computeContextSignature(rebuiltContext);
+    const elapsedSeconds = Number(process.hrtime.bigint() - start) / 1_000_000_000;
+    const previousSignature = currentEntry.signature;
+    const version = ++contextVersionCounter;
+    const context = annotateContext(rebuiltContext, signature, version);
+    const builtAt = Date.now();
+
+    recordRuntimeCacheEvent('context', 'refresh');
+    observeRuntimeCacheRebuild('context', elapsedSeconds);
+
+    if (generation === cacheGeneration) {
+      contextCacheEntry = {
+        context,
+        expiresAt: builtAt + ttlMs,
+        builtAt,
+        version,
+        signature,
+        datasets: datasetStates,
+        warnings: [...warnings],
+        mode: 'incremental'
+      } satisfies ContextCacheEntry;
+
+      if (signature !== previousSignature) {
+        flushConnectionCache('invalidated');
+      }
+      setRuntimeCacheStaleness('context', 0);
+    }
+
     return context;
   } finally {
     contextBuildPromise = null;
@@ -583,12 +987,100 @@ async function prepareConnectionForRemotePartitions(
   }
 }
 
-export function invalidateSqlRuntimeCache(): void {
+export function getSqlRuntimeCacheSnapshot(): SqlRuntimeCacheSnapshot {
+  const ttlMs = getRuntimeCacheTtlMs();
+  const incrementalEnabled = isIncrementalCacheEnabled();
+  const cache = contextCacheEntry;
+  const now = Date.now();
+
+  const datasetStates = cache ? [...cache.datasets.values()] : [];
+  datasetStates.sort(compareDatasetStates);
+
+  const datasets = datasetStates.map((state) => ({
+    datasetId: state.datasetId,
+    datasetSlug: state.datasetSlug,
+    status: state.datasetStatus,
+    updatedAt: state.datasetUpdatedAt,
+    included: state.included,
+    signature: state.signature,
+    lastRefreshedAt:
+      Number.isFinite(state.lastRefreshedAt) && state.lastRefreshedAt > 0
+        ? new Date(state.lastRefreshedAt).toISOString()
+        : null,
+    lastBuildDurationMs: state.lastBuildDurationMs,
+    lastError: state.lastError,
+    manifestVersion: state.manifestVersion,
+    manifestUpdatedAt: state.manifestUpdatedAt,
+    partitionCount: state.partitionCount,
+    totalRows: state.totalRows,
+    totalBytes: state.totalBytes,
+    refreshReason: state.refreshReason
+  }));
+
+  const pending = Array.from(pendingDatasetInvalidations.values())
+    .sort((a, b) => b.requestedAt - a.requestedAt)
+    .map((entry) => ({
+      datasetId: entry.datasetId,
+      datasetSlug: entry.datasetSlug ?? null,
+      reason: entry.reason ?? null,
+      requestedAt: new Date(entry.requestedAt).toISOString()
+    }));
+
+  return {
+    incrementalEnabled,
+    ttlMs,
+    cachePresent: Boolean(cache),
+    cacheMode: cache?.mode ?? null,
+    version: cache?.version ?? null,
+    signature: cache?.signature ?? null,
+    builtAt: cache ? new Date(cache.builtAt).toISOString() : null,
+    expiresAt: cache ? new Date(cache.expiresAt).toISOString() : null,
+    stalenessSeconds: cache ? Math.max((now - cache.builtAt) / 1_000, 0) : null,
+    datasetCount: datasets.length,
+    datasets,
+    pendingInvalidations: pending
+  } satisfies SqlRuntimeCacheSnapshot;
+}
+
+export interface SqlRuntimeInvalidationOptions {
+  datasetId?: string;
+  datasetSlug?: string;
+  reason?: string;
+  scope?: 'all' | 'dataset';
+}
+
+export function invalidateSqlRuntimeCache(options?: SqlRuntimeInvalidationOptions): void {
+  const incrementalEnabled = isIncrementalCacheEnabled();
+  const datasetId = options?.datasetId;
+  const scope: 'all' | 'dataset' = options?.scope ?? (datasetId ? 'dataset' : 'all');
+
+  if (!incrementalEnabled || scope === 'all' || !datasetId) {
+    cacheGeneration += 1;
+    contextCacheEntry = null;
+    contextBuildPromise = null;
+    pendingDatasetInvalidations.clear();
+    recordRuntimeCacheEvent('context', 'invalidated');
+    flushConnectionCache('invalidated');
+    return;
+  }
+
   cacheGeneration += 1;
-  contextCacheEntry = null;
-  contextBuildPromise = null;
+  const existing = pendingDatasetInvalidations.get(datasetId);
+  const request: DatasetInvalidationRequest = existing
+    ? {
+        datasetId,
+        datasetSlug: options?.datasetSlug ?? existing.datasetSlug,
+        reason: options?.reason ?? existing.reason,
+        requestedAt: Date.now()
+      }
+    : {
+        datasetId,
+        datasetSlug: options?.datasetSlug ?? null,
+        reason: options?.reason ?? null,
+        requestedAt: Date.now()
+      } satisfies DatasetInvalidationRequest;
+  pendingDatasetInvalidations.set(datasetId, request);
   recordRuntimeCacheEvent('context', 'invalidated');
-  flushConnectionCache('invalidated');
 }
 
 export function resetSqlRuntimeCache(): void {
@@ -598,6 +1090,7 @@ export function resetSqlRuntimeCache(): void {
   contextVersionCounter = 0;
   flushConnectionCache('invalidated');
   connectionBuildPromises.clear();
+  pendingDatasetInvalidations.clear();
 }
 
 async function loadAllDatasets(): Promise<DatasetRecord[]> {

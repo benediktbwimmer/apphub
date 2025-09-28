@@ -407,7 +407,11 @@ export async function performCompaction(
     lastError: null
   });
 
-  invalidateSqlRuntimeCache();
+  invalidateSqlRuntimeCache({
+    datasetId: context.dataset.id,
+    datasetSlug: context.dataset.slug,
+    reason: 'compaction'
+  });
 
   if (!latestManifest) {
     latestManifest = context.manifest;

@@ -138,7 +138,8 @@ const tracingSchema = z.object({
 const sqlSchema = z.object({
   maxQueryLength: z.number().int().positive(),
   statementTimeoutMs: z.number().int().positive(),
-  runtimeCacheTtlMs: z.number().int().nonnegative()
+  runtimeCacheTtlMs: z.number().int().nonnegative(),
+  runtimeIncrementalCacheEnabled: z.boolean().default(true)
 });
 
 const partitionIndexColumnSchema = z.object({
@@ -620,6 +621,10 @@ export function loadServiceConfig(): ServiceConfig {
   const sqlMaxQueryLength = parseNumber(env.TIMESTORE_SQL_MAX_LENGTH, 10_000);
   const sqlStatementTimeoutMs = parseNumber(env.TIMESTORE_SQL_TIMEOUT_MS, 30_000);
   const sqlRuntimeCacheTtlMs = parseNumber(env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS, 30_000);
+  const sqlRuntimeIncrementalEnabled = parseBoolean(
+    env.TIMESTORE_SQL_RUNTIME_INCREMENTAL_ENABLED,
+    true
+  );
   const manifestCacheEnabled = parseBoolean(env.TIMESTORE_MANIFEST_CACHE_ENABLED, true);
   const manifestCacheRedisUrl = env.TIMESTORE_MANIFEST_CACHE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
   const manifestCacheKeyPrefix = env.TIMESTORE_MANIFEST_CACHE_KEY_PREFIX || 'timestore:manifest';
@@ -772,7 +777,8 @@ export function loadServiceConfig(): ServiceConfig {
     sql: {
       maxQueryLength: sqlMaxQueryLength > 0 ? sqlMaxQueryLength : 10_000,
       statementTimeoutMs: sqlStatementTimeoutMs > 0 ? sqlStatementTimeoutMs : 30_000,
-      runtimeCacheTtlMs: sqlRuntimeCacheTtlMs >= 0 ? sqlRuntimeCacheTtlMs : 0
+      runtimeCacheTtlMs: sqlRuntimeCacheTtlMs >= 0 ? sqlRuntimeCacheTtlMs : 0,
+      runtimeIncrementalCacheEnabled: sqlRuntimeIncrementalEnabled
     },
     lifecycle: {
       enabled: lifecycleEnabled,

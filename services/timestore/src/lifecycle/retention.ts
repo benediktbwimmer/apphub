@@ -149,7 +149,11 @@ export async function enforceRetention(
     }
   }
 
-  invalidateSqlRuntimeCache();
+  invalidateSqlRuntimeCache({
+    datasetId: context.dataset.id,
+    datasetSlug: context.dataset.slug,
+    reason: 'retention'
+  });
 
   return {
     operation: 'retention',

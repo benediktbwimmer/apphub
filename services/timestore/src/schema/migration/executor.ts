@@ -268,7 +268,11 @@ export async function executeSchemaMigration(
     };
 
     if (!dryRun) {
-      invalidateSqlRuntimeCache();
+      invalidateSqlRuntimeCache({
+        datasetId: dataset.id,
+        datasetSlug: dataset.slug,
+        reason: 'schema-migration'
+      });
       await recordLifecycleEvent({
         datasetId: dataset.id,
         manifestId: null,

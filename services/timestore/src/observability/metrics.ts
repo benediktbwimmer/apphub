@@ -82,7 +82,7 @@ export interface HttpMetricInput {
 }
 
 export type RuntimeCacheResource = 'context' | 'connection';
-export type RuntimeCacheEvent = 'hit' | 'miss' | 'invalidated' | 'expired';
+export type RuntimeCacheEvent = 'hit' | 'miss' | 'invalidated' | 'expired' | 'refresh';
 
 interface MetricsState {
   enabled: boolean;
@@ -114,6 +114,9 @@ interface MetricsState {
   httpRequestDurationSeconds: Histogram<string> | null;
   runtimeCacheEventsTotal: Counter<string> | null;
   runtimeCacheRebuildDurationSeconds: Histogram<string> | null;
+  runtimeDatasetRefreshTotal: Counter<string> | null;
+  runtimeDatasetRefreshDurationSeconds: Histogram<string> | null;
+  runtimeCacheStalenessSeconds: Gauge<string> | null;
   schemaMigrationRunsTotal: Counter<string> | null;
   schemaMigrationDurationSeconds: Histogram<string> | null;
   schemaMigrationPartitions: Histogram<string> | null;
@@ -381,6 +384,34 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const runtimeDatasetRefreshTotal = enabled
+    ? new Counter({
+        name: `${prefix}sql_runtime_dataset_refresh_total`,
+        help: 'SQL runtime dataset refresh outcomes grouped by dataset, reason, and result',
+        labelNames: ['dataset', 'reason', 'result'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const runtimeDatasetRefreshDurationSeconds = enabled
+    ? new Histogram({
+        name: `${prefix}sql_runtime_dataset_refresh_duration_seconds`,
+        help: 'SQL runtime dataset refresh durations grouped by dataset and reason',
+        labelNames: ['dataset', 'reason'],
+        buckets: QUERY_BUCKETS,
+        registers: registerMetrics
+      })
+    : null;
+
+  const runtimeCacheStalenessSeconds = enabled
+    ? new Gauge({
+        name: `${prefix}sql_runtime_cache_staleness_seconds`,
+        help: 'SQL runtime cache staleness in seconds grouped by resource',
+        labelNames: ['resource'],
+        registers: registerMetrics
+      })
+    : null;
+
   const schemaMigrationRunsTotal = enabled
     ? new Counter({
         name: `${prefix}schema_migration_runs_total`,
@@ -444,6 +475,9 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     httpRequestDurationSeconds,
     runtimeCacheEventsTotal,
     runtimeCacheRebuildDurationSeconds,
+    runtimeDatasetRefreshTotal,
+    runtimeDatasetRefreshDurationSeconds,
+    runtimeCacheStalenessSeconds,
     schemaMigrationRunsTotal,
     schemaMigrationDurationSeconds,
     schemaMigrationPartitions
@@ -647,6 +681,43 @@ export function observeRuntimeCacheRebuild(
     return;
   }
   state.runtimeCacheRebuildDurationSeconds.labels(resource).observe(Math.max(durationSeconds, 0));
+}
+
+export function recordRuntimeDatasetRefresh(
+  dataset: string,
+  reason: string | null,
+  result: 'success' | 'failure'
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.runtimeDatasetRefreshTotal) {
+    return;
+  }
+  const reasonLabel = reason && reason.length > 0 ? reason : 'unspecified';
+  state.runtimeDatasetRefreshTotal.labels(dataset, reasonLabel, result).inc();
+}
+
+export function observeRuntimeDatasetRefreshDuration(
+  dataset: string,
+  reason: string | null,
+  durationSeconds: number
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.runtimeDatasetRefreshDurationSeconds) {
+    return;
+  }
+  const reasonLabel = reason && reason.length > 0 ? reason : 'unspecified';
+  state.runtimeDatasetRefreshDurationSeconds.labels(dataset, reasonLabel).observe(Math.max(durationSeconds, 0));
+}
+
+export function setRuntimeCacheStaleness(
+  resource: RuntimeCacheResource,
+  stalenessSeconds: number
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.runtimeCacheStalenessSeconds) {
+    return;
+  }
+  state.runtimeCacheStalenessSeconds.labels(resource).set(Math.max(stalenessSeconds, 0));
 }
 
 export function observeSchemaMigration(input: SchemaMigrationMetricsInput): void {

@@ -45,7 +45,7 @@ import {
   type LifecycleOperation
 } from '../lifecycle/types';
 import { authorizeAdminAccess, resolveRequestActor, getRequestScopes } from '../service/iam';
-import { invalidateSqlRuntimeCache } from '../sql/runtime';
+import { invalidateSqlRuntimeCache, getSqlRuntimeCacheSnapshot } from '../sql/runtime';
 
 const runRequestSchema = z.object({
   datasetId: z.string().optional(),
@@ -158,6 +158,13 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return {
       jobs: datasetFiltered,
       metrics
+    };
+  });
+
+  app.get('/admin/sql/runtime-cache', async (request) => {
+    await authorizeAdminAccess(request as FastifyRequest);
+    return {
+      snapshot: getSqlRuntimeCacheSnapshot()
     };
   });
 
@@ -301,7 +308,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
-    invalidateSqlRuntimeCache();
+    invalidateSqlRuntimeCache({
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      reason: 'admin-create'
+    });
 
     reply.header('etag', dataset.updatedAt);
     if (created) {
@@ -387,7 +398,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         }
       });
 
-      invalidateSqlRuntimeCache();
+      invalidateSqlRuntimeCache({
+        datasetId: updated.id,
+        datasetSlug: updated.slug,
+        reason: 'admin-update'
+      });
 
       reply.header('etag', updated.updatedAt);
       return {
@@ -463,7 +478,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         }
       });
 
-      invalidateSqlRuntimeCache();
+      invalidateSqlRuntimeCache({
+        datasetId: updated.id,
+        datasetSlug: updated.slug,
+        reason: 'admin-archive'
+      });
 
       reply.header('etag', updated.updatedAt);
       return {
@@ -796,7 +815,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
-    invalidateSqlRuntimeCache();
+    invalidateSqlRuntimeCache({
+      datasetId: dataset.id,
+      datasetSlug: dataset.slug,
+      reason: 'admin-storage-target'
+    });
 
     const updatedDataset = await getDatasetById(dataset.id);
 
