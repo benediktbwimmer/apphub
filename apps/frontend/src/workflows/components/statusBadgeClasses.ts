@@ -9,6 +9,8 @@ export function getStatusBadgeClasses(status: string): string {
     case 'canceled':
     case 'skipped':
       return 'bg-amber-500/10 text-amber-600 border-amber-500/40 dark:border-amber-400/40 dark:text-amber-300';
+    case 'degraded':
+      return 'bg-amber-500/10 text-amber-600 border-amber-500/40 dark:border-amber-400/40 dark:text-amber-300';
     case 'pending':
       return 'bg-slate-400/10 text-slate-600 border-slate-400/40 dark:border-slate-400/40 dark:text-slate-300';
     default:

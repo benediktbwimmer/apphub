@@ -77,6 +77,73 @@ export type ApphubEvent =
   | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
   | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
   | {
+      type: 'retry.event.source.cancelled';
+      data: {
+        eventId: string;
+        source: string;
+        attempts: number;
+        cancelledAt: string;
+        cancelledBy: string;
+      }
+    }
+  | {
+      type: 'retry.event.source.forced';
+      data: {
+        eventId: string;
+        source: string;
+        attempts: number;
+        scheduledAt: string;
+        forcedBy: string;
+        eventType: string | null;
+      }
+    }
+  | {
+      type: 'retry.trigger.delivery.cancelled';
+      data: {
+        deliveryId: string;
+        triggerId: string;
+        workflowDefinitionId: string;
+        attempts: number;
+        cancelledAt: string;
+        cancelledBy: string;
+      }
+    }
+  | {
+      type: 'retry.trigger.delivery.forced';
+      data: {
+        deliveryId: string;
+        triggerId: string;
+        workflowDefinitionId: string;
+        attempts: number;
+        forcedAt: string;
+        scheduledAt: string;
+        forcedBy: string;
+      }
+    }
+  | {
+      type: 'retry.workflow.step.cancelled';
+      data: {
+        workflowRunId: string;
+        workflowRunStepId: string;
+        stepId: string;
+        attempts: number;
+        cancelledAt: string;
+        cancelledBy: string;
+      }
+    }
+  | {
+      type: 'retry.workflow.step.forced';
+      data: {
+        workflowRunId: string;
+        workflowRunStepId: string;
+        stepId: string;
+        attempts: number;
+        forcedAt: string;
+        scheduledAt: string;
+        forcedBy: string;
+      }
+    }
+  | {
       type: 'workflow.analytics.snapshot';
       data: {
         slug: string;

@@ -14,7 +14,13 @@ import { useWorkflowAccess } from './useWorkflowAccess';
 import { useWorkflowDefinitions } from './useWorkflowDefinitions';
 import {
   createWorkflowEventTrigger,
+  cancelEventRetry,
+  cancelTriggerRetry,
+  cancelWorkflowStepRetry,
   deleteWorkflowEventTrigger,
+  forceEventRetry,
+  forceTriggerRetry,
+  forceWorkflowStepRetry,
   getWorkflowEventHealth,
   listWorkflowEventSamples,
   listWorkflowEventTriggers,
@@ -90,6 +96,15 @@ type WorkflowEventTriggersContextValue = {
   eventHealthLoading: boolean;
   eventHealthError: string | null;
   loadEventSchedulerHealth: () => Promise<void>;
+  cancelEventRetry: (eventId: string) => Promise<void>;
+  forceEventRetry: (eventId: string) => Promise<void>;
+  cancelTriggerRetry: (deliveryId: string) => Promise<void>;
+  forceTriggerRetry: (deliveryId: string) => Promise<void>;
+  cancelWorkflowStepRetry: (stepId: string) => Promise<void>;
+  forceWorkflowStepRetry: (stepId: string) => Promise<void>;
+  pendingEventRetryId: string | null;
+  pendingTriggerRetryId: string | null;
+  pendingWorkflowRetryId: string | null;
 };
 
 const WorkflowEventTriggersContext = createContext<WorkflowEventTriggersContextValue | undefined>(undefined);
@@ -116,6 +131,10 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
   const [eventHealth, setEventHealth] = useState<WorkflowEventSchedulerHealth | null>(null);
   const [eventHealthLoading, setEventHealthLoading] = useState(false);
   const [eventHealthError, setEventHealthError] = useState<string | null>(null);
+
+  const [pendingEventRetryId, setPendingEventRetryId] = useState<string | null>(null);
+  const [pendingTriggerRetryId, setPendingTriggerRetryId] = useState<string | null>(null);
+  const [pendingWorkflowRetryId, setPendingWorkflowRetryId] = useState<string | null>(null);
 
   const eventTriggersEntry = selectedSlug ? eventTriggerState[selectedSlug] : undefined;
   const eventTriggers = useMemo(
@@ -555,6 +574,156 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
     }
   }, [authorizedFetch, pushToast]);
 
+  const handleCancelEventRetry = useCallback(
+    async (eventId: string) => {
+      setPendingEventRetryId(eventId);
+      try {
+        await cancelEventRetry(authorizedFetch, eventId);
+        pushToast({
+          tone: 'success',
+          title: 'Event retry cancelled',
+          description: 'The event retry was cancelled.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to cancel event retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to cancel event retry',
+          description: message
+        });
+      } finally {
+        setPendingEventRetryId((current) => (current === eventId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
+  const handleForceEventRetry = useCallback(
+    async (eventId: string) => {
+      setPendingEventRetryId(eventId);
+      try {
+        await forceEventRetry(authorizedFetch, eventId);
+        pushToast({
+          tone: 'success',
+          title: 'Event retry queued',
+          description: 'The event retry will run shortly.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to enqueue event retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to run event retry',
+          description: message
+        });
+      } finally {
+        setPendingEventRetryId((current) => (current === eventId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
+  const handleCancelTriggerRetry = useCallback(
+    async (deliveryId: string) => {
+      setPendingTriggerRetryId(deliveryId);
+      try {
+        await cancelTriggerRetry(authorizedFetch, deliveryId);
+        pushToast({
+          tone: 'success',
+          title: 'Trigger retry cancelled',
+          description: 'The trigger delivery retry was cancelled.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to cancel trigger retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to cancel trigger retry',
+          description: message
+        });
+      } finally {
+        setPendingTriggerRetryId((current) => (current === deliveryId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
+  const handleForceTriggerRetry = useCallback(
+    async (deliveryId: string) => {
+      setPendingTriggerRetryId(deliveryId);
+      try {
+        await forceTriggerRetry(authorizedFetch, deliveryId);
+        pushToast({
+          tone: 'success',
+          title: 'Trigger retry queued',
+          description: 'The trigger delivery retry will run shortly.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run trigger retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to run trigger retry',
+          description: message
+        });
+      } finally {
+        setPendingTriggerRetryId((current) => (current === deliveryId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
+  const handleCancelWorkflowStepRetry = useCallback(
+    async (stepId: string) => {
+      setPendingWorkflowRetryId(stepId);
+      try {
+        await cancelWorkflowStepRetry(authorizedFetch, stepId);
+        pushToast({
+          tone: 'success',
+          title: 'Workflow retry cancelled',
+          description: 'The workflow step retry was cancelled.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to cancel workflow retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to cancel workflow retry',
+          description: message
+        });
+      } finally {
+        setPendingWorkflowRetryId((current) => (current === stepId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
+  const handleForceWorkflowStepRetry = useCallback(
+    async (stepId: string) => {
+      setPendingWorkflowRetryId(stepId);
+      try {
+        await forceWorkflowStepRetry(authorizedFetch, stepId);
+        pushToast({
+          tone: 'success',
+          title: 'Workflow retry queued',
+          description: 'The workflow step retry will run shortly.'
+        });
+        await loadEventSchedulerHealth();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run workflow retry';
+        pushToast({
+          tone: 'error',
+          title: 'Unable to run workflow retry',
+          description: message
+        });
+      } finally {
+        setPendingWorkflowRetryId((current) => (current === stepId ? null : current));
+      }
+    },
+    [authorizedFetch, loadEventSchedulerHealth, pushToast]
+  );
+
   useEffect(() => {
     eventTriggerStateRef.current = eventTriggerState;
   }, [eventTriggerState]);
@@ -624,7 +793,16 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       eventHealth,
       eventHealthLoading,
       eventHealthError,
-      loadEventSchedulerHealth
+      loadEventSchedulerHealth,
+      cancelEventRetry: handleCancelEventRetry,
+      forceEventRetry: handleForceEventRetry,
+      cancelTriggerRetry: handleCancelTriggerRetry,
+      forceTriggerRetry: handleForceTriggerRetry,
+      cancelWorkflowStepRetry: handleCancelWorkflowStepRetry,
+      forceWorkflowStepRetry: handleForceWorkflowStepRetry,
+      pendingEventRetryId,
+      pendingTriggerRetryId,
+      pendingWorkflowRetryId
     }),
     [
       eventTriggers,
@@ -648,7 +826,16 @@ export function WorkflowEventTriggersProvider({ children }: { children: ReactNod
       eventHealth,
       eventHealthLoading,
       eventHealthError,
-      loadEventSchedulerHealth
+      loadEventSchedulerHealth,
+      handleCancelEventRetry,
+      handleForceEventRetry,
+      handleCancelTriggerRetry,
+      handleForceTriggerRetry,
+      handleCancelWorkflowStepRetry,
+      handleForceWorkflowStepRetry,
+      pendingEventRetryId,
+      pendingTriggerRetryId,
+      pendingWorkflowRetryId
     ]
   );
 

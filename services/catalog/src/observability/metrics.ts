@@ -1,4 +1,6 @@
 import { getPool } from '../db/client';
+import { getRetryBacklogSnapshot, type RetryBacklogSummary } from '../retryBacklog';
+import { handleRetryBacklogAlerts } from './alerts';
 
 export type RunMetrics = {
   jobs: {
@@ -12,6 +14,11 @@ export type RunMetrics = {
     statusCounts: Record<string, number>;
     averageDurationMs: number | null;
     failureRate: number;
+  };
+  retries: {
+    events: RetryBacklogSummary;
+    triggers: RetryBacklogSummary;
+    workflowSteps: RetryBacklogSummary;
   };
   generatedAt: string;
 };
@@ -60,6 +67,9 @@ export async function computeRunMetrics(): Promise<RunMetrics> {
     fetchAverageDuration('workflow_runs')
   ]);
 
+  const retrySnapshot = await getRetryBacklogSnapshot({ eventLimit: 1, triggerLimit: 1, stepLimit: 1 });
+  await handleRetryBacklogAlerts(retrySnapshot);
+
   return {
     jobs: {
       total: jobTotal,
@@ -72,6 +82,11 @@ export async function computeRunMetrics(): Promise<RunMetrics> {
       statusCounts: workflowStatus,
       averageDurationMs: workflowAvg,
       failureRate: calculateFailureRate(workflowStatus, workflowTotal)
+    },
+    retries: {
+      events: retrySnapshot.events.summary,
+      triggers: retrySnapshot.triggers.summary,
+      workflowSteps: retrySnapshot.workflowSteps.summary
     },
     generatedAt: new Date().toISOString()
   } satisfies RunMetrics;

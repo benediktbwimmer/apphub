@@ -1692,6 +1692,8 @@ export function mapWorkflowAssetDeclarationRow(
 }
 
 export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
+  const pendingSteps = Number(row.retry_pending_steps ?? 0);
+  const overdueSteps = Number(row.retry_overdue_steps ?? 0);
   return {
     id: row.id,
     workflowDefinitionId: row.workflow_definition_id,
@@ -1710,7 +1712,12 @@ export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
     completedAt: row.completed_at,
     durationMs: row.duration_ms,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    retrySummary: {
+      pendingSteps: Number.isFinite(pendingSteps) && pendingSteps > 0 ? pendingSteps : 0,
+      nextAttemptAt: row.retry_next_attempt_at ?? null,
+      overdueSteps: Number.isFinite(overdueSteps) && overdueSteps > 0 ? overdueSteps : 0
+    }
   } satisfies WorkflowRunRecord;
 }
 

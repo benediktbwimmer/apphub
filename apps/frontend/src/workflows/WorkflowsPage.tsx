@@ -129,6 +129,15 @@ function WorkflowsPageContent() {
     eventHealthLoading,
     eventHealthError,
     loadEventSchedulerHealth,
+    cancelEventRetry,
+    forceEventRetry,
+    cancelTriggerRetry,
+    forceTriggerRetry,
+    cancelWorkflowStepRetry,
+    forceWorkflowStepRetry,
+    pendingEventRetryId,
+    pendingTriggerRetryId,
+    pendingWorkflowRetryId,
     timeline,
     timelineMeta,
     timelineLoading,
@@ -306,6 +315,15 @@ function WorkflowsPageContent() {
             loadEventSamples={loadEventSamplesFn}
             refreshEventSamples={refreshEventSamples}
             canEdit={canEditWorkflows}
+            onCancelEventRetry={cancelEventRetry}
+            onForceEventRetry={forceEventRetry}
+            onCancelTriggerRetry={cancelTriggerRetry}
+            onForceTriggerRetry={forceTriggerRetry}
+            onCancelWorkflowRetry={cancelWorkflowStepRetry}
+            onForceWorkflowRetry={forceWorkflowStepRetry}
+            pendingEventRetryId={pendingEventRetryId}
+            pendingTriggerRetryId={pendingTriggerRetryId}
+            pendingWorkflowRetryId={pendingWorkflowRetryId}
           />
 
           <WorkflowEventTimeline

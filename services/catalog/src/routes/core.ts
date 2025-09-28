@@ -44,7 +44,31 @@ type OutboundEvent =
   | { type: WorkflowRunEventType; data: { run: SerializedWorkflowRun } }
   | { type: 'workflow.analytics.snapshot'; data: WorkflowAnalyticsSnapshotData }
   | { type: 'example.bundle.progress'; data: ExampleBundleStatus }
-  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } };
+  | { type: 'workflow.event.received'; data: { event: WorkflowEventRecord } }
+  | {
+      type: 'retry.event.source.cancelled';
+      data: Extract<ApphubEvent, { type: 'retry.event.source.cancelled' }>['data'];
+    }
+  | {
+      type: 'retry.event.source.forced';
+      data: Extract<ApphubEvent, { type: 'retry.event.source.forced' }>['data'];
+    }
+  | {
+      type: 'retry.trigger.delivery.cancelled';
+      data: Extract<ApphubEvent, { type: 'retry.trigger.delivery.cancelled' }>['data'];
+    }
+  | {
+      type: 'retry.trigger.delivery.forced';
+      data: Extract<ApphubEvent, { type: 'retry.trigger.delivery.forced' }>['data'];
+    }
+  | {
+      type: 'retry.workflow.step.cancelled';
+      data: Extract<ApphubEvent, { type: 'retry.workflow.step.cancelled' }>['data'];
+    }
+  | {
+      type: 'retry.workflow.step.forced';
+      data: Extract<ApphubEvent, { type: 'retry.workflow.step.forced' }>['data'];
+    };
 
 function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
   switch (event.type) {
@@ -106,6 +130,13 @@ function toOutboundEvent(event: ApphubEvent): OutboundEvent | null {
         type: 'workflow.event.received',
         data: { event: event.data.event }
       };
+    case 'retry.event.source.cancelled':
+    case 'retry.event.source.forced':
+    case 'retry.trigger.delivery.cancelled':
+    case 'retry.trigger.delivery.forced':
+    case 'retry.workflow.step.cancelled':
+    case 'retry.workflow.step.forced':
+      return event;
     default:
       return null;
   }

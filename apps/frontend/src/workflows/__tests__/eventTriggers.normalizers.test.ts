@@ -137,7 +137,74 @@ describe('event trigger normalizers', () => {
             details: { initiatedBy: 'oncall' }
           }
         ],
-        rateLimits: [{ source: 'metastore.api', limit: 100, intervalMs: 60000, pauseMs: 120000 }]
+        rateLimits: [{ source: 'metastore.api', limit: 100, intervalMs: 60000, pauseMs: 120000 }],
+        retries: {
+          events: {
+            summary: { total: 2, overdue: 1, nextAttemptAt: '2024-03-11T10:35:00.000Z' },
+            entries: [
+              {
+                eventId: 'evt-1',
+                source: 'metastore.api',
+                eventType: 'metastore.record.updated',
+                eventSource: 'metastore.api',
+                attempts: 1,
+                nextAttemptAt: '2024-03-11T10:35:00.000Z',
+                overdue: true,
+                retryState: 'scheduled',
+                lastError: 'throttled',
+                metadata: { reason: 'paused' },
+                createdAt: '2024-03-11T10:30:00.000Z',
+                updatedAt: '2024-03-11T10:31:00.000Z'
+              }
+            ]
+          },
+          triggers: {
+            summary: { total: 1, overdue: 0, nextAttemptAt: '2024-03-11T10:40:00.000Z' },
+            entries: [
+              {
+                deliveryId: 'delivery-1',
+                triggerId: 'trigger-1',
+                workflowDefinitionId: 'wf-1',
+                workflowSlug: 'wf-slug',
+                triggerName: 'Directory updates',
+                eventType: 'metastore.record.updated',
+                eventSource: 'metastore.api',
+                attempts: 1,
+                retryAttempts: 2,
+                nextAttemptAt: '2024-03-11T10:40:00.000Z',
+                overdue: false,
+                retryState: 'scheduled',
+                lastError: null,
+                workflowRunId: null,
+                dedupeKey: null,
+                createdAt: '2024-03-11T10:30:00.000Z',
+                updatedAt: '2024-03-11T10:32:00.000Z'
+              }
+            ]
+          },
+          workflowSteps: {
+            summary: { total: 1, overdue: 0, nextAttemptAt: '2024-03-11T10:45:00.000Z' },
+            entries: [
+              {
+                workflowRunStepId: 'run-step-1',
+                workflowRunId: 'run-1',
+                workflowDefinitionId: 'wf-1',
+                workflowSlug: 'wf-slug',
+                stepId: 'step-1',
+                status: 'pending',
+                attempt: 1,
+                retryAttempts: 1,
+                nextAttemptAt: '2024-03-11T10:45:00.000Z',
+                overdue: false,
+                retryState: 'scheduled',
+                retryCount: 1,
+                retryMetadata: null,
+                errorMessage: null,
+                updatedAt: '2024-03-11T10:32:30.000Z'
+              }
+            ]
+          }
+        }
       }
     };
 
@@ -152,5 +219,9 @@ describe('event trigger normalizers', () => {
     expect(health?.pausedTriggers['trigger-1']?.reason).toBe('maintenance');
     expect(health?.pausedSources[0]?.source).toBe('metastore.api');
     expect(health?.rateLimits[0]?.limit).toBe(100);
+    expect(health?.retries.events.summary.total).toBe(2);
+    expect(health?.retries.events.entries[0]?.eventId).toBe('evt-1');
+    expect(health?.retries.triggers.entries[0]?.deliveryId).toBe('delivery-1');
+    expect(health?.retries.workflowSteps.entries[0]?.stepId).toBe('step-1');
   });
 });

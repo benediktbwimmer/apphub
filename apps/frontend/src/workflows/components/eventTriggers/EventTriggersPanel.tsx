@@ -6,7 +6,8 @@ import type {
   WorkflowEventSchema,
   WorkflowEventSchedulerHealth,
   WorkflowEventTrigger,
-  WorkflowTriggerDelivery
+  WorkflowTriggerDelivery,
+  RetryBacklogSummary
 } from '../../types';
 import type {
   WorkflowEventSampleQuery,
@@ -56,6 +57,15 @@ type EventTriggersPanelProps = {
   loadEventSamples: (query: WorkflowEventSampleQuery) => Promise<void>;
   refreshEventSamples: () => void;
   canEdit: boolean;
+  onCancelEventRetry: (eventId: string) => Promise<void>;
+  onForceEventRetry: (eventId: string) => Promise<void>;
+  onCancelTriggerRetry: (deliveryId: string) => Promise<void>;
+  onForceTriggerRetry: (deliveryId: string) => Promise<void>;
+  onCancelWorkflowRetry: (stepId: string) => Promise<void>;
+  onForceWorkflowRetry: (stepId: string) => Promise<void>;
+  pendingEventRetryId: string | null;
+  pendingTriggerRetryId: string | null;
+  pendingWorkflowRetryId: string | null;
 };
 
 function getTriggerHealth(
@@ -114,7 +124,16 @@ export default function EventTriggersPanel({
   eventSamplesQuery,
   loadEventSamples,
   refreshEventSamples,
-  canEdit
+  canEdit,
+  onCancelEventRetry,
+  onForceEventRetry,
+  onCancelTriggerRetry,
+  onForceTriggerRetry,
+  onCancelWorkflowRetry,
+  onForceWorkflowRetry,
+  pendingEventRetryId,
+  pendingTriggerRetryId,
+  pendingWorkflowRetryId
 }: EventTriggersPanelProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
@@ -221,6 +240,32 @@ export default function EventTriggersPanel({
     const latest = deliveries[0];
     return `Latest: ${latest.status} · ${formatDate(latest.updatedAt)}`;
   }, [deliveries]);
+
+  const eventRetryBacklog = eventHealth?.retries?.events ?? {
+    summary: { total: 0, overdue: 0, nextAttemptAt: null },
+    entries: []
+  };
+  const triggerRetryBacklog = eventHealth?.retries?.triggers ?? {
+    summary: { total: 0, overdue: 0, nextAttemptAt: null },
+    entries: []
+  };
+  const workflowRetryBacklog = eventHealth?.retries?.workflowSteps ?? {
+    summary: { total: 0, overdue: 0, nextAttemptAt: null },
+    entries: []
+  };
+
+  const formatSummary = (label: string, summary: RetryBacklogSummary): string => {
+    const overdueText = summary.overdue > 0 ? `${summary.overdue} overdue` : 'no overdue retries';
+    const whenText = summary.nextAttemptAt ? `oldest scheduled ${formatDate(summary.nextAttemptAt)}` : 'no upcoming attempts';
+    return `${summary.total} ${label} · ${overdueText} · ${whenText}`;
+  };
+
+  const renderOverdueBadge = (overdue: boolean) =>
+    overdue ? (
+      <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-[2px] text-[10px] font-semibold text-rose-600 dark:bg-rose-900/30 dark:text-rose-200">
+        Overdue
+      </span>
+    ) : null;
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -425,12 +470,12 @@ export default function EventTriggersPanel({
                   ) : (
                     <p className="mt-2 text-slate-500 dark:text-slate-400">No metrics yet.</p>
                   )}
-                </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Deliveries
-                  </h4>
-                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{deliveriesSummary}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Deliveries
+                </h4>
+                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{deliveriesSummary}</p>
                   <div className="mt-3 flex items-center gap-2">
                     <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                       Status
@@ -459,6 +504,216 @@ export default function EventTriggersPanel({
                       Refresh
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Event retries
+                  </h4>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    {formatSummary('scheduled', eventRetryBacklog.summary)}
+                  </p>
+                  {eventRetryBacklog.entries.length === 0 ? (
+                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending event retries.</p>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
+                        <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <tr>
+                            <th className="px-2 py-2">Event</th>
+                            <th className="px-2 py-2">Source</th>
+                            <th className="px-2 py-2">Next attempt</th>
+                            <th className="px-2 py-2">Attempts</th>
+                            <th className="px-2 py-2">Status</th>
+                            <th className="px-2 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          {eventRetryBacklog.entries.map((entry) => {
+                            const pending = pendingEventRetryId === entry.eventId || eventHealthLoading;
+                            return (
+                              <tr key={entry.eventId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
+                                <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.eventId}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.source}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.attempts}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                  <span className="capitalize">{entry.retryState}</span>
+                                  {renderOverdueBadge(entry.overdue)}
+                                </td>
+                                <td className="px-2 py-2 text-right">
+                                  <div className="inline-flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                      onClick={() => {
+                                        void onCancelEventRetry(entry.eventId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingEventRetryId === entry.eventId ? 'Working…' : 'Cancel'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                      onClick={() => {
+                                        void onForceEventRetry(entry.eventId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingEventRetryId === entry.eventId ? 'Working…' : 'Run now'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Trigger retries
+                  </h4>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    {formatSummary('scheduled', triggerRetryBacklog.summary)}
+                  </p>
+                  {triggerRetryBacklog.entries.length === 0 ? (
+                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending trigger deliveries.</p>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
+                        <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <tr>
+                            <th className="px-2 py-2">Delivery</th>
+                            <th className="px-2 py-2">Trigger</th>
+                            <th className="px-2 py-2">Workflow</th>
+                            <th className="px-2 py-2">Next attempt</th>
+                            <th className="px-2 py-2">Attempts</th>
+                            <th className="px-2 py-2">Status</th>
+                            <th className="px-2 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          {triggerRetryBacklog.entries.map((entry) => {
+                            const pending = pendingTriggerRetryId === entry.deliveryId || eventHealthLoading;
+                            return (
+                              <tr key={entry.deliveryId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
+                                <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.deliveryId}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">
+                                  {entry.triggerName ?? entry.triggerId}
+                                </td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.workflowSlug ?? entry.workflowDefinitionId}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.retryAttempts}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                  <span className="capitalize">{entry.retryState}</span>
+                                  {renderOverdueBadge(entry.overdue)}
+                                </td>
+                                <td className="px-2 py-2 text-right">
+                                  <div className="inline-flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                      onClick={() => {
+                                        void onCancelTriggerRetry(entry.deliveryId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingTriggerRetryId === entry.deliveryId ? 'Working…' : 'Cancel'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                      onClick={() => {
+                                        void onForceTriggerRetry(entry.deliveryId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingTriggerRetryId === entry.deliveryId ? 'Working…' : 'Run now'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Workflow step retries
+                  </h4>
+                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    {formatSummary('scheduled', workflowRetryBacklog.summary)}
+                  </p>
+                  {workflowRetryBacklog.entries.length === 0 ? (
+                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending workflow step retries.</p>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
+                        <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          <tr>
+                            <th className="px-2 py-2">Step</th>
+                            <th className="px-2 py-2">Workflow</th>
+                            <th className="px-2 py-2">Status</th>
+                            <th className="px-2 py-2">Next attempt</th>
+                            <th className="px-2 py-2">Attempts</th>
+                            <th className="px-2 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          {workflowRetryBacklog.entries.map((entry) => {
+                            const pending = pendingWorkflowRetryId === entry.workflowRunStepId || eventHealthLoading;
+                            return (
+                              <tr key={entry.workflowRunStepId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
+                                <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.stepId}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.workflowSlug ?? entry.workflowDefinitionId}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                  <span className="capitalize">{entry.status}</span>
+                                  {renderOverdueBadge(entry.overdue)}
+                                </td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
+                                <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.retryAttempts}</td>
+                                <td className="px-2 py-2 text-right">
+                                  <div className="inline-flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                      onClick={() => {
+                                        void onCancelWorkflowRetry(entry.workflowRunStepId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingWorkflowRetryId === entry.workflowRunStepId ? 'Working…' : 'Cancel'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                      onClick={() => {
+                                        void onForceWorkflowRetry(entry.workflowRunStepId);
+                                      }}
+                                      disabled={!canEdit || pending}
+                                    >
+                                      {pending && pendingWorkflowRetryId === entry.workflowRunStepId ? 'Working…' : 'Run now'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
 

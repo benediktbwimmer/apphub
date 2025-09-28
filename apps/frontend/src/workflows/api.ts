@@ -798,6 +798,66 @@ export async function getWorkflowEventHealth(
   return normalizeWorkflowEventHealth(payload);
 }
 
+export async function cancelEventRetry(fetcher: AuthorizedFetch, eventId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/events/${encodeURIComponent(eventId)}/cancel`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to cancel event retry');
+}
+
+export async function forceEventRetry(fetcher: AuthorizedFetch, eventId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/events/${encodeURIComponent(eventId)}/force`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to run event retry');
+}
+
+export async function cancelTriggerRetry(fetcher: AuthorizedFetch, deliveryId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/cancel`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to cancel trigger delivery retry');
+}
+
+export async function forceTriggerRetry(fetcher: AuthorizedFetch, deliveryId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/deliveries/${encodeURIComponent(deliveryId)}/force`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to run trigger delivery retry');
+}
+
+export async function cancelWorkflowStepRetry(fetcher: AuthorizedFetch, stepId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/cancel`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to cancel workflow step retry');
+}
+
+export async function forceWorkflowStepRetry(fetcher: AuthorizedFetch, stepId: string): Promise<void> {
+  const response = await fetcher(
+    `${API_BASE_URL}/admin/retries/workflow-steps/${encodeURIComponent(stepId)}/force`,
+    {
+      method: 'POST'
+    }
+  );
+  await ensureOk(response, 'Failed to run workflow step retry');
+}
+
 export async function getWorkflowTimeline(
   fetcher: AuthorizedFetch,
   slug: string,

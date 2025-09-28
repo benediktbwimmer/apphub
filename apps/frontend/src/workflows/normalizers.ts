@@ -38,6 +38,11 @@ import {
   type WorkflowTimelineRunEntry,
   type WorkflowTimelineTriggerEntry,
   type WorkflowTimelineSchedulerEntry,
+  type RetryBacklog,
+  type RetryBacklogSummary,
+  type EventRetryBacklogEntry,
+  type TriggerRetryBacklogEntry,
+  type WorkflowStepRetryBacklogEntry,
   type WorkflowTimelineTriggerStatus
 } from './types';
 
@@ -640,6 +645,165 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
       (entry): entry is { source: string; limit: number; intervalMs: number; pauseMs: number } => Boolean(entry)
     );
 
+  const parseSummary = (input: unknown): RetryBacklogSummary => {
+    const record = toRecord(input);
+    if (!record) {
+      return {
+        total: 0,
+        overdue: 0,
+        nextAttemptAt: null
+      } satisfies RetryBacklogSummary;
+    }
+    const total = Number(record.total ?? 0);
+    const overdue = Number(record.overdue ?? 0);
+    return {
+      total: Number.isFinite(total) && total > 0 ? total : 0,
+      overdue: Number.isFinite(overdue) && overdue > 0 ? overdue : 0,
+      nextAttemptAt: typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null
+    } satisfies RetryBacklogSummary;
+  };
+
+  const normalizeEventRetryEntry = (entry: unknown): EventRetryBacklogEntry | null => {
+    const record = toRecord(entry);
+    if (!record) {
+      return null;
+    }
+    const eventId = typeof record.eventId === 'string' ? record.eventId : null;
+    if (!eventId) {
+      return null;
+    }
+    const attempts = Number(record.attempts ?? 0);
+    return {
+      eventId,
+      source: typeof record.source === 'string' ? record.source : 'unknown',
+      eventType: typeof record.eventType === 'string' ? record.eventType : null,
+      eventSource: typeof record.eventSource === 'string' ? record.eventSource : null,
+      attempts: Number.isFinite(attempts) && attempts > 0 ? attempts : 0,
+      nextAttemptAt: typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null,
+      overdue: Boolean(record.overdue),
+      retryState:
+        record.retryState === 'pending' || record.retryState === 'scheduled' || record.retryState === 'cancelled'
+          ? (record.retryState as EventRetryBacklogEntry['retryState'])
+          : 'pending',
+      lastError: typeof record.lastError === 'string' ? record.lastError : null,
+      metadata: 'metadata' in record ? record.metadata : null,
+      createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',
+      updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : ''
+    } satisfies EventRetryBacklogEntry;
+  };
+
+  const normalizeTriggerRetryEntry = (entry: unknown): TriggerRetryBacklogEntry | null => {
+    const record = toRecord(entry);
+    if (!record) {
+      return null;
+    }
+    const deliveryId = typeof record.deliveryId === 'string' ? record.deliveryId : null;
+    const triggerId = typeof record.triggerId === 'string' ? record.triggerId : null;
+    if (!deliveryId || !triggerId) {
+      return null;
+    }
+    const attempts = Number(record.attempts ?? 0);
+    const retryAttempts = Number(record.retryAttempts ?? 0);
+    return {
+      deliveryId,
+      triggerId,
+      workflowDefinitionId: typeof record.workflowDefinitionId === 'string' ? record.workflowDefinitionId : '',
+      workflowSlug: typeof record.workflowSlug === 'string' ? record.workflowSlug : null,
+      triggerName: typeof record.triggerName === 'string' ? record.triggerName : null,
+      eventType: typeof record.eventType === 'string' ? record.eventType : null,
+      eventSource: typeof record.eventSource === 'string' ? record.eventSource : null,
+      attempts: Number.isFinite(attempts) && attempts > 0 ? attempts : 0,
+      retryAttempts: Number.isFinite(retryAttempts) && retryAttempts > 0 ? retryAttempts : 0,
+      nextAttemptAt: typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null,
+      overdue: Boolean(record.overdue),
+      retryState:
+        record.retryState === 'pending' || record.retryState === 'scheduled' || record.retryState === 'cancelled'
+          ? (record.retryState as TriggerRetryBacklogEntry['retryState'])
+          : 'pending',
+      lastError: typeof record.lastError === 'string' ? record.lastError : null,
+      workflowRunId: typeof record.workflowRunId === 'string' ? record.workflowRunId : null,
+      dedupeKey: typeof record.dedupeKey === 'string' ? record.dedupeKey : null,
+      createdAt: typeof record.createdAt === 'string' ? record.createdAt : '',
+      updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : ''
+    } satisfies TriggerRetryBacklogEntry;
+  };
+
+  const normalizeWorkflowStepRetryEntry = (entry: unknown): WorkflowStepRetryBacklogEntry | null => {
+    const record = toRecord(entry);
+    if (!record) {
+      return null;
+    }
+    const workflowRunStepId = typeof record.workflowRunStepId === 'string' ? record.workflowRunStepId : null;
+    const workflowRunId = typeof record.workflowRunId === 'string' ? record.workflowRunId : null;
+    const stepId = typeof record.stepId === 'string' ? record.stepId : null;
+    if (!workflowRunStepId || !workflowRunId || !stepId) {
+      return null;
+    }
+    const attempts = Number(record.attempt ?? record.attempts ?? 0);
+    const retryAttempts = Number(record.retryAttempts ?? 0);
+    const retryCount = Number(record.retryCount ?? 0);
+    return {
+      workflowRunStepId,
+      workflowRunId,
+      workflowDefinitionId: typeof record.workflowDefinitionId === 'string' ? record.workflowDefinitionId : '',
+      workflowSlug: typeof record.workflowSlug === 'string' ? record.workflowSlug : null,
+      stepId,
+      status: typeof record.status === 'string' ? record.status : 'pending',
+      attempt: Number.isFinite(attempts) && attempts > 0 ? attempts : 0,
+      retryAttempts: Number.isFinite(retryAttempts) && retryAttempts > 0 ? retryAttempts : 0,
+      nextAttemptAt: typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null,
+      overdue: Boolean(record.overdue),
+      retryState:
+        record.retryState === 'pending' || record.retryState === 'scheduled' || record.retryState === 'cancelled'
+          ? (record.retryState as WorkflowStepRetryBacklogEntry['retryState'])
+          : 'pending',
+      retryCount: Number.isFinite(retryCount) && retryCount > 0 ? retryCount : 0,
+      retryMetadata: 'retryMetadata' in record ? record.retryMetadata : null,
+      errorMessage: typeof record.errorMessage === 'string' ? record.errorMessage : null,
+      updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : ''
+    } satisfies WorkflowStepRetryBacklogEntry;
+  };
+
+  const retriesRecord = toRecord(payload.retries);
+  const eventsRetryBacklog: RetryBacklog<EventRetryBacklogEntry> = {
+    summary: parseSummary(toRecord(retriesRecord?.events)?.summary ?? retriesRecord?.events?.summary),
+    entries: Array.isArray(toRecord(retriesRecord?.events)?.entries)
+      ? (toRecord(retriesRecord?.events)?.entries as unknown[])
+          .map((entry) => normalizeEventRetryEntry(entry))
+          .filter((entry): entry is EventRetryBacklogEntry => Boolean(entry))
+      : Array.isArray(retriesRecord?.events)
+        ? (retriesRecord?.events as unknown[])
+            .map((entry) => normalizeEventRetryEntry(entry))
+            .filter((entry): entry is EventRetryBacklogEntry => Boolean(entry))
+        : []
+  } satisfies RetryBacklog<EventRetryBacklogEntry>;
+
+  const triggersRetryBacklog: RetryBacklog<TriggerRetryBacklogEntry> = {
+    summary: parseSummary(toRecord(retriesRecord?.triggers)?.summary ?? retriesRecord?.triggers?.summary),
+    entries: Array.isArray(toRecord(retriesRecord?.triggers)?.entries)
+      ? (toRecord(retriesRecord?.triggers)?.entries as unknown[])
+          .map((entry) => normalizeTriggerRetryEntry(entry))
+          .filter((entry): entry is TriggerRetryBacklogEntry => Boolean(entry))
+      : Array.isArray(retriesRecord?.triggers)
+        ? (retriesRecord?.triggers as unknown[])
+            .map((entry) => normalizeTriggerRetryEntry(entry))
+            .filter((entry): entry is TriggerRetryBacklogEntry => Boolean(entry))
+        : []
+  } satisfies RetryBacklog<TriggerRetryBacklogEntry>;
+
+  const workflowStepRetryBacklog: RetryBacklog<WorkflowStepRetryBacklogEntry> = {
+    summary: parseSummary(toRecord(retriesRecord?.workflowSteps)?.summary ?? retriesRecord?.workflowSteps?.summary),
+    entries: Array.isArray(toRecord(retriesRecord?.workflowSteps)?.entries)
+      ? (toRecord(retriesRecord?.workflowSteps)?.entries as unknown[])
+          .map((entry) => normalizeWorkflowStepRetryEntry(entry))
+          .filter((entry): entry is WorkflowStepRetryBacklogEntry => Boolean(entry))
+      : Array.isArray(retriesRecord?.workflowSteps)
+        ? (retriesRecord?.workflowSteps as unknown[])
+            .map((entry) => normalizeWorkflowStepRetryEntry(entry))
+            .filter((entry): entry is WorkflowStepRetryBacklogEntry => Boolean(entry))
+        : []
+  } satisfies RetryBacklog<WorkflowStepRetryBacklogEntry>;
+
   return {
     generatedAt,
     queues: {
@@ -668,7 +832,12 @@ export function normalizeWorkflowEventHealth(raw: unknown): WorkflowEventSchedul
     sources,
     pausedTriggers,
     pausedSources,
-    rateLimits
+    rateLimits,
+    retries: {
+      events: eventsRetryBacklog,
+      triggers: triggersRetryBacklog,
+      workflowSteps: workflowStepRetryBacklog
+    }
   } satisfies WorkflowEventSchedulerHealth;
 }
 
@@ -990,10 +1159,31 @@ export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
   if (!id || !workflowDefinitionId || !status) {
     return null;
   }
+  const health = raw.health === 'degraded' || raw.health === 'healthy' ? (raw.health as WorkflowRun['health']) : 'healthy';
+  const retrySummaryRaw = raw.retrySummary;
+  const retrySummary: WorkflowRun['retrySummary'] = (() => {
+    if (retrySummaryRaw && typeof retrySummaryRaw === 'object') {
+      const record = retrySummaryRaw as Record<string, unknown>;
+      const pendingSteps = Number(record.pendingSteps ?? record.pending ?? 0);
+      const overdueSteps = Number(record.overdueSteps ?? record.overdue ?? 0);
+      const nextAttempt = typeof record.nextAttemptAt === 'string' ? record.nextAttemptAt : null;
+      return {
+        pendingSteps: Number.isFinite(pendingSteps) && pendingSteps > 0 ? pendingSteps : 0,
+        nextAttemptAt: nextAttempt,
+        overdueSteps: Number.isFinite(overdueSteps) && overdueSteps > 0 ? overdueSteps : 0
+      } satisfies WorkflowRun['retrySummary'];
+    }
+    return {
+      pendingSteps: 0,
+      nextAttemptAt: null,
+      overdueSteps: 0
+    } satisfies WorkflowRun['retrySummary'];
+  })();
   return {
     id,
     workflowDefinitionId,
     status,
+    health,
     currentStepId: typeof raw.currentStepId === 'string' ? raw.currentStepId : null,
     currentStepIndex: typeof raw.currentStepIndex === 'number' ? raw.currentStepIndex : null,
     startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null,
@@ -1026,7 +1216,8 @@ export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
     output: raw.output ?? null,
     trigger: raw.trigger ?? null,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
-    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
+    retrySummary
   };
 }
 
@@ -1082,7 +1273,20 @@ export function normalizeWorkflowRunStep(payload: unknown): WorkflowRunStep | nu
         ? raw.templateStepId
         : raw.templateStepId === null
           ? null
-          : null
+          : null,
+    retryState:
+      raw.retryState === 'pending' || raw.retryState === 'scheduled' || raw.retryState === 'cancelled'
+        ? (raw.retryState as WorkflowRunStep['retryState'])
+        : undefined,
+    retryAttempts: typeof raw.retryAttempts === 'number' ? raw.retryAttempts : undefined,
+    nextAttemptAt:
+      typeof raw.nextAttemptAt === 'string'
+        ? raw.nextAttemptAt
+        : raw.nextAttemptAt === null
+          ? null
+          : undefined,
+    retryMetadata: 'retryMetadata' in raw ? raw.retryMetadata : undefined,
+    retryCount: typeof raw.retryCount === 'number' ? raw.retryCount : undefined
   };
 }
 

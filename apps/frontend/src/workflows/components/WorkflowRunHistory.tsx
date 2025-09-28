@@ -69,6 +69,9 @@ export default function WorkflowRunHistory({
                   Duration
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Retries
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Current Step
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -88,7 +91,14 @@ export default function WorkflowRunHistory({
                     onClick={() => onSelectRun(run.id)}
                   >
                     <td className="px-4 py-3 text-sm">
-                      <StatusBadge status={run.status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={run.status} />
+                        {run.health === 'degraded' && (
+                          <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-900/40 dark:text-amber-200">
+                            Degraded
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                       {formatTimestamp(run.startedAt)}
@@ -98,6 +108,11 @@ export default function WorkflowRunHistory({
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                       {formatDuration(run.durationMs)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                      {run.retrySummary.pendingSteps > 0
+                        ? `${run.retrySummary.pendingSteps} pending · next ${formatTimestamp(run.retrySummary.nextAttemptAt)}`
+                        : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                       {run.currentStepId ?? '—'}

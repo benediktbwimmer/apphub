@@ -358,7 +358,13 @@ export function serializeWorkflowRun(run: WorkflowRunRecord) {
     completedAt: run.completedAt,
     durationMs: run.durationMs,
     createdAt: run.createdAt,
-    updatedAt: run.updatedAt
+    updatedAt: run.updatedAt,
+    retrySummary: {
+      pendingSteps: run.retrySummary.pendingSteps,
+      nextAttemptAt: run.retrySummary.nextAttemptAt,
+      overdueSteps: run.retrySummary.overdueSteps
+    },
+    health: run.retrySummary.pendingSteps > 0 ? 'degraded' : 'healthy'
   };
 }
 

@@ -8,6 +8,7 @@ import {
   type WorkflowDefinitionUpdateInput,
   type WorkflowRunCreateInput,
   type WorkflowRunRecord,
+  type WorkflowRunRetrySummary,
   type WorkflowRunWithDefinition,
   type WorkflowRunStatus,
   type WorkflowRunUpdateInput,
@@ -87,6 +88,69 @@ type AnalyticsTimeRange = {
 };
 
 type WorkflowRunStatusCounts = Record<string, number>;
+
+const EMPTY_RETRY_SUMMARY: WorkflowRunRetrySummary = {
+  pendingSteps: 0,
+  nextAttemptAt: null,
+  overdueSteps: 0
+};
+
+function cloneRetrySummary(summary: WorkflowRunRetrySummary): WorkflowRunRetrySummary {
+  return {
+    pendingSteps: summary.pendingSteps,
+    nextAttemptAt: summary.nextAttemptAt,
+    overdueSteps: summary.overdueSteps
+  } satisfies WorkflowRunRetrySummary;
+}
+
+async function collectWorkflowRunRetrySummaries(
+  runIds: readonly string[]
+): Promise<Map<string, WorkflowRunRetrySummary>> {
+  if (runIds.length === 0) {
+    return new Map();
+  }
+
+  const { rows } = await useConnection((client) =>
+    client.query<{
+      workflow_run_id: string;
+      pending_steps: string | null;
+      next_attempt_at: string | null;
+      overdue_steps: string | null;
+    }>(
+      `SELECT workflow_run_id,
+              COUNT(*) FILTER (WHERE retry_state = 'scheduled')::bigint AS pending_steps,
+              MIN(next_attempt_at) FILTER (WHERE retry_state = 'scheduled') AS next_attempt_at,
+              COUNT(*) FILTER (WHERE retry_state = 'scheduled' AND next_attempt_at <= NOW())::bigint AS overdue_steps
+         FROM workflow_run_steps
+        WHERE workflow_run_id = ANY($1::text[])
+        GROUP BY workflow_run_id`,
+      [runIds]
+    )
+  );
+
+  const summaries = new Map<string, WorkflowRunRetrySummary>();
+  for (const row of rows) {
+    const pending = Number(row.pending_steps ?? 0);
+    const overdue = Number(row.overdue_steps ?? 0);
+    summaries.set(row.workflow_run_id, {
+      pendingSteps: Number.isFinite(pending) && pending > 0 ? pending : 0,
+      nextAttemptAt: row.next_attempt_at ?? null,
+      overdueSteps: Number.isFinite(overdue) && overdue > 0 ? overdue : 0
+    });
+  }
+  return summaries;
+}
+
+async function attachWorkflowRunRetrySummaries(runs: WorkflowRunRecord[]): Promise<void> {
+  if (runs.length === 0) {
+    return;
+  }
+  const summaries = await collectWorkflowRunRetrySummaries(runs.map((run) => run.id));
+  for (const run of runs) {
+    const summary = summaries.get(run.id);
+    run.retrySummary = summary ? summary : cloneRetrySummary(EMPTY_RETRY_SUMMARY);
+  }
+}
 
 export type WorkflowRunStats = {
   workflowId: string;
@@ -2718,7 +2782,12 @@ export async function createWorkflowRun(
 }
 
 export async function getWorkflowRunById(id: string): Promise<WorkflowRunRecord | null> {
-  return useConnection((client) => fetchWorkflowRunById(client, id));
+  const run = await useConnection((client) => fetchWorkflowRunById(client, id));
+  if (!run) {
+    return null;
+  }
+  await attachWorkflowRunRetrySummaries([run]);
+  return run;
 }
 
 export async function listWorkflowRunsForDefinition(
@@ -2738,7 +2807,9 @@ export async function listWorkflowRunsForDefinition(
        OFFSET $3`,
       [workflowDefinitionId, limit, offset]
     );
-    return rows.map(mapWorkflowRunRow);
+    const runs = rows.map(mapWorkflowRunRow);
+    await attachWorkflowRunRetrySummaries(runs);
+    return runs;
   });
 }
 
@@ -2759,7 +2830,9 @@ export async function listWorkflowRunsInRange(
         LIMIT $4`,
       [workflowDefinitionId, options.from, options.to, limit]
     );
-    return rows.map(mapWorkflowRunRow);
+    const runs = rows.map(mapWorkflowRunRow);
+    await attachWorkflowRunRetrySummaries(runs);
+    return runs;
   });
 }
 
@@ -2781,7 +2854,9 @@ export async function listWorkflowAutoRunsForDefinition(
        OFFSET $3`,
       [workflowDefinitionId, limit, offset]
     );
-    return rows.map(mapWorkflowRunRow);
+    const runs = rows.map(mapWorkflowRunRow);
+    await attachWorkflowRunRetrySummaries(runs);
+    return runs;
   });
 }
 
@@ -2817,6 +2892,8 @@ export async function listWorkflowRuns(
         version: row.workflow_version
       }
     } satisfies WorkflowRunWithDefinition));
+
+    await attachWorkflowRunRetrySummaries(mapped.map((entry) => entry.run));
 
     const hasMore = mapped.length > limit;
     const items = hasMore ? mapped.slice(0, limit) : mapped;
@@ -2931,6 +3008,10 @@ export async function updateWorkflowRun(
       existing.error_message !== updated.errorMessage ||
       JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
   });
+
+  if (updated) {
+    await attachWorkflowRunRetrySummaries([updated]);
+  }
 
   if (updated && emitEvents) {
     emitWorkflowRunEvents(updated, { forceUpdatedEvent: true });

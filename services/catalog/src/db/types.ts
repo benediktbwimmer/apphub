@@ -1095,6 +1095,12 @@ export type WorkflowAssetPartitionParametersRecord = {
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
 
+export type WorkflowRunRetrySummary = {
+  pendingSteps: number;
+  nextAttemptAt: string | null;
+  overdueSteps: number;
+};
+
 export type WorkflowRunRecord = {
   id: string;
   workflowDefinitionId: string;
@@ -1114,6 +1120,7 @@ export type WorkflowRunRecord = {
   durationMs: number | null;
   createdAt: string;
   updatedAt: string;
+  retrySummary: WorkflowRunRetrySummary;
 };
 
 export type WorkflowRunWithDefinition = {

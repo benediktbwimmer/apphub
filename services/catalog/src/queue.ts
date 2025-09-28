@@ -298,6 +298,26 @@ export async function scheduleEventRetryJob(
   }
 }
 
+export async function removeEventRetryJob(eventId: string, attempt: number): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    return;
+  }
+  const queue = queueManager.tryGetQueue<EventIngressJobData>(QUEUE_KEYS.event);
+  if (!queue) {
+    return;
+  }
+  const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
+  const jobId = `event-retry:${eventId}:${safeAttempt}`;
+  try {
+    await queue.removeJobs([jobId]);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no queue name')) {
+      return;
+    }
+    throw err;
+  }
+}
+
 export async function scheduleEventTriggerRetryJob(
   deliveryId: string,
   eventId: string,
@@ -328,6 +348,26 @@ export async function scheduleEventTriggerRetryJob(
     );
   } catch (err) {
     if (err instanceof Error && err.message.includes('jobId already exists')) {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function removeEventTriggerRetryJob(deliveryId: string, attempt: number): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    return;
+  }
+  const queue = queueManager.tryGetQueue<EventTriggerJobData>(QUEUE_KEYS.eventTrigger);
+  if (!queue) {
+    return;
+  }
+  const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
+  const jobId = `event-trigger-retry:${deliveryId}:${safeAttempt}`;
+  try {
+    await queue.removeJobs([jobId]);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no queue name')) {
       return;
     }
     throw err;
@@ -380,6 +420,30 @@ export async function scheduleWorkflowRetryJob(
     );
   } catch (err) {
     if (err instanceof Error && err.message.includes('jobId already exists')) {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function removeWorkflowRetryJob(
+  workflowRunId: string,
+  stepId: string | null,
+  attempt: number
+): Promise<void> {
+  if (queueManager.isInlineMode()) {
+    return;
+  }
+  const queue = queueManager.tryGetQueue<WorkflowRetryJobData>(QUEUE_KEYS.workflow);
+  if (!queue) {
+    return;
+  }
+  const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
+  const jobId = ['workflow-retry', workflowRunId, stepId ?? 'run', String(safeAttempt)].join(':');
+  try {
+    await queue.removeJobs([jobId]);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no queue name')) {
       return;
     }
     throw err;

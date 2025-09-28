@@ -177,6 +177,70 @@ export type WorkflowEventTriggerMetrics = {
   lastError: string | null;
 };
 
+export type RetryBacklogSummary = {
+  total: number;
+  overdue: number;
+  nextAttemptAt: string | null;
+};
+
+export type RetryBacklog<TEntry> = {
+  summary: RetryBacklogSummary;
+  entries: TEntry[];
+};
+
+export type EventRetryBacklogEntry = {
+  eventId: string;
+  source: string;
+  eventType: string | null;
+  eventSource: string | null;
+  attempts: number;
+  nextAttemptAt: string | null;
+  overdue: boolean;
+  retryState: 'pending' | 'scheduled' | 'cancelled';
+  lastError: string | null;
+  metadata: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TriggerRetryBacklogEntry = {
+  deliveryId: string;
+  triggerId: string;
+  workflowDefinitionId: string;
+  workflowSlug: string | null;
+  triggerName: string | null;
+  eventType: string | null;
+  eventSource: string | null;
+  attempts: number;
+  retryAttempts: number;
+  nextAttemptAt: string | null;
+  overdue: boolean;
+  retryState: 'pending' | 'scheduled' | 'cancelled';
+  lastError: string | null;
+  workflowRunId: string | null;
+  dedupeKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkflowStepRetryBacklogEntry = {
+  workflowRunStepId: string;
+  workflowRunId: string;
+  workflowDefinitionId: string;
+  workflowSlug: string | null;
+  stepId: string;
+  status: string;
+  attempt: number;
+  retryAttempts: number;
+  nextAttemptAt: string | null;
+  overdue: boolean;
+  retryState: 'pending' | 'scheduled' | 'cancelled';
+  retryCount: number;
+  retryMetadata: unknown;
+  errorMessage: string | null;
+  updatedAt: string;
+};
+
 export type WorkflowEventSchedulerHealth = {
   generatedAt: string;
   queues: {
@@ -206,6 +270,11 @@ export type WorkflowEventSchedulerHealth = {
   pausedTriggers: Record<string, { reason: string; until?: string }>;
   pausedSources: Array<{ source: string; reason: string; until?: string; details?: Record<string, unknown> }>;
   rateLimits: Array<{ source: string; limit: number; intervalMs: number; pauseMs: number }>;
+  retries: {
+    events: RetryBacklog<EventRetryBacklogEntry>;
+    triggers: RetryBacklog<TriggerRetryBacklogEntry>;
+    workflowSteps: RetryBacklog<WorkflowStepRetryBacklogEntry>;
+  };
 };
 
 export const WORKFLOW_TIMELINE_TRIGGER_STATUSES = [
@@ -349,6 +418,7 @@ export type WorkflowRun = {
   id: string;
   workflowDefinitionId: string;
   status: string;
+  health: 'healthy' | 'degraded';
   currentStepId: string | null;
   currentStepIndex: number | null;
   startedAt: string | null;
@@ -364,6 +434,11 @@ export type WorkflowRun = {
   output: unknown;
   createdAt: string;
   updatedAt: string;
+  retrySummary: {
+    pendingSteps: number;
+    nextAttemptAt: string | null;
+    overdueSteps: number;
+  };
 };
 
 export type WorkflowAutoMaterializeClaim = {
@@ -409,6 +484,11 @@ export type WorkflowRunStep = {
   parentStepId?: string | null;
   fanoutIndex?: number | null;
   templateStepId?: string | null;
+  retryState?: 'pending' | 'scheduled' | 'cancelled';
+  retryAttempts?: number;
+  nextAttemptAt?: string | null;
+  retryMetadata?: unknown;
+  retryCount?: number;
 };
 
 export type WorkflowAssetFreshness = {

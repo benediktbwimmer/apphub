@@ -276,6 +276,9 @@ export type WorkflowRunRow = {
   duration_ms: number | null;
   created_at: string;
   updated_at: string;
+  retry_pending_steps?: number | null;
+  retry_next_attempt_at?: string | null;
+  retry_overdue_steps?: number | null;
 };
 
 export type WorkflowRunStepAssetRow = {
