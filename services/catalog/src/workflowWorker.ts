@@ -202,10 +202,11 @@ function getMaxAttempts(stepDefinition: WorkflowStepDefinition | null): number {
     if (templateAttempts !== null) {
       return templateAttempts;
     }
-  }
-  const stepAttempts = extractMaxAttempts(stepDefinition.retryPolicy ?? null);
-  if (stepAttempts !== null) {
-    return stepAttempts;
+  } else {
+    const stepAttempts = extractMaxAttempts(stepDefinition.retryPolicy ?? null);
+    if (stepAttempts !== null) {
+      return stepAttempts;
+    }
   }
   return Number.POSITIVE_INFINITY;
 }
