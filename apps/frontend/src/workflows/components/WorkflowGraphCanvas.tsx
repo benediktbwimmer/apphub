@@ -21,6 +21,7 @@ import ReactFlow, {
   type ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 import {
   buildWorkflowGraphCanvasModel,
   type WorkflowGraphCanvasSelection,
@@ -96,7 +97,7 @@ function useWorkflowGraphCanvasTheme(): WorkflowGraphCanvasTheme {
   return theme;
 }
 
-const DEFAULT_THEME: WorkflowGraphCanvasTheme = {
+const LIGHT_THEME: WorkflowGraphCanvasTheme = {
   surface: 'rgba(255, 255, 255, 0.9)',
   surfaceMuted: 'rgba(248, 250, 252, 0.75)',
   gridColor: '#e2e8f0',
@@ -200,6 +201,110 @@ const DEFAULT_THEME: WorkflowGraphCanvasTheme = {
   }
 };
 
+const DARK_THEME: WorkflowGraphCanvasTheme = {
+  surface: 'rgba(15, 23, 42, 0.78)',
+  surfaceMuted: 'rgba(15, 23, 42, 0.6)',
+  gridColor: 'rgba(148, 163, 184, 0.25)',
+  edgeDefault: 'rgba(226, 232, 240, 0.65)',
+  edgeMuted: 'rgba(100, 116, 139, 0.55)',
+  edgeHighlight: '#a855f7',
+  edgeDashed: 'rgba(148, 163, 184, 0.42)',
+  labelBackground: 'rgba(15, 23, 42, 0.88)',
+  labelText: '#e2e8f0',
+  nodes: {
+    workflow: {
+      background: 'linear-gradient(135deg, rgba(76, 29, 149, 0.48), rgba(37, 99, 235, 0.32))',
+      border: 'rgba(129, 140, 248, 0.55)',
+      borderHighlighted: '#c4b5fd',
+      text: '#f8fafc',
+      mutedText: 'rgba(226, 232, 240, 0.7)',
+      badgeBackground: 'rgba(99, 102, 241, 0.32)',
+      badgeText: '#c7d2fe',
+      shadow: '0 26px 48px -32px rgba(129, 140, 248, 0.55)'
+    },
+    'step-job': {
+      background: 'linear-gradient(135deg, rgba(13, 148, 136, 0.4), rgba(3, 105, 161, 0.36))',
+      border: 'rgba(45, 212, 191, 0.5)',
+      borderHighlighted: '#5eead4',
+      text: '#f8fafc',
+      mutedText: 'rgba(203, 213, 225, 0.72)',
+      badgeBackground: 'rgba(20, 184, 166, 0.28)',
+      badgeText: '#ccfbf1',
+      shadow: '0 16px 40px -26px rgba(20, 184, 166, 0.55)'
+    },
+    'step-service': {
+      background: 'linear-gradient(135deg, rgba(13, 148, 210, 0.35), rgba(8, 145, 178, 0.32))',
+      border: 'rgba(56, 189, 248, 0.5)',
+      borderHighlighted: '#38bdf8',
+      text: '#f8fafc',
+      mutedText: 'rgba(203, 213, 225, 0.72)',
+      badgeBackground: 'rgba(59, 130, 246, 0.28)',
+      badgeText: '#bfdbfe',
+      shadow: '0 16px 40px -26px rgba(56, 189, 248, 0.55)'
+    },
+    'step-fanout': {
+      background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.35), rgba(147, 51, 234, 0.28))',
+      border: 'rgba(249, 115, 22, 0.45)',
+      borderHighlighted: '#fb923c',
+      text: '#f8fafc',
+      mutedText: 'rgba(248, 250, 252, 0.7)',
+      badgeBackground: 'rgba(249, 115, 22, 0.28)',
+      badgeText: '#fed7aa',
+      shadow: '0 18px 46px -28px rgba(249, 115, 22, 0.55)'
+    },
+    'trigger-event': {
+      background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.38), rgba(59, 130, 246, 0.28))',
+      border: 'rgba(129, 140, 248, 0.5)',
+      borderHighlighted: '#8b5cf6',
+      text: '#f8fafc',
+      mutedText: 'rgba(203, 213, 225, 0.72)',
+      badgeBackground: 'rgba(99, 102, 241, 0.32)',
+      badgeText: '#d8b4fe',
+      shadow: '0 16px 40px -28px rgba(99, 102, 241, 0.55)'
+    },
+    'trigger-definition': {
+      background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.32), rgba(37, 99, 235, 0.28))',
+      border: 'rgba(96, 165, 250, 0.5)',
+      borderHighlighted: '#60a5fa',
+      text: '#f8fafc',
+      mutedText: 'rgba(203, 213, 225, 0.72)',
+      badgeBackground: 'rgba(37, 99, 235, 0.32)',
+      badgeText: '#bfdbfe',
+      shadow: '0 16px 40px -28px rgba(37, 99, 235, 0.5)'
+    },
+    schedule: {
+      background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.82), rgba(30, 41, 59, 0.65))',
+      border: 'rgba(148, 163, 184, 0.48)',
+      borderHighlighted: '#94a3b8',
+      text: '#f1f5f9',
+      mutedText: 'rgba(203, 213, 225, 0.7)',
+      badgeBackground: 'rgba(148, 163, 184, 0.28)',
+      badgeText: '#e2e8f0',
+      shadow: '0 14px 32px -24px rgba(148, 163, 184, 0.45)'
+    },
+    asset: {
+      background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.22), rgba(248, 113, 113, 0.32))',
+      border: 'rgba(248, 113, 113, 0.52)',
+      borderHighlighted: '#fb7185',
+      text: '#f8fafc',
+      mutedText: 'rgba(254, 226, 226, 0.7)',
+      badgeBackground: 'rgba(248, 113, 113, 0.28)',
+      badgeText: '#fecdd3',
+      shadow: '0 18px 46px -28px rgba(248, 113, 113, 0.55)'
+    },
+    'event-source': {
+      background: 'linear-gradient(135deg, rgba(22, 163, 74, 0.4), rgba(34, 197, 94, 0.32))',
+      border: 'rgba(34, 197, 94, 0.52)',
+      borderHighlighted: '#4ade80',
+      text: '#f8fafc',
+      mutedText: 'rgba(209, 250, 229, 0.72)',
+      badgeBackground: 'rgba(34, 197, 94, 0.32)',
+      badgeText: '#bbf7d0',
+      shadow: '0 16px 36px -26px rgba(34, 197, 94, 0.55)'
+    }
+  }
+};
+
 function mergeTheme(
   base: WorkflowGraphCanvasTheme,
   override?: WorkflowGraphCanvasThemeOverrides
@@ -299,11 +404,14 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <p className="text-sm font-semibold leading-5 text-slate-800 dark:text-slate-100">
+          <p className="text-sm font-semibold leading-5">
             {data.label}
           </p>
           {data.subtitle && (
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            <p
+              className="text-[11px] uppercase tracking-[0.18em]"
+              style={{ color: variant.mutedText }}
+            >
               {data.subtitle}
             </p>
           )}
@@ -341,7 +449,7 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
         </div>
       )}
       {data.meta.length > 0 && (
-        <ul className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+        <ul className="mt-3 space-y-1 text-[11px]" style={{ color: variant.mutedText }}>
           {data.meta.map((entry) => (
             <li key={entry}>{entry}</li>
           ))}
@@ -401,7 +509,9 @@ export function WorkflowGraphCanvas({
   interactionMode = 'interactive',
   overlay = null
 }: WorkflowGraphCanvasProps) {
-  const mergedTheme = useMemo(() => mergeTheme(DEFAULT_THEME, theme), [theme]);
+  const isDarkMode = useIsDarkMode();
+  const baseTheme = useMemo<WorkflowGraphCanvasTheme>(() => (isDarkMode ? DARK_THEME : LIGHT_THEME), [isDarkMode]);
+  const mergedTheme = useMemo(() => mergeTheme(baseTheme, theme), [baseTheme, theme]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [tooltip, setTooltip] = useState<WorkflowGraphCanvasTooltip | null>(null);
 
@@ -569,7 +679,7 @@ export function WorkflowGraphCanvas({
         case '0':
           if (event.metaKey || event.ctrlKey) {
             event.preventDefault();
-            instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
+            instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true });
           }
           break;
         default:
@@ -628,7 +738,7 @@ export function WorkflowGraphCanvas({
       return;
     }
     const id = window.setTimeout(() => {
-      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: false });
+      instance.fitView({ padding: fitViewPadding, includeHiddenNodes: true });
     }, 16);
     return () => {
       window.clearTimeout(id);

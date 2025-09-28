@@ -13,6 +13,7 @@ import type {
 } from '../graph';
 import type { WorkflowGraphCanvasFilters } from '../graph/canvasModel';
 import { ROUTE_PATHS } from '../../routes/paths';
+import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 
 type WorkflowTopologyPanelProps = {
   graph: WorkflowGraphNormalized | null;
@@ -30,8 +31,14 @@ type WorkflowTopologyPanelProps = {
   };
 };
 
-const PANEL_THEME: WorkflowGraphCanvasThemeOverrides = {
-  surface: 'rgba(255, 255, 255, 0.94)'
+const PANEL_THEME_LIGHT: WorkflowGraphCanvasThemeOverrides = {
+  surface: 'rgba(255, 255, 255, 0.94)',
+  surfaceMuted: 'rgba(248, 250, 252, 0.8)'
+};
+
+const PANEL_THEME_DARK: WorkflowGraphCanvasThemeOverrides = {
+  surface: 'rgba(15, 23, 42, 0.78)',
+  surfaceMuted: 'rgba(15, 23, 42, 0.62)'
 };
 
 const STATUS_TONE_BADGE_CLASSES: Record<'neutral' | 'info' | 'success' | 'warning' | 'danger', string> = {
@@ -87,6 +94,8 @@ export function WorkflowTopologyPanel({
   onRefresh,
   selection
 }: WorkflowTopologyPanelProps) {
+  const isDarkMode = useIsDarkMode();
+  const panelTheme = isDarkMode ? PANEL_THEME_DARK : PANEL_THEME_LIGHT;
   const stats = graph?.stats ?? null;
   const cacheStats = meta?.cache?.stats ?? null;
   let cacheHitRate: number | null = null;
@@ -454,7 +463,7 @@ export function WorkflowTopologyPanel({
             graph={graph}
             loading={graphLoading || graphRefreshing}
             error={graphError}
-            theme={PANEL_THEME}
+            theme={panelTheme}
             height={640}
             filters={canvasFilters}
             searchTerm={canvasSearchTerm}
