@@ -1,3 +1,6 @@
+import { hostname } from 'node:os';
+import type { PoolClient } from 'pg';
+
 import { parseCronExpression, type ParserOptions } from './workflows/cronParser';
 import * as workflowDb from './db/workflows';
 import type {
@@ -13,10 +16,26 @@ import {
   collectPartitionedAssetsFromSteps,
   deriveTimeWindowPartitionKey
 } from './workflows/partitioning';
+import { useTransaction } from './db/utils';
+import { getClient } from './db/client';
+import { mapWorkflowScheduleRow } from './db/rowMappers';
+import type { WorkflowScheduleRow } from './db/rowTypes';
+import {
+  recordWorkflowSchedulerLeaderEvent,
+  recordWorkflowSchedulerScheduleEvent
+} from './workflowSchedulerMetrics';
 
 const DEFAULT_INTERVAL_MS = Number(process.env.WORKFLOW_SCHEDULER_INTERVAL_MS ?? 5_000);
 const DEFAULT_BATCH_SIZE = Number(process.env.WORKFLOW_SCHEDULER_BATCH_SIZE ?? 10);
 const DEFAULT_MAX_WINDOWS = Number(process.env.WORKFLOW_SCHEDULER_MAX_WINDOWS ?? 25);
+
+const SCHEDULE_LOCK_NAMESPACE = Number(process.env.WORKFLOW_SCHEDULER_LOCK_NAMESPACE ?? 61_204);
+const LEADER_LOCK_NAMESPACE = Number(process.env.WORKFLOW_SCHEDULER_LEADER_NAMESPACE ?? 61_204);
+const LEADER_LOCK_KEY = Number(process.env.WORKFLOW_SCHEDULER_LEADER_KEY ?? 1);
+const MAX_LOCK_ATTEMPTS = Math.max(Number(process.env.WORKFLOW_SCHEDULER_LOCK_ATTEMPTS ?? 3), 1);
+const LOCK_BACKOFF_MS = Math.max(Number(process.env.WORKFLOW_SCHEDULER_LOCK_BACKOFF_MS ?? 75), 1);
+const LEADER_KEEPALIVE_MS = Math.max(Number(process.env.WORKFLOW_SCHEDULER_LEADER_KEEPALIVE_MS ?? 15_000), 1_000);
+const LEADER_RETRY_BASE_MS = Math.max(Number(process.env.WORKFLOW_SCHEDULER_LEADER_RETRY_MS ?? 2_000), 250);
 
 function log(message: string, meta?: Record<string, unknown>) {
   logger.info(message, normalizeMeta(meta));
@@ -24,6 +43,33 @@ function log(message: string, meta?: Record<string, unknown>) {
 
 function logError(message: string, meta?: Record<string, unknown>) {
   logger.error(message, normalizeMeta(meta));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withJitter(baseMs: number): number {
+  const jitter = Math.floor(Math.random() * baseMs);
+  return baseMs + jitter;
+}
+
+function getInstanceId(): string {
+  return (
+    process.env.WORKFLOW_SCHEDULER_INSTANCE_ID ??
+    process.env.HOSTNAME ??
+    hostname() ??
+    `catalog-worker-${process.pid}`
+  );
+}
+
+function isAdvisoryLockModeEnabled(): boolean {
+  const raw = process.env.WORKFLOW_SCHEDULER_ADVISORY_LOCKS;
+  if (!raw) {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 function parseScheduleDate(value?: string | null): Date | null {
@@ -127,11 +173,24 @@ function determineWindowStart(
 
 type EnqueueWorkflowRun = (runId: string) => Promise<void>;
 
+type MaterializationStats = {
+  runsCreated: number;
+  skipReason?: string;
+};
+
+type LockedMaterializer = (
+  entry: WorkflowScheduleWithDefinition,
+  now: Date,
+  maxWindows: number,
+  deps: WorkflowSchedulerDependencies
+) => Promise<MaterializationStats | null>;
+
 type WorkflowSchedulerDependencies = {
   createWorkflowRun: typeof workflowDb.createWorkflowRun;
   enqueueWorkflowRun: EnqueueWorkflowRun;
   listDueWorkflowSchedules: typeof workflowDb.listDueWorkflowSchedules;
   updateWorkflowScheduleRuntimeMetadata: typeof workflowDb.updateWorkflowScheduleRuntimeMetadata;
+  materializeWithLock?: LockedMaterializer;
 };
 
 const defaultDependencies: WorkflowSchedulerDependencies = {
@@ -141,7 +200,8 @@ const defaultDependencies: WorkflowSchedulerDependencies = {
     return enqueueWorkflowRun(runId);
   },
   listDueWorkflowSchedules: workflowDb.listDueWorkflowSchedules,
-  updateWorkflowScheduleRuntimeMetadata: workflowDb.updateWorkflowScheduleRuntimeMetadata
+  updateWorkflowScheduleRuntimeMetadata: workflowDb.updateWorkflowScheduleRuntimeMetadata,
+  materializeWithLock: materializeScheduleWithLocks
 };
 
 async function materializeSchedule(
@@ -149,11 +209,15 @@ async function materializeSchedule(
   now: Date,
   maxWindows: number,
   deps: WorkflowSchedulerDependencies
-): Promise<void> {
+): Promise<MaterializationStats> {
   const { schedule, workflow: definition } = entry;
 
   if (!schedule.isActive) {
-    return;
+    recordWorkflowSchedulerScheduleEvent('skipped', {
+      scheduleId: schedule.id,
+      reason: 'inactive'
+    });
+    return { runsCreated: 0, skipReason: 'inactive' };
   }
 
   const catchupEnabled = Boolean(schedule.catchUp);
@@ -161,9 +225,10 @@ async function materializeSchedule(
   const upcomingFromNow = catchupEnabled ? null : computeNextOccurrence(schedule, now, { inclusive: true });
 
   const partitionSpecs = Array.from(collectPartitionedAssetsFromSteps(definition.steps).values());
-  const referenceTimePartition = partitionSpecs.length > 0 && partitionSpecs.every((spec) => spec?.type === 'timeWindow')
-    ? (partitionSpecs[0] as Extract<WorkflowAssetPartitioning, { type: 'timeWindow' }>)
-    : null;
+  const referenceTimePartition =
+    partitionSpecs.length > 0 && partitionSpecs.every((spec) => spec?.type === 'timeWindow')
+      ? (partitionSpecs[0] as Extract<WorkflowAssetPartitioning, { type: 'timeWindow' }>)
+      : null;
   if (partitionSpecs.length > 0 && !referenceTimePartition) {
     log(
       'Skipping scheduler-driven partitioning because workflow uses non time-window partitioning',
@@ -172,6 +237,11 @@ async function materializeSchedule(
         workflowSlug: definition.slug
       }
     );
+    recordWorkflowSchedulerScheduleEvent('skipped', {
+      scheduleId: schedule.id,
+      reason: 'non_time_window_partition'
+    });
+    return { runsCreated: 0, skipReason: 'non_time_window_partition' };
   }
 
   let cursor: Date | null;
@@ -215,12 +285,20 @@ async function materializeSchedule(
       nextRunAt: null,
       catchupCursor: null
     });
-    return;
+
+    recordWorkflowSchedulerScheduleEvent('skipped', {
+      scheduleId: schedule.id,
+      reason: 'no_cursor'
+    });
+    return { runsCreated: 0, skipReason: 'no_cursor' };
   }
 
   let remaining = occurrenceLimit;
   let nextCursor: Date | null = cursor;
   let lastWindow = schedule.lastMaterializedWindow ?? null;
+  let runsCreated = 0;
+  let skipReason: string | undefined;
+  let hadError = false;
 
   while (nextCursor && nextCursor.getTime() <= now.getTime() && remaining > 0) {
     const windowEndIso = nextCursor.toISOString();
@@ -248,6 +326,10 @@ async function materializeSchedule(
         workflowId: definition.id,
         workflowSlug: definition.slug
       });
+      recordWorkflowSchedulerScheduleEvent('skipped', {
+        scheduleId: schedule.id,
+        reason: 'partition_key_missing'
+      });
       break;
     }
 
@@ -260,6 +342,11 @@ async function materializeSchedule(
           workflowSlug: definition.slug,
           windowEnd: windowEndIso
         });
+        recordWorkflowSchedulerScheduleEvent('error', {
+          scheduleId: schedule.id,
+          reason: 'invalid_partition_key'
+        });
+        skipReason = 'invalid_partition_key';
         break;
       }
       partitionKey = deriveTimeWindowPartitionKey(referenceTimePartition, occurrenceDate);
@@ -273,6 +360,8 @@ async function materializeSchedule(
         partitionKey
       });
       await deps.enqueueWorkflowRun(run.id);
+      runsCreated += 1;
+
       log('Enqueued scheduled workflow run', {
         workflowId: definition.id,
         workflowSlug: definition.slug,
@@ -287,6 +376,12 @@ async function materializeSchedule(
         scheduleId: schedule.id,
         error: (err as Error).message ?? 'unknown error'
       });
+      recordWorkflowSchedulerScheduleEvent('error', {
+        scheduleId: schedule.id,
+        reason: 'enqueue_failure'
+      });
+      skipReason = 'enqueue_failure';
+      hadError = true;
       break;
     }
 
@@ -326,12 +421,135 @@ async function materializeSchedule(
   }
 
   await deps.updateWorkflowScheduleRuntimeMetadata(schedule.id, updates);
+
+  if (runsCreated > 0) {
+    recordWorkflowSchedulerScheduleEvent('processed', {
+      scheduleId: schedule.id,
+      runs: runsCreated
+    });
+  } else {
+    if (!hadError) {
+      recordWorkflowSchedulerScheduleEvent('skipped', {
+        scheduleId: schedule.id,
+        reason: skipReason ?? 'no_due_windows'
+      });
+    }
+  }
+
+  return { runsCreated, skipReason: runsCreated > 0 ? undefined : skipReason ?? 'no_due_windows' };
 }
+
+async function tryAcquireScheduleLock(client: PoolClient, scheduleId: string): Promise<boolean> {
+  for (let attempt = 1; attempt <= MAX_LOCK_ATTEMPTS; attempt += 1) {
+    const { rows } = await client.query<{ locked: boolean }>(
+      'SELECT pg_try_advisory_xact_lock($1, hashtext($2)) AS locked',
+      [SCHEDULE_LOCK_NAMESPACE, scheduleId]
+    );
+    const locked = Boolean(rows[0]?.locked);
+    if (locked) {
+      recordWorkflowSchedulerScheduleEvent('lock_acquired', {
+        scheduleId,
+        attempts: attempt
+      });
+      return true;
+    }
+    recordWorkflowSchedulerScheduleEvent('lock_contention', {
+      scheduleId,
+      attempt
+    });
+    if (attempt < MAX_LOCK_ATTEMPTS) {
+      await sleep(LOCK_BACKOFF_MS * attempt);
+    }
+  }
+  return false;
+}
+
+async function fetchScheduleForUpdate(
+  client: PoolClient,
+  scheduleId: string
+): Promise<WorkflowScheduleRecord | null> {
+  const { rows } = await client.query<WorkflowScheduleRow>(
+    'SELECT * FROM workflow_schedules WHERE id = $1 FOR UPDATE',
+    [scheduleId]
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapWorkflowScheduleRow(rows[0]);
+}
+
+async function materializeScheduleWithLocks(
+  entry: WorkflowScheduleWithDefinition,
+  now: Date,
+  maxWindows: number,
+  deps: WorkflowSchedulerDependencies
+): Promise<MaterializationStats | null> {
+  let lockAcquired = false;
+  let stats: MaterializationStats = { runsCreated: 0 };
+
+  try {
+    await useTransaction(async (client) => {
+      const acquired = await tryAcquireScheduleLock(client, entry.schedule.id);
+      if (!acquired) {
+        return;
+      }
+      lockAcquired = true;
+
+      const schedule = await fetchScheduleForUpdate(client, entry.schedule.id);
+      if (!schedule) {
+        recordWorkflowSchedulerScheduleEvent('skipped', {
+          scheduleId: entry.schedule.id,
+          reason: 'missing_schedule'
+        });
+        return;
+      }
+
+      let expectedUpdatedAt: string | null = schedule.updatedAt;
+      const lockedDeps: WorkflowSchedulerDependencies = {
+        ...deps,
+        updateWorkflowScheduleRuntimeMetadata: async (scheduleId, updates) => {
+          const updated = await workflowDb.updateWorkflowScheduleRuntimeMetadata(scheduleId, updates, {
+            client,
+            expectedUpdatedAt
+          });
+          if (!updated) {
+            recordWorkflowSchedulerScheduleEvent('optimistic_conflict', {
+              scheduleId
+            });
+            throw new Error('schedule_metadata_conflict');
+          }
+          expectedUpdatedAt = updated.updatedAt;
+          return updated;
+        }
+      };
+
+      stats = await materializeSchedule({ schedule, workflow: entry.workflow }, now, maxWindows, lockedDeps);
+    });
+  } catch (err) {
+    recordWorkflowSchedulerScheduleEvent('error', {
+      scheduleId: entry.schedule.id,
+      reason: err instanceof Error ? err.message : 'unknown'
+    });
+    throw err;
+  }
+
+  if (!lockAcquired) {
+    return null;
+  }
+
+  return stats;
+}
+
+type SchedulerExecutionOptions = {
+  useLocks: boolean;
+  lockedMaterializer: LockedMaterializer;
+};
 
 async function processSchedules(
   batchSize: number,
   maxWindows: number,
-  deps: WorkflowSchedulerDependencies
+  deps: WorkflowSchedulerDependencies,
+  execution: SchedulerExecutionOptions
 ): Promise<void> {
   const now = new Date();
   const due = await deps.listDueWorkflowSchedules({ limit: batchSize, now });
@@ -341,7 +559,11 @@ async function processSchedules(
 
   for (const entry of due) {
     try {
-      await materializeSchedule(entry, now, maxWindows, deps);
+      if (execution.useLocks) {
+        await execution.lockedMaterializer(entry, now, maxWindows, deps);
+      } else {
+        await materializeSchedule(entry, now, maxWindows, deps);
+      }
     } catch (err) {
       logError('Failed to materialize workflow schedule', {
         workflowId: entry.workflow.id,
@@ -353,19 +575,23 @@ async function processSchedules(
   }
 }
 
-export function startWorkflowScheduler({
-  intervalMs = DEFAULT_INTERVAL_MS,
-  batchSize = DEFAULT_BATCH_SIZE,
-  maxWindows = DEFAULT_MAX_WINDOWS
-}: {
-  intervalMs?: number;
-  batchSize?: number;
-  maxWindows?: number;
-} = {}, dependencies: Partial<WorkflowSchedulerDependencies> = {}) {
-  const deps: WorkflowSchedulerDependencies = {
-    ...defaultDependencies,
-    ...dependencies
-  };
+type SchedulerHandle = {
+  stop: () => Promise<void>;
+};
+
+function startSchedulerLoop(
+  {
+    intervalMs = DEFAULT_INTERVAL_MS,
+    batchSize = DEFAULT_BATCH_SIZE,
+    maxWindows = DEFAULT_MAX_WINDOWS
+  }: {
+    intervalMs?: number;
+    batchSize?: number;
+    maxWindows?: number;
+  },
+  deps: WorkflowSchedulerDependencies,
+  execution: SchedulerExecutionOptions
+): SchedulerHandle {
   const interval = Math.max(intervalMs, 500);
   const boundedBatch = Math.min(Math.max(batchSize, 1), 100);
   const boundedWindows = Math.max(maxWindows, 1);
@@ -380,7 +606,7 @@ export function startWorkflowScheduler({
     }
     running = true;
     try {
-      await processSchedules(boundedBatch, boundedWindows, deps);
+      await processSchedules(boundedBatch, boundedWindows, deps, execution);
     } catch (err) {
       logError('Workflow scheduler iteration failed', {
         error: (err as Error).message ?? 'unknown error'
@@ -404,8 +630,167 @@ export function startWorkflowScheduler({
         timer = null;
       }
       while (running) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await sleep(50);
       }
     }
   };
+}
+
+function startLeaderCoordinatedScheduler(
+  config: {
+    intervalMs?: number;
+    batchSize?: number;
+    maxWindows?: number;
+  },
+  deps: WorkflowSchedulerDependencies
+): SchedulerHandle {
+  const instanceId = getInstanceId();
+  let stopped = false;
+  let activeLoop: SchedulerHandle | null = null;
+  let leaderClient: PoolClient | null = null;
+
+  const execution: SchedulerExecutionOptions = {
+    useLocks: true,
+    lockedMaterializer: deps.materializeWithLock ?? materializeScheduleWithLocks
+  };
+
+  const leaderLoop = async () => {
+    while (!stopped) {
+      recordWorkflowSchedulerLeaderEvent('attempt', { ownerId: instanceId });
+      let client: PoolClient | null = null;
+      try {
+        client = await getClient();
+        const { rows } = await client.query<{ locked: boolean }>(
+          'SELECT pg_try_advisory_lock($1, $2) AS locked',
+          [LEADER_LOCK_NAMESPACE, LEADER_LOCK_KEY]
+        );
+        const locked = Boolean(rows[0]?.locked);
+        if (!locked) {
+          recordWorkflowSchedulerLeaderEvent('contention', { ownerId: instanceId });
+          client.release();
+          client = null;
+          await sleep(withJitter(LEADER_RETRY_BASE_MS));
+          continue;
+        }
+
+        leaderClient = client;
+        recordWorkflowSchedulerLeaderEvent('acquired', { ownerId: instanceId });
+        log('Workflow scheduler leader lock acquired', { instanceId });
+
+        activeLoop = startSchedulerLoop(config, deps, execution);
+
+        while (!stopped) {
+          await sleep(LEADER_KEEPALIVE_MS);
+          try {
+            await client.query('SELECT 1');
+          } catch (err) {
+            recordWorkflowSchedulerLeaderEvent('keepalive_failed', {
+              ownerId: instanceId,
+              error: err instanceof Error ? err.message : 'unknown error'
+            });
+            logError('Workflow scheduler leader keepalive failed', {
+              instanceId,
+              error: err instanceof Error ? err.message : 'unknown error'
+            });
+            break;
+          }
+        }
+      } catch (err) {
+        recordWorkflowSchedulerLeaderEvent('error', {
+          ownerId: instanceId,
+          error: err instanceof Error ? err.message : 'unknown error'
+        });
+        logError('Workflow scheduler leader loop encountered an error', {
+          instanceId,
+          error: err instanceof Error ? err.message : 'unknown error'
+        });
+      } finally {
+        if (activeLoop) {
+          await activeLoop.stop();
+          activeLoop = null;
+        }
+        if (leaderClient) {
+          try {
+            await leaderClient.query('SELECT pg_advisory_unlock($1, $2)', [LEADER_LOCK_NAMESPACE, LEADER_LOCK_KEY]);
+          } catch (unlockErr) {
+            logError('Failed to release workflow scheduler leader lock', {
+              instanceId,
+              error: unlockErr instanceof Error ? unlockErr.message : 'unknown error'
+            });
+          }
+          leaderClient.release();
+          leaderClient = null;
+          recordWorkflowSchedulerLeaderEvent('released', { ownerId: instanceId });
+          log('Workflow scheduler leader lock released', { instanceId });
+        }
+      }
+
+      if (!stopped) {
+        await sleep(withJitter(LEADER_RETRY_BASE_MS));
+      }
+    }
+  };
+
+  const leaderLoopPromise = leaderLoop();
+
+  return {
+    async stop() {
+      stopped = true;
+      recordWorkflowSchedulerLeaderEvent('stopped', { ownerId: instanceId });
+      if (activeLoop) {
+        await activeLoop.stop();
+        activeLoop = null;
+      }
+      if (leaderClient) {
+        try {
+          await leaderClient.query('SELECT pg_advisory_unlock($1, $2)', [LEADER_LOCK_NAMESPACE, LEADER_LOCK_KEY]);
+        } catch (unlockErr) {
+          logError('Failed to release workflow scheduler leader lock during shutdown', {
+            instanceId,
+            error: unlockErr instanceof Error ? unlockErr.message : 'unknown error'
+          });
+        }
+        leaderClient.release();
+        leaderClient = null;
+        recordWorkflowSchedulerLeaderEvent('released', { ownerId: instanceId });
+      }
+      await leaderLoopPromise.catch(() => undefined);
+    }
+  };
+}
+
+export function startWorkflowScheduler(
+  config: {
+    intervalMs?: number;
+    batchSize?: number;
+    maxWindows?: number;
+  } = {},
+  dependencyOverrides: Partial<WorkflowSchedulerDependencies> = {}
+): SchedulerHandle {
+  const deps: WorkflowSchedulerDependencies = {
+    ...defaultDependencies,
+    ...dependencyOverrides
+  };
+
+  if (!deps.materializeWithLock) {
+    deps.materializeWithLock = (entry, now, maxWindows, innerDeps) =>
+      materializeScheduleWithLocks(entry, now, maxWindows, innerDeps);
+  }
+
+  const advisoryLocksEnabled = isAdvisoryLockModeEnabled();
+
+  log('Starting workflow scheduler', {
+    advisoryLocksEnabled
+  });
+
+  if (advisoryLocksEnabled) {
+    return startLeaderCoordinatedScheduler(config, deps);
+  }
+
+  const execution: SchedulerExecutionOptions = {
+    useLocks: false,
+    lockedMaterializer: deps.materializeWithLock
+  };
+
+  return startSchedulerLoop(config, deps, execution);
 }

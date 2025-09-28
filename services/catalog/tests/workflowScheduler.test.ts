@@ -1,4 +1,4 @@
-import { describe, it, mock } from 'node:test';
+import { describe, it, mock, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -9,12 +9,18 @@ import {
   type WorkflowScheduleWithDefinition,
   type WorkflowScheduleWindow
 } from '../src/db/types';
+import { resetWorkflowSchedulerMetrics } from '../src/workflowSchedulerMetrics';
 
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
 process.env.APPHUB_ANALYTICS_INTERVAL_MS = '0';
 process.env.APPHUB_EVENTS_MODE = 'inline';
 process.env.APPHUB_DISABLE_SERVICE_POLLING = '1';
 process.env.REDIS_URL = 'inline';
+process.env.WORKFLOW_SCHEDULER_ADVISORY_LOCKS = '0';
+
+beforeEach(() => {
+  resetWorkflowSchedulerMetrics();
+});
 
 function alignToInterval(value: Date, intervalMs: number): Date {
   const aligned = Math.floor(value.getTime() / intervalMs) * intervalMs;
@@ -240,8 +246,14 @@ function createSchedulerContext(options: SchedulerContextOptions = {}) {
           updatedAt: new Date().toISOString()
         } satisfies WorkflowScheduleRecord;
       }
-    )
-  } as const;
+    ),
+    materializeWithLock: undefined as unknown as (
+      entry: WorkflowScheduleWithDefinition,
+      now: Date,
+      maxWindows: number,
+      deps: Record<string, unknown>
+    ) => Promise<{ runsCreated: number; skipReason?: string } | null>
+  };
 
   return {
     get schedule(): WorkflowScheduleRecord {
@@ -440,5 +452,94 @@ describe('workflow scheduler materialization', () => {
         new Date(lastUpdate!.nextRunAt).getTime() === new Date(context.occurrences[0]).getTime(),
       'next run should remain the failed occurrence for retry'
     );
+  });
+
+  it('prevents duplicate runs when advisory locks are enabled', async () => {
+    process.env.WORKFLOW_SCHEDULER_ADVISORY_LOCKS = '1';
+    const context = createSchedulerContext({
+      schedule: {
+        catchUp: false
+      }
+    });
+
+    const sharedLock = { held: false };
+
+    context.deps.materializeWithLock = async (
+      entry,
+      now,
+      _maxWindows,
+      deps
+    ) => {
+      const runtimeDeps = deps as unknown as {
+        createWorkflowRun: SchedulerContext['deps']['createWorkflowRun'];
+        enqueueWorkflowRun: SchedulerContext['deps']['enqueueWorkflowRun'];
+        updateWorkflowScheduleRuntimeMetadata: SchedulerContext['deps']['updateWorkflowScheduleRuntimeMetadata'];
+      };
+      if (sharedLock.held) {
+        return null;
+      }
+      sharedLock.held = true;
+      try {
+        const nextRun = entry.schedule.nextRunAt ? new Date(entry.schedule.nextRunAt) : null;
+        if (!nextRun || nextRun.getTime() > now.getTime()) {
+          await runtimeDeps.updateWorkflowScheduleRuntimeMetadata(entry.schedule.id, {
+            nextRunAt: entry.schedule.nextRunAt,
+            catchupCursor: entry.schedule.catchupCursor
+          });
+          return { runsCreated: 0, skipReason: 'not_due' };
+        }
+
+        const occurrenceIso = entry.schedule.nextRunAt;
+        const windowStart = entry.schedule.lastMaterializedWindow?.end ?? occurrenceIso;
+        const run = await runtimeDeps.createWorkflowRun(entry.workflow.id, {
+          trigger: {
+            type: 'schedule',
+            schedule: {
+              id: entry.schedule.id,
+              name: entry.schedule.name ?? null,
+              cron: entry.schedule.cron,
+              timezone: entry.schedule.timezone ?? null,
+              occurrence: occurrenceIso,
+              window: {
+                start: windowStart,
+                end: occurrenceIso
+              },
+              catchUp: Boolean(entry.schedule.catchUp)
+            }
+          },
+          triggeredBy: 'scheduler'
+        });
+
+        await runtimeDeps.enqueueWorkflowRun(run.id);
+        await runtimeDeps.updateWorkflowScheduleRuntimeMetadata(entry.schedule.id, {
+          nextRunAt: null,
+          catchupCursor: null,
+          lastWindow: {
+            start: windowStart,
+            end: occurrenceIso
+          }
+        });
+
+        return { runsCreated: 1 };
+      } finally {
+        sharedLock.held = false;
+      }
+    };
+
+    const { startWorkflowScheduler } = await import('../src/workflowScheduler');
+    const schedulerA = startWorkflowScheduler({ intervalMs: 10, batchSize: 1, maxWindows: 1 }, context.deps);
+    const schedulerB = startWorkflowScheduler({ intervalMs: 10, batchSize: 1, maxWindows: 1 }, context.deps);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      await schedulerA.stop();
+      await schedulerB.stop();
+      process.env.WORKFLOW_SCHEDULER_ADVISORY_LOCKS = '0';
+    }
+
+    assert.equal(context.runs.length, 1, 'exactly one run should be created across both schedulers');
+    assert.equal(context.enqueuedRuns.length, 1, 'only one enqueue should occur');
+    assert.equal(context.updates.length > 0, true, 'schedule metadata should be updated');
   });
 });

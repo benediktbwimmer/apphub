@@ -45,6 +45,7 @@ import { buildWorkflowEventView } from '../workflowEventInsights';
 import { decodeWorkflowEventCursor, encodeWorkflowEventCursor } from '../workflowEventCursor';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
+import { getWorkflowSchedulerMetricsSnapshot } from '../workflowSchedulerMetrics';
 
 function mergeMetadata(existing: JsonValue | null | undefined, patch: Record<string, unknown>): JsonValue {
   if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
@@ -82,7 +83,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           pausedSources,
           pausedTriggers,
           rateLimits: getRateLimitConfiguration(),
-          retries: retrySnapshot
+          retries: retrySnapshot,
+          workflowScheduler: getWorkflowSchedulerMetricsSnapshot()
         }
       });
     } catch (err) {

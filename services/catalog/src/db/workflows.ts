@@ -2637,11 +2637,15 @@ export async function updateWorkflowScheduleRuntimeMetadata(
     nextRunAt?: string | null;
     catchupCursor?: string | null;
     lastWindow?: WorkflowScheduleWindow | null;
-  }
+  },
+  options: {
+    client?: PoolClient;
+    expectedUpdatedAt?: string | null;
+  } = {}
 ): Promise<WorkflowScheduleRecord | null> {
   let schedule: WorkflowScheduleRecord | null = null;
 
-  await useTransaction(async (client) => {
+  const runUpdate = async (client: PoolClient) => {
     const hasNextRun = Object.prototype.hasOwnProperty.call(updates, 'nextRunAt');
     const hasCatchupCursor = Object.prototype.hasOwnProperty.call(updates, 'catchupCursor');
     const hasLastWindow = Object.prototype.hasOwnProperty.call(updates, 'lastWindow');
@@ -2674,12 +2678,21 @@ export async function updateWorkflowScheduleRuntimeMetadata(
     }
 
     sets.push(`updated_at = NOW()`);
+    const where: string[] = [`id = $${index}`];
     values.push(scheduleId);
+
+    if (options.expectedUpdatedAt) {
+      index += 1;
+      where.push(`updated_at = $${index}`);
+      values.push(options.expectedUpdatedAt);
+    }
+
+    const whereClause = where.join(' AND ');
 
     const { rows } = await client.query<WorkflowScheduleRow>(
       `UPDATE workflow_schedules
           SET ${sets.join(', ')}
-        WHERE id = $${index}
+        WHERE ${whereClause}
         RETURNING *`,
       values
     );
@@ -2690,6 +2703,15 @@ export async function updateWorkflowScheduleRuntimeMetadata(
     }
 
     schedule = mapWorkflowScheduleRow(rows[0]);
+  };
+
+  if (options.client) {
+    await runUpdate(options.client);
+    return schedule;
+  }
+
+  await useTransaction(async (client) => {
+    await runUpdate(client);
   });
 
   return schedule;
@@ -2714,7 +2736,7 @@ export async function createWorkflowRun(
 
   let run: WorkflowRunRecord | null = null;
 
-  await useTransaction(async (client) => {
+  async function insertRun(client: PoolClient): Promise<WorkflowRunRecord> {
     const { rows } = await client.query<WorkflowRunRow>(
       `INSERT INTO workflow_runs (
          id,
@@ -2770,7 +2792,11 @@ export async function createWorkflowRun(
     if (rows.length === 0) {
       throw new Error('failed to insert workflow run');
     }
-    run = mapWorkflowRunRow(rows[0]);
+    return mapWorkflowRunRow(rows[0]);
+  }
+
+  await useTransaction(async (client) => {
+    run = await insertRun(client);
   });
 
   if (!run) {
@@ -2780,6 +2806,7 @@ export async function createWorkflowRun(
   emitWorkflowRunEvents(run);
   return run;
 }
+
 
 export async function getWorkflowRunById(id: string): Promise<WorkflowRunRecord | null> {
   const run = await useConnection((client) => fetchWorkflowRunById(client, id));

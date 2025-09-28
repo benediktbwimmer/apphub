@@ -15,6 +15,27 @@ The Workflows console now includes an **Event Triggers** tab alongside the defin
 
 The UI calls the same endpoints described below and surfaces API validation messages inline, so operators can manage event-driven scheduling without leaving the browser.
 
+### Scheduler Coordination & Scaling
+
+The workflow scheduler now coordinates replica ownership using Postgres advisory locks. Enable the coordination loop by setting `WORKFLOW_SCHEDULER_ADVISORY_LOCKS=1` on every catalog workflow worker. The active leader obtains `pg_try_advisory_lock` on a well-known namespace, renews the lock with a keepalive, and materialises due schedules while holding schedule-level `pg_try_advisory_xact_lock` guards. Replica pods that cannot obtain the leader lock idle until the active coordinator relinquishes control.
+
+Lock acquisition, contention, optimistic conflict, and processing counters are surfaced through `/admin/event-health` under the new `workflowScheduler` payload (the Admin UI renders the same data on **Event Health**). Alerts fire if a replica fails to acquire the leader lock for more than 30 seconds or if schedule-level locks persistently contend.
+
+When running in minikube—or promoting to production—scale workflow workers with the feature flag enabled so two replicas share scheduling responsibilities safely:
+
+```yaml
+# helm upgrade catalog ./charts/catalog -f values.yaml -f minikube-values.yaml
+catalog:
+  workflowWorker:
+    replicas: 2
+    env:
+      WORKFLOW_SCHEDULER_ADVISORY_LOCKS: "1"
+      WORKFLOW_SCHEDULER_INTERVAL_MS: "5000"
+      WORKFLOW_SCHEDULER_BATCH_SIZE: "10"
+```
+
+The same values file can be applied to staging/production clusters—just omit the minikube overrides. With coordination enabled, you should observe exactly one run per schedule window during a 10-minute soak even with two workers. Review `/admin/event-health` for lock contention metrics before promoting the rollout.
+
 ## Event Trigger Endpoints
 
 | Method | Path | Description |
