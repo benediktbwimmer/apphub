@@ -47,6 +47,10 @@ before(async () => {
   process.env.TIMESTORE_PGPOOL_MAX = '4';
   process.env.TIMESTORE_STORAGE_ROOT = storageRoot;
   process.env.REDIS_URL = 'inline';
+  process.env.TIMESTORE_PARTITION_INDEX_COLUMNS = 'temperature_c,humidity_percent';
+  process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = 'temperature_c';
+  process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = 'temperature_c';
+  process.env.TIMESTORE_PARTITION_INDEX_HISTOGRAM_BINS = '4';
 
   resetCachedServiceConfig();
 
@@ -118,6 +122,19 @@ test('processIngestionJob writes partitions and respects idempotency', async () 
   assert.equal(result.manifest.totalRows, 2);
   assert.equal(result.manifest.partitions[0]?.rowCount, 2);
   assert.equal(result.manifest.manifestShard, '2024-01-01');
+  const ingestedPartition = result.manifest.partitions[0];
+  assert.ok(ingestedPartition);
+  const columnStats = (ingestedPartition!.columnStatistics as Record<string, any>) ?? {};
+  const temperatureStats = columnStats.temperature_c;
+  assert.ok(temperatureStats);
+  assert.equal(temperatureStats.type, 'double');
+  assert.equal(temperatureStats.rowCount, 2);
+  assert.equal(temperatureStats.min, 20.1);
+  assert.equal(temperatureStats.max, 20.6);
+  const bloomFilters = (ingestedPartition!.columnBloomFilters as Record<string, any>) ?? {};
+  assert.ok(bloomFilters.temperature_c);
+  assert.equal(typeof bloomFilters.temperature_c.bits, 'string');
+  assert.ok(bloomFilters.temperature_c.bits.length > 0);
   assert.ok(storageRoot);
   const partitionPath = path.join(
     storageRoot!,

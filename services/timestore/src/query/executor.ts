@@ -11,6 +11,13 @@ import {
   type ResolvedAzureOptions
 } from '../storage';
 import type { FieldDefinition, FieldType } from '../storage';
+import type {
+  ColumnPredicate,
+  BooleanColumnPredicate,
+  NumberPartitionKeyPredicate,
+  StringPartitionKeyPredicate,
+  TimestampPartitionKeyPredicate
+} from '../types/partitionFilters';
 
 interface QueryResultRow {
   [key: string]: unknown;
@@ -41,8 +48,9 @@ export async function executeQueryPlan(plan: QueryPlan): Promise<QueryExecutionR
     await prepareConnectionForPlan(connection, plan, config);
     const partitionColumns = await attachPartitions(connection, plan);
     await createDatasetView(connection, plan, partitionColumns);
+    const baseViewName = await applyColumnFilters(connection, plan);
 
-    const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan);
+    const { preparatoryQueries, selectSql, mode } = buildFinalQuery(plan, baseViewName);
     for (const query of preparatoryQueries) {
       await run(connection, query);
     }
@@ -223,7 +231,161 @@ function inferFieldsFromPartitionColumns(
   return inferred;
 }
 
-function buildFinalQuery(plan: QueryPlan): {
+async function applyColumnFilters(connection: any, plan: QueryPlan): Promise<string> {
+  if (!plan.columnFilters || Object.keys(plan.columnFilters).length === 0) {
+    return 'dataset_view';
+  }
+  const clause = buildColumnFilterClause(plan.columnFilters);
+  if (!clause) {
+    return 'dataset_view';
+  }
+  await run(
+    connection,
+    `CREATE TEMP VIEW dataset_filtered AS
+       SELECT *
+         FROM dataset_view
+        WHERE ${clause}`
+  );
+  return 'dataset_filtered';
+}
+
+function buildColumnFilterClause(columnFilters: Record<string, ColumnPredicate>): string {
+  const expressions: string[] = [];
+  for (const [column, predicate] of Object.entries(columnFilters)) {
+    const expression = columnPredicateToSql(column, predicate);
+    if (expression) {
+      expressions.push(expression);
+    }
+  }
+  return expressions.length > 0 ? expressions.join(' AND ') : '1 = 1';
+}
+
+function columnPredicateToSql(column: string, predicate: ColumnPredicate): string | null {
+  const identifier = quoteIdentifier(column);
+  switch (predicate.type) {
+    case 'string':
+      return buildStringPredicateSql(identifier, predicate);
+    case 'number':
+      return buildNumberPredicateSql(identifier, predicate);
+    case 'timestamp':
+      return buildTimestampPredicateSql(identifier, predicate);
+    case 'boolean':
+      return buildBooleanPredicateSql(identifier, predicate);
+    default:
+      return null;
+  }
+}
+
+function buildStringPredicateSql(identifier: string, predicate: StringPartitionKeyPredicate): string | null {
+  const clauses: string[] = [];
+  if (typeof predicate.eq === 'string') {
+    clauses.push(`${identifier} = ${toSqlLiteral('string', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toSqlLiteral('string', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (typeof predicate.gt === 'string') {
+    clauses.push(`${identifier} > ${toSqlLiteral('string', predicate.gt)}`);
+  }
+  if (typeof predicate.gte === 'string') {
+    clauses.push(`${identifier} >= ${toSqlLiteral('string', predicate.gte)}`);
+  }
+  if (typeof predicate.lt === 'string') {
+    clauses.push(`${identifier} < ${toSqlLiteral('string', predicate.lt)}`);
+  }
+  if (typeof predicate.lte === 'string') {
+    clauses.push(`${identifier} <= ${toSqlLiteral('string', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
+
+function buildNumberPredicateSql(identifier: string, predicate: NumberPartitionKeyPredicate): string | null {
+  const clauses: string[] = [];
+  if (predicate.eq !== undefined) {
+    clauses.push(`${identifier} = ${toSqlLiteral('number', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toSqlLiteral('number', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (predicate.gt !== undefined) {
+    clauses.push(`${identifier} > ${toSqlLiteral('number', predicate.gt)}`);
+  }
+  if (predicate.gte !== undefined) {
+    clauses.push(`${identifier} >= ${toSqlLiteral('number', predicate.gte)}`);
+  }
+  if (predicate.lt !== undefined) {
+    clauses.push(`${identifier} < ${toSqlLiteral('number', predicate.lt)}`);
+  }
+  if (predicate.lte !== undefined) {
+    clauses.push(`${identifier} <= ${toSqlLiteral('number', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
+
+function buildTimestampPredicateSql(identifier: string, predicate: TimestampPartitionKeyPredicate): string | null {
+  const clauses: string[] = [];
+  if (typeof predicate.eq === 'string') {
+    clauses.push(`${identifier} = ${toSqlLiteral('timestamp', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toSqlLiteral('timestamp', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  if (typeof predicate.gt === 'string') {
+    clauses.push(`${identifier} > ${toSqlLiteral('timestamp', predicate.gt)}`);
+  }
+  if (typeof predicate.gte === 'string') {
+    clauses.push(`${identifier} >= ${toSqlLiteral('timestamp', predicate.gte)}`);
+  }
+  if (typeof predicate.lt === 'string') {
+    clauses.push(`${identifier} < ${toSqlLiteral('timestamp', predicate.lt)}`);
+  }
+  if (typeof predicate.lte === 'string') {
+    clauses.push(`${identifier} <= ${toSqlLiteral('timestamp', predicate.lte)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
+
+function buildBooleanPredicateSql(identifier: string, predicate: BooleanColumnPredicate): string | null {
+  const clauses: string[] = [];
+  if (predicate.eq !== undefined) {
+    clauses.push(`${identifier} = ${toSqlLiteral('boolean', predicate.eq)}`);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    const values = predicate.in.map((value) => toSqlLiteral('boolean', value));
+    clauses.push(`${identifier} IN (${values.join(', ')})`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : null;
+}
+
+function toSqlLiteral(type: ColumnPredicate['type'], value: unknown): string {
+  switch (type) {
+    case 'string':
+      return `'${escapeSqlString(String(value))}'`;
+    case 'number':
+      return String(value);
+    case 'timestamp': {
+      const parsed = Date.parse(String(value));
+      const normalized = Number.isNaN(parsed) ? String(value) : new Date(parsed).toISOString();
+      return `TIMESTAMP '${escapeSqlString(normalized)}'`;
+    }
+    case 'boolean':
+      return value ? 'TRUE' : 'FALSE';
+    default:
+      return `'${escapeSqlString(String(value))}'`;
+  }
+}
+
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function buildFinalQuery(
+  plan: QueryPlan,
+  baseView: string
+): {
   preparatoryQueries: string[];
   selectSql: string;
   mode: 'raw' | 'downsampled';
@@ -242,7 +404,7 @@ function buildFinalQuery(plan: QueryPlan): {
       preparatoryQueries: [
         `CREATE TEMP VIEW dataset_windowed AS
            SELECT *, ${windowExpression} AS window_start
-           FROM dataset_view`
+             FROM ${baseView}`
       ],
       selectSql: `SELECT window_start AS ${timestampColumn}${aggregations ? `, ${aggregations}` : ''}
                   FROM dataset_windowed
@@ -261,7 +423,7 @@ function buildFinalQuery(plan: QueryPlan): {
     mode: 'raw',
     preparatoryQueries: [],
     selectSql: `SELECT ${selectColumns}
-                FROM dataset_view
+                FROM ${baseView}
                 ORDER BY ${timestampColumn} ASC${limitClause}`
   };
 }

@@ -59,6 +59,9 @@ before(async () => {
   process.env.TIMESTORE_PGPOOL_MAX = '4';
   process.env.TIMESTORE_STORAGE_ROOT = storageRoot;
   process.env.REDIS_URL = 'inline';
+  process.env.TIMESTORE_PARTITION_INDEX_COLUMNS = 'temperature_c,humidity_percent';
+  process.env.TIMESTORE_PARTITION_BLOOM_COLUMNS = 'temperature_c,humidity_percent';
+  process.env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS = 'temperature_c';
 
   resetCachedServiceConfig();
 
@@ -225,6 +228,62 @@ test('query planner reflects manifest cache updates after ingestion', async () =
   });
 
   assert.equal(planAfter.partitions.length, 2);
+});
+
+test('query planner prunes partitions using column filters', async () => {
+  const datasetSlug = 'observatory-filters';
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName: 'Observatory Filters',
+    partitionKey: { window: '2024-03-01', segment: 'baseline' },
+    timeRange: {
+      start: '2024-03-01T00:00:00.000Z',
+      end: '2024-03-01T00:30:00.000Z'
+    },
+    rows: [
+      { timestamp: '2024-03-01T00:00:00.000Z', temperature_c: 15, humidity_percent: 45 },
+      { timestamp: '2024-03-01T00:10:00.000Z', temperature_c: 16, humidity_percent: 44 }
+    ]
+  });
+
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName: 'Observatory Filters',
+    partitionKey: { window: '2024-03-01', segment: 'hot' },
+    timeRange: {
+      start: '2024-03-01T00:00:00.000Z',
+      end: '2024-03-01T00:30:00.000Z'
+    },
+    rows: [
+      { timestamp: '2024-03-01T00:05:00.000Z', temperature_c: 30, humidity_percent: 30 },
+      { timestamp: '2024-03-01T00:15:00.000Z', temperature_c: 31, humidity_percent: 29 }
+    ]
+  });
+
+  const plan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: '2024-03-01T00:00:00.000Z',
+      end: '2024-03-01T00:30:00.000Z'
+    },
+    filters: {
+      columns: {
+        temperature_c: {
+          type: 'number',
+          eq: 16
+        }
+      }
+    },
+    columns: ['timestamp', 'temperature_c']
+  });
+
+  assert.equal(plan.partitionSelection.total, 2);
+  assert.equal(plan.partitionSelection.selected, 1);
+  assert.equal(plan.partitionSelection.pruned, 1);
+  assert.equal(plan.partitions.length, 1);
+
+  const result = await queryExecutorModule.executeQueryPlan(plan);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0]?.temperature_c, 16);
 });
 
 test('execute downsampled query with aggregations', async () => {

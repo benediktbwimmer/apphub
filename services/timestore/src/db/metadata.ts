@@ -6,6 +6,10 @@ import {
   type StringPartitionKeyPredicate,
   type TimestampPartitionKeyPredicate
 } from '../types/partitionFilters';
+import type {
+  PartitionColumnBloomFilterMap,
+  PartitionColumnStatisticsMap
+} from '../types/partitionIndex';
 import { withConnection, withTransaction } from './client';
 
 export type StorageTargetKind = 'local' | 's3' | 'gcs' | 'azure_blob';
@@ -131,6 +135,8 @@ export interface DatasetPartitionRecord {
   endTime: string;
   checksum: string | null;
   metadata: JsonObject;
+  columnStatistics: PartitionColumnStatisticsMap;
+  columnBloomFilters: PartitionColumnBloomFilterMap;
   createdAt: string;
 }
 
@@ -146,6 +152,8 @@ export interface PartitionInput {
   rowCount?: number | null;
   checksum?: string | null;
   metadata?: JsonObject;
+  columnStatistics?: PartitionColumnStatisticsMap;
+  columnBloomFilters?: PartitionColumnBloomFilterMap;
 }
 
 export interface CreateDatasetManifestInput {
@@ -596,8 +604,27 @@ export async function appendPartitionsToManifest(
            start_time,
            end_time,
            checksum,
-           metadata
-         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)` as const,
+           metadata,
+           column_statistics,
+           column_bloom_filters
+         ) VALUES (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5::jsonb,
+           $6,
+           $7,
+           $8,
+           $9,
+           $10,
+           $11,
+           $12,
+           $13,
+           $14::jsonb,
+           $15::jsonb,
+           $16::jsonb
+         )` as const,
         [
           partition.id,
           datasetId,
@@ -612,7 +639,9 @@ export async function appendPartitionsToManifest(
           partition.startTime.toISOString(),
           partition.endTime.toISOString(),
           partition.checksum ?? null,
-          JSON.stringify(partition.metadata ?? {})
+          JSON.stringify(partition.metadata ?? {}),
+          JSON.stringify(partition.columnStatistics ?? {}),
+          JSON.stringify(partition.columnBloomFilters ?? {})
         ]
       );
     }
@@ -733,8 +762,27 @@ export async function replacePartitionsInManifest(
            start_time,
            end_time,
            checksum,
-           metadata
-         ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)` as const,
+           metadata,
+           column_statistics,
+           column_bloom_filters
+         ) VALUES (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5::jsonb,
+           $6,
+           $7,
+           $8,
+           $9,
+           $10,
+           $11,
+           $12,
+           $13,
+           $14::jsonb,
+           $15::jsonb,
+           $16::jsonb
+         )` as const,
         [
           partition.id,
           datasetId,
@@ -749,7 +797,9 @@ export async function replacePartitionsInManifest(
           partition.startTime.toISOString(),
           partition.endTime.toISOString(),
           partition.checksum ?? null,
-          JSON.stringify(partition.metadata ?? {})
+          JSON.stringify(partition.metadata ?? {}),
+          JSON.stringify(partition.columnStatistics ?? {}),
+          JSON.stringify(partition.columnBloomFilters ?? {})
         ]
       );
     }
@@ -1764,8 +1814,27 @@ async function insertPartitions(
          start_time,
          end_time,
          checksum,
-         metadata
-       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+         metadata,
+         column_statistics,
+         column_bloom_filters
+       ) VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         $5::jsonb,
+         $6,
+         $7,
+         $8,
+         $9,
+         $10,
+         $11,
+         $12,
+         $13,
+         $14::jsonb,
+         $15::jsonb,
+         $16::jsonb
+       )
        RETURNING *` as const,
       [
         partition.id,
@@ -1781,7 +1850,9 @@ async function insertPartitions(
         partition.startTime.toISOString(),
         partition.endTime.toISOString(),
         partition.checksum ?? null,
-        JSON.stringify(partition.metadata ?? {})
+        JSON.stringify(partition.metadata ?? {}),
+        JSON.stringify(partition.columnStatistics ?? {}),
+        JSON.stringify(partition.columnBloomFilters ?? {})
       ]
     );
     partitions.push(mapPartition(rows[0]));
@@ -1923,6 +1994,8 @@ type DatasetPartitionRow = {
   end_time: string;
   checksum: string | null;
   metadata: JsonObject;
+  column_statistics: JsonObject;
+  column_bloom_filters: JsonObject;
   created_at: string;
 };
 
@@ -2082,6 +2155,10 @@ function mapPartition(row: DatasetPartitionRow): DatasetPartitionRecord {
     endTime: row.end_time,
     checksum: row.checksum,
     metadata: row.metadata,
+    columnStatistics:
+      (row.column_statistics as PartitionColumnStatisticsMap | undefined) ?? {},
+    columnBloomFilters:
+      (row.column_bloom_filters as PartitionColumnBloomFilterMap | undefined) ?? {},
     createdAt: row.created_at
   };
 }

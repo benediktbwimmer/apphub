@@ -75,6 +75,7 @@ interface MetricsState {
   queryDurationSeconds: Histogram<string> | null;
   queryRowCount: Histogram<string> | null;
   queryRemotePartitions: Counter<string> | null;
+  queryPartitionDecisions: Counter<string> | null;
   manifestCacheHitsTotal: Counter<string> | null;
   manifestCacheMissesTotal: Counter<string> | null;
   manifestCacheEvictionsTotal: Counter<string> | null;
@@ -188,6 +189,15 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
         name: `${prefix}query_remote_partitions_total`,
         help: 'Remote partition access counts grouped by dataset and cache configuration',
         labelNames: ['dataset', 'cache_enabled'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const queryPartitionDecisions = enabled
+    ? new Counter({
+        name: `${prefix}query_partitions_total`,
+        help: 'Query partition evaluation results grouped by dataset and decision',
+        labelNames: ['dataset', 'decision'],
         registers: registerMetrics
       })
     : null;
@@ -311,6 +321,7 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     queryDurationSeconds,
     queryRowCount,
     queryRemotePartitions,
+    queryPartitionDecisions,
     manifestCacheHitsTotal,
     manifestCacheMissesTotal,
     manifestCacheEvictionsTotal,
@@ -380,6 +391,23 @@ export function observeQuery(input: QueryMetricsInput): void {
   if (state.queryRemotePartitions && input.remotePartitions && input.remotePartitions > 0) {
     const cacheFlag = input.cacheEnabled ? 'true' : 'false';
     state.queryRemotePartitions.labels(input.datasetSlug, cacheFlag).inc(input.remotePartitions);
+  }
+}
+
+export function recordQueryPartitionSelection(
+  datasetSlug: string,
+  scanned: number,
+  pruned: number
+): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.queryPartitionDecisions) {
+    return;
+  }
+  if (scanned > 0) {
+    state.queryPartitionDecisions.labels(datasetSlug, 'scanned').inc(scanned);
+  }
+  if (pruned > 0) {
+    state.queryPartitionDecisions.labels(datasetSlug, 'pruned').inc(pruned);
   }
 }
 

@@ -16,7 +16,9 @@ export function partitionRecordToInput(partition: DatasetPartitionRecord): Parti
     fileSizeBytes: partition.fileSizeBytes ?? undefined,
     rowCount: partition.rowCount ?? undefined,
     checksum: partition.checksum ?? undefined,
-    metadata: partition.metadata
+    metadata: partition.metadata,
+    columnStatistics: partition.columnStatistics,
+    columnBloomFilters: partition.columnBloomFilters
   };
 }
 

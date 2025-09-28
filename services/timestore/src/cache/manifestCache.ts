@@ -12,7 +12,10 @@ import {
   type PartitionWithTarget
 } from '../db/metadata';
 import type {
+  ColumnPredicate,
+  BooleanColumnPredicate,
   PartitionFilters,
+  PartitionKeyPredicate,
   StringPartitionKeyPredicate,
   NumberPartitionKeyPredicate,
   TimestampPartitionKeyPredicate
@@ -22,6 +25,13 @@ import {
   recordManifestCacheHit,
   recordManifestCacheMiss
 } from '../observability/metrics';
+import type {
+  PartitionColumnBloomFilter,
+  PartitionColumnBloomFilterMap,
+  PartitionColumnStatistics,
+  PartitionColumnStatisticsMap
+} from '../types/partitionIndex';
+import { testBloomFilter } from '../indexing/partitionIndex';
 
 interface ManifestCacheOptions {
   enabled: boolean;
@@ -71,6 +81,8 @@ interface CachePartitionRecord
     | 'endTime'
     | 'checksum'
     | 'metadata'
+    | 'columnStatistics'
+    | 'columnBloomFilters'
     | 'createdAt'
   > {}
 
@@ -107,6 +119,8 @@ interface CacheLoadResult {
   partitions: PartitionWithTarget[];
   shards: string[];
   cacheUsed: boolean;
+  partitionsEvaluated: number;
+  partitionsPruned: number;
 }
 
 interface EntryHitResult {
@@ -115,6 +129,7 @@ interface EntryHitResult {
 }
 
 type PartitionKeyMap = Record<string, unknown>;
+type PartitionLike = CachePartitionRecord | PartitionWithTarget;
 
 type CacheMissReason = 'disabled' | 'index' | 'entry' | 'stale' | 'error';
 
@@ -487,11 +502,34 @@ function partitionOverlapsRange(
   return partitionEnd >= rangeStart && partitionStart <= rangeEnd;
 }
 
-function matchesPartitionFilters(
+function partitionMatchesFilters(partition: PartitionLike, filters: PartitionFilters): boolean {
+  const hasPartitionKeyPredicates = Boolean(filters.partitionKey && Object.keys(filters.partitionKey).length > 0);
+  const hasColumnPredicates = Boolean(filters.columns && Object.keys(filters.columns).length > 0);
+
+  if (!hasPartitionKeyPredicates && !hasColumnPredicates) {
+    return true;
+  }
+
+  if (hasPartitionKeyPredicates) {
+    const partitionKey = (partition.partitionKey ?? {}) as PartitionKeyMap;
+    if (!matchesPartitionKeyPredicates(partitionKey, filters.partitionKey ?? {})) {
+      return false;
+    }
+  }
+
+  if (hasColumnPredicates) {
+    if (!matchesColumnFilters(partition, filters.columns ?? {})) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function matchesPartitionKeyPredicates(
   partitionKey: PartitionKeyMap,
-  filters: PartitionFilters
+  predicates: Record<string, PartitionKeyPredicate>
 ): boolean {
-  const predicates = filters.partitionKey ?? {};
   for (const [key, predicate] of Object.entries(predicates)) {
     if (!predicate) {
       continue;
@@ -627,6 +665,320 @@ function matchesTimestampPredicate(
   return true;
 }
 
+function matchesColumnFilters(
+  partition: PartitionLike,
+  predicates: Record<string, ColumnPredicate>
+): boolean {
+  if (!predicates || Object.keys(predicates).length === 0) {
+    return true;
+  }
+  const statistics = ensureStatisticsMap(partition.columnStatistics);
+  const bloomFilters = ensureBloomFilterMap(partition.columnBloomFilters);
+  for (const [column, predicate] of Object.entries(predicates)) {
+    const stats = statistics[column];
+    if (!stats) {
+      continue;
+    }
+    const bloom = bloomFilters[column];
+    if (!columnPredicatePossible(stats, bloom, predicate)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function columnPredicatePossible(
+  stats: PartitionColumnStatistics,
+  bloom: PartitionColumnBloomFilter | undefined,
+  predicate: ColumnPredicate
+): boolean {
+  switch (predicate.type) {
+    case 'string':
+      if (stats.type !== 'string') {
+        return true;
+      }
+      return stringColumnPredicatePossible(stats, bloom, predicate);
+    case 'number':
+      if (stats.type !== 'double' && stats.type !== 'integer') {
+        return true;
+      }
+      return numericColumnPredicatePossible(stats, bloom, predicate);
+    case 'timestamp':
+      if (stats.type !== 'timestamp') {
+        return true;
+      }
+      return timestampColumnPredicatePossible(stats, bloom, predicate);
+    case 'boolean':
+      if (stats.type !== 'boolean') {
+        return true;
+      }
+      return booleanColumnPredicatePossible(stats, predicate);
+    default:
+      return true;
+  }
+}
+
+function stringColumnPredicatePossible(
+  stats: PartitionColumnStatistics,
+  bloom: PartitionColumnBloomFilter | undefined,
+  predicate: StringPartitionKeyPredicate
+): boolean {
+  const nonNull = getNonNullCount(stats);
+  if (nonNull === 0) {
+    return false;
+  }
+  const min = typeof stats.min === 'string' ? stats.min : null;
+  const max = typeof stats.max === 'string' ? stats.max : null;
+
+  if (typeof predicate.eq === 'string') {
+    return stringEqPossible(min, max, bloom, predicate.eq);
+  }
+
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    return predicate.in.some((candidate) => stringEqPossible(min, max, bloom, candidate));
+  }
+
+  if (typeof predicate.gt === 'string' && max !== null && max <= predicate.gt) {
+    return false;
+  }
+  if (typeof predicate.gte === 'string' && max !== null && max < predicate.gte) {
+    return false;
+  }
+  if (typeof predicate.lt === 'string' && min !== null && min >= predicate.lt) {
+    return false;
+  }
+  if (typeof predicate.lte === 'string' && min !== null && min > predicate.lte) {
+    return false;
+  }
+
+  return true;
+}
+
+function numericColumnPredicatePossible(
+  stats: PartitionColumnStatistics,
+  bloom: PartitionColumnBloomFilter | undefined,
+  predicate: NumberPartitionKeyPredicate
+): boolean {
+  const nonNull = getNonNullCount(stats);
+  if (nonNull === 0) {
+    return false;
+  }
+  const { min, max } = extractNumericBounds(stats);
+
+  if (predicate.eq !== undefined) {
+    return numericEqPossible(min, max, bloom, predicate.eq);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    return predicate.in.some((candidate) => numericEqPossible(min, max, bloom, candidate));
+  }
+  if (predicate.gt !== undefined && max !== null && max <= predicate.gt) {
+    return false;
+  }
+  if (predicate.gte !== undefined && max !== null && max < predicate.gte) {
+    return false;
+  }
+  if (predicate.lt !== undefined && min !== null && min >= predicate.lt) {
+    return false;
+  }
+  if (predicate.lte !== undefined && min !== null && min > predicate.lte) {
+    return false;
+  }
+  return true;
+}
+
+function timestampColumnPredicatePossible(
+  stats: PartitionColumnStatistics,
+  bloom: PartitionColumnBloomFilter | undefined,
+  predicate: TimestampPartitionKeyPredicate
+): boolean {
+  const nonNull = getNonNullCount(stats);
+  if (nonNull === 0) {
+    return false;
+  }
+  const { min, max } = extractTimestampBounds(stats);
+
+  if (typeof predicate.eq === 'string') {
+    return timestampEqPossible(min, max, bloom, predicate.eq);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    return predicate.in.some((candidate) => timestampEqPossible(min, max, bloom, candidate));
+  }
+  if (typeof predicate.gt === 'string') {
+    const bound = Date.parse(predicate.gt);
+    if (!Number.isNaN(bound) && max !== null && max <= bound) {
+      return false;
+    }
+  }
+  if (typeof predicate.gte === 'string') {
+    const bound = Date.parse(predicate.gte);
+    if (!Number.isNaN(bound) && max !== null && max < bound) {
+      return false;
+    }
+  }
+  if (typeof predicate.lt === 'string') {
+    const bound = Date.parse(predicate.lt);
+    if (!Number.isNaN(bound) && min !== null && min >= bound) {
+      return false;
+    }
+  }
+  if (typeof predicate.lte === 'string') {
+    const bound = Date.parse(predicate.lte);
+    if (!Number.isNaN(bound) && min !== null && min > bound) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function booleanColumnPredicatePossible(
+  stats: PartitionColumnStatistics,
+  predicate: BooleanColumnPredicate
+): boolean {
+  const nonNull = getNonNullCount(stats);
+  if (nonNull === 0) {
+    return false;
+  }
+  const min = parseBooleanStat(stats.min);
+  const max = parseBooleanStat(stats.max);
+
+  if (predicate.eq !== undefined) {
+    return booleanEqPossible(min, max, predicate.eq);
+  }
+  if (Array.isArray(predicate.in) && predicate.in.length > 0) {
+    return predicate.in.some((candidate) => booleanEqPossible(min, max, candidate));
+  }
+  return true;
+}
+
+function stringEqPossible(
+  min: string | null,
+  max: string | null,
+  bloom: PartitionColumnBloomFilter | undefined,
+  value: string
+): boolean {
+  if (min !== null && value < min) {
+    return false;
+  }
+  if (max !== null && value > max) {
+    return false;
+  }
+  if (bloom && !testBloomFilter(bloom, value)) {
+    return false;
+  }
+  return true;
+}
+
+function numericEqPossible(
+  min: number | null,
+  max: number | null,
+  bloom: PartitionColumnBloomFilter | undefined,
+  value: number
+): boolean {
+  if (min !== null && value < min) {
+    return false;
+  }
+  if (max !== null && value > max) {
+    return false;
+  }
+  if (bloom && !testBloomFilter(bloom, String(value))) {
+    return false;
+  }
+  return true;
+}
+
+function timestampEqPossible(
+  min: number | null,
+  max: number | null,
+  bloom: PartitionColumnBloomFilter | undefined,
+  value: string
+): boolean {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return true;
+  }
+  if (min !== null && parsed < min) {
+    return false;
+  }
+  if (max !== null && parsed > max) {
+    return false;
+  }
+  if (bloom && !testBloomFilter(bloom, new Date(parsed).toISOString())) {
+    return false;
+  }
+  return true;
+}
+
+function booleanEqPossible(min: boolean | null, max: boolean | null, value: boolean): boolean {
+  if (min === null || max === null) {
+    return true;
+  }
+  if (value) {
+    return max === true;
+  }
+  return min === false;
+}
+
+function getNonNullCount(stats: PartitionColumnStatistics): number {
+  const rowCount = typeof stats.rowCount === 'number' ? stats.rowCount : 0;
+  const nullCount = typeof stats.nullCount === 'number' ? stats.nullCount : 0;
+  return Math.max(rowCount - nullCount, 0);
+}
+
+function extractNumericBounds(stats: PartitionColumnStatistics): { min: number | null; max: number | null } {
+  const min = typeof stats.min === 'number' ? stats.min : Number(stats.min);
+  const max = typeof stats.max === 'number' ? stats.max : Number(stats.max);
+  return {
+    min: Number.isFinite(min) ? min : null,
+    max: Number.isFinite(max) ? max : null
+  };
+}
+
+function extractTimestampBounds(stats: PartitionColumnStatistics): { min: number | null; max: number | null } {
+  return {
+    min: parseTimestampStat(stats.min),
+    max: parseTimestampStat(stats.max)
+  };
+}
+
+function parseTimestampStat(value: unknown): number | null {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+  if (typeof value === 'string') {
+    const time = Date.parse(value);
+    return Number.isNaN(time) ? null : time;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
+}
+
+function parseBooleanStat(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (value === 'true' || value === 'false') {
+    return value === 'true';
+  }
+  return null;
+}
+
+function ensureStatisticsMap(value: unknown): PartitionColumnStatisticsMap {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as PartitionColumnStatisticsMap;
+  }
+  return {};
+}
+
+function ensureBloomFilterMap(value: unknown): PartitionColumnBloomFilterMap {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as PartitionColumnBloomFilterMap;
+  }
+  return {};
+}
+
 function toManifestRecord(entry: ManifestCacheEntry): DatasetManifestRecord {
   return {
     ...entry.manifest,
@@ -662,7 +1014,9 @@ export async function loadManifestPartitionsForQuery(
       manifests: [],
       partitions: [],
       shards: [],
-      cacheUsed: true
+      cacheUsed: true,
+      partitionsEvaluated: 0,
+      partitionsPruned: 0
     } satisfies CacheLoadResult;
   }
 
@@ -670,6 +1024,8 @@ export async function loadManifestPartitionsForQuery(
   const partitions: PartitionWithTarget[] = [];
   const visitedShards: string[] = [];
   let indexDirty = false;
+  let partitionsEvaluated = 0;
+  let partitionsPruned = 0;
 
   for (const [shard, shardEntry] of Object.entries(index.shards)) {
     const result = await ensureEntryForShard(options, dataset, shardEntry, shard);
@@ -686,10 +1042,18 @@ export async function loadManifestPartitionsForQuery(
       index.shards[shard] = result.updatedShard;
       indexDirty = true;
     }
-    const matchingPartitions = entry.partitions.filter((partition) =>
-      partitionOverlapsRange(partition, rangeStart, rangeEnd) &&
-      matchesPartitionFilters(partition.partitionKey ?? {}, filters)
-    );
+    const matchingPartitions: CachePartitionRecord[] = [];
+    for (const partition of entry.partitions) {
+      if (!partitionOverlapsRange(partition, rangeStart, rangeEnd)) {
+        continue;
+      }
+      partitionsEvaluated += 1;
+      if (!partitionMatchesFilters(partition, filters)) {
+        partitionsPruned += 1;
+        continue;
+      }
+      matchingPartitions.push(partition);
+    }
 
     if (matchingPartitions.length === 0) {
       continue;
@@ -698,9 +1062,7 @@ export async function loadManifestPartitionsForQuery(
     visitedShards.push(shard);
     const manifestRecord = toManifestRecord(entry);
     manifests.push(manifestRecord);
-    partitions.push(
-      ...matchingPartitions.map((partition) => toPartitionWithTarget(partition))
-    );
+    partitions.push(...matchingPartitions.map((partition) => toPartitionWithTarget(partition)));
   }
 
   if (indexDirty) {
@@ -709,14 +1071,21 @@ export async function loadManifestPartitionsForQuery(
 
   if (manifests.length === 0 || partitions.length === 0) {
     recordMiss('stale');
-    return fallbackQuery(dataset, rangeStart, rangeEnd, filters);
+    const fallback = await fallbackQuery(dataset, rangeStart, rangeEnd, filters);
+    return {
+      ...fallback,
+      partitionsEvaluated: partitionsEvaluated + fallback.partitionsEvaluated,
+      partitionsPruned: partitionsPruned + fallback.partitionsPruned
+    } satisfies CacheLoadResult;
   }
 
   return {
     manifests,
     partitions,
     shards: visitedShards,
-    cacheUsed: true
+    cacheUsed: true,
+    partitionsEvaluated,
+    partitionsPruned
   } satisfies CacheLoadResult;
 }
 
@@ -728,14 +1097,27 @@ async function fallbackQuery(
 ): Promise<CacheLoadResult> {
   const manifests = await listPublishedManifestsForRange(dataset.id, rangeStart, rangeEnd);
   const shards = Array.from(new Set(manifests.map((manifest) => manifest.manifestShard)));
-  const partitions = await listPartitionsForQuery(dataset.id, rangeStart, rangeEnd, filters, {
+  const rawPartitions = await listPartitionsForQuery(dataset.id, rangeStart, rangeEnd, filters, {
     shards
   });
+  let partitionsEvaluated = 0;
+  let partitionsPruned = 0;
+  const partitions: PartitionWithTarget[] = [];
+  for (const partition of rawPartitions) {
+    partitionsEvaluated += 1;
+    if (!partitionMatchesFilters(partition, filters)) {
+      partitionsPruned += 1;
+      continue;
+    }
+    partitions.push(partition);
+  }
   return {
     manifests,
     partitions,
     shards,
-    cacheUsed: false
+    cacheUsed: false,
+    partitionsEvaluated,
+    partitionsPruned
   } satisfies CacheLoadResult;
 }
 

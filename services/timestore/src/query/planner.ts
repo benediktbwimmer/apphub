@@ -22,6 +22,7 @@ import {
   normalizeFieldDefinitions
 } from '../schema/compatibility';
 import type { FieldDefinition } from '../storage';
+import type { ColumnPredicate } from '../types/partitionFilters';
 
 export interface QueryPlanPartition {
   id: string;
@@ -55,6 +56,14 @@ export interface QueryPlan {
   rangeStart: Date;
   rangeEnd: Date;
   schemaFields: FieldDefinition[];
+  columnFilters?: Record<string, ColumnPredicate>;
+  partitionSelection: PartitionSelectionSummary;
+}
+
+export interface PartitionSelectionSummary {
+  total: number;
+  selected: number;
+  pruned: number;
 }
 
 export async function buildQueryPlan(
@@ -92,6 +101,15 @@ export async function buildQueryPlan(
     buildPlanPartition(partition, index, config)
   );
 
+  const columnFilters = filters.columns ?? {};
+  const hasColumnFilters = Object.keys(columnFilters).length > 0;
+
+  const selection: PartitionSelectionSummary = {
+    total: cacheResult.partitionsEvaluated ?? planPartitions.length,
+    selected: planPartitions.length,
+    pruned: cacheResult.partitionsPruned ?? 0
+  };
+
   let downsamplePlan: DownsamplePlan | undefined;
   if (request.downsample) {
     const { intervalUnit, intervalSize, aggregations } = request.downsample;
@@ -112,7 +130,9 @@ export async function buildQueryPlan(
     mode,
     rangeStart,
     rangeEnd,
-    schemaFields
+    schemaFields,
+    columnFilters: hasColumnFilters ? columnFilters : undefined,
+    partitionSelection: selection
   } satisfies QueryPlan;
 }
 

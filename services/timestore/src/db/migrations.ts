@@ -95,6 +95,8 @@ const migrations: Migration[] = [
          end_time TIMESTAMPTZ NOT NULL,
          checksum TEXT,
          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         column_statistics JSONB NOT NULL DEFAULT '{}'::jsonb,
+         column_bloom_filters JSONB NOT NULL DEFAULT '{}'::jsonb,
          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
          CHECK (file_format IN ('duckdb', 'parquet')),
          CHECK (end_time >= start_time)
@@ -285,6 +287,16 @@ const migrations: Migration[] = [
          ON compaction_checkpoints(manifest_id);`,
       `CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_dataset
          ON compaction_checkpoints(dataset_id, manifest_shard);`
+    ]
+  }
+  ,
+  {
+    id: '010_timestore_partition_indexing',
+    statements: [
+      `ALTER TABLE dataset_partitions
+         ADD COLUMN IF NOT EXISTS column_statistics JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+      `ALTER TABLE dataset_partitions
+         ADD COLUMN IF NOT EXISTS column_bloom_filters JSONB NOT NULL DEFAULT '{}'::jsonb;`
     ]
   }
 ];

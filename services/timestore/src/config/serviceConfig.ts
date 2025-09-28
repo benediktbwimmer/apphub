@@ -5,6 +5,12 @@ type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
 type StorageDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
 
+export interface PartitionIndexColumnConfig {
+  name: string;
+  histogram: boolean;
+  bloom: boolean;
+}
+
 const retentionRuleSchema = z.object({
   maxAgeHours: z.number().int().positive().optional(),
   maxTotalBytes: z.number().int().positive().optional()
@@ -66,6 +72,18 @@ const sqlSchema = z.object({
   maxQueryLength: z.number().int().positive(),
   statementTimeoutMs: z.number().int().positive(),
   runtimeCacheTtlMs: z.number().int().nonnegative()
+});
+
+const partitionIndexColumnSchema = z.object({
+  name: z.string().min(1),
+  histogram: z.boolean().default(false),
+  bloom: z.boolean().default(false)
+});
+
+const partitionIndexSchema = z.object({
+  columns: z.array(partitionIndexColumnSchema),
+  histogramBins: z.number().int().positive(),
+  bloomFalsePositiveRate: z.number().positive().max(0.5)
 });
 
 const filestoreSchema = z.object({
@@ -137,6 +155,7 @@ const configSchema = z.object({
     cache: cacheSchema,
     manifestCache: manifestCacheSchema
   }),
+  partitionIndex: partitionIndexSchema,
   sql: sqlSchema,
   lifecycle: lifecycleSchema,
   observability: z.object({
@@ -184,6 +203,111 @@ function resolveCacheDirectory(envValue: string | undefined): string {
     return envValue;
   }
   return path.resolve(process.cwd(), 'services', 'data', 'timestore', 'cache');
+}
+
+function parseList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function parsePartitionIndexJson(value: string | undefined): PartitionIndexColumnConfig[] | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const columns: PartitionIndexColumnConfig[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+      if (!name) {
+        continue;
+      }
+      columns.push({
+        name,
+        histogram: entry.histogram === true,
+        bloom: entry.bloom === true
+      });
+    }
+    return dedupePartitionIndexColumns(columns);
+  } catch (error) {
+    console.warn('[timestore] failed to parse TIMESTORE_PARTITION_INDEX_CONFIG', error);
+    return null;
+  }
+}
+
+function dedupePartitionIndexColumns(columns: PartitionIndexColumnConfig[]): PartitionIndexColumnConfig[] {
+  const byName = new Map<string, PartitionIndexColumnConfig>();
+  for (const column of columns) {
+    const name = column.name.trim();
+    if (!name) {
+      continue;
+    }
+    const existing = byName.get(name);
+    if (existing) {
+      byName.set(name, {
+        name,
+        histogram: existing.histogram || column.histogram,
+        bloom: existing.bloom || column.bloom
+      });
+    } else {
+      byName.set(name, {
+        name,
+        histogram: Boolean(column.histogram),
+        bloom: Boolean(column.bloom)
+      });
+    }
+  }
+  return Array.from(byName.values());
+}
+
+function resolvePartitionIndexColumns(env: {
+  configJson?: string;
+  columns?: string;
+  histogramColumns?: string;
+  bloomColumns?: string;
+}): PartitionIndexColumnConfig[] {
+  const fromJson = parsePartitionIndexJson(env.configJson);
+  if (fromJson && fromJson.length > 0) {
+    return fromJson;
+  }
+
+  const columns = new Set(parseList(env.columns));
+  const histogramColumns = new Set(parseList(env.histogramColumns));
+  const bloomColumns = new Set(parseList(env.bloomColumns));
+
+  if (columns.size === 0 && histogramColumns.size === 0 && bloomColumns.size === 0) {
+    return [];
+  }
+
+  const combinedNames = new Set<string>([
+    ...columns,
+    ...histogramColumns,
+    ...bloomColumns
+  ]);
+  const results: PartitionIndexColumnConfig[] = [];
+  for (const name of combinedNames) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      continue;
+    }
+    results.push({
+      name: trimmed,
+      histogram: histogramColumns.has(trimmed),
+      bloom: bloomColumns.has(trimmed)
+    });
+  }
+  return dedupePartitionIndexColumns(results);
 }
 
 export function loadServiceConfig(): ServiceConfig {
@@ -236,6 +360,12 @@ export function loadServiceConfig(): ServiceConfig {
   const manifestCacheKeyPrefix = env.TIMESTORE_MANIFEST_CACHE_KEY_PREFIX || 'timestore:manifest';
   const manifestCacheTtlSeconds = parseNumber(env.TIMESTORE_MANIFEST_CACHE_TTL_SECONDS, 300);
   const manifestCacheInline = manifestCacheRedisUrl === 'inline';
+  const partitionIndexConfigJson = env.TIMESTORE_PARTITION_INDEX_CONFIG;
+  const partitionIndexColumnsEnv = env.TIMESTORE_PARTITION_INDEX_COLUMNS;
+  const partitionIndexHistogramColumns = env.TIMESTORE_PARTITION_HISTOGRAM_COLUMNS;
+  const partitionIndexBloomColumns = env.TIMESTORE_PARTITION_BLOOM_COLUMNS;
+  const partitionIndexHistogramBins = parseNumber(env.TIMESTORE_PARTITION_HISTOGRAM_BINS, 16);
+  const partitionIndexBloomFprRaw = env.TIMESTORE_PARTITION_BLOOM_FPR;
 
   const lifecycleEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_ENABLED, true);
   const lifecycleQueueName = env.TIMESTORE_LIFECYCLE_QUEUE_NAME || 'timestore_lifecycle_queue';
@@ -268,6 +398,18 @@ export function loadServiceConfig(): ServiceConfig {
   const filestoreTableName = env.TIMESTORE_FILESTORE_TABLE_NAME || 'filestore_activity';
   const filestoreRetryMs = parseNumber(env.TIMESTORE_FILESTORE_RETRY_MS, 3_000);
   const filestoreInline = filestoreRedisUrl === 'inline';
+
+  const partitionIndexColumns = resolvePartitionIndexColumns({
+    configJson: partitionIndexConfigJson,
+    columns: partitionIndexColumnsEnv,
+    histogramColumns: partitionIndexHistogramColumns,
+    bloomColumns: partitionIndexBloomColumns
+  });
+  const histogramBins = partitionIndexHistogramBins > 0 ? partitionIndexHistogramBins : 16;
+  const parsedBloomFpr = partitionIndexBloomFprRaw ? Number.parseFloat(partitionIndexBloomFprRaw) : NaN;
+  const bloomFalsePositiveRate = Number.isFinite(parsedBloomFpr) && parsedBloomFpr > 0 && parsedBloomFpr <= 0.5
+    ? parsedBloomFpr
+    : 0.01;
 
   const candidateConfig = {
     host,
@@ -332,6 +474,11 @@ export function loadServiceConfig(): ServiceConfig {
         ttlSeconds: manifestCacheTtlSeconds > 0 ? manifestCacheTtlSeconds : 60,
         inline: manifestCacheInline
       }
+    },
+    partitionIndex: {
+      columns: partitionIndexColumns,
+      histogramBins,
+      bloomFalsePositiveRate
     },
     sql: {
       maxQueryLength: sqlMaxQueryLength > 0 ? sqlMaxQueryLength : 10_000,

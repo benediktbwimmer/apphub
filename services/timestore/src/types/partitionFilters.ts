@@ -31,4 +31,17 @@ export type PartitionKeyPredicate =
 
 export interface PartitionFilters {
   partitionKey?: Record<string, PartitionKeyPredicate>;
+  columns?: Record<string, ColumnPredicate>;
 }
+
+export type BooleanColumnPredicate = {
+  type: 'boolean';
+  eq?: boolean;
+  in?: boolean[];
+};
+
+export type ColumnPredicate =
+  | StringPartitionKeyPredicate
+  | NumberPartitionKeyPredicate
+  | TimestampPartitionKeyPredicate
+  | BooleanColumnPredicate;

@@ -13,6 +13,10 @@ import type {
   PartitionInput,
   PartitionWithTarget
 } from '../db/metadata';
+import type {
+  PartitionColumnBloomFilterMap,
+  PartitionColumnStatisticsMap
+} from '../types/partitionIndex';
 import {
   getCompactionCheckpointByManifest,
   getSchemaVersionById,
@@ -32,6 +36,7 @@ import type { ServiceConfig } from '../config/serviceConfig';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
 import { recordCompactionChunk } from './metrics';
+import { computePartitionIndexForConnection } from '../indexing/partitionIndex';
 
 const CHECKPOINT_METADATA_VERSION = 1;
 const CHECKPOINT_STATS_VERSION = 1;
@@ -106,6 +111,8 @@ interface CompactedPartitionArtifact {
   checksum: string;
   startTime: Date;
   endTime: Date;
+  columnStatistics: PartitionColumnStatisticsMap;
+  columnBloomFilters: PartitionColumnBloomFilterMap;
 }
 
 interface CompactionChunkResult {
@@ -645,7 +652,9 @@ async function processChunk(params: {
               sourcePartitionIds: group.summary.partitionIds
             }
           }
-        }
+        },
+        columnStatistics: artifact.columnStatistics,
+        columnBloomFilters: artifact.columnBloomFilters
       });
 
       chunkAuditEvents.push({
@@ -812,7 +821,8 @@ async function materializeGroupPartition(
   const connection = db.connect();
 
   try {
-    const safeTableName = quoteIdentifier(group.summary.tableName || 'records');
+    const baseTableName = group.summary.tableName || 'records';
+    const safeTableName = quoteIdentifier(baseTableName);
     const columnDefinitions = schemaFields
       .map((field) => `${quoteIdentifier(field.name)} ${mapDuckDbType(field.type)}`)
       .join(', ');
@@ -856,6 +866,14 @@ async function materializeGroupPartition(
     const endTime = new Date(
       Math.max(...group.partitions.map((partition) => new Date(partition.endTime).getTime()))
     );
+
+    const indexResult = await computePartitionIndexForConnection(
+      connection,
+      baseTableName,
+      schemaFields,
+      config.partitionIndex
+    );
+
     await closeConnection(connection);
     if (isCloseable(db)) {
       db.close();
@@ -872,7 +890,9 @@ async function materializeGroupPartition(
       fileSizeBytes: fileStats.size,
       checksum,
       startTime,
-      endTime
+      endTime,
+      columnStatistics: indexResult.columnStatistics,
+      columnBloomFilters: indexResult.columnBloomFilters
     };
   } catch (error) {
     await closeConnection(connection).catch(() => undefined);

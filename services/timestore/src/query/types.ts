@@ -3,8 +3,10 @@ import type {
   NumberPartitionKeyPredicate,
   PartitionFilters,
   PartitionKeyPredicate,
+  ColumnPredicate,
   StringPartitionKeyPredicate,
-  TimestampPartitionKeyPredicate
+  TimestampPartitionKeyPredicate,
+  BooleanColumnPredicate
 } from '../types/partitionFilters';
 
 const commonAggregations = z.object({
@@ -89,6 +91,16 @@ const timestampPartitionPredicateSchema = z
     message: 'timestamp partition filters require at least one predicate'
   });
 
+const booleanColumnPredicateSchema = z
+  .object({
+    type: z.literal('boolean'),
+    eq: z.boolean().optional(),
+    in: z.array(z.boolean()).min(1).optional()
+  })
+  .refine(hasBooleanComparator, {
+    message: 'boolean column filters require eq or in predicates'
+  });
+
 type RawPartitionKeyFilterValue =
   | z.infer<typeof stringPartitionPredicateSchema>
   | z.infer<typeof numberPartitionPredicateSchema>
@@ -106,13 +118,30 @@ const partitionKeyFiltersSchema = z
   )
   .transform(normalizePartitionKeyFilters);
 
+const columnPredicateSchema = z.union([
+  stringPartitionPredicateSchema,
+  numberPartitionPredicateSchema,
+  timestampPartitionPredicateSchema,
+  booleanColumnPredicateSchema
+]);
+
+const columnFiltersSchema = z.record(columnPredicateSchema).optional();
+
 export const partitionFilterSchema = z
   .object({
-    partitionKey: partitionKeyFiltersSchema.optional()
+    partitionKey: partitionKeyFiltersSchema.optional(),
+    columns: columnFiltersSchema
   })
-  .transform<PartitionFilters>((value) => (
-    value.partitionKey ? { partitionKey: value.partitionKey } : {}
-  ));
+  .transform<PartitionFilters>((value) => {
+    const filters: PartitionFilters = {};
+    if (value.partitionKey) {
+      filters.partitionKey = value.partitionKey;
+    }
+    if (value.columns) {
+      filters.columns = value.columns as Record<string, ColumnPredicate>;
+    }
+    return filters;
+  });
 
 export const queryRequestSchema = z.object({
   timeRange: z.object({
@@ -162,6 +191,10 @@ function hasTimestampComparator(predicate: TimestampPartitionKeyPredicate): bool
     typeof predicate.lt === 'string' ||
     typeof predicate.lte === 'string'
   );
+}
+
+function hasBooleanComparator(predicate: BooleanColumnPredicate): boolean {
+  return predicate.eq !== undefined || hasValues(predicate.in);
 }
 
 function hasValues<T>(values: readonly T[] | undefined): values is readonly T[] {

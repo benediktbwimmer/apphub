@@ -31,6 +31,7 @@ import { endSpan, startSpan } from '../observability/tracing';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
 import { refreshManifestCache } from '../cache/manifestCache';
 import { deriveManifestShardKey } from '../service/manifestShard';
+import { computePartitionIndexForRows } from '../indexing/partitionIndex';
 import {
   analyzeSchemaCompatibility,
   extractFieldDefinitions,
@@ -158,6 +159,7 @@ export async function processIngestionJob(
     const partitionId = `part-${randomUUID()}`;
     const tableName = payload.tableName ?? 'records';
     const driver = createStorageDriver(config, storageTarget);
+    const partitionIndex = computePartitionIndexForRows(payload.rows ?? [], schemaFields, config.partitionIndex);
     const writeResult = await driver.writePartition({
       datasetSlug,
       partitionId,
@@ -180,7 +182,9 @@ export async function processIngestionJob(
       metadata: {
         tableName,
         schemaVersionId: schemaVersion.id
-      }
+      },
+      columnStatistics: partitionIndex.columnStatistics,
+      columnBloomFilters: partitionIndex.columnBloomFilters
     } satisfies PartitionInput;
 
     const summaryPatch = {

@@ -4,7 +4,7 @@ import { executeQueryPlan } from '../query/executor';
 import { loadDatasetForRead, resolveRequestActor, getRequestScopes } from '../service/iam';
 import { recordDatasetAccessEvent } from '../db/metadata';
 import { randomUUID } from 'node:crypto';
-import { observeQuery } from '../observability/metrics';
+import { observeQuery, recordQueryPartitionSelection } from '../observability/metrics';
 import { endSpan, startSpan } from '../observability/tracing';
 import { loadServiceConfig } from '../config/serviceConfig';
 
@@ -76,6 +76,11 @@ export async function registerQueryRoutes(app: FastifyInstance): Promise<void> {
       const plan = await buildQueryPlan(datasetSlug, request.body ?? {}, dataset);
       mode = plan.mode;
       remotePartitions = countRemotePartitions(plan);
+      recordQueryPartitionSelection(
+        dataset.slug,
+        plan.partitionSelection.selected,
+        plan.partitionSelection.pruned
+      );
       const result = await executeQueryPlan(plan);
       const durationSeconds = durationSince(start);
 
