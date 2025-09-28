@@ -96,16 +96,37 @@ async function extractBundleArchive(options: {
   }
 }
 
-function normalizeManifest(manifest: JsonValue): { entry: string; capabilities: string[] } {
+function normalizeManifest(manifest: JsonValue): {
+  entry: string | null;
+  pythonEntry: string | null;
+  runtime: string | null;
+  capabilities: string[];
+} {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('Bundle manifest is missing or invalid');
   }
   const manifestRecord = manifest as Record<string, JsonValue>;
-  const rawEntry = manifestRecord.entry;
-  if (typeof rawEntry !== 'string' || !rawEntry.trim()) {
+  const runtimeRaw = manifestRecord.runtime;
+  const runtime = typeof runtimeRaw === 'string' ? runtimeRaw.trim() : null;
+  const entryRaw = manifestRecord.entry;
+  const entry = typeof entryRaw === 'string' && entryRaw.trim().length > 0 ? entryRaw.trim() : null;
+  const pythonEntryRaw = manifestRecord.pythonEntry;
+  const pythonEntry =
+    typeof pythonEntryRaw === 'string' && pythonEntryRaw.trim().length > 0
+      ? pythonEntryRaw.trim()
+      : null;
+
+  const runtimeSpecifier = runtime ? runtime.toLowerCase() : null;
+  const isPythonRuntime = runtimeSpecifier ? runtimeSpecifier.startsWith('python') : false;
+
+  if (isPythonRuntime) {
+    if (!pythonEntry) {
+      throw new Error('Python bundle manifest must include pythonEntry');
+    }
+  } else if (!entry) {
     throw new Error('Bundle manifest entry must be a non-empty string');
   }
-  const entry = rawEntry.trim();
+
   const rawCapabilities = manifestRecord.capabilities;
   const capabilitySet = new Set<string>();
   if (Array.isArray(rawCapabilities)) {
@@ -115,7 +136,13 @@ function normalizeManifest(manifest: JsonValue): { entry: string; capabilities: 
       }
     }
   }
-  return { entry, capabilities: Array.from(capabilitySet).sort() };
+
+  return {
+    entry,
+    pythonEntry,
+    runtime,
+    capabilities: Array.from(capabilitySet).sort()
+  };
 }
 
 function resolveEntryPath(root: string, entry: string): string {
@@ -131,7 +158,12 @@ export type AcquiredBundle = {
   checksum: string;
   directory: string;
   entryFile: string;
-  manifest: { entry: string; capabilities: string[] };
+  manifest: {
+    entry: string | null;
+    pythonEntry: string | null;
+    runtime: string | null;
+    capabilities: string[];
+  };
   release: () => Promise<void>;
 };
 
@@ -143,9 +175,15 @@ export class BundleCache {
       await extractBundleArchive({ buffer: artifactBuffer, targetDir: workspace.directory });
 
       const manifest = normalizeManifest(record.manifest);
-      const entryFile = resolveEntryPath(workspace.directory, manifest.entry);
+      const runtimeSpecifier = manifest.runtime ? manifest.runtime.toLowerCase() : null;
+      const isPythonRuntime = runtimeSpecifier ? runtimeSpecifier.startsWith('python') : false;
+      const entryCandidate = isPythonRuntime ? manifest.pythonEntry : manifest.entry;
+      if (!entryCandidate) {
+        throw new Error('Bundle entry point could not be determined from manifest');
+      }
+      const entryFile = resolveEntryPath(workspace.directory, entryCandidate);
       if (!(await pathExists(entryFile))) {
-        throw new Error(`Bundle entry file not found at ${manifest.entry}`);
+        throw new Error(`Bundle entry file not found at ${entryCandidate}`);
       }
 
       logger.info('Materialized job bundle workspace', {

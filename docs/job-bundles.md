@@ -66,6 +66,7 @@ Manifest schema matches the registry contract:
 {
   "name": "Example Job",
   "version": "0.1.0",
+  "runtime": "node18",
   "entry": "dist/index.js",
   "description": "Summarises inputs",
   "capabilities": ["fs"],
@@ -75,9 +76,38 @@ Manifest schema matches the registry contract:
 }
 ```
 
-- `entry` references the compiled JavaScript file inside the tarball.
+- `runtime` selects the execution environment. Omit or set to `node18`/`node20` for Node handlers, or use `python3.11` (or another supported interpreter) for Python bundles.
+- `entry` references the compiled JavaScript file inside the tarball (required for Node bundles).
 - `capabilities` advertises which runtime capabilities the handler requires (`fs`, `network`, etc.). The CLI merges these with any additional `--capability` flags during publish.
 - `metadata` is arbitrary JSON recorded alongside the bundle version.
+
+### Python handlers
+
+When `runtime` starts with `python`, set `pythonEntry` to the module that exports the job handler. The entry file must live inside the bundle archive.
+
+```json
+{
+  "name": "Example Python Job",
+  "version": "0.1.0",
+  "runtime": "python3.11",
+  "pythonEntry": "src/main.py",
+  "capabilities": []
+}
+```
+
+Python handlers export an `async def handler(context)` coroutine that mirrors the Node contract. Use `context.logger` for structured logs and `context.update` to push incremental progress:
+
+```python
+"""Example AppHub Python handler."""
+
+async def handler(context):
+    context.logger("processing", {"parameters": context.parameters})
+    await context.update({"metrics": {"processed": True}})
+    return {
+        "status": "succeeded",
+        "result": {"echoed": context.parameters}
+    }
+```
 
 The CLI validates manifests with JSON Schema (see `apps/cli/src/schemas/job-bundle-manifest.schema.json`). Packaging fails fast with descriptive errors when required fields are missing or empty.
 

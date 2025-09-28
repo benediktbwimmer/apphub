@@ -34,12 +34,33 @@ const jobBundleManifestSchema = z
   .object({
     name: z.string().min(1),
     version: z.string().min(1),
-    entry: z.string().min(1),
+    runtime: z.string().min(1).optional(),
+    entry: z.string().min(1).optional(),
+    pythonEntry: z.string().min(1).optional(),
     description: z.string().optional(),
     capabilities: z.array(z.string().min(1)).optional(),
     metadata: jsonValueSchema.optional()
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, ctx) => {
+    const runtime = typeof value.runtime === 'string' ? value.runtime.trim().toLowerCase() : '';
+    const isPython = runtime.startsWith('python');
+    if (isPython) {
+      if (!value.pythonEntry || value.pythonEntry.trim().length === 0) {
+        ctx.addIssue({
+          path: ['pythonEntry'],
+          code: z.ZodIssueCode.custom,
+          message: 'pythonEntry is required when runtime is python'
+        });
+      }
+    } else if (!value.entry || value.entry.trim().length === 0) {
+      ctx.addIssue({
+        path: ['entry'],
+        code: z.ZodIssueCode.custom,
+        message: 'entry is required when runtime is not python'
+      });
+    }
+  });
 
 const jobBundleArtifactSchema = z
   .object({

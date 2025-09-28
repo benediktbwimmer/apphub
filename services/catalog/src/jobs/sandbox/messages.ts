@@ -15,7 +15,9 @@ export type SandboxBundleInfo = {
   directory: string;
   entryFile: string;
   manifest: {
-    entry: string;
+    entry: string | null;
+    pythonEntry: string | null;
+    runtime: string | null;
     capabilities: SandboxCapability[];
   };
   exportName?: string | null;

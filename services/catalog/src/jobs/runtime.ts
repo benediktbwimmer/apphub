@@ -111,7 +111,7 @@ export async function createJobRunForSlug(
 }
 
 function resolveBundleBinding(definition: JobDefinitionRecord): BundleBinding | null {
-  if (definition.runtime !== 'node') {
+  if (definition.runtime !== 'node' && definition.runtime !== 'python') {
     return null;
   }
   return parseBundleEntryPoint(definition.entryPoint);
@@ -564,6 +564,12 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
 type JobRuntimeKind = 'node' | 'python';
 
 function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
+  if (definition.runtime === 'python') {
+    return 'python';
+  }
+  if (definition.runtime === 'node') {
+    return 'node';
+  }
   const metadata = definition.metadata;
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
     const record = metadata as Record<string, unknown>;

@@ -20,12 +20,18 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 HOST_ROOT_PREFIX_ENV = "APPHUB_SANDBOX_HOST_ROOT_PREFIX"
 
-message_queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
+message_queue: Optional["asyncio.Queue[Dict[str, Any]]"] = None
 pending_requests: Dict[str, Tuple[str, asyncio.Future[Any]]] = {}
 current_handler_task: Optional[asyncio.Task[Any]] = None
 cancel_reason: Optional[str] = None
 writer_lock = threading.Lock()
 UNSUPPORTED = object()
+
+
+def get_message_queue() -> "asyncio.Queue[Dict[str, Any]]":
+    if message_queue is None:
+        raise RuntimeError("Sandbox message queue has not been initialised")
+    return message_queue
 
 
 def send_message(message: Dict[str, Any]) -> None:
@@ -36,6 +42,7 @@ def send_message(message: Dict[str, Any]) -> None:
 
 
 def stdin_reader(loop: asyncio.AbstractEventLoop) -> None:
+    queue = get_message_queue()
     for line in sys.stdin:
         payload = line.strip()
         if not payload:
@@ -44,8 +51,8 @@ def stdin_reader(loop: asyncio.AbstractEventLoop) -> None:
             message = json.loads(payload)
         except json.JSONDecodeError:
             continue
-        asyncio.run_coroutine_threadsafe(message_queue.put(message), loop)
-    asyncio.run_coroutine_threadsafe(message_queue.put({"_internal": "eof"}), loop)
+        asyncio.run_coroutine_threadsafe(queue.put(message), loop)
+    asyncio.run_coroutine_threadsafe(queue.put({"_internal": "eof"}), loop)
 
 
 def is_plain_object(value: Any) -> bool:
@@ -503,8 +510,9 @@ async def handle_parent_message(message: Dict[str, Any]) -> None:
 
 
 async def wait_for_start() -> Dict[str, Any]:
+    queue = get_message_queue()
     while True:
-        message = await message_queue.get()
+        message = await queue.get()
         if message.get("_internal") == "eof":
             continue
         if message.get("type") == "start":
@@ -512,8 +520,9 @@ async def wait_for_start() -> Dict[str, Any]:
 
 
 async def dispatch_messages() -> None:
+    queue = get_message_queue()
     while True:
-        message = await message_queue.get()
+        message = await queue.get()
         if message.get("_internal") == "shutdown":
             return
         await handle_parent_message(message)
@@ -607,6 +616,8 @@ async def execute_start(payload: Dict[str, Any]) -> None:
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
+    global message_queue
+    message_queue = asyncio.Queue()
     reader = threading.Thread(target=stdin_reader, args=(loop,), daemon=True)
     reader.start()
 
@@ -616,7 +627,8 @@ async def main() -> None:
     current_handler_task = asyncio.create_task(execute_start(start_message["payload"]))
     await current_handler_task
     current_handler_task = None
-    await message_queue.put({"_internal": "shutdown"})
+    queue = get_message_queue()
+    await queue.put({"_internal": "shutdown"})
     await dispatcher_task
 
 
