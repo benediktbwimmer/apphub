@@ -1,4 +1,5 @@
 import { bulkRequestSchema, type BulkRequestPayload, type MetastoreRecordDetail } from './types';
+import { buildBulkPayloadFromRows, parseBulkJsonInput } from './bulkOperations';
 
 export type CrossLinks = {
   datasetSlug?: string;
@@ -51,29 +52,12 @@ export function parseTagsInput(value: string): string[] {
 }
 
 export function prepareBulkPayload(raw: string, continueOnError: boolean): BulkRequestPayload {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    throw new Error('Provide JSON payload for bulk operations.');
+  const parsed = parseBulkJsonInput(raw);
+  const payload = buildBulkPayloadFromRows(parsed.rows, continueOnError);
+  if (!payload) {
+    const detail = parsed.invalidRows[0]?.error ?? 'Bulk payload contains invalid operations.';
+    throw new Error(detail);
   }
-  let candidate: unknown;
-  try {
-    candidate = JSON.parse(trimmed) as unknown;
-  } catch (err) {
-    throw new Error(err instanceof Error ? err.message : 'Bulk payload must be valid JSON');
-  }
-
-  let payload: BulkRequestPayload;
-  if (Array.isArray(candidate)) {
-    payload = { operations: candidate as unknown[], continueOnError } as BulkRequestPayload;
-  } else if (candidate && typeof candidate === 'object' && 'operations' in (candidate as Record<string, unknown>)) {
-    payload = {
-      ...(candidate as Record<string, unknown>),
-      continueOnError
-    } as BulkRequestPayload;
-  } else {
-    throw new Error('Bulk payload must be an array of operations or an object with an "operations" array.');
-  }
-
   return bulkRequestSchema.parse(payload);
 }
 
