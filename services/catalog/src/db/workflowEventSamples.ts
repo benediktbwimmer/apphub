@@ -3,12 +3,17 @@ import type {
   WorkflowEventProducerSampleRecord,
   WorkflowEventProducerSampleSummary,
   WorkflowEventProducerSamplingSnapshot,
-  WorkflowEventProducerSampleUpsert
+  WorkflowEventProducerSampleUpsert,
+  WorkflowEventProducerInferenceEdge
 } from './types';
 import { mapWorkflowEventProducerSampleRow } from './rowMappers';
 import type { WorkflowEventProducerSampleRow } from './rowTypes';
 
 const DEFAULT_SAMPLE_TTL_MS = resolveTtl(process.env.EVENT_SAMPLING_TTL_MS, 30 * 24 * 60 * 60 * 1000);
+const DEFAULT_INFERRED_EDGE_MAX_AGE_MS = resolveTtl(
+  process.env.WORKFLOW_TOPOLOGY_INFERRED_EDGE_MAX_AGE_MS,
+  30 * 24 * 60 * 60 * 1000
+);
 
 function resolveTtl(source: string | undefined, fallback: number): number {
   if (!source) {
@@ -205,4 +210,63 @@ export async function getWorkflowEventProducerSamplingSnapshot(options: {
       generatedAt: new Date().toISOString()
     } satisfies WorkflowEventProducerSamplingSnapshot;
   });
+}
+
+function resolveMaxAgeMs(candidate: number | null | undefined): number {
+  if (!Number.isFinite(candidate ?? NaN)) {
+    return DEFAULT_INFERRED_EDGE_MAX_AGE_MS;
+  }
+  const normalized = Math.floor(Number(candidate));
+  if (Number.isNaN(normalized) || normalized < 0) {
+    return DEFAULT_INFERRED_EDGE_MAX_AGE_MS;
+  }
+  return normalized;
+}
+
+type WorkflowEventProducerInferenceRow = {
+  workflow_definition_id: string;
+  step_id: string | null;
+  event_type: string;
+  event_source: string | null;
+  sample_count: string | number | null;
+  last_seen_at: string;
+};
+
+export async function listRecentWorkflowEventProducerEdges(options: {
+  maxAgeMs?: number | null;
+  now?: Date;
+} = {}): Promise<WorkflowEventProducerInferenceEdge[]> {
+  const maxAgeMs = resolveMaxAgeMs(options.maxAgeMs);
+  const now = options.now ?? new Date();
+  const thresholdIso = maxAgeMs > 0 ? new Date(now.getTime() - maxAgeMs).toISOString() : null;
+
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowEventProducerInferenceRow>(
+      `SELECT
+         samples.workflow_definition_id,
+         steps.step_id,
+         samples.event_type,
+         samples.event_source,
+         SUM(samples.sample_count)::bigint AS sample_count,
+         MAX(samples.last_seen_at) AS last_seen_at
+       FROM workflow_event_producer_samples AS samples
+       JOIN workflow_run_steps AS steps ON steps.id = samples.workflow_run_step_id
+      WHERE ($1::timestamptz IS NULL OR samples.last_seen_at >= $1)
+        AND steps.step_id IS NOT NULL
+      GROUP BY samples.workflow_definition_id, steps.step_id, samples.event_type, samples.event_source
+      ORDER BY SUM(samples.sample_count) DESC, MAX(samples.last_seen_at) DESC`,
+      [thresholdIso]
+    )
+  );
+
+  return rows
+    .map((row) => ({
+      workflowDefinitionId: row.workflow_definition_id,
+      stepId: row.step_id,
+      eventType: row.event_type,
+      eventSource: row.event_source,
+      sampleCount: parseBigInt(row.sample_count),
+      lastSeenAt: row.last_seen_at
+    }))
+    .filter((edge): edge is WorkflowEventProducerInferenceEdge => Boolean(edge.stepId));
 }

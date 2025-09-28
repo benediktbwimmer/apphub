@@ -6,7 +6,7 @@ import type {
 import { normalizeWorkflowGraph } from '../normalize';
 
 const SAMPLE_GRAPH: WorkflowTopologyGraph = {
-  version: 'v1',
+  version: 'v2',
   generatedAt: '2024-04-02T00:00:00.000Z',
   nodes: {
     workflows: [
@@ -173,6 +173,18 @@ const SAMPLE_GRAPH: WorkflowTopologyGraph = {
         sourceId: 'source-1',
         triggerId: 'trigger-1'
       }
+    ],
+    stepToEventSource: [
+      {
+        workflowId: 'wf-1',
+        stepId: 'extract',
+        sourceId: 'source-1',
+        kind: 'inferred',
+        confidence: {
+          sampleCount: 24,
+          lastSeenAt: '2024-03-30T11:00:00.000Z'
+        }
+      }
     ]
   }
 };
@@ -200,6 +212,9 @@ describe('normalizeWorkflowGraph', () => {
     expect(normalized.adjacency.stepConsumes['load'][0]?.direction).toBe('consumes');
     expect(normalized.adjacency.assetProducers['warehouse.dataset']).toHaveLength(1);
     expect(normalized.adjacency.assetConsumers['warehouse.dataset']).toHaveLength(1);
+    expect(normalized.adjacency.stepEventSourceEdges['extract']).toHaveLength(1);
+    expect(normalized.adjacency.eventSourceStepEdges['source-1']).toHaveLength(1);
+    expect(normalized.edges.stepToEventSource[0]?.confidence.sampleCount).toBe(24);
 
     const firstWorkflowTriggerEdge = normalized.adjacency.workflowTriggerEdges['wf-1'][0];
     expect(firstWorkflowTriggerEdge?.kind).toBe('event-trigger');

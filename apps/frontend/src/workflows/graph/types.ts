@@ -3,6 +3,7 @@ import type {
   WorkflowTopologyAssetWorkflowEdge,
   WorkflowTopologyEventSourceNode,
   WorkflowTopologyEventSourceTriggerEdge,
+  WorkflowTopologyStepEventSourceEdge,
   WorkflowTopologyGraph,
   WorkflowTopologyGraphVersion,
   WorkflowTopologyScheduleNode,
@@ -65,6 +66,8 @@ export type WorkflowGraphAdjacency = {
   triggerWorkflowEdges: Record<string, WorkflowTopologyTriggerWorkflowEdge[]>;
   eventSourceTriggerEdges: Record<string, WorkflowTopologyEventSourceTriggerEdge[]>;
   triggerEventSourceEdges: Record<string, WorkflowTopologyEventSourceTriggerEdge[]>;
+  stepEventSourceEdges: Record<string, WorkflowTopologyStepEventSourceEdge[]>;
+  eventSourceStepEdges: Record<string, WorkflowTopologyStepEventSourceEdge[]>;
 };
 
 export type WorkflowGraphStats = {

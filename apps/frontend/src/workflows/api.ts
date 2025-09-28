@@ -545,8 +545,14 @@ export async function fetchWorkflowTopologyGraph(
     throw new ApiError('Invalid workflow graph response', response.status, payload);
   }
   const version = (graph as { version?: unknown }).version;
-  if (version !== 'v1') {
+  if (version !== 'v1' && version !== 'v2') {
     throw new ApiError('Unsupported workflow graph version', response.status, graph);
+  }
+  if (!graph.edges || typeof graph.edges !== 'object' || Array.isArray(graph.edges)) {
+    throw new ApiError('Invalid workflow graph payload', response.status, graph);
+  }
+  if (!Array.isArray((graph.edges as { stepToEventSource?: unknown }).stepToEventSource)) {
+    (graph.edges as { stepToEventSource: unknown[] }).stepToEventSource = [];
   }
   const cacheMeta = parseWorkflowGraphCacheMeta(payload.meta?.cache);
   return {

@@ -737,6 +737,7 @@ function buildNodeDetails(
         return null;
       }
       const linkedTriggers = graph.adjacency.eventSourceTriggerEdges[source.id] ?? [];
+      const observedEdges = graph.adjacency.eventSourceStepEdges[source.id] ?? [];
       const fields: NodeDetailField[] = [
         { label: 'Event type', value: source.eventType }
       ];
@@ -745,6 +746,22 @@ function buildNodeDetails(
       }
       if (linkedTriggers.length > 0) {
         fields.push({ label: 'Connected triggers', value: String(linkedTriggers.length) });
+      }
+      if (observedEdges.length > 0) {
+        const totalSamples = observedEdges.reduce((sum, edge) => sum + edge.confidence.sampleCount, 0);
+        fields.push({ label: 'Observed producers', value: String(observedEdges.length) });
+        fields.push({ label: 'Sampled events', value: totalSamples.toLocaleString() });
+        const latest = observedEdges.reduce<string | null>((acc, edge) => {
+          if (!acc) {
+            return edge.confidence.lastSeenAt;
+          }
+          return Date.parse(edge.confidence.lastSeenAt) > Date.parse(acc)
+            ? edge.confidence.lastSeenAt
+            : acc;
+        }, null);
+        if (latest) {
+          fields.push({ label: 'Last seen', value: formatTimestamp(latest) });
+        }
       }
       const actions: NodeDetailAction[] = [{ label: 'View runs', to: ROUTE_PATHS.runs }];
       return {

@@ -1673,11 +1673,32 @@ const workflowTopologyEventSourceTriggerEdgeSchema: OpenAPIV3.SchemaObject = {
   }
 };
 
+const workflowTopologyEdgeConfidenceSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['sampleCount', 'lastSeenAt'],
+  properties: {
+    sampleCount: { type: 'integer', minimum: 0 },
+    lastSeenAt: stringSchema('date-time')
+  }
+};
+
+const workflowTopologyStepEventSourceEdgeSchema: OpenAPIV3.SchemaObject = {
+  type: 'object',
+  required: ['workflowId', 'stepId', 'sourceId', 'kind', 'confidence'],
+  properties: {
+    workflowId: { type: 'string' },
+    stepId: { type: 'string' },
+    sourceId: { type: 'string' },
+    kind: { type: 'string', enum: ['inferred'] },
+    confidence: workflowTopologyEdgeConfidenceSchema
+  }
+};
+
 const workflowTopologyGraphSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
   required: ['version', 'generatedAt', 'nodes', 'edges'],
   properties: {
-    version: { type: 'string', enum: ['v1'] },
+    version: { type: 'string', enum: ['v1', 'v2'] },
     generatedAt: stringSchema('date-time'),
     nodes: {
       type: 'object',
@@ -1718,14 +1739,16 @@ const workflowTopologyGraphSchema: OpenAPIV3.SchemaObject = {
         'workflowToStep',
         'stepToAsset',
         'assetToWorkflow',
-        'eventSourceToTrigger'
+        'eventSourceToTrigger',
+        'stepToEventSource'
       ],
       properties: {
         triggerToWorkflow: { type: 'array', items: workflowTopologyTriggerWorkflowEdgeSchema },
         workflowToStep: { type: 'array', items: workflowTopologyWorkflowStepEdgeSchema },
         stepToAsset: { type: 'array', items: workflowTopologyStepAssetEdgeSchema },
         assetToWorkflow: { type: 'array', items: workflowTopologyAssetWorkflowEdgeSchema },
-        eventSourceToTrigger: { type: 'array', items: workflowTopologyEventSourceTriggerEdgeSchema }
+        eventSourceToTrigger: { type: 'array', items: workflowTopologyEventSourceTriggerEdgeSchema },
+        stepToEventSource: { type: 'array', items: workflowTopologyStepEventSourceEdgeSchema }
       }
     }
   }

@@ -51,7 +51,7 @@ vi.mock('../../../events/context', () => ({
 }));
 
 const GRAPH_V1: WorkflowTopologyGraph = {
-  version: 'v1',
+  version: 'v2',
   generatedAt: '2024-04-02T00:00:00.000Z',
   nodes: {
     workflows: [
@@ -116,7 +116,8 @@ const GRAPH_V1: WorkflowTopologyGraph = {
     ],
     stepToAsset: [],
     assetToWorkflow: [],
-    eventSourceToTrigger: []
+    eventSourceToTrigger: [],
+    stepToEventSource: []
   }
 };
 

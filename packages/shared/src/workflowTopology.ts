@@ -1,7 +1,7 @@
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type WorkflowTopologyGraphVersion = 'v1';
+export type WorkflowTopologyGraphVersion = 'v1' | 'v2';
 
 export type WorkflowTopologyAnnotations = {
   tags: string[];
@@ -220,6 +220,19 @@ export type WorkflowTopologyEventSourceNode = {
   eventSource: string | null;
 };
 
+export type WorkflowTopologyEdgeConfidence = {
+  sampleCount: number;
+  lastSeenAt: string;
+};
+
+export type WorkflowTopologyStepEventSourceEdge = {
+  workflowId: string;
+  stepId: string;
+  sourceId: string;
+  kind: 'inferred';
+  confidence: WorkflowTopologyEdgeConfidence;
+};
+
 export type WorkflowTopologyTriggerWorkflowEdge =
   | {
       kind: 'event-trigger';
@@ -285,5 +298,6 @@ export type WorkflowTopologyGraph = {
     stepToAsset: WorkflowTopologyStepAssetEdge[];
     assetToWorkflow: WorkflowTopologyAssetWorkflowEdge[];
     eventSourceToTrigger: WorkflowTopologyEventSourceTriggerEdge[];
+    stepToEventSource: WorkflowTopologyStepEventSourceEdge[];
   };
 };

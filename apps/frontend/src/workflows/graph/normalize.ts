@@ -6,6 +6,7 @@ import type {
   WorkflowTopologyGraph,
   WorkflowTopologyScheduleNode,
   WorkflowTopologyStepAssetEdge,
+  WorkflowTopologyStepEventSourceEdge,
   WorkflowTopologyStepNode,
   WorkflowTopologyTriggerNode,
   WorkflowTopologyTriggerWorkflowEdge,
@@ -322,6 +323,19 @@ function compareEventSourceTriggerEdge(
   return a.triggerId.localeCompare(b.triggerId);
 }
 
+function compareStepEventSourceEdge(
+  a: WorkflowTopologyStepEventSourceEdge,
+  b: WorkflowTopologyStepEventSourceEdge
+): number {
+  if (a.workflowId !== b.workflowId) {
+    return a.workflowId.localeCompare(b.workflowId);
+  }
+  if (a.stepId !== b.stepId) {
+    return a.stepId.localeCompare(b.stepId);
+  }
+  return a.sourceId.localeCompare(b.sourceId);
+}
+
 function buildAdjacency(
   graph: WorkflowTopologyGraph
 ): WorkflowGraphAdjacency {
@@ -388,10 +402,17 @@ function buildAdjacency(
 
   const eventSourceTriggerEdges: Record<string, WorkflowTopologyEventSourceTriggerEdge[]> = {};
   const triggerEventSourceEdges: Record<string, WorkflowTopologyEventSourceTriggerEdge[]> = {};
+  const stepEventSourceEdges: Record<string, WorkflowTopologyStepEventSourceEdge[]> = {};
+  const eventSourceStepEdges: Record<string, WorkflowTopologyStepEventSourceEdge[]> = {};
 
   for (const edge of graph.edges.eventSourceToTrigger) {
     pushEdge(eventSourceTriggerEdges, edge.sourceId, edge);
     pushEdge(triggerEventSourceEdges, edge.triggerId, edge);
+  }
+
+  for (const edge of graph.edges.stepToEventSource) {
+    pushEdge(stepEventSourceEdges, edge.stepId, edge);
+    pushEdge(eventSourceStepEdges, edge.sourceId, edge);
   }
 
   return {
@@ -412,7 +433,9 @@ function buildAdjacency(
     workflowTriggerEdges: sortEdgeRecord(workflowTriggerEdges, compareTriggerWorkflowEdge),
     triggerWorkflowEdges: sortEdgeRecord(triggerWorkflowEdges, compareTriggerWorkflowEdge),
     eventSourceTriggerEdges: sortEdgeRecord(eventSourceTriggerEdges, compareEventSourceTriggerEdge),
-    triggerEventSourceEdges: sortEdgeRecord(triggerEventSourceEdges, compareEventSourceTriggerEdge)
+    triggerEventSourceEdges: sortEdgeRecord(triggerEventSourceEdges, compareEventSourceTriggerEdge),
+    stepEventSourceEdges: sortEdgeRecord(stepEventSourceEdges, compareStepEventSourceEdge),
+    eventSourceStepEdges: sortEdgeRecord(eventSourceStepEdges, compareStepEventSourceEdge)
   } satisfies WorkflowGraphAdjacency;
 }
 

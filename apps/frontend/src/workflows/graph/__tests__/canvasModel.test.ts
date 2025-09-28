@@ -26,7 +26,8 @@ describe('buildWorkflowGraphCanvasModel', () => {
       graph.edges.triggerToWorkflow.length +
       graph.edges.stepToAsset.length +
       graph.edges.assetToWorkflow.length +
-      graph.edges.eventSourceToTrigger.length;
+      graph.edges.eventSourceToTrigger.length +
+      graph.edges.stepToEventSource.length;
     expect(model.edges).toHaveLength(expectedEdgeCount);
 
     expect(model.nodes.every((node) => Number.isFinite(node.position.x))).toBe(true);

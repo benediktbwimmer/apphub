@@ -3,6 +3,7 @@ import type {
   WorkflowTopologyAssetNode,
   WorkflowTopologyEventSourceNode,
   WorkflowTopologyScheduleNode,
+  WorkflowTopologyStepEventSourceEdge,
   WorkflowTopologyStepNode,
   WorkflowTopologyTriggerNode,
   WorkflowTopologyWorkflowNode
@@ -35,7 +36,8 @@ export type WorkflowGraphCanvasEdgeKind =
   | 'step-produces'
   | 'step-consumes'
   | 'asset-feeds'
-  | 'event-source';
+  | 'event-source'
+  | 'step-event-source';
 
 export type WorkflowGraphCanvasNode = {
   id: string;
@@ -58,6 +60,7 @@ export type WorkflowGraphCanvasEdge = {
   source: string;
   target: string;
   label?: string;
+  tooltip?: string;
   highlighted: boolean;
 };
 
@@ -389,6 +392,23 @@ export function collectHighlightedNodeIds(
     return highlighted;
   }
 
+  const highlightEventSource = (sourceId: string | null | undefined): void => {
+    if (!sourceId) {
+      return;
+    }
+    const source = graph.eventSourcesIndex.byId[sourceId];
+    if (source) {
+      highlighted.add(toEventSourceNodeId(source));
+    }
+    const triggerLinks = graph.adjacency.eventSourceTriggerEdges[sourceId] ?? [];
+    for (const link of triggerLinks) {
+      const trigger = graph.triggersIndex.byId[link.triggerId];
+      if (trigger) {
+        highlighted.add(toTriggerNodeId(trigger));
+      }
+    }
+  };
+
   if (selection.workflowId) {
     const workflowNodeId = resolveWorkflowNodeId(graph, selection.workflowId);
     if (workflowNodeId) {
@@ -412,6 +432,11 @@ export function collectHighlightedNodeIds(
           highlighted.add(toAssetNodeId(asset));
         }
       }
+
+      const inferredSources = graph.adjacency.stepEventSourceEdges[step.id] ?? [];
+      for (const link of inferredSources) {
+        highlightEventSource(link.sourceId);
+      }
     }
 
     const workflowTriggers = graph.triggers.filter((trigger) => trigger.workflowId === selection.workflowId);
@@ -419,10 +444,7 @@ export function collectHighlightedNodeIds(
       highlighted.add(toTriggerNodeId(trigger));
       const linkedSources = graph.adjacency.triggerEventSourceEdges[trigger.id] ?? [];
       for (const edge of linkedSources) {
-        const source = graph.eventSourcesIndex.byId[edge.sourceId];
-        if (source) {
-          highlighted.add(toEventSourceNodeId(source));
-        }
+        highlightEventSource(edge.sourceId);
       }
     }
 
@@ -445,12 +467,20 @@ export function collectHighlightedNodeIds(
     if (nodeId) {
       highlighted.add(nodeId);
     }
+    const inferredSources = graph.adjacency.stepEventSourceEdges[selection.stepId] ?? [];
+    for (const link of inferredSources) {
+      highlightEventSource(link.sourceId);
+    }
   }
 
   if (selection.triggerId) {
     const trigger = graph.triggersIndex.byId[selection.triggerId];
     if (trigger) {
       highlighted.add(toTriggerNodeId(trigger));
+      const linkedSources = graph.adjacency.triggerEventSourceEdges[trigger.id] ?? [];
+      for (const edge of linkedSources) {
+        highlightEventSource(edge.sourceId);
+      }
     }
   }
 
@@ -667,18 +697,42 @@ function buildAssetNodes(
 }
 
 function buildEventSourceNodes(
-  eventSources: WorkflowTopologyEventSourceNode[],
+  graph: WorkflowGraphNormalized,
   highlighted: Set<string>
 ): WorkflowGraphCanvasNode[] {
-  return eventSources.map((source) => {
+  return graph.eventSources.map((source) => {
     const id = toEventSourceNodeId(source);
     const subtitle = source.eventType;
+    const producers = graph.adjacency.eventSourceStepEdges[source.id] ?? [];
+    let totalSamples = 0;
+    let latestSeenIso: string | null = null;
+    let latestSeenTimestamp = Number.NEGATIVE_INFINITY;
+    for (const edge of producers) {
+      totalSamples += edge.confidence.sampleCount;
+      const candidateTimestamp = Date.parse(edge.confidence.lastSeenAt);
+      if (!Number.isNaN(candidateTimestamp) && candidateTimestamp > latestSeenTimestamp) {
+        latestSeenTimestamp = candidateTimestamp;
+        latestSeenIso = edge.confidence.lastSeenAt;
+      }
+    }
+    const meta: string[] = [];
+    if (producers.length > 0) {
+      meta.push(`Observed from ${producers.length} ${producers.length === 1 ? 'step' : 'steps'}`);
+    }
+    if (totalSamples > 0) {
+      meta.push(`Samples · ${totalSamples.toLocaleString()}`);
+    }
+    const lastSeenLabel = formatTimestampLabel(latestSeenIso);
+    if (lastSeenLabel) {
+      meta.push(`Last seen ${lastSeenLabel}`);
+    }
     return {
       id,
       refId: source.id,
       kind: 'event-source',
       label: source.eventSource ?? source.id,
       subtitle,
+      meta,
       width: NODE_DIMENSIONS['event-source'].width,
       height: NODE_DIMENSIONS['event-source'].height,
       position: { x: 0, y: 0 },
@@ -709,6 +763,10 @@ function buildAssetEdgeId(prefix: string, source: string, target: string): strin
 
 function buildEventSourceEdgeId(sourceId: string, triggerId: string): string {
   return `edge:event-source:${sourceId}->${triggerId}`;
+}
+
+function buildStepEventSourceEdgeId(stepNodeId: string, sourceNodeId: string): string {
+  return `edge:step-event-source:${stepNodeId}->${sourceNodeId}`;
 }
 
 function buildWorkflowAndStepEdges(
@@ -884,6 +942,50 @@ function buildEventSourceEdges(
   return edges;
 }
 
+function buildStepEventSourceTooltip(
+  edge: WorkflowTopologyStepEventSourceEdge,
+  source: WorkflowTopologyEventSourceNode
+): string {
+  const parts: string[] = [];
+  parts.push(`Event ${source.eventType}`);
+  if (source.eventSource) {
+    parts.push(`Source ${source.eventSource}`);
+  }
+  const samplesLabel = edge.confidence.sampleCount === 1 ? 'sample' : 'samples';
+  parts.push(`Observed ${edge.confidence.sampleCount.toLocaleString()} ${samplesLabel}`);
+  const lastSeen = formatTimestampLabel(edge.confidence.lastSeenAt);
+  if (lastSeen) {
+    parts.push(`Last seen ${lastSeen}`);
+  }
+  return parts.join(' • ');
+}
+
+function buildStepEventSourceEdges(
+  graph: WorkflowGraphNormalized,
+  highlightedNodes: Set<string>
+): WorkflowGraphCanvasEdge[] {
+  const edges: WorkflowGraphCanvasEdge[] = [];
+  for (const edge of graph.edges.stepToEventSource) {
+    const stepNodeId = resolveStepNodeId(graph, edge.stepId);
+    const source = graph.eventSourcesIndex.byId[edge.sourceId];
+    if (!stepNodeId || !source) {
+      continue;
+    }
+    const sourceNodeId = toEventSourceNodeId(source);
+    const id = buildStepEventSourceEdgeId(stepNodeId, sourceNodeId);
+    edges.push({
+      id,
+      kind: 'step-event-source',
+      source: stepNodeId,
+      target: sourceNodeId,
+      label: 'observed',
+      tooltip: buildStepEventSourceTooltip(edge, source),
+      highlighted: highlightedNodes.has(stepNodeId) && highlightedNodes.has(sourceNodeId)
+    });
+  }
+  return edges;
+}
+
 function applyLayout(
   nodes: WorkflowGraphCanvasNode[],
   edges: WorkflowGraphCanvasEdge[],
@@ -1029,6 +1131,11 @@ function createContextCollector(
     for (const edge of consumes) {
       addAssetContext(edge.normalizedAssetId);
     }
+
+    const inferredSources = graph.adjacency.stepEventSourceEdges[stepId] ?? [];
+    for (const edge of inferredSources) {
+      addEventSourceContext(edge.sourceId);
+    }
   };
 
   const addTriggerContext = (triggerId: string | null | undefined): void => {
@@ -1108,6 +1215,11 @@ function createContextCollector(
     const triggers = graph.adjacency.eventSourceTriggerEdges[sourceId] ?? [];
     for (const edge of triggers) {
       addTriggerContext(edge.triggerId);
+    }
+
+    const producingSteps = graph.adjacency.eventSourceStepEdges[sourceId] ?? [];
+    for (const edge of producingSteps) {
+      addStepContext(edge.stepId);
     }
   };
 
@@ -1283,7 +1395,7 @@ export function buildWorkflowGraphCanvasModel(
   const triggerNodes = buildTriggerNodes(graph.triggers, highlightedNodes, overlay);
   const scheduleNodes = buildScheduleNodes(graph.schedules, highlightedNodes);
   const assetNodes = buildAssetNodes(graph.assets, highlightedNodes, overlay);
-  const eventSourceNodes = buildEventSourceNodes(graph.eventSources, highlightedNodes);
+  const eventSourceNodes = buildEventSourceNodes(graph, highlightedNodes);
 
   let nodes = [
     ...workflowNodes,
@@ -1299,7 +1411,8 @@ export function buildWorkflowGraphCanvasModel(
     ...buildTriggerEdges(graph, highlightedNodes),
     ...buildStepAssetEdges(graph, highlightedNodes),
     ...buildAssetWorkflowEdges(graph, highlightedNodes),
-    ...buildEventSourceEdges(graph, highlightedNodes)
+    ...buildEventSourceEdges(graph, highlightedNodes),
+    ...buildStepEventSourceEdges(graph, highlightedNodes)
   ];
 
   const searchTerm = normalizeSearchTerm(searchTermRaw ?? null);

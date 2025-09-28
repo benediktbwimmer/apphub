@@ -19,7 +19,7 @@ import type { WorkflowGraphNormalized } from './types';
 const BASE_GENERATED_AT = '2024-04-02T00:00:00.000Z';
 
 const DEMO_GRAPH: WorkflowTopologyGraph = {
-  version: 'v1',
+  version: 'v2',
   generatedAt: BASE_GENERATED_AT,
   nodes: {
     workflows: [
@@ -289,6 +289,18 @@ const DEMO_GRAPH: WorkflowTopologyGraph = {
         sourceId: 'source-orders-primary',
         triggerId: 'trigger-orders-event'
       }
+    ],
+    stepToEventSource: [
+      {
+        workflowId: 'wf-orders',
+        stepId: 'publish-orders',
+        sourceId: 'source-orders-primary',
+        kind: 'inferred',
+        confidence: {
+          sampleCount: 128,
+          lastSeenAt: '2024-03-31T10:15:00.000Z'
+        }
+      }
     ]
   }
 };
@@ -327,12 +339,16 @@ export function createSmallWorkflowGraph(): WorkflowTopologyGraph {
   graph.edges.assetToWorkflow = graph.edges.assetToWorkflow.filter((edge) => workflowIds.has(edge.workflowId));
   graph.edges.workflowToStep = graph.edges.workflowToStep.filter((edge) => workflowIds.has(edge.workflowId));
   graph.edges.triggerToWorkflow = graph.edges.triggerToWorkflow.filter((edge) => workflowIds.has(edge.workflowId));
+  graph.edges.stepToEventSource = graph.edges.stepToEventSource.filter((edge) => workflowIds.has(edge.workflowId));
 
   const triggerIds = new Set(graph.nodes.triggers.map((trigger) => trigger.id));
   graph.edges.eventSourceToTrigger = graph.edges.eventSourceToTrigger.filter((edge) =>
     triggerIds.has(edge.triggerId)
   );
   const sourceIds = new Set(graph.edges.eventSourceToTrigger.map((edge) => edge.sourceId));
+  for (const edge of graph.edges.stepToEventSource) {
+    sourceIds.add(edge.sourceId);
+  }
   graph.nodes.eventSources = graph.nodes.eventSources.filter((source) => sourceIds.has(source.id));
 
   return graph;
@@ -530,7 +546,7 @@ export function createLargeWorkflowGraph({
   }
 
   return {
-    version: 'v1',
+    version: 'v2',
     generatedAt: BASE_GENERATED_AT,
     nodes: {
       workflows,
@@ -545,7 +561,8 @@ export function createLargeWorkflowGraph({
       workflowToStep,
       stepToAsset,
       assetToWorkflow,
-      eventSourceToTrigger
+      eventSourceToTrigger,
+      stepToEventSource: []
     }
   } satisfies WorkflowTopologyGraph;
 }
@@ -571,7 +588,7 @@ export function createNormalizedDemoWorkflowGraph(): WorkflowGraphNormalized {
 
 export function createEmptyWorkflowGraph(): WorkflowGraphNormalized {
   return normalizeWorkflowGraph({
-    version: 'v1',
+    version: 'v2',
     generatedAt: BASE_GENERATED_AT,
     nodes: {
       workflows: [],
@@ -586,7 +603,8 @@ export function createEmptyWorkflowGraph(): WorkflowGraphNormalized {
       workflowToStep: [],
       stepToAsset: [],
       assetToWorkflow: [],
-      eventSourceToTrigger: []
+      eventSourceToTrigger: [],
+      stepToEventSource: []
     }
   });
 }

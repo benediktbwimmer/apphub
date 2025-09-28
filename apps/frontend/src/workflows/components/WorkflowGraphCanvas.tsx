@@ -634,8 +634,16 @@ export function WorkflowGraphCanvas({
       return [];
     }
     return resolvedModel.edges.map((edge) => {
-      const dashed = edge.kind === 'step-consumes' || edge.kind === 'event-source';
+      const dashed =
+        edge.kind === 'step-consumes' || edge.kind === 'event-source' || edge.kind === 'step-event-source';
       const stroke = edge.highlighted ? mergedTheme.edgeHighlight : dashed ? mergedTheme.edgeDashed : mergedTheme.edgeDefault;
+      const label = edge.label
+        ? edge.tooltip
+          ? (
+              <span title={edge.tooltip}>{edge.label}</span>
+            )
+          : edge.label
+        : undefined;
       return {
         id: edge.id,
         source: edge.source,
@@ -644,7 +652,7 @@ export function WorkflowGraphCanvas({
           kind: edge.kind,
           highlighted: edge.highlighted
         },
-        label: edge.label,
+        label,
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 6,
         labelBgStyle: { fill: mergedTheme.labelBackground, stroke: mergedTheme.edgeMuted },

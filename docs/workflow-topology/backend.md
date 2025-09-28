@@ -11,7 +11,7 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
   - `assembleWorkflowTopologyGraph()` is a pure helper that accepts pre-hydrated definitions plus asset declarations and
     constructs the graph. Tests and future callers can inject fixture data without touching the database.
 - **Shared contract**: `packages/shared/src/workflowTopology.ts` contains the canonical TypeScript types for all graph
-  nodes and edges. These types are versioned (`version: 'v1'`) to support additive changes later on.
+  nodes and edges. These types are versioned (`version: 'v2'`) to support additive changes later on.
 - **Helpers**:
   - DAG metadata is merged with step definitions via `applyDagMetadataToSteps()` to ensure `dependsOn`/`dependents`
     relationships align with orchestrator validation.
@@ -36,6 +36,8 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
 - Asset nodes keyed by normalized asset ID, with edges for producing and consuming steps. Auto-materialize consumers add
   asset→workflow edges that capture the policy priority.
 - Event source nodes keyed by event type/source pairs and edges to the triggers that listen to them.
+- Inferred event emission edges linking producing steps to event sources with sampling confidence metadata (sample count
+  and last-seen timestamp) derived from the event sampling store.
 
 ## Testing Strategy
 `services/catalog/tests/workflowGraph.test.ts` exercises the assembly helper with representative fixtures:
@@ -43,6 +45,7 @@ condensing them into the shared `@apphub/shared/workflowTopology` payload that d
 2. Fan-out steps including template metadata.
 3. Cross-workflow asset dependencies with auto-materialize policies.
 4. Event trigger throttling metadata and event source deduplication.
+5. Inferred event-source edges built from sampling fixtures.
 
 Each test uses `assembleWorkflowTopologyGraph()` with handcrafted definitions to avoid external dependencies (database,
 Redis, analytics jobs) while still covering canonicalization logic.

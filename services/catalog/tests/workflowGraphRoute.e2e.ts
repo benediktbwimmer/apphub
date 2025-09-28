@@ -144,7 +144,7 @@ runE2E(async ({ registerCleanup }) => {
       data: { version: string };
       meta: { cache: { hit: boolean; generatedAt: string } };
     };
-    assert.equal(firstBody.data.version, 'v1');
+    assert.equal(firstBody.data.version, 'v2');
     assert.equal(firstBody.meta.cache.hit, false, 'first request should miss cache');
 
     const secondResponse = await app.inject({

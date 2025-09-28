@@ -1,4 +1,5 @@
 import { listWorkflowDefinitions, listWorkflowAssetDeclarations } from '../db/workflows';
+import { listRecentWorkflowEventProducerEdges } from '../db/workflowEventSamples';
 import {
   type WorkflowDefinitionRecord,
   type WorkflowStepDefinition,
@@ -13,7 +14,8 @@ import {
   type WorkflowAssetAutoMaterialize,
   type WorkflowAssetFreshness,
   type WorkflowAssetPartitioning,
-  type JsonValue as CatalogJsonValue
+  type JsonValue as CatalogJsonValue,
+  type WorkflowEventProducerInferenceEdge
 } from '../db/types';
 import { applyDagMetadataToSteps } from './dag';
 import {
@@ -34,6 +36,7 @@ import type {
   WorkflowTopologyStepAssetEdge,
   WorkflowTopologyAssetWorkflowEdge,
   WorkflowTopologyEventSourceTriggerEdge,
+  WorkflowTopologyStepEventSourceEdge,
   WorkflowTopologyJobStepRuntime,
   WorkflowTopologyServiceStepRuntime,
   WorkflowTopologyFanOutStepRuntime,
@@ -47,6 +50,7 @@ import type {
 
 export type BuildWorkflowTopologyGraphOptions = {
   generatedAt?: string;
+  inferredEdges?: WorkflowEventProducerInferenceEdge[];
 };
 
 type AssetNodeAccumulator = Map<string, WorkflowTopologyAssetNode>;
@@ -57,6 +61,7 @@ type WorkflowStepEdges = WorkflowTopologyWorkflowStepEdge[];
 type StepAssetEdges = WorkflowTopologyStepAssetEdge[];
 type AssetWorkflowEdges = WorkflowTopologyAssetWorkflowEdge[];
 type EventSourceTriggerEdges = WorkflowTopologyEventSourceTriggerEdge[];
+type StepEventSourceEdges = WorkflowTopologyStepEventSourceEdge[];
 
 export type WorkflowDefinitionsWithAssets = Array<{
   definition: WorkflowDefinitionRecord;
@@ -68,7 +73,12 @@ export async function buildWorkflowTopologyGraph(
 ): Promise<WorkflowTopologyGraph> {
   const definitions = await listWorkflowDefinitions();
   const definitionsWithAssets = await attachAssetDeclarations(definitions);
-  return assembleWorkflowTopologyGraph(definitionsWithAssets, options);
+  const inferredEdges =
+    options.inferredEdges ?? (await listRecentWorkflowEventProducerEdges());
+  return assembleWorkflowTopologyGraph(definitionsWithAssets, {
+    ...options,
+    inferredEdges
+  });
 }
 
 export function assembleWorkflowTopologyGraph(
@@ -76,6 +86,7 @@ export function assembleWorkflowTopologyGraph(
   options: BuildWorkflowTopologyGraphOptions = {}
 ): WorkflowTopologyGraph {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const inferredEdges = options.inferredEdges ?? [];
   const workflows: WorkflowTopologyWorkflowNode[] = [];
   const steps: WorkflowTopologyStepNode[] = [];
   const triggers: WorkflowTopologyTriggerNode[] = [];
@@ -88,6 +99,7 @@ export function assembleWorkflowTopologyGraph(
   const stepToAsset: StepAssetEdges = [];
   const assetToWorkflow: AssetWorkflowEdges = [];
   const eventSourceToTrigger: EventSourceTriggerEdges = [];
+  const stepToEventSource: StepEventSourceEdges = [];
 
   for (const { definition, assetDeclarations } of bundles) {
     workflows.push(buildWorkflowNode(definition));
@@ -120,8 +132,16 @@ export function assembleWorkflowTopologyGraph(
     );
   }
 
+  const stepById = new Map(steps.map((step) => [step.id, step] as const));
+  extendWithInferredEventEdges(
+    stepById,
+    eventSources,
+    stepToEventSource,
+    inferredEdges
+  );
+
   return {
-    version: 'v1',
+    version: 'v2',
     generatedAt,
     nodes: {
       workflows,
@@ -136,7 +156,8 @@ export function assembleWorkflowTopologyGraph(
       workflowToStep,
       stepToAsset,
       assetToWorkflow,
-      eventSourceToTrigger
+      eventSourceToTrigger,
+      stepToEventSource
     }
   } satisfies WorkflowTopologyGraph;
 }
@@ -429,20 +450,81 @@ function buildEventSourceEdges(
     if (trigger.kind !== 'event') {
       continue;
     }
-    const sourceId = buildEventSourceId(trigger.eventType, trigger.eventSource);
-    if (!eventSources.has(sourceId)) {
-      eventSources.set(sourceId, {
-        id: sourceId,
-        eventType: trigger.eventType,
-        eventSource: trigger.eventSource
-      });
-    }
+    const source = ensureEventSourceNode(eventSources, trigger.eventType, trigger.eventSource);
     edges.push({
-      sourceId,
+      sourceId: source.id,
       triggerId: trigger.id
     });
   }
   return edges;
+}
+
+function ensureEventSourceNode(
+  eventSources: EventSourceAccumulator,
+  eventType: string,
+  eventSource: string | null
+): WorkflowTopologyEventSourceNode {
+  const sourceId = buildEventSourceId(eventType, eventSource);
+  const existing = eventSources.get(sourceId);
+  if (existing) {
+    return existing;
+  }
+  const node: WorkflowTopologyEventSourceNode = {
+    id: sourceId,
+    eventType,
+    eventSource
+  } satisfies WorkflowTopologyEventSourceNode;
+  eventSources.set(sourceId, node);
+  return node;
+}
+
+function extendWithInferredEventEdges(
+  stepById: Map<string, WorkflowTopologyStepNode>,
+  eventSources: EventSourceAccumulator,
+  edges: StepEventSourceEdges,
+  inferredEdges: WorkflowEventProducerInferenceEdge[]
+): void {
+  if (inferredEdges.length === 0) {
+    return;
+  }
+
+  const seen = new Set<string>();
+
+  for (const edge of inferredEdges) {
+    const step = stepById.get(edge.stepId);
+    if (!step) {
+      continue;
+    }
+    if (step.workflowId !== edge.workflowDefinitionId) {
+      continue;
+    }
+
+    const eventSource = ensureEventSourceNode(eventSources, edge.eventType, edge.eventSource);
+    const dedupeKey = `${step.id}:${eventSource.id}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+
+    const normalizedSampleCount = Number.isFinite(edge.sampleCount)
+      ? Math.max(0, Math.floor(edge.sampleCount))
+      : 0;
+
+    if (normalizedSampleCount <= 0) {
+      continue;
+    }
+
+    edges.push({
+      workflowId: step.workflowId,
+      stepId: step.id,
+      sourceId: eventSource.id,
+      kind: 'inferred',
+      confidence: {
+        sampleCount: normalizedSampleCount,
+        lastSeenAt: edge.lastSeenAt
+      }
+    });
+  }
 }
 
 function buildStepAssetEdges(

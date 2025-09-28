@@ -409,6 +409,15 @@ export type WorkflowEventProducerSamplingSnapshot = {
   generatedAt: string;
 };
 
+export type WorkflowEventProducerInferenceEdge = {
+  workflowDefinitionId: string;
+  stepId: string;
+  eventType: string;
+  eventSource: string | null;
+  sampleCount: number;
+  lastSeenAt: string;
+};
+
 export type ServiceStatus = 'unknown' | 'healthy' | 'degraded' | 'unreachable';
 
 export type ServiceKind = string;

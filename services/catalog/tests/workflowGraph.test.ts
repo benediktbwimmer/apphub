@@ -7,7 +7,8 @@ import type {
   WorkflowEventTriggerRecord,
   WorkflowAssetDeclarationRecord,
   WorkflowEventTriggerPredicate,
-  WorkflowAssetAutoMaterialize
+  WorkflowAssetAutoMaterialize,
+  WorkflowEventProducerInferenceEdge
 } from '../src/db/types';
 import type {
   WorkflowTopologyFanOutStepRuntime,
@@ -72,7 +73,7 @@ describe('assembleWorkflowTopologyGraph', () => {
       { generatedAt: ISO_NOW }
     );
 
-    assert.equal(graph.version, 'v1');
+    assert.equal(graph.version, 'v2');
     assert.equal(graph.generatedAt, ISO_NOW);
     assert.equal(graph.nodes.workflows.length, 1);
     assert.equal(graph.nodes.steps.length, 3);
@@ -308,6 +309,63 @@ describe('assembleWorkflowTopologyGraph', () => {
     assert.equal(sourceEdges.length, 2);
     const triggerIds = sourceEdges.map((edge) => edge.triggerId).sort();
     assert.deepEqual(triggerIds, ['trigger-a', 'trigger-b']);
+  });
+
+  it('adds inferred event source edges with confidence metadata', () => {
+    const steps: WorkflowStepDefinition[] = [
+      {
+        id: 'emit-event',
+        name: 'Emit Event',
+        type: 'job',
+        jobSlug: 'job.emit'
+      }
+    ];
+
+    const definition = createWorkflowDefinition({
+      id: 'wf-inferred',
+      slug: 'workflow-inferred',
+      name: 'Inferred Workflow',
+      steps,
+      dag: buildWorkflowDagMetadata(steps)
+    });
+
+    const inferredEdges: WorkflowEventProducerInferenceEdge[] = [
+      {
+        workflowDefinitionId: 'wf-inferred',
+        stepId: 'emit-event',
+        eventType: 'dataset.emitted',
+        eventSource: 'emitter.service',
+        sampleCount: 42,
+        lastSeenAt: '2024-03-15T10:30:00.000Z'
+      }
+    ];
+
+    const graph = assembleWorkflowTopologyGraph(
+      [
+        {
+          definition,
+          assetDeclarations: []
+        }
+      ],
+      {
+        generatedAt: ISO_NOW,
+        inferredEdges
+      }
+    );
+
+    const sourceId = 'event-source:dataset.emitted:emitter.service';
+    const eventSource = graph.nodes.eventSources.find((node) => node.id === sourceId);
+    assert.ok(eventSource, 'should create event source node from inferred edge');
+
+    const stepEdges = graph.edges.stepToEventSource;
+    assert.equal(stepEdges.length, 1);
+    const edge = stepEdges[0];
+    assert.equal(edge.workflowId, 'wf-inferred');
+    assert.equal(edge.stepId, 'emit-event');
+    assert.equal(edge.sourceId, sourceId);
+    assert.equal(edge.kind, 'inferred');
+    assert.equal(edge.confidence.sampleCount, 42);
+    assert.equal(edge.confidence.lastSeenAt, '2024-03-15T10:30:00.000Z');
   });
 });
 
