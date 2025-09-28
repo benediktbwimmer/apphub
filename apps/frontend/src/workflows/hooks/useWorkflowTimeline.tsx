@@ -22,8 +22,11 @@ import {
 
 const STATUS_SET = new Set<WorkflowTimelineTriggerStatus>(WORKFLOW_TIMELINE_TRIGGER_STATUSES);
 
+const TIMELINE_PAGE_SIZE = 50;
+
 const DEFAULT_QUERY: WorkflowTimelineQuery = {
-  range: '24h'
+  range: '24h',
+  limit: TIMELINE_PAGE_SIZE
 };
 
 type TimelineStateEntry = {
@@ -55,9 +58,19 @@ type WorkflowTimelineContextValue = {
   setTimelineStatuses: (statuses: WorkflowTimelineTriggerStatus[]) => void;
   clearTimelineStatuses: () => void;
   refreshTimeline: () => void;
+  loadMoreTimeline: () => Promise<void> | void;
+  timelineHasMore: boolean;
 };
 
 const WorkflowTimelineContext = createContext<WorkflowTimelineContextValue | undefined>(undefined);
+
+function sanitizeLimit(limit: unknown, fallback: number): number {
+  const parsed = typeof limit === 'number' ? limit : Number(limit);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
 
 function buildQuery(
   slug: string,
@@ -77,6 +90,8 @@ function buildQuery(
     STATUS_SET.has(status)
   );
   next.statuses = Array.from(new Set(sanitizedStatuses));
+  const fallbackLimit = existing?.query.limit ?? DEFAULT_QUERY.limit ?? TIMELINE_PAGE_SIZE;
+  next.limit = sanitizeLimit(next.limit, fallbackLimit);
   return next;
 }
 
@@ -229,6 +244,27 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
     void loadTimeline(slug, {});
   }, [loadTimeline]);
 
+  const timelineHasMore = useMemo(() => {
+    if (!timelineEntry?.snapshot) {
+      return false;
+    }
+    const limit = timelineEntry.meta?.limit ?? timelineEntry.query.limit ?? TIMELINE_PAGE_SIZE;
+    if (!limit) {
+      return false;
+    }
+    return timelineEntry.snapshot.entries.length >= limit;
+  }, [timelineEntry]);
+
+  const loadMoreTimeline = useCallback(() => {
+    const slug = selectedSlugRef.current;
+    if (!slug) {
+      return;
+    }
+    const currentLimit = timelineStateRef.current[slug]?.query.limit ?? TIMELINE_PAGE_SIZE;
+    const nextLimit = currentLimit + TIMELINE_PAGE_SIZE;
+    return loadTimeline(slug, { limit: nextLimit });
+  }, [loadTimeline]);
+
   const value = useMemo<WorkflowTimelineContextValue>(() => ({
     timeline: timelineEntry?.snapshot ?? null,
     timelineMeta: timelineEntry?.meta ?? null,
@@ -240,13 +276,17 @@ export function WorkflowTimelineProvider({ children }: { children: ReactNode }) 
     toggleTimelineStatus,
     setTimelineStatuses,
     clearTimelineStatuses,
-    refreshTimeline
+    refreshTimeline,
+    loadMoreTimeline,
+    timelineHasMore
   }), [
     clearTimelineStatuses,
+    loadMoreTimeline,
     refreshTimeline,
     setTimelineRange,
     setTimelineStatuses,
     timelineEntry,
+    timelineHasMore,
     timelineRange,
     timelineStatuses,
     toggleTimelineStatus

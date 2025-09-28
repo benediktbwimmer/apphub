@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Spinner } from '../../components';
+import { ScrollableListContainer, Spinner } from '../../components';
 import StatusBadge from './StatusBadge';
 import {
   WORKFLOW_TIMELINE_RANGE_KEYS,
@@ -26,6 +26,8 @@ type WorkflowEventTimelineProps = {
   snapshot: WorkflowTimelineSnapshot | null;
   meta: WorkflowTimelineMeta | null;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string | null;
   range: WorkflowTimelineRangeKey;
   statuses: WorkflowTimelineTriggerStatus[];
@@ -33,6 +35,7 @@ type WorkflowEventTimelineProps = {
   onToggleStatus: (status: WorkflowTimelineTriggerStatus) => void;
   onResetStatuses: () => void;
   onRefresh: () => void;
+  onLoadMore: () => Promise<void> | void;
 };
 
 function timelineStatusLabel(status: WorkflowTimelineTriggerStatus): string {
@@ -124,16 +127,21 @@ function WorkflowEventTimeline({
   snapshot,
   meta,
   loading,
+  loadingMore,
+  hasMore,
   error,
   range,
   statuses,
   onChangeRange,
   onToggleStatus,
   onResetStatuses,
-  onRefresh
+  onRefresh,
+  onLoadMore
 }: WorkflowEventTimelineProps) {
   const activeStatusSet = new Set(statuses);
   const entries = snapshot?.entries ?? [];
+  const entryCount = entries.length;
+  const showInitialLoading = loading && entryCount === 0;
 
   return (
     <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
@@ -208,32 +216,42 @@ function WorkflowEventTimeline({
         </div>
       )}
 
-      {loading && (
+      {showInitialLoading && (
         <div className="mt-6 text-sm text-slate-600 dark:text-slate-300">
           <Spinner label="Loading timeline…" size="xs" />
         </div>
       )}
 
-      {!loading && !error && entries.length === 0 && (
+      {!showInitialLoading && !error && entryCount === 0 && (
         <p className="mt-6 text-sm text-slate-600 dark:text-slate-300">No activity within the selected range.</p>
       )}
 
-      {!loading && !error && entries.length > 0 && (
-        <ol className="mt-6 space-y-3">
-          {entries.map((entry) => (
-            <li
-              key={`${entry.kind}-${entry.id}-${entry.timestamp}`}
-              className="flex flex-wrap gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm transition-colors dark:border-slate-700/60 dark:bg-slate-900/60"
-            >
-              <div className="w-36 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {formatTimestamp(entry.timestamp)}
-              </div>
-              <div className="flex-1 min-w-[220px]">
-                <EntryDetails entry={entry} />
-              </div>
-            </li>
-          ))}
-        </ol>
+      {!error && entryCount > 0 && (
+        <ScrollableListContainer
+          className="mt-6 -mr-1 pr-1"
+          height={360}
+          hasMore={hasMore}
+          isLoading={loadingMore}
+          onLoadMore={onLoadMore}
+          itemCount={entryCount}
+          loaderLabel="Loading more timeline entries…"
+        >
+          <ol className="space-y-3">
+            {entries.map((entry) => (
+              <li
+                key={`${entry.kind}-${entry.id}-${entry.timestamp}`}
+                className="flex flex-wrap gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm transition-colors dark:border-slate-700/60 dark:bg-slate-900/60"
+              >
+                <div className="w-36 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  {formatTimestamp(entry.timestamp)}
+                </div>
+                <div className="min-w-[220px] flex-1">
+                  <EntryDetails entry={entry} />
+                </div>
+              </li>
+            ))}
+          </ol>
+        </ScrollableListContainer>
       )}
     </section>
   );

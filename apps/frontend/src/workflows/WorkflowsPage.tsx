@@ -149,6 +149,8 @@ function WorkflowsPageContent() {
     toggleTimelineStatus,
     clearTimelineStatuses,
     refreshTimeline: refreshTimelineView,
+    loadMoreTimeline,
+    timelineHasMore,
     graph,
     graphLoading,
     graphRefreshing,
@@ -199,6 +201,8 @@ function WorkflowsPageContent() {
   const analyticsUpdatedAt = analytics?.lastUpdated
     ? new Date(analytics.lastUpdated).toLocaleTimeString()
     : null;
+  const timelineEntriesCount = timeline?.entries?.length ?? 0;
+  const timelineLoadingMore = timelineLoading && timelineEntriesCount > 0;
 
   const deliveriesQuery: WorkflowTriggerDeliveriesQuery =
     triggerDeliveriesQuery ?? { limit: triggerDeliveriesLimit };
@@ -366,6 +370,8 @@ function WorkflowsPageContent() {
             snapshot={timeline}
             meta={timelineMeta}
             loading={timelineLoading}
+            loadingMore={timelineLoadingMore}
+            hasMore={timelineHasMore}
             error={timelineError}
             range={timelineRange}
             statuses={timelineStatuses}
@@ -373,6 +379,7 @@ function WorkflowsPageContent() {
             onToggleStatus={toggleTimelineStatus}
             onResetStatuses={clearTimelineStatuses}
             onRefresh={refreshTimelineView}
+            onLoadMore={loadMoreTimeline}
           />
 
           <AutoMaterializePanel
