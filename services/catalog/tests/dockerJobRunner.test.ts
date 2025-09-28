@@ -120,6 +120,8 @@ describe('DockerJobRunner', () => {
     delete process.env.CATALOG_DOCKER_DEFAULT_NETWORK_MODE;
     delete process.env.CATALOG_DOCKER_ALLOW_NETWORK_OVERRIDE;
     delete process.env.CATALOG_DOCKER_ENABLE_GPU;
+    delete process.env.CATALOG_DOCKER_PERSIST_LOG_TAIL;
+    delete process.env.CATALOG_DOCKER_MAX_WORKSPACE_BYTES;
     clearDockerRuntimeConfigCache();
     getFilestoreClientMock.mockReset();
     stageFilestoreInputsMock.mockReset();
@@ -129,6 +131,8 @@ describe('DockerJobRunner', () => {
   afterEach(async () => {
     delete process.env.CATALOG_DOCKER_WORKSPACE_ROOT;
     delete process.env.CATALOG_DOCKER_ENFORCE_NETWORK_ISOLATION;
+    delete process.env.CATALOG_DOCKER_PERSIST_LOG_TAIL;
+    delete process.env.CATALOG_DOCKER_MAX_WORKSPACE_BYTES;
     clearDockerRuntimeConfigCache();
     vi.clearAllMocks();
     await rm(workspaceRoot, { recursive: true, force: true });
@@ -165,14 +169,17 @@ describe('DockerJobRunner', () => {
 
     const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
 
+    const loggerMock = vi.fn();
+    const updateMock = vi.fn(async () => run);
+
     const result = (await runner.execute({
       definition,
       run,
       metadata,
       parameters: run.parameters,
       timeoutMs: null,
-      logger: vi.fn(),
-      update: vi.fn(async () => run),
+      logger: loggerMock,
+      update: updateMock,
       resolveSecret,
     })) as DockerExecutionResult;
 
@@ -201,6 +208,79 @@ describe('DockerJobRunner', () => {
     const metrics = result.jobResult.metrics as any;
     expect(metrics?.docker?.networkMode).toBe('none');
     expect(metrics?.docker?.gpuRequested).toBe(false);
+    expect(metrics?.docker?.logTailPersisted).toBe(true);
+    expect(metrics?.docker?.command).toEqual(metadata.command);
+
+    const context = result.jobResult.context as any;
+    expect(context?.docker?.stdout).toContain('hello stdout');
+    expect(context?.docker?.stderr).toContain('warning stderr');
+    expect(context?.docker?.lastLog?.line).toBe('warning stderr');
+    expect(context?.docker?.logTailPersisted).toBe(true);
+
+    const updateCall = updateMock.mock.calls[0]?.[0] as any;
+    expect(updateCall?.metrics?.docker?.containerName).toBeDefined();
+    expect(updateCall?.context?.docker?.stdout).toContain('hello stdout');
+
+    const stdoutLogs = loggerMock.mock.calls.filter(([message]) => message === 'Docker stdout');
+    expect(stdoutLogs.some(([, meta]) => (meta as any)?.line === 'hello stdout')).toBe(true);
+    const stderrLogs = loggerMock.mock.calls.filter(([message]) => message === 'Docker stderr');
+    expect(stderrLogs.some(([, meta]) => (meta as any)?.line === 'warning stderr')).toBe(true);
+  });
+
+  test('omits log tail from context when persistence disabled', async () => {
+    process.env.CATALOG_DOCKER_PERSIST_LOG_TAIL = 'false';
+    clearDockerRuntimeConfigCache();
+
+    const spawnMock = vi.fn(() => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child: any = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        return true;
+      });
+      queueMicrotask(() => {
+        stdout.write('hello stdout\n');
+        stderr.write('warning stderr\n');
+        stdout.end();
+        stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
+    const loggerMock = vi.fn();
+    const updateMock = vi.fn(async () => run);
+
+    const result = (await runner.execute({
+      definition,
+      run,
+      metadata,
+      parameters: run.parameters,
+      timeoutMs: null,
+      logger: loggerMock,
+      update: updateMock,
+      resolveSecret,
+    })) as DockerExecutionResult;
+
+    const context = result.jobResult.context as any;
+    expect(context?.docker?.stdout).toBeNull();
+    expect(context?.docker?.stderr).toBeNull();
+    expect(context?.docker?.logTailPersisted).toBe(false);
+    expect(context?.docker?.lastLog?.line).toBe('warning stderr');
+    const metrics = result.jobResult.metrics as any;
+    expect(metrics?.docker?.logTailPersisted).toBe(false);
   });
 
   test('terminates container on timeout', async () => {
@@ -250,8 +330,67 @@ describe('DockerJobRunner', () => {
     })) as DockerExecutionResult;
 
     expect(result.jobResult.status).toBe('expired');
+    expect(result.jobResult.errorMessage).toContain('timeout');
+    expect(result.jobResult.errorMessage).toContain('image: example/app:latest');
+    const metrics = result.jobResult.metrics as any;
+    expect(metrics?.docker?.timedOut).toBe(true);
     const killCalls = runDockerCommandMock.mock.calls.filter((call) => call[0][0] === 'kill');
     expect(killCalls.length).toBeGreaterThan(0);
+  });
+
+  test('includes failure diagnostics with last log line', async () => {
+    const spawnMock = vi.fn(() => {
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child: any = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.killed = false;
+      child.kill = vi.fn(() => {
+        child.killed = true;
+        return true;
+      });
+      queueMicrotask(() => {
+        stderr.write('fatal failure\n');
+        stderr.end();
+        stdout.end();
+        child.emit('close', 2, null);
+      });
+      return child;
+    });
+
+    const runDockerCommandMock = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+    const runner = new DockerJobRunner({
+      spawn: spawnMock as unknown as typeof spawn,
+      runDockerCommand: runDockerCommandMock,
+    });
+
+    const definition = buildDefinition({ docker: metadata } satisfies JsonValue);
+    const loggerMock = vi.fn();
+    const updateMock = vi.fn(async () => run);
+
+    const result = (await runner.execute({
+      definition,
+      run,
+      metadata,
+      parameters: run.parameters,
+      timeoutMs: null,
+      logger: loggerMock,
+      update: updateMock,
+      resolveSecret,
+    })) as DockerExecutionResult;
+
+    expect(result.jobResult.status).toBe('failed');
+    expect(result.jobResult.errorMessage).toContain('code 2');
+    expect(result.jobResult.errorMessage).toContain('image: example/app:latest');
+    expect(result.jobResult.errorMessage).toContain('last stderr: fatal failure');
+    const context = result.jobResult.context as any;
+    expect(context?.docker?.lastLog?.line).toBe('fatal failure');
+    expect(context?.docker?.exitCode).toBe(2);
+    const metrics = result.jobResult.metrics as any;
+    expect(metrics?.docker?.exitCode).toBe(2);
+    const stderrLogs = loggerMock.mock.calls.filter(([message]) => message === 'Docker stderr');
+    expect(stderrLogs.some(([, meta]) => (meta as any)?.line === 'fatal failure')).toBe(true);
   });
 
   test('adds gpu flag when enabled and requested', async () => {
@@ -579,8 +718,8 @@ describe('DockerJobRunner', () => {
     expect(stageFilestoreInputsMock).toHaveBeenCalledTimes(1);
     expect(collectFilestoreOutputsMock).toHaveBeenCalledTimes(1);
 
-    const context = result.jobResult.context as Record<string, unknown>;
-    expect(context?.filestore).toEqual({
+    const context = result.jobResult.context as any;
+    expect(context?.filestore).toMatchObject({
       baseUrl: 'http://filestore.local',
       source: 'env',
       bytesDownloaded: stageResult.bytesDownloaded,
@@ -588,8 +727,15 @@ describe('DockerJobRunner', () => {
       bytesUploaded: collectResult.bytesUploaded,
       filesUploaded: collectResult.filesUploaded,
       inputs: stageResult.inputs,
-      outputs: collectResult.outputs
+      outputs: collectResult.outputs,
     });
+    expect(context?.filestore?.inputsStaged).toBe(stageResult.inputs.length);
+    expect(context?.filestore?.outputsCollected).toBe(collectResult.outputs.length);
+
+    const metrics = result.jobResult.metrics as any;
+    expect(metrics?.filestore?.bytesDownloaded).toBe(stageResult.bytesDownloaded);
+    expect(metrics?.filestore?.inputsStaged).toBe(stageResult.inputs.length);
+    expect(metrics?.filestore?.outputsCollected).toBe(collectResult.outputs.length);
 
     const resultPayload = result.jobResult.result as Record<string, unknown>;
     expect(resultPayload.filestore).toEqual({

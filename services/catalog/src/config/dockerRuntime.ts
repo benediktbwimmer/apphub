@@ -26,6 +26,7 @@ export type DockerRuntimeConfig = {
   maxWorkspaceBytes: number | null;
   gpuEnabled: boolean;
   network: DockerNetworkPolicy;
+  persistLogTailInContext: boolean;
 };
 
 let cachedConfig: DockerRuntimeConfig | null = null;
@@ -181,6 +182,10 @@ function buildConfig(): DockerRuntimeConfig {
   });
   const gpuEnabled = parseBoolean(process.env.CATALOG_DOCKER_ENABLE_GPU, false);
   const network = resolveNetworkPolicy();
+  const persistLogTailInContext = parseBoolean(
+    process.env.CATALOG_DOCKER_PERSIST_LOG_TAIL,
+    true
+  );
 
   return {
     enabled,
@@ -190,6 +195,7 @@ function buildConfig(): DockerRuntimeConfig {
     maxWorkspaceBytes,
     gpuEnabled,
     network,
+    persistLogTailInContext,
   } satisfies DockerRuntimeConfig;
 }
 

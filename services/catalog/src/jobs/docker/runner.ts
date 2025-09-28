@@ -14,6 +14,7 @@ import {
   type CollectFilestoreOutputsResult,
   type StageFilestoreInputsResult
 } from './filestoreArtifacts';
+import { mergeJsonObjects } from '../jsonMerge';
 import type {
   DockerJobMetadata,
   JobDefinitionRecord,
@@ -65,6 +66,32 @@ class BoundedLogBuffer {
   }
 }
 
+type DockerLogSource = 'stdout' | 'stderr';
+
+function truncateForMessage(value: string, maxLength = 240): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 1)}…`;
+}
+
+function extractLastMeaningfulLine(logs: BufferedLogs): { source: DockerLogSource; line: string } | null {
+  const candidates: Array<{ source: DockerLogSource; text: string }> = [
+    { source: 'stderr', text: logs.stderr },
+    { source: 'stdout', text: logs.stdout },
+  ];
+  for (const candidate of candidates) {
+    const pieces = candidate.text
+      .split(/\r?\n/g)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (pieces.length > 0) {
+      return { source: candidate.source, line: pieces[pieces.length - 1] };
+    }
+  }
+  return null;
+}
+
 type DockerRunnerDependencies = {
   spawn: typeof spawn;
   runDockerCommand: typeof runDockerCommand;
@@ -87,8 +114,11 @@ type DockerCommandPlan = {
   args: string[];
   containerName: string;
   workspaceMountPath: string;
+  configMountPath: string | null;
   networkMode: 'none' | 'bridge';
   gpuRequested: boolean;
+  entryPoint: string | null;
+  command: string[];
 };
 
 type DockerExecutionTelemetry = {
@@ -101,8 +131,12 @@ type DockerExecutionTelemetry = {
   startedAt: string;
   completedAt: string;
   workspacePath: string;
+  workspaceMountPath: string;
+  configMountPath: string | null;
   networkMode: 'none' | 'bridge';
   gpuRequested: boolean;
+  entryPoint: string | null;
+  command: string[];
 } & BufferedLogs;
 
 export type DockerExecutionResult = {
@@ -342,8 +376,19 @@ async function buildDockerCommand(options: {
     configMountPath,
     networkMode,
     gpuRequested,
+    entryPoint: entryPoint.length > 0 ? entryPoint[0] : null,
+    command: commandParts,
   });
-  return { args, containerName, workspaceMountPath, networkMode, gpuRequested } satisfies DockerCommandPlan;
+  return {
+    args,
+    containerName,
+    workspaceMountPath,
+    configMountPath,
+    networkMode,
+    gpuRequested,
+    entryPoint: entryPoint.length > 0 ? entryPoint[0] : null,
+    command: commandParts,
+  } satisfies DockerCommandPlan;
 }
 
 async function runDockerAndCapture(options: {
@@ -369,14 +414,60 @@ async function runDockerAndCapture(options: {
   let timeoutHandle: NodeJS.Timeout | null = null;
   let timedOut = false;
 
+  const pendingLines: Record<DockerLogSource, string> = {
+    stdout: '',
+    stderr: '',
+  };
+
+  const logLine = (source: DockerLogSource, line: string) => {
+    const normalized = line.replace(/\r/g, '');
+    if (normalized.trim().length === 0) {
+      return;
+    }
+    options.logger(source === 'stdout' ? 'Docker stdout' : 'Docker stderr', {
+      containerName: options.containerName,
+      stream: source,
+      line: normalized,
+    });
+  };
+
+  const flushPending = (source: DockerLogSource) => {
+    const remainder = pendingLines[source];
+    if (remainder) {
+      logLine(source, remainder);
+      pendingLines[source] = '';
+    }
+  };
+
+  const handleChunk = (source: DockerLogSource, chunk: string) => {
+    pendingLines[source] += chunk;
+    const pieces = pendingLines[source].split(/\r?\n/g);
+    pendingLines[source] = pieces.pop() ?? '';
+    for (const piece of pieces) {
+      if (!piece) {
+        continue;
+      }
+      logLine(source, piece);
+    }
+  };
+
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');
 
   child.stdout?.on('data', (chunk) => {
     stdoutBuffer.append(chunk);
+    handleChunk('stdout', typeof chunk === 'string' ? chunk : chunk.toString());
   });
   child.stderr?.on('data', (chunk) => {
     stderrBuffer.append(chunk);
+    handleChunk('stderr', typeof chunk === 'string' ? chunk : chunk.toString());
+  });
+
+  child.stdout?.on('end', () => {
+    flushPending('stdout');
+  });
+  child.stderr?.on('end', () => {
+    flushPending('stderr');
   });
 
   const terminateContainer = async () => {
@@ -426,6 +517,8 @@ async function runDockerAndCapture(options: {
       }
       const completedAt = new Date();
       const durationMs = performance.now() - startTick;
+      flushPending('stdout');
+      flushPending('stderr');
       if (timedOut && code === null) {
         options.logger('Docker container terminated after timeout window', {
           containerName: options.containerName,
@@ -566,8 +659,9 @@ export class DockerJobRunner {
         : execution.exitCode === 0
           ? 'succeeded'
           : 'failed';
+      const lastLogLine = extractLastMeaningfulLine(execution.logs);
 
-      const errorMessage = execution.timedOut
+      const baseErrorMessage = execution.timedOut
         ? `Docker job exceeded timeout after ${timeoutMs ?? 0}ms`
         : execution.exitCode === 0
           ? null
@@ -576,6 +670,33 @@ export class DockerJobRunner {
             : execution.signal
               ? `Docker job terminated by signal ${execution.signal}`
               : 'Docker job failed';
+
+      const detailParts: string[] = [];
+      if (status !== 'succeeded') {
+        detailParts.push(`image: ${options.metadata.image}`);
+        detailParts.push(`container: ${commandPlan.containerName}`);
+        if (commandPlan.command.length > 0) {
+          detailParts.push(`command: ${commandPlan.command.join(' ')}`);
+        }
+        if (timeoutMs) {
+          detailParts.push(`timeoutMs: ${timeoutMs}`);
+        }
+        if (execution.logs.stdoutTruncated > 0 || execution.logs.stderrTruncated > 0) {
+          detailParts.push(
+            `truncated: stdout=${execution.logs.stdoutTruncated}, stderr=${execution.logs.stderrTruncated}`
+          );
+        }
+        if (lastLogLine) {
+          detailParts.push(
+            `last ${lastLogLine.source}: ${truncateForMessage(lastLogLine.line)}`
+          );
+        }
+      }
+
+      const errorMessage =
+        baseErrorMessage && detailParts.length > 0
+          ? `${baseErrorMessage} (${detailParts.join(', ')})`
+          : baseErrorMessage;
 
       telemetry = {
         containerName: commandPlan.containerName,
@@ -587,8 +708,12 @@ export class DockerJobRunner {
         startedAt: execution.startedAt,
         completedAt: execution.completedAt,
         workspacePath: workspace.workDir,
+        workspaceMountPath: commandPlan.workspaceMountPath,
+        configMountPath: commandPlan.configMountPath,
         networkMode: commandPlan.networkMode,
         gpuRequested: commandPlan.gpuRequested,
+        entryPoint: commandPlan.entryPoint,
+        command: commandPlan.command,
         ...execution.logs,
       } satisfies DockerExecutionTelemetry;
 
@@ -606,7 +731,9 @@ export class DockerJobRunner {
         filestoreSummary.filesUploaded = collected.filesUploaded;
       }
 
-      const metrics: JsonValue = {
+      const logTailPersisted = runtimeConfig.persistLogTailInContext;
+
+      const metricsAddition = {
         docker: {
           containerName: commandPlan.containerName,
           image: options.metadata.image,
@@ -614,33 +741,67 @@ export class DockerJobRunner {
           signal: execution.signal ?? null,
           durationMs: Math.round(execution.durationMs),
           timedOut: execution.timedOut,
+          startedAt: execution.startedAt,
+          completedAt: execution.completedAt,
           networkMode: commandPlan.networkMode,
           gpuRequested: commandPlan.gpuRequested,
+          workspaceMountPath: commandPlan.workspaceMountPath,
+          command: commandPlan.command,
+          entryPoint: commandPlan.entryPoint,
+          timeoutMs: timeoutMs ?? null,
+          attempt: options.run.attempt,
+          retryCount: options.run.retryCount,
+          stdoutTruncated: execution.logs.stdoutTruncated,
+          stderrTruncated: execution.logs.stderrTruncated,
+          logTailPersisted,
         },
         filestore: filestoreClient
           ? {
               bytesDownloaded: filestoreSummary.bytesDownloaded,
               filesDownloaded: filestoreSummary.filesDownloaded,
+              inputsStaged: filestoreSummary.inputs.length,
               bytesUploaded: filestoreSummary.bytesUploaded,
               filesUploaded: filestoreSummary.filesUploaded,
+              outputsCollected: filestoreSummary.outputs.length,
             }
           : null,
-      } satisfies JsonValue;
+      } satisfies Record<string, JsonValue>;
 
-      const context: JsonValue = {
-        docker: {
-          stdout: execution.logs.stdout,
-          stderr: execution.logs.stderr,
-          stdoutTruncated: execution.logs.stdoutTruncated,
-          stderrTruncated: execution.logs.stderrTruncated,
-          containerName: commandPlan.containerName,
-          image: options.metadata.image,
-          startedAt: execution.startedAt,
-          completedAt: execution.completedAt,
-          workspacePath: workspace.workDir,
-          networkMode: commandPlan.networkMode,
-          gpuRequested: commandPlan.gpuRequested,
-        },
+      const dockerContext = {
+        stdout: logTailPersisted ? execution.logs.stdout : null,
+        stderr: logTailPersisted ? execution.logs.stderr : null,
+        stdoutTruncated: execution.logs.stdoutTruncated,
+        stderrTruncated: execution.logs.stderrTruncated,
+        containerName: commandPlan.containerName,
+        image: options.metadata.image,
+        startedAt: execution.startedAt,
+        completedAt: execution.completedAt,
+        durationMs: Math.round(execution.durationMs),
+        workspacePath: workspace.workDir,
+        workspaceMountPath: commandPlan.workspaceMountPath,
+        configMountPath: commandPlan.configMountPath,
+        networkMode: commandPlan.networkMode,
+        gpuRequested: commandPlan.gpuRequested,
+        exitCode: execution.exitCode,
+        signal: execution.signal ?? null,
+        timedOut: execution.timedOut,
+        timeoutMs: timeoutMs ?? null,
+        command: commandPlan.command,
+        entryPoint: commandPlan.entryPoint,
+        logTailPersisted,
+        lastLog:
+          lastLogLine
+            ? {
+                source: lastLogLine.source,
+                line: lastLogLine.line,
+              }
+            : null,
+        attempt: options.run.attempt,
+        retryCount: options.run.retryCount,
+      } satisfies Record<string, JsonValue>;
+
+      const contextAddition = {
+        docker: dockerContext,
         filestore: filestoreClient
           ? {
               baseUrl: filestoreClient.config.baseUrl,
@@ -651,9 +812,14 @@ export class DockerJobRunner {
               filesUploaded: filestoreSummary.filesUploaded,
               inputs: filestoreSummary.inputs,
               outputs: filestoreSummary.outputs,
+              inputsStaged: filestoreSummary.inputs.length,
+              outputsCollected: filestoreSummary.outputs.length,
             }
           : null,
-      } satisfies JsonValue;
+      } satisfies Record<string, JsonValue>;
+
+      const mergedMetrics = mergeJsonObjects(options.run.metrics, metricsAddition);
+      const mergedContext = mergeJsonObjects(options.run.context, contextAddition);
 
       const filestoreResult = filestoreClient
         ? {
@@ -684,8 +850,22 @@ export class DockerJobRunner {
         containerName: commandPlan.containerName,
         image: options.metadata.image,
         timedOut: execution.timedOut,
+        durationMs: Math.round(execution.durationMs),
+        startedAt: execution.startedAt,
+        completedAt: execution.completedAt,
+        command: commandPlan.command,
+        entryPoint: commandPlan.entryPoint,
         networkMode: commandPlan.networkMode,
         gpuRequested: commandPlan.gpuRequested,
+        stdoutTruncated: execution.logs.stdoutTruncated,
+        stderrTruncated: execution.logs.stderrTruncated,
+        lastLog:
+          lastLogLine
+            ? {
+                source: lastLogLine.source,
+                line: lastLogLine.line,
+              }
+            : null,
         filestore: filestoreResult,
       } satisfies JsonValue;
 
@@ -693,11 +873,11 @@ export class DockerJobRunner {
         status,
         result: status === 'succeeded' ? resultPayload : null,
         errorMessage,
-        metrics,
-        context,
+        metrics: mergedMetrics,
+        context: mergedContext,
       } satisfies JobResult;
 
-      await options.update({ metrics, context });
+      await options.update({ metrics: mergedMetrics, context: mergedContext });
 
       return {
         jobResult,

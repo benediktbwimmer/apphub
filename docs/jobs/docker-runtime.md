@@ -19,6 +19,8 @@ Docker execution is governed by environment variables that are validated at proc
 | `CATALOG_DOCKER_DEFAULT_NETWORK_MODE` | `none` | Default Docker network used when isolation is not enforced. Must be included in the allowed modes list. |
 | `CATALOG_DOCKER_ALLOWED_NETWORK_MODES` | `none,bridge` | Comma-separated list of network modes that jobs may request. |
 | `CATALOG_DOCKER_ALLOW_NETWORK_OVERRIDE` | `false` | Permit metadata to override the default network mode (only applies when isolation is disabled). |
+| `CATALOG_DOCKER_MAX_LOG_CHARS` | `16384` | Maximum stdout/stderr characters retained per stream for the stored log tail. Lower the value to reduce `JobRun.context` size. |
+| `CATALOG_DOCKER_PERSIST_LOG_TAIL` | `true` | When set to `false`, omit stdout/stderr tails from `JobRun.context.docker` while continuing to stream logs to the aggregator. |
 
 Configuration is cached; call `clearDockerRuntimeConfigCache()` in tests before changing environment variables.
 
@@ -89,6 +91,14 @@ The worker validates metadata and runtime execution against the configured polic
 - **Workspace size** - If staged inputs exceed `CATALOG_DOCKER_MAX_WORKSPACE_BYTES`, execution fails before the container is launched. Use Filestore path templates to partition large datasets rather than downloading them wholesale.
 - **Network isolation** - When isolation is enforced, containers always run with `--network none`. Otherwise the default network and the set of allowed modes are derived from configuration, and overrides are optional.
 - **GPU access** - Jobs request GPUs via `requiresGpu`. The worker adds `--gpus all` only when GPUs are enabled globally; otherwise validation and execution abort with a clear error.
+
+## Observability & Telemetry
+- **Live log streaming** – Container stdout/stderr is forwarded to structured job logs (`Docker stdout`/`Docker stderr`). Reviewers see the stream immediately via the shared log aggregator without waiting for the run to finish.
+- **Structured metrics** – `JobRun.metrics.docker` captures container details (image, command, entry point, network mode, GPU flag, attempt and retry count, start/finish timestamps, duration, exit code/signal, timeout) plus truncation counters and whether the log tail was persisted. `JobRun.metrics.filestore` reports cumulative bytes/files staged and collected together with counts of inputs/outputs.
+- **Context attachments** – `JobRun.context.docker` stores the bounded stdout/stderr tail, the final non-empty log line, exit details, effective workspace paths, and the configured timeout. Surrounding metadata is trimmed to `CATALOG_DOCKER_MAX_LOG_CHARS` characters per stream. Disable the tail with `CATALOG_DOCKER_PERSIST_LOG_TAIL=0` when storage pressure outweighs convenience—the truncated counters remain so operators know additional logs exist.
+- **Filestore correlation** – `JobRun.context.filestore` lists every staged input and uploaded output with the workspace path, Filestore node/mount identifiers, and byte totals so operators can cross-reference artifacts in the Filestore UI.
+- **Enhanced failures** – Timed-out or failing runs annotate `errorMessage` with the image reference, generated command, timeout window, truncation indicators, and the final stderr/stdout line to speed triage.
+- **Retrieving telemetry** – API responses that include a job run (`POST /jobs/:slug/run`, the run listing endpoints, and workflow detail views) return the enriched `metrics` and `context` payloads. Surface the same data in dashboards or CLI tooling to expose container health, transfer volumes, and last-log breadcrumbs alongside existing sandbox metrics.
 
 ## Operational Checklist
 1. Enable the feature flag and choose a workspace root with adequate disk space.

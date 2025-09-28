@@ -35,6 +35,7 @@ import { parseBundleEntryPoint } from './bundleBinding';
 import { safeParseDockerJobMetadata } from './dockerMetadata';
 import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
 import { resolveJobRuntime, type JobRuntimeKind } from './runtimeKind';
+import { mergeJsonObjects, asJsonObject } from './jsonMerge';
 
 const handlers = new Map<string, JobHandler>();
 
@@ -305,13 +306,18 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
         resolveSecret: context.resolveSecret
       });
 
+      const metricsRecord = asJsonObject(execution.jobResult.metrics);
+      const contextRecord = asJsonObject(execution.jobResult.context);
+      const mergedMetrics = mergeJsonObjects(latestRun.metrics, metricsRecord);
+      const mergedContext = mergeJsonObjects(latestRun.context, contextRecord);
+
       const finalStatus = execution.jobResult.status ?? 'succeeded';
       const completion: JobRunCompletionInput = {
         result: execution.jobResult.result ?? null,
         errorMessage: execution.jobResult.errorMessage ?? null,
         logsUrl: execution.jobResult.logsUrl ?? null,
-        metrics: execution.jobResult.metrics ?? null,
-        context: execution.jobResult.context ?? null,
+        metrics: mergedMetrics,
+        context: mergedContext,
         durationMs: Math.round(execution.telemetry.durationMs),
         completedAt: execution.telemetry.completedAt
       } satisfies JobRunCompletionInput;
@@ -613,24 +619,6 @@ function sanitizeSandboxLogs(logs: SandboxExecutionResult['logs']): JsonValue[] 
     message: entry.message,
     meta: normalizeMeta(entry.meta ?? undefined) ?? null
   })) as JsonValue[];
-}
-
-function mergeJsonObjects(
-  base: JsonValue | null | undefined,
-  addition: Record<string, JsonValue>
-): JsonValue {
-  const entries = Object.entries(addition).filter(([, value]) => value !== undefined);
-  if (entries.length === 0) {
-    return base ?? null;
-  }
-  const additionObject = Object.fromEntries(entries) as Record<string, JsonValue>;
-  if (!base || typeof base !== 'object' || Array.isArray(base)) {
-    return additionObject;
-  }
-  return {
-    ...(base as Record<string, JsonValue>),
-    ...additionObject
-  } satisfies JsonValue;
 }
 
 function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null {
