@@ -54,6 +54,8 @@ Workflow job executions now carry a lightweight context payload so downstream pu
 
 Node handlers running in-process can call `getWorkflowEventContext()` from `@apphub/catalog/jobs/runtime` to read the current store. Sandbox and Docker adapters serialize the same payload into the `APPHUB_WORKFLOW_EVENT_CONTEXT` environment variable; the sandbox context object also exposes `workflowEventContext` plus `getWorkflowEventContext()` (Python bundles receive matching attributes) for convenience. Child bootstrap code keeps the AsyncLocalStorage scope active so downstream imports resolve the same data.
 
+`@apphub/event-bus` now injects this context automatically into every envelope that does not already include `metadata.__apphubWorkflow`. The reserved block is trimmed to the required fields, strings are normalized, and payloads larger than 2 KB (UTF-8) are dropped to protect downstream storage. Existing publishers that set `metadata.__apphubWorkflow` manually keep their values; everyone else gets the enriched metadata with no API changes.
+
 ## Ingress Worker & Persistence
 
 The catalog worker (`npm run events --workspace @apphub/catalog`) consumes the queue and writes into `workflow_events`:

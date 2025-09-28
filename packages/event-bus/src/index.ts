@@ -2,6 +2,37 @@ import { randomUUID } from 'node:crypto';
 import { Queue, type JobsOptions, type QueueOptions } from 'bullmq';
 import { z } from 'zod';
 
+const WORKFLOW_METADATA_KEY = '__apphubWorkflow' as const;
+const WORKFLOW_EVENT_CONTEXT_ENV = 'APPHUB_WORKFLOW_EVENT_CONTEXT';
+const WORKFLOW_METADATA_MAX_BYTES = 2048;
+
+const WORKFLOW_METADATA_FIELDS = [
+  'workflowDefinitionId',
+  'workflowRunId',
+  'workflowRunStepId',
+  'jobRunId',
+  'jobSlug'
+] as const;
+
+type WorkflowMetadataField = (typeof WORKFLOW_METADATA_FIELDS)[number];
+
+export type WorkflowMetadata = Record<WorkflowMetadataField, string>;
+
+type WorkflowRuntimeModule = {
+  getWorkflowEventContext?: () => unknown;
+};
+
+let readWorkflowEventContext: (() => unknown) | null = null;
+
+try {
+  const runtimeModule = require('@apphub/catalog/jobs/runtime') as WorkflowRuntimeModule;
+  if (typeof runtimeModule.getWorkflowEventContext === 'function') {
+    readWorkflowEventContext = runtimeModule.getWorkflowEventContext.bind(runtimeModule);
+  }
+} catch {
+  readWorkflowEventContext = null;
+}
+
 export type JsonValue =
   | string
   | number
@@ -21,7 +52,21 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   ])
 );
 
-const metadataSchema = z.record(z.string(), jsonValueSchema);
+const workflowMetadataSchema = z
+  .object({
+    workflowDefinitionId: z.string().min(1),
+    workflowRunId: z.string().min(1),
+    workflowRunStepId: z.string().min(1),
+    jobRunId: z.string().min(1),
+    jobSlug: z.string().min(1)
+  })
+  .strict();
+
+const metadataSchema = z
+  .object({
+    [WORKFLOW_METADATA_KEY]: workflowMetadataSchema.optional()
+  })
+  .catchall(jsonValueSchema);
 
 export const eventEnvelopeSchema = z
   .object({
@@ -82,16 +127,24 @@ export const DEFAULT_EVENT_QUEUE_NAME = 'apphub_event_ingress_queue';
 export const DEFAULT_EVENT_JOB_NAME = 'apphub.event';
 
 export function normalizeEventEnvelope(input: EventEnvelopeInput): EventEnvelope {
+  const workflowContext = resolveWorkflowContext();
+  const metadata = mergeWorkflowMetadata(input.metadata, workflowContext);
   const occurredAtValue = input.occurredAt instanceof Date
     ? input.occurredAt.toISOString()
     : input.occurredAt ?? new Date().toISOString();
 
-  const candidate = {
+  const candidate: Record<string, unknown> = {
     ...input,
     id: input.id ?? randomUUID(),
     occurredAt: occurredAtValue,
     payload: input.payload ?? {}
-  } satisfies Record<string, unknown>;
+  };
+
+  if (metadata === undefined) {
+    delete candidate.metadata;
+  } else {
+    candidate.metadata = metadata;
+  }
 
   const result = eventEnvelopeSchema.safeParse(candidate);
   if (!result.success) {
@@ -163,3 +216,84 @@ export function createEventPublisher(options: EventPublisherOptions = {}): Event
 }
 
 export { jsonValueSchema };
+
+export function resolveWorkflowContext(): WorkflowMetadata | null {
+  const runtimeValue = readWorkflowEventContext ? readWorkflowEventContext() : null;
+  const runtimeMetadata = normalizeWorkflowContextCandidate(runtimeValue);
+  if (runtimeMetadata) {
+    return runtimeMetadata;
+  }
+
+  const serialized = process.env[WORKFLOW_EVENT_CONTEXT_ENV];
+  if (!serialized) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(serialized) as unknown;
+    return normalizeWorkflowContextCandidate(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function mergeWorkflowMetadata(
+  existing: EventEnvelopeInput['metadata'],
+  workflowMetadata: WorkflowMetadata | null
+): EventEnvelopeInput['metadata'] {
+  let nextMetadata = existing ? { ...existing } : undefined;
+  if (!workflowMetadata) {
+    return nextMetadata;
+  }
+  if (hasWorkflowMetadata(nextMetadata)) {
+    return nextMetadata;
+  }
+
+  if (!nextMetadata) {
+    nextMetadata = {};
+  }
+  nextMetadata[WORKFLOW_METADATA_KEY] = workflowMetadata;
+  return nextMetadata;
+}
+
+function hasWorkflowMetadata(metadata: EventEnvelopeInput['metadata']): boolean {
+  if (!metadata) {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(metadata, WORKFLOW_METADATA_KEY);
+}
+
+function normalizeWorkflowContextCandidate(raw: unknown): WorkflowMetadata | null {
+  const sanitized = sanitizeWorkflowContext(raw);
+  if (!sanitized) {
+    return null;
+  }
+  const serialized = JSON.stringify(sanitized);
+  if (Buffer.byteLength(serialized, 'utf8') > WORKFLOW_METADATA_MAX_BYTES) {
+    return null;
+  }
+  return sanitized;
+}
+
+function sanitizeWorkflowContext(raw: unknown): WorkflowMetadata | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const sanitized: Partial<WorkflowMetadata> = {};
+
+  for (const field of WORKFLOW_METADATA_FIELDS) {
+    const value = record[field];
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    sanitized[field] = trimmed;
+  }
+
+  return sanitized as WorkflowMetadata;
+}

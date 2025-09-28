@@ -9,10 +9,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "tsx tests/eventPublisher.test.ts"
   },
   "dependencies": {
     "bullmq": "^5.58.8",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
   }
 }
