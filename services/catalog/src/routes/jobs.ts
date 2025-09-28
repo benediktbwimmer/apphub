@@ -18,6 +18,7 @@ import { enqueueBuildJob, enqueueRepositoryIngestion } from '../queue';
 import { executeJobRun } from '../jobs/runtime';
 import { getRuntimeReadiness } from '../jobs/runtimeReadiness';
 import { introspectEntryPointSchemas } from '../jobs/schemaIntrospector';
+import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
 import {
   previewPythonSnippet,
   createPythonSnippetJob,
@@ -62,6 +63,7 @@ import {
   DEFAULT_AI_BUILDER_RESPONSE_INSTRUCTIONS,
   DEFAULT_AI_BUILDER_SYSTEM_PROMPT
 } from '../ai/prompts';
+import { safeParseDockerJobMetadata } from '../jobs/dockerMetadata';
 
 const jobRunRequestSchema = z
   .object({
@@ -109,7 +111,7 @@ const bundleRegenerateSchema = z
 const schemaPreviewRequestSchema = z
   .object({
     entryPoint: z.string().min(1),
-    runtime: z.enum(['node', 'python']).optional()
+    runtime: z.enum(['node', 'python', 'docker']).optional()
   })
   .strict();
 
@@ -501,7 +503,37 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       return { error: parseBody.error.flatten() };
     }
 
-    const payload = normalizeJobDefinitionPayload(parseBody.data);
+    const parsedPayload = parseBody.data;
+    const runtime = parsedPayload.runtime ?? 'node';
+
+    if (runtime === 'docker' && !isDockerRuntimeEnabled()) {
+      reply.status(400);
+      const message = 'Docker job runtime is disabled in this environment.';
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        message
+      });
+      return { error: message };
+    }
+
+    let normalizedMetadata: JsonValue | null = (parsedPayload.metadata ?? null) as JsonValue | null;
+    if (runtime === 'docker') {
+      const metadataResult = safeParseDockerJobMetadata(normalizedMetadata ?? {});
+      if (!metadataResult.success) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'invalid_payload',
+          details: metadataResult.error.flatten()
+        });
+        return { error: metadataResult.error.flatten() };
+      }
+      normalizedMetadata = metadataResult.data as JsonValue;
+    }
+
+    const payload = normalizeJobDefinitionPayload({
+      ...parsedPayload,
+      metadata: (normalizedMetadata ?? undefined) as JsonValue | undefined
+    });
 
     try {
       const definition = await createJobDefinition(payload);
@@ -564,19 +596,52 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const payload = parseBody.data;
+    const targetRuntime = payload.runtime ?? existing.runtime;
+
+    if (targetRuntime === 'docker' && !isDockerRuntimeEnabled()) {
+      reply.status(400);
+      const message = 'Docker job runtime is disabled in this environment.';
+      await authResult.auth.log('failed', {
+        reason: 'invalid_payload',
+        jobSlug: parseParams.data.slug,
+        message
+      });
+      return { error: message };
+    }
+
+    const incomingMetadata =
+      payload.metadata !== undefined
+        ? (payload.metadata as JsonValue | null)
+        : ((existing.metadata ?? null) as JsonValue | null);
+
+    let normalizedMetadata: JsonValue | null = incomingMetadata;
+    if (targetRuntime === 'docker') {
+      const metadataResult = safeParseDockerJobMetadata(normalizedMetadata ?? {});
+      if (!metadataResult.success) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'invalid_payload',
+          jobSlug: parseParams.data.slug,
+          details: metadataResult.error.flatten()
+        });
+        return { error: metadataResult.error.flatten() };
+      }
+      normalizedMetadata = metadataResult.data as JsonValue;
+    }
+
     const merged = {
       slug: existing.slug,
       name: payload.name ?? existing.name,
       type: payload.type ?? existing.type,
       version: payload.version ?? existing.version,
-      runtime: payload.runtime ?? existing.runtime,
+      runtime: targetRuntime,
       entryPoint: payload.entryPoint ?? existing.entryPoint,
       timeoutMs: payload.timeoutMs ?? existing.timeoutMs ?? undefined,
       retryPolicy: payload.retryPolicy ?? existing.retryPolicy ?? undefined,
       parametersSchema: (payload.parametersSchema ?? existing.parametersSchema ?? undefined) as JsonValue | undefined,
       defaultParameters: (payload.defaultParameters ?? existing.defaultParameters ?? undefined) as JsonValue | undefined,
       outputSchema: (payload.outputSchema ?? existing.outputSchema ?? undefined) as JsonValue | undefined,
-      metadata: payload.metadata ?? (existing.metadata ?? undefined)
+      metadata: (normalizedMetadata ?? undefined) as JsonValue | undefined
     };
 
     try {

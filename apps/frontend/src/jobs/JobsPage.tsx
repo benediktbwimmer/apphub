@@ -182,12 +182,13 @@ export default function JobsPage() {
   const { pushToast } = useToasts();
   const { jobs, loading: jobsLoading, error: jobsError, refresh: refreshJobs } = useJobs();
   const [jobSearch, setJobSearch] = useState('');
-  const [runtimeFilter, setRuntimeFilter] = useState<'all' | 'node' | 'python'>('all');
+  const [runtimeFilter, setRuntimeFilter] = useState<'all' | 'node' | 'python' | 'docker'>('all');
   const runtimeOptions = useMemo(
     () => [
       { key: 'all' as const, label: 'All' },
       { key: 'node' as const, label: 'Node' },
-      { key: 'python' as const, label: 'Python' }
+      { key: 'python' as const, label: 'Python' },
+      { key: 'docker' as const, label: 'Docker' }
     ],
     []
   );
@@ -687,7 +688,12 @@ export default function JobsPage() {
               />
             ) : runtimeStatuses.length > 0 ? (
               runtimeStatuses.map((status) => {
-                const label = status.runtime === 'python' ? 'Python runtime' : 'Node runtime';
+                const label =
+                  status.runtime === 'python'
+                    ? 'Python runtime'
+                    : status.runtime === 'docker'
+                      ? 'Docker runtime'
+                      : 'Node runtime';
                 const badgeClass = status.ready
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
                   : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200';

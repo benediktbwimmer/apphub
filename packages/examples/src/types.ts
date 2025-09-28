@@ -23,7 +23,7 @@ export type JobDefinitionTemplate = {
   name: string;
   version?: number;
   type: 'batch' | 'service-triggered' | 'manual';
-  runtime: 'node' | 'python';
+  runtime: 'node' | 'python' | 'docker';
   entryPoint: string;
   timeoutMs?: number;
   retryPolicy?: JobRetryPolicyTemplate;

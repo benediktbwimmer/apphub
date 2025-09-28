@@ -442,6 +442,9 @@ async function executeDynamicHandler(params: DynamicExecutionParams): Promise<Dy
   try {
     const timeoutMs = run.timeoutMs ?? definition.timeoutMs ?? null;
     const runtimeKind = resolveJobRuntime(definition);
+    if (runtimeKind === 'docker') {
+      throw new Error('Docker runtime execution is not yet available for bundle jobs');
+    }
     const runner = runtimeKind === 'python' ? pythonSandboxRunner : sandboxRunner;
     const telemetry = await runner.execute({
       bundle: acquired,
@@ -561,7 +564,7 @@ function normalizeResourceUsage(usage?: NodeJS.ResourceUsage): JsonValue | null 
   return normalized;
 }
 
-type JobRuntimeKind = 'node' | 'python';
+type JobRuntimeKind = 'node' | 'python' | 'docker';
 
 function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
   if (definition.runtime === 'python') {
@@ -569,6 +572,9 @@ function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
   }
   if (definition.runtime === 'node') {
     return 'node';
+  }
+  if (definition.runtime === 'docker') {
+    return 'docker';
   }
   const metadata = definition.metadata;
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
@@ -578,6 +584,9 @@ function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
       const normalized = rawRuntime.trim().toLowerCase();
       if (normalized.startsWith('python')) {
         return 'python';
+      }
+      if (normalized.startsWith('docker')) {
+        return 'docker';
       }
       if (normalized.startsWith('node')) {
         return 'node';
@@ -590,11 +599,15 @@ function resolveJobRuntime(definition: JobDefinitionRecord): JobRuntimeKind {
         if (normalized.startsWith('python')) {
           return 'python';
         }
+        if (normalized.startsWith('docker')) {
+          return 'docker';
+        }
         if (normalized.startsWith('node')) {
           return 'node';
         }
       }
     }
   }
+
   return 'node';
 }

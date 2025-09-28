@@ -413,7 +413,7 @@ export type RepositoryPreviewInput = {
 
 export type JobType = 'batch' | 'service-triggered' | 'manual';
 
-export type JobRuntime = 'node' | 'python';
+export type JobRuntime = 'node' | 'python' | 'docker';
 
 export type JobRetryStrategy = 'none' | 'fixed' | 'exponential';
 
@@ -424,6 +424,71 @@ export type JobRetryPolicy = {
   maxDelayMs?: number | null;
   jitter?: 'none' | 'full' | 'equal';
 };
+
+export type DockerJobEnvironmentVariable = {
+  name: string;
+  value?: string | null;
+  secret?: SecretReference | null;
+};
+
+export type DockerJobConfigFileSpec = {
+  filename: string;
+  mountPath?: string | null;
+  format?: 'json' | 'yaml' | 'text' | 'binary';
+};
+
+export type DockerJobInputSource =
+  | {
+      type: 'filestoreNode';
+      nodeId: string | number;
+    }
+  | {
+      type: 'filestorePath';
+      backendMountId: number;
+      path: string;
+    };
+
+export type DockerJobInputDescriptor = {
+  id?: string;
+  source: DockerJobInputSource;
+  workspacePath: string;
+  mountPath?: string | null;
+  optional?: boolean;
+  writable?: boolean;
+};
+
+export type DockerJobOutputUploadTarget = {
+  backendMountId: number;
+  pathTemplate: string;
+  contentType?: string | null;
+  mode?: 'file' | 'directory';
+  overwrite?: boolean;
+};
+
+export type DockerJobOutputDescriptor = {
+  id?: string;
+  workspacePath: string;
+  upload: DockerJobOutputUploadTarget;
+  optional?: boolean;
+};
+
+export type DockerJobMetadata = {
+  docker: {
+    image: string;
+    imagePullPolicy?: 'always' | 'ifNotPresent';
+    platform?: string | null;
+    entryPoint?: string[];
+    command?: string[];
+    args?: string[];
+    workingDirectory?: string | null;
+    workspaceMountPath?: string | null;
+    networkMode?: 'none' | 'bridge';
+    environment?: DockerJobEnvironmentVariable[];
+    configFile?: DockerJobConfigFileSpec | null;
+    inputs?: DockerJobInputDescriptor[];
+    outputs?: DockerJobOutputDescriptor[];
+  };
+} & Record<string, JsonValue>;
 
 export type JobDefinitionRecord = {
   id: string;

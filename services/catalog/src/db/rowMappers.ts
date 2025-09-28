@@ -1226,7 +1226,14 @@ export function mapServiceNetworkLaunchMemberRow(
 }
 
 export function mapJobDefinitionRow(row: JobDefinitionRow): JobDefinitionRecord {
-  const runtime: JobRuntime = row.runtime === 'python' ? 'python' : 'node';
+  let runtime: JobRuntime;
+  if (row.runtime === 'python') {
+    runtime = 'python';
+  } else if (row.runtime === 'docker') {
+    runtime = 'docker';
+  } else {
+    runtime = 'node';
+  }
   return {
     id: row.id,
     slug: row.slug,

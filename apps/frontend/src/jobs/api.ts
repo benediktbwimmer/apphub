@@ -34,7 +34,7 @@ export type JobDetailResponse = {
 };
 
 export type JobRuntimeStatus = {
-  runtime: 'node' | 'python';
+  runtime: 'node' | 'python' | 'docker';
   ready: boolean;
   reason: string | null;
   checkedAt: string;
@@ -175,7 +175,14 @@ export async function fetchJobRuntimeStatuses(fetcher: AuthorizedFetch): Promise
       continue;
     }
     const record = entry as Record<string, unknown>;
-    const runtime = record.runtime === 'python' ? 'python' : 'node';
+    const runtimeValue =
+      typeof record.runtime === 'string' ? record.runtime.trim().toLowerCase() : '';
+    const runtime: JobRuntimeStatus['runtime'] =
+      runtimeValue === 'python'
+        ? 'python'
+        : runtimeValue === 'docker'
+          ? 'docker'
+          : 'node';
     const ready = Boolean(record.ready);
     const reason = typeof record.reason === 'string' ? record.reason : null;
     const checkedAt = typeof record.checkedAt === 'string' ? record.checkedAt : new Date().toISOString();

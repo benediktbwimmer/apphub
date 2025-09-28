@@ -18,7 +18,7 @@ export type JobRunListItem = {
     name: string;
     version: number;
     type: string;
-    runtime: 'node' | 'python';
+    runtime: 'node' | 'python' | 'docker';
   };
 };
 
@@ -69,7 +69,14 @@ function normalizeJobRunListItem(entry: unknown): JobRunListItem | null {
   const name = typeof jobData.name === 'string' ? jobData.name : null;
   const version = typeof jobData.version === 'number' ? jobData.version : null;
   const type = typeof jobData.type === 'string' ? jobData.type : null;
-  const runtime = jobData.runtime === 'python' ? 'python' : jobData.runtime === 'node' ? 'node' : null;
+  const runtime =
+    jobData.runtime === 'python'
+      ? 'python'
+      : jobData.runtime === 'docker'
+        ? 'docker'
+        : jobData.runtime === 'node'
+          ? 'node'
+          : null;
   if (!slug || !id || !name || version === null || !type || !runtime) {
     return null;
   }

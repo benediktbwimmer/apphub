@@ -118,7 +118,7 @@ export default function JobCreateDialog({
   onCreated
 }: JobCreateDialogProps) {
   const runtimeStatusMap = useMemo(() => {
-    const map = new Map<'node' | 'python', JobRuntimeStatus>();
+    const map = new Map<JobRuntimeStatus['runtime'], JobRuntimeStatus>();
     for (const status of runtimeStatuses) {
       map.set(status.runtime, status);
     }

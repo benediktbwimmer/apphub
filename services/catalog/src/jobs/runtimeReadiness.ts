@@ -6,6 +6,7 @@ import type { JobRuntime } from '../db/types';
 import { logger } from '../observability/logger';
 import { resolveNodeSandboxEntrypoint } from './sandbox/runner';
 import { resolvePythonHarnessPath } from './sandbox/pythonRunner';
+import { isDockerRuntimeEnabled } from '../config/dockerRuntime';
 
 export type RuntimeReadiness = {
   runtime: JobRuntime;
@@ -143,9 +144,26 @@ async function checkPythonRuntime(): Promise<RuntimeReadiness> {
   }
 }
 
+async function checkDockerRuntime(): Promise<RuntimeReadiness> {
+  const enabled = isDockerRuntimeEnabled();
+  return {
+    runtime: 'docker',
+    ready: false,
+    reason: enabled
+      ? 'Docker job execution is not yet available in this build.'
+      : 'Docker job runtime is disabled.',
+    checkedAt: nowIso(),
+    details: { enabled }
+  } satisfies RuntimeReadiness;
+}
+
 async function computeRuntimeReadiness(): Promise<RuntimeReadiness[]> {
-  const [nodeStatus, pythonStatus] = await Promise.all([checkNodeRuntime(), checkPythonRuntime()]);
-  return [nodeStatus, pythonStatus];
+  const [nodeStatus, pythonStatus, dockerStatus] = await Promise.all([
+    checkNodeRuntime(),
+    checkPythonRuntime(),
+    checkDockerRuntime()
+  ]);
+  return [nodeStatus, pythonStatus, dockerStatus];
 }
 
 export async function getRuntimeReadiness(forceRefresh = false): Promise<RuntimeReadiness[]> {

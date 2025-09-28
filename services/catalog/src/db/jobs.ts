@@ -399,7 +399,14 @@ export async function listJobRuns(
 
     const mapped = rows.map((row) => {
       const run = mapJobRunRow(row);
-      const runtime: JobRuntime = row.job_runtime === 'python' ? 'python' : 'node';
+      let runtime: JobRuntime;
+      if (row.job_runtime === 'python') {
+        runtime = 'python';
+      } else if (row.job_runtime === 'docker') {
+        runtime = 'docker';
+      } else {
+        runtime = 'node';
+      }
       const type: JobType =
         row.job_type === 'service-triggered'
           ? 'service-triggered'
