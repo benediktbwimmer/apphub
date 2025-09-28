@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { after, before, test } from 'node:test';
+import { after, afterEach, before, test } from 'node:test';
 import EmbeddedPostgres from 'embedded-postgres';
 import { resetCachedServiceConfig } from '../src/config/serviceConfig';
 
@@ -17,6 +17,7 @@ let ingestionModule: typeof import('../src/ingestion/processor');
 let ingestionTypesModule: typeof import('../src/ingestion/types');
 let queryPlannerModule: typeof import('../src/query/planner');
 let queryExecutorModule: typeof import('../src/query/executor');
+let manifestCacheModule: typeof import('../src/cache/manifestCache');
 
 let postgres: EmbeddedPostgres | null = null;
 let dataDirectory: string | null = null;
@@ -69,11 +70,19 @@ before(async () => {
   ingestionTypesModule = await import('../src/ingestion/types');
   queryPlannerModule = await import('../src/query/planner');
   queryExecutorModule = await import('../src/query/executor');
+  manifestCacheModule = await import('../src/cache/manifestCache');
+  manifestCacheModule.__resetManifestCacheForTests();
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrations();
   await bootstrapModule.ensureDefaultStorageTarget();
   await seedDataset();
+});
+
+afterEach(() => {
+  if (manifestCacheModule) {
+    manifestCacheModule.__resetManifestCacheForTests();
+  }
 });
 
 after(async () => {
@@ -165,6 +174,57 @@ test('execute raw query over dataset partitions', async () => {
   assert.deepEqual(result.columns, ['timestamp', 'temperature_c', 'humidity_percent']);
   assert.equal(result.rows.length, 6);
   assert.equal(result.rows[0]?.timestamp, '2024-01-01T00:00:00.000Z');
+});
+
+test('query planner reflects manifest cache updates after ingestion', async () => {
+  const datasetSlug = 'observatory-cache';
+  await ingestObservationPartition({
+    datasetSlug,
+    datasetName: 'Observatory Cache',
+    partitionKey: { window: '2024-01-01', dataset: 'observatory' },
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T01:00:00.000Z'
+    },
+    rows: Array.from({ length: 4 }).map((_, index) => ({
+      timestamp: new Date(Date.UTC(2024, 0, 1, 0, index * 10)).toISOString(),
+      temperature_c: 24 + index,
+      humidity_percent: 58 - index
+    }))
+  });
+
+  const initialPlan = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T01:30:00.000Z'
+    },
+    timestampColumn: 'timestamp'
+  });
+  assert.equal(initialPlan.partitions.length, 1);
+
+  await ingestObservationPartition({
+    datasetSlug,
+    partitionKey: { window: '2024-01-01T01', dataset: 'observatory' },
+    timeRange: {
+      start: '2024-01-01T01:00:00.000Z',
+      end: '2024-01-01T02:00:00.000Z'
+    },
+    rows: Array.from({ length: 3 }).map((_, index) => ({
+      timestamp: new Date(Date.UTC(2024, 0, 1, 1, index * 10)).toISOString(),
+      temperature_c: 25 + index,
+      humidity_percent: 55 - index
+    }))
+  });
+
+  const planAfter = await queryPlannerModule.buildQueryPlan(datasetSlug, {
+    timeRange: {
+      start: '2024-01-01T00:00:00.000Z',
+      end: '2024-01-01T03:00:00.000Z'
+    },
+    timestampColumn: 'timestamp'
+  });
+
+  assert.equal(planAfter.partitions.length, 2);
 });
 
 test('execute downsampled query with aggregations', async () => {

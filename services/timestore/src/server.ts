@@ -13,6 +13,7 @@ import { closeLifecycleQueue } from './lifecycle/queue';
 import { timestoreMetricsPlugin } from './observability/metricsPlugin';
 import { setupTracing } from './observability/tracing';
 import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
+import { shutdownManifestCache } from './cache/manifestCache';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -41,6 +42,7 @@ async function start(): Promise<void> {
   app.addHook('onClose', async () => {
     await closePool();
     await closeLifecycleQueue();
+    await shutdownManifestCache();
     await shutdownFilestoreActivity();
   });
 

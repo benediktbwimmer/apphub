@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LifecycleAuditLogInput, PartitionWithTarget } from '../db/metadata';
-import { replacePartitionsInManifest } from '../db/metadata';
+import { replacePartitionsInManifest, getPartitionsWithTargetsForManifest } from '../db/metadata';
+import { refreshManifestCache } from '../cache/manifestCache';
 import { createDefaultRetentionPolicy, type RetentionPolicy } from './types';
 import type { LifecycleJobContext, LifecycleOperationExecutionResult } from './types';
 import { publishTimestoreEvent } from '../events/publisher';
@@ -89,6 +90,18 @@ export async function enforceRetention(
     summaryPatch,
     metadataPatch
   });
+
+  try {
+    const partitionsWithTargets = await getPartitionsWithTargetsForManifest(manifestAfterUpdate.id);
+    const { partitions: _cachedPartitions, ...manifestRecord } = manifestAfterUpdate;
+    await refreshManifestCache(
+      { id: context.dataset.id, slug: context.dataset.slug },
+      manifestRecord,
+      partitionsWithTargets
+    );
+  } catch (err) {
+    console.warn('[timestore] failed to refresh manifest cache after retention', err);
+  }
 
   const auditEvents: LifecycleAuditLogInput[] = [];
   let bytesDeleted = 0;

@@ -44,6 +44,10 @@ Environment variables control networking, storage, and database access:
 | `TIMESTORE_QUERY_CACHE_ENABLED` | Enable DuckDB local cache for remote partitions. | `true` |
 | `TIMESTORE_QUERY_CACHE_DIR` | Filesystem directory for cached remote partitions. | `<repo>/services/data/timestore/cache` |
 | `TIMESTORE_QUERY_CACHE_MAX_BYTES` | Upper bound for cached partition bytes. | `5368709120` |
+| `TIMESTORE_MANIFEST_CACHE_ENABLED` | Toggle Redis-backed manifest cache used by query planning. | `true` |
+| `TIMESTORE_MANIFEST_CACHE_REDIS_URL` | Override Redis connection for manifest cache (falls back to `REDIS_URL`). | `redis://127.0.0.1:6379` |
+| `TIMESTORE_MANIFEST_CACHE_KEY_PREFIX` | Redis key prefix for manifest cache entries. | `timestore:manifest` |
+| `TIMESTORE_MANIFEST_CACHE_TTL_SECONDS` | TTL applied to manifest cache entries and indexes. | `300` |
 | `TIMESTORE_LOG_LEVEL` | Pino log level for Fastify. | `info` |
 | `TIMESTORE_INGEST_QUEUE_NAME` | BullMQ queue name for ingestion jobs. | `timestore_ingest_queue` |
 | `TIMESTORE_INGEST_CONCURRENCY` | Worker concurrency when processing ingestion jobs. | `2` |
@@ -84,6 +88,10 @@ With filestore sync enabled the server starts a background consumer that subscri
 - `GET /admin/storage-targets` lists storage targets with optional kind filtering; `PUT /admin/datasets/:datasetId/storage-target` updates the default storage target for a dataset.
 - Administrative routes require the scope defined by `TIMESTORE_ADMIN_SCOPE` (or `TIMESTORE_REQUIRE_SCOPE` when unset) via the `x-iam-scopes` header.
 - Ingestion requests honour dataset write scopes and optionally accept `x-iam-user`/`x-user-id` headers for audit logging; when provided, the actor id is attached to audit logs.
+
+## Cache Maintenance
+- `npm run prime-cache --workspace @apphub/timestore` primes the manifest cache for all active datasets using current Redis configuration.
+- The script exits immediately when `TIMESTORE_MANIFEST_CACHE_ENABLED=false`, making it safe for environments that rely on inline caches.
 
 ## Testing
 - Run `npm run lint --workspace @apphub/timestore` to type-check the service.

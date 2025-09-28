@@ -12,7 +12,8 @@
     "lint": "tsc -b --pretty false",
     "lifecycle": "tsx src/workers/lifecycleWorker.ts",
     "ingest": "tsx src/workers/ingestionWorker.ts",
-    "test": "tsx tests/runE2E.ts"
+    "test": "tsx tests/runE2E.ts",
+    "prime-cache": "tsx src/tools/primeManifestCache.ts"
   },
   "dependencies": {
     "@apphub/shared": "0.1.1",

@@ -42,6 +42,14 @@ const cacheSchema = z.object({
   maxBytes: z.number().int().positive()
 });
 
+const manifestCacheSchema = z.object({
+  enabled: z.boolean(),
+  redisUrl: z.string().min(1),
+  keyPrefix: z.string().min(1),
+  ttlSeconds: z.number().int().positive(),
+  inline: z.boolean()
+});
+
 const metricsSchema = z.object({
   enabled: z.boolean(),
   collectDefaultMetrics: z.boolean(),
@@ -126,7 +134,8 @@ const configSchema = z.object({
     azure: azureSchema.optional()
   }),
   query: z.object({
-    cache: cacheSchema
+    cache: cacheSchema,
+    manifestCache: manifestCacheSchema
   }),
   sql: sqlSchema,
   lifecycle: lifecycleSchema,
@@ -222,6 +231,12 @@ export function loadServiceConfig(): ServiceConfig {
   const sqlMaxQueryLength = parseNumber(env.TIMESTORE_SQL_MAX_LENGTH, 10_000);
   const sqlStatementTimeoutMs = parseNumber(env.TIMESTORE_SQL_TIMEOUT_MS, 30_000);
   const sqlRuntimeCacheTtlMs = parseNumber(env.TIMESTORE_SQL_RUNTIME_CACHE_TTL_MS, 30_000);
+  const manifestCacheEnabled = parseBoolean(env.TIMESTORE_MANIFEST_CACHE_ENABLED, true);
+  const manifestCacheRedisUrl = env.TIMESTORE_MANIFEST_CACHE_REDIS_URL || env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const manifestCacheKeyPrefix = env.TIMESTORE_MANIFEST_CACHE_KEY_PREFIX || 'timestore:manifest';
+  const manifestCacheTtlSeconds = parseNumber(env.TIMESTORE_MANIFEST_CACHE_TTL_SECONDS, 300);
+  const manifestCacheInline = manifestCacheRedisUrl === 'inline';
+
   const lifecycleEnabled = parseBoolean(env.TIMESTORE_LIFECYCLE_ENABLED, true);
   const lifecycleQueueName = env.TIMESTORE_LIFECYCLE_QUEUE_NAME || 'timestore_lifecycle_queue';
   const lifecycleIntervalSeconds = parseNumber(env.TIMESTORE_LIFECYCLE_INTERVAL_SECONDS, 300);
@@ -309,6 +324,13 @@ export function loadServiceConfig(): ServiceConfig {
         enabled: queryCacheEnabled,
         directory: queryCacheDirectory,
         maxBytes: queryCacheMaxBytes > 0 ? queryCacheMaxBytes : 1 * 1024 * 1024
+      },
+      manifestCache: {
+        enabled: manifestCacheEnabled,
+        redisUrl: manifestCacheRedisUrl,
+        keyPrefix: manifestCacheKeyPrefix,
+        ttlSeconds: manifestCacheTtlSeconds > 0 ? manifestCacheTtlSeconds : 60,
+        inline: manifestCacheInline
       }
     },
     sql: {

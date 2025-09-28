@@ -13,6 +13,7 @@ import {
   getNextSchemaVersion,
   getSchemaVersionById,
   getStorageTargetById,
+  getPartitionsWithTargetsForManifest,
   recordIngestionBatch,
   updateDatasetDefaultStorageTarget,
   type DatasetRecord,
@@ -28,6 +29,7 @@ import { observeIngestionJob } from '../observability/metrics';
 import { publishTimestoreEvent } from '../events/publisher';
 import { endSpan, startSpan } from '../observability/tracing';
 import { invalidateSqlRuntimeCache } from '../sql/runtime';
+import { refreshManifestCache } from '../cache/manifestCache';
 import { deriveManifestShardKey } from '../service/manifestShard';
 import {
   analyzeSchemaCompatibility,
@@ -248,6 +250,18 @@ export async function processIngestionJob(
         idempotencyKey: payload.idempotencyKey,
         manifestId: manifest.id
       });
+    }
+
+    try {
+      const partitionsWithTargets = await getPartitionsWithTargetsForManifest(manifest.id);
+      const { partitions: _cachedPartitions, ...manifestRecord } = manifest;
+      await refreshManifestCache(
+        { id: dataset.id, slug: dataset.slug },
+        manifestRecord,
+        partitionsWithTargets
+      );
+    } catch (err) {
+      console.warn('[timestore] failed to refresh manifest cache after ingestion', err);
     }
 
     observeIngestionJob({

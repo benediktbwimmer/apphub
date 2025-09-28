@@ -17,9 +17,11 @@ import {
   getCompactionCheckpointByManifest,
   getSchemaVersionById,
   replacePartitionsInManifest,
+  getPartitionsWithTargetsForManifest,
   upsertCompactionCheckpoint,
   updateCompactionCheckpoint
 } from '../db/metadata';
+import { refreshManifestCache } from '../cache/manifestCache';
 import {
   createStorageDriver,
   resolvePartitionLocation,
@@ -705,6 +707,18 @@ async function processChunk(params: {
     summaryPatch,
     metadataPatch
   });
+
+  try {
+    const partitionsWithTargets = await getPartitionsWithTargetsForManifest(newManifest.id);
+    const { partitions: _cachedPartitions, ...manifestRecord } = newManifest;
+    await refreshManifestCache(
+      { id: context.dataset.id, slug: context.dataset.slug },
+      manifestRecord,
+      partitionsWithTargets
+    );
+  } catch (err) {
+    console.warn('[timestore] failed to refresh manifest cache after compaction', err);
+  }
 
   return {
     manifest: newManifest,

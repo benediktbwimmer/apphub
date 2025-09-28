@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   getDatasetBySlug,
   getSchemaVersionById,
-  listPublishedManifestsForRange,
-  listPartitionsForQuery,
-  type PartitionWithTarget,
   type DatasetRecord,
-  type StorageTargetRecord
+  type DatasetManifestRecord,
+  type StorageTargetRecord,
+  type PartitionWithTarget
 } from '../db/metadata';
+import { loadManifestPartitionsForQuery } from '../cache/manifestCache';
 import { loadServiceConfig, type ServiceConfig } from '../config/serviceConfig';
 import { resolvePartitionLocation } from '../storage';
 import {
@@ -80,16 +80,13 @@ export async function buildQueryPlan(
   }
 
   const config = loadServiceConfig();
-  const manifests = await listPublishedManifestsForRange(dataset.id, rangeStart, rangeEnd);
-  const shardKeys = Array.from(new Set(manifests.map((manifest) => manifest.manifestShard)));
-
-  const partitions = await listPartitionsForQuery(
-    dataset.id,
-    rangeStart,
-    rangeEnd,
-    request.filters ?? {},
-    { shards: shardKeys }
-  );
+  const filters = request.filters ?? {};
+  const cacheResult = await loadManifestPartitionsForQuery(dataset, rangeStart, rangeEnd, filters);
+  const manifests = cacheResult.manifests;
+  const shardKeys = cacheResult.shards.length > 0
+    ? cacheResult.shards
+    : Array.from(new Set(manifests.map((manifest) => manifest.manifestShard)));
+  const partitions = cacheResult.partitions;
 
   const planPartitions = partitions.map((partition, index) =>
     buildPlanPartition(partition, index, config)
@@ -120,7 +117,7 @@ export async function buildQueryPlan(
 }
 
 async function resolveSchemaFieldsForPlan(
-  manifests: Awaited<ReturnType<typeof listPublishedManifestsForRange>>
+  manifests: DatasetManifestRecord[]
 ): Promise<FieldDefinition[]> {
   const schemaVersionIds = manifests
     .map((manifest) => manifest.schemaVersionId)

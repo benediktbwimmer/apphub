@@ -46,6 +46,10 @@ export interface LifecycleOperationMetricsInput {
   bytes?: number;
 }
 
+export type ManifestCacheHitSource = 'memory' | 'redis';
+export type ManifestCacheMissReason = 'disabled' | 'index' | 'entry' | 'stale' | 'error';
+export type ManifestCacheEvictionReason = 'invalidate' | 'rebuild';
+
 export type LifecycleQueueCounts = Partial<Record<QueueState, number>>;
 
 export interface HttpMetricInput {
@@ -71,6 +75,9 @@ interface MetricsState {
   queryDurationSeconds: Histogram<string> | null;
   queryRowCount: Histogram<string> | null;
   queryRemotePartitions: Counter<string> | null;
+  manifestCacheHitsTotal: Counter<string> | null;
+  manifestCacheMissesTotal: Counter<string> | null;
+  manifestCacheEvictionsTotal: Counter<string> | null;
   lifecycleJobsTotal: Counter<string> | null;
   lifecycleDurationSeconds: Histogram<string> | null;
   lifecycleOperationsTotal: Counter<string> | null;
@@ -185,6 +192,33 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
       })
     : null;
 
+  const manifestCacheHitsTotal = enabled
+    ? new Counter({
+        name: `${prefix}manifest_cache_hits_total`,
+        help: 'Manifest cache hits grouped by source',
+        labelNames: ['source'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const manifestCacheMissesTotal = enabled
+    ? new Counter({
+        name: `${prefix}manifest_cache_misses_total`,
+        help: 'Manifest cache misses grouped by reason',
+        labelNames: ['reason'],
+        registers: registerMetrics
+      })
+    : null;
+
+  const manifestCacheEvictionsTotal = enabled
+    ? new Counter({
+        name: `${prefix}manifest_cache_evictions_total`,
+        help: 'Manifest cache eviction counts grouped by reason',
+        labelNames: ['reason'],
+        registers: registerMetrics
+      })
+    : null;
+
   const lifecycleJobsTotal = enabled
     ? new Counter({
         name: `${prefix}lifecycle_jobs_total`,
@@ -277,6 +311,9 @@ export function setupMetrics(options: MetricsOptions): MetricsState {
     queryDurationSeconds,
     queryRowCount,
     queryRemotePartitions,
+    manifestCacheHitsTotal,
+    manifestCacheMissesTotal,
+    manifestCacheEvictionsTotal,
     lifecycleJobsTotal,
     lifecycleDurationSeconds,
     lifecycleOperationsTotal,
@@ -344,6 +381,30 @@ export function observeQuery(input: QueryMetricsInput): void {
     const cacheFlag = input.cacheEnabled ? 'true' : 'false';
     state.queryRemotePartitions.labels(input.datasetSlug, cacheFlag).inc(input.remotePartitions);
   }
+}
+
+export function recordManifestCacheHit(source: ManifestCacheHitSource): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.manifestCacheHitsTotal) {
+    return;
+  }
+  state.manifestCacheHitsTotal.labels(source).inc();
+}
+
+export function recordManifestCacheMiss(reason: ManifestCacheMissReason): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.manifestCacheMissesTotal) {
+    return;
+  }
+  state.manifestCacheMissesTotal.labels(reason).inc();
+}
+
+export function recordManifestCacheEviction(reason: ManifestCacheEvictionReason): void {
+  const state = metricsState;
+  if (!state?.enabled || !state.manifestCacheEvictionsTotal) {
+    return;
+  }
+  state.manifestCacheEvictionsTotal.labels(reason).inc();
 }
 
 export function observeLifecycleJob(input: LifecycleMetricsInput): void {
