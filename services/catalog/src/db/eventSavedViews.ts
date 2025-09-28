@@ -214,7 +214,7 @@ async function fetchViewBySlug(
   const params: Array<string | boolean> = [slug, ownerKey];
   let query = 'SELECT * FROM event_saved_views WHERE slug = $1 AND owner_key = $2';
   if (includeShared) {
-    query = 'SELECT * FROM event_saved_views WHERE slug = $1 AND (owner_key = $2 OR visibility = \''shared\'')';
+    query = `SELECT * FROM event_saved_views WHERE slug = $1 AND (owner_key = $2 OR visibility = 'shared')`;
   }
   const { rows } = await client.query<EventSavedViewRow>(query, params);
   const row = rows[0];
@@ -462,10 +462,10 @@ export async function deleteEventSavedView(owner: EventSavedViewOwner, slug: str
   if (!normalizedSlug) {
     return false;
   }
-  const { rowCount } = await useConnection((client) =>
+  const result = await useConnection((client) =>
     client.query('DELETE FROM event_saved_views WHERE slug = $1 AND owner_key = $2', [normalizedSlug, owner.key])
   );
-  return rowCount > 0;
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function recordEventSavedViewApplied(slug: string): Promise<EventSavedViewRecord | null> {
@@ -633,3 +633,5 @@ export async function getEventSavedViewAnalytics(
     truncated: views.length === sampleLimit
   } satisfies EventSavedViewAnalytics;
 }
+
+export type { EventSavedViewRecord, EventSavedViewOwner } from './types';
