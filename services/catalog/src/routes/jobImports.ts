@@ -21,12 +21,18 @@ import {
 import { enqueueExampleBundleJob, type EnqueueExampleBundleResult } from '../queue';
 import type { ExampleBundleJobResult } from '../exampleBundleWorker';
 import type { ExampleBundleStatus } from '../exampleBundles/statusStore';
+import {
+  ensureLocalExampleBundleArtifactExists,
+  openLocalExampleBundleArtifact,
+  verifyLocalExampleBundleDownload
+} from '../exampleBundles/bundleStorage';
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { JOB_BUNDLE_WRITE_SCOPES, JOB_BUNDLE_READ_SCOPES } from './shared/scopes';
 import { publishBundleVersion } from '../jobs/registryService';
 import { extractSchemasFromBundleVersion } from '../jobs/schemaIntrospector';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import type { BundlePublishResult } from '../jobs/registryService';
+import type { ExampleBundleArtifactRecord } from '../db';
 
 const BASE64_DATA_PREFIX = /^data:[^;]+;base64,/i;
 
@@ -115,6 +121,12 @@ type ExampleBundleSummary = {
   filename: string | null;
   fingerprint: string | null;
   cached: boolean | null;
+  storageKind: string | null;
+  storageUrl: string | null;
+  downloadUrl: string | null;
+  downloadUrlExpiresAt: string | null;
+  size: number | null;
+  contentType: string | null;
   reference: string | null;
 };
 
@@ -355,6 +367,12 @@ function buildExampleBundleSummary(
   const filename = result?.filename ?? status?.filename ?? null;
   const fingerprint = result?.fingerprint ?? status?.fingerprint ?? null;
   const cachedFlag = result?.cached ?? status?.cached ?? null;
+  const storageKind = status?.storageKind ?? null;
+  const storageUrl = status?.storageUrl ?? null;
+  const downloadUrl = status?.downloadUrl ?? null;
+  const downloadUrlExpiresAt = status?.downloadUrlExpiresAt ?? null;
+  const size = status?.size ?? null;
+  const contentType = status?.contentType ?? null;
 
   if (!version && !checksum && !filename && !fingerprint && cachedFlag === null) {
     return null;
@@ -368,8 +386,52 @@ function buildExampleBundleSummary(
     filename,
     fingerprint,
     cached: cachedFlag,
+    storageKind,
+    storageUrl,
+    downloadUrl,
+    downloadUrlExpiresAt,
+    size,
+    contentType,
     reference
   } satisfies ExampleBundleSummary;
+}
+
+function toArtifactRecordFromStatus(status: ExampleBundleStatus): ExampleBundleArtifactRecord {
+  return {
+    id: status.artifactId ?? `${status.slug}-${status.fingerprint}`,
+    slug: status.slug,
+    fingerprint: status.fingerprint,
+    version: status.version ?? null,
+    checksum: status.checksum ?? '',
+    filename: status.filename ?? null,
+    storageKind: 'local',
+    storageKey: status.storageKey ?? '',
+    storageUrl: status.storageUrl ?? null,
+    contentType: status.contentType ?? null,
+    size: status.size ?? null,
+    jobId: status.jobId ?? null,
+    uploadedAt: status.artifactUploadedAt ?? status.updatedAt,
+    createdAt: status.artifactUploadedAt ?? status.createdAt
+  } satisfies ExampleBundleArtifactRecord;
+}
+
+function resolveDownloadFilename(candidate: string | undefined, status: ExampleBundleStatus): string {
+  const fallback = status.filename ?? `${status.slug}-${status.fingerprint}.tgz`;
+  if (!candidate) {
+    return fallback;
+  }
+  const base = path.basename(candidate);
+  const stem = path.extname(base) ? base.slice(0, -path.extname(base).length) : base;
+  const sanitizedStem = stem
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+  const fallbackExt = path.extname(fallback) || '.tgz';
+  const ext = path.extname(base);
+  const safeExt = ext && /^\.[a-zA-Z0-9]{1,10}$/.test(ext) ? ext.toLowerCase() : fallbackExt;
+  const safeStem = sanitizedStem.length > 0 ? sanitizedStem : path.basename(fallback, path.extname(fallback));
+  return `${safeStem}${safeExt}`;
 }
 
 function toExampleBundleJobResponse(
@@ -682,6 +744,83 @@ export async function registerJobImportRoutes(app: FastifyInstance): Promise<voi
         statuses
       }
     };
+  });
+
+  app.get('/examples/bundles/:slug/fingerprints/:fingerprint/download', async (request, reply) => {
+    const parseParams = z
+      .object({ slug: z.string().min(1), fingerprint: z.string().min(1) })
+      .safeParse(request.params);
+    if (!parseParams.success) {
+      reply.status(400);
+      return { error: parseParams.error.flatten() };
+    }
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'examples.download',
+      resource: 'examples',
+      requiredScopes: JOB_BUNDLE_READ_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseQuery = z
+      .object({
+        expires: z.string().min(1),
+        token: z.string().min(1),
+        filename: z.string().min(1).max(256).optional()
+      })
+      .safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const status = await getExampleBundleStatus(parseParams.data.slug);
+    if (!status || status.fingerprint !== parseParams.data.fingerprint) {
+      reply.status(404);
+      return { error: 'example bundle status not found' };
+    }
+
+    if (status.storageKind !== 'local' || !status.storageKey) {
+      reply.status(400);
+      return { error: 'only local storage bundles can be downloaded via this endpoint' };
+    }
+
+    const expiresAt = Number(parseQuery.data.expires);
+    if (!Number.isFinite(expiresAt)) {
+      reply.status(400);
+      return { error: 'invalid expires value' };
+    }
+
+    const artifactRecord = toArtifactRecordFromStatus(status);
+    if (!verifyLocalExampleBundleDownload(artifactRecord, parseQuery.data.token, expiresAt)) {
+      reply.status(403);
+      return { error: 'invalid or expired download token' };
+    }
+
+    try {
+      await ensureLocalExampleBundleArtifactExists(artifactRecord);
+      const stream = await openLocalExampleBundleArtifact(artifactRecord);
+      const filename = resolveDownloadFilename(parseQuery.data.filename, status);
+      if (status.size !== null) {
+        reply.header('Content-Length', String(status.size));
+      }
+      reply.header('Content-Type', status.contentType ?? 'application/octet-stream');
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+      reply.header('Cache-Control', 'no-store');
+      reply.status(200);
+      return reply.send(stream);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        reply.status(404);
+        return { error: 'example bundle artifact not found' };
+      }
+      request.log.error({ err, slug: status.slug, fingerprint: status.fingerprint }, 'Failed to stream example bundle artifact');
+      reply.status(500);
+      return { error: 'failed to stream example bundle artifact' };
+    }
   });
 
   app.post('/job-imports/example', async (request, reply) => {

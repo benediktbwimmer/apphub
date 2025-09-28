@@ -11,6 +11,7 @@ export * from './serviceHealth';
 export * from './services';
 export * from './jobs';
 export * from './jobBundles';
+export * from './exampleBundles';
 export * from './workflows';
 export * from './audit';
 export * from './workflowEvents';

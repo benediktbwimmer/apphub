@@ -1,33 +1,55 @@
-import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-import { promises as fs } from 'node:fs';
 import type {
   ExampleBundlerProgressStage,
   PackagedExampleBundle
 } from '@apphub/example-bundler';
+import {
+  getExampleBundleStatus as fetchExampleBundleStatusRecord,
+  listExampleBundleStatuses as fetchAllExampleBundleStatusRecords,
+  recordExampleBundleCompletion,
+  upsertExampleBundleStatus,
+  clearExampleBundleStatus as removeExampleBundleStatus
+} from '../db/exampleBundles';
+import type {
+  ExampleBundleArtifactRecord,
+  ExampleBundleState,
+  ExampleBundleStatusRecord
+} from '../db';
+import {
+  createExampleBundleDownloadUrl,
+  saveExampleBundleArtifact,
+  type ExampleBundleArtifactUpload,
+  type ExampleBundleDownloadInfo
+} from './bundleStorage';
 
-export type ExampleBundleState = 'queued' | 'running' | 'completed' | 'failed';
+export type ExampleBundleStateKind = ExampleBundleState;
 
 export type ExampleBundleStatus = {
   slug: string;
   fingerprint: string;
   stage: ExampleBundlerProgressStage;
-  state: ExampleBundleState;
-  jobId?: string;
-  version?: string;
-  checksum?: string;
-  filename?: string;
-  cached?: boolean;
-  error?: string | null;
-  message?: string | null;
-  updatedAt: string;
+  state: ExampleBundleStateKind;
+  jobId: string | null;
+  version: string | null;
+  checksum: string | null;
+  filename: string | null;
+  cached: boolean | null;
+  storageKind: string | null;
+  storageKey: string | null;
+  storageUrl: string | null;
+  contentType: string | null;
+  size: number | null;
+  artifactId: string | null;
+  artifactUploadedAt: string | null;
+  downloadUrl: string | null;
+  downloadUrlExpiresAt: string | null;
+  error: string | null;
+  message: string | null;
   createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
 };
 
-const statusDir = path.resolve(__dirname, '..', '..', 'data', 'example-bundles', 'status');
-const legacyStatusFile = path.resolve(__dirname, '..', '..', 'data', 'example-bundles', 'status.json');
-let legacyStatusMigrated = false;
-const statusQueues = new Map<string, Promise<void>>();
+const DEFAULT_FAILURE_MESSAGE = 'example bundle packaging failed';
 
 export async function recordProgress(
   slug: string,
@@ -39,248 +61,181 @@ export async function recordProgress(
     message?: string | null;
   } = {}
 ): Promise<ExampleBundleStatus> {
-  await migrateLegacyStatuses();
-  const normalizedSlug = slug.trim().toLowerCase();
-  return runWithStatusQueue(normalizedSlug, async () => {
-    const existing = await readStatus(normalizedSlug);
-    const state: ExampleBundleState =
-      stage === 'failed' ? 'failed' : stage === 'completed' ? 'completed' : stage === 'queued' ? 'queued' : 'running';
+  const normalizedSlug = normalizeSlug(slug);
+  const normalizedFingerprint = normalizeFingerprint(fingerprint);
+  const existing = await fetchExampleBundleStatusRecord(normalizedSlug);
+  const nextState = determineState(stage);
 
-    if (
-      existing &&
-      (existing.state === 'completed' || existing.state === 'failed') &&
-      state !== existing.state
-    ) {
-      return existing;
-    }
+  if (
+    existing &&
+    (existing.state === 'completed' || existing.state === 'failed') &&
+    nextState !== existing.state
+  ) {
+    return buildStatusView(existing);
+  }
 
-    const now = new Date().toISOString();
-    const createdAt = existing?.createdAt ?? now;
-
-    const status: ExampleBundleStatus = {
-      slug: normalizedSlug,
-      fingerprint,
-      stage,
-      state,
-      jobId: options.jobId ?? existing?.jobId,
-      version: existing?.version,
-      checksum: existing?.checksum,
-      filename: existing?.filename,
-      cached: existing?.cached,
-      error: stage === 'failed' ? options.error ?? 'example bundle packaging failed' : null,
-      message: options.message ?? existing?.message ?? null,
-      updatedAt: now,
-      createdAt
-    } satisfies ExampleBundleStatus;
-
-    await writeStatus(status);
-    return status;
+  const errorMessage = stage === 'failed' ? options.error ?? DEFAULT_FAILURE_MESSAGE : null;
+  const message = options.message ?? existing?.message ?? null;
+  const statusRecord = await upsertExampleBundleStatus({
+    slug: normalizedSlug,
+    fingerprint: normalizedFingerprint,
+    stage,
+    state: nextState,
+    jobId: options.jobId ?? existing?.jobId ?? null,
+    version: existing?.version ?? null,
+    checksum: existing?.checksum ?? null,
+    filename: existing?.filename ?? null,
+    cached: existing?.cached ?? null,
+    error: errorMessage,
+    message,
+    artifactId: existing?.artifactId ?? null,
+    completedAt: existing?.completedAt ?? null
   });
+
+  return buildStatusView(statusRecord);
 }
 
 export async function recordCompletion(
   result: PackagedExampleBundle,
-  options: { jobId?: string }
+  options: { jobId?: string } = {}
 ): Promise<ExampleBundleStatus> {
-  await migrateLegacyStatuses();
-  const normalizedSlug = result.slug.trim().toLowerCase();
-  return runWithStatusQueue(normalizedSlug, async () => {
-    const existing = await readStatus(normalizedSlug);
-    const now = new Date().toISOString();
+  const normalizedSlug = normalizeSlug(result.slug);
+  const normalizedFingerprint = normalizeFingerprint(result.fingerprint);
 
-    const status: ExampleBundleStatus = {
+  const artifactInput: ExampleBundleArtifactUpload = {
+    slug: normalizedSlug,
+    fingerprint: normalizedFingerprint,
+    version: result.version,
+    data: result.buffer,
+    checksum: result.checksum,
+    filename: result.filename,
+    contentType: result.contentType
+  } satisfies ExampleBundleArtifactUpload;
+
+  const artifactSave = await saveExampleBundleArtifact(artifactInput, { force: true });
+
+  const statusRecord = await recordExampleBundleCompletion(
+    {
       slug: normalizedSlug,
-      fingerprint: result.fingerprint,
+      fingerprint: normalizedFingerprint,
       stage: 'completed',
       state: 'completed',
-      jobId: options.jobId ?? existing?.jobId,
+      jobId: options.jobId ?? null,
       version: result.version,
-      checksum: result.checksum,
+      checksum: artifactSave.checksum,
       filename: result.filename,
       cached: result.cached,
       error: null,
-      message: null,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now
-    } satisfies ExampleBundleStatus;
+      message: null
+    },
+    {
+      slug: normalizedSlug,
+      fingerprint: normalizedFingerprint,
+      version: result.version,
+      checksum: artifactSave.checksum,
+      filename: result.filename,
+      storageKind: artifactSave.storageKind,
+      storageKey: artifactSave.storageKey,
+      storageUrl: artifactSave.storageUrl,
+      contentType: artifactSave.contentType,
+      size: artifactSave.size,
+      jobId: options.jobId ?? null
+    }
+  );
 
-    await writeStatus(status);
-    return status;
-  });
+  return buildStatusView(statusRecord);
 }
 
 export async function listStatuses(): Promise<ExampleBundleStatus[]> {
-  await migrateLegacyStatuses();
-  const statuses = await readAllStatuses();
-  return statuses.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const records = await fetchAllExampleBundleStatusRecords();
+  return Promise.all(records.map((record) => buildStatusView(record)));
 }
 
 export async function getStatus(slug: string): Promise<ExampleBundleStatus | null> {
-  await migrateLegacyStatuses();
-  const normalizedSlug = slug.trim().toLowerCase();
-  return readStatus(normalizedSlug);
+  const normalizedSlug = normalizeSlug(slug);
+  if (!normalizedSlug) {
+    return null;
+  }
+  const record = await fetchExampleBundleStatusRecord(normalizedSlug);
+  if (!record) {
+    return null;
+  }
+  return buildStatusView(record);
 }
 
 export async function clearStatus(slug: string): Promise<void> {
-  await migrateLegacyStatuses();
-  const normalizedSlug = slug.trim().toLowerCase();
-  await runWithStatusQueue(normalizedSlug, async () => {
-    await deleteStatus(normalizedSlug);
-  });
-}
-
-async function migrateLegacyStatuses(): Promise<void> {
-  if (legacyStatusMigrated) {
+  const normalizedSlug = normalizeSlug(slug);
+  if (!normalizedSlug) {
     return;
   }
-  legacyStatusMigrated = true;
-
-  if (!(await fileExists(legacyStatusFile))) {
-    return;
-  }
-
-  let legacyMap: Record<string, ExampleBundleStatus> | null = null;
-  try {
-    const raw = await fs.readFile(legacyStatusFile, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, ExampleBundleStatus>;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      legacyMap = parsed;
-    }
-  } catch (err) {
-    console.warn('[example-bundles] Failed to read legacy status map', err);
-  }
-
-  if (!legacyMap) {
-    await fs.rm(legacyStatusFile, { force: true }).catch(() => {});
-    return;
-  }
-
-  for (const entry of Object.values(legacyMap)) {
-    if (!entry || typeof entry.slug !== 'string') {
-      continue;
-    }
-    const normalizedSlug = entry.slug.trim().toLowerCase();
-    if (!normalizedSlug) {
-      continue;
-    }
-    const status: ExampleBundleStatus = {
-      ...entry,
-      slug: normalizedSlug
-    };
-    await writeStatus(status);
-  }
-
-  await fs.rm(legacyStatusFile, { force: true }).catch(() => {});
+  await removeExampleBundleStatus(normalizedSlug);
 }
 
-async function readStatus(slug: string): Promise<ExampleBundleStatus | null> {
-  if (!slug) {
-    return null;
+function determineState(stage: ExampleBundlerProgressStage): ExampleBundleState {
+  if (stage === 'failed') {
+    return 'failed';
   }
-  const filePath = buildStatusPath(slug);
-  try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(raw) as ExampleBundleStatus;
-    if (!parsed || typeof parsed !== 'object') {
-      return null;
-    }
-    return {
-      ...parsed,
-      slug: slug
-    } satisfies ExampleBundleStatus;
-  } catch (err) {
-    if (isErrnoException(err) && err.code === 'ENOENT') {
-      return null;
-    }
-    throw err;
+  if (stage === 'completed') {
+    return 'completed';
   }
+  if (stage === 'queued') {
+    return 'queued';
+  }
+  return 'running';
 }
 
-async function readAllStatuses(): Promise<ExampleBundleStatus[]> {
-  try {
-    const entries = await fs.readdir(statusDir, { withFileTypes: true });
-    const statuses: ExampleBundleStatus[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.json')) {
-        continue;
-      }
-      const slug = entry.name.slice(0, -5);
-      const status = await readStatus(slug);
-      if (status) {
-        statuses.push(status);
-      }
+async function buildStatusView(record: ExampleBundleStatusRecord): Promise<ExampleBundleStatus> {
+  const artifact = record.artifact ?? null;
+  let download: ExampleBundleDownloadInfo | null = null;
+  if (artifact) {
+    try {
+      download = await createExampleBundleDownloadUrl(artifact, {
+        filename: record.filename ?? artifact.filename ?? null
+      });
+    } catch (err) {
+      console.warn('[example-bundles] Failed to create download URL', err);
+      download = null;
     }
-    return statuses;
-  } catch (err) {
-    if (isErrnoException(err) && err.code === 'ENOENT') {
-      return [];
-    }
-    throw err;
   }
+  return mapStatusRecord(record, artifact, download);
 }
 
-async function writeStatus(status: ExampleBundleStatus): Promise<void> {
-  if (!status.slug) {
-    return;
-  }
-  await ensureStatusDir();
-  const filePath = buildStatusPath(status.slug);
-  const payload = {
-    ...status,
-    slug: status.slug
+function mapStatusRecord(
+  record: ExampleBundleStatusRecord,
+  artifact: ExampleBundleArtifactRecord | null,
+  download: ExampleBundleDownloadInfo | null
+): ExampleBundleStatus {
+  return {
+    slug: record.slug,
+    fingerprint: record.fingerprint,
+    stage: record.stage,
+    state: record.state,
+    jobId: record.jobId,
+    version: record.version ?? null,
+    checksum: record.checksum ?? null,
+    filename: record.filename ?? null,
+    cached: record.cached ?? null,
+    storageKind: artifact?.storageKind ?? null,
+    storageKey: artifact?.storageKey ?? null,
+    storageUrl: artifact?.storageUrl ?? null,
+    contentType: artifact?.contentType ?? null,
+    size: artifact?.size ?? null,
+    artifactId: record.artifactId,
+    artifactUploadedAt: artifact?.uploadedAt ?? null,
+    downloadUrl: download?.url ?? null,
+    downloadUrlExpiresAt: download ? new Date(download.expiresAt).toISOString() : null,
+    error: record.error ?? null,
+    message: record.message ?? null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt
   } satisfies ExampleBundleStatus;
-  const contents = `${JSON.stringify(payload, null, 2)}\n`;
-  const tempPath = `${filePath}.${randomUUID()}.tmp`;
-  await fs.writeFile(tempPath, contents, 'utf8');
-  try {
-    await fs.rename(tempPath, filePath);
-  } catch (err) {
-    // Fall back to copy + unlink if rename fails (e.g. cross-device edge cases)
-    await fs.copyFile(tempPath, filePath);
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-  }
 }
 
-async function runWithStatusQueue<T>(slug: string, task: () => Promise<T>): Promise<T> {
-  const previous = statusQueues.get(slug) ?? Promise.resolve();
-  let release: (() => void) | undefined;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  statusQueues.set(slug, previous.then(() => next));
-  await previous;
-  try {
-    return await task();
-  } finally {
-    release?.();
-    if (statusQueues.get(slug) === next) {
-      statusQueues.delete(slug);
-    }
-  }
+function normalizeSlug(value: string): string {
+  return value ? value.trim().toLowerCase() : '';
 }
 
-async function deleteStatus(slug: string): Promise<void> {
-  const filePath = buildStatusPath(slug);
-  await fs.rm(filePath, { force: true }).catch(() => {});
-}
-
-async function ensureStatusDir(): Promise<void> {
-  await fs.mkdir(statusDir, { recursive: true });
-}
-
-function buildStatusPath(slug: string): string {
-  return path.join(statusDir, `${slug}.json`);
-}
-
-async function fileExists(targetPath: string): Promise<boolean> {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isErrnoException(value: unknown): value is NodeJS.ErrnoException {
-  return Boolean(value && typeof value === 'object' && 'code' in value);
+function normalizeFingerprint(value: string): string {
+  return value ? value.trim() : '';
 }

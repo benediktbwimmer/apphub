@@ -1,4 +1,5 @@
 import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
+import type { ExampleBundlerProgressStage } from '@apphub/example-bundler';
 import type { WorkflowEventCursorPayload } from '@apphub/shared/catalogEvents';
 import type {
   EventSavedViewAnalytics as SharedEventSavedViewAnalytics,
@@ -702,6 +703,46 @@ export type JobBundlePublishInput = {
 export type JobBundleVersionUpdateInput = {
   deprecated?: boolean;
   metadata?: JsonValue | null;
+};
+
+export type ExampleBundleStorageKind = JobBundleStorageKind;
+
+export type ExampleBundleState = 'queued' | 'running' | 'completed' | 'failed';
+
+export type ExampleBundleArtifactRecord = {
+  id: string;
+  slug: string;
+  fingerprint: string;
+  version: string | null;
+  checksum: string;
+  filename: string | null;
+  storageKind: ExampleBundleStorageKind;
+  storageKey: string;
+  storageUrl: string | null;
+  contentType: string | null;
+  size: number | null;
+  jobId: string | null;
+  uploadedAt: string;
+  createdAt: string;
+};
+
+export type ExampleBundleStatusRecord = {
+  slug: string;
+  fingerprint: string;
+  stage: ExampleBundlerProgressStage;
+  state: ExampleBundleState;
+  jobId: string | null;
+  version: string | null;
+  checksum: string | null;
+  filename: string | null;
+  cached: boolean | null;
+  error: string | null;
+  message: string | null;
+  artifactId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  artifact: ExampleBundleArtifactRecord | null;
 };
 
 export type WorkflowTriggerScheduleDefinition = {

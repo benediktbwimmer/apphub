@@ -146,6 +146,41 @@ export type ServiceHealthSnapshotRow = {
   updated_at: string;
 };
 
+export type ExampleBundleArtifactRow = {
+  id: string;
+  slug: string;
+  fingerprint: string;
+  version: string | null;
+  checksum: string;
+  filename: string | null;
+  storage_kind: string;
+  storage_key: string;
+  storage_url: string | null;
+  content_type: string | null;
+  size: number | null;
+  job_id: string | null;
+  uploaded_at: string;
+  created_at: string;
+};
+
+export type ExampleBundleStatusRow = {
+  slug: string;
+  fingerprint: string;
+  stage: string;
+  state: string;
+  job_id: string | null;
+  version: string | null;
+  checksum: string | null;
+  filename: string | null;
+  cached: boolean | null;
+  error: string | null;
+  message: string | null;
+  artifact_id: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ServiceRow = {
   id: string;
   slug: string;

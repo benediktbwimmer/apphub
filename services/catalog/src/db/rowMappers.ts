@@ -1,5 +1,6 @@
 import type { ResolvedManifestEnvVar } from '../serviceManifestTypes';
 import type { WorkflowEventSeverity } from '@apphub/shared/catalogEvents';
+import type { ExampleBundlerProgressStage } from '@apphub/example-bundler';
 import {
   type BuildRecord,
   type IngestStatus,
@@ -65,7 +66,10 @@ import {
   type EventIngressRetryRecord,
   type EventSavedViewRecord,
   type EventSavedViewFilters,
-  type EventSavedViewVisibility
+  type EventSavedViewVisibility,
+  type ExampleBundleArtifactRecord,
+  type ExampleBundleState,
+  type ExampleBundleStatusRecord
 } from './types';
 import type {
   BuildRow,
@@ -99,7 +103,9 @@ import type {
   EventIngressRetryRow,
   EventSavedViewRow,
   ServiceManifestRow,
-  ServiceHealthSnapshotRow
+  ServiceHealthSnapshotRow,
+  ExampleBundleArtifactRow,
+  ExampleBundleStatusRow
 } from './rowTypes';
 import type {
   ServiceRecord,
@@ -1362,6 +1368,34 @@ function normalizeJobBundleVersionStatus(value: string): JobBundleVersionStatus 
   return 'published';
 }
 
+const EXAMPLE_BUNDLE_STAGES = new Set<ExampleBundlerProgressStage>([
+  'queued',
+  'resolving',
+  'cache-hit',
+  'installing-dependencies',
+  'packaging',
+  'completed',
+  'failed'
+]);
+
+const EXAMPLE_BUNDLE_STATES = new Set<ExampleBundleState>(['queued', 'running', 'completed', 'failed']);
+
+function normalizeExampleBundleStage(value: string): ExampleBundlerProgressStage {
+  const candidate = value as ExampleBundlerProgressStage;
+  if (EXAMPLE_BUNDLE_STAGES.has(candidate)) {
+    return candidate;
+  }
+  return 'queued';
+}
+
+function normalizeExampleBundleState(value: string): ExampleBundleState {
+  const lower = value.toLowerCase();
+  if (EXAMPLE_BUNDLE_STATES.has(lower as ExampleBundleState)) {
+    return lower as ExampleBundleState;
+  }
+  return 'queued';
+}
+
 function parseNumericValue(value: string | number | null): number | null {
   if (value === null || value === undefined) {
     return null;
@@ -1411,6 +1445,50 @@ export function mapJobBundleVersionRow(row: JobBundleVersionRow): JobBundleVersi
     createdAt: row.created_at,
     updatedAt: row.updated_at
   } satisfies JobBundleVersionRecord;
+}
+
+export function mapExampleBundleArtifactRow(row: ExampleBundleArtifactRow): ExampleBundleArtifactRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    fingerprint: row.fingerprint,
+    version: row.version ?? null,
+    checksum: row.checksum,
+    filename: row.filename ?? null,
+    storageKind: normalizeJobBundleStorageKind(row.storage_kind),
+    storageKey: row.storage_key,
+    storageUrl: row.storage_url ?? null,
+    contentType: row.content_type ?? null,
+    size: parseNumericValue(row.size),
+    jobId: row.job_id ?? null,
+    uploadedAt: row.uploaded_at,
+    createdAt: row.created_at
+  } satisfies ExampleBundleArtifactRecord;
+}
+
+export function mapExampleBundleStatusRow(
+  row: ExampleBundleStatusRow,
+  artifactRow?: ExampleBundleArtifactRow | null
+): ExampleBundleStatusRecord {
+  const artifact = artifactRow ? mapExampleBundleArtifactRow(artifactRow) : null;
+  return {
+    slug: row.slug,
+    fingerprint: row.fingerprint,
+    stage: normalizeExampleBundleStage(row.stage),
+    state: normalizeExampleBundleState(row.state),
+    jobId: row.job_id ?? null,
+    version: row.version ?? null,
+    checksum: row.checksum ?? null,
+    filename: row.filename ?? null,
+    cached: row.cached === null || row.cached === undefined ? null : Boolean(row.cached),
+    error: row.error ?? null,
+    message: row.message ?? null,
+    artifactId: artifact?.id ?? row.artifact_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at ?? null,
+    artifact
+  } satisfies ExampleBundleStatusRecord;
 }
 
 function parseJsonColumn(value: unknown): JsonValue | null {

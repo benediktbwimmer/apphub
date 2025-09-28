@@ -54,6 +54,10 @@ The API listens on `http://localhost:4000` by default and serves:
 
 Metadata persists in PostgreSQL. By default the API connects to `postgres://apphub:apphub@127.0.0.1:5432/apphub`; set `DATABASE_URL` if you run Postgres elsewhere. Create the database before starting the service (for example, `createdb apphub && psql -d apphub -c "CREATE ROLE apphub WITH LOGIN PASSWORD 'apphub'; GRANT ALL PRIVILEGES ON DATABASE apphub TO apphub;"`).
 
+#### Example Bundle Storage
+
+Example bundle packaging now stores status records in PostgreSQL and pushes bundle archives to an S3-compatible object store. Set the `APPHUB_BUNDLE_STORAGE_*` variables before starting the catalog service. For local smoke tests you can keep `APPHUB_BUNDLE_STORAGE_BACKEND=local`, but multi-replica setups (including minikube) should point to MinIO or AWS S3. See [`docs/example-bundle-storage.md`](docs/example-bundle-storage.md) for a configuration walkthrough and migration instructions.
+
 ### Metastore Service
 
 ```bash

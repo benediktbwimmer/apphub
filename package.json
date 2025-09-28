@@ -33,6 +33,7 @@
     "obs:event:config": "tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts",
     "obs:event:triggers": "tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts",
     "backfill:service-registry": "npm run backfill:service-registry --workspace @apphub/catalog",
+    "migrate:example-bundles": "npm run migrate:example-bundles --workspace @apphub/catalog",
     "test:ui": "npm run test:ui --workspace @apphub/frontend"
   },
   "devDependencies": {

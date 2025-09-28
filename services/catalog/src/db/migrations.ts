@@ -1089,6 +1089,49 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_service_health_snapshots_checked
          ON service_health_snapshots(service_slug, checked_at DESC);`
     ]
+  },
+  {
+    id: '036_example_bundle_durable_storage',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS example_bundle_artifacts (
+         id TEXT PRIMARY KEY,
+         slug TEXT NOT NULL,
+         fingerprint TEXT NOT NULL,
+         version TEXT,
+         checksum TEXT NOT NULL,
+         filename TEXT,
+         storage_kind TEXT NOT NULL CHECK (storage_kind IN ('local', 's3')),
+         storage_key TEXT NOT NULL,
+         storage_url TEXT,
+         content_type TEXT,
+         size BIGINT,
+         job_id TEXT,
+         uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         UNIQUE (slug, fingerprint)
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_example_bundle_artifacts_slug_uploaded
+         ON example_bundle_artifacts(slug, uploaded_at DESC);`,
+      `CREATE TABLE IF NOT EXISTS example_bundle_status (
+         slug TEXT PRIMARY KEY,
+         fingerprint TEXT NOT NULL,
+         stage TEXT NOT NULL,
+         state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed')),
+         job_id TEXT,
+         version TEXT,
+         checksum TEXT,
+         filename TEXT,
+         cached BOOLEAN,
+         error TEXT,
+         message TEXT,
+         artifact_id TEXT REFERENCES example_bundle_artifacts(id) ON DELETE SET NULL,
+         completed_at TIMESTAMPTZ,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_example_bundle_status_updated
+         ON example_bundle_status(updated_at DESC);`
+    ]
   }
 ];
 

@@ -1,4 +1,6 @@
 import { Buffer } from 'node:buffer';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import WebSocket, { type RawData } from 'ws';
 import { computeRunMetrics } from '../observability/metrics';
@@ -30,6 +32,11 @@ import {
 } from '@apphub/shared/catalogEvents';
 import type { FilestoreEvent } from '@apphub/shared/filestoreEvents';
 import { buildWorkflowEventView } from '../workflowEventInsights';
+
+const LEGACY_EXAMPLE_DATA_ROOT = path.resolve(__dirname, '..', '..', 'data', 'example-bundles');
+const LEGACY_STATUS_DIR = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'status');
+const LEGACY_STATUS_FILE = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'status.json');
+const LEGACY_ARTIFACTS_DIR = path.join(LEGACY_EXAMPLE_DATA_ROOT, 'artifacts');
 
 type WorkflowAnalyticsSnapshotData = Extract<
   ApphubEvent,
@@ -243,7 +250,13 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', async () => {
+    const warnings = await detectLegacyExampleBundleData();
+    return {
+      status: warnings.length > 0 ? 'warn' : 'ok',
+      warnings
+    };
+  });
 
   app.get('/metrics', async (request, reply) => {
     try {
@@ -256,4 +269,58 @@ export async function registerCoreRoutes(app: FastifyInstance): Promise<void> {
       return { error: 'Failed to compute metrics' };
     }
   });
+}
+
+async function detectLegacyExampleBundleData(): Promise<string[]> {
+  const warnings: string[] = [];
+
+  if (await fileExists(LEGACY_STATUS_FILE) || (await directoryHasJsonFiles(LEGACY_STATUS_DIR))) {
+    warnings.push(
+      'Legacy example bundle status files detected under services/catalog/data/example-bundles. Run npm run migrate:example-bundles and remove leftover files.'
+    );
+  }
+
+  if (await directoryHasEntries(LEGACY_ARTIFACTS_DIR)) {
+    warnings.push(
+      'Legacy example bundle artifacts detected under services/catalog/data/example-bundles/artifacts. Remove them after migration to avoid drift.'
+    );
+  }
+
+  return warnings;
+}
+
+async function directoryHasJsonFiles(targetDir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(targetDir, { withFileTypes: true });
+    return entries.some((entry) => entry.isFile() && entry.name.endsWith('.json'));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function directoryHasEntries(targetDir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(targetDir, { withFileTypes: true });
+    return entries.some((entry) => !(entry.name.startsWith('.') && entry.isFile()));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function fileExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
 }
