@@ -479,6 +479,84 @@ export async function patchRecord(
   return updated;
 }
 
+export type RestoreRecordInput = {
+  namespace: string;
+  key: string;
+  snapshot: {
+    metadata: Record<string, unknown> | null;
+    tags: string[] | null;
+    owner: string | null;
+    schemaHash: string | null;
+  };
+  expectedVersion?: number;
+  actor?: string | null;
+};
+
+export async function restoreRecordFromAudit(
+  client: PoolClient,
+  input: RestoreRecordInput
+): Promise<MetastoreRecord | null> {
+  const previous = await selectForUpdate(client, input.namespace, input.key, {
+    includeDeleted: true
+  });
+
+  if (!previous) {
+    return null;
+  }
+
+  if (typeof input.expectedVersion === 'number' && previous.version !== input.expectedVersion) {
+    throw new OptimisticLockError('Version mismatch while restoring metastore record');
+  }
+
+  const snapshotMetadata = input.snapshot.metadata;
+  const metadataObject =
+    snapshotMetadata && typeof snapshotMetadata === 'object' && !Array.isArray(snapshotMetadata)
+      ? (snapshotMetadata as Record<string, unknown>)
+      : {};
+  const metadata = normalizeMetadata(metadataObject);
+
+  const snapshotTags = Array.isArray(input.snapshot.tags)
+    ? input.snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
+  const tags = normalizeTags(snapshotTags);
+
+  const owner = typeof input.snapshot.owner === 'string' ? input.snapshot.owner : null;
+  const schemaHash = typeof input.snapshot.schemaHash === 'string' ? input.snapshot.schemaHash : null;
+  const actor = input.actor ?? null;
+
+  const result = await client.query<MetastoreRecordRow>(
+    `UPDATE metastore_records
+        SET metadata = $1::jsonb,
+            tags = $2::text[],
+            owner = $3,
+            schema_hash = $4,
+            deleted_at = NULL,
+            updated_at = NOW(),
+            updated_by = $5,
+            version = version + 1
+      WHERE namespace = $6
+        AND record_key = $7
+      RETURNING *`,
+    [
+      JSON.stringify(metadata),
+      tags,
+      owner,
+      schemaHash,
+      actor,
+      input.namespace,
+      input.key
+    ]
+  );
+
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error('Failed to restore metastore record');
+  }
+
+  const restored = toRecord(result.rows[0]);
+  await writeAuditEntry({ client, action: 'restore', record: restored, previousRecord: previous, actor });
+  return restored;
+}
+
 export type UpsertResult = {
   record: MetastoreRecord | null;
   created: boolean;

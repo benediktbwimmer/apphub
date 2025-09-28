@@ -400,6 +400,7 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(fetchDeleted.statusCode, 200, fetchDeleted.body);
   const deletedBody = fetchDeleted.json() as { record: { deletedAt: string | null; version: number } };
   assert.ok(deletedBody.record.deletedAt);
+  let deletedVersion = deletedBody.record.version;
 
   const presetSearchResponse = await app.inject({
     method: 'POST',
@@ -425,16 +426,126 @@ runE2E(async ({ registerCleanup }) => {
   assert.equal(auditResponse.statusCode, 200, auditResponse.body);
   const auditBody = auditResponse.json() as {
     pagination: { total: number };
-    entries: Array<{ action: string }>;
+    entries: Array<{
+      id: number;
+      action: string;
+      metadata: Record<string, unknown> | null;
+      previousMetadata: Record<string, unknown> | null;
+      tags: string[] | null;
+      previousTags: string[] | null;
+      version: number | null;
+    }>;
   };
   assert.ok(auditBody.pagination.total >= 1);
   assert.ok(auditBody.entries.some((entry) => entry.action === 'delete'));
+
+  const restoreSource = auditBody.entries.find(
+    (entry) => entry.action === 'update' && (entry.metadata?.status as string | undefined) === 'retired'
+  );
+  assert.ok(restoreSource, 'expected update audit entry for bulk upsert');
+
+  const diffResponse = await app.inject({
+    method: 'GET',
+    url: `/records/analytics/pipeline-1/audit/${restoreSource!.id}/diff`
+  });
+  assert.equal(diffResponse.statusCode, 200, diffResponse.body);
+  const diffBody = diffResponse.json() as {
+    audit: { id: number; action: string };
+    metadata: {
+      added: Array<{ path: string }>;
+      removed: Array<{ path: string; value: Record<string, unknown> | null }>;
+      changed: Array<{ path: string; before: unknown; after: unknown }>;
+    };
+    tags: { added: string[]; removed: string[] };
+    owner: { changed: boolean; before: string | null; after: string | null };
+    schemaHash: { changed: boolean };
+    snapshots: {
+      current: { metadata: Record<string, unknown> | null; tags: string[] };
+      previous: { metadata: Record<string, unknown> | null; tags: string[] };
+    };
+  };
+  assert.equal(diffBody.audit.id, restoreSource!.id);
+  const statusChange = diffBody.metadata.changed.find((change) => change.path === 'status');
+  assert.ok(statusChange, 'expected metadata status diff');
+  assert.equal(statusChange?.before, 'active');
+  assert.equal(statusChange?.after, 'retired');
+  assert.ok(diffBody.metadata.removed.some((entry) => entry.path === 'thresholds'));
+  assert.deepEqual(diffBody.tags.added, []);
+  assert.deepEqual(diffBody.tags.removed, ['patched']);
+  assert.equal(diffBody.owner.changed, false);
+  assert.equal(diffBody.schemaHash.changed, false);
+  assert.equal(diffBody.snapshots.current.metadata?.status, 'retired');
+  assert.ok(diffBody.snapshots.previous.metadata);
+
+  const restoreResponse = await app.inject({
+    method: 'POST',
+    url: '/records/analytics/pipeline-1/restore',
+    payload: {
+      auditId: restoreSource!.id,
+      expectedVersion: deletedVersion
+    }
+  });
+  assert.equal(restoreResponse.statusCode, 200, restoreResponse.body);
+  const restoreBody = restoreResponse.json() as {
+    restored: boolean;
+    record: {
+      metadata: Record<string, unknown>;
+      tags: string[];
+      deletedAt: string | null;
+      version: number;
+    };
+    restoredFrom: { auditId: number };
+  };
+  assert.equal(restoreBody.restored, true);
+  assert.equal(restoreBody.restoredFrom.auditId, restoreSource!.id);
+  assert.equal(restoreBody.record.metadata.status, 'retired');
+  assert.equal(Array.isArray(restoreBody.record.tags), true);
+  assert.deepEqual(restoreBody.record.tags.sort(), ['pipelines']);
+  assert.equal(restoreBody.record.deletedAt, null);
+
+  const postRestoreFetch = await app.inject({
+    method: 'GET',
+    url: '/records/analytics/pipeline-1'
+  });
+  assert.equal(postRestoreFetch.statusCode, 200, postRestoreFetch.body);
+  const postRestoreBody = postRestoreFetch.json() as {
+    record: { metadata: Record<string, unknown>; deletedAt: string | null; version: number };
+  };
+  assert.equal(postRestoreBody.record.metadata.status, 'retired');
+  assert.equal(postRestoreBody.record.deletedAt, null);
+
+  const deleteAfterRestore = await app.inject({
+    method: 'DELETE',
+    url: '/records/analytics/pipeline-1',
+    payload: {
+      expectedVersion: restoreBody.record.version
+    }
+  });
+  assert.equal(deleteAfterRestore.statusCode, 200, deleteAfterRestore.body);
+  const deleteAfterBody = deleteAfterRestore.json() as {
+    deleted: boolean;
+    record: { version: number; deletedAt: string | null };
+  };
+  assert.equal(deleteAfterBody.deleted, true);
+  assert.ok(deleteAfterBody.record.deletedAt);
+  deletedVersion = deleteAfterBody.record.version;
+
+  const fetchAfterRestoreDelete = await app.inject({
+    method: 'GET',
+    url: '/records/analytics/pipeline-1?includeDeleted=true'
+  });
+  assert.equal(fetchAfterRestoreDelete.statusCode, 200, fetchAfterRestoreDelete.body);
+  const afterRestoreDeletedBody = fetchAfterRestoreDelete.json() as {
+    record: { deletedAt: string | null; version: number };
+  };
+  assert.ok(afterRestoreDeletedBody.record.deletedAt);
+  assert.equal(afterRestoreDeletedBody.record.version, deletedVersion);
 
   const purgeResponse = await app.inject({
     method: 'DELETE',
     url: '/records/analytics/pipeline-1/purge',
     payload: {
-      expectedVersion: deletedBody.record.version
+      expectedVersion: deletedVersion
     }
   });
   assert.equal(purgeResponse.statusCode, 200, purgeResponse.body);

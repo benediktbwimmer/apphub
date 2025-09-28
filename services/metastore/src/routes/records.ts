@@ -12,7 +12,8 @@ import {
   OptimisticLockError,
   patchRecord,
   hardDeleteRecord,
-  RecordDeletedError
+  RecordDeletedError,
+  restoreRecordFromAudit
 } from '../db/recordsRepository';
 import { withConnection, withTransaction } from '../db/client';
 import {
@@ -23,16 +24,18 @@ import {
   parseUpdateRecordPayload,
   parsePatchRecordPayload,
   parsePurgeRecordPayload,
-  parseAuditQuery
+  parseAuditQuery,
+  parseRestoreRecordPayload
 } from '../schemas/records';
 import { HttpError, toHttpError } from './errors';
 import { hasScope } from '../auth/identity';
 import type { ServiceConfig } from '../config/serviceConfig';
 import type { FilterNode } from '../search/types';
 import { compileQueryString, mergeFilterNodes } from '../search/queryCompiler';
-import { listRecordAudits } from '../db/auditRepository';
+import { getRecordAuditById, getRecordAuditByVersion, listRecordAudits } from '../db/auditRepository';
 import { serializeAuditEntry } from './serializers';
 import { publishMetastoreRecordEvent } from '../events/publisher';
+import { buildAuditDiff } from '../audit/diff';
 
 const includeDeletedQuerySchema = z.object({
   includeDeleted: z.coerce.boolean().optional()
@@ -322,6 +325,154 @@ export async function registerRecordRoutes(app: FastifyInstance, config: Service
       },
       entries: result.entries.map(serializeAuditEntry)
     });
+  });
+
+  app.get<{
+    Params: { namespace: string; key: string; id: string };
+  }>('/records/:namespace/:key/audit/:id/diff', async (request, reply) => {
+    if (!ensureScope(request, reply, 'metastore:read')) {
+      return;
+    }
+
+    const { namespace, key, id } = request.params;
+
+    if (!ensureNamespaceAccess(request, reply, namespace)) {
+      return;
+    }
+
+    const auditId = Number.parseInt(id, 10);
+    if (!Number.isSafeInteger(auditId) || auditId <= 0) {
+      reply.code(400).send({
+        statusCode: 400,
+        error: 'bad_request',
+        message: 'Audit id must be a positive integer'
+      });
+      return;
+    }
+
+    const entry = await withConnection((client) =>
+      getRecordAuditById(client, {
+        namespace,
+        key,
+        id: auditId
+      })
+    );
+
+    if (!entry) {
+      reply.code(404).send({
+        statusCode: 404,
+        error: 'not_found',
+        message: 'Audit entry not found'
+      });
+      return;
+    }
+
+    const diff = buildAuditDiff(entry);
+    reply.send(diff);
+  });
+
+  app.post<{
+    Params: { namespace: string; key: string };
+  }>('/records/:namespace/:key/restore', async (request, reply) => {
+    if (!ensureScope(request, reply, 'metastore:write')) {
+      return;
+    }
+
+    const { namespace, key } = request.params;
+
+    if (!ensureNamespaceAccess(request, reply, namespace)) {
+      return;
+    }
+
+    let payload;
+    try {
+      payload = parseRestoreRecordPayload(request.body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid restore payload';
+      reply.code(400).send({ statusCode: 400, error: 'bad_request', message });
+      return;
+    }
+
+    const entry = await withConnection((client) => {
+      if (payload.auditId !== undefined) {
+        return getRecordAuditById(client, {
+          namespace,
+          key,
+          id: payload.auditId
+        });
+      }
+      return getRecordAuditByVersion(client, {
+        namespace,
+        key,
+        version: payload.version as number
+      });
+    });
+
+    if (!entry) {
+      reply.code(404).send({
+        statusCode: 404,
+        error: 'not_found',
+        message: 'Audit entry not found'
+      });
+      return;
+    }
+
+    try {
+      const restored = await withTransaction((client) =>
+        restoreRecordFromAudit(client, {
+          namespace,
+          key,
+          expectedVersion: payload.expectedVersion,
+          actor: request.identity.subject,
+          snapshot: {
+            metadata: entry.metadata,
+            tags: entry.tags,
+            owner: entry.owner,
+            schemaHash: entry.schemaHash
+          }
+        })
+      );
+
+      if (!restored) {
+        reply.code(404).send({
+          statusCode: 404,
+          error: 'not_found',
+          message: 'Record not found'
+        });
+        return;
+      }
+
+      try {
+        await publishMetastoreRecordEvent('updated', {
+          namespace,
+          key,
+          actor: request.identity?.subject ?? null,
+          record: serializeRecord(restored),
+          restoredFrom: {
+            auditId: entry.id,
+            version: entry.version
+          }
+        });
+      } catch (err) {
+        request.log.error({ err }, 'Failed to publish metastore record.restore event');
+      }
+
+      reply.send({
+        restored: true,
+        record: serializeRecord(restored),
+        restoredFrom: {
+          auditId: entry.id,
+          version: entry.version
+        }
+      });
+    } catch (err) {
+      const error = mapError(err);
+      reply.code(error.statusCode).send({
+        statusCode: error.statusCode,
+        error: error.code,
+        message: error.message
+      });
+    }
   });
 
   app.delete<{

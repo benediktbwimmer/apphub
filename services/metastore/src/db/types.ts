@@ -49,6 +49,12 @@ export type MetastoreRecordAuditRow = {
   version: number | null;
   metadata: Record<string, unknown> | null;
   previous_metadata: Record<string, unknown> | null;
+  tags: string[] | null;
+  previous_tags: string[] | null;
+  owner: string | null;
+  previous_owner: string | null;
+  schema_hash: string | null;
+  previous_schema_hash: string | null;
   created_at: Date;
 };
 

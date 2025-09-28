@@ -24,8 +24,38 @@ export async function writeAuditEntry(options: AuditLogInput): Promise<void> {
 
   await client.query(
     `INSERT INTO metastore_record_audits
-       (record_id, namespace, record_key, action, actor, previous_version, version, metadata, previous_metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb)`,
+       (record_id,
+        namespace,
+        record_key,
+        action,
+        actor,
+        previous_version,
+        version,
+        metadata,
+        previous_metadata,
+        tags,
+        previous_tags,
+        owner,
+        previous_owner,
+        schema_hash,
+        previous_schema_hash)
+     VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8::jsonb,
+        $9::jsonb,
+        $10::text[],
+        $11::text[],
+        $12,
+        $13,
+        $14,
+        $15
+     )`,
     [
       record?.id ?? previousRecord?.id ?? null,
       targetNamespace,
@@ -35,7 +65,13 @@ export async function writeAuditEntry(options: AuditLogInput): Promise<void> {
       previousRecord?.version ?? null,
       record?.version ?? null,
       record ? JSON.stringify(record.metadata ?? {}) : null,
-      previousRecord ? JSON.stringify(previousRecord.metadata ?? {}) : null
+      previousRecord ? JSON.stringify(previousRecord.metadata ?? {}) : null,
+      record?.tags ?? null,
+      previousRecord?.tags ?? null,
+      record?.owner ?? null,
+      previousRecord?.owner ?? null,
+      record?.schemaHash ?? null,
+      previousRecord?.schemaHash ?? null
     ]
   );
 }

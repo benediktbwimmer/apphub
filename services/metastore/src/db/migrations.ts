@@ -58,6 +58,17 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_metastore_record_audits_record
          ON metastore_record_audits(namespace, record_key, created_at DESC);`
     ]
+  },
+  {
+    id: '002_metastore_audit_enrichment',
+    statements: [
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS tags TEXT[];`,
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS previous_tags TEXT[];`,
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS owner TEXT;`,
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS previous_owner TEXT;`,
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS schema_hash TEXT;`,
+      `ALTER TABLE metastore_record_audits ADD COLUMN IF NOT EXISTS previous_schema_hash TEXT;`
+    ]
   }
 ];
 

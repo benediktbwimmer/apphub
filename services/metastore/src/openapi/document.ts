@@ -239,6 +239,88 @@ export const openApiDocument: OpenAPIV3.Document = {
         }
       }
     },
+    '/records/{namespace}/{key}/audit/{id}/diff': {
+      get: {
+        tags: ['Records'],
+        summary: 'Diff a record audit entry',
+        operationId: 'diffRecordAudit',
+        parameters: [
+          { name: 'namespace', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }
+        ],
+        responses: {
+          '200': {
+            description: 'Structured diff for the requested audit entry',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/MetastoreAuditDiff' }
+              }
+            }
+          },
+          '400': { description: 'Invalid audit id supplied' },
+          '403': { description: 'Forbidden' },
+          '404': { description: 'Audit entry not found' }
+        }
+      }
+    },
+    '/records/{namespace}/{key}/restore': {
+      post: {
+        tags: ['Records'],
+        summary: 'Restore a record from an audit entry or version',
+        operationId: 'restoreRecord',
+        parameters: [
+          { name: 'namespace', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string' } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  auditId: { type: 'integer', minimum: 1 },
+                  version: { type: 'integer', minimum: 1 },
+                  expectedVersion: { type: 'integer', minimum: 1 }
+                },
+                oneOf: [{ required: ['auditId'] }, { required: ['version'] }],
+                additionalProperties: false
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Record restored successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['restored', 'record', 'restoredFrom'],
+                  properties: {
+                    restored: { type: 'boolean' },
+                    record: { $ref: '#/components/schemas/MetastoreRecord' },
+                    restoredFrom: {
+                      type: 'object',
+                      required: ['auditId'],
+                      properties: {
+                        auditId: { type: 'integer' },
+                        version: { type: 'integer', nullable: true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          '400': { description: 'Invalid restore payload' },
+          '403': { description: 'Forbidden' },
+          '404': { description: 'Audit entry or record not found' },
+          '409': { description: 'Version conflict during restore' }
+        }
+      }
+    },
     '/records/{namespace}/{key}/purge': {
       delete: {
         tags: ['Records'],
@@ -710,7 +792,128 @@ export const openApiDocument: OpenAPIV3.Document = {
           version: { type: 'integer', nullable: true },
           metadata: { type: 'object', nullable: true, additionalProperties: true },
           previousMetadata: { type: 'object', nullable: true, additionalProperties: true },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            nullable: true
+          },
+          previousTags: {
+            type: 'array',
+            items: { type: 'string' },
+            nullable: true
+          },
+          owner: { type: 'string', nullable: true },
+          previousOwner: { type: 'string', nullable: true },
+          schemaHash: { type: 'string', nullable: true },
+          previousSchemaHash: { type: 'string', nullable: true },
           createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
+      MetastoreAuditSnapshot: {
+        type: 'object',
+        required: ['metadata', 'tags', 'owner', 'schemaHash'],
+        properties: {
+          metadata: { type: 'object', nullable: true, additionalProperties: true },
+          tags: {
+            type: 'array',
+            items: { type: 'string' }
+          },
+          owner: { type: 'string', nullable: true },
+          schemaHash: { type: 'string', nullable: true }
+        }
+      },
+      MetastoreAuditDiff: {
+        type: 'object',
+        required: ['audit', 'metadata', 'tags', 'owner', 'schemaHash', 'snapshots'],
+        properties: {
+          audit: {
+            type: 'object',
+            required: ['id', 'namespace', 'key', 'action', 'createdAt'],
+            properties: {
+              id: { type: 'integer' },
+              namespace: { type: 'string' },
+              key: { type: 'string' },
+              action: { type: 'string' },
+              actor: { type: 'string', nullable: true },
+              previousVersion: { type: 'integer', nullable: true },
+              version: { type: 'integer', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' }
+            }
+          },
+          metadata: {
+            type: 'object',
+            required: ['added', 'removed', 'changed'],
+            properties: {
+              added: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['path', 'value'],
+                  properties: {
+                    path: { type: 'string' },
+                    value: {}
+                  }
+                }
+              },
+              removed: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['path', 'value'],
+                  properties: {
+                    path: { type: 'string' },
+                    value: {}
+                  }
+                }
+              },
+              changed: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['path', 'before', 'after'],
+                  properties: {
+                    path: { type: 'string' },
+                    before: {},
+                    after: {}
+                  }
+                }
+              }
+            }
+          },
+          tags: {
+            type: 'object',
+            required: ['added', 'removed'],
+            properties: {
+              added: { type: 'array', items: { type: 'string' } },
+              removed: { type: 'array', items: { type: 'string' } }
+            }
+          },
+          owner: {
+            type: 'object',
+            required: ['before', 'after', 'changed'],
+            properties: {
+              before: { type: 'string', nullable: true },
+              after: { type: 'string', nullable: true },
+              changed: { type: 'boolean' }
+            }
+          },
+          schemaHash: {
+            type: 'object',
+            required: ['before', 'after', 'changed'],
+            properties: {
+              before: { type: 'string', nullable: true },
+              after: { type: 'string', nullable: true },
+              changed: { type: 'boolean' }
+            }
+          },
+          snapshots: {
+            type: 'object',
+            required: ['current', 'previous'],
+            properties: {
+              current: { $ref: '#/components/schemas/MetastoreAuditSnapshot' },
+              previous: { $ref: '#/components/schemas/MetastoreAuditSnapshot' }
+            }
+          }
         }
       },
       BulkOperationResult: {

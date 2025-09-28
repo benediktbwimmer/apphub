@@ -193,6 +193,12 @@ export type SerializedAuditEntry = {
   version: number | null;
   metadata: Record<string, unknown> | null;
   previousMetadata: Record<string, unknown> | null;
+  tags: string[] | null;
+  previousTags: string[] | null;
+  owner: string | null;
+  previousOwner: string | null;
+  schemaHash: string | null;
+  previousSchemaHash: string | null;
   createdAt: string;
 };
 
@@ -207,6 +213,12 @@ export function serializeAuditEntry(entry: RecordAuditView): SerializedAuditEntr
     version: entry.version,
     metadata: entry.metadata,
     previousMetadata: entry.previousMetadata,
+    tags: entry.tags,
+    previousTags: entry.previousTags,
+    owner: entry.owner,
+    previousOwner: entry.previousOwner,
+    schemaHash: entry.schemaHash,
+    previousSchemaHash: entry.previousSchemaHash,
     createdAt: entry.createdAt.toISOString()
   } satisfies SerializedAuditEntry;
 }

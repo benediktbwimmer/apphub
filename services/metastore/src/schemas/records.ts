@@ -167,6 +167,19 @@ const auditQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional()
 });
 
+const restoreRecordSchema = z
+  .object({
+    auditId: z.number().int().positive().optional(),
+    version: z.number().int().positive().optional(),
+    expectedVersion: versionSchema.optional()
+  })
+  .refine((value) => value.auditId !== undefined || value.version !== undefined, {
+    message: 'Either auditId or version must be provided'
+  })
+  .refine((value) => !(value.auditId !== undefined && value.version !== undefined), {
+    message: 'Specify either auditId or version, not both'
+  });
+
 export type CreateRecordPayload = z.infer<typeof createRecordSchema>;
 export type UpdateRecordPayload = z.infer<typeof updateRecordSchema>;
 export type DeleteRecordPayload = z.infer<typeof deleteRecordSchema>;
@@ -175,6 +188,7 @@ export type BulkRequestPayload = z.infer<typeof bulkRequestSchema>;
 export type PatchRecordPayload = z.infer<typeof patchRecordSchema>;
 export type PurgeRecordPayload = z.infer<typeof purgeRecordSchema>;
 export type AuditQueryPayload = z.infer<typeof auditQuerySchema>;
+export type RestoreRecordPayload = z.infer<typeof restoreRecordSchema>;
 
 export function parseCreateRecordPayload(payload: unknown): CreateRecordPayload {
   return createRecordSchema.parse(payload);
@@ -253,4 +267,8 @@ export function parseAuditQuery(query: unknown): AuditQueryPayload {
     return {};
   }
   return auditQuerySchema.parse(query);
+}
+
+export function parseRestoreRecordPayload(payload: unknown): RestoreRecordPayload {
+  return restoreRecordSchema.parse(payload);
 }
