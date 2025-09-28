@@ -6,6 +6,23 @@ interface OperationTotals {
   partitions: number;
 }
 
+interface CompactionChunkSample {
+  chunkId: string;
+  bytes: number;
+  partitions: number;
+  durationMs: number;
+  attempts: number;
+  completedAt: string;
+}
+
+interface CompactionChunkMetricInput {
+  chunkId: string;
+  bytes: number;
+  partitions: number;
+  durationMs: number;
+  attempts: number;
+}
+
 export interface LifecycleMetricsSnapshot {
   jobsStarted: number;
   jobsCompleted: number;
@@ -15,6 +32,7 @@ export interface LifecycleMetricsSnapshot {
   lastErrorAt: string | null;
   operationTotals: Record<LifecycleOperation, OperationTotals>;
   exportLatencyMs: number[];
+  compactionChunks: CompactionChunkSample[];
 }
 
 const defaultOperationTotals = (): OperationTotals => ({ count: 0, bytes: 0, partitions: 0 });
@@ -31,7 +49,8 @@ const metricsState = {
     retention: defaultOperationTotals(),
     parquetExport: defaultOperationTotals()
   } satisfies Record<LifecycleOperation, OperationTotals>,
-  exportLatencyMs: [] as number[]
+  exportLatencyMs: [] as number[],
+  compactionChunks: [] as CompactionChunkSample[]
 };
 
 export function recordJobStarted(): void {
@@ -69,6 +88,20 @@ export function recordExportLatency(durationMs: number): void {
   }
 }
 
+export function recordCompactionChunk(metric: CompactionChunkMetricInput): void {
+  metricsState.compactionChunks.push({
+    chunkId: metric.chunkId,
+    bytes: metric.bytes,
+    partitions: metric.partitions,
+    durationMs: metric.durationMs,
+    attempts: metric.attempts,
+    completedAt: new Date().toISOString()
+  });
+  if (metricsState.compactionChunks.length > 200) {
+    metricsState.compactionChunks.splice(0, metricsState.compactionChunks.length - 200);
+  }
+}
+
 export function captureLifecycleMetrics(): LifecycleMetricsSnapshot {
   return {
     jobsStarted: metricsState.jobsStarted,
@@ -82,7 +115,8 @@ export function captureLifecycleMetrics(): LifecycleMetricsSnapshot {
       retention: { ...metricsState.operationTotals.retention },
       parquetExport: { ...metricsState.operationTotals.parquetExport }
     },
-    exportLatencyMs: [...metricsState.exportLatencyMs]
+    exportLatencyMs: [...metricsState.exportLatencyMs],
+    compactionChunks: [...metricsState.compactionChunks]
   };
 }
 
@@ -97,4 +131,5 @@ export function resetLifecycleMetrics(): void {
   metricsState.operationTotals.retention = defaultOperationTotals();
   metricsState.operationTotals.parquetExport = defaultOperationTotals();
   metricsState.exportLatencyMs = [];
+  metricsState.compactionChunks = [];
 }

@@ -209,6 +209,45 @@ export interface LifecycleJobRunRecord {
   updatedAt: string;
 }
 
+export interface CompactionCheckpointRecord {
+  id: string;
+  datasetId: string;
+  manifestId: string;
+  manifestShard: string;
+  status: 'pending' | 'completed';
+  cursor: number;
+  totalGroups: number;
+  retryCount: number;
+  lastError: string | null;
+  metadata: JsonObject;
+  stats: JsonObject;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertCompactionCheckpointInput {
+  id: string;
+  datasetId: string;
+  manifestId: string;
+  manifestShard: string;
+  totalGroups: number;
+  metadata: JsonObject;
+  stats?: JsonObject;
+}
+
+export interface UpdateCompactionCheckpointInput {
+  id: string;
+  cursor?: number;
+  totalGroups?: number;
+  status?: 'pending' | 'completed';
+  retryCount?: number;
+  lastError?: string | null;
+  metadataPatch?: JsonObject;
+  metadataReplace?: JsonObject;
+  statsPatch?: JsonObject;
+  statsReplace?: JsonObject;
+}
+
 export interface LifecycleAuditLogRecord {
   id: string;
   datasetId: string;
@@ -1314,6 +1353,148 @@ export async function listLifecycleAuditEvents(
   });
 }
 
+export async function getCompactionCheckpointByManifest(
+  manifestId: string
+): Promise<CompactionCheckpointRecord | null> {
+  return withConnection(async (client) => {
+    const { rows } = await client.query<CompactionCheckpointRow>(
+      `SELECT *
+         FROM compaction_checkpoints
+        WHERE manifest_id = $1
+        LIMIT 1`,
+      [manifestId]
+    );
+    const row = rows[0];
+    return row ? mapCompactionCheckpoint(row) : null;
+  });
+}
+
+export async function upsertCompactionCheckpoint(
+  input: UpsertCompactionCheckpointInput
+): Promise<CompactionCheckpointRecord> {
+  const metadataJson = JSON.stringify(input.metadata ?? {});
+  const statsJson = JSON.stringify(input.stats ?? {});
+  return withConnection(async (client) => {
+    const { rows } = await client.query<CompactionCheckpointRow>(
+      `INSERT INTO compaction_checkpoints (
+         id,
+         dataset_id,
+         manifest_id,
+         manifest_shard,
+         status,
+         cursor,
+         total_groups,
+         retry_count,
+         last_error,
+         metadata,
+         stats
+       ) VALUES ($1, $2, $3, $4, 'pending', 0, $5, 0, NULL, $6::jsonb, $7::jsonb)
+       ON CONFLICT (manifest_id) DO UPDATE
+         SET dataset_id = EXCLUDED.dataset_id,
+             manifest_shard = EXCLUDED.manifest_shard,
+             status = 'pending',
+             cursor = 0,
+             total_groups = EXCLUDED.total_groups,
+             metadata = EXCLUDED.metadata,
+             stats = EXCLUDED.stats,
+             retry_count = compaction_checkpoints.retry_count + 1,
+             last_error = NULL,
+             updated_at = NOW()
+       RETURNING *` as const,
+      [
+        input.id,
+        input.datasetId,
+        input.manifestId,
+        input.manifestShard,
+        input.totalGroups,
+        metadataJson,
+        statsJson
+      ]
+    );
+    return mapCompactionCheckpoint(rows[0]);
+  });
+}
+
+export async function updateCompactionCheckpoint(
+  input: UpdateCompactionCheckpointInput
+): Promise<CompactionCheckpointRecord> {
+  return withConnection(async (client) => {
+    const setClauses: string[] = ['updated_at = NOW()'];
+    const values: unknown[] = [input.id];
+    let index = 2;
+
+    if (input.cursor !== undefined) {
+      setClauses.push(`cursor = $${index}`);
+      values.push(input.cursor);
+      index += 1;
+    }
+
+    if (input.totalGroups !== undefined) {
+      setClauses.push(`total_groups = $${index}`);
+      values.push(input.totalGroups);
+      index += 1;
+    }
+
+    if (input.status) {
+      setClauses.push(`status = $${index}`);
+      values.push(input.status);
+      index += 1;
+    }
+
+    if (input.retryCount !== undefined) {
+      setClauses.push(`retry_count = $${index}`);
+      values.push(input.retryCount);
+      index += 1;
+    }
+
+    if (input.lastError !== undefined) {
+      setClauses.push(`last_error = $${index}`);
+      values.push(input.lastError);
+      index += 1;
+    }
+
+    if (input.metadataReplace) {
+      setClauses.push(`metadata = $${index}::jsonb`);
+      values.push(JSON.stringify(input.metadataReplace));
+      index += 1;
+    } else if (input.metadataPatch) {
+      setClauses.push(`metadata = metadata || $${index}::jsonb`);
+      values.push(JSON.stringify(input.metadataPatch));
+      index += 1;
+    }
+
+    if (input.statsReplace) {
+      setClauses.push(`stats = $${index}::jsonb`);
+      values.push(JSON.stringify(input.statsReplace));
+      index += 1;
+    } else if (input.statsPatch) {
+      setClauses.push(`stats = stats || $${index}::jsonb`);
+      values.push(JSON.stringify(input.statsPatch));
+      index += 1;
+    }
+
+    if (setClauses.length === 1) {
+      throw new Error('updateCompactionCheckpoint requires at least one field to update');
+    }
+
+    const sql = `UPDATE compaction_checkpoints
+                    SET ${setClauses.join(', ')}
+                  WHERE id = $1
+                  RETURNING *`;
+    const { rows } = await client.query<CompactionCheckpointRow>(sql, values);
+    if (rows.length === 0) {
+      throw new Error(`Compaction checkpoint ${input.id} not found`);
+    }
+    return mapCompactionCheckpoint(rows[0]);
+  });
+}
+
+export async function deleteCompactionCheckpointByManifest(manifestId: string): Promise<void> {
+  await withConnection(async (client) => {
+    await client.query('DELETE FROM compaction_checkpoints WHERE manifest_id = $1', [manifestId]);
+  });
+}
+
 export async function getStorageTargetById(id: string): Promise<StorageTargetRecord | null> {
   return withConnection(async (client) => {
     const { rows } = await client.query<StorageTargetRow>(
@@ -1808,6 +1989,22 @@ type DatasetAccessAuditRow = {
   created_at: string;
 };
 
+type CompactionCheckpointRow = {
+  id: string;
+  dataset_id: string;
+  manifest_id: string;
+  manifest_shard: string;
+  status: 'pending' | 'completed';
+  cursor: number;
+  total_groups: number;
+  retry_count: number;
+  last_error: string | null;
+  metadata: JsonObject;
+  stats: JsonObject;
+  updated_at: string;
+  created_at: string;
+};
+
 function mapStorageTarget(row: StorageTargetRow): StorageTargetRecord {
   return {
     id: row.id,
@@ -1964,6 +2161,24 @@ function mapDatasetAccessAudit(row: DatasetAccessAuditRow): DatasetAccessAuditRe
     success: row.success,
     metadata: row.metadata,
     createdAt: row.created_at
+  };
+}
+
+function mapCompactionCheckpoint(row: CompactionCheckpointRow): CompactionCheckpointRecord {
+  return {
+    id: row.id,
+    datasetId: row.dataset_id,
+    manifestId: row.manifest_id,
+    manifestShard: row.manifest_shard,
+    status: row.status,
+    cursor: row.cursor,
+    totalGroups: row.total_groups,
+    retryCount: row.retry_count,
+    lastError: row.last_error,
+    metadata: row.metadata,
+    stats: row.stats,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 

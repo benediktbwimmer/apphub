@@ -146,6 +146,15 @@ const lifecycleOperationTotalsSchema = z.object({
   partitions: z.number().nonnegative()
 });
 
+const compactionChunkSampleSchema = z.object({
+  chunkId: z.string(),
+  bytes: z.number().nonnegative(),
+  partitions: z.number().nonnegative(),
+  durationMs: z.number().nonnegative(),
+  attempts: z.number().nonnegative(),
+  completedAt: z.string()
+});
+
 export const lifecycleMetricsSnapshotSchema = z.object({
   jobsStarted: z.number().nonnegative(),
   jobsCompleted: z.number().nonnegative(),
@@ -158,7 +167,8 @@ export const lifecycleMetricsSnapshotSchema = z.object({
     retention: lifecycleOperationTotalsSchema,
     parquetExport: lifecycleOperationTotalsSchema
   }),
-  exportLatencyMs: z.array(z.number().nonnegative())
+  exportLatencyMs: z.array(z.number().nonnegative()),
+  compactionChunks: z.array(compactionChunkSampleSchema)
 });
 
 export type LifecycleMetricsSnapshot = z.infer<typeof lifecycleMetricsSnapshotSchema>;

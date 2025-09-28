@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import type { Storage as GoogleStorageCtor, StorageOptions, Bucket } from '@google-cloud/storage';
 import type {
   BlobServiceClient as AzureBlobServiceClientCtor,
@@ -16,6 +18,10 @@ import type { DatasetPartitionRecord, StorageTargetRecord } from '../db/metadata
 
 export type FieldType = 'timestamp' | 'string' | 'double' | 'integer' | 'boolean';
 
+const S3_MULTIPART_THRESHOLD_BYTES = 64 * 1024 * 1024;
+const S3_MULTIPART_PART_SIZE_BYTES = 8 * 1024 * 1024;
+const GCS_RESUMABLE_THRESHOLD_BYTES = 8 * 1024 * 1024;
+
 export interface FieldDefinition {
   name: string;
   type: FieldType;
@@ -27,7 +33,9 @@ export interface PartitionWriteRequest {
   partitionKey: Record<string, string>;
   tableName: string;
   schema: FieldDefinition[];
-  rows: Record<string, unknown>[];
+  rows?: Record<string, unknown>[];
+  sourceFilePath?: string;
+  rowCountHint?: number;
 }
 
 export interface PartitionWriteResult {
@@ -134,13 +142,31 @@ class LocalStorageDriver implements StorageDriver {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
     const absolutePath = path.join(this.root, convertPosixToPlatform(relativePath));
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeDuckDbFile(absolutePath, request.tableName, request.schema, request.rows);
+    if (request.sourceFilePath) {
+      await fs.copyFile(request.sourceFilePath, absolutePath);
+      const stats = await fs.stat(absolutePath);
+      const checksum = await computeFileChecksum(absolutePath);
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
+    const rows = request.rows;
+
+    await writeDuckDbFile(absolutePath, request.tableName, request.schema, rows);
     const stats = await fs.stat(absolutePath);
     const checksum = await computeFileChecksum(absolutePath);
     return {
       relativePath,
       fileSizeBytes: stats.size,
-      rowCount: request.rows.length,
+      rowCount: request.rowCountHint ?? rows.length,
       checksum
     };
   }
@@ -177,6 +203,46 @@ class S3StorageDriver implements StorageDriver {
 
   async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    if (request.sourceFilePath) {
+      const stats = await fs.stat(request.sourceFilePath);
+      const checksum = await computeFileChecksum(request.sourceFilePath);
+
+      if (stats.size >= S3_MULTIPART_THRESHOLD_BYTES) {
+        const upload = new Upload({
+          client: this.client,
+          params: {
+            Bucket: this.options.bucket,
+            Key: relativePath,
+            Body: createReadStream(request.sourceFilePath)
+          },
+          queueSize: 4,
+          partSize: S3_MULTIPART_PART_SIZE_BYTES,
+          leavePartsOnError: false
+        });
+        await upload.done();
+      } else {
+        const stream = createReadStream(request.sourceFilePath);
+        await this.client.send(
+          new PutObjectCommand({
+            Bucket: this.options.bucket,
+            Key: relativePath,
+            Body: stream
+          })
+        );
+      }
+
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-s3-'));
     const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
     try {
@@ -193,7 +259,7 @@ class S3StorageDriver implements StorageDriver {
       return {
         relativePath,
         fileSizeBytes: fileBuffer.length,
-        rowCount: request.rows.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
         checksum
       };
     } finally {
@@ -222,12 +288,41 @@ export class GcsStorageDriver implements StorageDriver {
 
   async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    const object = this.bucket.file(relativePath);
+
+    if (request.sourceFilePath) {
+      const stats = await fs.stat(request.sourceFilePath);
+      const checksum = await computeFileChecksum(request.sourceFilePath);
+
+      await new Promise<void>((resolve, reject) => {
+        const readStream = createReadStream(request.sourceFilePath);
+        const writeStream = object.createWriteStream({
+          resumable: stats.size >= GCS_RESUMABLE_THRESHOLD_BYTES,
+          contentType: 'application/octet-stream'
+        });
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+        writeStream.on('finish', resolve);
+        readStream.pipe(writeStream);
+      });
+
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-gcs-'));
     const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
     try {
       await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
       const fileBuffer = await fs.readFile(tempFile);
-      const object = this.bucket.file(relativePath);
       await object.save(fileBuffer, {
         resumable: false,
         contentType: 'application/octet-stream'
@@ -236,7 +331,7 @@ export class GcsStorageDriver implements StorageDriver {
       return {
         relativePath,
         fileSizeBytes: fileBuffer.length,
-        rowCount: request.rows.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
         checksum
       };
     } finally {
@@ -266,12 +361,33 @@ export class AzureBlobStorageDriver implements StorageDriver {
 
   async writePartition(request: PartitionWriteRequest): Promise<PartitionWriteResult> {
     const relativePath = buildPartitionRelativePath(request.datasetSlug, request.partitionKey, request.partitionId);
+    const blobClient = this.containerClient.getBlockBlobClient(relativePath);
+
+    if (request.sourceFilePath) {
+      const stats = await fs.stat(request.sourceFilePath);
+      const checksum = await computeFileChecksum(request.sourceFilePath);
+      await blobClient.uploadFile(request.sourceFilePath, {
+        blobHTTPHeaders: {
+          blobContentType: 'application/octet-stream'
+        }
+      });
+      return {
+        relativePath,
+        fileSizeBytes: stats.size,
+        rowCount: request.rowCountHint ?? 0,
+        checksum
+      };
+    }
+
+    if (!request.rows) {
+      throw new Error('writePartition requires rows or a sourceFilePath');
+    }
+
     const tempDir = await mkdtemp(path.join(tmpdir(), 'timestore-azure-'));
     const tempFile = path.join(tempDir, `${request.partitionId}.duckdb`);
     try {
       await writeDuckDbFile(tempFile, request.tableName, request.schema, request.rows);
       const fileBuffer = await fs.readFile(tempFile);
-      const blobClient = this.containerClient.getBlockBlobClient(relativePath);
       await blobClient.uploadData(fileBuffer, {
         blobHTTPHeaders: {
           blobContentType: 'application/octet-stream'
@@ -281,7 +397,7 @@ export class AzureBlobStorageDriver implements StorageDriver {
       return {
         relativePath,
         fileSizeBytes: fileBuffer.length,
-        rowCount: request.rows.length,
+        rowCount: request.rowCountHint ?? request.rows.length,
         checksum
       };
     } finally {

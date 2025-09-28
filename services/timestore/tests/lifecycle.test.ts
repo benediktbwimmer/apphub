@@ -153,6 +153,25 @@ test('compaction merges adjacent small partitions and removes old files', async 
 
   const audits = await metadataModule.listLifecycleAuditEvents(seed.datasetId, 5);
   assert.ok(audits.some((event) => event.eventType === 'compaction.group.compacted'));
+
+  const lifecycleMetrics = metricsModule.captureLifecycleMetrics();
+  assert.ok(lifecycleMetrics.compactionChunks.length >= 1);
+  const latestChunk = lifecycleMetrics.compactionChunks[lifecycleMetrics.compactionChunks.length - 1];
+  assert.ok(latestChunk);
+  assert.equal(latestChunk.partitions, 2);
+
+  const checkpoint = await metadataModule.getCompactionCheckpointByManifest(manifestAfter.id);
+  assert.ok(checkpoint);
+  assert.equal(checkpoint.status, 'completed');
+  const checkpointMetadata = checkpoint.metadata as {
+    version?: number;
+    groups?: Array<Record<string, unknown>>;
+    completedGroupIds?: string[];
+  };
+  assert.equal(checkpointMetadata.version, 1);
+  assert.ok(Array.isArray(checkpointMetadata.completedGroupIds));
+  const checkpointStats = checkpoint.stats as { chunksCompleted?: number };
+  assert.ok((checkpointStats.chunksCompleted ?? 0) >= 1);
 });
 
 test('retention policy removes expired partitions', async () => {

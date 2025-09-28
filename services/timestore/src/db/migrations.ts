@@ -256,7 +256,35 @@ const migrations: Migration[] = [
                 updated_at,
                 published_at
            FROM dataset_manifests
-          WHERE status = 'published';`
+         WHERE status = 'published';`
+    ]
+  },
+  {
+    id: '009_timestore_compaction_checkpoints',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS compaction_checkpoints (
+         id TEXT PRIMARY KEY,
+         dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+         manifest_id TEXT NOT NULL REFERENCES dataset_manifests(id) ON DELETE CASCADE,
+         manifest_shard TEXT NOT NULL,
+         status TEXT NOT NULL DEFAULT 'pending',
+         cursor INTEGER NOT NULL DEFAULT 0,
+         total_groups INTEGER NOT NULL DEFAULT 0,
+         retry_count INTEGER NOT NULL DEFAULT 0,
+         last_error TEXT,
+         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+         stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CHECK (status IN ('pending', 'completed')),
+         CHECK (cursor >= 0),
+         CHECK (total_groups >= 0),
+         CHECK (retry_count >= 0)
+       );`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_compaction_checkpoints_manifest
+         ON compaction_checkpoints(manifest_id);`,
+      `CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_dataset
+         ON compaction_checkpoints(dataset_id, manifest_shard);`
     ]
   }
 ];

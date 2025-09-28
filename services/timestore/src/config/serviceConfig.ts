@@ -19,7 +19,10 @@ const lifecycleSchema = z.object({
   compaction: z.object({
     smallPartitionBytes: z.number().int().positive(),
     targetPartitionBytes: z.number().int().positive(),
-    maxPartitionsPerGroup: z.number().int().positive()
+    maxPartitionsPerGroup: z.number().int().positive(),
+    chunkPartitionLimit: z.number().int().positive(),
+    checkpointTtlHours: z.number().int().positive(),
+    maxChunkRetries: z.number().int().positive()
   }),
   retention: z.object({
     defaultRules: retentionRuleSchema,
@@ -227,6 +230,9 @@ export function loadServiceConfig(): ServiceConfig {
   const lifecycleSmallPartitionBytes = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_SMALL_BYTES, 20 * 1024 * 1024);
   const lifecycleTargetPartitionBytes = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_TARGET_BYTES, 200 * 1024 * 1024);
   const lifecycleMaxPartitionsPerGroup = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_MAX_PARTITIONS, 16);
+  const lifecycleChunkPartitionLimit = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_CHUNK_PARTITIONS, 48);
+  const lifecycleCheckpointTtlHours = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_CHECKPOINT_TTL_HOURS, 24);
+  const lifecycleMaxChunkRetries = parseNumber(env.TIMESTORE_LIFECYCLE_COMPACTION_MAX_CHUNK_RETRIES, 3);
   const lifecycleDefaultMaxAgeHours = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_MAX_AGE_HOURS, 720);
   const lifecycleDefaultMaxTotalBytes = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_MAX_TOTAL_BYTES, 500 * 1024 * 1024 * 1024);
   const lifecycleDeleteGraceMinutes = parseNumber(env.TIMESTORE_LIFECYCLE_RETENTION_DELETE_GRACE_MINUTES, 5);
@@ -319,7 +325,10 @@ export function loadServiceConfig(): ServiceConfig {
       compaction: {
         smallPartitionBytes: lifecycleSmallPartitionBytes,
         targetPartitionBytes: lifecycleTargetPartitionBytes,
-        maxPartitionsPerGroup: lifecycleMaxPartitionsPerGroup
+        maxPartitionsPerGroup: lifecycleMaxPartitionsPerGroup,
+        chunkPartitionLimit: lifecycleChunkPartitionLimit > 0 ? lifecycleChunkPartitionLimit : 48,
+        checkpointTtlHours: lifecycleCheckpointTtlHours > 0 ? lifecycleCheckpointTtlHours : 24,
+        maxChunkRetries: lifecycleMaxChunkRetries > 0 ? lifecycleMaxChunkRetries : 3
       },
       retention: {
         defaultRules: {
