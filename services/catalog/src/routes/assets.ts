@@ -22,6 +22,7 @@ import type {
 import { requireOperatorScopes } from './shared/operatorAuth';
 import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { validatePartitionKey } from '../workflows/partitioning';
+import { canonicalAssetId, normalizeAssetId } from '../assets/identifiers';
 
 const ASSET_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 
@@ -128,14 +129,6 @@ type StepAssetRoles = {
   produces: Set<string>;
   consumes: Set<string>;
 };
-
-function canonicalAssetId(assetId: string): string {
-  return assetId.trim();
-}
-
-function normalizeAssetId(assetId: string): string {
-  return canonicalAssetId(assetId).toLowerCase();
-}
 
 function buildWorkflowStepMetadata(steps: WorkflowStepDefinition[]): Map<string, StepMetadata> {
   const metadata = new Map<string, StepMetadata>();

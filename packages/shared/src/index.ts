@@ -6,3 +6,4 @@ export * from './timestoreAdmin';
 export * from './filestoreMounts';
 export * from './filestoreFilters';
 export * from './retries/backoff';
+export * from './workflowTopology';

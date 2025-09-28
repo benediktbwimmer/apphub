@@ -48,6 +48,10 @@ import {
   type AssetAutoMaterializePolicy,
   type AssetExpiryReason
 } from './assets/types';
+import {
+  canonicalAssetId as canonicalizeAssetId,
+  normalizeAssetId as normalizeAssetIdentifier
+} from './assets/identifiers';
 
 const BASE_FAILURE_BACKOFF_MS = Math.max(
   30_000,
@@ -372,7 +376,7 @@ export class AssetMaterializer {
   }
 
   private async handleAssetProduced(event: AssetProducedEventData): Promise<void> {
-    const canonicalAssetId = this.canonicalAssetId(event.assetId);
+    const canonicalAssetId = canonicalizeAssetId(event.assetId);
     if (!canonicalAssetId) {
       return;
     }
@@ -391,7 +395,7 @@ export class AssetMaterializer {
       await this.rebuildGraph();
     }
 
-    const normalizedAssetId = this.normalizeAssetId(canonicalAssetId);
+    const normalizedAssetId = normalizeAssetIdentifier(canonicalAssetId);
     const consumerWorkflowIds = this.assetConsumers.get(normalizedAssetId);
     if (!consumerWorkflowIds || consumerWorkflowIds.size === 0) {
       return;
@@ -416,7 +420,7 @@ export class AssetMaterializer {
   }
 
   private async handleAssetExpired(event: AssetExpiredEventData): Promise<void> {
-    const canonicalAssetId = this.canonicalAssetId(event.assetId);
+    const canonicalAssetId = canonicalizeAssetId(event.assetId);
     if (!canonicalAssetId) {
       return;
     }
@@ -440,7 +444,7 @@ export class AssetMaterializer {
     await this.considerEnqueueWorkflow(event.workflowDefinitionId, {
       reason: 'expiry',
       assetId: canonicalAssetId,
-      assetNormalizedId: this.normalizeAssetId(canonicalAssetId),
+      assetNormalizedId: normalizeAssetIdentifier(canonicalAssetId),
       producedAt: eventProducedAtMs,
       expiryReason: event.reason,
       partitionKey: latest?.partitionKey ?? raw
@@ -605,7 +609,7 @@ export class AssetMaterializer {
     const accumulators = new Map<string, Map<string, AssetProductionRecord>>();
 
     for (const snapshot of snapshots) {
-      const assetId = this.canonicalAssetId(snapshot.asset.assetId);
+      const assetId = canonicalizeAssetId(snapshot.asset.assetId);
       if (!assetId) {
         continue;
       }
@@ -640,11 +644,11 @@ export class AssetMaterializer {
           if (!declaration || typeof declaration.assetId !== 'string') {
             continue;
           }
-          const assetId = this.canonicalAssetId(declaration.assetId);
+          const assetId = canonicalizeAssetId(declaration.assetId);
           if (!assetId) {
             continue;
           }
-          const normalized = this.normalizeAssetId(assetId);
+          const normalized = normalizeAssetIdentifier(assetId);
           if (!normalized) {
             continue;
           }
@@ -667,7 +671,7 @@ export class AssetMaterializer {
           if (!declaration || typeof declaration.assetId !== 'string') {
             continue;
           }
-          const normalized = this.normalizeAssetId(declaration.assetId);
+          const normalized = normalizeAssetIdentifier(declaration.assetId);
           if (!normalized) {
             continue;
           }
@@ -967,21 +971,6 @@ export class AssetMaterializer {
   private parseTimestamp(value: string): number {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? nowMs() : parsed;
-  }
-
-  private canonicalAssetId(assetId: string | null | undefined): string {
-    if (typeof assetId !== 'string') {
-      return '';
-    }
-    return assetId.trim();
-  }
-
-  private normalizeAssetId(assetId: string | null | undefined): string {
-    const canonical = this.canonicalAssetId(assetId);
-    if (!canonical) {
-      return '';
-    }
-    return canonical.toLowerCase();
   }
 
   private buildAssetKey(workflowId: string, assetId: string): string {
