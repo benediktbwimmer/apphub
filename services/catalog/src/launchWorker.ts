@@ -11,6 +11,7 @@ import {
   getQueueConnection,
   isInlineQueueMode
 } from './queue';
+import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
 
 const LAUNCH_CONCURRENCY = Number(process.env.LAUNCH_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
@@ -20,6 +21,33 @@ type LaunchJob = { type: 'start' | 'stop'; launchId: string };
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
   console.log(`[launch-worker] ${message}${payload}`);
+}
+
+async function reportKubectlStatus() {
+  try {
+    const diagnostics = await checkKubectlDiagnostics();
+    if (diagnostics.status === 'ok') {
+      log('kubectl client detected', {
+        version: diagnostics.version ?? 'unknown'
+      });
+    } else {
+      log('kubectl unavailable', {
+        error: diagnostics.error ?? 'unknown',
+        exitCode: diagnostics.result.exitCode
+      });
+      if (process.env.APPHUB_K8S_REQUIRE_TOOLING === '1') {
+        throw new Error(diagnostics.error ?? 'kubectl required but unavailable');
+      }
+    }
+    for (const warning of diagnostics.warnings) {
+      log('kubectl warning', { warning });
+    }
+  } catch (err) {
+    log('kubectl diagnostics failed', { error: (err as Error).message });
+    if (process.env.APPHUB_K8S_REQUIRE_TOOLING === '1') {
+      throw err;
+    }
+  }
 }
 
 async function runInlineLaunchLoop() {
@@ -120,6 +148,7 @@ async function runQueuedLaunchWorker() {
 }
 
 async function main() {
+  await reportKubectlStatus();
   if (useInlineQueue) {
     await runInlineLaunchLoop();
     return;

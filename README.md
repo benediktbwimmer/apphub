@@ -195,6 +195,16 @@ docker run --rm -it \
 
 You can now hit `http://localhost:4000` (catalog API), `http://localhost:4100` (metastore API), and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
 
+#### Catalog Kubernetes Runtime
+
+The modular catalog runtime (`docker/Dockerfile.services` `--target catalog-runtime`) now bundles Kubernetes tooling for build and launch workers. The image installs `kubectl` 1.29 and `helm` 3.14 and starts via `/app/services/catalog/scripts/catalog-runtime-entrypoint.sh`, which:
+
+- Executes `kubectl version --client` through `services/catalog/dist/scripts/kubernetesSmoke.js` and logs warnings if the binary is missing or credentials are not mounted.
+- Sets minikube-friendly defaults when unset: `APPHUB_K8S_BUILDER_SERVICE_ACCOUNT=apphub-builder`, `APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT=apphub-preview`, and `APPHUB_K8S_REGISTRY_ENDPOINT=registry.kube-system.svc.cluster.local:5000`.
+- Respects `APPHUB_K8S_DISABLE_DEFAULTS=1` to skip those defaults and `APPHUB_K8S_REQUIRE_TOOLING=1` to fail the container when the smoke check reports an error.
+
+Override the `CMD` at runtime to switch between the API (`node services/catalog/dist/server.js`), build worker (`node services/catalog/dist/buildWorker.js`), and launch worker (`node services/catalog/dist/launchWorker.js`) while keeping the Kubernetes tooling layer and smoke checks consistent.
+
 #### Production
 
 Reuse the same volumes when running in production. Launch the image with hardened auth settings, external Postgres/Redis, and SSO enabled:

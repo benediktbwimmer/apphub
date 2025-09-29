@@ -25,6 +25,7 @@ import { registerSavedSearchRoutes } from './routes/savedSearches';
 import { registerEventSavedViewRoutes } from './routes/eventSavedViews';
 import './queue';
 import { queueManager } from './queueManager';
+import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
 
 export async function buildServer() {
   const app = Fastify();
@@ -60,6 +61,32 @@ export async function buildServer() {
   });
 
   await registerDefaultServices(app.log);
+
+  try {
+    const diagnostics = await checkKubectlDiagnostics();
+    if (diagnostics.status === 'ok') {
+      app.log.info(
+        {
+          kubectlVersion: diagnostics.version ?? 'unknown'
+        },
+        'kubectl client detected'
+      );
+    } else {
+      app.log.warn(
+        {
+          error: diagnostics.error,
+          exitCode: diagnostics.result.exitCode,
+          stderr: diagnostics.result.stderr.trim() || undefined
+        },
+        'kubectl client unavailable'
+      );
+    }
+    for (const warning of diagnostics.warnings) {
+      app.log.warn({ warning }, 'Kubernetes tooling warning');
+    }
+  } catch (err) {
+    app.log.warn({ err }, 'kubectl diagnostics check failed');
+  }
 
   try {
     await queueManager.verifyConnectivity();

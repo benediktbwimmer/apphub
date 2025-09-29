@@ -6,7 +6,7 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
 - Kubernetes 1.27+ cluster (minikube or managed service).
 - Access credentials for the catalog process (kubeconfig or in-cluster service account).
 - Container registry reachable from the cluster. For minikube, enable the built-in registry; for production use your managed registry.
-- `kubectl` binary on the catalog worker `$PATH`.
+- Kubernetes tooling (`kubectl`, optional `helm`) ships in the catalog runtime image. If you execute the workers outside the container, ensure `kubectl version --client` succeeds locally.
 
 ## Environment Variables
 
@@ -16,12 +16,28 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
 | `APPHUB_LAUNCH_EXECUTION_MODE` | Defaults to `kubernetes`. Use `docker` for the old local runner or `stub` to skip launches. |
 | `APPHUB_K8S_NAMESPACE` | Namespace used for build Jobs and preview Deployments/Services. |
 | `APPHUB_K8S_BUILDER_IMAGE` | Image containing the BuildKit client/logic. Default `ghcr.io/apphub/builder:latest`. |
-| `APPHUB_K8S_BUILDER_SERVICE_ACCOUNT` | Optional service account for build Jobs. |
+| `APPHUB_K8S_BUILDER_SERVICE_ACCOUNT` | Service account for build Jobs. Defaults to `apphub-builder`. |
+| `APPHUB_K8S_REGISTRY_ENDPOINT` | Registry host:port that builder jobs push to. Defaults to `registry.kube-system.svc.cluster.local:5000` in the runtime entrypoint. |
+| `APPHUB_K8S_REGISTRY_SECRET` | Optional image pull secret name exposed to build jobs. |
+| `APPHUB_K8S_BUILDKIT_ADDRESS` | Optional BuildKit TCP endpoint override exposed to build jobs. |
 | `APPHUB_K8S_BUILD_TIMEOUT_SECONDS` | Max wait for build completion (default 900). |
 | `APPHUB_K8S_PREVIEW_URL_TEMPLATE` | Optional preview URL template (for example `https://{launch}.preview.local`). |
 | `APPHUB_K8S_PREVIEW_HOST_TEMPLATE` | Alternative host-only template (paired with `APPHUB_K8S_PREVIEW_SCHEME`). |
-| `APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT` | Optional service account for preview Deployments. |
+| `APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT` | Service account for preview Deployments. Defaults to `apphub-preview`. |
 | `APPHUB_K8S_INGRESS_CLASS` | Ingress class to use when creating preview routes. |
+| `APPHUB_K8S_DISABLE_DEFAULTS` | Set to `1` to disable the entrypoint defaults listed above (registry/service accounts). |
+| `APPHUB_K8S_REQUIRE_TOOLING` | Set to `1` to fail startup if the kubectl smoke check reports an error. |
+
+### Kubernetes Tooling Smoke Check
+
+The catalog runtime image now bundles `kubectl` (1.29) and `helm` (3.14). On startup the container runs `node services/catalog/dist/scripts/kubernetesSmoke.js`, which executes `kubectl version --client`, verifies the binary is executable, and logs actionable warnings when credentials are missing. Sample output:
+
+```
+[catalog][kubernetes][entrypoint] kubectl client detected (version: v1.29.3)
+[catalog][kubernetes][entrypoint] warning: No Kubernetes credentials detected. Mount a kubeconfig or in-cluster service account.
+```
+
+Set `APPHUB_K8S_REQUIRE_TOOLING=1` to fail fast when the smoke check reports errors (for example, when `kubectl` is absent). Use `APPHUB_K8S_DISABLE_DEFAULTS=1` if the minikube defaults conflict with production namespace or registry naming.
 
 ## Minikube Setup
 
@@ -63,7 +79,7 @@ Ticket 153 replaced the Docker socket runner with a Kubernetes-first workflow. C
    export APPHUB_K8S_PREVIEW_URL_TEMPLATE="http://preview.minikube.local/{launch}"
    export KUBECONFIG=$(minikube kubeconfig)
    ```
-   Create the namespace and service accounts:
+   The catalog runtime entrypoint now defaults the build and preview service accounts to `apphub-builder` / `apphub-preview` and the registry endpoint to the minikube registry service. Override them if your cluster names differ. Create the namespace and service accounts:
    ```bash
    kubectl create namespace apphub
    kubectl create serviceaccount apphub-builder -n apphub

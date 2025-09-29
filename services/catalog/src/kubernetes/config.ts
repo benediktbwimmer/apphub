@@ -1,5 +1,6 @@
 const DEFAULT_NAMESPACE = 'apphub';
 const DEFAULT_BUILDER_IMAGE = 'ghcr.io/apphub/builder:latest';
+const DEFAULT_BUILDER_SERVICE_ACCOUNT = 'apphub-builder';
 const DEFAULT_BUILD_TIMEOUT_SECONDS = 15 * 60;
 const DEFAULT_JOB_TTL_SECONDS = 10 * 60;
 
@@ -30,13 +31,13 @@ export function getKubernetesBuilderImagePullPolicy(): string | undefined {
   return trimmed || undefined;
 }
 
-export function getKubernetesBuilderServiceAccount(): string | undefined {
+export function getKubernetesBuilderServiceAccount(): string {
   const raw = process.env.APPHUB_K8S_BUILDER_SERVICE_ACCOUNT;
   if (!raw) {
-    return undefined;
+    return DEFAULT_BUILDER_SERVICE_ACCOUNT;
   }
   const trimmed = raw.trim();
-  return trimmed || undefined;
+  return trimmed || DEFAULT_BUILDER_SERVICE_ACCOUNT;
 }
 
 export function getKubernetesBuildTimeoutSeconds(): number {

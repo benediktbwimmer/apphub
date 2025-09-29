@@ -216,6 +216,7 @@ function parseKubernetesCommandMetadata(command: string | null): KubernetesLaunc
 }
 
 const DEFAULT_K8S_ROLLOUT_TIMEOUT_SECONDS = 5 * 60;
+const DEFAULT_LAUNCH_SERVICE_ACCOUNT = 'apphub-preview';
 
 function getKubernetesLaunchTimeoutSeconds(): number {
   const raw = process.env.APPHUB_K8S_LAUNCH_TIMEOUT_SECONDS;
@@ -229,13 +230,13 @@ function getKubernetesLaunchTimeoutSeconds(): number {
   return parsed;
 }
 
-function getKubernetesLaunchServiceAccount(): string | undefined {
+function getKubernetesLaunchServiceAccount(): string {
   const raw = process.env.APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT;
   if (!raw) {
-    return undefined;
+    return DEFAULT_LAUNCH_SERVICE_ACCOUNT;
   }
   const trimmed = raw.trim();
-  return trimmed || undefined;
+  return trimmed || DEFAULT_LAUNCH_SERVICE_ACCOUNT;
 }
 
 function getKubernetesLaunchImagePullPolicy(): string | undefined {
