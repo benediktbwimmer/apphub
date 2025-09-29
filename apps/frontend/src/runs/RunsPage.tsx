@@ -12,6 +12,7 @@ import {
   retriggerWorkflowRun,
   type JobRunListItem,
   type WorkflowActivityEntry,
+  type WorkflowActivityDeliveryEntry,
   type WorkflowActivityRunEntry,
   type RunListMeta,
   type JobRunFilters,
@@ -55,6 +56,7 @@ type RunSavedSearchConfig =
         search?: string;
         statuses?: string[];
         triggerTypes?: string[];
+        kinds?: string[];
       };
     }
   | {
@@ -188,13 +190,15 @@ function parseRunSavedSearchConfig(value: unknown): RunSavedSearchConfig | null 
     const filters = record.filters as Record<string, unknown>;
     const statuses = Array.isArray(filters.statuses) ? filters.statuses.map(String) : [];
     const triggerTypes = Array.isArray(filters.triggerTypes) ? filters.triggerTypes.map(String) : [];
+    const kinds = Array.isArray(filters.kinds) ? filters.kinds.map(String) : [];
     const search = typeof filters.search === 'string' ? filters.search : '';
     return {
       kind: 'workflows',
       filters: {
         search,
         statuses,
-        triggerTypes
+        triggerTypes,
+        kinds
       }
     };
   }
@@ -613,6 +617,14 @@ function statusChipClass(status: string): string {
       return 'bg-slate-200 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
     case 'expired':
       return 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200';
+    case 'matched':
+      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
+    case 'launched':
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
+    case 'throttled':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200';
+    case 'skipped':
+      return 'bg-slate-200 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
     default:
       return 'bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
   }
@@ -707,7 +719,8 @@ export default function RunsPage() {
       filters: {
         search: workflowFilters.search,
         statuses: workflowFilters.statuses,
-        triggerTypes: workflowFilters.triggerTypes
+        triggerTypes: workflowFilters.triggerTypes,
+        kinds: workflowFilters.kinds
       }
     };
     try {
@@ -859,11 +872,16 @@ export default function RunsPage() {
         setActiveTab('workflows');
         const statuses = config.filters.statuses && config.filters.statuses.length > 0 ? config.filters.statuses : record.statusFilters;
         const triggers = config.filters.triggerTypes ?? [];
+        const kinds = config.filters.kinds && config.filters.kinds.length > 0 ? config.filters.kinds : WORKFLOW_KIND_OPTIONS;
         const nextFilters: WorkflowFilterState = {
           search: config.filters.search ?? record.searchInput ?? '',
           statuses: normalizeWorkflowStatuses(statuses),
-          triggerTypes: normalizeWorkflowTriggers(triggers)
+          triggerTypes: normalizeWorkflowTriggers(triggers),
+          kinds: normalizeWorkflowKinds(kinds)
         };
+        if (nextFilters.kinds.length === 0) {
+          nextFilters.kinds = [...WORKFLOW_KIND_OPTIONS];
+        }
         workflowFiltersRef.current = nextFilters;
         setWorkflowFilters(nextFilters);
         void loadWorkflowRuns({ filters: nextFilters });
@@ -1362,7 +1380,11 @@ export default function RunsPage() {
               }
               const params = new URLSearchParams();
               params.set('slug', selectedWorkflowEntry.workflow.slug);
-              params.set('run', selectedWorkflowEntry.run.id);
+              if (selectedWorkflowEntry.kind === 'run') {
+                params.set('run', selectedWorkflowEntry.run.id);
+              } else if (selectedWorkflowEntry.delivery.workflowRunId) {
+                params.set('run', selectedWorkflowEntry.delivery.workflowRunId);
+              }
               navigate(`${ROUTE_PATHS.workflows}?${params.toString()}`);
             }}
           />
@@ -1489,7 +1511,7 @@ function WorkflowRunsTable({
           <thead className="bg-slate-50/60 dark:bg-slate-900/60">
             <tr>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
-                Status
+                Type
               </th>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
                 Workflow
@@ -1498,16 +1520,10 @@ function WorkflowRunsTable({
                 Identifiers
               </th>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
-                Triggered by
+                Context
               </th>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
-                Started
-              </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
-                Completed
-              </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
-                Duration
+                Timing
               </th>
               <th scope="col" className="px-4 py-3 text-right font-semibold text-slate-500 dark:text-slate-400">
                 Actions
@@ -1517,24 +1533,37 @@ function WorkflowRunsTable({
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  No workflow runs recorded yet.
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                  No workflow activity recorded yet.
                 </td>
               </tr>
             ) : (
               items.map((entry) => {
-                const durationMs = computeDurationMs(
-                  entry.run.startedAt,
-                  entry.run.completedAt,
-                  entry.run.durationMs
-                );
-                const isPending = pendingRunId === entry.run.id;
-                const isSelected = selectedRunId === entry.run.id;
-                const detailForEntry = isSelected && detail?.run.id === entry.run.id ? detail : null;
-                const detailErrorForEntry = isSelected ? detailError : null;
-                const detailLoadingForEntry = isSelected ? detailLoading : false;
+                const runEntry = entry.kind === 'run' ? entry : null;
+                const deliveryEntry = entry.kind === 'delivery' ? entry : null;
+                const isRun = Boolean(runEntry);
+                const rowKey = runEntry ? runEntry.run.id : deliveryEntry!.delivery.id;
+                const isSelected = runEntry
+                  ? selectedRunId === runEntry.run.id
+                  : selectedDeliveryId === deliveryEntry!.delivery.id;
+                const detailForEntry = runEntry && detail?.run.id === runEntry.run.id ? detail : null;
+                const detailErrorForEntry = runEntry && isSelected ? detailError : null;
+                const detailLoadingForEntry = runEntry && isSelected ? detailLoading : false;
+                const durationMs = runEntry
+                  ? computeDurationMs(runEntry.run.startedAt, runEntry.run.completedAt, runEntry.run.durationMs)
+                  : null;
+                const isPending = runEntry ? pendingRunId === runEntry.run.id : false;
+                const nextAttemptText = deliveryEntry
+                  ? deliveryEntry.delivery.nextAttemptAt
+                    ? `Next attempt ${formatDateTime(deliveryEntry.delivery.nextAttemptAt)}`
+                    : deliveryEntry.delivery.throttledUntil
+                      ? `Throttled until ${formatDateTime(deliveryEntry.delivery.throttledUntil)}`
+                      : null
+                  : null;
+                const linkedRunId = deliveryEntry?.delivery.workflowRunId ?? null;
+
                 return (
-                  <Fragment key={entry.run.id}>
+                  <Fragment key={rowKey}>
                     <tr
                       className={`cursor-pointer transition-colors ${
                         isSelected
@@ -1544,12 +1573,19 @@ function WorkflowRunsTable({
                       onClick={() => onSelect(entry)}
                       aria-selected={isSelected}
                     >
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
-                        >
-                          {entry.run.status}
-                        </span>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-col gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                            {isRun ? 'Run' : 'Delivery'}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(
+                              entry.status
+                            )}`}
+                          >
+                            {formatFilterLabel(entry.status)}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-col text-sm">
@@ -1560,65 +1596,141 @@ function WorkflowRunsTable({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
-                        <div className="flex flex-col gap-1">
-                          {entry.run.runKey ? (
+                        {runEntry ? (
+                          <div className="flex flex-col gap-1">
+                            {runEntry.run.runKey ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                  Key
+                                </span>
+                                <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                  {runEntry.run.runKey}
+                                </code>
+                                <CopyButton value={runEntry.run.runKey} ariaLabel="Copy run key" />
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                            )}
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
-                                Key
+                                ID
                               </span>
-                              <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">
-                                {entry.run.runKey}
+                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                {runEntry.run.id}
                               </code>
-                              <CopyButton value={entry.run.runKey} ariaLabel="Copy run key" />
+                              <CopyButton value={runEntry.run.id} ariaLabel="Copy run id" />
                             </div>
-                          ) : (
-                            <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
-                          )}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
-                              ID
-                            </span>
-                            <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">
-                              {entry.run.id}
-                            </code>
-                            <CopyButton value={entry.run.id} ariaLabel="Copy run id" />
                           </div>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                Delivery
+                              </span>
+                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                {deliveryEntry!.delivery.id}
+                              </code>
+                              <CopyButton value={deliveryEntry!.delivery.id} ariaLabel="Copy delivery id" />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                Event
+                              </span>
+                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                {deliveryEntry!.delivery.eventId ?? '—'}
+                              </code>
+                              {deliveryEntry!.delivery.eventId && (
+                                <CopyButton value={deliveryEntry!.delivery.eventId!} ariaLabel="Copy event id" />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                Dedupe
+                              </span>
+                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                {deliveryEntry!.delivery.dedupeKey ?? '—'}
+                              </code>
+                              {deliveryEntry!.delivery.dedupeKey && (
+                                <CopyButton value={deliveryEntry!.delivery.dedupeKey!} ariaLabel="Copy dedupe key" />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                        {runEntry ? (
+                          <div className="flex flex-col gap-1">
+                            <span>Triggered by: {runEntry.run.triggeredBy ?? '—'}</span>
+                            <span>Partition: {runEntry.run.partitionKey ?? '—'}</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <span>
+                              Trigger:{' '}
+                              {entry.trigger
+                                ? `${entry.trigger.name ?? entry.trigger.id ?? '—'} (${entry.trigger.eventType ?? 'unknown'})`
+                                : '—'}
+                            </span>
+                            <span>Attempts: {deliveryEntry!.delivery.attempts}</span>
+                            <span>Linked run: {linkedRunId ?? '—'}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                        <div className="flex flex-col gap-1">
+                          <span>
+                            {runEntry
+                              ? `Started: ${formatDateTime(runEntry.run.startedAt)}`
+                              : `Occurred: ${formatDateTime(entry.occurredAt)}`}
+                          </span>
+                          {runEntry ? (
+                            <span>Completed: {formatDateTime(runEntry.run.completedAt)}</span>
+                          ) : (
+                            <>
+                              {nextAttemptText && <span>{nextAttemptText}</span>}
+                              <span>Updated: {formatDateTime(deliveryEntry!.delivery.updatedAt)}</span>
+                            </>
+                          )}
+                          {runEntry && <span>Duration: {formatDuration(durationMs)}</span>}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                        {entry.run.triggeredBy ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                        {formatDateTime(entry.run.startedAt)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                        {formatDateTime(entry.run.completedAt)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                        {formatDuration(durationMs)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRetry(entry);
-                          }}
-                          disabled={isPending}
-                        >
-                          {isPending ? 'Retriggering…' : 'Retrigger'}
-                        </button>
+                      <td className="px-4 py-3 text-right align-top">
+                        {runEntry ? (
+                          <button
+                            type="button"
+                            className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onRetry(runEntry);
+                            }}
+                            disabled={isPending}
+                          >
+                            {isPending ? 'Retriggering…' : 'Retrigger'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                        )}
                       </td>
                     </tr>
-                    {isSelected && (
+                    {runEntry && isSelected && (
                       <tr className="bg-violet-50/50 dark:bg-slate-900/70">
-                        <td colSpan={8} className="px-4 pb-6 pt-2 text-left align-top">
+                        <td colSpan={6} className="px-4 pb-6 pt-2 text-left align-top">
                           <WorkflowRunDetailPanel
-                            entry={entry}
+                            entry={runEntry}
                             detail={detailForEntry}
                             loading={detailLoadingForEntry}
                             error={detailErrorForEntry}
+                            onClose={onCloseDetail}
+                            onViewWorkflow={onViewWorkflow}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    {deliveryEntry && isSelected && (
+                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                        <td colSpan={6} className="px-4 pb-6 pt-2 text-left align-top">
+                          <WorkflowDeliveryDetailPanel
+                            entry={deliveryEntry}
                             onClose={onCloseDetail}
                             onViewWorkflow={onViewWorkflow}
                           />
@@ -1654,7 +1766,7 @@ function WorkflowRunsTable({
 }
 
 type WorkflowRunDetailPanelProps = {
-  entry: WorkflowRunListItem;
+  entry: WorkflowActivityRunEntry;
   detail: { run: WorkflowRun; steps: WorkflowRunStep[] } | null;
   loading: boolean;
   error: string | null;
@@ -1895,6 +2007,79 @@ function JsonPreview({ title, value }: JsonPreviewProps) {
       ) : (
         <span className="text-xs text-slate-500 dark:text-slate-400">No data</span>
       )}
+    </div>
+  );
+}
+
+type WorkflowDeliveryDetailPanelProps = {
+  entry: WorkflowActivityDeliveryEntry;
+  onClose: () => void;
+  onViewWorkflow: () => void;
+};
+
+function WorkflowDeliveryDetailPanel({ entry, onClose, onViewWorkflow }: WorkflowDeliveryDetailPanelProps) {
+  const { delivery, workflow, trigger } = entry;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Delivery detail
+          </span>
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{workflow.name}</h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.status)}`}>
+            {formatFilterLabel(entry.status)}
+          </span>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+            onClick={onViewWorkflow}
+          >
+            View workflow
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <InfoRow label="Delivery ID" value={delivery.id} copyValue={delivery.id} monospace />
+        <InfoRow label="Workflow slug" value={workflow.slug} />
+        <InfoRow label="Event ID" value={delivery.eventId ?? '—'} copyValue={delivery.eventId ?? null} monospace />
+        <InfoRow label="Dedupe key" value={delivery.dedupeKey ?? '—'} copyValue={delivery.dedupeKey ?? null} monospace />
+        <InfoRow label="Attempts" value={String(delivery.attempts)} />
+        <InfoRow label="Linked run" value={delivery.workflowRunId ?? '—'} copyValue={delivery.workflowRunId ?? null} monospace />
+        <InfoRow label="Next attempt" value={formatDateTime(delivery.nextAttemptAt)} />
+        <InfoRow label="Throttled until" value={formatDateTime(delivery.throttledUntil)} />
+        <InfoRow label="Created" value={formatDateTime(delivery.createdAt)} />
+        <InfoRow label="Updated" value={formatDateTime(delivery.updatedAt)} />
+      </div>
+
+      {delivery.lastError && (
+        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+          {delivery.lastError}
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <InfoRow label="Trigger" value={trigger ? trigger.name ?? trigger.id ?? '—' : '—'} />
+        <InfoRow label="Trigger status" value={trigger?.status ?? '—'} />
+        <InfoRow label="Event type" value={trigger?.eventType ?? '—'} />
+        <InfoRow label="Event source" value={trigger?.eventSource ?? '—'} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <JsonPreview title="Retry metadata" value={delivery.retryMetadata} />
+        <JsonPreview title="Trigger summary" value={trigger} />
+      </div>
     </div>
   );
 }

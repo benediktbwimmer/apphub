@@ -5,7 +5,7 @@ import { ROUTE_PATHS } from '../routes/paths';
 import { Spinner } from '../components';
 import type { AppRecord, StatusFacet } from '../catalog/types';
 import type { ServiceSummary } from '../services/types';
-import type { JobRunListItem, WorkflowRunListItem } from '../runs/api';
+import type { JobRunListItem, WorkflowActivityRunEntry } from '../runs/api';
 
 function totalAppsFromFacets(facets: StatusFacet[]): number {
   return facets.reduce((sum, facet) => sum + (facet.count ?? 0), 0);
@@ -86,7 +86,7 @@ function countServicesByStatus(services: ServiceSummary[], status: string): numb
   return services.filter((service) => service.status === status).length;
 }
 
-function runsTitle(run: WorkflowRunListItem | JobRunListItem): string {
+function runsTitle(run: WorkflowActivityRunEntry | JobRunListItem): string {
   if ('workflow' in run) {
     return run.workflow.name;
   }
@@ -305,7 +305,7 @@ function EmptyState({ message }: { message: string }) {
 }
 
 type RunListProps = {
-  entries: Array<WorkflowRunListItem | JobRunListItem>;
+  entries: Array<WorkflowActivityRunEntry | JobRunListItem>;
   kind: 'workflow' | 'job';
 };
 
