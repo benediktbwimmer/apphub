@@ -60,6 +60,9 @@ APPHUB_BUNDLE_STORAGE_REGION=us-east-1
 APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE=true
 APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID=apphub
 APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY=apphub123
+# Optional overrides for job bundle publishing; falls back to the values above when unset.
+# APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID=apphub
+# APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY=apphub123
 ```
 
 Create the bucket once the MinIO server is running:

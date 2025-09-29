@@ -144,6 +144,14 @@ async function main() {
   ensureEnv('APPHUB_JOB_BUNDLE_S3_ENDPOINT', 'http://127.0.0.1:9000');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_REGION', 'us-east-1');
   ensureEnv('APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE', 'true');
+  ensureEnv(
+    'APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID',
+    baseEnv.APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub'
+  );
+  ensureEnv(
+    'APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY',
+    baseEnv.APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123'
+  );
 
   // Timestore partitions and exports rely on the shared MinIO instance as well.
   ensureEnv('TIMESTORE_STORAGE_DRIVER', 's3');

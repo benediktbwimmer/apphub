@@ -22,6 +22,9 @@ const s3Endpoint = process.env.APPHUB_JOB_BUNDLE_S3_ENDPOINT;
 const s3ForcePathStyle = (process.env.APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE ?? '').toLowerCase() === 'true';
 const s3PrefixRaw = process.env.APPHUB_JOB_BUNDLE_S3_PREFIX ?? '';
 const s3Prefix = s3PrefixRaw.replace(/^\/+/, '').replace(/\/+$/, '');
+const s3AccessKeyId = process.env.APPHUB_JOB_BUNDLE_S3_ACCESS_KEY_ID ?? process.env.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID;
+const s3SecretAccessKey = process.env.APPHUB_JOB_BUNDLE_S3_SECRET_ACCESS_KEY ?? process.env.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY;
+const s3SessionToken = process.env.APPHUB_JOB_BUNDLE_S3_SESSION_TOKEN ?? process.env.APPHUB_BUNDLE_STORAGE_SESSION_TOKEN;
 
 function getBackend(): JobBundleStorageKind {
   if (!configuredBackend) {
@@ -133,11 +136,19 @@ function getS3Client(): S3Client {
     if (!s3Bucket) {
       throw new Error('APPHUB_JOB_BUNDLE_S3_BUCKET must be configured for s3 storage backend');
     }
-    s3Client = new S3Client({
+    const config: ConstructorParameters<typeof S3Client>[0] = {
       region: s3Region,
       endpoint: s3Endpoint,
-      forcePathStyle: s3ForcePathStyle
-    });
+      forcePathStyle: s3ForcePathStyle || Boolean(s3Endpoint)
+    };
+    if (s3AccessKeyId && s3SecretAccessKey) {
+      config.credentials = {
+        accessKeyId: s3AccessKeyId,
+        secretAccessKey: s3SecretAccessKey,
+        sessionToken: s3SessionToken
+      };
+    }
+    s3Client = new S3Client(config);
   }
   return s3Client;
 }
