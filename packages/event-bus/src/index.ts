@@ -20,18 +20,41 @@ export type WorkflowMetadata = Record<WorkflowMetadataField, string>;
 
 type WorkflowRuntimeModule = {
   getWorkflowEventContext?: () => unknown;
+  default?: {
+    getWorkflowEventContext?: () => unknown;
+  };
 };
 
-let readWorkflowEventContext: (() => unknown) | null = null;
+function resolveWorkflowContextReader(): (() => unknown) | null {
+  const candidates = [
+    '@apphub/catalog/workflowEventContext',
+    '@apphub/catalog/dist/workflowEventContext.js',
+    '@apphub/catalog/dist/workflowEventContext',
+    '@apphub/catalog/src/workflowEventContext.ts',
+    '@apphub/catalog/src/workflowEventContext',
+    '@apphub/catalog/dist/jobs/runtime.js',
+    '@apphub/catalog/dist/jobs/runtime',
+    '@apphub/catalog/jobs/runtime',
+    '@apphub/catalog/src/jobs/runtime.ts',
+    '@apphub/catalog/src/jobs/runtime'
+  ];
 
-try {
-  const runtimeModule = require('@apphub/catalog/jobs/runtime') as WorkflowRuntimeModule;
-  if (typeof runtimeModule.getWorkflowEventContext === 'function') {
-    readWorkflowEventContext = runtimeModule.getWorkflowEventContext.bind(runtimeModule);
+  for (const specifier of candidates) {
+    try {
+      const runtimeModule = require(specifier) as WorkflowRuntimeModule;
+      const candidate = runtimeModule.getWorkflowEventContext
+        ?? runtimeModule.default?.getWorkflowEventContext;
+      if (typeof candidate === 'function') {
+        return candidate.bind(runtimeModule);
+      }
+    } catch {
+      // Ignore missing modules - fall back to the next candidate.
+    }
   }
-} catch {
-  readWorkflowEventContext = null;
+  return null;
 }
+
+let readWorkflowEventContext: (() => unknown) | null = resolveWorkflowContextReader();
 
 export type JsonValue =
   | string

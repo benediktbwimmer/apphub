@@ -40,6 +40,9 @@ before(async () => {
   process.env.FILESTORE_DATABASE_URL = connectionString;
   process.env.FILESTORE_PG_SCHEMA = `filestore_test_${randomUUID().slice(0, 8)}`;
   process.env.FILESTORE_PGPOOL_MAX = '4';
+  process.env.FILESTORE_REDIS_URL = process.env.FILESTORE_REDIS_URL ?? 'inline';
+  process.env.FILESTORE_EVENTS_MODE = process.env.FILESTORE_EVENTS_MODE ?? 'inline';
+  process.env.APPHUB_ALLOW_INLINE_MODE = process.env.APPHUB_ALLOW_INLINE_MODE ?? 'true';
 
   const configModule = await import('../src/config/serviceConfig');
   configModule.resetCachedServiceConfig();

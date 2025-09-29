@@ -1,3 +1,5 @@
+import './testEnv';
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { queryRequestSchema } from '../src/query/types';

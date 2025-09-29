@@ -1,3 +1,5 @@
+import './testEnv';
+
 import assert from 'node:assert/strict';
 import { test, beforeEach, afterEach } from 'node:test';
 import fastify from 'fastify';

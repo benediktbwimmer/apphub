@@ -1,3 +1,5 @@
+import './testEnv';
+
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';

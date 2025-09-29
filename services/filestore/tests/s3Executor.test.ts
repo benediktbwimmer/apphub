@@ -149,6 +149,7 @@ before(async () => {
 
   await schemaModule.ensureSchemaExists(clientModule.POSTGRES_SCHEMA);
   await migrationsModule.runMigrationsWithConnection();
+  await rollupManagerModule.initializeRollupManager({ config: serviceConfig, metricsEnabled: false });
 });
 
 after(async () => {
@@ -177,6 +178,7 @@ afterEach(async () => {
   if (rollupManagerModule) {
     await rollupManagerModule.shutdownRollupManager();
     rollupManagerModule.resetRollupManagerForTests();
+    await rollupManagerModule.initializeRollupManager({ config: serviceConfig, metricsEnabled: false });
   }
   if (reconciliationManagerModule) {
     await reconciliationManagerModule.shutdownReconciliationManager().catch(() => undefined);

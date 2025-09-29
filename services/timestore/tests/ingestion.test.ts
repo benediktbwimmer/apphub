@@ -1,5 +1,7 @@
 /// <reference path="../src/types/embeddedPostgres.d.ts" />
 
+import './testEnv';
+
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, stat } from 'node:fs/promises';

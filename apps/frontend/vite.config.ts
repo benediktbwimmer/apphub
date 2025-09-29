@@ -34,7 +34,9 @@ const config: UserConfig & { test: VitestUserConfig['test'] } = {
   test: {
     environment: 'jsdom',
     setupFiles: './vitest.setup.ts',
-    globals: true
+    globals: true,
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['tests/**']
   }
 };
 
