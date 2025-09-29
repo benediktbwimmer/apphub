@@ -679,6 +679,11 @@
                 ]
               },
               "minItems": 1
+            },
+            "instrumentCount": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 50
             }
           },
           "required": [
@@ -690,19 +695,20 @@
             "archivePrefix"
           ]
         },
-          "defaultParameters": {
-            "rowsPerInstrument": 6,
-            "intervalMinutes": 10,
-            "filestoreBaseUrl": "http://127.0.0.1:4300",
-            "filestoreBackendId": 1,
-            "inboxPrefix": "datasets/observatory/inbox",
-            "stagingPrefix": "datasets/observatory/staging",
-            "archivePrefix": "datasets/observatory/archive",
-            "principal": "observatory-data-generator",
-            "metastoreBaseUrl": null,
-            "metastoreNamespace": "observatory.ingest",
-            "metastoreAuthToken": null
-          },
+        "defaultParameters": {
+          "rowsPerInstrument": 6,
+          "intervalMinutes": 10,
+          "filestoreBaseUrl": "http://127.0.0.1:4300",
+          "filestoreBackendId": 1,
+          "inboxPrefix": "datasets/observatory/inbox",
+          "stagingPrefix": "datasets/observatory/staging",
+          "archivePrefix": "datasets/observatory/archive",
+          "principal": "observatory-data-generator",
+          "metastoreBaseUrl": null,
+          "metastoreNamespace": "observatory.ingest",
+          "metastoreAuthToken": null,
+          "instrumentCount": 3
+        },
         "outputSchema": {
           "type": "object",
           "properties": {
