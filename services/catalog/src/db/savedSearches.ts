@@ -7,6 +7,7 @@ import {
   type SavedSearchRecord,
   type SavedSearchUpdateInput
 } from './types';
+export type { SavedSearchCreateInput, SavedSearchRecord, SavedSearchUpdateInput } from './types';
 import { mapSavedSearchRow } from './rowMappers';
 import type { SavedCatalogSearchRow } from './rowTypes';
 
@@ -314,7 +315,7 @@ export async function deleteSavedSearch(owner: SavedSearchOwner, slug: string): 
       'DELETE FROM saved_catalog_searches WHERE slug = $1 AND owner_key = $2',
       [normalizedSlug, owner.key]
     );
-    return rowCount > 0;
+    return (rowCount ?? 0) > 0;
   });
 }
 

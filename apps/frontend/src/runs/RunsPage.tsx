@@ -739,6 +739,86 @@ export default function RunsPage() {
     }
   }, [jobFilters, pushToast, runSavedSearches]);
 
+  const loadWorkflowRuns = useCallback(
+    async (options?: { offset?: number; append?: boolean; filters?: WorkflowFilterState }) => {
+      const { offset = 0, append = false, filters } = options ?? {};
+      const activeFilters = filters ?? workflowFiltersRef.current;
+      const queryFilters = toWorkflowRunFilters(activeFilters);
+      setWorkflowState((prev) => ({
+        ...prev,
+        loading: append ? prev.loading : true,
+        loadingMore: append,
+        error: append ? prev.error : null
+      }));
+      try {
+        const result = await fetchWorkflowRuns(authorizedFetch, {
+          limit: WORKFLOW_PAGE_SIZE,
+          offset,
+          filters: queryFilters
+        });
+        setWorkflowState((prev) => ({
+          ...prev,
+          items: append ? [...prev.items, ...result.items] : result.items,
+          meta: result.meta,
+          loading: false,
+          loadingMore: false,
+          error: null,
+          loaded: true
+        }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load workflow runs';
+        setWorkflowState((prev) => ({
+          ...prev,
+          loading: false,
+          loadingMore: false,
+          error: message,
+          loaded: prev.loaded || !append
+        }));
+      }
+    },
+    [authorizedFetch]
+  );
+
+  const loadJobRuns = useCallback(
+    async (options?: { offset?: number; append?: boolean; filters?: JobFilterState }) => {
+      const { offset = 0, append = false, filters } = options ?? {};
+      const activeFilters = filters ?? jobFiltersRef.current;
+      const queryFilters = toJobRunFilters(activeFilters);
+      setJobState((prev) => ({
+        ...prev,
+        loading: append ? prev.loading : true,
+        loadingMore: append,
+        error: append ? prev.error : null
+      }));
+      try {
+        const result = await fetchJobRuns(authorizedFetch, {
+          limit: JOB_PAGE_SIZE,
+          offset,
+          filters: queryFilters
+        });
+        setJobState((prev) => ({
+          ...prev,
+          items: append ? [...prev.items, ...result.items] : result.items,
+          meta: result.meta,
+          loading: false,
+          loadingMore: false,
+          error: null,
+          loaded: true
+        }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load job runs';
+        setJobState((prev) => ({
+          ...prev,
+          loading: false,
+          loadingMore: false,
+          error: message,
+          loaded: prev.loaded || !append
+        }));
+      }
+    },
+    [authorizedFetch]
+  );
+
   const handleApplySavedView = useCallback(
     async (record: RunSavedSearchRecord, config: RunSavedSearchConfig) => {
       if (config.kind === 'workflows') {
@@ -885,86 +965,6 @@ export default function RunsPage() {
       cancelled = true;
     };
   }, [handleApplySavedView, pushToast, runSavedSearches]);
-
-  const loadWorkflowRuns = useCallback(
-    async (options?: { offset?: number; append?: boolean; filters?: WorkflowFilterState }) => {
-      const { offset = 0, append = false, filters } = options ?? {};
-      const activeFilters = filters ?? workflowFiltersRef.current;
-      const queryFilters = toWorkflowRunFilters(activeFilters);
-      setWorkflowState((prev) => ({
-        ...prev,
-        loading: append ? prev.loading : true,
-        loadingMore: append,
-        error: append ? prev.error : null
-      }));
-      try {
-        const result = await fetchWorkflowRuns(authorizedFetch, {
-          limit: WORKFLOW_PAGE_SIZE,
-          offset,
-          filters: queryFilters
-        });
-        setWorkflowState((prev) => ({
-          ...prev,
-          items: append ? [...prev.items, ...result.items] : result.items,
-          meta: result.meta,
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load workflow runs';
-        setWorkflowState((prev) => ({
-          ...prev,
-          loading: false,
-          loadingMore: false,
-          error: message,
-          loaded: prev.loaded || !append
-        }));
-      }
-    },
-    [authorizedFetch]
-  );
-
-  const loadJobRuns = useCallback(
-    async (options?: { offset?: number; append?: boolean; filters?: JobFilterState }) => {
-      const { offset = 0, append = false, filters } = options ?? {};
-      const activeFilters = filters ?? jobFiltersRef.current;
-      const queryFilters = toJobRunFilters(activeFilters);
-      setJobState((prev) => ({
-        ...prev,
-        loading: append ? prev.loading : true,
-        loadingMore: append,
-        error: append ? prev.error : null
-      }));
-      try {
-        const result = await fetchJobRuns(authorizedFetch, {
-          limit: JOB_PAGE_SIZE,
-          offset,
-          filters: queryFilters
-        });
-        setJobState((prev) => ({
-          ...prev,
-          items: append ? [...prev.items, ...result.items] : result.items,
-          meta: result.meta,
-          loading: false,
-          loadingMore: false,
-          error: null,
-          loaded: true
-        }));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load job runs';
-        setJobState((prev) => ({
-          ...prev,
-          loading: false,
-          loadingMore: false,
-          error: message,
-          loaded: prev.loaded || !append
-        }));
-      }
-    },
-    [authorizedFetch]
-  );
 
   const scheduleWorkflowReload = useCallback(() => {
     if (workflowReloadTimer.current !== null) {

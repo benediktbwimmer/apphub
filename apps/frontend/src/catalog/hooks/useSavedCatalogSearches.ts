@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { SavedSearchMutationState } from '../../savedSearches/types';
 import { useSavedSearches } from '../../savedSearches/useSavedSearches';
+export type { SavedSearchMutationState } from '../../savedSearches/types';
 import type { SavedCatalogSearch, SavedCatalogSearchCreateInput, SearchSort, IngestStatus } from '../types';
 
 export type UseSavedCatalogSearchesResult = {

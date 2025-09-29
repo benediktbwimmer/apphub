@@ -26,6 +26,9 @@ apps/frontend/node_modules/
 apps/frontend/.env.local
 services/catalog/.env
 
+# Local development storage
+.dev/minio/
+
 # Generated bundle artifacts
 apps/frontend/public/examples/job-bundles/*.tgz
 apps/frontend/public/examples/job-bundles/*.tgz.sha256

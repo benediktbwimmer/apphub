@@ -207,7 +207,7 @@ export type SavedCatalogSearch = Omit<CatalogSavedSearchBase, 'statusFilters' | 
 };
 
 export type SavedCatalogSearchCreateInput = Omit<
-  SavedSearchCreateInput<IngestStatus>,
+  SavedSearchCreateInput<IngestStatus, Record<string, unknown>>,
   'statusFilters' | 'sort' | 'searchInput'
 > & {
   searchInput: string;
