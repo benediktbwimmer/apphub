@@ -47,6 +47,7 @@ import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
 import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
+import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import { getRuntimeScalingEffectiveConcurrency } from './runtimeScaling/state';
 import { getRuntimeScalingTarget } from './runtimeScaling/targets';
 
@@ -63,39 +64,17 @@ type StepUpdateOptions = {
   heartbeat?: boolean;
 };
 
-const WORKFLOW_RETRY_BACKOFF = {
-  baseMs: normalizePositiveNumber(process.env.WORKFLOW_RETRY_BASE_MS, 5_000),
-  factor: normalizePositiveNumber(process.env.WORKFLOW_RETRY_FACTOR, 2),
-  maxMs: normalizePositiveNumber(process.env.WORKFLOW_RETRY_MAX_MS, 30 * 60_000),
-  jitterRatio: normalizeRatio(process.env.WORKFLOW_RETRY_JITTER_RATIO, 0.2)
-} as const;
+const WORKFLOW_RETRY_BACKOFF = resolveRetryBackoffConfig(
+  {
+    baseMs: 5_000,
+    factor: 2,
+    maxMs: 30 * 60_000,
+    jitterRatio: 0.2
+  },
+  { prefix: 'WORKFLOW_RETRY' }
+);
 
 const WORKFLOW_RUNTIME_TARGET = getRuntimeScalingTarget('catalog:workflow');
-
-function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  if (parsed < minimum) {
-    return fallback;
-  }
-  return parsed;
-}
-
-function normalizeRatio(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, 0), 1);
-}
 
 function resolveRuntimeConcurrencyBaseline(): number {
   const runtimeValue = getRuntimeScalingEffectiveConcurrency('catalog:workflow');

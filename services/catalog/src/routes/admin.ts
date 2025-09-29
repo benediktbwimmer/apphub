@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { normalizePositiveNumber } from '@apphub/shared/retries/config';
 import {
   ensureDatabase,
   listWorkflowEvents,
@@ -68,21 +69,11 @@ import { publishRuntimeScalingUpdate } from '../runtimeScaling/notifications';
 
 const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
   process.env.EVENT_SAMPLING_STALE_MINUTES,
-  6 * 60
+  6 * 60,
+  { integer: true }
 );
 
 const RUNTIME_SCALING_ACK_LIMIT = 20;
-
-function normalizePositiveNumber(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return parsed > 0 ? Math.floor(parsed) : fallback;
-}
 
 function parseLimitParam(value: string | undefined): number | undefined {
   if (!value) {

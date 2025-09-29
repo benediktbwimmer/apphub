@@ -7,6 +7,7 @@ export * from './timestoreAdmin';
 export * from './filestoreMounts';
 export * from './filestoreFilters';
 export * from './retries/backoff';
+export * from './retries/config';
 export * from './workflowTopology';
 export * from './eventsExplorer';
 export * from './gitRepo';

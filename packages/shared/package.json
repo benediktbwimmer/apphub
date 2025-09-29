@@ -49,6 +49,11 @@
       "require": "./dist/retries/backoff.js",
       "default": "./dist/retries/backoff.js"
     },
+    "./retries/config": {
+      "types": "./dist/retries/config.d.ts",
+      "require": "./dist/retries/config.js",
+      "default": "./dist/retries/config.js"
+    },
     "./gitRepo": {
       "types": "./dist/gitRepo.d.ts",
       "require": "./dist/gitRepo.js",
@@ -61,7 +66,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "npm run build && node --test tests/**/*.test.js"
   },
   "dependencies": {
     "@apphub/examples": "0.1.0",

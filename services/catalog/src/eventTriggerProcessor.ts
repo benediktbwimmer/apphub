@@ -28,39 +28,21 @@ import { normalizeMeta } from './observability/meta';
 import { recordTriggerEvaluation } from './eventSchedulerMetrics';
 import { isTriggerPaused, registerTriggerFailure, registerTriggerSuccess } from './eventSchedulerState';
 import { computeNextAttemptTimestamp } from '@apphub/shared/retries/backoff';
+import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import { getWorkflowEventById } from './workflowEvents';
 import { buildRunKeyFromParts, computeRunKeyColumns } from './workflows/runKey';
 
 const liquid = new Liquid({ cache: false, strictFilters: false, strictVariables: false });
 
-const TRIGGER_RETRY_BACKOFF = {
-  baseMs: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_BASE_MS, 10_000),
-  factor: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_FACTOR, 2),
-  maxMs: normalizePositiveNumber(process.env.EVENT_TRIGGER_RETRY_MAX_MS, 15 * 60_000),
-  jitterRatio: normalizeRatio(process.env.EVENT_TRIGGER_RETRY_JITTER_RATIO, 0.2)
-} as const;
-
-function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return parsed >= minimum ? parsed : fallback;
-}
-
-function normalizeRatio(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, 0), 1);
-}
+const TRIGGER_RETRY_BACKOFF = resolveRetryBackoffConfig(
+  {
+    baseMs: 10_000,
+    factor: 2,
+    maxMs: 15 * 60_000,
+    jitterRatio: 0.2
+  },
+  { prefix: 'EVENT_TRIGGER_RETRY' }
+);
 
 function computeNextTriggerAttemptTimestamp(
   attempts: number,

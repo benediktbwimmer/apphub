@@ -27,39 +27,21 @@ import { normalizeMeta } from './observability/meta';
 import { recordEventIngress, recordEventIngressFailure } from './eventSchedulerMetrics';
 import { registerSourceEvent } from './eventSchedulerState';
 import { computeNextAttemptTimestamp } from '@apphub/shared/retries/backoff';
+import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import type { EventIngressRetryRecord, WorkflowEventRecord, JsonValue } from './db/types';
 
 const EVENT_WORKER_CONCURRENCY = Number(process.env.EVENT_INGRESS_CONCURRENCY ?? 5);
 const inlineMode = isInlineQueueMode();
 
-const EVENT_RETRY_BACKOFF = {
-  baseMs: normalizePositiveNumber(process.env.EVENT_RETRY_BASE_MS, 5_000),
-  factor: normalizePositiveNumber(process.env.EVENT_RETRY_FACTOR, 2),
-  maxMs: normalizePositiveNumber(process.env.EVENT_RETRY_MAX_MS, 10 * 60_000),
-  jitterRatio: normalizeRatio(process.env.EVENT_RETRY_JITTER_RATIO, 0.2)
-} as const;
-
-function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return parsed >= minimum ? parsed : fallback;
-}
-
-function normalizeRatio(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, 0), 1);
-}
+const EVENT_RETRY_BACKOFF = resolveRetryBackoffConfig(
+  {
+    baseMs: 5_000,
+    factor: 2,
+    maxMs: 10 * 60_000,
+    jitterRatio: 0.2
+  },
+  { prefix: 'EVENT_RETRY' }
+);
 
 function toEventEnvelope(record: WorkflowEventRecord): EventEnvelope {
   const metadataValue =
