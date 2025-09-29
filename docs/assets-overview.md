@@ -95,7 +95,7 @@ return {
 ## Asset Events
 The workflow orchestrator publishes structured events to the AppHub event bus:
 
-- `asset.produced` – emitted whenever a workflow step records a produced asset. Payload includes the asset id, producing workflow slug/id, run id, step id, producedAt timestamp, and the declared `freshness` block.
+- `asset.produced` – emitted whenever a workflow step records a produced asset. Payload includes the asset id, producing workflow slug/id, run key, run id, step id, producedAt timestamp, and the declared `freshness` block.
 - `asset.expired` – emitted when a scheduled freshness timer (TTL/cadence) elapses. The payload mirrors the produced event and specifies the expiry reason (`ttl` or `cadence`).
 
 Both events flow through Redis (or inline during tests) and are consumed by the asset materializer worker and any other interested services.

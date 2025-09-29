@@ -504,8 +504,11 @@ function buildWorkflowNodes(
     const statusDescriptor = overlay ? toWorkflowNodeStatus(overlay.workflows[workflow.id]) : undefined;
     const meta: string[] = [`Version ${workflow.version}`];
     const overlayStatus = overlay?.workflows[workflow.id];
+    if (overlayStatus?.runKey) {
+      meta.push(`Run Key · ${overlayStatus.runKey}`);
+    }
     if (overlayStatus?.runId) {
-      meta.push(`Run · ${overlayStatus.runId}`);
+      meta.push(`Run ID · ${overlayStatus.runId}`);
     }
     const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : undefined;
     if (updatedLabel) {
@@ -550,8 +553,11 @@ function buildStepNodes(
     }
     const meta = formatStepRuntimeMeta(step);
     const overlayStatus = overlay?.steps[step.id];
+    if (overlayStatus?.runKey) {
+      meta.push(`Run Key · ${overlayStatus.runKey}`);
+    }
     if (overlayStatus?.runId) {
-      meta.push(`Run · ${overlayStatus.runId}`);
+      meta.push(`Run ID · ${overlayStatus.runId}`);
     }
     const statusDescriptor = overlay ? toStepNodeStatus(overlayStatus) : undefined;
     const updatedLabel = overlayStatus ? formatTimestampLabel(overlayStatus.updatedAt) : undefined;

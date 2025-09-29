@@ -9,6 +9,7 @@ Workflow orchestration now records per-step heartbeats and execution history so 
 - `job_runs.failure_reason` — Categorical failure code (`error`, `timeout`, `canceled`, etc.).
 - `workflow_run_steps.last_heartbeat_at`, `retry_count`, `failure_reason` — Same semantics at the workflow step level.
 - `workflow_execution_history` — Append-only log of `run.*`, `step.*`, and `step.timeout` events. Replaying this table yields a deterministic timeline for audits and diagnostics.
+- `workflow_runs.run_key` / `workflow_runs.run_key_normalized` — Optional human-readable identifiers for workflow runs. Use the normalized column when deduping or joining inside SQL; the UI surfaces the display key for operators.
 
 ## Heartbeat Expectations
 - Job handlers call `context.update(...)` whenever they mutate run state, automatically refreshing `last_heartbeat_at`. Use `context.heartbeat()` for long-running operations that do not need to persist other fields.
@@ -23,7 +24,7 @@ Workflow orchestration now records per-step heartbeats and execution history so 
 ## Investigating Stalled Runs
 ```sql
 -- List stale running steps older than the timeout window
-SELECT wrs.id, wrs.step_id, wrs.last_heartbeat_at, wrs.retry_count
+SELECT wrs.id, wrs.step_id, wr.run_key, wrs.last_heartbeat_at, wrs.retry_count
 FROM workflow_run_steps wrs
 JOIN workflow_runs wr ON wr.id = wrs.workflow_run_id
 WHERE wrs.status = 'running'
@@ -41,11 +42,13 @@ WHERE workflow_run_id = $1
 ORDER BY id;
 ```
 
+> Tip: When operators provide a run key from the UI, resolve it to a UUID with `SELECT id FROM workflow_runs WHERE run_key_normalized = '<normalized-key>'`. Normalization trims, lowercases, and collapses non-alphanumeric characters as described in the run-key RFC.
+
 ## Manual Recovery Steps
 1. **Validate Environment:** Ensure workers are online (`npm run workflows --workspace @apphub/catalog`) and Redis connectivity is healthy.
-2. **Check History:** Query `workflow_execution_history` for `step.timeout` events to confirm which steps were retried or exhausted.
-3. **Requeue If Needed:** If automation has not retried a stalled run, enqueue it manually: `node -e "require('./dist/queue').enqueueWorkflowRun('<run-id>')"` (or use the API endpoint once exposed).
-4. **Reset Run:** To force a full rerun, update `workflow_run_steps` for the affected run to `pending`, clear `job_run_id`, `last_heartbeat_at`, and increment `retry_count` as needed, then enqueue the run. Always append a manual event to `workflow_execution_history` describing the intervention.
+2. **Check History:** Query `workflow_execution_history` for `step.timeout` events to confirm which steps were retried or exhausted. Record the run key from `workflow_runs` so follow-up responders can correlate logs and dashboards without the UUID.
+3. **Requeue If Needed:** If automation has not retried a stalled run, enqueue it manually: `node -e "require('./dist/queue').enqueueWorkflowRun('<run-id>')"` (or use the API endpoint once exposed). Include the run key in commit messages or incident notes (`order-import-2024-05-01` for example) so partners can search the UI quickly.
+4. **Reset Run:** To force a full rerun, update `workflow_run_steps` for the affected run to `pending`, clear `job_run_id`, `last_heartbeat_at`, and increment `retry_count` as needed, then enqueue the run. Always append a manual event to `workflow_execution_history` describing the intervention and reference the run key you acted on.
 5. **Escalate:** If heartbeats fail persistently after retries, review worker logs for crashes, validate job handler instrumentation, and update alerting thresholds as required.
 
 ## Configuration Reference

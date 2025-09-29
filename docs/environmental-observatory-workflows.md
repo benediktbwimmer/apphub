@@ -105,7 +105,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the Timestore loader immediately for the same partition. The loader produces `observatory.timeseries.timestore` and schedules an expiry after 60 minutes.
 3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
 4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports.
-5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run IDs and payload diffs for auditing.
+5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run keys, run IDs, and payload diffs for auditing.
 
 ## Running the demo locally
 

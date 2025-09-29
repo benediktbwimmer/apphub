@@ -110,6 +110,7 @@ describe('buildWorkflowGraphCanvasModel', () => {
         [graph.workflows[0]?.id ?? 'wf-unknown']: {
           state: 'running',
           runId: 'run-123',
+          runKey: 'order-sync-2024',
           updatedAt: '2024-04-02T00:00:05.000Z'
         }
       },
@@ -117,6 +118,7 @@ describe('buildWorkflowGraphCanvasModel', () => {
         [graph.steps[0]?.id ?? 'step-unknown']: {
           state: 'running',
           runId: 'run-123',
+          runKey: 'order-sync-2024',
           updatedAt: '2024-04-02T00:00:05.000Z'
         }
       },
@@ -136,9 +138,13 @@ describe('buildWorkflowGraphCanvasModel', () => {
     const model = buildWorkflowGraphCanvasModel(graph, { overlay });
     const workflowNode = model.nodes.find((node) => node.kind === 'workflow');
     expect(workflowNode?.status?.label).toBe('Running');
+    expect(workflowNode?.meta).toContain('Run Key · order-sync-2024');
+    expect(workflowNode?.meta).toContain('Run ID · run-123');
 
     const stepNode = model.nodes.find((node) => node.kind.startsWith('step'));
     expect(stepNode?.status?.label).toBe('Running');
+    expect(stepNode?.meta).toContain('Run Key · order-sync-2024');
+    expect(stepNode?.meta).toContain('Run ID · run-123');
 
     const assetNode = model.nodes.find((node) => node.kind === 'asset');
     expect(assetNode?.status?.label).toBe('Fresh');

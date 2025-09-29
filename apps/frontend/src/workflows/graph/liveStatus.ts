@@ -125,6 +125,7 @@ export function applyWorkflowRunOverlay(
     const nextWorkflowStatus: WorkflowGraphWorkflowStatus = {
       state: mapRunStatus(run.status, run.health),
       runId: run.id,
+      runKey: run.runKey ?? null,
       updatedAt: timestampIso,
       triggeredBy: run.triggeredBy,
       errorMessage: run.errorMessage ?? undefined
@@ -140,6 +141,7 @@ export function applyWorkflowRunOverlay(
       const nextStepStatus: WorkflowGraphStepStatus = {
         state: mapStepStatus(run.status),
         runId: run.id,
+        runKey: run.runKey ?? null,
         updatedAt: timestampIso
       };
       steps = { ...steps, [currentStepId]: nextStepStatus };

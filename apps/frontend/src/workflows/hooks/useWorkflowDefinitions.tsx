@@ -86,6 +86,7 @@ export function WorkflowDefinitionsProvider({ children }: { children: ReactNode 
       ...current,
       [workflow.slug]: {
         runId: run.id,
+        runKey: run.runKey ?? null,
         status: run.status,
         startedAt: run.startedAt,
         completedAt: run.completedAt,

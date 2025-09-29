@@ -92,6 +92,7 @@ export type WorkflowGraphWorkflowStatusState =
 export type WorkflowGraphWorkflowStatus = {
   state: WorkflowGraphWorkflowStatusState;
   runId: string | null;
+  runKey: string | null;
   updatedAt: string;
   triggeredBy?: string | null;
   errorMessage?: string | null;
@@ -102,6 +103,7 @@ export type WorkflowGraphStepStatusState = 'pending' | 'running' | 'failed' | 's
 export type WorkflowGraphStepStatus = {
   state: WorkflowGraphStepStatusState;
   runId: string;
+  runKey?: string | null;
   updatedAt: string;
   attempt?: number | null;
 };

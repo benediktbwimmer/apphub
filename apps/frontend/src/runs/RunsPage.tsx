@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
-import { Spinner } from '../components';
+import { Spinner, CopyButton } from '../components';
 import { useToasts } from '../components/toast';
 import { ROUTE_PATHS } from '../routes/paths';
 import { useAppHubEvent } from '../events/context';
@@ -235,7 +235,7 @@ function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTri
           type="search"
           value={filters.search}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search by run ID, workflow, or trigger"
+          placeholder="Search by run key, run ID, workflow, or trigger"
           className="min-w-[220px] flex-1 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200/50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/40"
         />
         <button
@@ -1437,6 +1437,9 @@ function WorkflowRunsTable({
                 Workflow
               </th>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+                Identifiers
+              </th>
+              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
                 Triggered by
               </th>
               <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
@@ -1456,7 +1459,7 @@ function WorkflowRunsTable({
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                   No workflow runs recorded yet.
                 </td>
               </tr>
@@ -1498,6 +1501,32 @@ function WorkflowRunsTable({
                           <span className="text-xs text-slate-500 dark:text-slate-400">{entry.workflow.slug}</span>
                         </div>
                       </td>
+                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                        <div className="flex flex-col gap-1">
+                          {entry.run.runKey ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                Key
+                              </span>
+                              <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">
+                                {entry.run.runKey}
+                              </code>
+                              <CopyButton value={entry.run.runKey} ariaLabel="Copy run key" />
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              ID
+                            </span>
+                            <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">
+                              {entry.run.id}
+                            </code>
+                            <CopyButton value={entry.run.id} ariaLabel="Copy run id" />
+                          </div>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                         {entry.run.triggeredBy ?? '—'}
                       </td>
@@ -1526,7 +1555,7 @@ function WorkflowRunsTable({
                     </tr>
                     {isSelected && (
                       <tr className="bg-violet-50/50 dark:bg-slate-900/70">
-                        <td colSpan={7} className="px-4 pb-6 pt-2 text-left align-top">
+                        <td colSpan={8} className="px-4 pb-6 pt-2 text-left align-top">
                           <WorkflowRunDetailPanel
                             entry={entry}
                             detail={detailForEntry}
@@ -1611,7 +1640,8 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <InfoRow label="Run ID" value={run.id} />
+        <InfoRow label="Run key" value={run.runKey ?? '—'} copyValue={run.runKey ?? null} monospace />
+        <InfoRow label="Run ID" value={run.id} copyValue={run.id} monospace />
         <InfoRow label="Workflow slug" value={entry.workflow.slug} />
         <InfoRow label="Triggered by" value={run.triggeredBy ?? '—'} />
         <InfoRow label="Partition" value={run.partitionKey ?? '—'} />
@@ -1729,7 +1759,7 @@ function JobRunDetailPanel({ entry, onClose, onViewJob }: JobRunDetailPanelProps
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <InfoRow label="Run ID" value={entry.run.id} />
+        <InfoRow label="Run ID" value={entry.run.id} copyValue={entry.run.id} monospace />
         <InfoRow label="Job slug" value={entry.job.slug} />
         <InfoRow label="Runtime" value={entry.job.runtime} />
         <InfoRow label="Started" value={formatDateTime(entry.run.startedAt)} />
@@ -1758,15 +1788,24 @@ function JobRunDetailPanel({ entry, onClose, onViewJob }: JobRunDetailPanelProps
 type InfoRowProps = {
   label: string;
   value: string;
+  copyValue?: string | null;
+  monospace?: boolean;
 };
 
-function InfoRow({ label, value }: InfoRowProps) {
+function InfoRow({ label, value, copyValue, monospace = false }: InfoRowProps) {
   return (
     <div className="flex flex-col gap-1 rounded-xl border border-slate-200/70 bg-slate-50/70 p-3 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
       <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
         {label}
       </span>
-      <span className="font-medium text-slate-800 dark:text-slate-100">{value}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`font-medium text-slate-800 dark:text-slate-100 ${monospace ? 'break-all font-mono' : ''}`}
+        >
+          {value}
+        </span>
+        {copyValue ? <CopyButton value={copyValue} ariaLabel={`Copy ${label.toLowerCase()}`} /> : null}
+      </div>
     </div>
   );
 }

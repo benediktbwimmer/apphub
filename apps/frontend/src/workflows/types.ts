@@ -616,6 +616,7 @@ export type WorkflowFiltersState = {
 
 export type WorkflowRuntimeSummary = {
   runId?: string;
+  runKey?: string | null;
   status?: string;
   startedAt?: string | null;
   completedAt?: string | null;

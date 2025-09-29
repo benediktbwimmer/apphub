@@ -234,7 +234,7 @@ See `docs/filestore.md` for the full architecture, data model, and rollout plan.
 - All worker and orchestration logs emit structured JSON and (optionally) forward to an external log aggregation service via `APPHUB_LOG_AGGREGATOR_URL`.
 - The catalog API exposes `GET /metrics`, publishing aggregate job/workflow run counts, average duration, and failure rates for dashboards and alerting baselines.
 - Repeated workflow failures trigger structured warnings and optional webhooks once `WORKFLOW_FAILURE_ALERT_THRESHOLD` is exceeded within the sliding window defined by `WORKFLOW_FAILURE_ALERT_WINDOW_MINUTES`.
-- Alert payloads include workflow definition IDs, run IDs, failure counts, and triggers so incident responders can pivot quickly.
+- Alert payloads include workflow definition IDs, run keys, run IDs, failure counts, and triggers so incident responders can pivot quickly.
 
 ## Deployment & Rollout Readiness
 - See `docs/workflow-rollout.md` for the staged rollout plan, rollback procedures, and environment-to-environment workflow migration guidance.

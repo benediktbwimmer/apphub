@@ -163,12 +163,15 @@ function WorkflowsPageContent() {
 
   useEffect(() => {
     const runParam = searchParams.get('run');
-    if (!runParam || runParam === selectedRunId) {
+    if (!runParam) {
       return;
     }
-    const hasRun = runs.some((run) => run.id === runParam);
-    if (hasRun) {
-      setSelectedRunId(runParam);
+    const match = runs.find((run) => run.id === runParam || run.runKey === runParam);
+    if (!match) {
+      return;
+    }
+    if (match.id !== selectedRunId) {
+      setSelectedRunId(match.id);
     }
   }, [searchParams, runs, selectedRunId, setSelectedRunId]);
 

@@ -88,7 +88,7 @@ Predicates are evaluated with AND semantics. Invalid combinations—such as miss
 
 ### Delivery Inspection
 
-`GET /workflows/directory-sync/triggers/:triggerId/deliveries?status=failed&limit=20` returns the most recent delivery attempts (ordered by creation time) so operators can review failures without querying Postgres directly. Sensitive payloads are omitted; only delivery metadata (run ID, status, error text, dedupe key, timestamps) is exposed.
+`GET /workflows/directory-sync/triggers/:triggerId/deliveries?status=failed&limit=20` returns the most recent delivery attempts (ordered by creation time) so operators can review failures without querying Postgres directly. Sensitive payloads are omitted; only delivery metadata (run key, run ID, status, error text, dedupe key, timestamps) is exposed.
 
 ## CLI Support
 

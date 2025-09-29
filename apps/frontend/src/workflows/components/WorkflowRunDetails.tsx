@@ -1,9 +1,26 @@
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
-import { Spinner } from '../../components';
+import { Spinner, CopyButton } from '../../components';
 import { formatDuration, formatTimestamp } from '../formatters';
 import { toRecord } from '../normalizers';
 import StatusBadge from './StatusBadge';
 import type { WorkflowRun, WorkflowRunStep } from '../types';
+
+type IdentifierChipProps = {
+  label: string;
+  value: string;
+};
+
+function IdentifierChip({ label, value }: IdentifierChipProps) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
+      <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{value}</code>
+      <CopyButton value={value} ariaLabel={`Copy ${label.toLowerCase()}`} />
+    </div>
+  );
+}
 
 type WorkflowRunDetailsProps = {
   run: WorkflowRun | null;
@@ -22,10 +39,10 @@ export default function WorkflowRunDetails({ run, steps, stepsLoading, stepsErro
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run Details</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Run ID: {run.id}</p>
-          {run.runKey && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">Run Key: {run.runKey}</p>
-          )}
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            {run.runKey ? <IdentifierChip label="Run key" value={run.runKey} /> : null}
+            <IdentifierChip label="Run ID" value={run.id} />
+          </div>
         </div>
         {run.errorMessage && (
           <p className="max-w-sm text-right text-sm font-semibold text-rose-600 dark:text-rose-300">{run.errorMessage}</p>

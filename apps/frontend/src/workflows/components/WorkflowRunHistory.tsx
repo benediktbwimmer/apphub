@@ -1,6 +1,6 @@
 import { formatDuration, formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
-import { Spinner } from '../../components';
+import { Spinner, CopyButton } from '../../components';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRuntimeSummary } from '../types';
 
 type WorkflowRunHistoryProps = {
@@ -60,6 +60,9 @@ export default function WorkflowRunHistory({
                   Status
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Run Key / ID
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Started
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -98,6 +101,28 @@ export default function WorkflowRunHistory({
                             Degraded
                           </span>
                         )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                      <div className="flex flex-col gap-1">
+                        {run.runKey ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              Key
+                            </span>
+                            <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{run.runKey}</code>
+                            <CopyButton value={run.runKey} ariaLabel="Copy run key" />
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                            ID
+                          </span>
+                          <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{run.id}</code>
+                          <CopyButton value={run.id} ariaLabel="Copy run id" />
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
