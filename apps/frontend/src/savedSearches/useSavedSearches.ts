@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import { useAnalytics } from '../utils/useAnalytics';
@@ -70,7 +70,10 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
   const { category, analytics: analyticsOptions, sortComparator } = options;
   const authorizedFetch = useAuthorizedFetch();
   const analytics = useAnalytics();
-  const comparator = useMemo(() => sortComparator ?? defaultComparator, [sortComparator]);
+  const comparatorRef = useRef<
+    (a: SavedSearch<TStatus, TConfig>, b: SavedSearch<TStatus, TConfig>) => number
+  >(sortComparator ?? defaultComparator<TStatus, TConfig>);
+  comparatorRef.current = sortComparator ?? defaultComparator<TStatus, TConfig>;
 
   const [savedSearches, setSavedSearches] = useState<SavedSearch<TStatus, TConfig>[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,13 +113,13 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
       }
       const payload = await response.json();
       const items = Array.isArray(payload?.data) ? (payload.data as SavedSearch<TStatus, TConfig>[]) : [];
-      setSavedSearches(items.sort(comparator));
+      setSavedSearches(items.slice().sort(comparatorRef.current));
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [authorizedFetch, category, comparator]);
+  }, [authorizedFetch, category]);
 
   useEffect(() => {
     void refresh();
@@ -145,7 +148,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         const body = await response.json();
         const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
         if (record) {
-          setSavedSearches((current) => mergeSearch(current, record, comparator));
+          setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.createdEvent, record);
           return record;
         }
@@ -157,7 +160,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         setCreating(false);
       }
     },
-    [analyticsOptions, authorizedFetch, category, comparator, trackEvent]
+    [analyticsOptions, authorizedFetch, category, trackEvent]
   );
 
   const updateSavedSearch = useCallback(
@@ -180,7 +183,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         const body = await response.json();
         const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
         if (record) {
-          setSavedSearches((current) => mergeSearch(current, record, comparator));
+          setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           return record;
         }
         return null;
@@ -191,7 +194,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         setUpdatingSlug(null);
       }
     },
-    [authorizedFetch, comparator]
+    [authorizedFetch]
   );
 
   const deleteSavedSearch = useCallback(
@@ -237,7 +240,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         const body = await response.json();
         const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
         if (record) {
-          setSavedSearches((current) => mergeSearch(current, record, comparator));
+          setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.appliedEvent, record);
           return record;
         }
@@ -249,7 +252,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         setApplyingSlug(null);
       }
     },
-    [analyticsOptions, authorizedFetch, comparator, trackEvent]
+    [analyticsOptions, authorizedFetch, trackEvent]
   );
 
   const recordSavedSearchShared = useCallback(
@@ -271,7 +274,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         const body = await response.json();
         const record = body?.data as SavedSearch<TStatus, TConfig> | undefined;
         if (record) {
-          setSavedSearches((current) => mergeSearch(current, record, comparator));
+          setSavedSearches((current) => mergeSearch(current, record, comparatorRef.current));
           trackEvent(analyticsOptions?.sharedEvent, record);
           return record;
         }
@@ -283,7 +286,7 @@ export function useSavedSearches<TStatus extends string = string, TConfig = unkn
         setSharingSlug(null);
       }
     },
-    [analyticsOptions, authorizedFetch, comparator, trackEvent]
+    [analyticsOptions, authorizedFetch, trackEvent]
   );
 
   const getSavedSearch = useCallback(
