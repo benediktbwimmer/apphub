@@ -62,8 +62,7 @@ import {
   type WorkflowEventTriggerStatus,
   type WorkflowTriggerDeliveryRecord,
   type WorkflowTriggerDeliveryStatus,
-  type SavedCatalogSearchRecord,
-  type RepositorySort,
+  type SavedSearchRecord,
   type EventIngressRetryRecord,
   type EventSavedViewRecord,
   type EventSavedViewFilters,
@@ -2023,37 +2022,31 @@ export function mapWorkflowAssetPartitionParametersRow(
 
 const SAVED_SEARCH_VISIBILITY_PRIVATE = 'private' as const;
 
-function normalizeSavedSearchStatuses(raw: string[] | null | undefined): IngestStatus[] {
+function normalizeSavedSearchStatuses(raw: string[] | null | undefined): string[] {
   if (!Array.isArray(raw)) {
     return [];
   }
 
-  const seen = new Set<IngestStatus>();
+  const seen = new Set<string>();
   for (const value of raw) {
     if (typeof value !== 'string') {
       continue;
     }
-    const normalized = value.trim().toLowerCase();
-    switch (normalized) {
-      case 'seed':
-      case 'pending':
-      case 'processing':
-      case 'ready':
-      case 'failed':
-        seen.add(normalized as IngestStatus);
-        break;
-      default:
-        break;
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
     }
+    seen.add(normalized.toLowerCase());
   }
   return Array.from(seen);
 }
 
-function normalizeSavedSearchSort(sort: string | null | undefined): RepositorySort {
-  if (sort === 'name' || sort === 'updated' || sort === 'relevance') {
-    return sort;
+function normalizeSavedSearchSort(sort: string | null | undefined): string {
+  if (typeof sort !== 'string') {
+    return 'relevance';
   }
-  return 'relevance';
+  const normalized = sort.trim();
+  return normalized.length > 0 ? normalized : 'relevance';
 }
 
 function toSafeCount(value: string | number | null | undefined): number {
@@ -2067,7 +2060,7 @@ function toSafeCount(value: string | number | null | undefined): number {
   return 0;
 }
 
-export function mapSavedCatalogSearchRow(row: SavedCatalogSearchRow): SavedCatalogSearchRecord {
+export function mapSavedSearchRow(row: SavedCatalogSearchRow): SavedSearchRecord {
   return {
     id: row.id,
     slug: row.slug,
@@ -2076,6 +2069,8 @@ export function mapSavedCatalogSearchRow(row: SavedCatalogSearchRow): SavedCatal
     searchInput: row.search_input,
     statusFilters: normalizeSavedSearchStatuses(row.status_filters ?? []),
     sort: normalizeSavedSearchSort(row.sort),
+    category: typeof row.category === 'string' && row.category.trim().length > 0 ? row.category.trim().toLowerCase() : 'catalog',
+    config: toJsonValue(row.config) ?? {},
     visibility: SAVED_SEARCH_VISIBILITY_PRIVATE,
     appliedCount: toSafeCount(row.applied_count),
     sharedCount: toSafeCount(row.shared_count),
@@ -2087,7 +2082,7 @@ export function mapSavedCatalogSearchRow(row: SavedCatalogSearchRow): SavedCatal
     ownerSubject: row.owner_subject,
     ownerKind: row.owner_kind === 'service' ? 'service' : 'user',
     ownerUserId: row.owner_user_id ?? null
-  } satisfies SavedCatalogSearchRecord;
+  } satisfies SavedSearchRecord;
 }
 
 const EVENT_SAVED_VIEW_VISIBILITY_DEFAULT: EventSavedViewVisibility = 'private';

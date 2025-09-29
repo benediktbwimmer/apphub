@@ -1218,6 +1218,17 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_runtime_scaling_ack_target_updated
          ON runtime_scaling_acknowledgements(target, updated_at DESC);`
     ]
+  },
+  {
+    id: '040_saved_searches_generalization',
+    statements: [
+      `ALTER TABLE saved_catalog_searches
+         ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'catalog';`,
+      `ALTER TABLE saved_catalog_searches
+         ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+      `CREATE INDEX IF NOT EXISTS idx_saved_catalog_searches_category
+         ON saved_catalog_searches(category);`
+    ]
   }
 ];
 

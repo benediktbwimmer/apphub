@@ -284,6 +284,8 @@ const savedCatalogSearchSchema: OpenAPIV3.SchemaObject = {
     'searchInput',
     'statusFilters',
     'sort',
+    'category',
+    'config',
     'visibility',
     'appliedCount',
     'sharedCount',
@@ -352,17 +354,32 @@ const savedCatalogSearchListResponseSchema: OpenAPIV3.SchemaObject = {
 
 const savedCatalogSearchCreateRequestSchema: OpenAPIV3.SchemaObject = {
   type: 'object',
-  required: ['name', 'searchInput'],
+  required: ['name'],
   properties: {
     name: { type: 'string', maxLength: 100 },
     description: nullable(stringSchema()),
     searchInput: { type: 'string', maxLength: 500 },
     statusFilters: {
       type: 'array',
-      maxItems: 5,
-      items: { type: 'string', enum: ['seed', 'pending', 'processing', 'ready', 'failed'] }
+      maxItems: 50,
+      items: { type: 'string' },
+      description: 'Selected status filters applied when executing the saved search.'
     },
-    sort: { type: 'string', enum: ['relevance', 'updated', 'name'] }
+    sort: {
+      type: 'string',
+      maxLength: 100,
+      description: 'Preferred sort mode for rendering results.'
+    },
+    category: {
+      type: 'string',
+      maxLength: 100,
+      description: 'Logical grouping for the saved search (e.g. catalog, runs).'
+    },
+    config: {
+      type: 'object',
+      additionalProperties: true,
+      description: 'Structured configuration used to rehydrate saved filters.'
+    }
   }
 };
 

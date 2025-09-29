@@ -380,21 +380,82 @@ type JobRunWithDefinitionRow = JobRunRow & {
   job_version: number;
 };
 
+type JobRunListFilters = {
+  statuses?: string[];
+  jobSlugs?: string[];
+  runtimes?: string[];
+  search?: string;
+};
+
 export async function listJobRuns(
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; filters?: JobRunListFilters } = {}
 ): Promise<{ items: JobRunWithDefinition[]; hasMore: boolean }> {
   const limit = Math.max(1, Math.min(options.limit ?? 25, 50));
   const offset = Math.max(0, options.offset ?? 0);
   const queryLimit = limit + 1;
+  const filters = options.filters ?? {};
 
   return useConnection(async (client) => {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (Array.isArray(filters.statuses) && filters.statuses.length > 0) {
+      const statuses = Array.from(
+        new Set(filters.statuses.map((status) => status.trim().toLowerCase()).filter((status) => status.length > 0))
+      );
+      if (statuses.length > 0) {
+        params.push(statuses);
+        conditions.push(`LOWER(jr.status) = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (Array.isArray(filters.jobSlugs) && filters.jobSlugs.length > 0) {
+      const slugs = Array.from(
+        new Set(filters.jobSlugs.map((slug) => slug.trim()).filter((slug) => slug.length > 0))
+      );
+      if (slugs.length > 0) {
+        params.push(slugs);
+        conditions.push(`jd.slug = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (Array.isArray(filters.runtimes) && filters.runtimes.length > 0) {
+      const runtimes = Array.from(
+        new Set(filters.runtimes.map((runtime) => runtime.trim().toLowerCase()).filter((runtime) => runtime.length > 0))
+      );
+      if (runtimes.length > 0) {
+        params.push(runtimes);
+        conditions.push(`LOWER(jd.runtime) = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (typeof filters.search === 'string' && filters.search.trim().length > 0) {
+      const term = `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`;
+      params.push(term);
+      params.push(term);
+      params.push(term);
+      conditions.push(
+        `(
+           jr.id ILIKE $${params.length - 2}
+           OR jd.slug ILIKE $${params.length - 1}
+           OR jd.name ILIKE $${params.length}
+         )`
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    params.push(queryLimit);
+    params.push(offset);
+
     const { rows } = await client.query<JobRunWithDefinitionRow>(
       `SELECT jr.*, jd.slug AS job_slug, jd.name AS job_name, jd.type AS job_type, jd.runtime AS job_runtime, jd.version AS job_version
        FROM job_runs jr
        INNER JOIN job_definitions jd ON jd.id = jr.job_definition_id
+       ${whereClause}
        ORDER BY jr.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [queryLimit, offset]
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
     );
 
     const mapped = rows.map((row) => {

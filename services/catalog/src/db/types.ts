@@ -200,17 +200,19 @@ export type RepositorySearchParams = {
   relevanceWeights?: Partial<RelevanceWeights>;
 };
 
-export type SavedCatalogSearchVisibility = 'private';
+export type SavedSearchVisibility = 'private';
 
-export type SavedCatalogSearchRecord = {
+export type SavedSearchRecord = {
   id: string;
   slug: string;
   name: string;
   description: string | null;
   searchInput: string;
-  statusFilters: IngestStatus[];
-  sort: RepositorySort;
-  visibility: SavedCatalogSearchVisibility;
+  statusFilters: string[];
+  sort: string;
+  category: string;
+  config: JsonValue;
+  visibility: SavedSearchVisibility;
   appliedCount: number;
   sharedCount: number;
   lastAppliedAt: string | null;
@@ -231,20 +233,24 @@ export type EventSavedViewUpdateInput = SharedEventSavedViewUpdateInput;
 export type EventSavedViewOwner = SharedEventSavedViewOwner;
 export type EventSavedViewAnalytics = SharedEventSavedViewAnalytics;
 
-export type SavedCatalogSearchCreateInput = {
+export type SavedSearchCreateInput = {
   name: string;
   description?: string | null;
-  searchInput: string;
-  statusFilters?: IngestStatus[];
-  sort?: RepositorySort;
+  searchInput?: string;
+  statusFilters?: string[];
+  sort?: string;
+  category?: string;
+  config?: JsonValue;
 };
 
-export type SavedCatalogSearchUpdateInput = {
+export type SavedSearchUpdateInput = {
   name?: string;
   description?: string | null;
   searchInput?: string;
-  statusFilters?: IngestStatus[];
-  sort?: RepositorySort;
+  statusFilters?: string[];
+  sort?: string;
+  category?: string;
+  config?: JsonValue;
 };
 
 export type TagFacet = {

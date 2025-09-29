@@ -1,34 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAuthorizedFetch } from '../../auth/useAuthorizedFetch';
-import { API_BASE_URL } from '../constants';
-import type { SavedCatalogSearch, SavedCatalogSearchCreateInput } from '../types';
-import { useAnalytics } from '../../utils/useAnalytics';
-
-const API_ROOT = `${API_BASE_URL}/saved-searches`;
-
-function sortSavedSearches(searches: SavedCatalogSearch[]): SavedCatalogSearch[] {
-  return searches
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-}
-
-function mergeSearch(current: SavedCatalogSearch[], next: SavedCatalogSearch): SavedCatalogSearch[] {
-  const existingIndex = current.findIndex((item) => item.id === next.id);
-  if (existingIndex === -1) {
-    return sortSavedSearches([...current, next]);
-  }
-  const merged = current.slice();
-  merged[existingIndex] = next;
-  return sortSavedSearches(merged);
-}
-
-export type SavedSearchMutationState = {
-  creating: boolean;
-  applyingSlug: string | null;
-  sharingSlug: string | null;
-  updatingSlug: string | null;
-  deletingSlug: string | null;
-};
+import { useCallback, useMemo } from 'react';
+import type { SavedSearchMutationState } from '../../savedSearches/types';
+import { useSavedSearches } from '../../savedSearches/useSavedSearches';
+import type { SavedCatalogSearch, SavedCatalogSearchCreateInput, SearchSort, IngestStatus } from '../types';
 
 export type UseSavedCatalogSearchesResult = {
   savedSearches: SavedCatalogSearch[];
@@ -47,75 +20,50 @@ export type UseSavedCatalogSearchesResult = {
   refresh: () => Promise<void>;
 };
 
+function mapStatusFilters(filters: string[]): IngestStatus[] {
+  return filters.filter((status): status is IngestStatus =>
+    ['seed', 'pending', 'processing', 'ready', 'failed'].includes(status as IngestStatus)
+  );
+}
+
 export function useSavedCatalogSearches(): UseSavedCatalogSearchesResult {
-  const authorizedFetch = useAuthorizedFetch();
-  const analytics = useAnalytics();
-  const [savedSearches, setSavedSearches] = useState<SavedCatalogSearch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const base = useSavedSearches<IngestStatus, Record<string, unknown>>({
+    category: 'catalog',
+    analytics: {
+      createdEvent: 'catalog_saved_search_created',
+      appliedEvent: 'catalog_saved_search_applied',
+      sharedEvent: 'catalog_saved_search_shared',
+      payloadMapper: (record) => ({
+        slug: record.slug,
+        sort: record.sort,
+        statusFilters: record.statusFilters
+      })
+    },
+    sortComparator: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  });
 
-  const [creating, setCreating] = useState(false);
-  const [applyingSlug, setApplyingSlug] = useState<string | null>(null);
-  const [sharingSlug, setSharingSlug] = useState<string | null>(null);
-  const [updatingSlug, setUpdatingSlug] = useState<string | null>(null);
-  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await authorizedFetch(`${API_ROOT}`);
-      if (!response.ok) {
-        throw new Error(`Failed to load saved searches (${response.status})`);
-      }
-      const payload = await response.json();
-      const items = Array.isArray(payload?.data) ? (payload.data as SavedCatalogSearch[]) : [];
-      setSavedSearches(sortSavedSearches(items));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [authorizedFetch]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const savedSearches = useMemo<SavedCatalogSearch[]>(
+    () =>
+      base.savedSearches.map((entry) => ({
+        ...entry,
+        sort: entry.sort as SearchSort,
+        statusFilters: mapStatusFilters(entry.statusFilters)
+      })),
+    [base.savedSearches]
+  );
 
   const createSavedSearch = useCallback(
     async (input: SavedCatalogSearchCreateInput): Promise<SavedCatalogSearch | null> => {
-      setCreating(true);
-      setError(null);
-      try {
-        const response = await authorizedFetch(`${API_ROOT}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input)
-        });
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to create saved search (${response.status})`);
-        }
-        const payload = await response.json();
-        const record = payload?.data as SavedCatalogSearch | undefined;
-        if (record) {
-          setSavedSearches((current) => mergeSearch(current, record));
-          analytics.trackEvent('catalog_saved_search_created', {
-            slug: record.slug,
-            sort: record.sort,
-            statusFilters: record.statusFilters
-          });
-          return record;
-        }
-        return null;
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      } finally {
-        setCreating(false);
-      }
+      const record = await base.createSavedSearch({ ...input, category: 'catalog' });
+      return record
+        ? ({
+            ...record,
+            sort: record.sort as SearchSort,
+            statusFilters: mapStatusFilters(record.statusFilters)
+          } as SavedCatalogSearch)
+        : null;
     },
-    [analytics, authorizedFetch]
+    [base]
   );
 
   const updateSavedSearch = useCallback(
@@ -123,185 +71,71 @@ export function useSavedCatalogSearches(): UseSavedCatalogSearchesResult {
       slug: string,
       updates: Partial<Pick<SavedCatalogSearchCreateInput, 'name' | 'description' | 'statusFilters' | 'sort' | 'searchInput'>>
     ): Promise<SavedCatalogSearch | null> => {
-      setUpdatingSlug(slug);
-      setError(null);
-      try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates)
-        });
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to update saved search (${response.status})`);
-        }
-        const payload = await response.json();
-        const record = payload?.data as SavedCatalogSearch | undefined;
-        if (record) {
-          setSavedSearches((current) => mergeSearch(current, record));
-          return record;
-        }
-        return null;
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      } finally {
-        setUpdatingSlug(null);
-      }
+      const record = await base.updateSavedSearch(slug, updates);
+      return record
+        ? ({
+            ...record,
+            sort: record.sort as SearchSort,
+            statusFilters: mapStatusFilters(record.statusFilters)
+          } as SavedCatalogSearch)
+        : null;
     },
-    [authorizedFetch]
-  );
-
-  const deleteSavedSearch = useCallback(
-    async (slug: string): Promise<boolean> => {
-      setDeletingSlug(slug);
-      setError(null);
-      try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`, {
-          method: 'DELETE'
-        });
-        if (response.status === 204) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return true;
-        }
-        if (response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return false;
-        }
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail?.error ?? `Failed to delete saved search (${response.status})`);
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      } finally {
-        setDeletingSlug(null);
-      }
-    },
-    [authorizedFetch]
+    [base]
   );
 
   const recordSavedSearchApplied = useCallback(
     async (slug: string): Promise<SavedCatalogSearch | null> => {
-      setApplyingSlug(slug);
-      setError(null);
-      try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}/apply`, {
-          method: 'POST'
-        });
-        if (response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to record saved search usage (${response.status})`);
-        }
-        const payload = await response.json();
-        const record = payload?.data as SavedCatalogSearch | undefined;
-        if (record) {
-          setSavedSearches((current) => mergeSearch(current, record));
-          analytics.trackEvent('catalog_saved_search_applied', {
-            slug: record.slug,
-            sort: record.sort,
-            statusFilters: record.statusFilters
-          });
-          return record;
-        }
-        return null;
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      } finally {
-        setApplyingSlug(null);
-      }
+      const record = await base.recordSavedSearchApplied(slug);
+      return record
+        ? ({
+            ...record,
+            sort: record.sort as SearchSort,
+            statusFilters: mapStatusFilters(record.statusFilters)
+          } as SavedCatalogSearch)
+        : null;
     },
-    [analytics, authorizedFetch]
+    [base]
   );
 
   const recordSavedSearchShared = useCallback(
     async (slug: string): Promise<SavedCatalogSearch | null> => {
-      setSharingSlug(slug);
-      setError(null);
-      try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}/share`, {
-          method: 'POST'
-        });
-        if (response.status === 404) {
-          setSavedSearches((current) => current.filter((item) => item.slug !== slug));
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to record saved search share (${response.status})`);
-        }
-        const payload = await response.json();
-        const record = payload?.data as SavedCatalogSearch | undefined;
-        if (record) {
-          setSavedSearches((current) => mergeSearch(current, record));
-          analytics.trackEvent('catalog_saved_search_shared', {
-            slug: record.slug,
-            sort: record.sort,
-            statusFilters: record.statusFilters
-          });
-          return record;
-        }
-        return null;
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      } finally {
-        setSharingSlug(null);
-      }
+      const record = await base.recordSavedSearchShared(slug);
+      return record
+        ? ({
+            ...record,
+            sort: record.sort as SearchSort,
+            statusFilters: mapStatusFilters(record.statusFilters)
+          } as SavedCatalogSearch)
+        : null;
     },
-    [analytics, authorizedFetch]
+    [base]
   );
 
   const getSavedSearch = useCallback(
     async (slug: string): Promise<SavedCatalogSearch | null> => {
-      const existing = savedSearches.find((item) => item.slug === slug);
-      if (existing) {
-        return existing;
-      }
-      try {
-        const response = await authorizedFetch(`${API_ROOT}/${encodeURIComponent(slug)}`);
-        if (response.status === 404) {
-          return null;
-        }
-        if (!response.ok) {
-          const detail = await response.json().catch(() => ({}));
-          throw new Error(detail?.error ?? `Failed to load saved search (${response.status})`);
-        }
-        const payload = await response.json();
-        const record = payload?.data as SavedCatalogSearch | undefined;
-        if (record) {
-          setSavedSearches((current) => mergeSearch(current, record));
-          return record;
-        }
-        return null;
-      } catch (err) {
-        setError((err as Error).message);
-        throw err;
-      }
+      const record = await base.getSavedSearch(slug);
+      return record
+        ? ({
+            ...record,
+            sort: record.sort as SearchSort,
+            statusFilters: mapStatusFilters(record.statusFilters)
+          } as SavedCatalogSearch)
+        : null;
     },
-    [authorizedFetch, savedSearches]
-  );
-
-  const mutationState = useMemo<SavedSearchMutationState>(
-    () => ({ creating, applyingSlug, sharingSlug, updatingSlug, deletingSlug }),
-    [applyingSlug, creating, deletingSlug, sharingSlug, updatingSlug]
+    [base]
   );
 
   return {
     savedSearches,
-    loading,
-    error,
-    mutationState,
+    loading: base.loading,
+    error: base.error,
+    mutationState: base.mutationState,
     createSavedSearch,
     updateSavedSearch,
-    deleteSavedSearch,
+    deleteSavedSearch: base.deleteSavedSearch,
     recordSavedSearchApplied,
     recordSavedSearchShared,
     getSavedSearch,
-    refresh
+    refresh: base.refresh
   } satisfies UseSavedCatalogSearchesResult;
 }

@@ -1,33 +1,45 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
-  createSavedCatalogSearch,
-  deleteSavedCatalogSearch,
-  getSavedCatalogSearchBySlug,
-  listSavedCatalogSearches,
-  recordSavedCatalogSearchApplied,
-  recordSavedCatalogSearchShared,
-  updateSavedCatalogSearch,
-  type SavedCatalogSearchCreateInput,
-  type SavedCatalogSearchRecord,
-  type SavedCatalogSearchUpdateInput,
-  type SavedCatalogSearchOwner
+  createSavedSearch,
+  deleteSavedSearch,
+  getSavedSearchBySlug,
+  listSavedSearches,
+  recordSavedSearchApplied,
+  recordSavedSearchShared,
+  updateSavedSearch,
+  type SavedSearchCreateInput,
+  type SavedSearchRecord,
+  type SavedSearchUpdateInput,
+  type SavedSearchOwner
 } from '../db/savedSearches';
+import { jsonValueSchema } from '../workflows/zodSchemas';
 import { requireOperatorScopes, type OperatorAuthSuccess } from './shared/operatorAuth';
 
-const STATUS_VALUES = ['seed', 'pending', 'processing', 'ready', 'failed'] as const;
-const SORT_VALUES = ['relevance', 'updated', 'name'] as const;
+const stringArraySchema = z.preprocess((value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry : String(entry ?? '')))
+      .filter((entry) => entry.trim().length > 0);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+  return undefined;
+}, z.array(z.string().min(1).max(100)).max(50).optional());
 
 const savedSearchCreateSchema = z
   .object({
     name: z.string().min(1).max(100),
     description: z.union([z.string().max(500), z.null()]).optional(),
-    searchInput: z.string().max(500),
-    statusFilters: z
-      .array(z.enum(STATUS_VALUES))
-      .max(5)
-      .optional(),
-    sort: z.enum(SORT_VALUES).optional()
+    searchInput: z.string().max(500).optional(),
+    statusFilters: stringArraySchema,
+    sort: z.string().max(100).optional(),
+    category: z.string().min(1).max(100).optional(),
+    config: jsonValueSchema.optional()
   })
   .strict();
 
@@ -42,7 +54,13 @@ const savedSearchSlugParamsSchema = z
   })
   .strict();
 
-function resolveOwner(auth: OperatorAuthSuccess): SavedCatalogSearchOwner {
+const savedSearchListQuerySchema = z
+  .object({
+    category: z.string().min(1).max(100).optional()
+  })
+  .partial();
+
+function resolveOwner(auth: OperatorAuthSuccess): SavedSearchOwner {
   const identity = auth.identity;
   const userId = identity.userId ?? null;
   const tokenHash = identity.tokenHash ?? null;
@@ -62,10 +80,10 @@ function resolveOwner(auth: OperatorAuthSuccess): SavedCatalogSearchOwner {
     subject: identity.subject,
     kind: identity.kind,
     tokenHash
-  } satisfies SavedCatalogSearchOwner;
+  } satisfies SavedSearchOwner;
 }
 
-function serializeSavedSearch(record: SavedCatalogSearchRecord) {
+function serializeSavedSearch(record: SavedSearchRecord) {
   return {
     id: record.id,
     slug: record.slug,
@@ -74,6 +92,8 @@ function serializeSavedSearch(record: SavedCatalogSearchRecord) {
     searchInput: record.searchInput,
     statusFilters: record.statusFilters,
     sort: record.sort,
+    category: record.category,
+    config: record.config,
     visibility: record.visibility,
     appliedCount: record.appliedCount,
     sharedCount: record.sharedCount,
@@ -95,7 +115,7 @@ function normalizeDescriptionInput(value: string | null | undefined): string | n
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function toCreateInput(payload: z.infer<typeof savedSearchCreateSchema>): SavedCatalogSearchCreateInput {
+function toCreateInput(payload: z.infer<typeof savedSearchCreateSchema>): SavedSearchCreateInput {
   const description = normalizeDescriptionInput(payload.description);
 
   return {
@@ -103,11 +123,13 @@ function toCreateInput(payload: z.infer<typeof savedSearchCreateSchema>): SavedC
     description: description ?? null,
     searchInput: payload.searchInput,
     statusFilters: payload.statusFilters,
-    sort: payload.sort
-  } satisfies SavedCatalogSearchCreateInput;
+    sort: payload.sort,
+    category: payload.category,
+    config: payload.config
+  } satisfies SavedSearchCreateInput;
 }
 
-function toUpdateInput(payload: z.infer<typeof savedSearchUpdateSchema>): SavedCatalogSearchUpdateInput {
+function toUpdateInput(payload: z.infer<typeof savedSearchUpdateSchema>): SavedSearchUpdateInput {
   const description = normalizeDescriptionInput(payload.description);
 
   return {
@@ -115,8 +137,10 @@ function toUpdateInput(payload: z.infer<typeof savedSearchUpdateSchema>): SavedC
     description,
     searchInput: payload.searchInput,
     statusFilters: payload.statusFilters,
-    sort: payload.sort
-  } satisfies SavedCatalogSearchUpdateInput;
+    sort: payload.sort,
+    category: payload.category,
+    config: payload.config
+  } satisfies SavedSearchUpdateInput;
 }
 
 export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<void> {
@@ -130,8 +154,19 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
       return { error: authResult.error };
     }
 
+    const parseQuery = savedSearchListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        action: 'catalog.saved-searches.list',
+        reason: 'invalid_query',
+        details: parseQuery.error.flatten()
+      });
+      return { error: parseQuery.error.flatten() };
+    }
+
     const owner = resolveOwner(authResult.auth);
-    const searches = await listSavedCatalogSearches(owner);
+    const searches = await listSavedSearches(owner, { category: parseQuery.data.category });
     reply.status(200);
     return {
       data: searches.map(serializeSavedSearch)
@@ -160,15 +195,16 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
 
     try {
       const owner = resolveOwner(authResult.auth);
-      const record = await createSavedCatalogSearch(owner, toCreateInput(parse.data));
+      const record = await createSavedSearch(owner, toCreateInput(parse.data));
       reply.status(201);
       await authResult.auth.log('succeeded', {
         action: 'catalog.saved-searches.create',
-        slug: record.slug
+        slug: record.slug,
+        category: record.category
       });
       return { data: serializeSavedSearch(record) };
     } catch (err) {
-      request.log.error({ err }, 'Failed to create saved catalog search');
+      request.log.error({ err }, 'Failed to create saved search');
       reply.status(500);
       await authResult.auth.log('failed', {
         reason: 'exception',
@@ -195,7 +231,7 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     }
 
     const owner = resolveOwner(authResult.auth);
-    const record = await getSavedCatalogSearchBySlug(owner, parseParams.data.slug);
+    const record = await getSavedSearchBySlug(owner, parseParams.data.slug);
     if (!record) {
       reply.status(404);
       return { error: 'saved_search_not_found' };
@@ -225,6 +261,7 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     if (!parseBody.success) {
       reply.status(400);
       await authResult.auth.log('failed', {
+        action: 'catalog.saved-searches.update',
         reason: 'invalid_payload',
         details: parseBody.error.flatten()
       });
@@ -232,20 +269,17 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     }
 
     const owner = resolveOwner(authResult.auth);
-    const record = await updateSavedCatalogSearch(owner, parseParams.data.slug, toUpdateInput(parseBody.data));
+    const record = await updateSavedSearch(owner, parseParams.data.slug, toUpdateInput(parseBody.data));
     if (!record) {
       reply.status(404);
-      await authResult.auth.log('failed', {
-        reason: 'not_found',
-        slug: parseParams.data.slug
-      });
       return { error: 'saved_search_not_found' };
     }
 
     reply.status(200);
     await authResult.auth.log('succeeded', {
       action: 'catalog.saved-searches.update',
-      slug: record.slug
+      slug: record.slug,
+      category: record.category
     });
     return { data: serializeSavedSearch(record) };
   });
@@ -267,13 +301,9 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     }
 
     const owner = resolveOwner(authResult.auth);
-    const deleted = await deleteSavedCatalogSearch(owner, parseParams.data.slug);
+    const deleted = await deleteSavedSearch(owner, parseParams.data.slug);
     if (!deleted) {
       reply.status(404);
-      await authResult.auth.log('failed', {
-        reason: 'not_found',
-        slug: parseParams.data.slug
-      });
       return { error: 'saved_search_not_found' };
     }
 
@@ -282,7 +312,7 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
       action: 'catalog.saved-searches.delete',
       slug: parseParams.data.slug
     });
-    return reply;
+    return null;
   });
 
   app.post('/saved-searches/:slug/apply', async (request, reply) => {
@@ -302,21 +332,13 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     }
 
     const owner = resolveOwner(authResult.auth);
-    const record = await recordSavedCatalogSearchApplied(owner, parseParams.data.slug);
+    const record = await recordSavedSearchApplied(owner, parseParams.data.slug);
     if (!record) {
       reply.status(404);
-      await authResult.auth.log('failed', {
-        reason: 'not_found',
-        slug: parseParams.data.slug
-      });
       return { error: 'saved_search_not_found' };
     }
 
     reply.status(200);
-    await authResult.auth.log('succeeded', {
-      action: 'catalog.saved-searches.apply',
-      slug: record.slug
-    });
     return { data: serializeSavedSearch(record) };
   });
 
@@ -337,21 +359,13 @@ export async function registerSavedSearchRoutes(app: FastifyInstance): Promise<v
     }
 
     const owner = resolveOwner(authResult.auth);
-    const record = await recordSavedCatalogSearchShared(owner, parseParams.data.slug);
+    const record = await recordSavedSearchShared(owner, parseParams.data.slug);
     if (!record) {
       reply.status(404);
-      await authResult.auth.log('failed', {
-        reason: 'not_found',
-        slug: parseParams.data.slug
-      });
       return { error: 'saved_search_not_found' };
     }
 
     reply.status(200);
-    await authResult.auth.log('succeeded', {
-      action: 'catalog.saved-searches.share',
-      slug: record.slug
-    });
     return { data: serializeSavedSearch(record) };
   });
 }

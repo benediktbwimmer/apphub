@@ -2893,21 +2893,110 @@ type WorkflowRunWithDefinitionRow = WorkflowRunRow & {
   workflow_version: number;
 };
 
+type WorkflowRunListFilters = {
+  statuses?: string[];
+  workflowSlugs?: string[];
+  triggerTypes?: string[];
+  partition?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+};
+
 export async function listWorkflowRuns(
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; filters?: WorkflowRunListFilters } = {}
 ): Promise<{ items: WorkflowRunWithDefinition[]; hasMore: boolean }> {
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
   const offset = Math.max(options.offset ?? 0, 0);
   const queryLimit = limit + 1;
+  const filters = options.filters ?? {};
 
   return useConnection(async (client) => {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (Array.isArray(filters.statuses) && filters.statuses.length > 0) {
+      const normalized = Array.from(
+        new Set(filters.statuses.map((status) => status.trim().toLowerCase()).filter((status) => status.length > 0))
+      );
+      if (normalized.length > 0) {
+        params.push(normalized);
+        conditions.push(`wr.status = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (Array.isArray(filters.workflowSlugs) && filters.workflowSlugs.length > 0) {
+      const slugs = Array.from(
+        new Set(filters.workflowSlugs.map((slug) => slug.trim()).filter((slug) => slug.length > 0))
+      );
+      if (slugs.length > 0) {
+        params.push(slugs);
+        conditions.push(`wd.slug = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (Array.isArray(filters.triggerTypes) && filters.triggerTypes.length > 0) {
+      const triggerTypes = Array.from(
+        new Set(filters.triggerTypes.map((type) => type.trim().toLowerCase()).filter((type) => type.length > 0))
+      );
+      if (triggerTypes.length > 0) {
+        params.push(triggerTypes);
+        conditions.push(`LOWER(COALESCE(wr.trigger ->> 'type', 'manual')) = ANY($${params.length}::text[])`);
+      }
+    }
+
+    if (typeof filters.partition === 'string' && filters.partition.trim().length > 0) {
+      params.push(`%${filters.partition.trim()}%`);
+      conditions.push(`wr.partition_key ILIKE $${params.length}`);
+    }
+
+    if (typeof filters.search === 'string' && filters.search.trim().length > 0) {
+      const term = `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`;
+      params.push(term);
+      params.push(term);
+      params.push(term);
+      params.push(term);
+      params.push(term);
+      conditions.push(
+        `(
+           wr.id ILIKE $${params.length - 4}
+           OR wd.slug ILIKE $${params.length - 3}
+           OR wd.name ILIKE $${params.length - 2}
+           OR COALESCE(wr.triggered_by, '') ILIKE $${params.length - 1}
+           OR COALESCE(wr.partition_key, '') ILIKE $${params.length}
+         )`
+      );
+    }
+
+    if (typeof filters.from === 'string' && filters.from.trim().length > 0) {
+      const parsed = new Date(filters.from);
+      if (!Number.isNaN(parsed.getTime())) {
+        params.push(parsed.toISOString());
+        conditions.push(`wr.created_at >= $${params.length}`);
+      }
+    }
+
+    if (typeof filters.to === 'string' && filters.to.trim().length > 0) {
+      const parsed = new Date(filters.to);
+      if (!Number.isNaN(parsed.getTime())) {
+        params.push(parsed.toISOString());
+        conditions.push(`wr.created_at <= $${params.length}`);
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    params.push(queryLimit);
+    params.push(offset);
+
     const { rows } = await client.query<WorkflowRunWithDefinitionRow>(
       `SELECT wr.*, wd.slug AS workflow_slug, wd.name AS workflow_name, wd.version AS workflow_version
        FROM workflow_runs wr
        INNER JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
+       ${whereClause}
        ORDER BY wr.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [queryLimit, offset]
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
     );
 
     const mapped = rows.map((row) => ({

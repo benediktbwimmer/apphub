@@ -36,6 +36,8 @@ describe('useSavedCatalogSearches', () => {
     searchInput: 'status:ready',
     statusFilters: ['ready'],
     sort: 'relevance',
+    category: 'catalog',
+    config: {},
     visibility: 'private',
     appliedCount: 2,
     sharedCount: 0,
@@ -49,10 +51,10 @@ describe('useSavedCatalogSearches', () => {
     mockAuthorizedFetch.mockReset();
     mockAuthorizedFetch.mockImplementation((input, init) => {
       const url = typeof input === 'string' ? input : String(input);
-      if (url.endsWith('/saved-searches') && (!init || !init.method)) {
+      if (url.includes('/saved-searches') && url.includes('category=catalog') && (!init || !init.method)) {
         return Promise.resolve(createResponse({ data: [baseSearch] }));
       }
-      if (url.endsWith('/saved-searches') && init?.method === 'POST') {
+      if (url.includes('/saved-searches') && init?.method === 'POST') {
         const created = {
           ...baseSearch,
           id: 'search-2',

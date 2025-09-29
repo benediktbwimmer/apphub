@@ -42,13 +42,75 @@ type WorkflowRunListResponse = {
   meta?: { limit?: number; offset?: number };
 };
 
-function buildQuery(params: { limit?: number; offset?: number }): string {
+export type WorkflowRunFilters = {
+  statuses?: string[];
+  workflowSlugs?: string[];
+  triggerTypes?: string[];
+  partition?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+};
+
+export type JobRunFilters = {
+  statuses?: string[];
+  jobSlugs?: string[];
+  runtimes?: string[];
+  search?: string;
+};
+
+function appendArray(values: string[] | undefined, key: string, query: URLSearchParams): void {
+  if (!values || values.length === 0) {
+    return;
+  }
+  const unique = Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
+  for (const entry of unique) {
+    query.append(key, entry);
+  }
+}
+
+function buildWorkflowRunQuery(params: { limit?: number; offset?: number; filters?: WorkflowRunFilters }): string {
   const query = new URLSearchParams();
   if (params.limit !== undefined) {
     query.set('limit', String(params.limit));
   }
   if (params.offset !== undefined) {
     query.set('offset', String(params.offset));
+  }
+  const filters = params.filters ?? {};
+  appendArray(filters.statuses, 'status', query);
+  appendArray(filters.workflowSlugs, 'workflow', query);
+  appendArray(filters.triggerTypes, 'trigger', query);
+  if (filters.partition) {
+    query.set('partition', filters.partition);
+  }
+  if (filters.search) {
+    query.set('search', filters.search);
+  }
+  if (filters.from) {
+    query.set('from', filters.from);
+  }
+  if (filters.to) {
+    query.set('to', filters.to);
+  }
+  const result = query.toString();
+  return result ? `?${result}` : '';
+}
+
+function buildJobRunQuery(params: { limit?: number; offset?: number; filters?: JobRunFilters }): string {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) {
+    query.set('limit', String(params.limit));
+  }
+  if (params.offset !== undefined) {
+    query.set('offset', String(params.offset));
+  }
+  const filters = params.filters ?? {};
+  appendArray(filters.statuses, 'status', query);
+  appendArray(filters.jobSlugs, 'job', query);
+  appendArray(filters.runtimes, 'runtime', query);
+  if (filters.search) {
+    query.set('search', filters.search);
   }
   const result = query.toString();
   return result ? `?${result}` : '';
@@ -140,9 +202,9 @@ function normalizeMeta(
 
 export async function fetchJobRuns(
   fetcher: AuthorizedFetch,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; filters?: JobRunFilters } = {}
 ): Promise<{ items: JobRunListItem[]; meta: RunListMeta }> {
-  const query = buildQuery(options);
+  const query = buildJobRunQuery(options);
   const response = await fetcher(`${API_BASE_URL}/job-runs${query}`);
   await ensureOk(response, 'Failed to load job runs');
   const payload = await parseJson<JobRunListResponse>(response);
@@ -161,9 +223,9 @@ export async function fetchJobRuns(
 
 export async function fetchWorkflowRuns(
   fetcher: AuthorizedFetch,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; filters?: WorkflowRunFilters } = {}
 ): Promise<{ items: WorkflowRunListItem[]; meta: RunListMeta }> {
-  const query = buildQuery(options);
+  const query = buildWorkflowRunQuery(options);
   const response = await fetcher(`${API_BASE_URL}/workflow-runs${query}`);
   await ensureOk(response, 'Failed to load workflow runs');
   const payload = await parseJson<WorkflowRunListResponse>(response);

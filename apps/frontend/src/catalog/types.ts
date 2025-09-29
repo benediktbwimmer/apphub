@@ -1,6 +1,7 @@
 import type { KeyboardEventHandler } from 'react';
 import type { WorkflowEventRecordView } from '@apphub/shared/catalogEvents';
 import type { ExampleBundleStatus } from '../import/exampleBundles';
+import type { SavedSearch, SavedSearchCreateInput } from '../savedSearches/types';
 
 export type TagKV = {
   key: string;
@@ -198,26 +199,17 @@ export type SearchMeta = {
   };
 };
 
-export type SavedCatalogSearch = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  searchInput: string;
+type CatalogSavedSearchBase = SavedSearch<string, Record<string, unknown>>;
+
+export type SavedCatalogSearch = Omit<CatalogSavedSearchBase, 'statusFilters' | 'sort'> & {
   statusFilters: IngestStatus[];
   sort: SearchSort;
-  visibility: 'private';
-  appliedCount: number;
-  sharedCount: number;
-  lastAppliedAt: string | null;
-  lastSharedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type SavedCatalogSearchCreateInput = {
-  name: string;
-  description?: string | null;
+export type SavedCatalogSearchCreateInput = Omit<
+  SavedSearchCreateInput<IngestStatus>,
+  'statusFilters' | 'sort' | 'searchInput'
+> & {
   searchInput: string;
   statusFilters: IngestStatus[];
   sort: SearchSort;

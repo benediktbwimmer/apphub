@@ -97,7 +97,56 @@ const jobRunListQuerySchema = z
       .optional(),
     offset: z
       .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0))
-      .optional()
+      .optional(),
+    status: z
+      .preprocess((val) => {
+        if (Array.isArray(val)) {
+          return val
+            .flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        if (typeof val === 'string') {
+          return val
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        return undefined;
+      }, z.array(z.string()).optional()),
+    job: z
+      .preprocess((val) => {
+        if (Array.isArray(val)) {
+          return val
+            .flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        if (typeof val === 'string') {
+          return val
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        return undefined;
+      }, z.array(z.string()).optional()),
+    runtime: z
+      .preprocess((val) => {
+        if (Array.isArray(val)) {
+          return val
+            .flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        if (typeof val === 'string') {
+          return val
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        return undefined;
+      }, z.array(z.string()).optional()),
+    search: z.string().max(200).optional()
   })
   .partial();
 
@@ -481,7 +530,13 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
 
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 25, 1), 50);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
-    const { items, hasMore } = await listJobRuns({ limit, offset });
+    const filters = {
+      statuses: parseQuery.data.status,
+      jobSlugs: parseQuery.data.job,
+      runtimes: parseQuery.data.runtime,
+      search: parseQuery.data.search
+    };
+    const { items, hasMore } = await listJobRuns({ limit, offset, filters });
 
     reply.status(200);
     await authResult.auth.log('succeeded', {

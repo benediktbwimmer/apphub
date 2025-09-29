@@ -545,6 +545,8 @@ export type SavedCatalogSearchRow = {
   search_input: string;
   status_filters: string[];
   sort: string;
+  category: string | null;
+  config: unknown;
   visibility: string;
   applied_count: string | number;
   shared_count: string | number;

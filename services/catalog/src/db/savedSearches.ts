@@ -2,22 +2,19 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { useConnection, useTransaction } from './utils';
 import {
-  type SavedCatalogSearchCreateInput,
-  type SavedCatalogSearchRecord,
-  type SavedCatalogSearchUpdateInput,
-  type IngestStatus,
-  type RepositorySort
+  type JsonValue,
+  type SavedSearchCreateInput,
+  type SavedSearchRecord,
+  type SavedSearchUpdateInput
 } from './types';
-import { mapSavedCatalogSearchRow } from './rowMappers';
+import { mapSavedSearchRow } from './rowMappers';
 import type { SavedCatalogSearchRow } from './rowTypes';
 
 const DEFAULT_VISIBILITY = 'private' as const;
-const DEFAULT_SORT: RepositorySort = 'relevance';
+const DEFAULT_SORT = 'relevance';
+const DEFAULT_CATEGORY = 'catalog';
 
-const ALLOWED_STATUSES: readonly IngestStatus[] = ['seed', 'pending', 'processing', 'ready', 'failed'];
-const ALLOWED_SORTS: readonly RepositorySort[] = ['relevance', 'updated', 'name'];
-
-export type SavedCatalogSearchOwner = {
+export type SavedSearchOwner = {
   key: string;
   userId: string | null;
   subject: string;
@@ -41,29 +38,56 @@ function normalizeDescription(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
-function normalizeSearchInput(value: string): string {
+function normalizeSearchInput(value: string | undefined): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : '';
 }
 
-function normalizeStatusFiltersInput(filters: IngestStatus[] | undefined): IngestStatus[] {
+function normalizeStatusFiltersInput(filters: string[] | undefined): string[] {
   if (!filters || filters.length === 0) {
     return [];
   }
-  const seen = new Set<IngestStatus>();
+  const seen = new Set<string>();
   for (const filter of filters) {
-    if ((ALLOWED_STATUSES as readonly string[]).includes(filter)) {
-      seen.add(filter);
+    if (typeof filter !== 'string') {
+      continue;
     }
+    const normalized = filter.trim();
+    if (!normalized) {
+      continue;
+    }
+    seen.add(normalized.toLowerCase());
   }
   return Array.from(seen);
 }
 
-function normalizeSortInput(sort: RepositorySort | undefined): RepositorySort {
-  if (!sort) {
+function normalizeSortInput(sort: string | undefined): string {
+  if (typeof sort !== 'string') {
     return DEFAULT_SORT;
   }
-  return (ALLOWED_SORTS as readonly string[]).includes(sort) ? sort : DEFAULT_SORT;
+  const trimmed = sort.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 100) : DEFAULT_SORT;
+}
+
+function normalizeCategory(value: string | undefined): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_CATEGORY;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return DEFAULT_CATEGORY;
+  }
+  return trimmed.slice(0, 100).toLowerCase();
+}
+
+function normalizeConfig(value: JsonValue | undefined): JsonValue {
+  if (value === undefined || value === null) {
+    return {};
+  }
+  return value;
 }
 
 function slugify(input: string): string {
@@ -99,15 +123,15 @@ async function generateUniqueSlug(client: PoolClient, name: string): Promise<str
   return candidate;
 }
 
-function mapRow(row: SavedCatalogSearchRow): SavedCatalogSearchRecord {
-  return mapSavedCatalogSearchRow(row);
+function mapRow(row: SavedCatalogSearchRow): SavedSearchRecord {
+  return mapSavedSearchRow(row);
 }
 
 async function fetchBySlug(
   client: PoolClient,
   ownerKey: string,
   slug: string
-): Promise<SavedCatalogSearchRecord | null> {
+): Promise<SavedSearchRecord | null> {
   const { rows } = await client.query<SavedCatalogSearchRow>(
     'SELECT * FROM saved_catalog_searches WHERE slug = $1 AND owner_key = $2',
     [slug, ownerKey]
@@ -116,20 +140,36 @@ async function fetchBySlug(
   return row ? mapRow(row) : null;
 }
 
-export async function listSavedCatalogSearches(owner: SavedCatalogSearchOwner): Promise<SavedCatalogSearchRecord[]> {
+export async function listSavedSearches(
+  owner: SavedSearchOwner,
+  options: { category?: string | null } = {}
+): Promise<SavedSearchRecord[]> {
+  const categoryFilter = options.category ? normalizeCategory(options.category) : null;
+
   return useConnection(async (client) => {
+    const params: unknown[] = [owner.key];
+    let whereClause = 'owner_key = $1';
+
+    if (categoryFilter) {
+      params.push(categoryFilter);
+      whereClause += ` AND category = $${params.length}`;
+    }
+
     const { rows } = await client.query<SavedCatalogSearchRow>(
-      'SELECT * FROM saved_catalog_searches WHERE owner_key = $1 ORDER BY name ASC',
-      [owner.key]
+      `SELECT *
+       FROM saved_catalog_searches
+       WHERE ${whereClause}
+       ORDER BY name ASC`,
+      params
     );
     return rows.map(mapRow);
   });
 }
 
-export async function getSavedCatalogSearchBySlug(
-  owner: SavedCatalogSearchOwner,
+export async function getSavedSearchBySlug(
+  owner: SavedSearchOwner,
   slug: string
-): Promise<SavedCatalogSearchRecord | null> {
+): Promise<SavedSearchRecord | null> {
   const normalized = slug.trim().toLowerCase();
   if (!normalized) {
     return null;
@@ -137,15 +177,17 @@ export async function getSavedCatalogSearchBySlug(
   return useConnection((client) => fetchBySlug(client, owner.key, normalized));
 }
 
-export async function createSavedCatalogSearch(
-  owner: SavedCatalogSearchOwner,
-  input: SavedCatalogSearchCreateInput
-): Promise<SavedCatalogSearchRecord> {
+export async function createSavedSearch(
+  owner: SavedSearchOwner,
+  input: SavedSearchCreateInput
+): Promise<SavedSearchRecord> {
   const name = normalizeName(input.name);
+  const description = normalizeDescription(input.description ?? null);
   const searchInput = normalizeSearchInput(input.searchInput);
   const statusFilters = normalizeStatusFiltersInput(input.statusFilters);
   const sort = normalizeSortInput(input.sort);
-  const description = normalizeDescription(input.description ?? null);
+  const category = normalizeCategory(input.category);
+  const config = normalizeConfig(input.config as JsonValue | undefined);
 
   return useTransaction(async (client) => {
     const slug = await generateUniqueSlug(client, name);
@@ -165,9 +207,11 @@ export async function createSavedCatalogSearch(
          search_input,
          status_filters,
          sort,
+         category,
+         config,
          visibility
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
        )
        RETURNING *`,
       [
@@ -183,153 +227,143 @@ export async function createSavedCatalogSearch(
         searchInput,
         statusFilters,
         sort,
+        category,
+        config,
         DEFAULT_VISIBILITY
       ]
     );
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to create saved catalog search');
+      throw new Error('Failed to create saved search');
     }
 
     return mapRow(row);
   });
 }
 
-export async function updateSavedCatalogSearch(
-  owner: SavedCatalogSearchOwner,
+export async function updateSavedSearch(
+  owner: SavedSearchOwner,
   slug: string,
-  patch: SavedCatalogSearchUpdateInput
-): Promise<SavedCatalogSearchRecord | null> {
+  patch: SavedSearchUpdateInput
+): Promise<SavedSearchRecord | null> {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const assignments: string[] = [];
+  const params: unknown[] = [];
+
+  const pushAssignment = (column: string, value: unknown) => {
+    params.push(value);
+    assignments.push(`${column} = $${params.length}`);
+  };
+
+  if (patch.name !== undefined) {
+    pushAssignment('name', normalizeName(patch.name ?? ''));
+  }
+  if (patch.description !== undefined) {
+    pushAssignment('description', normalizeDescription(patch.description ?? null));
+  }
+  if (patch.searchInput !== undefined) {
+    pushAssignment('search_input', normalizeSearchInput(patch.searchInput));
+  }
+  if (patch.statusFilters !== undefined) {
+    pushAssignment('status_filters', normalizeStatusFiltersInput(patch.statusFilters));
+  }
+  if (patch.sort !== undefined) {
+    pushAssignment('sort', normalizeSortInput(patch.sort));
+  }
+  if (patch.category !== undefined) {
+    pushAssignment('category', normalizeCategory(patch.category));
+  }
+  if (patch.config !== undefined) {
+    pushAssignment('config', normalizeConfig(patch.config as JsonValue | undefined));
+  }
+
+  if (assignments.length === 0) {
+    return getSavedSearchBySlug(owner, normalizedSlug);
+  }
+
+  assignments.push('updated_at = NOW()');
+
+  return useTransaction(async (client) => {
+    const updateQuery = `
+      UPDATE saved_catalog_searches
+      SET ${assignments.join(', ')}
+      WHERE slug = $${params.length + 1}
+        AND owner_key = $${params.length + 2}
+      RETURNING *
+    `;
+
+    const { rows } = await client.query<SavedCatalogSearchRow>(updateQuery, [...params, normalizedSlug, owner.key]);
+    const row = rows[0];
+    return row ? mapRow(row) : null;
+  });
+}
+
+export async function deleteSavedSearch(owner: SavedSearchOwner, slug: string): Promise<boolean> {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) {
+    return false;
+  }
+
+  return useTransaction(async (client) => {
+    const { rowCount } = await client.query(
+      'DELETE FROM saved_catalog_searches WHERE slug = $1 AND owner_key = $2',
+      [normalizedSlug, owner.key]
+    );
+    return rowCount > 0;
+  });
+}
+
+export async function recordSavedSearchApplied(
+  owner: SavedSearchOwner,
+  slug: string
+): Promise<SavedSearchRecord | null> {
   const normalizedSlug = slug.trim().toLowerCase();
   if (!normalizedSlug) {
     return null;
   }
 
   return useTransaction(async (client) => {
-    const existing = await fetchBySlug(client, owner.key, normalizedSlug);
-    if (!existing) {
-      return null;
-    }
-
-    const nextName = patch.name !== undefined ? normalizeName(patch.name) : existing.name;
-    const nextDescription =
-      patch.description !== undefined ? normalizeDescription(patch.description) : existing.description;
-    const nextSearchInput =
-      patch.searchInput !== undefined ? normalizeSearchInput(patch.searchInput) : existing.searchInput;
-    const nextStatusFilters =
-      patch.statusFilters !== undefined ? normalizeStatusFiltersInput(patch.statusFilters) : existing.statusFilters;
-    const nextSort = patch.sort !== undefined ? normalizeSortInput(patch.sort) : existing.sort;
-
-    const unchanged =
-      nextName === existing.name &&
-      nextDescription === existing.description &&
-      nextSearchInput === existing.searchInput &&
-      nextSort === existing.sort &&
-      nextStatusFilters.length === existing.statusFilters.length &&
-      nextStatusFilters.every((value, index) => value === existing.statusFilters[index]);
-
-    if (unchanged) {
-      return existing;
-    }
-
     const { rows } = await client.query<SavedCatalogSearchRow>(
       `UPDATE saved_catalog_searches
-         SET name = $1,
-             description = $2,
-             search_input = $3,
-             status_filters = $4,
-             sort = $5,
-             updated_at = NOW()
-       WHERE slug = $6
-         AND owner_key = $7
+       SET applied_count = applied_count + 1,
+           last_applied_at = NOW(),
+           updated_at = NOW()
+       WHERE slug = $1
+         AND owner_key = $2
        RETURNING *`,
-      [
-        nextName,
-        nextDescription,
-        nextSearchInput,
-        nextStatusFilters,
-        nextSort,
-        normalizedSlug,
-        owner.key
-      ]
+      [normalizedSlug, owner.key]
     );
-
     const row = rows[0];
     return row ? mapRow(row) : null;
   });
 }
 
-export async function deleteSavedCatalogSearch(
-  owner: SavedCatalogSearchOwner,
+export async function recordSavedSearchShared(
+  owner: SavedSearchOwner,
   slug: string
-): Promise<boolean> {
-  const normalized = slug.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  return useConnection(async (client) => {
-    const result = await client.query(
-      'DELETE FROM saved_catalog_searches WHERE slug = $1 AND owner_key = $2',
-      [normalized, owner.key]
-    );
-    return (result.rowCount ?? 0) > 0;
-  });
-}
-
-export async function recordSavedCatalogSearchApplied(
-  owner: SavedCatalogSearchOwner,
-  slug: string
-): Promise<SavedCatalogSearchRecord | null> {
-  const normalized = slug.trim().toLowerCase();
-  if (!normalized) {
+): Promise<SavedSearchRecord | null> {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) {
     return null;
   }
 
   return useTransaction(async (client) => {
     const { rows } = await client.query<SavedCatalogSearchRow>(
       `UPDATE saved_catalog_searches
-         SET applied_count = applied_count + 1,
-             last_applied_at = NOW(),
-             updated_at = NOW()
+       SET shared_count = shared_count + 1,
+           last_shared_at = NOW(),
+           updated_at = NOW()
        WHERE slug = $1
          AND owner_key = $2
        RETURNING *`,
-      [normalized, owner.key]
+      [normalizedSlug, owner.key]
     );
     const row = rows[0];
     return row ? mapRow(row) : null;
   });
 }
-
-export async function recordSavedCatalogSearchShared(
-  owner: SavedCatalogSearchOwner,
-  slug: string
-): Promise<SavedCatalogSearchRecord | null> {
-  const normalized = slug.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  return useTransaction(async (client) => {
-    const { rows } = await client.query<SavedCatalogSearchRow>(
-      `UPDATE saved_catalog_searches
-         SET shared_count = shared_count + 1,
-             last_shared_at = NOW(),
-             updated_at = NOW()
-       WHERE slug = $1
-         AND owner_key = $2
-       RETURNING *`,
-      [normalized, owner.key]
-    );
-    const row = rows[0];
-    return row ? mapRow(row) : null;
-  });
-}
-
-export type {
-  SavedCatalogSearchCreateInput,
-  SavedCatalogSearchRecord,
-  SavedCatalogSearchUpdateInput
-};
