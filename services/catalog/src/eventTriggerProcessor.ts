@@ -497,7 +497,7 @@ async function processTrigger(
 
   if (!currentDelivery && dedupeKey) {
     const existing = await findWorkflowTriggerDeliveryByDedupeKey(trigger.id, dedupeKey);
-    if (existing && ['pending', 'matched', 'launched'].includes(existing.status)) {
+    if (existing && ['pending', 'matched', 'launched', 'throttled'].includes(existing.status)) {
       await createDeliveryRecord(trigger, event, 'skipped', {
         dedupeKey,
         workflowRunId: existing.workflowRunId ?? null,

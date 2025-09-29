@@ -2596,7 +2596,7 @@ export async function countRecentWorkflowTriggerDeliveries(
                  FROM workflow_trigger_deliveries
                 WHERE trigger_id = $1
                   AND created_at >= $2
-                  AND status IN ('pending', 'matched', 'launched', 'throttled')`;
+                  AND status IN ('pending', 'matched', 'launched')`;
 
   if (excludeDeliveryId) {
     query += ' AND id <> $3';
