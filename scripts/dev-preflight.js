@@ -31,8 +31,8 @@ const PORT_RULES = [
   { port: 5175, label: 'Frontend dev server (alt)', type: 'repo' }
 ];
 
-function runCommand(cmd, args) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8' });
+function runCommand(cmd, args, options = {}) {
+  const result = spawnSync(cmd, args, { encoding: 'utf8', ...options });
   if (result.error && result.error.code === 'ENOENT') {
     return { ok: false, missing: true };
   }
@@ -77,6 +77,52 @@ function getProcessCommandLine(pid) {
     return '';
   }
   return result.stdout?.trim() ?? '';
+}
+
+function checkCommand(cmd, args = [], { timeoutMs = 2000 } = {}) {
+  const result = spawnSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs });
+  if (result.error) {
+    if (result.error.code === 'ENOENT') {
+      return { ok: false, missing: true };
+    }
+    if (result.error.code === 'ETIMEDOUT') {
+      return { ok: false, timeout: true };
+    }
+    return { ok: false, stderr: result.error.message ?? 'command failed' };
+  }
+  if (typeof result.status === 'number' && result.status !== 0) {
+    const stderr = result.stderr?.trim();
+    const stdout = result.stdout?.trim();
+    return { ok: false, stderr: stderr || stdout || `exit code ${result.status}` };
+  }
+  return { ok: true, stdout: result.stdout?.trim() ?? '' };
+}
+
+function detectKubectl() {
+  const version = checkCommand('kubectl', ['version', '--client', '--short']);
+  if (!version.ok) {
+    const reason = version.missing
+      ? 'kubectl not detected on PATH'
+      : version.stderr || 'kubectl client unavailable';
+    return { available: false, reason };
+  }
+
+  const context = checkCommand('kubectl', ['config', 'current-context']);
+  if (!context.ok) {
+    const reason = context.stderr || 'kubectl current-context is not configured';
+    return { available: false, reason };
+  }
+
+  return { available: true, context: context.stdout ?? '' };
+}
+
+function detectDocker() {
+  const version = checkCommand('docker', ['--version']);
+  if (!version.ok) {
+    const reason = version.missing ? 'docker CLI not detected on PATH' : version.stderr || 'docker unavailable';
+    return { available: false, reason };
+  }
+  return { available: true, version: version.stdout ?? '' };
 }
 
 async function terminateProcess(pid, label) {
@@ -237,7 +283,20 @@ async function runPreflight() {
     console.log('[dev-preflight] Detected an existing Redis instance on port 6379. Skipping bundled Redis process.');
   }
 
-  return { skipRedis };
+  const kubectl = detectKubectl();
+  const docker = detectDocker();
+
+  if (!kubectl.available) {
+    console.log('[dev-preflight] Kubernetes tooling unavailable: ' + (kubectl.reason ?? 'unknown reason'));
+  } else {
+    console.log('[dev-preflight] Kubernetes context detected: ' + (kubectl.context || 'unknown'));
+  }
+
+  if (!docker.available) {
+    console.warn('[dev-preflight] Docker CLI unavailable: ' + (docker.reason ?? 'unknown reason'));
+  }
+
+  return { skipRedis, tooling: { kubectl, docker } };
 }
 
 module.exports = {

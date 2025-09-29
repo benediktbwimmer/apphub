@@ -115,6 +115,37 @@ async function main() {
     baseEnv.APPHUB_METASTORE_BASE_URL = 'http://127.0.0.1:4100';
   }
 
+  const normalizeEnvValue = (value) => (typeof value === 'string' ? value.trim() : '');
+  const tooling = preflightResult?.tooling ?? {};
+  const preferKubernetes = normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_KUBERNETES) === '1';
+  const preferDocker = normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_DOCKER) === '1';
+  const buildMode = normalizeEnvValue(baseEnv.APPHUB_BUILD_EXECUTION_MODE);
+  const launchMode = normalizeEnvValue(baseEnv.APPHUB_LAUNCH_EXECUTION_MODE);
+
+  const kubernetesAvailable = preferKubernetes || (!preferDocker && tooling.kubectl?.available === true);
+  const defaultExecutionMode = kubernetesAvailable ? 'kubernetes' : 'docker';
+  let loggedFallback = false;
+
+  if (!buildMode) {
+    baseEnv.APPHUB_BUILD_EXECUTION_MODE = defaultExecutionMode;
+    if (!kubernetesAvailable && tooling.kubectl?.reason && !loggedFallback) {
+      console.log(`[dev-runner] Defaulting build execution mode to docker: ${tooling.kubectl.reason}.`);
+      loggedFallback = true;
+    }
+  }
+
+  if (!launchMode) {
+    baseEnv.APPHUB_LAUNCH_EXECUTION_MODE = defaultExecutionMode;
+    if (!kubernetesAvailable && tooling.kubectl?.reason && !loggedFallback) {
+      console.log(`[dev-runner] Defaulting launch execution mode to docker: ${tooling.kubectl.reason}.`);
+      loggedFallback = true;
+    }
+  }
+
+  if (!kubernetesAvailable && tooling.docker?.available === false) {
+    console.warn('[dev-runner] Docker CLI not detected; build jobs may fail. Install Docker or export APPHUB_BUILD_EXECUTION_MODE=kubernetes to opt back in.');
+  }
+
   const commands = BASE_COMMANDS.filter((entry) => {
     if (entry.name === 'redis' && preflightResult?.skipRedis) {
       return false;
