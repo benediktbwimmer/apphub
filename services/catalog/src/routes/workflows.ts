@@ -1056,16 +1056,20 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
 
     const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 100);
     const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const kinds = parseQuery.data.kind?.filter((value): value is 'run' | 'delivery' =>
+      value === 'run' || value === 'delivery'
+    );
+
     const filters = {
       statuses: parseQuery.data.status,
       workflowSlugs: parseQuery.data.workflow,
       triggerTypes: parseQuery.data.trigger,
       triggerIds: parseQuery.data.triggerId,
-      kinds: parseQuery.data.kind,
+      kinds,
       search: parseQuery.data.search,
       from: parseQuery.data.from,
       to: parseQuery.data.to
-    } satisfies Parameters<typeof listWorkflowActivity>[0]['filters'];
+    } satisfies NonNullable<Parameters<typeof listWorkflowActivity>[0]>['filters'];
 
     const { items, hasMore } = await listWorkflowActivity({ limit, offset, filters });
 

@@ -216,13 +216,12 @@ export function WorkflowGraphProvider({ children }: { children: ReactNode }) {
             }
           }
         } finally {
-          if (!isMountedRef.current || !isLatestFetch()) {
-            return;
-          }
-          if (background) {
-            setGraphRefreshing(false);
-          } else {
-            setGraphLoading(false);
+          if (isMountedRef.current && isLatestFetch()) {
+            if (background) {
+              setGraphRefreshing(false);
+            } else {
+              setGraphLoading(false);
+            }
           }
         }
       })();

@@ -49,7 +49,7 @@ function formatActionLabel(action: string): string {
     .split('.')
     .map((segment) =>
       segment
-        .split(/[_\-]/g)
+        .split(/[-_]/g)
         .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
         .join(' ')
     )

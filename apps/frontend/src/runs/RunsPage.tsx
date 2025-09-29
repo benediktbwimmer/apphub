@@ -1110,20 +1110,32 @@ export default function RunsPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (selectedWorkflowEntry) {
-      const exists = workflowState.items.some((item) => item.run.id === selectedWorkflowEntry.run.id);
-      if (!exists) {
-        setSelectedWorkflowEntry(null);
-      }
+    if (!selectedWorkflowEntry) {
+      return;
+    }
+    const selectedRunId = selectedWorkflowEntry.run?.id ?? null;
+    if (!selectedRunId) {
+      setSelectedWorkflowEntry(null);
+      return;
+    }
+    const exists = workflowState.items.some((item) => item.run?.id === selectedRunId);
+    if (!exists) {
+      setSelectedWorkflowEntry(null);
     }
   }, [workflowState.items, selectedWorkflowEntry]);
 
   useEffect(() => {
-    if (selectedJobEntry) {
-      const exists = jobState.items.some((item) => item.run.id === selectedJobEntry.run.id);
-      if (!exists) {
-        setSelectedJobEntry(null);
-      }
+    if (!selectedJobEntry) {
+      return;
+    }
+    const selectedRunId = selectedJobEntry.run?.id ?? null;
+    if (!selectedRunId) {
+      setSelectedJobEntry(null);
+      return;
+    }
+    const exists = jobState.items.some((item) => item.run?.id === selectedRunId);
+    if (!exists) {
+      setSelectedJobEntry(null);
     }
   }, [jobState.items, selectedJobEntry]);
 
@@ -2019,6 +2031,10 @@ type WorkflowDeliveryDetailPanelProps = {
 
 function WorkflowDeliveryDetailPanel({ entry, onClose, onViewWorkflow }: WorkflowDeliveryDetailPanelProps) {
   const { delivery, workflow, trigger } = entry;
+  const retryMetadata =
+    delivery && typeof delivery === 'object' && 'retryMetadata' in delivery
+      ? (delivery as { retryMetadata?: unknown }).retryMetadata ?? null
+      : null;
 
   return (
     <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
@@ -2077,7 +2093,7 @@ function WorkflowDeliveryDetailPanel({ entry, onClose, onViewWorkflow }: Workflo
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <JsonPreview title="Retry metadata" value={delivery.retryMetadata} />
+        <JsonPreview title="Retry metadata" value={retryMetadata} />
         <JsonPreview title="Trigger summary" value={trigger} />
       </div>
     </div>
@@ -2097,7 +2113,7 @@ function JobRunsTable({
 }: JobRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
-  const selectedRunId = selectedEntry?.run.id ?? null;
+  const selectedRunId = selectedEntry?.run?.id ?? null;
 
   if (loading && !state.loaded) {
     return (

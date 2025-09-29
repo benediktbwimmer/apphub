@@ -104,7 +104,6 @@ function RetryEntryList<T extends { overdue: boolean; nextAttemptAt: string | nu
     <ul className="flex flex-col gap-2">
       {limited.map((entry, index) => (
         <li
-          // eslint-disable-next-line react/no-array-index-key
           key={index}
           className={`rounded-lg border border-slate-200/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/60 dark:text-slate-300 ${
             entry.overdue ? 'bg-rose-50/70 dark:bg-rose-500/10' : 'bg-white/70 dark:bg-slate-900/40'
