@@ -120,11 +120,28 @@ async function main() {
   }
 
   const run = concurrently(commands, {
-    killOthers: ['failure', 'success'],
+    killOthersOn: ['failure', 'success'],
     prefix: 'name',
     restartTries: 0,
     cwd: ROOT_DIR
   });
+
+  const terminate = (signal) => {
+    for (const command of run.commands ?? []) {
+      if (command && typeof command.kill === 'function') {
+        try {
+          command.kill(signal);
+        } catch (err) {
+          if (err && err.code !== 'ESRCH') {
+            console.warn(`[dev-services] Failed to propagate ${signal} to ${command.name ?? 'command'}: ${err.message ?? err}`);
+          }
+        }
+      }
+    }
+  };
+
+  process.on('SIGINT', () => terminate('SIGINT'));
+  process.on('SIGTERM', () => terminate('SIGTERM'));
 
   try {
     await run.result;

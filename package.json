@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:redis\" \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:builds\" \"npm run dev:launches\" \"npm run dev:workflows\" \"npm run dev:materializer\" \"npm run dev:examples\" \"npm run dev:metastore\" \"npm run dev:services\" \"npm run dev:filestore\" \"npm run dev:timestore\" \"npm run dev:timestore:ingest\" \"npm run dev:timestore:partition-build\" \"npm run dev:frontend\"",
+    "dev": "node scripts/dev-runner.js",
     "test": "npm run test:workspaces",
     "test:workspaces": "npm run test --workspaces --if-present",
     "lint": "npm run check:artifacts && npm run lint --workspaces --if-present",

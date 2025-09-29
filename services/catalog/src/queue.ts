@@ -10,7 +10,6 @@ import {
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
 import { type JobRunRecord, type JsonValue } from './db/types';
-import { runWorkflowOrchestration } from './workflowOrchestrator';
 import type { ExampleDescriptorReference } from '@apphub/example-bundler';
 import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
 import { ingestWorkflowEvent } from './workflowEvents';
@@ -650,6 +649,7 @@ export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
   }
 
   if (inlineMode) {
+    const { runWorkflowOrchestration } = await import('./workflowOrchestrator');
     await runWorkflowOrchestration(trimmedId);
     return;
   }

@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+'use strict';
+
+const path = require('node:path');
+const { concurrently } = require('concurrently');
+const { runPreflight } = require('./dev-preflight');
+
+const ROOT_DIR = path.resolve(__dirname, '..');
+const DEFAULT_REDIS_URL = process.env.APPHUB_DEV_REDIS_URL ?? 'redis://127.0.0.1:6379';
+
+const BASE_COMMANDS = [
+  {
+    name: 'redis',
+    command: 'redis-server --save "" --appendonly no',
+    cwd: ROOT_DIR
+  },
+  {
+    name: 'api',
+    command: 'npm run dev --workspace @apphub/catalog',
+    cwd: ROOT_DIR,
+    env: {
+      PORT: '4000',
+      HOST: '::'
+    }
+  },
+  {
+    name: 'worker',
+    command: 'npm run ingest --workspace @apphub/catalog'
+  },
+  {
+    name: 'builds',
+    command: 'npm run builds --workspace @apphub/catalog'
+  },
+  {
+    name: 'launches',
+    command: 'npm run launches --workspace @apphub/catalog'
+  },
+  {
+    name: 'workflows',
+    command: 'npm run workflows --workspace @apphub/catalog'
+  },
+  {
+    name: 'materializer',
+    command: 'npm run materializer --workspace @apphub/catalog'
+  },
+  {
+    name: 'examples',
+    command: 'npm run examples --workspace @apphub/catalog'
+  },
+  {
+    name: 'metastore',
+    command: 'npm run dev --workspace @apphub/metastore'
+  },
+  {
+    name: 'services',
+    command: 'node scripts/dev-services.js'
+  },
+  {
+    name: 'filestore',
+    command: 'npm run dev --workspace @apphub/filestore'
+  },
+  {
+    name: 'timestore',
+    command: 'npm run dev --workspace @apphub/timestore'
+  },
+  {
+    name: 'timestore:ingest',
+    command: 'npm run ingest --workspace @apphub/timestore'
+  },
+  {
+    name: 'timestore:partition',
+    command: 'npm run partition-build --workspace @apphub/timestore'
+  },
+  {
+    name: 'frontend',
+    command: 'npm run dev --workspace @apphub/frontend'
+  }
+];
+
+async function main() {
+  let preflightResult;
+  try {
+    preflightResult = await runPreflight();
+  } catch (err) {
+    console.error('[dev-runner] ' + (err?.message ?? err));
+    process.exit(1);
+  }
+
+  const baseEnv = { ...process.env };
+  const normalizedRedis = baseEnv.REDIS_URL?.trim();
+  if (!normalizedRedis || normalizedRedis === '127.0.0.1' || normalizedRedis === 'localhost') {
+    baseEnv.REDIS_URL = DEFAULT_REDIS_URL;
+  }
+  if (baseEnv.REDIS_URL && !/^redis:\/\//i.test(baseEnv.REDIS_URL)) {
+    baseEnv.REDIS_URL = `redis://${baseEnv.REDIS_URL}`;
+  }
+  for (const alias of ['FILESTORE_REDIS_URL', 'METASTORE_REDIS_URL', 'TIMESTORE_REDIS_URL']) {
+    if (!baseEnv[alias]) {
+      baseEnv[alias] = baseEnv.REDIS_URL;
+    }
+  }
+
+  const commands = BASE_COMMANDS.filter((entry) => {
+    if (entry.name === 'redis' && preflightResult?.skipRedis) {
+      return false;
+    }
+    return true;
+  }).map((entry) => ({
+    ...entry,
+    env: {
+      ...baseEnv,
+      ...(entry.env ?? {})
+    },
+    cwd: entry.cwd ?? ROOT_DIR
+  }));
+
+  if (commands.length === 0) {
+    console.error('[dev-runner] No commands to execute.');
+    process.exit(1);
+  }
+
+  const controller = concurrently(commands, {
+    prefix: 'name',
+    killOthersOn: ['failure', 'success'],
+    restartTries: 0
+  });
+
+  const { commands: spawned, result } = controller;
+
+  const terminate = (signal) => {
+    for (const command of spawned) {
+      if (command && typeof command.kill === 'function') {
+        try {
+          command.kill(signal);
+        } catch (err) {
+          if (err && err.code !== 'ESRCH') {
+            console.warn(`[dev-runner] Failed to send ${signal} to ${command.name ?? 'command'}: ${err.message ?? err}`);
+          }
+        }
+      }
+    }
+  };
+
+  process.on('SIGINT', () => terminate('SIGINT'));
+  process.on('SIGTERM', () => terminate('SIGTERM'));
+
+  try {
+    await result;
+    process.exit(0);
+  } catch (errors) {
+    if (Array.isArray(errors)) {
+      const allInterrupted = errors.every((event) => event?.killed || event?.signal);
+      if (allInterrupted) {
+        process.exit(0);
+      }
+      const first = errors.find((event) => typeof event.exitCode === 'number');
+      if (first) {
+        process.exit(first.exitCode);
+      }
+    }
+    process.exit(1);
+  }
+}
+
+main().catch((err) => {
+  console.error('[dev-runner] ' + (err?.message ?? err));
+  process.exit(1);
+});

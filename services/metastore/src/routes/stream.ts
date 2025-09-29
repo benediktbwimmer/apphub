@@ -137,7 +137,7 @@ export async function registerStreamRoutes(app: FastifyInstance): Promise<void> 
   let sseConnections = 0;
   let websocketConnections = 0;
 
-  const httpHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+  const handleSse = async (request: FastifyRequest, reply: FastifyReply) => {
     if (!ensureScope(request, reply, 'metastore:read')) {
       return;
     }
@@ -156,7 +156,7 @@ export async function registerStreamRoutes(app: FastifyInstance): Promise<void> 
     sseConnections += 1;
     refreshSubscriberMetrics(app, sseConnections, websocketConnections);
 
-    const dispatcher = createSseDispatcher(reply.raw);
+    const dispatcher = createSseDispatcher(reply.raw as WritableLike);
     const unsubscribe = subscribeToRecordStream((event) => {
       try {
         dispatcher.sendEvent(event);
@@ -196,7 +196,7 @@ export async function registerStreamRoutes(app: FastifyInstance): Promise<void> 
     request.raw.on('error', cleanup);
   };
 
-  const websocketHandler = (socket: WebSocket, request: FastifyRequest) => {
+  const handleWebsocket = (socket: WebSocket, request: FastifyRequest) => {
     if (!hasScope(request.identity, 'metastore:read')) {
       socket.close(4403, 'Missing metastore:read scope');
       return;
@@ -256,7 +256,8 @@ export async function registerStreamRoutes(app: FastifyInstance): Promise<void> 
   app.route({
     method: 'GET',
     url: '/stream/records',
-    handler: httpHandler,
-    wsHandler: websocketHandler
+    handler: handleSse,
+    wsHandler: handleWebsocket,
+    websocket: true
   });
 }
