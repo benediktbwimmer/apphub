@@ -1729,6 +1729,7 @@ export function mapWorkflowEventTriggerRow(row: WorkflowEventTriggerRow): Workfl
     eventSource: row.event_source ?? null,
     predicates: parseTriggerPredicates(row.predicates),
     parameterTemplate: parseTriggerJsonValue(row.parameter_template),
+    runKeyTemplate: row.run_key_template ?? null,
     throttleWindowMs: row.throttle_window_ms ?? null,
     throttleCount: row.throttle_count ?? null,
     maxConcurrency: row.max_concurrency ?? null,

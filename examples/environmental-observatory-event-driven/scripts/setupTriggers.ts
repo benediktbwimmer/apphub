@@ -19,6 +19,7 @@ type TriggerDefinition = {
   throttleCount?: number;
   maxConcurrency?: number;
   idempotencyKeyExpression?: string;
+  runKeyTemplate?: string;
 };
 
 async function request<T>(
@@ -88,7 +89,8 @@ async function ensureTrigger(
         throttleWindowMs: definition.throttleWindowMs,
         throttleCount: definition.throttleCount,
         maxConcurrency: definition.maxConcurrency,
-        idempotencyKeyExpression: definition.idempotencyKeyExpression
+        idempotencyKeyExpression: definition.idempotencyKeyExpression,
+        runKeyTemplate: definition.runKeyTemplate
       }
     );
     console.log(`Updated trigger '${definition.name}' on workflow ${definition.workflowSlug}`);
@@ -111,7 +113,8 @@ async function ensureTrigger(
       throttleWindowMs: definition.throttleWindowMs,
       throttleCount: definition.throttleCount,
       maxConcurrency: definition.maxConcurrency,
-      idempotencyKeyExpression: definition.idempotencyKeyExpression
+      idempotencyKeyExpression: definition.idempotencyKeyExpression,
+      runKeyTemplate: definition.runKeyTemplate
     }
   );
   console.log(`Created trigger '${definition.name}' on workflow ${definition.workflowSlug}`);
@@ -212,7 +215,8 @@ async function main(): Promise<void> {
   } satisfies Record<string, unknown>;
 
   const publicationTemplate: Record<string, unknown> = {
-    partitionKey: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}',
+    partitionKey: '{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window }}',
+    instrumentId: '{{ event.payload.attributes.instrumentId | default: event.payload.partitionKeyFields.instrument | default: "unknown" }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
     timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
     plotsDir: '{{ trigger.metadata.paths.plotsDir }}',
@@ -264,7 +268,10 @@ async function main(): Promise<void> {
       throttleWindowMs: null,
       throttleCount: null,
       maxConcurrency: null,
-      idempotencyKeyExpression: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}'
+      idempotencyKeyExpression:
+        '{{ event.payload.attributes.instrumentId | default: "unknown" }}-{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window }}',
+      runKeyTemplate:
+        'observatory-publish-{{ parameters.instrumentId | replace: ":", "-" }}-{{ parameters.partitionKey | replace: ":", "-" }}'
     }
   ];
 

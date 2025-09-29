@@ -530,6 +530,10 @@ export default function EventTriggersPanel({
                       <dt>Idempotency</dt>
                       <dd>{selectedTrigger.idempotencyKeyExpression ?? 'none'}</dd>
                     </div>
+                    <div className="flex justify-between">
+                      <dt>Run key template</dt>
+                      <dd>{selectedTrigger.runKeyTemplate ?? 'auto-generated'}</dd>
+                    </div>
                   </dl>
                 </div>
                 <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">

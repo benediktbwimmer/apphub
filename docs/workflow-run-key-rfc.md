@@ -52,6 +52,7 @@ Introduce an optional-but-encouraged human-readable `runKey` that accompanies th
 - Populate normalized value via database trigger or application layer to avoid drift.
 - Create partial unique index `idx_workflow_runs_active_run_key` enforcing uniqueness in active states.
 - Extend row mappers, serializers, and TypeScript types to include new fields.
+- Persist optional partition `attributes` alongside key fields so downstream events can expose additional dimensions (e.g., instrument id).
 - Backfill script derives run keys for historical records using available metadata (partition key, trigger payload) while logging collisions. See Ticket 201.
 
 ## Launch Entry Points
@@ -59,7 +60,7 @@ Introduce an optional-but-encouraged human-readable `runKey` that accompanies th
 | --- | --- |
 | Manual API `/workflows/:slug/run` | Accept optional `runKey`; validate and insert. On conflict, return `409`. |
 | Scheduler | Derive key from schedule ID + window end (ISO minute) or supplied partition key. If duplicate active run exists, skip scheduling and log with reference to existing run. |
-| Event Trigger Processor | Use trigger dedupe key; fallback to `event-{eventId}`. Collisions cause the delivery to attach to existing run and mark as idempotent replay. |
+| Event Trigger Processor | Use configured Liquid run key template (context exposes `event`, `trigger`, rendered `parameters`, and any `partition.attributes`). If absent, derive from trigger dedupe key; fallback to `event-{eventId}`. Collisions attach the delivery to the existing run and mark it as an idempotent replay. |
 | Asset Materializer | Combine asset ID + partition key (`asset-materialize-{assetId}-{partition}`). If conflict, release claim and avoid duplicate enqueue. |
 | Admin tools / Runbook scripts | Provide optional `--run-key` flag; default to existing partition key or generated slug. |
 

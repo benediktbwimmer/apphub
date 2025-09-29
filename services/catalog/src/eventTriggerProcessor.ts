@@ -602,28 +602,81 @@ async function processTrigger(
   if (event.id) {
     runKeyParts.push(event.id);
   }
-  const runKeyCandidate = buildRunKeyFromParts(...runKeyParts);
+  const autoRunKeyCandidate = buildRunKeyFromParts(...runKeyParts);
   let runKeyColumns: { runKey: string | null; runKeyNormalized: string | null } = {
     runKey: null,
     runKeyNormalized: null
   };
-  if (runKeyCandidate) {
-    try {
-      runKeyColumns = computeRunKeyColumns(runKeyCandidate);
-    } catch (err) {
-      logger.warn('Event trigger run skipped due to invalid run key', {
-        triggerId: trigger.id,
-        workflowDefinitionId: trigger.workflowDefinitionId,
-        runKey: runKeyCandidate,
-        error: (err as Error).message ?? 'unknown'
-      });
-      await recordTriggerEvaluation(trigger, 'skipped');
-      return;
-    }
-  }
 
   try {
     const renderedParameters = await renderJsonTemplate(trigger.parameterTemplate, context);
+    const parameterContext =
+      renderedParameters && typeof renderedParameters === 'object' && !Array.isArray(renderedParameters)
+        ? (renderedParameters as Record<string, unknown>)
+        : {};
+
+    let runKeyInput = autoRunKeyCandidate;
+    if (trigger.runKeyTemplate) {
+      const runKeyContext = {
+        ...context,
+        parameters: parameterContext
+      } satisfies Record<string, unknown>;
+      const renderedRunKey = await renderStringTemplate(trigger.runKeyTemplate, runKeyContext);
+      const trimmedRunKey = renderedRunKey.trim();
+      if (trimmedRunKey) {
+        runKeyInput = trimmedRunKey;
+      } else if (autoRunKeyCandidate) {
+        logger.warn('Run key template produced empty value; falling back to auto-generated run key', {
+          triggerId: trigger.id,
+          workflowDefinitionId: trigger.workflowDefinitionId
+        });
+        runKeyInput = autoRunKeyCandidate;
+      } else {
+        logger.warn('Run key template produced empty value and no fallback available', {
+          triggerId: trigger.id,
+          workflowDefinitionId: trigger.workflowDefinitionId
+        });
+        await recordTriggerEvaluation(trigger, 'skipped');
+        return;
+      }
+    }
+
+    if (runKeyInput) {
+      try {
+        runKeyColumns = computeRunKeyColumns(runKeyInput);
+      } catch (err) {
+        if (trigger.runKeyTemplate && autoRunKeyCandidate && runKeyInput !== autoRunKeyCandidate) {
+          try {
+            runKeyColumns = computeRunKeyColumns(autoRunKeyCandidate);
+            logger.warn('Run key template produced invalid value; falling back to auto-generated run key', {
+              triggerId: trigger.id,
+              workflowDefinitionId: trigger.workflowDefinitionId,
+              runKey: runKeyInput,
+              error: (err as Error).message ?? 'unknown'
+            });
+          } catch (fallbackErr) {
+            logger.warn('Event trigger run skipped due to invalid run key after fallback attempt', {
+              triggerId: trigger.id,
+              workflowDefinitionId: trigger.workflowDefinitionId,
+              runKey: autoRunKeyCandidate,
+              error: (fallbackErr as Error).message ?? 'unknown'
+            });
+            await recordTriggerEvaluation(trigger, 'skipped');
+            return;
+          }
+        } else {
+          logger.warn('Event trigger run skipped due to invalid run key', {
+            triggerId: trigger.id,
+            workflowDefinitionId: trigger.workflowDefinitionId,
+            runKey: runKeyInput,
+            error: (err as Error).message ?? 'unknown'
+          });
+          await recordTriggerEvaluation(trigger, 'skipped');
+          return;
+        }
+      }
+    }
+
     const run = await createWorkflowRun(trigger.workflowDefinitionId, {
       parameters: renderedParameters ?? {},
       triggeredBy: 'event-trigger',

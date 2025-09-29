@@ -16,13 +16,14 @@
       "reportsDir": { "type": "string", "minLength": 1 },
       "plotsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
+      "instrumentId": { "type": "string" },
       "reportTemplate": { "type": "string" },
       "visualizationAsset": { "type": "object" },
       "metastoreBaseUrl": { "type": "string" },
       "metastoreAuthToken": { "type": "string" },
       "metastoreNamespace": { "type": "string" }
     },
-    "required": ["reportsDir", "plotsDir", "partitionKey", "visualizationAsset"]
+    "required": ["reportsDir", "plotsDir", "partitionKey", "instrumentId", "visualizationAsset"]
   },
   "outputSchema": {
     "type": "object",
@@ -59,8 +60,9 @@
           },
           "required": ["relativePath"]
         }
-      }
+      },
+      "instrumentId": { "type": "string" }
     },
-    "required": ["generatedAt", "reportsDir", "reportFiles"]
+    "required": ["generatedAt", "reportsDir", "reportFiles", "instrumentId"]
   }
 }

@@ -429,6 +429,10 @@ export function normalizeWorkflowEventTrigger(raw: unknown): WorkflowEventTrigge
   const status: WorkflowEventTriggerStatus = statusRaw === 'disabled' ? 'disabled' : 'active';
 
   const parameterTemplate = 'parameterTemplate' in record ? record.parameterTemplate ?? null : null;
+  const runKeyTemplate =
+    typeof record.runKeyTemplate === 'string' && record.runKeyTemplate.trim().length > 0
+      ? record.runKeyTemplate
+      : null;
   const metadata = 'metadata' in record ? record.metadata ?? null : null;
   const throttleWindowMs = normalizeNullableNumber(record.throttleWindowMs);
   const throttleCount = normalizeNullableNumber(record.throttleCount);
@@ -450,6 +454,7 @@ export function normalizeWorkflowEventTrigger(raw: unknown): WorkflowEventTrigge
     eventSource: typeof record.eventSource === 'string' ? record.eventSource : null,
     predicates,
     parameterTemplate,
+    runKeyTemplate,
     throttleWindowMs,
     throttleCount,
     maxConcurrency,

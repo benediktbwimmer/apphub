@@ -29,6 +29,9 @@
         "type": "string",
         "minLength": 1
       },
+      "instrumentId": {
+        "type": "string"
+      },
       "lookbackMinutes": {
         "type": "number",
         "minimum": 1,
@@ -55,7 +58,8 @@
       "timestoreDatasetSlug",
       "plotsDir",
       "reportsDir",
-      "partitionKey"
+      "partitionKey",
+      "instrumentId"
     ]
   },
   "defaultParameters": {
@@ -67,7 +71,8 @@
     "metastoreBaseUrl": "http://127.0.0.1:4100",
     "metastoreNamespace": "observatory.reports",
     "timestoreAuthToken": null,
-    "metastoreAuthToken": null
+    "metastoreAuthToken": null,
+    "instrumentId": null
   },
   "steps": [
     {
@@ -81,6 +86,7 @@
         "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
+        "instrumentId": "{{ parameters.instrumentId }}",
         "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
         "siteFilter": "{{ parameters.siteFilter }}"
       },
@@ -167,6 +173,7 @@
         "reportsDir": "{{ parameters.reportsDir }}",
         "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
+        "instrumentId": "{{ parameters.instrumentId }}",
         "reportTemplate": "{{ parameters.reportTemplate }}",
         "visualizationAsset": "{{ shared.visualizations.visualization }}",
         "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
@@ -279,7 +286,8 @@
             }
           ],
           "parameterTemplate": {
-            "partitionKey": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}",
+            "partitionKey": "{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}",
+            "instrumentId": "{{ event.payload.attributes.instrumentId | default: event.payload.partitionKeyFields.instrument | default: 'unknown' }}",
             "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
             "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
             "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
@@ -289,10 +297,11 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
-    "metadata": {
-      "timestore": {
-        "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
-        "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+          "runKeyTemplate": "observatory-publish-{{ parameters.instrumentId | replace: ":", "-" }}-{{ parameters.partitionKey | replace: ":", "-" }}",
+          "metadata": {
+            "timestore": {
+              "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+              "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
         "authToken": "{{ defaultParameters.timestoreAuthToken }}"
       },
       "paths": {
@@ -305,7 +314,7 @@
         "authToken": "{{ defaultParameters.metastoreAuthToken }}"
       }
     },
-    "idempotencyKeyExpression": "{{ event.payload.partitionKey.window | default: event.payload.partitionKey | replace: \":\", \"-\" }}",
+    "idempotencyKeyExpression": "{{ event.payload.attributes.instrumentId | default: 'unknown' | replace: \":\", \"-\" }}-{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window | replace: \":\", \"-\" }}",
     "status": "active"
   }
 ]

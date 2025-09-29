@@ -299,6 +299,7 @@
           ],
           "parameterTemplate": {
             "minute": "{{ event.payload.node.metadata.minute }}",
+            "instrumentId": "{{ event.payload.node.metadata.instrumentId }}",
             "maxFiles": "{{ trigger.metadata.maxFiles }}",
             "stagingDir": "{{ trigger.metadata.paths.stagingDir }}",
             "archiveDir": "{{ trigger.metadata.paths.archiveDir }}",
@@ -320,6 +321,7 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
+          "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ":", "-" }}",
           "metadata": {
             "maxFiles": "{{ defaultParameters.maxFiles }}",
             "paths": {

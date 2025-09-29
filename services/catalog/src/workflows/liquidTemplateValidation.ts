@@ -10,11 +10,13 @@ export type TemplateValidationIssue = {
 export type TriggerTemplateValues = {
   parameterTemplate: JsonValue | null;
   idempotencyKeyExpression: string | null;
+  runKeyTemplate: string | null;
 };
 
 export type TriggerTemplateContext = {
   trigger: Record<string, unknown>;
   sampleEvent?: Record<string, unknown> | null;
+  parameters?: Record<string, unknown> | null;
 };
 
 const syntaxEngine = new Liquid({ cache: false, strictFilters: true, strictVariables: false });
@@ -120,6 +122,7 @@ function buildContextSkeleton(): Record<string, unknown> {
       eventSource: null,
       predicates: [],
       parameterTemplate: null,
+      runKeyTemplate: null,
       idempotencyKeyExpression: null,
       throttleWindowMs: null,
       throttleCount: null,
@@ -129,6 +132,7 @@ function buildContextSkeleton(): Record<string, unknown> {
       createdAt: '1970-01-01T00:00:00.000Z',
       updatedAt: '1970-01-01T00:00:00.000Z'
     },
+    parameters: {},
     now: '1970-01-01T00:00:00.000Z'
   } satisfies Record<string, unknown>;
 }
@@ -144,6 +148,12 @@ function mergeContext(
     ...(baseContext.trigger as Record<string, unknown>),
     ...trigger
   };
+  if (override.parameters && typeof override.parameters === 'object') {
+    baseContext.parameters = {
+      ...(baseContext.parameters as Record<string, unknown>),
+      ...override.parameters
+    } satisfies Record<string, unknown>;
+  }
   const eventOverride = override.sampleEvent;
   if (eventOverride && typeof eventOverride === 'object') {
     baseContext.event = {
@@ -162,6 +172,12 @@ function mergeContext(
   }
 
   const strictContext = cloneContext(baseContext) as Record<string, unknown>;
+  if (override.parameters && typeof override.parameters === 'object') {
+    strictContext.parameters = {
+      ...(strictContext.parameters as Record<string, unknown>),
+      ...override.parameters
+    } satisfies Record<string, unknown>;
+  }
   return { base: baseContext, strict: strictContext };
 }
 
@@ -179,6 +195,22 @@ export async function validateTriggerTemplates(
   const keyExpression = values.idempotencyKeyExpression;
   if (typeof keyExpression === 'string' && keyExpression.trim().length > 0) {
     await validateStringTemplate(keyExpression, ['idempotencyKeyExpression'], base, strict, issues);
+  }
+
+  const runKeyTemplate = values.runKeyTemplate;
+  if (typeof runKeyTemplate === 'string' && runKeyTemplate.trim().length > 0) {
+    const parametersContext =
+      (base.parameters as Record<string, unknown> | undefined) ?? ({} as Record<string, unknown>);
+    const runKeyBase = cloneContext(base) as Record<string, unknown>;
+    runKeyBase.parameters = parametersContext;
+    const runKeyStrict = strict
+      ? (() => {
+          const strictClone = cloneContext(strict) as Record<string, unknown>;
+          strictClone.parameters = parametersContext;
+          return strictClone;
+        })()
+      : null;
+    await validateStringTemplate(runKeyTemplate, ['runKeyTemplate'], runKeyBase, runKeyStrict, issues);
   }
 
   return issues;

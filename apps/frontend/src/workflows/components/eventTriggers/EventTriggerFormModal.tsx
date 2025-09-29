@@ -26,6 +26,7 @@ export type EventTriggerPreviewSnapshot = {
   status: WorkflowEventTriggerStatus;
   predicates: WorkflowEventTriggerPredicateInput[];
   parameterTemplate?: unknown;
+  runKeyTemplate?: string | null;
   metadata?: unknown;
 };
 
@@ -73,6 +74,7 @@ type FormValues = {
   status: WorkflowEventTriggerStatus;
   predicates: PredicateFormValue[];
   parameterTemplate: string;
+  runKeyTemplate: string;
   metadata: string;
   throttleWindowMs: string;
   throttleCount: string;
@@ -94,6 +96,7 @@ type FormErrors = {
   predicates?: PredicateError[];
   parameterTemplate?: string;
   metadata?: string;
+  runKeyTemplate?: string;
   throttleWindowMs?: string;
   throttleCount?: string;
   maxConcurrency?: string;
@@ -181,6 +184,7 @@ function mapTriggerToForm(trigger: WorkflowEventTrigger | null | undefined): For
       status: 'active',
       predicates: [],
       parameterTemplate: '',
+      runKeyTemplate: '',
       metadata: '',
       throttleWindowMs: '',
       throttleCount: '',
@@ -223,6 +227,7 @@ function mapTriggerToForm(trigger: WorkflowEventTrigger | null | undefined): For
       flags: predicate.operator === 'regex' ? predicate.flags ?? '' : ''
     })),
     parameterTemplate: formatJson(trigger.parameterTemplate ?? null),
+    runKeyTemplate: trigger.runKeyTemplate ?? '',
     metadata: formatJson(trigger.metadata ?? null),
     throttleWindowMs: trigger.throttleWindowMs ? String(trigger.throttleWindowMs) : '',
     throttleCount: trigger.throttleCount ? String(trigger.throttleCount) : '',
@@ -702,6 +707,16 @@ export default function EventTriggerFormModal({
       }
     }
 
+    let runKeyTemplate: string | null = null;
+    if (values.runKeyTemplate.trim()) {
+      const templateValue = values.runKeyTemplate.trim();
+      if (templateValue.length > 500) {
+        nextErrors.runKeyTemplate = 'Run key template must be at most 500 characters.';
+      } else {
+        runKeyTemplate = templateValue;
+      }
+    }
+
     let throttleWindowMs: number | null = null;
     let throttleCount: number | null = null;
     if (values.throttleWindowMs.trim() || values.throttleCount.trim()) {
@@ -734,6 +749,7 @@ export default function EventTriggerFormModal({
       nextErrors.eventType ||
       nextErrors.parameterTemplate ||
       nextErrors.metadata ||
+      nextErrors.runKeyTemplate ||
       nextErrors.throttleWindowMs ||
       nextErrors.throttleCount ||
       nextErrors.maxConcurrency ||
@@ -753,6 +769,7 @@ export default function EventTriggerFormModal({
       predicates,
       parameterTemplate: parameterTemplate ?? null,
       metadata: metadata ?? null,
+      runKeyTemplate,
       throttleWindowMs,
       throttleCount,
       maxConcurrency,
@@ -802,6 +819,9 @@ export default function EventTriggerFormModal({
           if (fieldErrors.metadata?.length) {
             nextErrors.metadata = fieldErrors.metadata[0];
           }
+          if (fieldErrors.runKeyTemplate?.length) {
+            nextErrors.runKeyTemplate = fieldErrors.runKeyTemplate[0];
+          }
           if (fieldErrors.throttleWindowMs?.length) {
             nextErrors.throttleWindowMs = fieldErrors.throttleWindowMs[0];
           }
@@ -844,6 +864,7 @@ export default function EventTriggerFormModal({
       status: payload.status ?? 'active',
       predicates: payload.predicates ?? [],
       parameterTemplate: payload.parameterTemplate ?? null,
+      runKeyTemplate: payload.runKeyTemplate ?? null,
       metadata: payload.metadata ?? null
     });
   };
@@ -1129,6 +1150,25 @@ export default function EventTriggerFormModal({
             {errors.idempotencyKeyExpression && (
               <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
                 {errors.idempotencyKeyExpression}
+              </span>
+            )}
+          </label>
+          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Run key template
+            <input
+              type="text"
+              value={values.runKeyTemplate}
+              onChange={(event) => handleFieldChange('runKeyTemplate', event.target.value)}
+              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              placeholder="trigger-{{ trigger.id }}-{{ parameters.partition }}"
+              disabled={disableActions}
+            />
+            <span className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+              Liquid expressions may reference `event`, `trigger`, and rendered `parameters`.
+            </span>
+            {errors.runKeyTemplate && (
+              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                {errors.runKeyTemplate}
               </span>
             )}
           </label>

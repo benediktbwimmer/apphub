@@ -34,6 +34,7 @@ export const ingestionRequestSchema = z.object({
   schema: datasetSchemaSchema,
   partition: z.object({
     key: z.record(z.string(), z.string()),
+    attributes: z.record(z.string(), z.string()).optional(),
     timeRange: z.object({
       start: z.string().min(1),
       end: z.string().min(1)

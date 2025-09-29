@@ -133,6 +133,24 @@ function toNumberOrNull(value: unknown): number | null {
   return null;
 }
 
+function toStringRecordOrNull(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      continue;
+    }
+    const normalizedValue = toStringOrNull(entry);
+    if (!normalizedValue) {
+      continue;
+    }
+    result[key] = normalizedValue;
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 function preferHigherSeverity(current: WorkflowEventSeverity, candidate: WorkflowEventSeverity): WorkflowEventSeverity {
   return SEVERITY_RANK[candidate] > SEVERITY_RANK[current] ? candidate : current;
 }
@@ -620,6 +638,10 @@ function toTimestorePartitionCreated(payload: unknown): TimestorePartitionCreate
   const fileSizeBytes = toNumberOrNull(payload.fileSizeBytes);
   const receivedAt = toStringOrNull(payload.receivedAt);
   const partitionKey = payload.partitionKey == null ? null : toStringOrNull(payload.partitionKey);
+  const partitionKeyFields =
+    toStringRecordOrNull(payload.partitionKeyFields ?? (payload as Record<string, unknown>).partition_key_fields) ?? null;
+  const attributes =
+    toStringRecordOrNull(payload.attributes ?? (payload as Record<string, unknown>).dimensions) ?? null;
   const checksum = payload.checksum == null ? null : toStringOrNull(payload.checksum);
   if (
     !datasetId ||
@@ -640,12 +662,14 @@ function toTimestorePartitionCreated(payload: unknown): TimestorePartitionCreate
     manifestId,
     partitionId,
     partitionKey,
+    partitionKeyFields,
     storageTargetId,
     filePath,
     rowCount,
     fileSizeBytes,
     checksum,
-    receivedAt
+    receivedAt,
+    attributes
   } satisfies TimestorePartitionCreatedEventData;
 }
 

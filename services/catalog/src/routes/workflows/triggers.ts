@@ -235,7 +235,8 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
       const templateIssues = await validateTriggerTemplates(
         {
           parameterTemplate: normalized.parameterTemplate,
-          idempotencyKeyExpression: normalized.idempotencyKeyExpression
+          idempotencyKeyExpression: normalized.idempotencyKeyExpression,
+          runKeyTemplate: normalized.runKeyTemplate
         },
         {
           trigger: {
@@ -246,6 +247,7 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
             eventSource: normalized.eventSource ?? null,
             predicates: normalized.predicates,
             parameterTemplate: normalized.parameterTemplate,
+            runKeyTemplate: normalized.runKeyTemplate,
             idempotencyKeyExpression: normalized.idempotencyKeyExpression,
             metadata: normalized.metadata,
             throttleWindowMs: normalized.throttleWindowMs,
@@ -280,6 +282,7 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
       eventSource: normalized.eventSource,
       predicates: normalized.predicates,
       parameterTemplate: normalized.parameterTemplate,
+      runKeyTemplate: normalized.runKeyTemplate,
       throttleWindowMs: normalized.throttleWindowMs,
       throttleCount: normalized.throttleCount,
       maxConcurrency: normalized.maxConcurrency,
@@ -360,11 +363,14 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
         normalized.idempotencyKeyExpression !== undefined
           ? normalized.idempotencyKeyExpression
           : trigger.idempotencyKeyExpression;
+      const nextRunKeyTemplate =
+        normalized.runKeyTemplate !== undefined ? normalized.runKeyTemplate : trigger.runKeyTemplate;
 
       const templateIssues = await validateTriggerTemplates(
         {
           parameterTemplate: nextParameterTemplate ?? null,
-          idempotencyKeyExpression: nextIdempotencyExpression ?? null
+          idempotencyKeyExpression: nextIdempotencyExpression ?? null,
+          runKeyTemplate: nextRunKeyTemplate ?? null
         },
         {
           trigger: {
@@ -372,6 +378,7 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
             ...normalized,
             predicates: normalized.predicates ?? trigger.predicates,
             parameterTemplate: nextParameterTemplate ?? null,
+            runKeyTemplate: nextRunKeyTemplate ?? null,
             idempotencyKeyExpression: nextIdempotencyExpression ?? null,
             throttleWindowMs: normalized.throttleWindowMs ?? trigger.throttleWindowMs,
             throttleCount: normalized.throttleCount ?? trigger.throttleCount,
@@ -405,6 +412,7 @@ export async function registerWorkflowTriggerRoutes(app: FastifyInstance): Promi
       eventSource: normalized.eventSource,
       predicates: normalized.predicates,
       parameterTemplate: normalized.parameterTemplate,
+      runKeyTemplate: normalized.runKeyTemplate,
       throttleWindowMs: normalized.throttleWindowMs,
       throttleCount: normalized.throttleCount,
       maxConcurrency: normalized.maxConcurrency,

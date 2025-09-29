@@ -32,6 +32,7 @@ type VisualizationMetrics = {
   partitionKey: string;
   lookbackMinutes: number;
   siteFilter?: string;
+  instrumentId?: string;
 };
 
 type VisualizationAsset = {
@@ -47,6 +48,7 @@ type ReportPublisherParameters = {
   reportsDir: string;
   plotsDir: string;
   partitionKey: string;
+  instrumentId?: string;
   reportTemplate?: string;
   visualizationAsset: VisualizationAsset;
   metastoreBaseUrl?: string;
@@ -70,6 +72,7 @@ type ReportAssetPayload = {
     alertCount: number;
   };
   plotsReferenced: Array<{ relativePath: string; altText: string }>;
+  instrumentId?: string;
 };
 
 const DEFAULT_METASTORE_NAMESPACE = 'observatory.reports';
@@ -133,7 +136,8 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
     partitionKey: ensureString(metricsRaw.partitionKey ?? metricsRaw.partition_key ?? partitionKey),
     lookbackMinutes:
       Number(metricsRaw.lookbackMinutes ?? metricsRaw.lookback_minutes ?? lookbackMinutes) || 0,
-    siteFilter: ensureString(metricsRaw.siteFilter ?? metricsRaw.site_filter ?? '') || undefined
+    siteFilter: ensureString(metricsRaw.siteFilter ?? metricsRaw.site_filter ?? '') || undefined,
+    instrumentId: ensureString(metricsRaw.instrumentId ?? metricsRaw.instrument_id ?? '') || undefined
   } satisfies VisualizationMetrics;
 
   if (!generatedAt || !partitionKey || !plotsDir) {
@@ -157,6 +161,7 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
   const reportsDir = ensureString(raw.reportsDir ?? raw.reports_dir ?? raw.outputDir);
   const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.visualizationsDir);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
+  const instrumentId = ensureString(raw.instrumentId ?? raw.instrument_id ?? '');
   if (!reportsDir || !plotsDir || !partitionKey) {
     throw new Error('reportsDir, plotsDir, and partitionKey parameters are required');
   }
@@ -171,6 +176,7 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
     reportsDir,
     plotsDir,
     partitionKey,
+    instrumentId: instrumentId || undefined,
     reportTemplate: reportTemplate || undefined,
     visualizationAsset,
     metastoreBaseUrl: metastoreBaseUrl || undefined,
@@ -191,6 +197,8 @@ function buildMarkdown(metrics: VisualizationMetrics, artifacts: VisualizationAr
     .map((artifact) => `- ![${artifact.description ?? artifact.relativePath}](${artifact.relativePath})`)
     .join('\n');
 
+  const instrumentLine = metrics.instrumentId ? `- Instrument source: **${metrics.instrumentId}**\n` : '';
+
   return `# Observatory Status Report (${metrics.partitionKey})
 
 - Samples analysed: **${metrics.samples}**
@@ -199,6 +207,7 @@ function buildMarkdown(metrics: VisualizationMetrics, artifacts: VisualizationAr
 - Average temperature: **${metrics.averageTemperatureC.toFixed(2)} °C**
 - Average PM2.5: **${metrics.averagePm25.toFixed(2)} µg/m³**
 - Peak PM2.5: **${metrics.maxPm25.toFixed(2)} µg/m³**
+${instrumentLine}
 
 ${chartList || '_No charts generated for this window._'}
 `;
@@ -228,6 +237,7 @@ function buildHtml(template: string | undefined, markdownContent: string, metric
     </header>
     <main>
       <section class="summary">
+        ${metrics.instrumentId ? `<div><span>Instrument</span><strong>${metrics.instrumentId}</strong></div>` : ''}
         <div>
           <span>Samples analysed</span>
           <strong>${metrics.samples}</strong>
@@ -280,7 +290,13 @@ async function writeReports(
   html: string,
   summary: ReportAssetPayload['summary']
 ): Promise<ReportFile[]> {
-  const partitionDir = path.resolve(params.reportsDir, params.partitionKey.replace(':', '-'));
+  const instrumentSegment = params.instrumentId
+    ? params.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
+    : 'all';
+  const partitionDir = path.resolve(
+    params.reportsDir,
+    `${instrumentSegment}_${params.partitionKey.replace(':', '-')}`
+  );
   await mkdir(partitionDir, { recursive: true });
 
   const markdownPath = path.resolve(partitionDir, 'status.md');
@@ -353,7 +369,10 @@ async function upsertMetastoreRecord(
 
   const namespace = params.metastoreNamespace ?? DEFAULT_METASTORE_NAMESPACE;
   const baseUrl = params.metastoreBaseUrl.replace(/\/$/, '');
-  const recordKey = sanitizeRecordKey(params.partitionKey);
+  const rawPartitionIdentifier = params.instrumentId
+    ? `${params.instrumentId}::${params.partitionKey}`
+    : params.partitionKey;
+  const recordKey = sanitizeRecordKey(rawPartitionIdentifier);
   const url = `${baseUrl}/records/${encodeURIComponent(namespace)}/${encodeURIComponent(recordKey)}`;
   const headers: Record<string, string> = {
     'content-type': 'application/json'
@@ -364,6 +383,7 @@ async function upsertMetastoreRecord(
 
   const metadata = {
     partitionKey: params.partitionKey,
+    instrumentId: params.instrumentId ?? params.visualizationAsset.metrics.instrumentId ?? null,
     recordKey,
     generatedAt: payload.generatedAt,
     summary: payload.summary,
@@ -384,7 +404,7 @@ async function upsertMetastoreRecord(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => response.statusText);
-    throw new Error(`Failed to upsert metastore record (${namespace}/${key}): ${errorText}`);
+    throw new Error(`Failed to upsert metastore record (${namespace}/${recordKey}): ${errorText}`);
   }
 }
 
@@ -398,30 +418,35 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const plotsReferenced = buildPlotsReferenced(parameters.visualizationAsset.artifacts);
 
   const generatedAt = new Date().toISOString();
+  const assetPartitionKey = parameters.instrumentId
+    ? `${parameters.instrumentId}::${parameters.partitionKey}`
+    : parameters.partitionKey;
   const payload: ReportAssetPayload = {
     generatedAt,
     reportsDir: parameters.reportsDir,
     reportFiles,
     summary,
-    plotsReferenced
+    plotsReferenced,
+    instrumentId: parameters.instrumentId || undefined
   } satisfies ReportAssetPayload;
 
   await context.update({
     reportFiles: reportFiles.length,
-    instruments: summary.instrumentCount
+    instruments: summary.instrumentCount,
+    instrumentId: parameters.instrumentId || null
   });
 
   await upsertMetastoreRecord(parameters, payload);
 
   return {
     status: 'succeeded',
-    result: {
-      partitionKey: parameters.partitionKey,
+      result: {
+      partitionKey: assetPartitionKey,
       report: payload,
       assets: [
         {
           assetId: 'observatory.reports.status',
-          partitionKey: parameters.partitionKey,
+          partitionKey: assetPartitionKey,
           producedAt: generatedAt,
           payload
         }

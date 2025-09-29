@@ -243,6 +243,7 @@ export type WorkflowProvisioningEventTriggerTemplate = {
   eventSource?: string | null;
   predicates?: WorkflowProvisioningEventTriggerPredicateTemplate[];
   parameterTemplate?: JsonValue;
+  runKeyTemplate?: string;
   metadata?: JsonValue;
   throttleWindowMs?: number;
   throttleCount?: number;

@@ -480,6 +480,7 @@ export function serializeWorkflowEventTrigger(trigger: WorkflowEventTriggerRecor
     eventSource: trigger.eventSource,
     predicates: trigger.predicates,
     parameterTemplate: trigger.parameterTemplate,
+    runKeyTemplate: trigger.runKeyTemplate,
     throttleWindowMs: trigger.throttleWindowMs,
     throttleCount: trigger.throttleCount,
     maxConcurrency: trigger.maxConcurrency,

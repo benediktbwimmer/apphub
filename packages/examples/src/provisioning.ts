@@ -189,6 +189,7 @@ export type WorkflowProvisioningEventTrigger = {
   eventSource?: string | null;
   predicates: WorkflowProvisioningEventTriggerPredicate[];
   parameterTemplate?: Record<string, JsonValue>;
+  runKeyTemplate?: string;
   metadata?: JsonValue;
   throttleWindowMs?: number;
   throttleCount?: number;
@@ -311,6 +312,11 @@ export function resolveWorkflowProvisioningPlan(
       ? resolveJsonTemplates(cloneJsonValue(triggerTemplate.parameterTemplate), scope)
       : undefined;
 
+    const runKeyTemplate =
+      typeof triggerTemplate.runKeyTemplate === 'string'
+        ? String(resolveTemplateString(triggerTemplate.runKeyTemplate, scope))
+        : undefined;
+
     const resolvedMetadata = triggerTemplate.metadata
       ? resolveJsonTemplates(cloneJsonValue(triggerTemplate.metadata), scope)
       : undefined;
@@ -328,6 +334,7 @@ export function resolveWorkflowProvisioningPlan(
       eventSource: triggerTemplate.eventSource ?? null,
       predicates: resolvedPredicates,
       parameterTemplate: normalizedParameterTemplate,
+      runKeyTemplate: runKeyTemplate && runKeyTemplate.trim().length > 0 ? runKeyTemplate : undefined,
       metadata: resolvedMetadata ?? undefined,
       throttleWindowMs: triggerTemplate.throttleWindowMs,
       throttleCount: triggerTemplate.throttleCount,

@@ -523,6 +523,7 @@ export type WorkflowEventTriggerRow = {
   event_source: string | null;
   predicates: unknown;
   parameter_template: unknown;
+  run_key_template: string | null;
   throttle_window_ms: number | null;
   throttle_count: number | null;
   max_concurrency: number | null;

@@ -5,7 +5,8 @@ This variant of the observatory example uses **Filestore** uploads as the system
 ## Highlights
 - **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled and emitted as `filestore.command.completed` events.
 - **Workflow triggers:** catalog triggers listen for those events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
-- **Timestore + Metastore:** once ingestion completes, a second trigger reacts to `timestore.partition.created` and runs the publication workflow to regenerate plots and status reports, optionally upserting metadata into the Metastore.
+- **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.
+- **Timestore + Metastore:** once ingestion completes, a second trigger reacts to `timestore.partition.created` (now carrying the instrument id) and runs the publication workflow to regenerate plots and status reports, optionally upserting metadata into the Metastore.
 - **Shared configuration:** operators resolve folder paths, tokens, and slugs once via `scripts/materializeConfig.ts`; both services and trigger definitions read the generated `.generated/observatory-config.json`.
 - **Live visibility:** the `observatory-event-gateway` service tails the Filestore SSE stream and exposes lightweight diagnostics while the dashboard serves the latest HTML/MD/JSON report bundle.
 
@@ -43,7 +44,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    cd ../observatory-dashboard
    npm run dev
    ```
-6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The event gateway will reflect upload/move activity, and the dashboard will render the latest report bundle under `/reports/<minute>/`.
+6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The event gateway will reflect upload/move activity, and the dashboard will render the latest report bundle per instrument under `/reports/<instrument>_<minute>/`.
    - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the catalog UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
 
 ## Related Scripts

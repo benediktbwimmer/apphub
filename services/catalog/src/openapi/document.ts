@@ -1446,6 +1446,7 @@ const workflowTopologyEventTriggerNodeSchema: OpenAPIV3.SchemaObject = {
     'eventType',
     'predicates',
     'parameterTemplate',
+    'runKeyTemplate',
     'throttleWindowMs',
     'throttleCount',
     'maxConcurrency',
@@ -1468,6 +1469,7 @@ const workflowTopologyEventTriggerNodeSchema: OpenAPIV3.SchemaObject = {
       items: workflowTopologyEventTriggerPredicateSchema
     },
     parameterTemplate: jsonValueSchema,
+    runKeyTemplate: nullable(stringSchema()),
     throttleWindowMs: nullable(integerSchema()),
     throttleCount: nullable(integerSchema()),
     maxConcurrency: nullable(integerSchema()),

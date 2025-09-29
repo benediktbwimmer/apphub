@@ -37,6 +37,7 @@ describe('event trigger normalizers', () => {
         }
       ],
       parameterTemplate: { namespace: '{{ event.payload.namespace }}' },
+      runKeyTemplate: '{{ parameters.namespace }}-{{ event.id }}',
       throttleWindowMs: '60000',
       throttleCount: '10',
       maxConcurrency: '4',
@@ -62,6 +63,7 @@ describe('event trigger normalizers', () => {
     expect(normalized?.predicates[4]).toMatchObject({ operator: 'regex', value: '^hr-[0-9]+$', flags: 'im' });
     expect(normalized?.predicates[5]).toMatchObject({ operator: 'contains', value: 'critical' });
     expect(normalized?.parameterTemplate).toEqual({ namespace: '{{ event.payload.namespace }}' });
+    expect(normalized?.runKeyTemplate).toBe('{{ parameters.namespace }}-{{ event.id }}');
   });
 
   it('normalizes event samples list and skips invalid entries', () => {

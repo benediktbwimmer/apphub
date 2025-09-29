@@ -33,6 +33,8 @@ type EvaluationResult = {
   predicateResults: PredicateEvaluation[];
   parameterPreview?: unknown;
   parameterError?: string | null;
+  runKeyPreview?: string | null;
+  runKeyError?: string | null;
 };
 
 type EvaluationSource = {
@@ -44,6 +46,7 @@ type EvaluationSource = {
   status: 'active' | 'disabled';
   predicates: WorkflowEventTriggerPredicateInput[];
   parameterTemplate?: unknown;
+  runKeyTemplate?: string | null;
 };
 
 function assertUnreachable(_value: never, message: string): never {
@@ -63,7 +66,8 @@ function toEvaluationSource(
       eventSource: preview.eventSource ?? null,
       status: preview.status,
       predicates: preview.predicates ?? [],
-      parameterTemplate: preview.parameterTemplate ?? null
+      parameterTemplate: preview.parameterTemplate ?? null,
+      runKeyTemplate: preview.runKeyTemplate ?? null
     } satisfies EvaluationSource;
   }
   if (!trigger) {
@@ -77,7 +81,8 @@ function toEvaluationSource(
     eventSource: trigger.eventSource,
     status: trigger.status,
     predicates: trigger.predicates,
-    parameterTemplate: trigger.parameterTemplate ?? null
+    parameterTemplate: trigger.parameterTemplate ?? null,
+    runKeyTemplate: trigger.runKeyTemplate ?? null
   } satisfies EvaluationSource;
 }
 
@@ -450,6 +455,8 @@ export default function EventSampleDrawer({
         const predicateResults = predicates.map((predicate) => evaluatePredicate(predicate, selected));
         let parameterPreview: unknown = undefined;
         let parameterError: string | null = null;
+        let runKeyPreview: string | null | undefined = undefined;
+        let runKeyError: string | null = null;
         if (source.parameterTemplate !== undefined && source.parameterTemplate !== null) {
           try {
             const context = {
@@ -465,19 +472,68 @@ export default function EventSampleDrawer({
               now: new Date().toISOString()
             } satisfies Record<string, unknown>;
             parameterPreview = await renderJsonTemplate(liquid, source.parameterTemplate, context);
+            if (
+              typeof source.runKeyTemplate === 'string' &&
+              source.runKeyTemplate.trim().length > 0
+            ) {
+              const parameterContext =
+                parameterPreview &&
+                typeof parameterPreview === 'object' &&
+                !Array.isArray(parameterPreview)
+                  ? (parameterPreview as Record<string, unknown>)
+                  : {};
+              const runKeyContext = {
+                ...context,
+                parameters: parameterContext
+              } satisfies Record<string, unknown>;
+              try {
+                const rendered = await liquid.parseAndRender(source.runKeyTemplate, runKeyContext);
+                const trimmed = rendered.trim();
+                runKeyPreview = trimmed.length > 0 ? trimmed : null;
+              } catch (err) {
+                runKeyError = err instanceof Error ? err.message : 'Failed to render run key template';
+              }
+            }
           } catch (err) {
             parameterError = err instanceof Error ? err.message : 'Failed to render parameter template';
+            runKeyPreview = undefined;
+          }
+        } else if (
+          typeof source.runKeyTemplate === 'string' &&
+          source.runKeyTemplate.trim().length > 0
+        ) {
+          try {
+            const runKeyContext = {
+              event: buildEventContext(selected),
+              trigger: {
+                id: source.id,
+                name: source.name,
+                description: source.description,
+                eventType: source.eventType,
+                eventSource: source.eventSource,
+                status: source.status
+              },
+              parameters: {},
+              now: new Date().toISOString()
+            } satisfies Record<string, unknown>;
+            const rendered = await liquid.parseAndRender(source.runKeyTemplate, runKeyContext);
+            const trimmed = rendered.trim();
+            runKeyPreview = trimmed.length > 0 ? trimmed : null;
+          } catch (err) {
+            runKeyError = err instanceof Error ? err.message : 'Failed to render run key template';
           }
         }
         if (!cancelled) {
-          setEvaluation({ predicateResults, parameterPreview, parameterError });
+          setEvaluation({ predicateResults, parameterPreview, parameterError, runKeyPreview, runKeyError });
         }
       } catch (err) {
         if (!cancelled) {
           setEvaluation({
             predicateResults: [],
             parameterPreview: undefined,
-            parameterError: err instanceof Error ? err.message : 'Failed to evaluate predicates'
+            parameterError: err instanceof Error ? err.message : 'Failed to evaluate predicates',
+            runKeyPreview: undefined,
+            runKeyError: err instanceof Error ? err.message : 'Failed to evaluate predicates'
           });
         }
       } finally {
@@ -692,6 +748,24 @@ export default function EventSampleDrawer({
                       </pre>
                     </div>
                   )}
+                  {source?.runKeyTemplate ? (
+                    evaluation?.runKeyError ? (
+                      <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/40 dark:text-rose-200">
+                        {evaluation.runKeyError}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Run key preview
+                        </h4>
+                        <pre className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                          {evaluation?.runKeyPreview === undefined
+                            ? 'No preview available.'
+                            : evaluation.runKeyPreview ?? 'Template produced an empty value.'}
+                        </pre>
+                      </div>
+                    )
+                  ) : null}
                 </div>
               )}
             </div>

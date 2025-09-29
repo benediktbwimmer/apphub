@@ -413,6 +413,44 @@ test('processIngestionJob rejects incompatible schema changes', async () => {
   });
 });
 
+test('processIngestionJob stores partition attributes alongside key fields', async () => {
+  const payload = ingestionTypesModule.ingestionJobPayloadSchema.parse({
+    datasetSlug: 'attributes-dataset',
+    datasetName: 'Attributes Dataset',
+    schema: {
+      fields: [
+        { name: 'timestamp', type: 'timestamp' },
+        { name: 'reading', type: 'double' }
+      ]
+    },
+    partition: {
+      key: { dataset: 'observatory', instrument: 'instrument_alpha', window: '2024-04-01T10:00' },
+      attributes: {
+        instrumentId: 'instrument_alpha',
+        window: '2024-04-01T10:00',
+        minuteKey: '2024-04-01T10-00'
+      },
+      timeRange: {
+        start: '2024-04-01T10:00:00.000Z',
+        end: '2024-04-01T10:59:59.999Z'
+      }
+    },
+    rows: [
+      { timestamp: '2024-04-01T10:00:00.000Z', reading: 42 },
+      { timestamp: '2024-04-01T10:01:00.000Z', reading: 43 }
+    ],
+    receivedAt: '2024-04-01T10:05:00.000Z'
+  });
+
+  const result = await ingestionModule.processIngestionJob(payload);
+  const [partition] = result.manifest.partitions;
+  assert.ok(partition);
+  assert.equal(partition.partitionKey.instrument, 'instrument_alpha');
+  assert.equal(partition.partitionKey.window, '2024-04-01T10:00');
+  assert.equal(partition.metadata?.attributes?.instrumentId, 'instrument_alpha');
+  assert.equal(partition.metadata?.attributes?.window, '2024-04-01T10:00');
+});
+
 test('partition build job payload requires rows or source file', () => {
   const payload = ingestionTypesModule.partitionBuildJobPayloadSchema.parse({
     datasetSlug: 'payload-test',

@@ -82,12 +82,14 @@ export type TimestorePartitionCreatedEventData = {
   manifestId: string;
   partitionId: string;
   partitionKey: string | null;
+  partitionKeyFields: Record<string, string> | null;
   storageTargetId: string;
   filePath: string;
   rowCount: number;
   fileSizeBytes: number;
   checksum: string | null;
   receivedAt: string;
+  attributes: Record<string, string> | null;
 };
 
 export type TimestorePartitionDeletedEntry = {

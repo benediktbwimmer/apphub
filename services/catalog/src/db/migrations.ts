@@ -1242,6 +1242,13 @@ const migrations: Migration[] = [
          WHERE run_key_normalized IS NOT NULL
            AND status IN ('pending', 'running');`
     ]
+  },
+  {
+    id: '042_trigger_run_key_template',
+    statements: [
+      `ALTER TABLE workflow_event_triggers
+         ADD COLUMN IF NOT EXISTS run_key_template TEXT;`
+    ]
   }
 ];
 

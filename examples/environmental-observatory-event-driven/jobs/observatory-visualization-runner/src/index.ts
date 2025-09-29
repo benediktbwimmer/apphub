@@ -23,6 +23,7 @@ type VisualizationParameters = {
   partitionKey: string;
   lookbackMinutes: number;
   siteFilter?: string;
+  instrumentId?: string;
 };
 
 type TimestoreQueryResponse = {
@@ -69,6 +70,7 @@ type VisualizationMetrics = {
   partitionKey: string;
   lookbackMinutes: number;
   siteFilter?: string;
+  instrumentId?: string;
 };
 
 type VisualizationAssetPayload = {
@@ -138,6 +140,7 @@ function parseParameters(raw: unknown): VisualizationParameters {
   const timestoreAuthToken = ensureString(raw.timestoreAuthToken ?? raw.timestore_auth_token ?? '');
   const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.outputDir);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
+  const instrumentId = ensureString(raw.instrumentId ?? raw.instrument_id ?? '');
   if (!plotsDir || !partitionKey) {
     throw new Error('plotsDir and partitionKey parameters are required');
   }
@@ -153,7 +156,8 @@ function parseParameters(raw: unknown): VisualizationParameters {
     plotsDir,
     partitionKey,
     lookbackMinutes,
-    siteFilter: siteFilter || undefined
+    siteFilter: siteFilter || undefined,
+    instrumentId: instrumentId || undefined
   } satisfies VisualizationParameters;
 }
 
@@ -254,11 +258,16 @@ async function queryTimestore(
     });
   }
 
+  let filtered = normalized;
+  if (params.instrumentId) {
+    const instrumentFilter = params.instrumentId.toLowerCase();
+    filtered = filtered.filter((row) => row.instrument_id.toLowerCase() === instrumentFilter);
+  }
   if (params.siteFilter) {
     const filterValue = params.siteFilter.toLowerCase();
-    return normalized.filter((row) => row.site.toLowerCase() === filterValue);
+    filtered = filtered.filter((row) => row.site.toLowerCase() === filterValue);
   }
-  return normalized;
+  return filtered;
 }
 
 function bucketByMinute(rows: ObservatoryRow[]): TrendRow[] {
@@ -409,7 +418,10 @@ function buildPm25Svg(rows: TrendRow[]): string {
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackMinutes);
-  const partitionPlotsKey = parameters.partitionKey.replace(':', '-');
+  const instrumentKey = parameters.instrumentId
+    ? parameters.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
+    : 'all';
+  const partitionPlotsKey = `${instrumentKey}_${parameters.partitionKey.replace(':', '-')}`;
   const partitionPlotsDir = path.resolve(parameters.plotsDir, partitionPlotsKey);
   await mkdir(partitionPlotsDir, { recursive: true });
 
@@ -432,7 +444,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     maxPm25: summary.max_pm25,
     partitionKey: parameters.partitionKey,
     lookbackMinutes: parameters.lookbackMinutes,
-    siteFilter: parameters.siteFilter || undefined
+    siteFilter: parameters.siteFilter || undefined,
+    instrumentId: parameters.instrumentId || undefined
   } satisfies VisualizationMetrics;
 
   const temperatureSvg = buildTemperatureSvg(trendRows);

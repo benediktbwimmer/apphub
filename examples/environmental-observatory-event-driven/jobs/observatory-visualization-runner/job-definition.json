@@ -18,13 +18,15 @@
       "timestoreAuthToken": { "type": "string" },
       "plotsDir": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
+      "instrumentId": { "type": "string" },
       "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" }
     },
-    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "partitionKey"]
+    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "partitionKey", "instrumentId"]
   },
   "defaultParameters": {
-    "lookbackMinutes": 180
+    "lookbackMinutes": 180,
+    "instrumentId": null
   },
   "outputSchema": {
     "type": "object",

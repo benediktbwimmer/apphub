@@ -63,6 +63,13 @@ const optionalIdempotencyExpressionSchema = z
   .nullish()
   .transform((value) => (value && value.length > 0 ? value : null));
 
+const optionalRunKeyTemplateSchema = z
+  .string()
+  .trim()
+  .max(500, 'runKeyTemplate must be at most 500 characters')
+  .nullish()
+  .transform((value) => (value && value.length > 0 ? value : null));
+
 const throttleWindowSchema = z
   .number({ invalid_type_error: 'throttleWindowMs must be a number' })
   .int('throttleWindowMs must be an integer')
@@ -426,6 +433,7 @@ const triggerCreateSchema = z
     eventSource: optionalEventSourceSchema,
     predicates: predicateArraySchema,
     parameterTemplate: jsonValueOrNullSchema,
+    runKeyTemplate: optionalRunKeyTemplateSchema,
     throttleWindowMs: throttleWindowSchema,
     throttleCount: throttleCountSchema,
     maxConcurrency: maxConcurrencySchema,
@@ -444,6 +452,7 @@ const triggerUpdateSchema = z
     eventSource: optionalEventSourceSchema.optional(),
     predicates: predicateArraySchema.optional(),
     parameterTemplate: jsonValueOrNullSchema.optional(),
+    runKeyTemplate: optionalRunKeyTemplateSchema.optional(),
     throttleWindowMs: throttleWindowSchema.optional(),
     throttleCount: throttleCountSchema.optional(),
     maxConcurrency: maxConcurrencySchema.optional(),
@@ -477,6 +486,7 @@ export function normalizeWorkflowEventTriggerCreate(
     eventSource: input.eventSource,
     predicates: input.predicates,
     parameterTemplate: input.parameterTemplate,
+    runKeyTemplate: input.runKeyTemplate,
     throttleWindowMs: input.throttleWindowMs,
     throttleCount: input.throttleCount,
     maxConcurrency: input.maxConcurrency,
@@ -497,6 +507,7 @@ export function normalizeWorkflowEventTriggerUpdate(
     eventSource: input.eventSource,
     predicates: input.predicates,
     parameterTemplate: input.parameterTemplate,
+    runKeyTemplate: input.runKeyTemplate,
     throttleWindowMs: input.throttleWindowMs,
     throttleCount: input.throttleCount,
     maxConcurrency: input.maxConcurrency,

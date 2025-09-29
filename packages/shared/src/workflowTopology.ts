@@ -125,6 +125,7 @@ export type WorkflowTopologyEventTriggerNode = {
   eventSource: string | null;
   predicates: WorkflowTopologyEventTriggerPredicate[];
   parameterTemplate: JsonValue | null;
+  runKeyTemplate: string | null;
   throttleWindowMs: number | null;
   throttleCount: number | null;
   maxConcurrency: number | null;

@@ -156,6 +156,10 @@ export async function processIngestionJob(
       });
     }
 
+    const partitionKey = normalizeStringMap(payload.partition.key) ?? {};
+    const partitionAttributes = normalizeStringMap(payload.partition.attributes ?? null);
+    const partitionKeyString = buildPartitionKeyString(partitionKey);
+
     const partitionId = `part-${randomUUID()}`;
     const tableName = payload.tableName ?? 'records';
     const partitionIndex = computePartitionIndexForRows(
@@ -178,7 +182,7 @@ export async function processIngestionJob(
       storageTargetId: storageTarget.id,
       fileFormat: 'duckdb' as const,
       filePath: writeResult.relativePath,
-      partitionKey: payload.partition.key,
+      partitionKey,
       startTime,
       endTime,
       fileSizeBytes: writeResult.fileSizeBytes,
@@ -186,7 +190,8 @@ export async function processIngestionJob(
       checksum: writeResult.checksum,
       metadata: {
         tableName,
-        schemaVersionId: schemaVersion.id
+        schemaVersionId: schemaVersion.id,
+        ...(partitionAttributes ? { attributes: partitionAttributes } : {})
       },
       columnStatistics: partitionIndex.columnStatistics,
       columnBloomFilters: partitionIndex.columnBloomFilters
@@ -203,7 +208,8 @@ export async function processIngestionJob(
     const metadataPatch: Record<string, unknown> = {
       tableName,
       storageTargetId: storageTarget.id,
-      schemaVersionId: schemaVersion.id
+      schemaVersionId: schemaVersion.id,
+      ...(partitionAttributes ? { attributes: partitionAttributes } : {})
     };
 
     if (compatibility?.status === 'additive' && compatibility.addedFields.length > 0) {
@@ -289,13 +295,15 @@ export async function processIngestionJob(
           datasetSlug,
           manifestId: manifest.id,
           partitionId,
-          partitionKey: payload.partition.key,
+          partitionKey: partitionKeyString,
+          partitionKeyFields: partitionKey,
           storageTargetId: storageTarget.id,
           filePath: writeResult.relativePath,
           rowCount: writeResult.rowCount,
           fileSizeBytes: writeResult.fileSizeBytes,
           checksum: writeResult.checksum ?? null,
-          receivedAt: payload.receivedAt
+          receivedAt: payload.receivedAt,
+          attributes: partitionAttributes ?? null
         },
         'timestore.ingest'
       );
@@ -389,4 +397,39 @@ function createSchemaChecksum(fields: FieldDefinition[]): string {
 function durationSince(start: bigint): number {
   const elapsed = Number(process.hrtime.bigint() - start);
   return elapsed / 1_000_000_000;
+}
+
+function normalizeStringMap(input: Record<string, string> | undefined | null): Record<string, string> | null {
+  if (!input) {
+    return null;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    const trimmedKey = typeof key === 'string' ? key.trim() : '';
+    if (!trimmedKey) {
+      continue;
+    }
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      continue;
+    }
+    result[trimmedKey] = trimmedValue;
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function buildPartitionKeyString(key: Record<string, string>): string | null {
+  const entries = Object.entries(key);
+  if (entries.length === 0) {
+    return null;
+  }
+  const parts = entries
+    .map(([field, value]) => ({ field, value }))
+    .filter(({ field, value }) => field.length > 0 && value.length > 0)
+    .sort((a, b) => a.field.localeCompare(b.field))
+    .map(({ field, value }) => `${field}=${value}`);
+  return parts.length > 0 ? parts.join('|') : null;
 }

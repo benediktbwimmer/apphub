@@ -419,6 +419,7 @@ function buildEventTriggerNodes(
     eventSource: trigger.eventSource ?? null,
     predicates: cloneEventTriggerPredicates(trigger.predicates),
     parameterTemplate: cloneJson(trigger.parameterTemplate as unknown as JsonValue | null | undefined),
+    runKeyTemplate: trigger.runKeyTemplate ?? null,
     throttleWindowMs: trigger.throttleWindowMs ?? null,
     throttleCount: trigger.throttleCount ?? null,
     maxConcurrency: trigger.maxConcurrency ?? null,

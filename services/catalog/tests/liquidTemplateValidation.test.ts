@@ -17,9 +17,10 @@ function buildTriggerContext(overrides: Partial<TriggerContextInput> = {}): Trig
     description: null,
     eventType: 'test.event',
     eventSource: null,
-    predicates: [],
-    parameterTemplate: null,
-    idempotencyKeyExpression: null,
+  predicates: [],
+  parameterTemplate: null,
+  runKeyTemplate: null,
+  idempotencyKeyExpression: null,
     metadata: null,
     throttleWindowMs: null,
     throttleCount: null,
@@ -44,19 +45,23 @@ function buildSampleEvent(overrides: Partial<SampleEventInput> = {}): SampleEven
 async function expectTemplateError(
   parameterTemplate: unknown,
   idempotencyKeyExpression: string | null,
-  options: { sampleEvent?: SampleEventInput | null } = {}
+  runKeyTemplate: string | null,
+  options: { sampleEvent?: SampleEventInput | null; parameters?: Record<string, unknown> | null } = {}
 ): Promise<void> {
   const issues = await validateTriggerTemplates(
     {
       parameterTemplate: (parameterTemplate ?? null) as unknown,
-      idempotencyKeyExpression: idempotencyKeyExpression ?? null
+      idempotencyKeyExpression: idempotencyKeyExpression ?? null,
+      runKeyTemplate: runKeyTemplate ?? null
     },
     {
       trigger: buildTriggerContext({
         parameterTemplate: (parameterTemplate ?? null) as unknown,
-        idempotencyKeyExpression: idempotencyKeyExpression ?? null
+        idempotencyKeyExpression: idempotencyKeyExpression ?? null,
+        runKeyTemplate: runKeyTemplate ?? null
       }),
-      sampleEvent: options.sampleEvent ?? null
+      sampleEvent: options.sampleEvent ?? null,
+      parameters: options.parameters ?? null
     }
   );
   assert.ok(issues.length > 0, 'expected validation issues');
@@ -66,19 +71,23 @@ async function expectTemplateError(
 async function expectTemplateSuccess(
   parameterTemplate: unknown,
   idempotencyKeyExpression: string | null,
-  options: { sampleEvent?: SampleEventInput | null } = {}
+  runKeyTemplate: string | null,
+  options: { sampleEvent?: SampleEventInput | null; parameters?: Record<string, unknown> | null } = {}
 ): Promise<void> {
   const issues = await validateTriggerTemplates(
     {
       parameterTemplate: (parameterTemplate ?? null) as unknown,
-      idempotencyKeyExpression: idempotencyKeyExpression ?? null
+      idempotencyKeyExpression: idempotencyKeyExpression ?? null,
+      runKeyTemplate: runKeyTemplate ?? null
     },
     {
       trigger: buildTriggerContext({
         parameterTemplate: (parameterTemplate ?? null) as unknown,
-        idempotencyKeyExpression: idempotencyKeyExpression ?? null
+        idempotencyKeyExpression: idempotencyKeyExpression ?? null,
+        runKeyTemplate: runKeyTemplate ?? null
       }),
-      sampleEvent: options.sampleEvent ?? null
+      sampleEvent: options.sampleEvent ?? null,
+      parameters: options.parameters ?? null
     }
   );
   assert.deepEqual(issues, []);
@@ -86,28 +95,51 @@ async function expectTemplateSuccess(
 }
 
 async function run(): Promise<void> {
-  await expectTemplateError('{{ event.payload.id ', null);
+  await expectTemplateError('{{ event.payload.id ', null, null);
 
   await expectTemplateError(
     '{{ event.payload.id | unknown_filter }}',
+    null,
     null
   );
 
   await expectTemplateSuccess(
     { namespace: '{{ event.payload.namespace | downcase }}' },
     '{{ event.id }}',
+    null,
     { sampleEvent: buildSampleEvent({ payload: { namespace: 'DATA' } }) }
   );
 
   await expectTemplateError(
     { detail: '{{ event.payload.missing }}' },
     null,
+    null,
     { sampleEvent: buildSampleEvent({ payload: { present: 'value' } }) }
   );
 
   await expectTemplateSuccess(
     { identifier: '{{ trigger.id }}' },
-    '{{ event.source }}'
+    '{{ event.source }}',
+    null
+  );
+
+  await expectTemplateSuccess(
+    { namespace: '{{ event.payload.namespace }}' },
+    null,
+    '{{ parameters.namespace }}-{{ event.id }}',
+    {
+      sampleEvent: buildSampleEvent({ payload: { namespace: 'DATA' } }),
+      parameters: { namespace: 'DATA' }
+    }
+  );
+
+  await expectTemplateError(
+    null,
+    null,
+    '{{ parameters.missing }}',
+    {
+      sampleEvent: buildSampleEvent({ payload: {} })
+    }
   );
 }
 

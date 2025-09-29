@@ -274,6 +274,7 @@ function buildTriggerRequest(trigger: WorkflowProvisioningEventTrigger) {
     eventSource: trigger.eventSource ?? undefined,
     predicates,
     parameterTemplate,
+    runKeyTemplate: trigger.runKeyTemplate ?? undefined,
     metadata: metadataPayload,
     throttleWindowMs: trigger.throttleWindowMs,
     throttleCount: trigger.throttleCount,

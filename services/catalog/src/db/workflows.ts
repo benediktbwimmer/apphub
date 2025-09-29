@@ -1875,7 +1875,8 @@ export async function createWorkflowEventTrigger(
   const templateIssues = await validateTriggerTemplates(
     {
       parameterTemplate: normalized.parameterTemplate,
-      idempotencyKeyExpression: normalized.idempotencyKeyExpression
+      idempotencyKeyExpression: normalized.idempotencyKeyExpression,
+      runKeyTemplate: normalized.runKeyTemplate
     },
     {
       trigger: {
@@ -1886,6 +1887,7 @@ export async function createWorkflowEventTrigger(
         eventSource: normalized.eventSource ?? null,
         predicates: normalized.predicates,
         parameterTemplate: normalized.parameterTemplate,
+        runKeyTemplate: normalized.runKeyTemplate,
         idempotencyKeyExpression: normalized.idempotencyKeyExpression,
         metadata: normalized.metadata,
         throttleWindowMs: normalized.throttleWindowMs,
@@ -1923,6 +1925,7 @@ export async function createWorkflowEventTrigger(
          event_source,
          predicates,
          parameter_template,
+         run_key_template,
          throttle_window_ms,
          throttle_count,
          max_concurrency,
@@ -1947,11 +1950,12 @@ export async function createWorkflowEventTrigger(
          $11,
          $12,
          $13,
-         $14::jsonb,
+         $14,
+         $15::jsonb,
          NOW(),
          NOW(),
-         $15,
-         $15
+         $16,
+         $16
        )
        RETURNING *`,
       [
@@ -1964,6 +1968,7 @@ export async function createWorkflowEventTrigger(
         normalized.eventSource,
         predicateJson,
         parameterTemplateJson,
+        normalized.runKeyTemplate,
         normalized.throttleWindowMs,
         normalized.throttleCount,
         normalized.maxConcurrency,
@@ -2038,17 +2043,21 @@ export async function updateWorkflowEventTrigger(
       normalized.idempotencyKeyExpression !== undefined
         ? normalized.idempotencyKeyExpression
         : existing.idempotencyKeyExpression;
+    const nextRunKeyTemplate =
+      normalized.runKeyTemplate !== undefined ? normalized.runKeyTemplate : existing.runKeyTemplate;
 
     const templateIssues = await validateTriggerTemplates(
       {
         parameterTemplate: nextParameterTemplate ?? null,
-        idempotencyKeyExpression: nextIdempotencyExpression ?? null
+        idempotencyKeyExpression: nextIdempotencyExpression ?? null,
+        runKeyTemplate: nextRunKeyTemplate ?? null
       },
       {
         trigger: {
           ...existing,
           ...normalized,
           parameterTemplate: nextParameterTemplate ?? null,
+          runKeyTemplate: nextRunKeyTemplate ?? null,
           idempotencyKeyExpression: nextIdempotencyExpression ?? null,
           predicates: normalized.predicates ?? existing.predicates,
           throttleWindowMs: normalized.throttleWindowMs ?? existing.throttleWindowMs,
@@ -2116,6 +2125,15 @@ export async function updateWorkflowEventTrigger(
       sets.push(`parameter_template = $${index}::jsonb`);
       values.push(serializeTriggerJson(normalized.parameterTemplate));
       if (!jsonValuesEqual(existing.parameterTemplate, normalized.parameterTemplate ?? null)) {
+        versionShouldIncrement = true;
+      }
+      index += 1;
+    }
+
+    if (normalized.runKeyTemplate !== undefined) {
+      sets.push(`run_key_template = $${index}`);
+      values.push(normalized.runKeyTemplate);
+      if (existing.runKeyTemplate !== normalized.runKeyTemplate) {
         versionShouldIncrement = true;
       }
       index += 1;

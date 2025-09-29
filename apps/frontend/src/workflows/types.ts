@@ -120,6 +120,7 @@ export type WorkflowEventTrigger = {
   eventSource: string | null;
   predicates: WorkflowEventTriggerPredicate[];
   parameterTemplate: unknown;
+  runKeyTemplate: string | null;
   throttleWindowMs: number | null;
   throttleCount: number | null;
   maxConcurrency: number | null;

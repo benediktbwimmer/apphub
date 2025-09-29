@@ -2,6 +2,8 @@
 
 The environmental observatory scenario models a network of field instruments that stream minute-by-minute CSV measurements into an inbox directory. A set of AppHub workflows ingest the raw readings, persist them into Timestore, render updated plots, publish refreshed status pages, and optionally register report metadata in the Metastore whenever upstream assets change. The example leans on workflow asset lineage plus auto-materialization so downstream documents stay current without manual intervention.
 
+The event-driven flavour now partitions Timestore manifests per instrument and propagates the instrument id through trigger parameters, enabling publication workflows to run for each sensor independently while sharing the same DAG.
+
 > **Event-driven variant**
 >
 > In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, workflow triggers react to `filestore.command.completed` and `timestore.partition.created` events, and a shared config file keeps jobs, services, and triggers in sync. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the new services).
@@ -63,7 +65,7 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
 | `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
-| `examples/environmental-observatory/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing a dataset-backed asset with per-minute partitions. |
+| `examples/environmental-observatory/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
 | `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
 | `examples/environmental-observatory/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 

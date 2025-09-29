@@ -898,6 +898,7 @@ export type WorkflowEventTriggerRecord = {
   eventSource: string | null;
   predicates: WorkflowEventTriggerPredicate[];
   parameterTemplate: JsonValue | null;
+  runKeyTemplate: string | null;
   throttleWindowMs: number | null;
   throttleCount: number | null;
   maxConcurrency: number | null;
@@ -917,6 +918,7 @@ export type WorkflowEventTriggerCreateInput = {
   eventSource?: string | null;
   predicates?: WorkflowEventTriggerPredicate[];
   parameterTemplate?: JsonValue | null;
+  runKeyTemplate?: string | null;
   throttleWindowMs?: number | null;
   throttleCount?: number | null;
   maxConcurrency?: number | null;
@@ -933,6 +935,7 @@ export type WorkflowEventTriggerUpdateInput = {
   eventSource?: string | null;
   predicates?: WorkflowEventTriggerPredicate[];
   parameterTemplate?: JsonValue | null;
+  runKeyTemplate?: string | null;
   throttleWindowMs?: number | null;
   throttleCount?: number | null;
   maxConcurrency?: number | null;
