@@ -37,6 +37,9 @@ export type ObservatoryConfig = {
     ingestSlug: string;
     publicationSlug: string;
     visualizationAssetId: string;
+    generator?: {
+      instrumentCount?: number;
+    };
   };
 };
 
@@ -63,6 +66,21 @@ function optionalString(value: string | undefined): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function optionalNumber(value: string | undefined, key: string): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Expected numeric value for ${key}, received '${value}'`);
+  }
+  return parsed;
 }
 
 function resolvePathValue(repoRoot: string, value: string | undefined, fallback: string, key: string): string {
@@ -227,7 +245,14 @@ export function createEventDrivenObservatoryConfig(
         getVar('OBSERVATORY_VISUALIZATION_ASSET_ID'),
         'observatory.visualizations.minute',
         'workflows.visualizationAssetId'
-      )
+      ),
+      generator: {
+        instrumentCount:
+          optionalNumber(
+            getVar('OBSERVATORY_GENERATOR_INSTRUMENT_COUNT') ?? getVar('OBSERVATORY_INSTRUMENT_COUNT'),
+            'workflows.generator.instrumentCount'
+          ) ?? 3
+      }
     }
   } satisfies ObservatoryConfig;
 

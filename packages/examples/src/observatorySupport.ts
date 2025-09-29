@@ -87,6 +87,9 @@ export function applyObservatoryWorkflowDefaults(
       defaults.archivePrefix = config.filestore.archivePrefix;
       defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-data-generator';
       defaults.filestoreToken = config.filestore.token ?? null;
+      if (config.workflows.generator?.instrumentCount !== undefined) {
+        defaults.instrumentCount = config.workflows.generator.instrumentCount;
+      }
       defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
       defaults.metastoreNamespace =
         defaults.metastoreNamespace ?? config.metastore?.namespace ?? 'observatory.ingest';

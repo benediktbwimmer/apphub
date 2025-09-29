@@ -16,6 +16,7 @@ services/data/*
 services/data/*.db-*
 services/catalog/dist/
 packages/*/dist/
+services/timestore/services/
 
 # Frontend build outputs
 apps/frontend/dist/

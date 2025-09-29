@@ -27,6 +27,7 @@ type ObservatoryGeneratorParameters = {
   minute: string;
   rowsPerInstrument: number;
   intervalMinutes: number;
+  instrumentCount: number;
   seed: number;
   instrumentProfiles: InstrumentProfile[];
   filestoreBaseUrl: string;
@@ -308,6 +309,12 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     120
   );
   const instrumentProfiles = parseInstrumentProfiles(raw.instrumentProfiles ?? raw.instrument_profiles);
+  const instrumentCount = clamp(
+    Math.trunc(ensureNumber(raw.instrumentCount ?? raw.instrument_count, instrumentProfiles.length)),
+    1,
+    instrumentProfiles.length
+  );
+  const limitedProfiles = instrumentProfiles.slice(0, instrumentCount);
   const seed = computeSeed(minute, raw.seed as number | null | undefined);
 
   const filestoreBaseUrl =
@@ -400,7 +407,8 @@ function parseParameters(raw: unknown): ObservatoryGeneratorParameters {
     rowsPerInstrument,
     intervalMinutes,
     seed,
-    instrumentProfiles,
+    instrumentCount,
+    instrumentProfiles: limitedProfiles,
     filestoreBaseUrl,
     filestoreBackendId,
     filestoreToken: filestoreToken || undefined,
@@ -596,6 +604,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     });
   }
 
+  const processedInstrumentCount = summaries.length;
   const generatedAt = new Date().toISOString();
 
   await context.update({
@@ -611,7 +620,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     seed: parameters.seed,
     files: summaries,
     rowsGenerated: totalRows,
-    instrumentCount: summaries.length,
+    instrumentCount: processedInstrumentCount,
     filestoreInboxPrefix: parameters.inboxPrefix,
     minuteKey: sanitizedMinuteKey,
     filestoreBackendId: parameters.filestoreBackendId
@@ -621,7 +630,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     minute: parameters.minute,
     filesCreated: summaries.length,
     rowsGenerated: totalRows,
-    filestoreInboxPrefix: parameters.inboxPrefix
+    filestoreInboxPrefix: parameters.inboxPrefix,
+    instrumentCount: processedInstrumentCount
   });
 
   return {

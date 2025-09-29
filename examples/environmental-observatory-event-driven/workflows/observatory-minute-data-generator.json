@@ -20,6 +20,11 @@
         "minimum": 1,
         "maximum": 120
       },
+      "instrumentCount": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 50
+      },
       "seed": {
         "type": "number"
       },
@@ -62,6 +67,7 @@
   "defaultParameters": {
     "rowsPerInstrument": 6,
     "intervalMinutes": 10,
+    "instrumentCount": 3,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
@@ -83,6 +89,7 @@
         "minute": "{{ parameters.minute }}",
         "rowsPerInstrument": "{{ parameters.rowsPerInstrument }}",
         "intervalMinutes": "{{ parameters.intervalMinutes }}",
+        "instrumentCount": "{{ parameters.instrumentCount }}",
         "seed": "{{ parameters.seed }}",
         "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
         "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
@@ -189,6 +196,7 @@
           "parameters": {
             "rowsPerInstrument": "{{ defaultParameters.rowsPerInstrument }}",
             "intervalMinutes": "{{ defaultParameters.intervalMinutes }}",
+            "instrumentCount": "{{ defaultParameters.instrumentCount }}",
             "filestoreBaseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
             "filestoreBackendId": "{{ defaultParameters.filestoreBackendId }}",
             "filestoreToken": "{{ defaultParameters.filestoreToken }}",

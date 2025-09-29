@@ -40,6 +40,14 @@ const BASE_COMMANDS = [
     command: 'npm run workflows --workspace @apphub/catalog'
   },
   {
+    name: 'events',
+    command: 'npm run events --workspace @apphub/catalog'
+  },
+  {
+    name: 'event-triggers',
+    command: 'npm run event-triggers --workspace @apphub/catalog'
+  },
+  {
     name: 'materializer',
     command: 'npm run materializer --workspace @apphub/catalog'
   },

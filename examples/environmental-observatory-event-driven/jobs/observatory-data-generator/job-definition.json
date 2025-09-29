@@ -19,6 +19,7 @@
       },
       "rowsPerInstrument": { "type": "number", "minimum": 1, "maximum": 360 },
       "intervalMinutes": { "type": "number", "minimum": 1, "maximum": 120 },
+      "instrumentCount": { "type": "number", "minimum": 1, "maximum": 50 },
       "seed": { "type": "number" },
       "filestoreBaseUrl": { "type": "string", "minLength": 1 },
       "filestoreBackendId": { "type": "number", "minimum": 1 },
@@ -59,6 +60,7 @@
   "defaultParameters": {
     "rowsPerInstrument": 6,
     "intervalMinutes": 10,
+    "instrumentCount": 3,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",

@@ -55,14 +55,21 @@ async function ensureTrigger(
     name: string | null;
   };
 
-  const existing = await request<{ data: TriggerRecord[] }>(
+  const existing = await request<{ data: TriggerRecord[] | { triggers: TriggerRecord[] } }>(
     baseUrl,
     token,
     'GET',
     `/workflows/${definition.workflowSlug}/triggers`
   );
 
-  const current = existing.data.find((entry) => entry.name === definition.name);
+  const data = existing.data as TriggerRecord[] | { triggers?: TriggerRecord[] };
+  const triggerList = Array.isArray(data)
+    ? data
+    : Array.isArray(data.triggers)
+      ? data.triggers
+      : [];
+
+  const current = triggerList.find((entry) => entry.name === definition.name);
 
   if (current) {
     await request(
@@ -238,9 +245,9 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: ingestTemplate,
       metadata: ingestMetadata,
-      throttleWindowMs: 60000,
-      throttleCount: 1,
-      maxConcurrency: 1,
+      throttleWindowMs: null,
+      throttleCount: null,
+      maxConcurrency: null,
       idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}'
     },
     {
@@ -254,9 +261,9 @@ async function main(): Promise<void> {
       ],
       parameterTemplate: publicationTemplate,
       metadata: publicationMetadata,
-      throttleWindowMs: 60000,
-      throttleCount: 5,
-      maxConcurrency: 2,
+      throttleWindowMs: null,
+      throttleCount: null,
+      maxConcurrency: null,
       idempotencyKeyExpression: '{{ event.payload.partitionKey.window | default: event.payload.partitionKey }}'
     }
   ];
