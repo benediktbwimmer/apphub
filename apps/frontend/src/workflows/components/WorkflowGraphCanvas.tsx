@@ -974,7 +974,7 @@ export function WorkflowGraphCanvas({
           className="h-full w-full"
           onInit={setInstance}
           onNodeClick={(_, node) => {
-            if (!interactive) {
+            if (!onNodeSelect) {
               return;
             }
             const nodeData = node.data as WorkflowGraphCanvasNodeData | undefined;

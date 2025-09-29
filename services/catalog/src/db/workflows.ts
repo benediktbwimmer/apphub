@@ -73,7 +73,8 @@ import type {
   WorkflowAssetStalePartitionRow,
   WorkflowAssetPartitionParametersRow,
   WorkflowEventTriggerRow,
-  WorkflowTriggerDeliveryRow
+  WorkflowTriggerDeliveryRow,
+  WorkflowActivityRow
 } from './rowTypes';
 import {
   normalizeWorkflowEventTriggerCreate,
@@ -2975,6 +2976,42 @@ type WorkflowRunListFilters = {
   to?: string;
 };
 
+export type WorkflowActivityTriggerSummary = {
+  id: string | null;
+  name: string | null;
+  eventType: string | null;
+  eventSource: string | null;
+  status: string | null;
+};
+
+export type WorkflowActivityEntry = {
+  kind: 'run' | 'delivery';
+  id: string;
+  status: string;
+  occurredAt: string;
+  workflow: {
+    id: string;
+    slug: string;
+    name: string;
+    version: number;
+  };
+  run: WorkflowRunRecord | null;
+  delivery: WorkflowTriggerDeliveryRecord | null;
+  linkedRun: WorkflowRunRecord | null;
+  trigger: WorkflowActivityTriggerSummary | null;
+};
+
+type WorkflowActivityListFilters = {
+  statuses?: string[];
+  workflowSlugs?: string[];
+  triggerTypes?: string[];
+  triggerIds?: string[];
+  kinds?: ('run' | 'delivery')[];
+  search?: string;
+  from?: string;
+  to?: string;
+};
+
 export async function listWorkflowRuns(
   options: { limit?: number; offset?: number; filters?: WorkflowRunListFilters } = {}
 ): Promise<{ items: WorkflowRunWithDefinition[]; hasMore: boolean }> {
@@ -3087,6 +3124,227 @@ export async function listWorkflowRuns(
     const items = hasMore ? mapped.slice(0, limit) : mapped;
     return { items, hasMore };
   });
+}
+
+export async function listWorkflowActivity(
+  options: { limit?: number; offset?: number; filters?: WorkflowActivityListFilters } = {}
+): Promise<{ items: WorkflowActivityEntry[]; hasMore: boolean }> {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+  const offset = Math.max(options.offset ?? 0, 0);
+  const queryLimit = limit + 1;
+  const filters = options.filters ?? {};
+
+  const params: unknown[] = [];
+  const addParam = (value: unknown): string => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  const runConditions: string[] = [];
+  const deliveryConditions: string[] = [];
+  const outerConditions: string[] = [];
+
+  const normalizeArray = (values: string[] | undefined) =>
+    Array.from(
+      new Set((values ?? []).map((value) => value.trim()).filter((value) => value.length > 0))
+    );
+
+  const statuses = normalizeArray(filters.statuses?.map((status) => status.toLowerCase()))
+    .map((status) => status.toLowerCase())
+    .filter((status) => status.length > 0);
+  if (statuses.length > 0) {
+    const placeholder = addParam(statuses);
+    runConditions.push(`LOWER(wr.status) = ANY(${placeholder}::text[])`);
+    deliveryConditions.push(`LOWER(wtd.status) = ANY(${placeholder}::text[])`);
+  }
+
+  const workflowSlugs = normalizeArray(filters.workflowSlugs);
+  if (workflowSlugs.length > 0) {
+    const placeholder = addParam(workflowSlugs);
+    runConditions.push(`wd.slug = ANY(${placeholder}::text[])`);
+    deliveryConditions.push(`wd.slug = ANY(${placeholder}::text[])`);
+  }
+
+  const triggerTypes = normalizeArray(filters.triggerTypes?.map((type) => type.toLowerCase()));
+  if (triggerTypes.length > 0) {
+    const placeholder = addParam(triggerTypes);
+    runConditions.push(`LOWER(COALESCE(wr.trigger ->> 'type', 'manual')) = ANY(${placeholder}::text[])`);
+  }
+
+  const triggerIds = normalizeArray(filters.triggerIds);
+  if (triggerIds.length > 0) {
+    const placeholder = addParam(triggerIds);
+    deliveryConditions.push(`wtd.trigger_id = ANY(${placeholder}::text[])`);
+  }
+
+  if (typeof filters.from === 'string' && filters.from.trim().length > 0) {
+    const placeholder = addParam(filters.from);
+    runConditions.push(`wr.created_at >= ${placeholder}`);
+    deliveryConditions.push(`COALESCE(wtd.updated_at, wtd.created_at) >= ${placeholder}`);
+  }
+
+  if (typeof filters.to === 'string' && filters.to.trim().length > 0) {
+    const placeholder = addParam(filters.to);
+    runConditions.push(`wr.created_at <= ${placeholder}`);
+    deliveryConditions.push(`COALESCE(wtd.updated_at, wtd.created_at) <= ${placeholder}`);
+  }
+
+  const kinds = normalizeArray(filters.kinds?.map((kind) => kind.toLowerCase()))
+    .map((kind) => (kind === 'delivery' ? 'delivery' : kind === 'run' ? 'run' : ''))
+    .filter((kind): kind is 'run' | 'delivery' => kind === 'run' || kind === 'delivery');
+  if (kinds.length > 0) {
+    const placeholder = addParam(kinds);
+    outerConditions.push(`activity.kind = ANY(${placeholder}::text[])`);
+  }
+
+  if (typeof filters.search === 'string' && filters.search.trim().length > 0) {
+    const term = `%${filters.search.trim().replace(/[%_]/g, '\\$&')}%`;
+    const placeholder = addParam(term);
+    outerConditions.push(
+      `(
+         activity.workflow_slug ILIKE ${placeholder}
+         OR activity.workflow_name ILIKE ${placeholder}
+         OR activity.entry_id ILIKE ${placeholder}
+         OR (activity.run_data ->> 'run_key') ILIKE ${placeholder}
+         OR (activity.run_data ->> 'triggered_by') ILIKE ${placeholder}
+         OR (activity.delivery_data ->> 'event_id') ILIKE ${placeholder}
+         OR (activity.delivery_data ->> 'dedupe_key') ILIKE ${placeholder}
+         OR (activity.trigger_data ->> 'name') ILIKE ${placeholder}
+         OR (activity.trigger_data ->> 'eventType') ILIKE ${placeholder}
+       )`
+    );
+  }
+
+  const runWhereClause = runConditions.length > 0 ? `WHERE ${runConditions.join(' AND ')}` : '';
+  const deliveryWhereClause =
+    deliveryConditions.length > 0 ? `WHERE ${deliveryConditions.join(' AND ')}` : '';
+  const outerWhereClause = outerConditions.length > 0 ? `WHERE ${outerConditions.join(' AND ')}` : '';
+
+  const limitPlaceholder = addParam(queryLimit);
+  const offsetPlaceholder = addParam(offset);
+
+  const query = `
+    SELECT *
+      FROM (
+        SELECT
+          'run'::text AS kind,
+          wr.id AS entry_id,
+          wr.workflow_definition_id,
+          wd.slug AS workflow_slug,
+          wd.name AS workflow_name,
+          wd.version AS workflow_version,
+          wr.status AS status,
+          wr.created_at AS occurred_at,
+          NULL::text AS trigger_id,
+          to_jsonb(wr) AS run_data,
+          NULL::jsonb AS linked_run_data,
+          NULL::jsonb AS delivery_data,
+          NULL::jsonb AS trigger_data
+        FROM workflow_runs wr
+        INNER JOIN workflow_definitions wd ON wd.id = wr.workflow_definition_id
+        ${runWhereClause}
+      UNION ALL
+        SELECT
+          'delivery'::text AS kind,
+          wtd.id AS entry_id,
+          wtd.workflow_definition_id,
+          wd.slug AS workflow_slug,
+          wd.name AS workflow_name,
+          wd.version AS workflow_version,
+          wtd.status AS status,
+          COALESCE(wtd.updated_at, wtd.created_at) AS occurred_at,
+          wtd.trigger_id AS trigger_id,
+          NULL::jsonb AS run_data,
+          to_jsonb(wr_linked) AS linked_run_data,
+          to_jsonb(wtd) AS delivery_data,
+          CASE
+            WHEN wet.id IS NULL THEN NULL
+            ELSE jsonb_build_object(
+              'id', wet.id,
+              'name', wet.name,
+              'eventType', wet.event_type,
+              'eventSource', wet.event_source,
+              'status', wet.status
+            )
+          END AS trigger_data
+        FROM workflow_trigger_deliveries wtd
+        INNER JOIN workflow_definitions wd ON wd.id = wtd.workflow_definition_id
+        LEFT JOIN workflow_event_triggers wet ON wet.id = wtd.trigger_id
+        LEFT JOIN workflow_runs wr_linked ON wr_linked.id = wtd.workflow_run_id
+        ${deliveryWhereClause}
+      ) AS activity
+      ${outerWhereClause}
+      ORDER BY activity.occurred_at DESC, activity.entry_id DESC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`;
+
+  const { rows } = await useConnection((client) => client.query<WorkflowActivityRow>(query, params));
+
+  const runMap = new Map<string, WorkflowRunRecord>();
+  const entries = rows.map((row) => {
+    const baseWorkflow = {
+      id: row.workflow_definition_id,
+      slug: row.workflow_slug,
+      name: row.workflow_name,
+      version: row.workflow_version
+    };
+
+    let run: WorkflowRunRecord | null = null;
+    if (row.kind === 'run' && row.run_data) {
+      const mappedRun = mapWorkflowRunRow(row.run_data);
+      const existing = runMap.get(mappedRun.id);
+      if (existing) {
+        run = existing;
+      } else {
+        runMap.set(mappedRun.id, mappedRun);
+        run = mappedRun;
+      }
+    }
+
+    let linkedRun: WorkflowRunRecord | null = null;
+    if (row.kind === 'delivery' && row.linked_run_data) {
+      const mappedLinkedRun = mapWorkflowRunRow(row.linked_run_data);
+      const existing = runMap.get(mappedLinkedRun.id);
+      if (existing) {
+        linkedRun = existing;
+      } else {
+        runMap.set(mappedLinkedRun.id, mappedLinkedRun);
+        linkedRun = mappedLinkedRun;
+      }
+    }
+
+    const delivery = row.kind === 'delivery' && row.delivery_data ? mapWorkflowTriggerDeliveryRow(row.delivery_data) : null;
+
+    const trigger: WorkflowActivityTriggerSummary | null = row.trigger_data
+      ? {
+          id: typeof row.trigger_data.id === 'string' ? row.trigger_data.id : null,
+          name: typeof row.trigger_data.name === 'string' ? row.trigger_data.name : null,
+          eventType: typeof row.trigger_data.eventType === 'string' ? row.trigger_data.eventType : null,
+          eventSource: typeof row.trigger_data.eventSource === 'string' ? row.trigger_data.eventSource : null,
+          status: typeof row.trigger_data.status === 'string' ? row.trigger_data.status : null
+        }
+      : null;
+
+    return {
+      kind: row.kind === 'delivery' ? 'delivery' : 'run',
+      id: row.entry_id,
+      status: row.status,
+      occurredAt: row.occurred_at,
+      workflow: baseWorkflow,
+      run,
+      delivery,
+      linkedRun,
+      trigger
+    } satisfies WorkflowActivityEntry;
+  });
+
+  if (runMap.size > 0) {
+    await attachWorkflowRunRetrySummaries(Array.from(runMap.values()));
+  }
+
+  const hasMore = entries.length > limit;
+  const items = hasMore ? entries.slice(0, limit) : entries;
+
+  return { items, hasMore };
 }
 
 export async function updateWorkflowRun(

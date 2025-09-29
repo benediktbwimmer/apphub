@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '../config';
 import { ensureOk, parseJson, type AuthorizedFetch } from '../workflows/api';
 import type { JobRunSummary } from '../jobs/api';
-import type { WorkflowRun } from '../workflows/types';
+import type { WorkflowRun, WorkflowTriggerDelivery } from '../workflows/types';
 
 export type RunListMeta = {
   limit: number;
@@ -22,8 +22,18 @@ export type JobRunListItem = {
   };
 };
 
-export type WorkflowRunListItem = {
-  run: WorkflowRun;
+export type WorkflowActivityTriggerSummary = {
+  id: string | null;
+  name: string | null;
+  eventType: string | null;
+  eventSource: string | null;
+  status: string | null;
+};
+
+type WorkflowActivityBase = {
+  id: string;
+  status: string;
+  occurredAt: string;
   workflow: {
     id: string;
     slug: string;
@@ -32,21 +42,40 @@ export type WorkflowRunListItem = {
   };
 };
 
+export type WorkflowActivityRunEntry = WorkflowActivityBase & {
+  kind: 'run';
+  run: WorkflowRun;
+  delivery: null;
+  linkedRun: null;
+  trigger: null;
+};
+
+export type WorkflowActivityDeliveryEntry = WorkflowActivityBase & {
+  kind: 'delivery';
+  run: null;
+  delivery: WorkflowTriggerDelivery;
+  linkedRun: WorkflowRun | null;
+  trigger: WorkflowActivityTriggerSummary | null;
+};
+
+export type WorkflowActivityEntry = WorkflowActivityRunEntry | WorkflowActivityDeliveryEntry;
+
 type JobRunListResponse = {
   data?: unknown;
   meta?: { limit?: number; offset?: number };
 };
 
-type WorkflowRunListResponse = {
+type WorkflowActivityListResponse = {
   data?: unknown;
   meta?: { limit?: number; offset?: number };
 };
 
-export type WorkflowRunFilters = {
+export type WorkflowActivityFilters = {
   statuses?: string[];
   workflowSlugs?: string[];
   triggerTypes?: string[];
-  partition?: string;
+  triggerIds?: string[];
+  kinds?: ('run' | 'delivery')[];
   search?: string;
   from?: string;
   to?: string;
@@ -69,7 +98,11 @@ function appendArray(values: string[] | undefined, key: string, query: URLSearch
   }
 }
 
-function buildWorkflowRunQuery(params: { limit?: number; offset?: number; filters?: WorkflowRunFilters }): string {
+function buildWorkflowActivityQuery(params: {
+  limit?: number;
+  offset?: number;
+  filters?: WorkflowActivityFilters;
+}): string {
   const query = new URLSearchParams();
   if (params.limit !== undefined) {
     query.set('limit', String(params.limit));
@@ -81,9 +114,8 @@ function buildWorkflowRunQuery(params: { limit?: number; offset?: number; filter
   appendArray(filters.statuses, 'status', query);
   appendArray(filters.workflowSlugs, 'workflow', query);
   appendArray(filters.triggerTypes, 'trigger', query);
-  if (filters.partition) {
-    query.set('partition', filters.partition);
-  }
+  appendArray(filters.triggerIds, 'triggerId', query);
+  appendArray(filters.kinds, 'kind', query);
   if (filters.search) {
     query.set('search', filters.search);
   }
@@ -158,35 +190,92 @@ function normalizeJobRunListItem(entry: unknown): JobRunListItem | null {
   };
 }
 
-function normalizeWorkflowRunListItem(entry: unknown): WorkflowRunListItem | null {
+function normalizeWorkflowActivityEntry(entry: unknown): WorkflowActivityEntry | null {
   if (!entry || typeof entry !== 'object') {
     return null;
   }
-  const record = entry as { run?: unknown; workflow?: unknown };
-  if (!record.run || typeof record.run !== 'object' || !record.workflow || typeof record.workflow !== 'object') {
+  const record = entry as Record<string, unknown>;
+  const kind = record.kind === 'run' || record.kind === 'delivery' ? (record.kind as 'run' | 'delivery') : null;
+  if (!kind) {
     return null;
   }
-  const workflowData = record.workflow as Record<string, unknown>;
-  const runData = record.run as WorkflowRun;
-  const slug = typeof workflowData.slug === 'string' ? workflowData.slug : null;
-  const id = typeof workflowData.id === 'string' ? workflowData.id : null;
-  const name = typeof workflowData.name === 'string' ? workflowData.name : null;
-  const version = typeof workflowData.version === 'number' ? workflowData.version : null;
-  if (!slug || !id || !name || version === null) {
+  const id = typeof record.id === 'string' ? record.id : null;
+  const status = typeof record.status === 'string' ? record.status : null;
+  const occurredAt = typeof record.occurredAt === 'string' ? record.occurredAt : null;
+  const workflowRaw = record.workflow;
+  if (!workflowRaw || typeof workflowRaw !== 'object') {
     return null;
   }
-  if (typeof runData.id !== 'string') {
+  const workflowData = workflowRaw as Record<string, unknown>;
+  const workflowId = typeof workflowData.id === 'string' ? workflowData.id : null;
+  const workflowSlug = typeof workflowData.slug === 'string' ? workflowData.slug : null;
+  const workflowName = typeof workflowData.name === 'string' ? workflowData.name : null;
+  const workflowVersion = typeof workflowData.version === 'number' ? workflowData.version : null;
+  if (!id || !status || !occurredAt || !workflowId || !workflowSlug || !workflowName || workflowVersion === null) {
     return null;
   }
-  return {
-    run: runData,
-    workflow: {
-      id,
-      slug,
-      name,
-      version
-    }
+
+  let trigger: WorkflowActivityTriggerSummary | null = null;
+  if (record.trigger && typeof record.trigger === 'object') {
+    const triggerRaw = record.trigger as Record<string, unknown>;
+    trigger = {
+      id: typeof triggerRaw.id === 'string' ? triggerRaw.id : null,
+      name: typeof triggerRaw.name === 'string' ? triggerRaw.name : null,
+      eventType: typeof triggerRaw.eventType === 'string' ? triggerRaw.eventType : null,
+      eventSource: typeof triggerRaw.eventSource === 'string' ? triggerRaw.eventSource : null,
+      status: typeof triggerRaw.status === 'string' ? triggerRaw.status : null
+    } satisfies WorkflowActivityTriggerSummary;
+  }
+
+  const workflow = {
+    id: workflowId,
+    slug: workflowSlug,
+    name: workflowName,
+    version: workflowVersion
   };
+
+  if (kind === 'run') {
+    const run = record.run as WorkflowRun | undefined;
+    if (!run || typeof run !== 'object' || typeof run.id !== 'string') {
+      return null;
+    }
+    return {
+      kind,
+      id,
+      status,
+      occurredAt,
+      workflow,
+      run,
+      delivery: null,
+      linkedRun: null,
+      trigger: null
+    } satisfies WorkflowActivityRunEntry;
+  }
+
+  const delivery = record.delivery as WorkflowTriggerDelivery | undefined;
+  if (!delivery || typeof delivery !== 'object' || typeof delivery.id !== 'string') {
+    return null;
+  }
+
+  let linkedRun: WorkflowRun | null = null;
+  if (record.linkedRun && typeof record.linkedRun === 'object') {
+    const linked = record.linkedRun as WorkflowRun;
+    if (typeof linked.id === 'string') {
+      linkedRun = linked;
+    }
+  }
+
+  return {
+    kind,
+    id,
+    status,
+    occurredAt,
+    workflow,
+    run: null,
+    delivery,
+    linkedRun,
+    trigger
+  } satisfies WorkflowActivityDeliveryEntry;
 }
 
 function normalizeMeta(
@@ -221,18 +310,18 @@ export async function fetchJobRuns(
   return { items, meta };
 }
 
-export async function fetchWorkflowRuns(
+export async function fetchWorkflowActivity(
   fetcher: AuthorizedFetch,
-  options: { limit?: number; offset?: number; filters?: WorkflowRunFilters } = {}
-): Promise<{ items: WorkflowRunListItem[]; meta: RunListMeta }> {
-  const query = buildWorkflowRunQuery(options);
-  const response = await fetcher(`${API_BASE_URL}/workflow-runs${query}`);
-  await ensureOk(response, 'Failed to load workflow runs');
-  const payload = await parseJson<WorkflowRunListResponse>(response);
+  options: { limit?: number; offset?: number; filters?: WorkflowActivityFilters } = {}
+): Promise<{ items: WorkflowActivityEntry[]; meta: RunListMeta }> {
+  const query = buildWorkflowActivityQuery(options);
+  const response = await fetcher(`${API_BASE_URL}/workflow-activity${query}`);
+  await ensureOk(response, 'Failed to load workflow activity');
+  const payload = await parseJson<WorkflowActivityListResponse>(response);
   const rawItems = Array.isArray(payload.data) ? payload.data : [];
   const items = rawItems
-    .map((entry) => normalizeWorkflowRunListItem(entry))
-    .filter((entry): entry is WorkflowRunListItem => entry !== null);
+    .map((entry) => normalizeWorkflowActivityEntry(entry))
+    .filter((entry): entry is WorkflowActivityEntry => entry !== null);
   const meta = normalizeMeta(payload.meta, {
     limit: options.limit ?? 20,
     offset: options.offset ?? 0,
@@ -268,7 +357,7 @@ export async function retriggerJobRun(fetcher: AuthorizedFetch, entry: JobRunLis
 
 export async function retriggerWorkflowRun(
   fetcher: AuthorizedFetch,
-  entry: WorkflowRunListItem
+  entry: WorkflowActivityRunEntry
 ): Promise<void> {
   const payload: Record<string, unknown> = {
     parameters: entry.run.parameters ?? {},

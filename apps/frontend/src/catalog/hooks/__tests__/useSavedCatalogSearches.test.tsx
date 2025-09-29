@@ -54,7 +54,7 @@ describe('useSavedCatalogSearches', () => {
       if (url.includes('/saved-searches') && url.includes('category=catalog') && (!init || !init.method)) {
         return Promise.resolve(createResponse({ data: [baseSearch] }));
       }
-      if (url.includes('/saved-searches') && init?.method === 'POST') {
+      if (url.endsWith('/saved-searches') && init?.method === 'POST') {
         const created = {
           ...baseSearch,
           id: 'search-2',

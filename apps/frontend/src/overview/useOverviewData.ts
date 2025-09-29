@@ -4,13 +4,18 @@ import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
 import type { AppRecord, StatusFacet } from '../catalog/types';
 import { formatFetchError } from '../catalog/utils';
 import type { ServiceSummary } from '../services/types';
-import { fetchJobRuns, fetchWorkflowRuns, type JobRunListItem, type WorkflowRunListItem } from '../runs/api';
+import {
+  fetchJobRuns,
+  fetchWorkflowActivity,
+  type JobRunListItem,
+  type WorkflowActivityRunEntry
+} from '../runs/api';
 
 export type OverviewData = {
   apps: AppRecord[];
   statusFacets: StatusFacet[];
   services: ServiceSummary[];
-  workflowRuns: WorkflowRunListItem[];
+  workflowRuns: WorkflowActivityRunEntry[];
   jobRuns: JobRunListItem[];
 };
 
@@ -91,8 +96,11 @@ export function useOverviewData(): LoadState {
           return normalizeServicesPayload(payload);
         })(),
         (async () => {
-          const { items } = await fetchWorkflowRuns(authorizedFetch, { limit: 5 });
-          return items;
+          const { items } = await fetchWorkflowActivity(authorizedFetch, {
+            limit: 12,
+            filters: { kinds: ['run'] }
+          });
+          return items.filter((entry): entry is WorkflowActivityRunEntry => entry.kind === 'run');
         })(),
         (async () => {
           const { items } = await fetchJobRuns(authorizedFetch, { limit: 5 });
@@ -110,7 +118,7 @@ export function useOverviewData(): LoadState {
       const [appsResult, servicesResult, workflowRunsResult, jobRunsResult] = results as [
         PromiseSettledResult<AppsResult>,
         PromiseSettledResult<ServiceSummary[]>,
-        PromiseSettledResult<WorkflowRunListItem[]>,
+        PromiseSettledResult<WorkflowActivityRunEntry[]>,
         PromiseSettledResult<JobRunListItem[]>
       ];
 

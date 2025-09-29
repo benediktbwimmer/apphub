@@ -578,6 +578,30 @@ export type WorkflowTriggerDeliveryRow = {
   updated_at: string;
 };
 
+export type WorkflowActivityRow = {
+  kind: 'run' | 'delivery';
+  entry_id: string;
+  workflow_definition_id: string;
+  workflow_slug: string;
+  workflow_name: string;
+  workflow_version: number;
+  status: string;
+  occurred_at: string;
+  trigger_id: string | null;
+  run_data: WorkflowRunRow | null;
+  linked_run_data: WorkflowRunRow | null;
+  delivery_data: WorkflowTriggerDeliveryRow | null;
+  trigger_data:
+    | {
+        id: string | null;
+        name: string | null;
+        eventType: string | null;
+        eventSource: string | null;
+        status: string | null;
+      }
+    | null;
+};
+
 export type WorkflowEventRow = {
   id: string;
   type: string;

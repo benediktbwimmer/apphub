@@ -13,10 +13,16 @@ type IdentifierChipProps = {
 function IdentifierChip({ label, value }: IdentifierChipProps) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-[11px] font-medium text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+      <span className="sr-only">{`${label}: ${value}`}</span>
+      <span aria-hidden="true" className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
         {label}
       </span>
-      <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{value}</code>
+      <span aria-hidden="true" className="text-slate-400 dark:text-slate-500">
+        :
+      </span>
+      <code aria-hidden="true" className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">
+        {value}
+      </code>
       <CopyButton value={value} ariaLabel={`Copy ${label.toLowerCase()}`} />
     </div>
   );

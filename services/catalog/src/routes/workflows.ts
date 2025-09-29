@@ -11,6 +11,7 @@ import {
   listWorkflowDefinitions,
   listWorkflowRunSteps,
   listWorkflowRuns,
+  listWorkflowActivity,
   listWorkflowRunsForDefinition,
   listWorkflowRunsInRange,
   listWorkflowAutoRunsForDefinition,
@@ -87,6 +88,7 @@ import {
   serializeWorkflowRunStats,
   serializeWorkflowRunStep,
   serializeWorkflowTriggerDelivery,
+  serializeWorkflowActivityEntry,
   serializeWorkflowEvent
 } from './shared/serializers';
 import { requireOperatorScopes } from './shared/operatorAuth';
@@ -856,6 +858,23 @@ const workflowRunListQuerySchema = z
   })
   .partial();
 
+const workflowActivityListQuerySchema = z
+  .object({
+    limit: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(1).max(100).optional()),
+    offset: z
+      .preprocess((val) => (val === undefined ? undefined : Number(val)), z.number().int().min(0).optional()),
+    status: stringArrayQuerySchema,
+    workflow: stringArrayQuerySchema,
+    trigger: stringArrayQuerySchema,
+    triggerId: stringArrayQuerySchema,
+    kind: stringArrayQuerySchema,
+    search: z.string().max(200).optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional()
+  })
+  .partial();
+
 const workflowTimelineQuerySchema = z
   .object({
     from: z.string().datetime({ offset: true }).optional(),
@@ -1005,6 +1024,62 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
     });
     return {
       data: items.map((entry) => serializeWorkflowRunWithDefinition(entry)),
+      meta: {
+        limit,
+        offset,
+        hasMore,
+        nextOffset: hasMore ? offset + limit : null
+      }
+    };
+  });
+
+  app.get('/workflow-activity', async (request, reply) => {
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'workflow-activity.list',
+      resource: 'workflows',
+      requiredScopes: WORKFLOW_RUN_SCOPES
+    });
+    if (!authResult.ok) {
+      return { error: authResult.error };
+    }
+
+    const parseQuery = workflowActivityListQuerySchema.safeParse(request.query ?? {});
+    if (!parseQuery.success) {
+      reply.status(400);
+      await authResult.auth.log('failed', {
+        action: 'workflow-activity.list',
+        reason: 'invalid_query',
+        details: parseQuery.error.flatten()
+      });
+      return { error: parseQuery.error.flatten() };
+    }
+
+    const limit = Math.min(Math.max(parseQuery.data.limit ?? 20, 1), 100);
+    const offset = Math.max(parseQuery.data.offset ?? 0, 0);
+    const filters = {
+      statuses: parseQuery.data.status,
+      workflowSlugs: parseQuery.data.workflow,
+      triggerTypes: parseQuery.data.trigger,
+      triggerIds: parseQuery.data.triggerId,
+      kinds: parseQuery.data.kind,
+      search: parseQuery.data.search,
+      from: parseQuery.data.from,
+      to: parseQuery.data.to
+    } satisfies Parameters<typeof listWorkflowActivity>[0]['filters'];
+
+    const { items, hasMore } = await listWorkflowActivity({ limit, offset, filters });
+
+    reply.status(200);
+    await authResult.auth.log('succeeded', {
+      action: 'workflow-activity.list',
+      count: items.length,
+      limit,
+      offset,
+      hasMore
+    });
+
+    return {
+      data: items.map((entry) => serializeWorkflowActivityEntry(entry)),
       meta: {
         limit,
         offset,

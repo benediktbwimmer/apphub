@@ -7,14 +7,15 @@ import { ROUTE_PATHS } from '../routes/paths';
 import { useAppHubEvent } from '../events/context';
 import {
   fetchJobRuns,
-  fetchWorkflowRuns,
+  fetchWorkflowActivity,
   retriggerJobRun,
   retriggerWorkflowRun,
   type JobRunListItem,
-  type WorkflowRunListItem,
+  type WorkflowActivityEntry,
+  type WorkflowActivityRunEntry,
   type RunListMeta,
   type JobRunFilters,
-  type WorkflowRunFilters
+  type WorkflowActivityFilters
 } from './api';
 import { listWorkflowRunSteps } from '../workflows/api';
 import type { WorkflowRun, WorkflowRunStep } from '../workflows/types';
@@ -32,11 +33,14 @@ type RunsTab = {
 const WORKFLOW_PAGE_SIZE = 20;
 const JOB_PAGE_SIZE = 25;
 
-const WORKFLOW_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'canceled'] as const;
+const WORKFLOW_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'canceled', 'matched', 'throttled', 'skipped', 'launched'] as const;
 type WorkflowStatusOption = (typeof WORKFLOW_STATUS_OPTIONS)[number];
 
 const WORKFLOW_TRIGGER_OPTIONS = ['manual', 'schedule', 'event', 'auto-materialize'] as const;
 type WorkflowTriggerOption = (typeof WORKFLOW_TRIGGER_OPTIONS)[number];
+
+const WORKFLOW_KIND_OPTIONS = ['run', 'delivery'] as const;
+type WorkflowKindOption = (typeof WORKFLOW_KIND_OPTIONS)[number];
 
 const JOB_STATUS_OPTIONS = ['pending', 'running', 'succeeded', 'failed', 'canceled', 'expired'] as const;
 type JobStatusOption = (typeof JOB_STATUS_OPTIONS)[number];
@@ -68,6 +72,7 @@ type WorkflowFilterState = {
   search: string;
   statuses: WorkflowStatusOption[];
   triggerTypes: WorkflowTriggerOption[];
+  kinds: WorkflowKindOption[];
 };
 
 type JobFilterState = {
@@ -79,7 +84,8 @@ type JobFilterState = {
 const DEFAULT_WORKFLOW_FILTERS: WorkflowFilterState = {
   search: '',
   statuses: [],
-  triggerTypes: []
+  triggerTypes: [],
+  kinds: [...WORKFLOW_KIND_OPTIONS]
 };
 
 const DEFAULT_JOB_FILTERS: JobFilterState = {
@@ -90,6 +96,7 @@ const DEFAULT_JOB_FILTERS: JobFilterState = {
 
 const WORKFLOW_STATUS_SET = new Set<WorkflowStatusOption>(WORKFLOW_STATUS_OPTIONS);
 const WORKFLOW_TRIGGER_SET = new Set<WorkflowTriggerOption>(WORKFLOW_TRIGGER_OPTIONS);
+const WORKFLOW_KIND_SET = new Set<WorkflowKindOption>(WORKFLOW_KIND_OPTIONS);
 const JOB_STATUS_SET = new Set<JobStatusOption>(JOB_STATUS_OPTIONS);
 const JOB_RUNTIME_SET = new Set<JobRuntimeOption>(JOB_RUNTIME_OPTIONS);
 
@@ -109,6 +116,17 @@ function normalizeWorkflowTriggers(values: Iterable<string>): WorkflowTriggerOpt
   for (const value of values) {
     const normalized = value.trim().toLowerCase() as WorkflowTriggerOption;
     if (WORKFLOW_TRIGGER_SET.has(normalized) && !result.includes(normalized)) {
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+function normalizeWorkflowKinds(values: Iterable<string>): WorkflowKindOption[] {
+  const result: WorkflowKindOption[] = [];
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase() as WorkflowKindOption;
+    if (WORKFLOW_KIND_SET.has(normalized) && !result.includes(normalized)) {
       result.push(normalized);
     }
   }
@@ -144,10 +162,11 @@ function formatFilterLabel(value: string): string {
     .join(' ');
 }
 
-function toWorkflowRunFilters(filters: WorkflowFilterState): WorkflowRunFilters {
+function toWorkflowActivityFilters(filters: WorkflowFilterState): WorkflowActivityFilters {
   return {
     statuses: filters.statuses,
     triggerTypes: filters.triggerTypes,
+    kinds: filters.kinds,
     search: filters.search.trim() ? filters.search.trim() : undefined
   };
 }
@@ -224,10 +243,11 @@ type WorkflowFilterControlsProps = {
   onSearchChange: (value: string) => void;
   onStatusToggle: (status: WorkflowStatusOption) => void;
   onTriggerToggle: (trigger: WorkflowTriggerOption) => void;
+  onKindToggle: (kind: WorkflowKindOption) => void;
   onReset: () => void;
 };
 
-function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTriggerToggle, onReset }: WorkflowFilterControlsProps) {
+function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTriggerToggle, onKindToggle, onReset }: WorkflowFilterControlsProps) {
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
       <div className="flex flex-wrap items-center gap-3">
@@ -265,6 +285,17 @@ function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTri
             label={formatFilterLabel(trigger)}
             active={filters.triggerTypes.includes(trigger)}
             onToggle={() => onTriggerToggle(trigger)}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Include</span>
+        {WORKFLOW_KIND_OPTIONS.map((kind) => (
+          <FilterChip
+            key={kind}
+            label={formatFilterLabel(kind)}
+            active={filters.kinds.includes(kind)}
+            onToggle={() => onKindToggle(kind)}
           />
         ))}
       </div>
@@ -491,7 +522,7 @@ const JOB_RUN_EVENT_TYPES = [
 ] as const;
 
 type WorkflowRunsState = {
-  items: WorkflowRunListItem[];
+  items: WorkflowActivityEntry[];
   meta: RunListMeta | null;
   loading: boolean;
   loadingMore: boolean;
@@ -612,7 +643,7 @@ export default function RunsPage() {
   const [jobFilters, setJobFilters] = useState<JobFilterState>(() => ({ ...DEFAULT_JOB_FILTERS }));
   const [pendingWorkflowRunId, setPendingWorkflowRunId] = useState<string | null>(null);
   const [pendingJobRunId, setPendingJobRunId] = useState<string | null>(null);
-  const [selectedWorkflowEntry, setSelectedWorkflowEntry] = useState<WorkflowRunListItem | null>(null);
+  const [selectedWorkflowEntry, setSelectedWorkflowEntry] = useState<WorkflowActivityEntry | null>(null);
   const [workflowRunDetail, setWorkflowRunDetail] = useState<{ run: WorkflowRun; steps: WorkflowRunStep[] } | null>(null);
   const [workflowDetailLoading, setWorkflowDetailLoading] = useState(false);
   const [workflowDetailError, setWorkflowDetailError] = useState<string | null>(null);
@@ -743,7 +774,7 @@ export default function RunsPage() {
     async (options?: { offset?: number; append?: boolean; filters?: WorkflowFilterState }) => {
       const { offset = 0, append = false, filters } = options ?? {};
       const activeFilters = filters ?? workflowFiltersRef.current;
-      const queryFilters = toWorkflowRunFilters(activeFilters);
+      const queryFilters = toWorkflowActivityFilters(activeFilters);
       setWorkflowState((prev) => ({
         ...prev,
         loading: append ? prev.loading : true,
@@ -751,14 +782,17 @@ export default function RunsPage() {
         error: append ? prev.error : null
       }));
       try {
-        const result = await fetchWorkflowRuns(authorizedFetch, {
+        const result = await fetchWorkflowActivity(authorizedFetch, {
           limit: WORKFLOW_PAGE_SIZE,
           offset,
           filters: queryFilters
         });
+        const filteredItems = queryFilters.kinds && queryFilters.kinds.length > 0
+          ? result.items.filter((entry) => queryFilters.kinds?.includes(entry.kind))
+          : result.items;
         setWorkflowState((prev) => ({
           ...prev,
-          items: append ? [...prev.items, ...result.items] : result.items,
+          items: append ? [...prev.items, ...filteredItems] : filteredItems,
           meta: result.meta,
           loading: false,
           loadingMore: false,
@@ -766,7 +800,7 @@ export default function RunsPage() {
           loaded: true
         }));
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load workflow runs';
+        const message = err instanceof Error ? err.message : 'Failed to load workflow activity';
         setWorkflowState((prev) => ({
           ...prev,
           loading: false,
@@ -1017,7 +1051,7 @@ export default function RunsPage() {
   }, [activeTab, jobFilters, loadJobRuns]);
 
   useEffect(() => {
-    if (!selectedWorkflowEntry) {
+    if (!selectedWorkflowEntry || selectedWorkflowEntry.kind !== 'run') {
       setWorkflowRunDetail(null);
       setWorkflowDetailError(null);
       setWorkflowDetailLoading(false);
@@ -1123,7 +1157,7 @@ export default function RunsPage() {
   }, [loadJobRuns]);
 
   const handleWorkflowRetrigger = useCallback(
-    async (entry: WorkflowRunListItem) => {
+    async (entry: WorkflowActivityRunEntry) => {
       setPendingWorkflowRunId(entry.run.id);
       try {
         await retriggerWorkflowRun(authorizedFetch, entry);
@@ -1172,8 +1206,19 @@ export default function RunsPage() {
     [authorizedFetch, loadJobRuns, pushToast]
   );
 
-  const handleWorkflowSelect = useCallback((entry: WorkflowRunListItem) => {
-    setSelectedWorkflowEntry((current) => (current && current.run.id === entry.run.id ? null : entry));
+  const handleWorkflowSelect = useCallback((entry: WorkflowActivityEntry) => {
+    setSelectedWorkflowEntry((current) => {
+      if (!current) {
+        return entry;
+      }
+      if (current.kind === 'run' && entry.kind === 'run' && current.run.id === entry.run.id) {
+        return null;
+      }
+      if (current.kind === 'delivery' && entry.kind === 'delivery' && current.delivery.id === entry.delivery.id) {
+        return null;
+      }
+      return entry;
+    });
   }, []);
 
   const handleJobSelect = useCallback((entry: JobRunListItem) => {
@@ -1197,6 +1242,17 @@ export default function RunsPage() {
       const exists = prev.triggerTypes.includes(trigger);
       const nextTriggers = exists ? prev.triggerTypes.filter((item) => item !== trigger) : [...prev.triggerTypes, trigger];
       return { ...prev, triggerTypes: nextTriggers };
+    });
+  }, []);
+
+  const handleWorkflowKindToggle = useCallback((kind: WorkflowKindOption) => {
+    setWorkflowFilters((prev) => {
+      const exists = prev.kinds.includes(kind);
+      let nextKinds = exists ? prev.kinds.filter((item) => item !== kind) : [...prev.kinds, kind];
+      if (nextKinds.length === 0) {
+        nextKinds = [kind];
+      }
+      return { ...prev, kinds: nextKinds };
     });
   }, []);
 
@@ -1272,6 +1328,7 @@ export default function RunsPage() {
             onSearchChange={handleWorkflowSearchChange}
             onStatusToggle={handleWorkflowStatusToggle}
             onTriggerToggle={handleWorkflowTriggerToggle}
+            onKindToggle={handleWorkflowKindToggle}
             onReset={handleWorkflowResetFilters}
           />
           <SavedViewToolbar
@@ -1351,12 +1408,12 @@ export default function RunsPage() {
 
 type WorkflowRunsTableProps = {
   state: WorkflowRunsState;
-  onRetry: (entry: WorkflowRunListItem) => void;
+  onRetry: (entry: WorkflowActivityRunEntry) => void;
   pendingRunId: string | null;
   onReload: () => void;
   onLoadMore: () => void;
-  onSelect: (entry: WorkflowRunListItem) => void;
-  selectedEntry: WorkflowRunListItem | null;
+  onSelect: (entry: WorkflowActivityEntry) => void;
+  selectedEntry: WorkflowActivityEntry | null;
   detail: { run: WorkflowRun; steps: WorkflowRunStep[] } | null;
   detailLoading: boolean;
   detailError: string | null;
@@ -1392,7 +1449,8 @@ function WorkflowRunsTable({
 }: WorkflowRunsTableProps) {
   const { items, loading, loadingMore, error } = state;
   const hasMore = Boolean(state.meta?.hasMore && state.meta.nextOffset !== null);
-  const selectedRunId = selectedEntry?.run.id ?? null;
+  const selectedRunId = selectedEntry?.kind === 'run' ? selectedEntry.run.id : null;
+  const selectedDeliveryId = selectedEntry?.kind === 'delivery' ? selectedEntry.delivery.id : null;
 
   if (loading && !state.loaded) {
     return (
