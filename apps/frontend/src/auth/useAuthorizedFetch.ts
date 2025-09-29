@@ -31,6 +31,9 @@ export function useAuthorizedFetch(): (input: FetchInput, init?: FetchInit) => P
       if (tokenValue && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${tokenValue}`);
       }
+      if (!headers.has('Content-Type') && init?.body && !(init.body instanceof FormData)) {
+        headers.set('Content-Type', 'application/json');
+      }
 
       return fetch(resolveInput(input), {
         ...init,

@@ -74,15 +74,40 @@ export default function RuntimeScalingSettingsPage() {
     useRuntimeScalingSettings();
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
   const [messages, setMessages] = useState<Record<string, MessageState | null>>({});
+  const [dirtyTargets, setDirtyTargets] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    setDrafts(() => {
+    const targetsToClear: string[] = [];
+    setDrafts((prev) => {
       const next: Record<string, DraftState> = {};
       for (const target of targets) {
-        next[target.target] = {
-          desiredConcurrency: target.desiredConcurrency,
-          reason: target.reason ?? ''
-        };
+        const previous = prev[target.target];
+        const reason = target.reason ?? '';
+        if (dirtyTargets[target.target] && previous) {
+          const clampedDesired = Math.max(
+            target.minConcurrency,
+            Math.min(target.maxConcurrency, previous.desiredConcurrency)
+          );
+          const matchesTarget =
+            clampedDesired === target.desiredConcurrency && previous.reason === reason;
+          if (matchesTarget) {
+            targetsToClear.push(target.target);
+            next[target.target] = {
+              desiredConcurrency: target.desiredConcurrency,
+              reason
+            };
+          } else {
+            next[target.target] = {
+              desiredConcurrency: clampedDesired,
+              reason: previous.reason
+            };
+          }
+        } else {
+          next[target.target] = {
+            desiredConcurrency: target.desiredConcurrency,
+            reason
+          };
+        }
       }
       return next;
     });
@@ -93,7 +118,48 @@ export default function RuntimeScalingSettingsPage() {
       }
       return next;
     });
-  }, [targets]);
+    const targetKeys = new Set(targets.map((entry) => entry.target));
+    setDirtyTargets((prev) => {
+      let mutated = false;
+      const next = { ...prev };
+      for (const key of targetsToClear) {
+        if (next[key]) {
+          mutated = true;
+          delete next[key];
+        }
+      }
+      for (const key of Object.keys(prev)) {
+        if (!targetKeys.has(key)) {
+          mutated = true;
+          delete next[key];
+        }
+      }
+      return mutated ? next : prev;
+    });
+  }, [targets, dirtyTargets]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      void refresh();
+    };
+    const interval = window.setInterval(tick, 30000);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', tick);
+    }
+
+    return () => {
+      window.clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', tick);
+      }
+    };
+  }, [refresh]);
 
   const handleDesiredChange = (targetKey: string, rawValue: string) => {
     const numeric = Number(rawValue);
@@ -107,6 +173,7 @@ export default function RuntimeScalingSettingsPage() {
         reason: prev[targetKey]?.reason ?? ''
       }
     }));
+    setDirtyTargets((prev) => ({ ...prev, [targetKey]: true }));
   };
 
   const clampDraft = (target: RuntimeScalingTarget, draft: DraftState): DraftState => {
@@ -139,6 +206,7 @@ export default function RuntimeScalingSettingsPage() {
         reason: value
       }
     }));
+    setDirtyTargets((prev) => ({ ...prev, [targetKey]: true }));
   };
 
   const clearMessage = (targetKey: string, delayMs = 4000) => {
@@ -164,6 +232,11 @@ export default function RuntimeScalingSettingsPage() {
       const result = await updateTarget(target.target, {
         desiredConcurrency: normalizedDraft.desiredConcurrency,
         reason: normalizedDraft.reason.trim() ? normalizedDraft.reason.trim() : null
+      });
+      setDirtyTargets((prev) => {
+        const next = { ...prev };
+        delete next[target.target];
+        return next;
       });
       setMessages((prev) => ({
         ...prev,
@@ -194,6 +267,11 @@ export default function RuntimeScalingSettingsPage() {
         reason: ''
       }
     }));
+    setDirtyTargets((prev) => {
+      const next = { ...prev };
+      delete next[target.target];
+      return next;
+    });
     setMessages((prev) => ({ ...prev, [target.target]: null }));
   };
 
