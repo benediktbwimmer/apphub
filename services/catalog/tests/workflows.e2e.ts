@@ -2186,7 +2186,7 @@ async function testAssetMaterializerPartitionParameterReuse(): Promise<void> {
     });
 
     const targetDefaults = {
-      reportsDir: '/default/reports',
+      reportsPrefix: '/default/reports',
       metastoreNamespace: 'default.namespace'
     } as const;
 
@@ -2218,7 +2218,7 @@ async function testAssetMaterializerPartitionParameterReuse(): Promise<void> {
     const partitionKey = '2025-10-21T14:40';
     const customParameters = {
       partitionKey,
-      reportsDir: '/custom/reports',
+      reportsPrefix: '/custom/reports',
       metastoreNamespace: 'custom.namespace',
       siteFilter: 'site-42'
     } as const;
@@ -2276,7 +2276,7 @@ async function testAssetMaterializerPartitionParameterReuse(): Promise<void> {
 
     assert.ok(autoRun.parameters && typeof autoRun.parameters === 'object');
     const parameters = autoRun.parameters as Record<string, unknown>;
-    assert.equal(parameters.reportsDir, customParameters.reportsDir);
+    assert.equal(parameters.reportsPrefix, customParameters.reportsPrefix);
     assert.equal(parameters.metastoreNamespace, customParameters.metastoreNamespace);
     assert.equal(parameters.siteFilter, customParameters.siteFilter);
     assert.equal(parameters.partitionKey, partitionKey);

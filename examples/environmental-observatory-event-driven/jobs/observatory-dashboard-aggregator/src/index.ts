@@ -1,5 +1,8 @@
-import { mkdir, writeFile, stat } from 'node:fs/promises';
-import path from 'node:path';
+import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
 import { createObservatoryEventPublisher } from '../../shared/events';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -18,12 +21,16 @@ type JobRunContext = {
 
 type AggregatorParameters = {
   partitionKey: string;
-  reportsDir: string;
-  overviewDirName: string;
   lookbackMinutes: number;
   timestoreBaseUrl: string;
   timestoreDatasetSlug: string;
   timestoreAuthToken?: string;
+  filestoreBaseUrl: string;
+  filestoreBackendId: number;
+  filestoreToken?: string;
+  filestorePrincipal?: string;
+  reportsPrefix: string;
+  overviewPrefix: string;
 };
 
 type TimestoreQueryResponse = {
@@ -104,8 +111,6 @@ function parseParameters(raw: unknown): AggregatorParameters {
     throw new Error('Parameters must be an object');
   }
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
-  const reportsDir = ensureString(raw.reportsDir ?? raw.reports_dir);
-  const overviewDirName = ensureString(raw.overviewDirName ?? raw.overview_dir_name ?? 'overview');
   const timestoreBaseUrl = ensureString(
     raw.timestoreBaseUrl ?? raw.timestore_base_url ?? 'http://127.0.0.1:4200'
   ).replace(/\/$/, '');
@@ -116,18 +121,61 @@ function parseParameters(raw: unknown): AggregatorParameters {
     5,
     ensureNumber(raw.lookbackMinutes ?? raw.lookback_minutes ?? 720, 720)
   );
-  if (!partitionKey || !reportsDir || !timestoreDatasetSlug) {
-    throw new Error('partitionKey, reportsDir, and timestoreDatasetSlug parameters are required');
+  if (!partitionKey || !timestoreDatasetSlug) {
+    throw new Error('partitionKey and timestoreDatasetSlug parameters are required');
   }
   const timestoreAuthToken = ensureString(raw.timestoreAuthToken ?? raw.timestore_auth_token ?? '');
+  const filestoreBaseUrl = ensureString(
+    raw.filestoreBaseUrl ??
+      raw.filestore_base_url ??
+      process.env.OBSERVATORY_FILESTORE_BASE_URL ??
+      process.env.FILESTORE_BASE_URL ??
+      ''
+  );
+  if (!filestoreBaseUrl) {
+    throw new Error('filestoreBaseUrl parameter is required');
+  }
+  const backendRaw =
+    raw.filestoreBackendId ??
+    raw.filestore_backend_id ??
+    raw.backendMountId ??
+    raw.backend_mount_id ??
+    process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
+    process.env.FILESTORE_BACKEND_ID;
+  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
+  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
+    throw new Error('filestoreBackendId parameter is required');
+  }
+  const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
+  const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
+  const reportsPrefix = ensureString(
+    raw.reportsPrefix ??
+      raw.reports_prefix ??
+      raw.reportsDir ??
+      raw.reports_dir ??
+      process.env.OBSERVATORY_REPORTS_PREFIX ?? ''
+  );
+  if (!reportsPrefix) {
+    throw new Error('reportsPrefix parameter is required');
+  }
+  const overviewPrefix = ensureString(
+    raw.overviewPrefix ??
+      raw.overview_prefix ??
+      `${reportsPrefix.replace(/\/+$/g, '')}/${ensureString(raw.overviewDirName ?? raw.overview_dir_name ?? 'overview')}`
+  );
+
   return {
     partitionKey,
-    reportsDir,
-    overviewDirName,
     lookbackMinutes,
     timestoreBaseUrl,
     timestoreDatasetSlug,
-    timestoreAuthToken: timestoreAuthToken || undefined
+    timestoreAuthToken: timestoreAuthToken || undefined,
+    filestoreBaseUrl,
+    filestoreBackendId,
+    filestoreToken: filestoreToken || undefined,
+    filestorePrincipal: filestorePrincipal || undefined,
+    reportsPrefix: reportsPrefix.replace(/\/+$/g, ''),
+    overviewPrefix: overviewPrefix.replace(/\/+$/g, '')
   } satisfies AggregatorParameters;
 }
 
@@ -350,22 +398,16 @@ function computeSummary(rows: ObservatoryRow[]) {
   };
 }
 
-async function writeFileWithSize(filePath: string, contents: string): Promise<number> {
-  await writeFile(filePath, contents, 'utf8');
-  const stats = await stat(filePath);
-  return stats.size;
-}
-
-function toPosixRelative(fromDir: string, targetPath: string): string {
-  const relative = path.relative(fromDir, targetPath) || '.';
-  return relative.split(path.sep).join('/');
-}
-
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const window = resolveTimeWindow(parameters.partitionKey, parameters.lookbackMinutes);
   const observatoryEvents = createObservatoryEventPublisher({
     source: 'observatory.dashboard-aggregator'
+  });
+  const filestoreClient = new FilestoreClient({
+    baseUrl: parameters.filestoreBaseUrl,
+    token: parameters.filestoreToken,
+    userAgent: 'observatory-dashboard-aggregator/0.2.0'
   });
   const generatedAt = new Date().toISOString();
 
@@ -381,10 +423,15 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     const trends = buildTrends(rows);
     const summary = computeSummary(rows);
 
-    const overviewDir = path.resolve(parameters.reportsDir, parameters.overviewDirName);
-    await mkdir(overviewDir, { recursive: true });
-    const dashboardJsonPath = path.resolve(overviewDir, 'dashboard.json');
-    const dashboardHtmlPath = path.resolve(overviewDir, 'index.html');
+    await ensureFilestoreHierarchy(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      parameters.overviewPrefix,
+      parameters.filestorePrincipal
+    );
+    const normalizedOverviewPrefix = parameters.overviewPrefix.replace(/\/+$/g, '');
+    const dashboardJsonPath = `${normalizedOverviewPrefix}/dashboard.json`;
+    const dashboardHtmlPath = `${normalizedOverviewPrefix}/index.html`;
 
     const dashboardData = {
       generatedAt,
@@ -397,28 +444,54 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       trends
     } satisfies Record<string, unknown>;
 
-    await writeFile(dashboardJsonPath, JSON.stringify(dashboardData, null, 2), 'utf8');
+    const [dataNode, htmlNode] = await Promise.all([
+      uploadTextFile({
+        client: filestoreClient,
+        backendMountId: parameters.filestoreBackendId,
+        path: dashboardJsonPath,
+        content: JSON.stringify(dashboardData, null, 2),
+        contentType: 'application/json',
+        principal: parameters.filestorePrincipal,
+        metadata: {
+          partitionKey: parameters.partitionKey,
+          lookbackMinutes: parameters.lookbackMinutes,
+          kind: 'dashboard-data'
+        }
+      }),
+      (async () => {
+        const html = buildDashboardHtml(dashboardData);
+        return uploadTextFile({
+          client: filestoreClient,
+          backendMountId: parameters.filestoreBackendId,
+          path: dashboardHtmlPath,
+          content: html,
+          contentType: 'text/html; charset=utf-8',
+          principal: parameters.filestorePrincipal,
+          metadata: {
+            partitionKey: parameters.partitionKey,
+            lookbackMinutes: parameters.lookbackMinutes,
+            kind: 'dashboard-html'
+          }
+        });
+      })()
+    ]);
 
-    const html = buildDashboardHtml(dashboardData);
-    const htmlSize = await writeFileWithSize(dashboardHtmlPath, html);
-
-    context.logger('Wrote dashboard artifacts', {
+    context.logger('Uploaded dashboard artifacts', {
       dashboardHtmlPath,
       dashboardJsonPath,
-      htmlSize
+      htmlSize: htmlNode.sizeBytes ?? null,
+      dataSize: dataNode.sizeBytes ?? null
     });
-
-    const relativeOverview = toPosixRelative(parameters.reportsDir, overviewDir);
-    const dashboardPath = `/reports/${relativeOverview}/index.html`;
-    const dataPath = `/reports/${relativeOverview}/dashboard.json`;
 
     await context.update({
       generatedAt,
       samples: summary.samples,
       instrumentCount: summary.instrumentCount,
       siteCount: summary.siteCount,
-      dashboardPath,
-      dataPath
+      dashboardPath: htmlNode.path ?? dashboardHtmlPath,
+      dataPath: dataNode.path ?? dashboardJsonPath,
+      dashboardNodeId: htmlNode.id ?? null,
+      dataNodeId: dataNode.id ?? null
     });
 
     await observatoryEvents.publish({
@@ -427,8 +500,19 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         generatedAt,
         partitionKey: parameters.partitionKey,
         lookbackMinutes: parameters.lookbackMinutes,
-        dashboardPath,
-        dataPath,
+        dashboard: {
+          path: htmlNode.path ?? dashboardHtmlPath,
+          nodeId: htmlNode.id ?? null,
+          sizeBytes: htmlNode.sizeBytes ?? null,
+          checksum: htmlNode.checksum ?? null
+        },
+        data: {
+          path: dataNode.path ?? dashboardJsonPath,
+          nodeId: dataNode.id ?? null,
+          sizeBytes: dataNode.sizeBytes ?? null,
+          checksum: dataNode.checksum ?? null
+        },
+        overviewPrefix: normalizedOverviewPrefix,
         metrics: summary,
         window
       },
@@ -442,8 +526,21 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         samples: summary.samples,
         instrumentCount: summary.instrumentCount,
         siteCount: summary.siteCount,
-        dashboardPath,
-        dataPath
+        dashboard: {
+          path: htmlNode.path ?? dashboardHtmlPath,
+          nodeId: htmlNode.id ?? null,
+          mediaType: 'text/html',
+          sizeBytes: htmlNode.sizeBytes ?? null,
+          checksum: htmlNode.checksum ?? null
+        },
+        data: {
+          path: dataNode.path ?? dashboardJsonPath,
+          nodeId: dataNode.id ?? null,
+          mediaType: 'application/json',
+          sizeBytes: dataNode.sizeBytes ?? null,
+          checksum: dataNode.checksum ?? null
+        },
+        overviewPrefix: normalizedOverviewPrefix
       }
     } satisfies JobRunResult;
   } finally {

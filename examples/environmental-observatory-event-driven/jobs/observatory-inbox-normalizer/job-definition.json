@@ -13,8 +13,6 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "stagingDir": { "type": "string", "minLength": 1 },
-      "archiveDir": { "type": "string", "minLength": 1 },
       "minute": { "type": "string", "minLength": 1 },
       "maxFiles": { "type": "number", "minimum": 1, "maximum": 2000 },
       "commandPath": { "type": "string" },
@@ -30,8 +28,6 @@
       "metastoreAuthToken": { "type": "string" }
     },
     "required": [
-      "stagingDir",
-      "archiveDir",
       "minute",
       "filestoreBaseUrl",
       "filestoreBackendId",
@@ -42,8 +38,6 @@
   },
   "defaultParameters": {
     "maxFiles": 1000,
-    "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
-    "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
@@ -61,22 +55,35 @@
       "minute": { "type": "string" },
       "instrumentCount": { "type": "number" },
       "recordCount": { "type": "number" },
-      "sourceFiles": {
+      "backendMountId": { "type": "number" },
+      "stagingPrefix": { "type": "string" },
+      "stagingMinutePrefix": { "type": "string" },
+      "files": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "relativePath": { "type": "string" },
+            "path": { "type": "string" },
+            "nodeId": { "type": "number" },
             "site": { "type": "string" },
             "instrumentId": { "type": "string" },
-            "rows": { "type": "number" }
+            "rows": { "type": "number" },
+            "sizeBytes": { "type": "number" },
+            "checksum": { "type": "string" }
           },
-          "required": ["relativePath", "rows"]
+          "required": ["path", "rows"]
         }
       },
-      "stagingDir": { "type": "string" },
       "normalizedAt": { "type": "string", "format": "date-time" }
     },
-    "required": ["partitionKey", "minute", "recordCount", "sourceFiles", "normalizedAt"]
+    "required": [
+      "partitionKey",
+      "minute",
+      "backendMountId",
+      "stagingPrefix",
+      "recordCount",
+      "files",
+      "normalizedAt"
+    ]
   }
 }

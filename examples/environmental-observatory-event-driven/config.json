@@ -101,7 +101,9 @@
             "token": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
             "inboxPrefix": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:datasets/observatory/inbox }}",
             "stagingPrefix": "{{ env.OBSERVATORY_FILESTORE_STAGING_PREFIX | default:datasets/observatory/staging }}",
-            "archivePrefix": "{{ env.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX | default:datasets/observatory/archive }}"
+            "archivePrefix": "{{ env.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX | default:datasets/observatory/archive }}",
+            "visualizationsPrefix": "{{ env.OBSERVATORY_FILESTORE_VIS_PREFIX | default:datasets/observatory/visualizations }}",
+            "reportsPrefix": "{{ env.OBSERVATORY_FILESTORE_REPORTS_PREFIX | default:datasets/observatory/reports }}"
           },
           "timestore": {
             "baseUrl": "{{ env.OBSERVATORY_TIMESTORE_BASE_URL | default:http://127.0.0.1:4200 }}",
@@ -130,7 +132,7 @@
             "aggregateSlug": "{{ env.OBSERVATORY_DASHBOARD_WORKFLOW_SLUG | default:observatory-dashboard-aggregate }}",
             "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}",
             "dashboard": {
-              "overviewDirName": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_DIR | default:overview }}",
+              "overviewPrefix": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX | default:datasets/observatory/reports/overview }}",
               "lookbackMinutes": "{{ env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES | default:720 | number }}"
             },
             "generator": {
@@ -138,12 +140,11 @@
             }
           }
         }
-      }
-    },
-      {
-        "type": "applyWorkflowDefaults",
-        "description": "Apply default parameters for observatory workflows",
-        "workflows": [
+      },
+    {
+      "type": "applyWorkflowDefaults",
+      "description": "Apply default parameters for observatory workflows",
+      "workflows": [
           {
             "slug": "observatory-minute-data-generator",
             "defaults": {
@@ -160,8 +161,6 @@
           {
             "slug": "observatory-minute-ingest",
             "defaults": {
-              "stagingDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/staging",
-              "archiveDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/archive",
               "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
               "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
               "inboxPrefix": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:datasets/observatory/inbox }}",
@@ -183,8 +182,12 @@
               "timestoreBaseUrl": "{{ env.OBSERVATORY_TIMESTORE_BASE_URL | default:http://127.0.0.1:4200 }}",
               "timestoreDatasetSlug": "{{ env.OBSERVATORY_TIMESTORE_DATASET_SLUG | default:observatory-timeseries }}",
               "timestoreAuthToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}",
-              "plotsDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/plots",
-              "reportsDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports",
+              "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
+              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
+              "filestorePrincipal": "observatory-visualization-runner",
+              "visualizationsPrefix": "{{ env.OBSERVATORY_FILESTORE_VIS_PREFIX | default:datasets/observatory/visualizations }}",
+              "reportsPrefix": "{{ env.OBSERVATORY_FILESTORE_REPORTS_PREFIX | default:datasets/observatory/reports }}",
               "metastoreBaseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",
               "metastoreNamespace": "{{ env.OBSERVATORY_METASTORE_NAMESPACE | default:observatory.reports }}",
               "metastoreAuthToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
@@ -193,8 +196,12 @@
           {
             "slug": "observatory-dashboard-aggregate",
             "defaults": {
-              "reportsDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports",
-              "overviewDirName": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_DIR | default:overview }}",
+              "filestoreBaseUrl": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:http://127.0.0.1:4300 }}",
+              "filestoreBackendId": "{{ variables.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 | number }}",
+              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
+              "filestorePrincipal": "observatory-dashboard-aggregator",
+              "reportsPrefix": "{{ env.OBSERVATORY_FILESTORE_REPORTS_PREFIX | default:datasets/observatory/reports }}",
+              "overviewPrefix": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX | default:datasets/observatory/reports/overview }}",
               "lookbackMinutes": "{{ env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES | default:720 | number }}",
               "timestoreBaseUrl": "{{ env.OBSERVATORY_TIMESTORE_BASE_URL | default:http://127.0.0.1:4200 }}",
               "timestoreDatasetSlug": "{{ env.OBSERVATORY_TIMESTORE_DATASET_SLUG | default:observatory-timeseries }}",

@@ -1,5 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
 import { createObservatoryEventPublisher } from '../../shared/events';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -16,19 +18,26 @@ type JobRunContext = {
   update: (updates: Record<string, unknown>) => Promise<void>;
 };
 
-type RawAssetSourceFile = {
-  relativePath: string;
+type RawAssetFile = {
+  path: string;
+  nodeId?: number;
   site?: string;
   instrumentId?: string;
   rows?: number;
+  sizeBytes?: number;
+  checksum?: string;
 };
 
 type RawAsset = {
   partitionKey: string;
   minute: string;
-  stagingDir: string;
-  stagingMinuteDir?: string;
-  sourceFiles: RawAssetSourceFile[];
+  backendMountId: number;
+  stagingPrefix: string;
+  stagingMinutePrefix?: string;
+  files: RawAssetFile[];
+  instrumentCount?: number;
+  recordCount?: number;
+  normalizedAt?: string;
 };
 
 type TimestoreLoaderParameters = {
@@ -40,6 +49,11 @@ type TimestoreLoaderParameters = {
   storageTargetId?: string;
   partitionNamespace?: string;
   minute: string;
+  filestoreBaseUrl: string;
+  filestoreToken?: string;
+  filestoreBackendId: number;
+  filestorePrincipal?: string;
+  stagingPrefix: string;
   rawAsset: RawAsset;
   idempotencyKey?: string;
 };
@@ -83,6 +97,19 @@ function ensureString(value: unknown, fallback = ''): string {
   return fallback;
 }
 
+function ensureNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 function ensureArray<T>(value: unknown, mapper: (entry: unknown) => T | null): T[] {
   if (!Array.isArray(value)) {
     return [];
@@ -97,6 +124,20 @@ function ensureArray<T>(value: unknown, mapper: (entry: unknown) => T | null): T
   return result;
 }
 
+async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    if (typeof chunk === 'string') {
+      chunks.push(Buffer.from(chunk));
+    } else if (chunk instanceof Buffer) {
+      chunks.push(chunk);
+    } else {
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 function parseRawAsset(raw: unknown): RawAsset {
   if (!isRecord(raw)) {
     throw new Error('rawAsset parameter must be an object');
@@ -104,37 +145,54 @@ function parseRawAsset(raw: unknown): RawAsset {
 
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key ?? raw.hour);
   const minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
-  const stagingDir = ensureString(raw.stagingDir ?? raw.staging_dir);
-  const stagingMinuteDir = ensureString(raw.stagingMinuteDir ?? raw.staging_minute_dir ?? '');
-  const sourceFiles = ensureArray<RawAssetSourceFile>(raw.sourceFiles ?? raw.source_files, (entry) => {
+  const backendMountId = ensureNumber(
+    raw.backendMountId ??
+      raw.backend_mount_id ??
+      raw.filestoreBackendId ??
+      raw.filestore_backend_id
+  );
+  const stagingPrefix = ensureString(
+    raw.stagingPrefix ?? raw.staging_prefix ?? raw.filestoreStagingPrefix ?? raw.filestore_staging_prefix ?? ''
+  );
+  const stagingMinutePrefix = ensureString(
+    raw.stagingMinutePrefix ?? raw.staging_minute_prefix ?? raw.minutePrefix ?? raw.minute_prefix ?? ''
+  );
+  const files = ensureArray<RawAssetFile>(raw.files ?? raw.sourceFiles ?? raw.source_files, (entry) => {
     if (!isRecord(entry)) {
       return null;
     }
-    const relativePath = ensureString(entry.relativePath ?? entry.relative_path ?? entry.path);
-    if (!relativePath) {
+    const pathValue = ensureString(entry.path ?? entry.filestorePath ?? entry.relativePath ?? entry.relative_path ?? '');
+    if (!pathValue) {
       return null;
     }
     const site = ensureString(entry.site ?? entry.location ?? '');
     const instrumentId = ensureString(entry.instrumentId ?? entry.instrument_id ?? '');
     const rows = typeof entry.rows === 'number' && Number.isFinite(entry.rows) ? entry.rows : undefined;
+    const nodeIdValue = ensureNumber(entry.nodeId ?? entry.node_id ?? entry.id);
+    const sizeBytesValue = ensureNumber(entry.sizeBytes ?? entry.size_bytes ?? entry.size);
+    const checksum = ensureString(entry.checksum ?? '');
     return {
-      relativePath,
+      path: pathValue,
       site: site || undefined,
       instrumentId: instrumentId || undefined,
-      rows
-    } satisfies RawAssetSourceFile;
+      rows,
+      nodeId: nodeIdValue ?? undefined,
+      sizeBytes: sizeBytesValue ?? undefined,
+      checksum: checksum || undefined
+    } satisfies RawAssetFile;
   });
 
-  if (!partitionKey || !minute || !stagingDir) {
-    throw new Error('rawAsset must include partitionKey/minute and stagingDir');
+  if (!partitionKey || !minute) {
+    throw new Error('rawAsset must include partitionKey and minute');
   }
 
   return {
     partitionKey,
     minute,
-    stagingDir,
-    stagingMinuteDir: stagingMinuteDir || undefined,
-    sourceFiles
+    backendMountId: backendMountId ?? 0,
+    stagingPrefix,
+    stagingMinutePrefix: stagingMinutePrefix || undefined,
+    files
   } satisfies RawAsset;
 }
 
@@ -168,6 +226,43 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
   const idempotencyKey = ensureString(raw.idempotencyKey ?? raw.idempotency_key ?? minute);
   const rawAsset = parseRawAsset(raw.rawAsset ?? raw.raw_asset);
 
+  const filestoreBaseUrl = ensureString(
+    raw.filestoreBaseUrl ??
+      raw.filestore_base_url ??
+      (rawAsset ? (raw as Record<string, unknown>).filestoreBaseUrl : undefined) ??
+      process.env.OBSERVATORY_FILESTORE_BASE_URL ??
+      process.env.FILESTORE_BASE_URL ??
+      ''
+  );
+  const filestoreToken = ensureString(
+    raw.filestoreToken ?? raw.filestore_token ?? process.env.OBSERVATORY_FILESTORE_TOKEN ?? ''
+  );
+  const filestoreBackendId = ensureNumber(
+    raw.filestoreBackendId ?? raw.filestore_backend_id ?? rawAsset.backendMountId ?? null
+  );
+  if (!filestoreBaseUrl) {
+    throw new Error('filestoreBaseUrl parameter is required');
+  }
+  if (filestoreBackendId === null) {
+    throw new Error('filestoreBackendId parameter is required');
+  }
+  const stagingPrefix = ensureString(
+    raw.stagingPrefix ?? raw.staging_prefix ?? rawAsset.stagingPrefix ?? ''
+  );
+  if (!stagingPrefix) {
+    throw new Error('stagingPrefix parameter is required');
+  }
+  const filestorePrincipal = ensureString(
+    raw.filestorePrincipal ?? raw.filestore_principal ?? raw.principal ?? ''
+  );
+
+  if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
+    rawAsset.backendMountId = filestoreBackendId;
+  }
+  if (!rawAsset.stagingPrefix) {
+    rawAsset.stagingPrefix = stagingPrefix;
+  }
+
   return {
     datasetSlug,
     datasetName: datasetName || undefined,
@@ -177,17 +272,47 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
     storageTargetId: storageTargetId || undefined,
     partitionNamespace,
     minute,
+    filestoreBaseUrl,
+    filestoreToken: filestoreToken || undefined,
+    filestoreBackendId,
+    filestorePrincipal: filestorePrincipal || undefined,
+    stagingPrefix,
     rawAsset,
     idempotencyKey: idempotencyKey || undefined
   } satisfies TimestoreLoaderParameters;
 }
 
 async function ingestableRowsFromCsv(
-  stagingDir: string,
-  source: RawAssetSourceFile
+  filestoreClient: FilestoreClient,
+  backendMountId: number,
+  source: RawAssetFile,
+  principal?: string
 ): Promise<{ rows: ObservatoryRow[]; minTimestamp: string; maxTimestamp: string }> {
-  const absolutePath = path.resolve(stagingDir, source.relativePath);
-  const content = await readFile(absolutePath, 'utf8');
+  const normalizedPath = source.path.replace(/^\/+/g, '').replace(/\/+/g, '/');
+  let nodeId = typeof source.nodeId === 'number' && Number.isFinite(source.nodeId) ? source.nodeId : null;
+  if (!nodeId) {
+    try {
+      const node = await filestoreClient.getNodeByPath({
+        backendMountId,
+        path: normalizedPath
+      });
+      nodeId = node.id ?? null;
+    } catch (error) {
+      if (error instanceof FilestoreClientError && error.statusCode === 404) {
+        throw new Error(`Staging file ${normalizedPath} no longer available in Filestore`);
+      }
+      throw error;
+    }
+  }
+
+  if (!nodeId) {
+    throw new Error(`Unable to resolve node id for staging file ${normalizedPath}`);
+  }
+
+  const download = await filestoreClient.downloadFile(nodeId, {
+    principal
+  });
+  const content = await readStreamToString(download.stream);
   const lines = content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -206,7 +331,7 @@ async function ingestableRowsFromCsv(
   const batteryIndex = headers.indexOf('battery_voltage');
 
   if (timestampIndex === -1) {
-    throw new Error(`CSV file ${absolutePath} is missing required timestamp column`);
+    throw new Error(`CSV file ${normalizedPath} is missing required timestamp column`);
   }
 
   const rows: ObservatoryRow[] = [];
@@ -281,12 +406,21 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     source: 'observatory.timestore-loader'
   });
   const publishOperations: Array<Promise<void>> = [];
+  const filestoreClient = new FilestoreClient({
+    baseUrl: parameters.filestoreBaseUrl,
+    token: parameters.filestoreToken,
+    userAgent: 'observatory-timestore-loader/0.2.0'
+  });
+  const backendMountId = parameters.filestoreBackendId || parameters.rawAsset.backendMountId;
+  if (!backendMountId || backendMountId <= 0) {
+    throw new Error('filestoreBackendId must be provided for timestore loader');
+  }
 
   try {
     const instrumentBuckets = new Map<string, InstrumentBucket>();
     let totalRows = 0;
 
-    if (parameters.rawAsset.sourceFiles.length === 0) {
+    if (parameters.rawAsset.files.length === 0) {
       context.logger('No source files provided for Timestore ingestion; skipping', {
         minute: parameters.minute,
         datasetSlug: parameters.datasetSlug
@@ -303,13 +437,15 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       } satisfies JobRunResult;
     }
 
-    for (const source of parameters.rawAsset.sourceFiles) {
+    for (const source of parameters.rawAsset.files) {
       const { rows, minTimestamp, maxTimestamp } = await ingestableRowsFromCsv(
-        parameters.rawAsset.stagingDir,
-        source
+        filestoreClient,
+        backendMountId,
+        source,
+        parameters.filestorePrincipal
       );
       context.logger('Parsed staging file for Timestore ingestion', {
-        relativePath: source.relativePath,
+        path: source.path,
         rows: rows.length
       });
       for (const row of rows) {

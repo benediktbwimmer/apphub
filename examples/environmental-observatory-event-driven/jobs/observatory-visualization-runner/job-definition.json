@@ -16,36 +16,52 @@
       "timestoreBaseUrl": { "type": "string", "minLength": 1 },
       "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
       "timestoreAuthToken": { "type": "string" },
-      "plotsDir": { "type": "string", "minLength": 1 },
+      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "filestoreBackendId": { "type": "number", "minimum": 1 },
+      "filestoreToken": { "type": "string" },
+      "filestorePrincipal": { "type": "string" },
+      "visualizationsPrefix": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
       "instrumentId": { "type": "string" },
       "lookbackMinutes": { "type": "number", "minimum": 1, "maximum": 10080 },
       "siteFilter": { "type": "string" }
     },
-    "required": ["timestoreBaseUrl", "timestoreDatasetSlug", "plotsDir", "partitionKey", "instrumentId"]
+    "required": [
+      "timestoreBaseUrl",
+      "timestoreDatasetSlug",
+      "filestoreBaseUrl",
+      "filestoreBackendId",
+      "visualizationsPrefix",
+      "partitionKey"
+    ]
   },
   "defaultParameters": {
     "lookbackMinutes": 180,
-    "instrumentId": null
+    "instrumentId": null,
+    "filestorePrincipal": null,
+    "filestoreToken": null,
+    "siteFilter": null
   },
   "outputSchema": {
     "type": "object",
     "properties": {
       "generatedAt": { "type": "string", "format": "date-time" },
       "partitionKey": { "type": "string" },
-      "plotsDir": { "type": "string" },
+      "storagePrefix": { "type": "string" },
       "lookbackMinutes": { "type": "number" },
       "artifacts": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "relativePath": { "type": "string" },
+            "path": { "type": "string" },
+            "nodeId": { "type": "number" },
             "mediaType": { "type": "string" },
             "description": { "type": "string" },
-            "sizeBytes": { "type": "number" }
+            "sizeBytes": { "type": "number" },
+            "checksum": { "type": "string" }
           },
-          "required": ["relativePath", "mediaType"]
+          "required": ["path", "mediaType"]
         }
       },
       "metrics": {
@@ -53,6 +69,6 @@
         "additionalProperties": true
       }
     },
-    "required": ["generatedAt", "partitionKey", "plotsDir", "artifacts"]
+    "required": ["generatedAt", "partitionKey", "storagePrefix", "artifacts"]
   }
 }

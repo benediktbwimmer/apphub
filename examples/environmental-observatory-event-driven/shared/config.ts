@@ -16,6 +16,8 @@ export type ObservatoryFilestoreConfig = {
   inboxPrefix: string;
   stagingPrefix: string;
   archivePrefix: string;
+  visualizationsPrefix?: string;
+  reportsPrefix?: string;
   bucket?: string;
   endpoint?: string;
   region?: string;

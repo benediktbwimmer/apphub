@@ -55,8 +55,25 @@ const dashboardUpdatedPayloadSchema = z
     generatedAt: z.string().datetime({ offset: true }),
     partitionKey: z.string().min(1),
     lookbackMinutes: z.number().int().positive(),
-    dashboardPath: z.string().min(1),
-    dataPath: z.string().min(1).optional(),
+    overviewPrefix: z.string().min(1),
+    dashboard: z
+      .object({
+        path: z.string().min(1),
+        nodeId: z.number().int().nullable(),
+        mediaType: z.string().min(1),
+        sizeBytes: z.number().int().nullable(),
+        checksum: z.string().min(1).nullable()
+      })
+      .strip(),
+    data: z
+      .object({
+        path: z.string().min(1),
+        nodeId: z.number().int().nullable(),
+        mediaType: z.string().min(1),
+        sizeBytes: z.number().int().nullable(),
+        checksum: z.string().min(1).nullable()
+      })
+      .strip(),
     metrics: z.object({
       samples: z.number().int().nonnegative(),
       instrumentCount: z.number().int().nonnegative(),

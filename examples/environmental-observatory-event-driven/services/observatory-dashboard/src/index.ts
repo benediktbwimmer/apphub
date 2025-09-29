@@ -1,71 +1,20 @@
 import Fastify from 'fastify';
-import fastifyStatic from '@fastify/static';
-import { readdir, readFile, stat } from 'node:fs/promises';
-import path from 'node:path';
+import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
 import { loadObservatoryConfig } from '@observatory/shared-config';
 
-type VisualizationArtifact = {
-  relativePath: string;
-  mediaType?: string;
-  description?: string;
-  sizeBytes?: number;
-};
-
-type ReportSummary = {
-  instrumentCount: number;
-  siteCount: number;
-  alertCount: number;
-};
-
-type ReportMetrics = {
-  samples: number;
-  instrumentCount: number;
-  siteCount: number;
-  averageTemperatureC: number;
-  averagePm25: number;
-  maxPm25: number;
-  partitionKey: string;
-  lookbackMinutes: number;
-  siteFilter?: string;
-};
-
-type ReportStatusFile = {
-  generatedAt: string;
-  metrics: ReportMetrics;
-  summary: ReportSummary;
-  artifacts?: VisualizationArtifact[];
-};
-
-type DashboardOverviewSummary = {
-  samples: number;
-  instrumentCount: number;
-  siteCount: number;
-  averageTemperatureC: number;
-  averagePm25: number;
-  maxPm25: number;
-};
-
-type DashboardOverviewFile = {
-  generatedAt: string;
-  partitionKey: string;
-  lookbackMinutes: number;
-  window?: { start: string; end: string };
-  summary?: DashboardOverviewSummary;
-};
-
-type ReportEntry = {
-  partitionDir: string;
-  partitionName: string;
-  payload: ReportStatusFile;
-  updatedAt: string;
-};
-
 const config = loadObservatoryConfig();
-const DEFAULT_REPORTS_DIR = config.paths.reports;
-const reportsDir = path.resolve(
-  process.env.OBSERVATORY_REPORTS_DIR ?? process.env.REPORTS_DIR ?? DEFAULT_REPORTS_DIR
-);
-const overviewDirName = config.workflows.dashboard?.overviewDirName ?? 'overview';
+const filestoreClient = new FilestoreClient({
+  baseUrl: config.filestore.baseUrl,
+  token: config.filestore.token,
+  userAgent: 'observatory-dashboard-service/0.2.0'
+});
+const filestoreBackendId = config.filestore.backendMountId;
+const filestorePrincipal = process.env.OBSERVATORY_DASHBOARD_PRINCIPAL?.trim() || undefined;
+
+const reportsPrefix = (config.filestore.reportsPrefix ?? 'datasets/observatory/reports').replace(/\/+$/g, '');
+const overviewPrefix = (
+  config.workflows.dashboard?.overviewPrefix ?? `${reportsPrefix}/overview`
+).replace(/\/+$/g, '');
 const refreshIntervalMs = Math.max(1000, Number(process.env.DASHBOARD_REFRESH_MS ?? '10000') || 10000);
 
 const fastify = Fastify({
@@ -74,56 +23,145 @@ const fastify = Fastify({
   }
 });
 
-async function listReportPartitions(limit = 10): Promise<ReportEntry[]> {
-  let entries: string[];
+function normalizeFilestorePath(target: string): string {
+  return target.replace(/^\/+/, '').replace(/\/+$/g, '');
+}
+
+type ReportStatusFile = {
+  generatedAt: string;
+  metrics?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  reportFiles?: Array<Record<string, unknown>>;
+  plotsReferenced?: Array<Record<string, unknown>>;
+};
+
+async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    if (typeof chunk === 'string') {
+      chunks.push(Buffer.from(chunk));
+    } else if (chunk instanceof Buffer) {
+      chunks.push(chunk);
+    } else {
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readJsonFromFilestore(path: string): Promise<{ nodeId: number | null; payload: unknown; path: string } | null> {
   try {
-    const dirEntries = await readdir(reportsDir, { withFileTypes: true });
-    entries = dirEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    const normalized = normalizeFilestorePath(path);
+    const node = await filestoreClient.getNodeByPath({ backendMountId: filestoreBackendId, path: normalized });
+    const download = await filestoreClient.downloadFile(node.id, { principal: filestorePrincipal });
+    const body = await streamToString(download.stream);
+    return {
+      nodeId: node.id,
+      payload: JSON.parse(body),
+      path: node.path
+    };
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code === 'ENOENT') {
-      return [];
+    if (error instanceof FilestoreClientError && error.statusCode === 404) {
+      return null;
     }
-    fastify.log.error({ err: error }, 'Failed to read reports directory');
-    return [];
+    throw error;
   }
+}
 
-  if (entries.length === 0) {
-    return [];
+function toReportUrl(filestorePath: string): string {
+  const normalized = normalizeFilestorePath(filestorePath);
+  if (normalized.startsWith(reportsPrefix)) {
+    const relative = normalized.slice(reportsPrefix.length).replace(/^\/+/, '');
+    return `/reports/${relative}`;
   }
+  return `/reports?path=${encodeURIComponent(normalized)}`;
+}
 
-  const sorted = entries.sort((a, b) => b.localeCompare(a));
-  const results: ReportEntry[] = [];
+async function listReportPartitions(limit = 10): Promise<
+  Array<{
+    partitionName: string;
+    partitionKey: string;
+    generatedAt: string;
+    updatedAt: string;
+    reportPaths: {
+      html: string;
+      markdown: string;
+      json: string;
+    };
+    summary: Record<string, unknown> | undefined;
+    metrics: Record<string, unknown> | undefined;
+    artifacts: unknown;
+  }>
+> {
+  try {
+    const result = await filestoreClient.listNodes({
+      backendMountId: filestoreBackendId,
+      path: reportsPrefix,
+      depth: 1,
+      kinds: ['directory'],
+      limit: 200
+    });
 
-  for (const partitionName of sorted) {
-    if (results.length >= limit) {
-      break;
-    }
-    const partitionDir = path.resolve(reportsDir, partitionName);
-    const statusPath = path.resolve(partitionDir, 'status.json');
-    try {
-      const file = await readFile(statusPath, 'utf8');
-      const payload = JSON.parse(file) as ReportStatusFile;
-      if (!payload?.metrics?.partitionKey) {
+    const overviewNormalized = normalizeFilestorePath(overviewPrefix);
+    const candidates = result.nodes
+      .filter((node) => node.kind === 'directory')
+      .map((node) => node.path)
+      .filter((path) => normalizeFilestorePath(path) !== overviewNormalized)
+      .sort((a, b) => b.localeCompare(a))
+      .slice(0, limit);
+
+    const entries: Array<{
+      partitionName: string;
+      partitionKey: string;
+      generatedAt: string;
+      updatedAt: string;
+      reportPaths: {
+        html: string;
+        markdown: string;
+        json: string;
+      };
+      summary: Record<string, unknown> | undefined;
+      metrics: Record<string, unknown> | undefined;
+      artifacts: unknown;
+    }> = [];
+
+    for (const fullPath of candidates) {
+      const normalizedPath = normalizeFilestorePath(fullPath);
+      const partitionName = normalizedPath.slice(reportsPrefix.length).replace(/^\/+/, '');
+      const statusPath = `${normalizedPath}/status.json`;
+      const record = await readJsonFromFilestore(statusPath);
+      if (!record) {
         continue;
       }
-      const stats = await stat(statusPath).catch(() => null);
-      results.push({
-        partitionDir,
+      const payload = record.payload as ReportStatusFile;
+      const generatedAt = typeof payload.generatedAt === 'string' ? payload.generatedAt : new Date().toISOString();
+      const htmlPath = `${normalizedPath}/status.html`;
+      const markdownPath = `${normalizedPath}/status.md`;
+
+      entries.push({
         partitionName,
-        payload,
-        updatedAt: stats ? stats.mtime.toISOString() : payload.generatedAt
+        partitionKey:
+          typeof payload.metrics?.partitionKey === 'string'
+            ? (payload.metrics?.partitionKey as string)
+            : partitionName,
+        generatedAt,
+        updatedAt: generatedAt,
+        reportPaths: {
+          html: toReportUrl(htmlPath),
+          markdown: toReportUrl(markdownPath),
+          json: toReportUrl(statusPath)
+        },
+        summary: (payload.summary as Record<string, unknown>) ?? undefined,
+        metrics: (payload.metrics as Record<string, unknown>) ?? undefined,
+        artifacts: payload.reportFiles ?? []
       });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException)?.code;
-      if (code === 'ENOENT') {
-        continue;
-      }
-      fastify.log.warn({ err: error, partitionName }, 'Skipping invalid report partition');
     }
-  }
 
-  return results;
+    return entries;
+  } catch (error) {
+    fastify.log.error({ err: error }, 'Failed to list report partitions from Filestore');
+    return [];
+  }
 }
 
 async function readOverviewStatus(): Promise<{
@@ -131,52 +169,65 @@ async function readOverviewStatus(): Promise<{
   partitionKey: string;
   lookbackMinutes: number;
   window: { start: string; end: string } | null;
-  summary: DashboardOverviewSummary | null;
+  summary: Record<string, unknown> | null;
   dashboardPath: string;
   dataPath: string;
   updatedAt: string;
 } | null> {
-  const overviewDir = path.resolve(reportsDir, overviewDirName);
-  const jsonPath = path.resolve(overviewDir, 'dashboard.json');
-  const htmlPath = path.resolve(overviewDir, 'index.html');
-
-  try {
-    const file = await readFile(jsonPath, 'utf8');
-    const payload = JSON.parse(file) as DashboardOverviewFile;
-    const htmlStats = await stat(htmlPath);
-    const relative = path.relative(reportsDir, overviewDir).split(path.sep).join('/');
-    const dashboardPath = `/reports/${relative}/index.html`;
-    const dataPath = `/reports/${relative}/dashboard.json`;
-    return {
-      generatedAt: payload.generatedAt,
-      partitionKey: payload.partitionKey,
-      lookbackMinutes: payload.lookbackMinutes,
-      window: payload.window ?? null,
-      summary: payload.summary ?? null,
-      dashboardPath,
-      dataPath,
-      updatedAt: htmlStats.mtime.toISOString()
-    };
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException)?.code;
-    if (code !== 'ENOENT') {
-      fastify.log.debug({ err: error }, 'Overview dashboard unavailable');
-    }
+  const jsonPath = `${overviewPrefix}/dashboard.json`;
+  const htmlPath = `${overviewPrefix}/index.html`;
+  const record = await readJsonFromFilestore(jsonPath);
+  if (!record) {
     return null;
   }
+  const payload = record.payload as Record<string, unknown>;
+  const generatedAt = typeof payload.generatedAt === 'string' ? payload.generatedAt : new Date().toISOString();
+  const partitionKey = typeof payload.partitionKey === 'string' ? payload.partitionKey : 'unknown';
+  const lookbackMinutes = Number(payload.lookbackMinutes ?? 0) || 0;
+  const window =
+    payload.window && typeof payload.window === 'object'
+      ? {
+          start: String((payload.window as Record<string, unknown>).start ?? generatedAt),
+          end: String((payload.window as Record<string, unknown>).end ?? generatedAt)
+        }
+      : null;
+
+  return {
+    generatedAt,
+    partitionKey,
+    lookbackMinutes,
+    window,
+    summary: (payload.summary as Record<string, unknown>) ?? null,
+    dashboardPath: toReportUrl(htmlPath),
+    dataPath: toReportUrl(jsonPath),
+    updatedAt: generatedAt
+  };
 }
 
-fastify.register(fastifyStatic, {
-  root: reportsDir,
-  prefix: '/reports/',
-  decorateReply: false,
-  cacheControl: false,
-  setHeaders(res) {
-    res.setHeader('Cache-Control', 'no-store');
+function guessContentType(path: string): string {
+  if (path.endsWith('.html')) {
+    return 'text/html; charset=utf-8';
   }
-});
+  if (path.endsWith('.json')) {
+    return 'application/json';
+  }
+  if (path.endsWith('.md')) {
+    return 'text/markdown; charset=utf-8';
+  }
+  if (path.endsWith('.svg')) {
+    return 'image/svg+xml';
+  }
+  if (path.endsWith('.csv')) {
+    return 'text/csv; charset=utf-8';
+  }
+  return 'application/octet-stream';
+}
 
-fastify.get('/healthz', async () => ({ status: 'ok', reportsDir }));
+fastify.get('/healthz', async () => ({
+  status: 'ok',
+  reportsPrefix,
+  overviewPrefix
+}));
 
 fastify.get('/api/status', async (request, reply) => {
   const [overview, reports] = await Promise.all([
@@ -200,57 +251,61 @@ fastify.get('/api/status', async (request, reply) => {
       }
     : {
         state: 'missing' as const,
-        overviewDirName
+        overviewPrefix
       };
-
-  const recentReports = reports.map((entry) => ({
-    partitionName: entry.partitionName,
-    partitionKey: entry.payload.metrics.partitionKey,
-    generatedAt: entry.payload.generatedAt,
-    updatedAt: entry.updatedAt,
-    summary: entry.payload.summary,
-    metrics: entry.payload.metrics,
-    reportPaths: {
-      html: `/reports/${entry.partitionName}/status.html`,
-      markdown: `/reports/${entry.partitionName}/status.md`,
-      json: `/reports/${entry.partitionName}/status.json`
-    }
-  }));
 
   const latest = reports[0] ?? null;
 
   if (!latest) {
     return {
       state: 'empty' as const,
-      reportsDir,
+      reportsPrefix,
       refreshIntervalMs,
       overview: overviewPayload,
-      recentReports
+      recentReports: reports
     };
   }
 
-  const partitionStat = await stat(latest.partitionDir).catch(() => null);
-  const partitionUpdatedAt = partitionStat?.mtime.toISOString() ?? latest.payload.generatedAt;
-
-  const reportPaths = {
-    html: `/reports/${latest.partitionName}/status.html`,
-    markdown: `/reports/${latest.partitionName}/status.md`,
-    json: `/reports/${latest.partitionName}/status.json`
-  } as const;
-
   return {
     state: 'ready' as const,
-    partitionKey: latest.payload.metrics.partitionKey,
-    generatedAt: latest.payload.generatedAt,
-    partitionUpdatedAt,
-    summary: latest.payload.summary,
-    metrics: latest.payload.metrics,
-    artifacts: latest.payload.artifacts ?? [],
-    reportPaths,
+    partitionKey: latest.partitionKey,
+    generatedAt: latest.generatedAt,
+    partitionUpdatedAt: latest.updatedAt,
+    summary: latest.summary ?? null,
+    metrics: latest.metrics ?? null,
+    artifacts: latest.artifacts ?? [],
+    reportPaths: latest.reportPaths,
     refreshIntervalMs,
     overview: overviewPayload,
-    recentReports
+    recentReports: reports
   };
+});
+
+fastify.get('/reports/*', async (request, reply) => {
+  const suffix = String((request.params as Record<string, string>)['*'] ?? '').replace(/^\/+/, '');
+  const targetPathParam = (request.query as Record<string, string | undefined>)?.path;
+  const filestorePath = normalizeFilestorePath(
+    targetPathParam && targetPathParam.trim().length > 0
+      ? targetPathParam
+      : `${reportsPrefix}/${suffix}`
+  );
+
+  try {
+    const node = await filestoreClient.getNodeByPath({ backendMountId: filestoreBackendId, path: filestorePath });
+    const download = await filestoreClient.downloadFile(node.id, { principal: filestorePrincipal });
+    reply.header('Cache-Control', 'no-store');
+    reply.header('Content-Type', download.contentType ?? guessContentType(filestorePath));
+    reply.header('Content-Length', download.totalSize ?? download.contentLength ?? undefined);
+    return reply.send(download.stream);
+  } catch (error) {
+    if (error instanceof FilestoreClientError && error.statusCode === 404) {
+      reply.status(404);
+      return { error: 'not_found', path: filestorePath };
+    }
+    fastify.log.error({ err: error, path: filestorePath }, 'Failed to proxy report asset');
+    reply.status(500);
+    return { error: 'internal_error' };
+  }
 });
 
 fastify.get('/', async (request, reply) => {
@@ -316,7 +371,7 @@ fastify.get('/', async (request, reply) => {
       </section>
     </main>
     <footer>
-      Auto-refresh interval: <span id="interval"></span> · Reports directory: <code>${reportsDir}</code>
+      Auto-refresh interval: <span id="interval"></span> · Reports prefix: <code>${reportsPrefix}</code>
     </footer>
     <script>
       const CONFIG = ${JSON.stringify(configPayload)};
@@ -344,21 +399,23 @@ fastify.get('/', async (request, reply) => {
           return;
         }
         const cards = [
-          { label: 'Samples', value: metrics.samples.toLocaleString() },
-          { label: 'Instruments', value: metrics.instrumentCount.toString() },
-          { label: 'Sites', value: metrics.siteCount.toString() },
-          { label: 'Avg Temp (°C)', value: metrics.averageTemperatureC.toFixed(2) },
-          { label: 'Avg PM₂.₅', value: metrics.averagePm25.toFixed(2) },
-          { label: 'Max PM₂.₅', value: metrics.maxPm25.toFixed(2) }
+          { label: 'Samples', value: metrics.samples?.toLocaleString?.() ?? metrics.samples ?? 0 },
+          { label: 'Instruments', value: metrics.instrumentCount ?? 0 },
+          { label: 'Sites', value: metrics.siteCount ?? 0 },
+          { label: 'Avg Temp (°C)', value: Number(metrics.averageTemperatureC ?? 0).toFixed(2) },
+          { label: 'Avg PM₂.₅', value: Number(metrics.averagePm25 ?? 0).toFixed(2) },
+          { label: 'Max PM₂.₅', value: Number(metrics.maxPm25 ?? 0).toFixed(2) }
         ];
-        statusGrid.innerHTML = cards.map(function (card) {
-          return '<div class="status-card"><h3>' + card.label + '</h3><p>' + card.value + '</p></div>';
-        }).join('');
+        statusGrid.innerHTML = cards
+          .map(function (card) {
+            return '<div class="status-card"><h3>' + card.label + '</h3><p>' + card.value + '</p></div>';
+          })
+          .join('');
 
         if (summary) {
-          summaryEl.innerHTML = 'Latest report covers <strong>' + summary.alertCount + '</strong> alerts with '
-            '<strong>' + summary.instrumentCount + '</strong> instruments across ' +
-            '<strong>' + summary.siteCount + '</strong> sites.';
+          summaryEl.innerHTML = 'Latest report covers <strong>' + (summary.alertCount ?? 0) + '</strong> alerts with '
+            + '<strong>' + (summary.instrumentCount ?? 0) + '</strong> instruments across '
+            + '<strong>' + (summary.siteCount ?? 0) + '</strong> sites.';
         } else {
           summaryEl.textContent = '';
         }
@@ -401,68 +458,36 @@ fastify.get('/', async (request, reply) => {
         }).join('');
       }
 
-      async function refreshStatus() {
+      async function refresh() {
         try {
-          const response = await fetch('/api/status', { headers: { 'cache-control': 'no-store' } });
-          if (!response.ok) {
-            throw new Error('Status request failed');
-          }
-          const data = await response.json();
-          renderOverview(data.overview);
-          renderRecentReports(data.recentReports);
-
-          if (data.state === 'empty') {
+          const response = await fetch('/api/status', { cache: 'no-store' });
+          const payload = await response.json();
+          if (payload.state === 'ready') {
+            subtitleEl.textContent = 'Partition ' + payload.partitionKey + ' generated ' + new Date(payload.generatedAt).toLocaleString();
+            if (payload.reportPaths && payload.reportPaths.html) {
+              reportFrame.src = payload.reportPaths.html + '?t=' + Date.now();
+            }
+            renderSummary(payload.metrics, payload.summary);
+          } else {
             renderEmpty();
-            setTimeout(refreshStatus, CONFIG.refreshIntervalMs);
-            return;
           }
-
-          renderSummary(data.metrics, data.summary);
-          subtitleEl.textContent = 'Latest partition ' + data.partitionKey + ' · Updated ' + new Date(data.partitionUpdatedAt).toLocaleTimeString();
-          reportFrame.src = data.reportPaths.html + '?t=' + Date.now();
+          renderRecentReports(payload.recentReports);
+          renderOverview(payload.overview);
         } catch (error) {
-          console.error('Dashboard status refresh failed', error);
-          renderEmpty();
+          console.error('Failed to refresh dashboard status', error);
         } finally {
-          setTimeout(refreshStatus, CONFIG.refreshIntervalMs);
+          setTimeout(refresh, CONFIG.refreshIntervalMs);
         }
       }
 
-      refreshStatus();
+      refresh();
     </script>
   </body>
 </html>`;
-
-  reply.type('text/html');
-  return html;
+  reply.type('text/html').send(html);
 });
 
-
-const port = Number(process.env.PORT ?? '4311');
-const host = process.env.HOST ?? '0.0.0.0';
-
-fastify
-  .listen({ port, host })
-  .then(() => {
-    fastify.log.info({ port, host, reportsDir }, 'Observatory dashboard ready');
-  })
-  .catch((error) => {
-    fastify.log.error({ err: error }, 'Failed to start observatory dashboard');
-    process.exit(1);
-  });
-
-const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
-for (const signal of shutdownSignals) {
-  process.on(signal, () => {
-    fastify.log.info({ signal }, 'Received shutdown signal');
-    fastify
-      .close()
-      .then(() => {
-        process.exit(0);
-      })
-      .catch((error) => {
-        fastify.log.error({ err: error }, 'Error during shutdown');
-        process.exit(1);
-      });
-  });
-}
+fastify.listen({ port: Number(process.env.PORT ?? 4177), host: process.env.HOST ?? '0.0.0.0' }).catch((error) => {
+  fastify.log.error(error, 'Failed to start dashboard service');
+  process.exit(1);
+});

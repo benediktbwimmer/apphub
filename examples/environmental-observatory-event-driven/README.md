@@ -2,7 +2,7 @@
 
 This variant of the observatory example uses **Filestore** uploads as the system of record, **workflow event triggers** to launch minute ingest automatically, and **Timestore/Metastore** to keep downstream plots and reports current. The original file-watcher driven walkthrough still lives in `examples/environmental-observatory`; this directory contains the new event-driven stack.
 
-- **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are staged.
+- **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are copied into the staging prefix.
 - **Workflow triggers:** catalog triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
 - **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.
 - **Aggregate overview:** a second workflow reacts to `observatory.minute.partition-ready`, runs the new dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
@@ -11,7 +11,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - **Live visibility:** the revamped dashboard lets you browse per-instrument plots, reports, and the aggregate visualization from one place.
 
 ## Directory Tour
-- `data/` – sandbox directories mounted by Filestore (`inbox`, `staging`, `archive`, `plots`, `reports`) plus Timestore's local `timestore/storage` + `timestore/cache` directories.
+- `data/` – historical scratch layout kept for reference; jobs now stream directly to Filestore prefixes and avoid writing to these directories.
 - `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem.
 - `workflows/` – minute ingest + publication definitions with new Filestore/Timestore parameters.
 - `services/` – the static dashboard frontend.
@@ -27,7 +27,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    OBSERVATORY_DATA_ROOT=/Users/you/observatory \
    npx tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts
    ```
-   The script writes `.generated/observatory-config.json`, provisions the Filestore backend, and ensures `TIMESTORE_STORAGE_ROOT` / `TIMESTORE_QUERY_CACHE_DIR` resolve under `OBSERVATORY_DATA_ROOT`. Keep the generated file out of source control.
+   The script writes `.generated/observatory-config.json`, provisions the Filestore backend, and records the inbox/staging/archive/visualization/report prefixes so jobs can read/write exclusively through Filestore. Keep the generated file out of source control.
 3. Register the workflow event triggers:
    ```bash
    npx tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts
@@ -42,7 +42,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    cd examples/environmental-observatory-event-driven/services/observatory-dashboard
    npm run dev
    ```
-6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard will surface both the per-instrument plots/reports and the aggregate visualization when new data lands.
+6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The dashboard streams both the per-instrument reports and the aggregate visualization straight from Filestore once new data lands.
    - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the catalog UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
 
 ## Related Scripts

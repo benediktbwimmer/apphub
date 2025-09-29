@@ -1,5 +1,8 @@
-import { mkdir, writeFile, stat } from 'node:fs/promises';
-import path from 'node:path';
+import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -19,7 +22,11 @@ type VisualizationParameters = {
   timestoreBaseUrl: string;
   timestoreDatasetSlug: string;
   timestoreAuthToken?: string;
-  plotsDir: string;
+  filestoreBaseUrl: string;
+  filestoreBackendId: number;
+  filestoreToken?: string;
+  filestorePrincipal?: string;
+  visualizationsPrefix: string;
   partitionKey: string;
   lookbackMinutes: number;
   siteFilter?: string;
@@ -73,17 +80,21 @@ type VisualizationMetrics = {
   instrumentId?: string;
 };
 
+type VisualizationArtifact = {
+  path: string;
+  nodeId: number | null;
+  mediaType: string;
+  description: string;
+  sizeBytes: number | null;
+  checksum: string | null;
+};
+
 type VisualizationAssetPayload = {
   generatedAt: string;
   partitionKey: string;
-  plotsDir: string;
+  storagePrefix: string;
   lookbackMinutes: number;
-  artifacts: Array<{
-    relativePath: string;
-    mediaType: string;
-    description: string;
-    sizeBytes: number;
-  }>;
+  artifacts: VisualizationArtifact[];
   metrics: VisualizationMetrics;
 };
 
@@ -138,11 +149,39 @@ function parseParameters(raw: unknown): VisualizationParameters {
     throw new Error('timestoreDatasetSlug parameter is required');
   }
   const timestoreAuthToken = ensureString(raw.timestoreAuthToken ?? raw.timestore_auth_token ?? '');
-  const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.outputDir);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
   const instrumentId = ensureString(raw.instrumentId ?? raw.instrument_id ?? '');
-  if (!plotsDir || !partitionKey) {
-    throw new Error('plotsDir and partitionKey parameters are required');
+  if (!partitionKey) {
+    throw new Error('partitionKey parameter is required');
+  }
+  const filestoreBaseUrl = ensureString(
+    raw.filestoreBaseUrl ??
+      raw.filestore_base_url ??
+      process.env.OBSERVATORY_FILESTORE_BASE_URL ??
+      process.env.FILESTORE_BASE_URL ??
+      ''
+  );
+  if (!filestoreBaseUrl) {
+    throw new Error('filestoreBaseUrl parameter is required');
+  }
+  const backendRaw =
+    raw.filestoreBackendId ??
+    raw.filestore_backend_id ??
+    raw.backendMountId ??
+    raw.backend_mount_id ??
+    process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
+    process.env.FILESTORE_BACKEND_ID;
+  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
+  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
+    throw new Error('filestoreBackendId parameter is required');
+  }
+  const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
+  const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
+  const fallbackPrefix = ensureString(raw.visualizationsPrefix ?? raw.visualizations_prefix ?? '');
+  const legacyOutput = ensureString(raw.plotsPrefix ?? raw.plots_prefix ?? raw.plotsDir ?? raw.plots_dir ?? raw.outputDir ?? '');
+  const visualizationsPrefix = fallbackPrefix || legacyOutput;
+  if (!visualizationsPrefix) {
+    throw new Error('visualizationsPrefix parameter is required');
   }
   const lookbackMinutes = Math.max(
     1,
@@ -153,7 +192,11 @@ function parseParameters(raw: unknown): VisualizationParameters {
     timestoreBaseUrl,
     timestoreDatasetSlug,
     timestoreAuthToken: timestoreAuthToken || undefined,
-    plotsDir,
+    filestoreBaseUrl,
+    filestoreBackendId,
+    filestoreToken: filestoreToken || undefined,
+    filestorePrincipal: filestorePrincipal || undefined,
+    visualizationsPrefix,
     partitionKey,
     lookbackMinutes,
     siteFilter: siteFilter || undefined,
@@ -353,12 +396,6 @@ function summarizeRows(rows: ObservatoryRow[]): SummaryRow {
   } satisfies SummaryRow;
 }
 
-async function writeArtifact(filePath: string, content: string): Promise<number> {
-  await writeFile(filePath, content, 'utf8');
-  const stats = await stat(filePath);
-  return stats.size;
-}
-
 function buildSvgPath(rows: TrendRow[], accessor: (row: TrendRow) => number): string {
   if (rows.length === 0) {
     return '';
@@ -418,12 +455,23 @@ function buildPm25Svg(rows: TrendRow[]): string {
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
   const { startIso, endIso } = computeTimeRange(parameters.partitionKey, parameters.lookbackMinutes);
+  const filestoreClient = new FilestoreClient({
+    baseUrl: parameters.filestoreBaseUrl,
+    token: parameters.filestoreToken,
+    userAgent: 'observatory-visualization-runner/0.2.0'
+  });
   const instrumentKey = parameters.instrumentId
     ? parameters.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
     : 'all';
-  const partitionPlotsKey = `${instrumentKey}_${parameters.partitionKey.replace(':', '-')}`;
-  const partitionPlotsDir = path.resolve(parameters.plotsDir, partitionPlotsKey);
-  await mkdir(partitionPlotsDir, { recursive: true });
+  const normalizedPrefix = parameters.visualizationsPrefix.replace(/\/+$/g, '');
+  const partitionSafe = parameters.partitionKey.replace(/:/g, '-');
+  const storagePrefix = `${normalizedPrefix}/${instrumentKey}/${partitionSafe}`;
+  await ensureFilestoreHierarchy(
+    filestoreClient,
+    parameters.filestoreBackendId,
+    storagePrefix,
+    parameters.filestorePrincipal
+  );
 
   const rows = await queryTimestore(parameters, startIso, endIso);
   context.logger('Fetched observations from Timestore', {
@@ -449,41 +497,83 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   } satisfies VisualizationMetrics;
 
   const temperatureSvg = buildTemperatureSvg(trendRows);
-  const temperaturePath = path.resolve(partitionPlotsDir, 'temperature_trend.svg');
-  const temperatureSize = await writeArtifact(temperaturePath, temperatureSvg);
-
   const pm25Svg = buildPm25Svg(trendRows);
-  const pm25Path = path.resolve(partitionPlotsDir, 'pm25_trend.svg');
-  const pm25Size = await writeArtifact(pm25Path, pm25Svg);
+  const temperatureNode = await uploadTextFile({
+    client: filestoreClient,
+    backendMountId: parameters.filestoreBackendId,
+    path: `${storagePrefix}/temperature_trend.svg`,
+    content: temperatureSvg,
+    contentType: 'image/svg+xml',
+    principal: parameters.filestorePrincipal,
+    metadata: {
+      partitionKey: parameters.partitionKey,
+      instrumentId: parameters.instrumentId ?? null,
+      siteFilter: parameters.siteFilter ?? null,
+      variant: 'temperature'
+    }
+  });
 
-  const metricsPath = path.resolve(partitionPlotsDir, 'metrics.json');
-  const metricsSize = await writeArtifact(metricsPath, JSON.stringify(metrics, null, 2));
+  const pm25Node = await uploadTextFile({
+    client: filestoreClient,
+    backendMountId: parameters.filestoreBackendId,
+    path: `${storagePrefix}/pm25_trend.svg`,
+    content: pm25Svg,
+    contentType: 'image/svg+xml',
+    principal: parameters.filestorePrincipal,
+    metadata: {
+      partitionKey: parameters.partitionKey,
+      instrumentId: parameters.instrumentId ?? null,
+      siteFilter: parameters.siteFilter ?? null,
+      variant: 'pm25'
+    }
+  });
 
-  const artifacts: VisualizationAssetPayload['artifacts'] = [
+  const metricsNode = await uploadTextFile({
+    client: filestoreClient,
+    backendMountId: parameters.filestoreBackendId,
+    path: `${storagePrefix}/metrics.json`,
+    content: JSON.stringify(metrics, null, 2),
+    contentType: 'application/json',
+    principal: parameters.filestorePrincipal,
+    metadata: {
+      partitionKey: parameters.partitionKey,
+      instrumentId: parameters.instrumentId ?? null,
+      siteFilter: parameters.siteFilter ?? null,
+      variant: 'metrics'
+    }
+  });
+
+  const artifacts: VisualizationArtifact[] = [
     {
-      relativePath: path.relative(partitionPlotsDir, temperaturePath),
+      path: temperatureNode.path ?? `${storagePrefix}/temperature_trend.svg`,
+      nodeId: temperatureNode.id ?? null,
       mediaType: 'image/svg+xml',
       description: 'Average temperature trend',
-      sizeBytes: temperatureSize
+      sizeBytes: temperatureNode.sizeBytes ?? null,
+      checksum: temperatureNode.checksum ?? null
     },
     {
-      relativePath: path.relative(partitionPlotsDir, pm25Path),
+      path: pm25Node.path ?? `${storagePrefix}/pm25_trend.svg`,
+      nodeId: pm25Node.id ?? null,
       mediaType: 'image/svg+xml',
       description: 'Average PM2.5 trend',
-      sizeBytes: pm25Size
+      sizeBytes: pm25Node.sizeBytes ?? null,
+      checksum: pm25Node.checksum ?? null
     },
     {
-      relativePath: path.relative(partitionPlotsDir, metricsPath),
+      path: metricsNode.path ?? `${storagePrefix}/metrics.json`,
+      nodeId: metricsNode.id ?? null,
       mediaType: 'application/json',
       description: 'Visualization metrics JSON',
-      sizeBytes: metricsSize
+      sizeBytes: metricsNode.sizeBytes ?? null,
+      checksum: metricsNode.checksum ?? null
     }
   ];
 
   const payload: VisualizationAssetPayload = {
     generatedAt,
     partitionKey: parameters.partitionKey,
-    plotsDir: partitionPlotsDir,
+    storagePrefix,
     lookbackMinutes: parameters.lookbackMinutes,
     artifacts,
     metrics
@@ -491,7 +581,9 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
 
   await context.update({
     samples: metrics.samples,
-    instruments: metrics.instrumentCount
+    instruments: metrics.instrumentCount,
+    storagePrefix,
+    artifactCount: artifacts.length
   });
 
   return {

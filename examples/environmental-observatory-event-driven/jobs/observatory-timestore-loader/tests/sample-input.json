@@ -4,26 +4,38 @@
     "datasetName": "Observatory Time Series",
     "tableName": "observations",
     "timestoreBaseUrl": "http://127.0.0.1:4200",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
+    "filestoreBackendId": 1,
+    "filestoreToken": null,
+    "filestorePrincipal": "observatory-timestore-loader",
+    "stagingPrefix": "datasets/observatory/staging",
     "minute": "2025-08-01T09:00",
     "partitionNamespace": "observatory",
     "idempotencyKey": "observatory-2025-08-01T09:00",
     "rawAsset": {
       "partitionKey": "2025-08-01T09:00",
       "minute": "2025-08-01T09:00",
-      "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
-      "stagingMinuteDir": "examples/environmental-observatory-event-driven/data/staging/2025-08-01T09-00",
-      "sourceFiles": [
+      "backendMountId": 1,
+      "stagingPrefix": "datasets/observatory/staging",
+      "stagingMinutePrefix": "datasets/observatory/staging/2025-08-01T09-00",
+      "files": [
         {
-          "relativePath": "2025-08-01T09-00/instrument_alpha_202508010900.csv",
+          "path": "datasets/observatory/staging/2025-08-01T09-00/instrument_alpha_202508010900.csv",
+          "nodeId": 101,
           "instrumentId": "instrument_alpha",
           "site": "west-basin",
-          "rows": 6
+          "rows": 6,
+          "sizeBytes": 512,
+          "checksum": "abc123"
         },
         {
-          "relativePath": "2025-08-01T09-00/instrument_bravo_202508010900.csv",
+          "path": "datasets/observatory/staging/2025-08-01T09-00/instrument_bravo_202508010900.csv",
+          "nodeId": 102,
           "instrumentId": "instrument_bravo",
           "site": "hillcrest",
-          "rows": 6
+          "rows": 6,
+          "sizeBytes": 512,
+          "checksum": "def456"
         }
       ]
     }

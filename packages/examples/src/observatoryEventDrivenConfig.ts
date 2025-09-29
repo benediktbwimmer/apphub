@@ -15,6 +15,8 @@ export type ObservatoryConfig = {
     inboxPrefix: string;
     stagingPrefix: string;
     archivePrefix: string;
+    visualizationsPrefix?: string;
+    reportsPrefix?: string;
     bucket?: string;
     endpoint?: string;
     region?: string;
@@ -46,9 +48,14 @@ export type ObservatoryConfig = {
   workflows: {
     ingestSlug: string;
     publicationSlug: string;
+    aggregateSlug: string;
     visualizationAssetId: string;
     generator?: {
       instrumentCount?: number;
+    };
+    dashboard?: {
+      overviewPrefix?: string;
+      lookbackMinutes?: number;
     };
   };
 };
@@ -193,9 +200,19 @@ export function createEventDrivenObservatoryConfig(
         'filestore.stagingPrefix'
       ),
       archivePrefix: resolveString(
-      getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
-      'datasets/observatory/archive',
-      'filestore.archivePrefix'
+        getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
+        'datasets/observatory/archive',
+        'filestore.archivePrefix'
+      ),
+      visualizationsPrefix: resolveString(
+        getVar('OBSERVATORY_FILESTORE_VIS_PREFIX'),
+        'datasets/observatory/visualizations',
+        'filestore.visualizationsPrefix'
+      ),
+      reportsPrefix: resolveString(
+        getVar('OBSERVATORY_FILESTORE_REPORTS_PREFIX'),
+        'datasets/observatory/reports',
+        'filestore.reportsPrefix'
       ),
       bucket: optionalString(
         getVar('OBSERVATORY_FILESTORE_S3_BUCKET', ['FILESTORE_S3_BUCKET', 'APPHUB_BUNDLE_STORAGE_BUCKET'])
@@ -356,6 +373,11 @@ export function createEventDrivenObservatoryConfig(
         'observatory-daily-publication',
         'workflows.publicationSlug'
       ),
+      aggregateSlug: resolveString(
+        getVar('OBSERVATORY_DASHBOARD_WORKFLOW_SLUG'),
+        'observatory-dashboard-aggregate',
+        'workflows.aggregateSlug'
+      ),
       visualizationAssetId: resolveString(
         getVar('OBSERVATORY_VISUALIZATION_ASSET_ID'),
         'observatory.visualizations.minute',
@@ -367,6 +389,13 @@ export function createEventDrivenObservatoryConfig(
             getVar('OBSERVATORY_GENERATOR_INSTRUMENT_COUNT') ?? getVar('OBSERVATORY_INSTRUMENT_COUNT'),
             'workflows.generator.instrumentCount'
           ) ?? 3
+      },
+      dashboard: {
+        overviewPrefix: optionalString(getVar('OBSERVATORY_DASHBOARD_OVERVIEW_PREFIX')),
+        lookbackMinutes: optionalNumber(
+          getVar('OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES'),
+          'workflows.dashboard.lookbackMinutes'
+        )
       }
     }
   } satisfies ObservatoryConfig;

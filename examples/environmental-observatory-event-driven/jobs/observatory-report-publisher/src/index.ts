@@ -1,5 +1,8 @@
-import { mkdir, writeFile, stat } from 'node:fs/promises';
-import path from 'node:path';
+import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureFilestoreHierarchy, uploadTextFile } from '../../shared/filestore';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -16,10 +19,12 @@ type JobRunContext = {
 };
 
 type VisualizationArtifact = {
-  relativePath: string;
-  mediaType?: string;
+  path: string;
+  nodeId: number | null;
+  mediaType: string;
   description?: string;
-  sizeBytes?: number;
+  sizeBytes?: number | null;
+  checksum?: string | null;
 };
 
 type VisualizationMetrics = {
@@ -38,40 +43,45 @@ type VisualizationMetrics = {
 type VisualizationAsset = {
   generatedAt: string;
   partitionKey: string;
-  plotsDir: string;
+  storagePrefix: string;
   lookbackMinutes: number;
   artifacts: VisualizationArtifact[];
   metrics: VisualizationMetrics;
 };
 
 type ReportPublisherParameters = {
-  reportsDir: string;
-  plotsDir: string;
+  reportsPrefix: string;
   partitionKey: string;
   instrumentId?: string;
   reportTemplate?: string;
   visualizationAsset: VisualizationAsset;
+  filestoreBaseUrl: string;
+  filestoreBackendId: number;
+  filestoreToken?: string;
+  filestorePrincipal?: string;
   metastoreBaseUrl?: string;
   metastoreAuthToken?: string;
   metastoreNamespace?: string;
 };
 
 type ReportFile = {
-  relativePath: string;
+  path: string;
+  nodeId: number | null;
   mediaType: string;
-  sizeBytes: number;
+  sizeBytes: number | null;
+  checksum?: string | null;
 };
 
 type ReportAssetPayload = {
   generatedAt: string;
-  reportsDir: string;
+  storagePrefix: string;
   reportFiles: ReportFile[];
   summary: {
     instrumentCount: number;
     siteCount: number;
     alertCount: number;
   };
-  plotsReferenced: Array<{ relativePath: string; altText: string }>;
+  plotsReferenced: Array<{ path: string; altText: string }>;
   instrumentId?: string;
 };
 
@@ -102,7 +112,7 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
   }
   const generatedAt = ensureString(raw.generatedAt ?? raw.generated_at);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
-  const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.outputDir);
+  const storagePrefix = ensureString(raw.storagePrefix ?? raw.storage_prefix ?? raw.plotsDir ?? raw.plots_dir ?? '');
   const lookbackMinutesRaw = raw.lookbackMinutes ?? raw.lookback_minutes ?? raw.lookbackHours ?? raw.lookback_hours;
   const lookbackMinutes =
     typeof lookbackMinutesRaw === 'number' ? lookbackMinutesRaw : Number(lookbackMinutesRaw ?? 0) || 0;
@@ -113,15 +123,30 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
     if (!isRecord(entry)) {
       continue;
     }
-    const relativePath = ensureString(entry.relativePath ?? entry.relative_path ?? entry.path);
-    if (!relativePath) {
+    const pathValue = ensureString(entry.path ?? entry.filestorePath ?? entry.relativePath ?? entry.relative_path ?? '');
+    if (!pathValue) {
       continue;
     }
+    const nodeIdValue =
+      typeof entry.nodeId === 'number' && Number.isFinite(entry.nodeId)
+        ? entry.nodeId
+        : typeof entry.node_id === 'number' && Number.isFinite(entry.node_id)
+          ? entry.node_id
+          : null;
+    const sizeValue =
+      typeof entry.sizeBytes === 'number' && Number.isFinite(entry.sizeBytes)
+        ? entry.sizeBytes
+        : typeof entry.size_bytes === 'number' && Number.isFinite(entry.size_bytes)
+          ? entry.size_bytes
+          : null;
+    const mediaType = ensureString(entry.mediaType ?? entry.media_type ?? 'application/octet-stream') || 'application/octet-stream';
     artifacts.push({
-      relativePath,
-      mediaType: ensureString(entry.mediaType ?? entry.media_type ?? 'application/octet-stream'),
-      description: ensureString(entry.description ?? ''),
-      sizeBytes: typeof entry.sizeBytes === 'number' ? entry.sizeBytes : undefined
+      path: pathValue,
+      nodeId: nodeIdValue,
+      mediaType,
+      description: ensureString(entry.description ?? '' ) || undefined,
+      sizeBytes: sizeValue,
+      checksum: ensureString(entry.checksum ?? '') || undefined
     });
   }
 
@@ -140,14 +165,14 @@ function parseVisualizationAsset(raw: unknown): VisualizationAsset {
     instrumentId: ensureString(metricsRaw.instrumentId ?? metricsRaw.instrument_id ?? '') || undefined
   } satisfies VisualizationMetrics;
 
-  if (!generatedAt || !partitionKey || !plotsDir) {
-    throw new Error('visualizationAsset must include generatedAt, partitionKey, and plotsDir');
+  if (!generatedAt || !partitionKey || !storagePrefix) {
+    throw new Error('visualizationAsset must include generatedAt, partitionKey, and storagePrefix');
   }
 
   return {
     generatedAt,
     partitionKey,
-    plotsDir,
+    storagePrefix: storagePrefix.replace(/\/+$/g, ''),
     lookbackMinutes,
     artifacts,
     metrics
@@ -158,43 +183,71 @@ function parseParameters(raw: unknown): ReportPublisherParameters {
   if (!isRecord(raw)) {
     throw new Error('Parameters must be an object');
   }
-  const reportsDir = ensureString(raw.reportsDir ?? raw.reports_dir ?? raw.outputDir);
-  const plotsDir = ensureString(raw.plotsDir ?? raw.plots_dir ?? raw.visualizationsDir);
   const partitionKey = ensureString(raw.partitionKey ?? raw.partition_key);
   const instrumentId = ensureString(raw.instrumentId ?? raw.instrument_id ?? '');
-  if (!reportsDir || !plotsDir || !partitionKey) {
-    throw new Error('reportsDir, plotsDir, and partitionKey parameters are required');
+  if (!partitionKey) {
+    throw new Error('partitionKey parameter is required');
   }
   const reportTemplate = ensureString(raw.reportTemplate ?? raw.report_template ?? '');
   const visualizationAsset = parseVisualizationAsset(raw.visualizationAsset ?? raw.visualization_asset);
+  const filestoreBaseUrl = ensureString(
+    raw.filestoreBaseUrl ??
+      raw.filestore_base_url ??
+      process.env.OBSERVATORY_FILESTORE_BASE_URL ??
+      process.env.FILESTORE_BASE_URL ??
+      ''
+  );
+  if (!filestoreBaseUrl) {
+    throw new Error('filestoreBaseUrl parameter is required');
+  }
+  const backendRaw =
+    raw.filestoreBackendId ??
+    raw.filestore_backend_id ??
+    raw.backendMountId ??
+    raw.backend_mount_id ??
+    process.env.OBSERVATORY_FILESTORE_BACKEND_ID ??
+    process.env.FILESTORE_BACKEND_ID;
+  const filestoreBackendId = backendRaw ? Number(backendRaw) : NaN;
+  if (!Number.isFinite(filestoreBackendId) || filestoreBackendId <= 0) {
+    throw new Error('filestoreBackendId parameter is required');
+  }
+  const filestoreToken = ensureString(raw.filestoreToken ?? raw.filestore_token ?? '');
+  const filestorePrincipal = ensureString(raw.filestorePrincipal ?? raw.filestore_principal ?? '');
+  const reportsPrefix = ensureString(
+    raw.reportsPrefix ??
+      raw.reports_prefix ??
+      raw.reportsDir ??
+      raw.reports_dir ??
+      process.env.OBSERVATORY_REPORTS_PREFIX ?? ''
+  );
+  if (!reportsPrefix) {
+    throw new Error('reportsPrefix parameter is required');
+  }
   const metastoreBaseUrlRaw = ensureString(raw.metastoreBaseUrl ?? raw.metastore_base_url ?? DEFAULT_METASTORE_BASE_URL);
   const metastoreBaseUrl = metastoreBaseUrlRaw ? metastoreBaseUrlRaw.replace(/\/$/, '') : '';
   const metastoreAuthToken = ensureString(raw.metastoreAuthToken ?? raw.metastore_auth_token ?? '');
   const metastoreNamespace = ensureString(raw.metastoreNamespace ?? raw.metastore_namespace ?? DEFAULT_METASTORE_NAMESPACE);
 
   return {
-    reportsDir,
-    plotsDir,
+    reportsPrefix: reportsPrefix.replace(/\/+$/g, ''),
     partitionKey,
     instrumentId: instrumentId || undefined,
     reportTemplate: reportTemplate || undefined,
     visualizationAsset,
+    filestoreBaseUrl,
+    filestoreBackendId,
+    filestoreToken: filestoreToken || undefined,
+    filestorePrincipal: filestorePrincipal || undefined,
     metastoreBaseUrl: metastoreBaseUrl || undefined,
     metastoreAuthToken: metastoreAuthToken || undefined,
     metastoreNamespace: metastoreNamespace || DEFAULT_METASTORE_NAMESPACE
   } satisfies ReportPublisherParameters;
 }
 
-async function writeTextFile(filePath: string, content: string): Promise<number> {
-  await writeFile(filePath, content, 'utf8');
-  const stats = await stat(filePath);
-  return stats.size;
-}
-
 function buildMarkdown(metrics: VisualizationMetrics, artifacts: VisualizationArtifact[]): string {
   const chartList = artifacts
     .filter((artifact) => artifact.mediaType?.startsWith('image/'))
-    .map((artifact) => `- ![${artifact.description ?? artifact.relativePath}](${artifact.relativePath})`)
+    .map((artifact) => `- ![${artifact.description ?? artifact.path}](${artifact.path})`)
     .join('\n');
 
   const instrumentLine = metrics.instrumentId ? `- Instrument source: **${metrics.instrumentId}**\n` : '';
@@ -284,62 +337,117 @@ function buildHtml(template: string | undefined, markdownContent: string, metric
     .replace('{{markdown}}', markdownContent);
 }
 
-async function writeReports(
+async function uploadReports(
+  client: FilestoreClient,
   params: ReportPublisherParameters,
+  generatedAt: string,
   markdown: string,
   html: string,
-  summary: ReportAssetPayload['summary']
-): Promise<ReportFile[]> {
+  summary: ReportAssetPayload['summary'],
+  plotsReferenced: Array<{ path: string; altText: string }>
+): Promise<{ storagePrefix: string; files: ReportFile[] }> {
   const instrumentSegment = params.instrumentId
     ? params.instrumentId.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
     : 'all';
-  const partitionDir = path.resolve(
-    params.reportsDir,
-    `${instrumentSegment}_${params.partitionKey.replace(':', '-')}`
+  const partitionSafe = params.partitionKey.replace(/:/g, '-');
+  const storagePrefix = `${params.reportsPrefix}/${instrumentSegment}/${partitionSafe}`.replace(/\/+$/g, '');
+
+  await ensureFilestoreHierarchy(
+    client,
+    params.filestoreBackendId,
+    storagePrefix,
+    params.filestorePrincipal
   );
-  await mkdir(partitionDir, { recursive: true });
 
-  const markdownPath = path.resolve(partitionDir, 'status.md');
-  const htmlPath = path.resolve(partitionDir, 'status.html');
-  const jsonPath = path.resolve(partitionDir, 'status.json');
+  const markdownPath = `${storagePrefix}/status.md`;
+  const htmlPath = `${storagePrefix}/status.html`;
+  const jsonPath = `${storagePrefix}/status.json`;
 
-  const markdownSize = await writeTextFile(markdownPath, markdown);
-  const htmlSize = await writeTextFile(htmlPath, html);
+  const [markdownNode, htmlNode] = await Promise.all([
+    uploadTextFile({
+      client,
+      backendMountId: params.filestoreBackendId,
+      path: markdownPath,
+      content: markdown,
+      contentType: 'text/markdown; charset=utf-8',
+      principal: params.filestorePrincipal,
+      metadata: {
+        partitionKey: params.partitionKey,
+        instrumentId: params.instrumentId ?? null,
+        variant: 'status-markdown'
+      }
+    }),
+    uploadTextFile({
+      client,
+      backendMountId: params.filestoreBackendId,
+      path: htmlPath,
+      content: html,
+      contentType: 'text/html; charset=utf-8',
+      principal: params.filestorePrincipal,
+      metadata: {
+        partitionKey: params.partitionKey,
+        instrumentId: params.instrumentId ?? null,
+        variant: 'status-html'
+      }
+    })
+  ]);
 
-  const reportFiles: ReportFile[] = [
+  const files: ReportFile[] = [
     {
-      relativePath: path.relative(params.reportsDir, markdownPath),
+      path: markdownNode.path ?? markdownPath,
+      nodeId: markdownNode.id ?? null,
       mediaType: 'text/markdown',
-      sizeBytes: markdownSize
+      sizeBytes: markdownNode.sizeBytes ?? null,
+      checksum: markdownNode.checksum ?? null
     },
     {
-      relativePath: path.relative(params.reportsDir, htmlPath),
+      path: htmlNode.path ?? htmlPath,
+      nodeId: htmlNode.id ?? null,
       mediaType: 'text/html',
-      sizeBytes: htmlSize
+      sizeBytes: htmlNode.sizeBytes ?? null,
+      checksum: htmlNode.checksum ?? null
     }
   ];
 
   const summaryJson = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
+    storagePrefix,
     partitionKey: params.partitionKey,
+    instrumentId: params.instrumentId ?? params.visualizationAsset.metrics.instrumentId ?? null,
     lookbackMinutes: params.visualizationAsset.lookbackMinutes,
     siteFilter: params.visualizationAsset.metrics.siteFilter ?? null,
     summary,
+    plotsReferenced,
     visualization: {
-      metrics: params.visualizationAsset.metrics,
+      storagePrefix: params.visualizationAsset.storagePrefix,
       artifacts: params.visualizationAsset.artifacts
     },
-    reports: reportFiles
+    reports: files
   } satisfies Record<string, unknown>;
 
-  const jsonBytes = await writeTextFile(jsonPath, JSON.stringify(summaryJson, null, 2));
-  reportFiles.push({
-    relativePath: path.relative(params.reportsDir, jsonPath),
-    mediaType: 'application/json',
-    sizeBytes: jsonBytes
+  const jsonNode = await uploadTextFile({
+    client,
+    backendMountId: params.filestoreBackendId,
+    path: jsonPath,
+    content: JSON.stringify(summaryJson, null, 2),
+    contentType: 'application/json',
+    principal: params.filestorePrincipal,
+    metadata: {
+      partitionKey: params.partitionKey,
+      instrumentId: params.instrumentId ?? null,
+      variant: 'status-json'
+    }
   });
 
-  return reportFiles;
+  files.push({
+    path: jsonNode.path ?? jsonPath,
+    nodeId: jsonNode.id ?? null,
+    mediaType: 'application/json',
+    sizeBytes: jsonNode.sizeBytes ?? null,
+    checksum: jsonNode.checksum ?? null
+  });
+
+  return { storagePrefix, files };
 }
 
 function buildSummary(metrics: VisualizationMetrics): ReportAssetPayload['summary'] {
@@ -350,12 +458,12 @@ function buildSummary(metrics: VisualizationMetrics): ReportAssetPayload['summar
   } satisfies ReportAssetPayload['summary'];
 }
 
-function buildPlotsReferenced(artifacts: VisualizationArtifact[]): Array<{ relativePath: string; altText: string }> {
+function buildPlotsReferenced(artifacts: VisualizationArtifact[]): Array<{ path: string; altText: string }> {
   return artifacts
     .filter((artifact) => artifact.mediaType?.startsWith('image/'))
     .map((artifact) => ({
-      relativePath: artifact.relativePath,
-      altText: artifact.description ?? artifact.relativePath
+      path: artifact.path,
+      altText: artifact.description ?? artifact.path
     }));
 }
 
@@ -389,7 +497,7 @@ async function upsertMetastoreRecord(
     summary: payload.summary,
     reportFiles: payload.reportFiles,
     plotsReferenced: payload.plotsReferenced,
-    reportsDir: payload.reportsDir,
+    storagePrefix: payload.storagePrefix,
     visualizationPartition: params.visualizationAsset.partitionKey,
     visualizationMetrics: params.visualizationAsset.metrics,
     lookbackMinutes: params.visualizationAsset.lookbackMinutes,
@@ -410,20 +518,33 @@ async function upsertMetastoreRecord(
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
+  const filestoreClient = new FilestoreClient({
+    baseUrl: parameters.filestoreBaseUrl,
+    token: parameters.filestoreToken,
+    userAgent: 'observatory-report-publisher/0.2.0'
+  });
   const markdown = buildMarkdown(parameters.visualizationAsset.metrics, parameters.visualizationAsset.artifacts);
   const html = buildHtml(parameters.reportTemplate, markdown, parameters.visualizationAsset.metrics);
 
   const summary = buildSummary(parameters.visualizationAsset.metrics);
-  const reportFiles = await writeReports(parameters, markdown, html, summary);
   const plotsReferenced = buildPlotsReferenced(parameters.visualizationAsset.artifacts);
-
   const generatedAt = new Date().toISOString();
+  const { storagePrefix, files: reportFiles } = await uploadReports(
+    filestoreClient,
+    parameters,
+    generatedAt,
+    markdown,
+    html,
+    summary,
+    plotsReferenced
+  );
+
   const assetPartitionKey = parameters.instrumentId
     ? `${parameters.instrumentId}::${parameters.partitionKey}`
     : parameters.partitionKey;
   const payload: ReportAssetPayload = {
     generatedAt,
-    reportsDir: parameters.reportsDir,
+    storagePrefix,
     reportFiles,
     summary,
     plotsReferenced,
@@ -433,7 +554,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   await context.update({
     reportFiles: reportFiles.length,
     instruments: summary.instrumentCount,
-    instrumentId: parameters.instrumentId || null
+    instrumentId: parameters.instrumentId || null,
+    storagePrefix
   });
 
   await upsertMetastoreRecord(parameters, payload);

@@ -6,14 +6,6 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "stagingDir": {
-        "type": "string",
-        "minLength": 1
-      },
-      "archiveDir": {
-        "type": "string",
-        "minLength": 1
-      },
       "minute": {
         "type": "string",
         "minLength": 1
@@ -74,8 +66,6 @@
       }
     },
     "required": [
-      "stagingDir",
-      "archiveDir",
       "minute",
       "filestoreBaseUrl",
       "filestoreBackendId",
@@ -88,8 +78,6 @@
   },
   "defaultParameters": {
     "maxFiles": 1,
-    "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
-    "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
@@ -114,8 +102,6 @@
       "type": "job",
       "jobSlug": "observatory-inbox-normalizer",
       "parameters": {
-        "stagingDir": "{{ parameters.stagingDir }}",
-        "archiveDir": "{{ parameters.archiveDir }}",
         "minute": "{{ parameters.minute }}",
         "maxFiles": "{{ parameters.maxFiles }}",
         "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
@@ -140,55 +126,38 @@
           "schema": {
             "type": "object",
             "properties": {
-              "partitionKey": {
-                "type": "string"
-              },
-              "minute": {
-                "type": "string"
-              },
-              "instrumentCount": {
-                "type": "number"
-              },
-              "recordCount": {
-                "type": "number"
-              },
-              "sourceFiles": {
+              "partitionKey": { "type": "string" },
+              "minute": { "type": "string" },
+              "instrumentCount": { "type": "number" },
+              "recordCount": { "type": "number" },
+              "backendMountId": { "type": "number" },
+              "stagingPrefix": { "type": "string" },
+              "stagingMinutePrefix": { "type": "string" },
+              "files": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": {
-                      "type": "string"
-                    },
-                    "site": {
-                      "type": "string"
-                    },
-                    "instrumentId": {
-                      "type": "string"
-                    },
-                    "rows": {
-                      "type": "number"
-                    }
+                    "path": { "type": "string" },
+                    "nodeId": { "type": "number" },
+                    "site": { "type": "string" },
+                    "instrumentId": { "type": "string" },
+                    "rows": { "type": "number" },
+                    "sizeBytes": { "type": "number" },
+                    "checksum": { "type": "string" }
                   },
-                  "required": [
-                    "relativePath",
-                    "rows"
-                  ]
+                  "required": ["path", "rows"]
                 }
               },
-              "stagingDir": {
-                "type": "string"
-              },
-              "normalizedAt": {
-                "type": "string",
-                "format": "date-time"
-              }
+              "normalizedAt": { "type": "string", "format": "date-time" }
             },
             "required": [
               "partitionKey",
               "minute",
+              "backendMountId",
+              "stagingPrefix",
               "recordCount",
-              "sourceFiles",
+              "files",
               "normalizedAt"
             ]
           }
@@ -210,6 +179,11 @@
         "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
         "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
         "storageTargetId": "{{ parameters.timestoreStorageTargetId }}",
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
+        "stagingPrefix": "{{ parameters.stagingPrefix }}",
         "partitionNamespace": "observatory",
         "minute": "{{ parameters.minute }}",
         "idempotencyKey": "{{ parameters.commandPath | default: parameters.minute }}",
@@ -301,8 +275,6 @@
             "minute": "{{ event.payload.node.metadata.minute }}",
             "instrumentId": "{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: 'unknown' }}",
             "maxFiles": "{{ trigger.metadata.maxFiles }}",
-            "stagingDir": "{{ trigger.metadata.paths.stagingDir }}",
-            "archiveDir": "{{ trigger.metadata.paths.archiveDir }}",
             "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
             "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
             "filestoreToken": "{{ trigger.metadata.filestore.token }}",
@@ -324,10 +296,6 @@
           "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ':', '-' }}",
           "metadata": {
             "maxFiles": "{{ defaultParameters.maxFiles }}",
-            "paths": {
-              "stagingDir": "{{ defaultParameters.stagingDir }}",
-              "archiveDir": "{{ defaultParameters.archiveDir }}"
-            },
             "filestore": {
               "baseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
               "backendMountId": "{{ defaultParameters.filestoreBackendId }}",

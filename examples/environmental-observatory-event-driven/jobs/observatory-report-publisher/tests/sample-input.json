@@ -1,25 +1,32 @@
 {
   "parameters": {
-    "reportsDir": "examples/environmental-observatory-event-driven/data/reports",
-    "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
+    "reportsPrefix": "datasets/observatory/reports",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
+    "filestoreBackendId": 1,
+    "filestoreToken": null,
+    "filestorePrincipal": "observatory-report-publisher",
     "partitionKey": "2025-08-01T09:00",
     "visualizationAsset": {
       "generatedAt": "2025-08-01T09:05:00Z",
       "partitionKey": "2025-08-01T09:00",
-      "plotsDir": "examples/environmental-observatory-event-driven/data/plots/2025-08-01T09-00",
+      "storagePrefix": "datasets/observatory/visualizations/2025-08-01T09-00",
       "lookbackMinutes": 90,
       "artifacts": [
         {
-          "relativePath": "temperature_trend.svg",
+          "path": "datasets/observatory/visualizations/2025-08-01T09-00/temperature_trend.svg",
+          "nodeId": 201,
           "mediaType": "image/svg+xml",
           "description": "Average temperature trend",
-          "sizeBytes": 256
+          "sizeBytes": 256,
+          "checksum": "abc123"
         },
         {
-          "relativePath": "pm25_trend.svg",
+          "path": "datasets/observatory/visualizations/2025-08-01T09-00/pm25_trend.svg",
+          "nodeId": 202,
           "mediaType": "image/svg+xml",
           "description": "Average PM2.5 trend",
-          "sizeBytes": 256
+          "sizeBytes": 256,
+          "checksum": "def456"
         }
       ],
       "metrics": {

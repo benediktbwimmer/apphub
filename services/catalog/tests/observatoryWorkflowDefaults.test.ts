@@ -140,21 +140,40 @@ async function run(): Promise<void> {
   assert(ingestDefaults, 'ingest defaults should be registered');
   const ingest = await loadWorkflow('observatory-minute-ingest');
   mergeDefaultParameters(ingest, ingestDefaults);
-  assert.equal(ingest.defaultParameters?.stagingDir, config.paths.staging);
-  assert.equal(ingest.defaultParameters?.archiveDir, config.paths.archive);
   assert.equal(ingest.defaultParameters?.timestoreDatasetSlug, config.timestore.datasetSlug);
   assert.equal(ingest.defaultParameters?.timestoreStorageTargetId, config.timestore.storageTargetId);
   assert.equal(ingest.defaultParameters?.timestoreAuthToken, config.timestore.authToken);
+  assert(!('stagingDir' in (ingest.defaultParameters ?? {})));
+  assert(!('archiveDir' in (ingest.defaultParameters ?? {})));
 
   const publicationDefaults = defaultsBySlug.get('observatory-daily-publication');
   assert(publicationDefaults, 'publication defaults should be registered');
   const publication = await loadWorkflow('observatory-daily-publication');
   mergeDefaultParameters(publication, publicationDefaults);
-  assert.equal(publication.defaultParameters?.plotsDir, config.paths.plots);
-  assert.equal(publication.defaultParameters?.reportsDir, config.paths.reports);
+  assert.equal(publication.defaultParameters?.filestoreBaseUrl, config.filestore.baseUrl);
+  assert.equal(publication.defaultParameters?.filestoreBackendId, config.filestore.backendMountId);
+  assert.equal(
+    publication.defaultParameters?.visualizationsPrefix,
+    config.filestore.visualizationsPrefix ?? 'datasets/observatory/visualizations'
+  );
+  assert.equal(
+    publication.defaultParameters?.reportsPrefix,
+    config.filestore.reportsPrefix ?? 'datasets/observatory/reports'
+  );
   assert.equal(publication.defaultParameters?.metastoreBaseUrl, config.metastore?.baseUrl);
   assert.equal(publication.defaultParameters?.metastoreNamespace, config.metastore?.namespace);
   assert.equal(publication.defaultParameters?.metastoreAuthToken, config.metastore?.authToken);
+
+  const aggregateDefaults = defaultsBySlug.get('observatory-dashboard-aggregate');
+  assert(aggregateDefaults, 'aggregate defaults should be registered');
+  const aggregate = await loadWorkflow('observatory-dashboard-aggregate');
+  mergeDefaultParameters(aggregate, aggregateDefaults);
+  assert.equal(aggregate.defaultParameters?.filestoreBaseUrl, config.filestore.baseUrl);
+  assert.equal(aggregate.defaultParameters?.filestoreBackendId, config.filestore.backendMountId);
+  const reportsPrefix = config.filestore.reportsPrefix ?? 'datasets/observatory/reports';
+  const overviewPrefix = config.workflows.dashboard?.overviewPrefix ?? `${reportsPrefix}/overview`;
+  assert.equal(aggregate.defaultParameters?.reportsPrefix, reportsPrefix);
+  assert.equal(aggregate.defaultParameters?.overviewPrefix, overviewPrefix);
 }
 
 run().catch((err) => {

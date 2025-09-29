@@ -1,5 +1,3 @@
-import { createWriteStream } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   FilestoreClient,
@@ -7,7 +5,10 @@ import {
   FilestoreNodeResponse
 } from '@apphub/filestore-client';
 import { createObservatoryEventPublisher, toJsonRecord } from '../../shared/events';
-import { pipeline } from 'node:stream/promises';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
+import { ensureFilestoreHierarchy } from '../../shared/filestore';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -24,8 +25,6 @@ type JobRunContext = {
 };
 
 type ObservatoryNormalizerParameters = {
-  stagingDir: string;
-  archiveDir: string;
   minute: string;
   maxFiles: number;
   filestoreBaseUrl: string;
@@ -41,11 +40,14 @@ type ObservatoryNormalizerParameters = {
   metastoreAuthToken?: string;
 };
 
-type SourceFileMetadata = {
-  relativePath: string;
+type StagingFileMetadata = {
+  path: string;
+  nodeId: number | null;
   site: string;
   instrumentId: string;
   rows: number;
+  sizeBytes: number | null;
+  checksum: string | null;
 };
 
 type RawAssetPayload = {
@@ -53,9 +55,10 @@ type RawAssetPayload = {
   minute: string;
   instrumentCount: number;
   recordCount: number;
-  sourceFiles: SourceFileMetadata[];
-  stagingDir: string;
-  stagingMinuteDir: string;
+  backendMountId: number;
+  stagingPrefix: string;
+  stagingMinutePrefix: string;
+  files: StagingFileMetadata[];
   normalizedAt: string;
 };
 
@@ -89,26 +92,6 @@ function ensureNumber(value: unknown, fallback: number): number {
 function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
   if (!isRecord(raw)) {
     throw new Error('Parameters must be an object');
-  }
-  const stagingDir = ensureString(
-    raw.stagingDir ??
-      raw.staging_dir ??
-      process.env.OBSERVATORY_STAGING_PATH ??
-      process.env.FILE_WATCH_STAGING_DIR,
-    path.resolve(process.cwd(), 'data', 'staging')
-  );
-  if (!stagingDir) {
-    throw new Error('stagingDir parameter is required');
-  }
-  const archiveDir = ensureString(
-    raw.archiveDir ??
-      raw.archive_dir ??
-      process.env.OBSERVATORY_ARCHIVE_PATH ??
-      process.env.FILE_ARCHIVE_DIR,
-    path.resolve(process.cwd(), 'data', 'archive')
-  );
-  if (!archiveDir) {
-    throw new Error('archiveDir parameter is required');
   }
   const minute = ensureString(raw.minute ?? raw.partitionKey ?? raw.partition_key ?? raw.hour);
   if (!minute) {
@@ -203,8 +186,6 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
   );
 
   return {
-    stagingDir,
-    archiveDir,
     minute,
     maxFiles,
     filestoreBaseUrl,
@@ -219,36 +200,6 @@ function parseParameters(raw: unknown): ObservatoryNormalizerParameters {
     metastoreNamespace: (metastoreNamespace || 'observatory.ingest').trim() || 'observatory.ingest',
     metastoreAuthToken: metastoreAuthToken || undefined
   } satisfies ObservatoryNormalizerParameters;
-}
-
-async function ensureFilestoreHierarchy(
-  client: FilestoreClient,
-  backendMountId: number,
-  prefix: string,
-  principal?: string
-): Promise<void> {
-  const trimmed = prefix.replace(/^\/+|\/+$/g, '');
-  if (!trimmed) {
-    return;
-  }
-  const segments = trimmed.split('/');
-  let current = '';
-  for (const segment of segments) {
-    current = current ? `${current}/${segment}` : segment;
-    try {
-      await client.createDirectory({
-        backendMountId,
-        path: current,
-        principal,
-        idempotencyKey: `ensure-${backendMountId}-${current}`
-      });
-    } catch (err) {
-      if (err instanceof FilestoreClientError && err.code === 'NODE_EXISTS') {
-        continue;
-      }
-      throw err;
-    }
-  }
 }
 
 async function collectInboxNodes(
@@ -305,6 +256,20 @@ function deriveMinuteSuffixes(minute: string): string[] {
   return Array.from(suffixes);
 }
 
+async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    if (typeof chunk === 'string') {
+      chunks.push(Buffer.from(chunk));
+    } else if (chunk instanceof Buffer) {
+      chunks.push(chunk);
+    } else {
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 function parseInstrumentId(filename: string): string {
   const match = filename.match(/instrument_(.+?)_\d{12}\.csv$/i);
   if (match?.[1]) {
@@ -319,11 +284,6 @@ function sanitizePathSegment(value: string, fallback: string): string {
   const sanitized = trimmed.replace(/[^0-9A-Za-z._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
   return sanitized || fallback;
 }
-
-type ArchivePlacement = {
-  directory: string;
-  destination: string;
-};
 
 type MetastoreConfig = {
   baseUrl: string;
@@ -348,12 +308,11 @@ function sanitizeRecordKey(value: string): string {
     : '';
 }
 
-function deriveArchivePlacement(
-  archiveRoot: string,
+function deriveArchiveRelativePath(
   instrumentId: string,
   minuteKey: string,
   filename: string
-): ArchivePlacement {
+): string {
   const sanitizedInstrument = sanitizePathSegment(
     instrumentId || 'unknown-instrument',
     'unknown-instrument'
@@ -383,9 +342,8 @@ function deriveArchivePlacement(
     }
   }
 
-  const directory = path.resolve(archiveRoot, sanitizedInstrument, hourSegment);
-  const destination = path.resolve(directory, minuteFilename);
-  return { directory, destination } satisfies ArchivePlacement;
+  const segments = [sanitizedInstrument, hourSegment, minuteFilename].filter(Boolean);
+  return segments.join('/');
 }
 
 function toMetastoreConfig(parameters: ObservatoryNormalizerParameters): MetastoreConfig | null {
@@ -594,10 +552,6 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const existingStatus = getRecordStatus(existingMetadata);
 
   const stagingSubdir = parameters.minute.replace(':', '-');
-  const stagingMinuteDir = path.resolve(parameters.stagingDir, stagingSubdir);
-  await mkdir(parameters.stagingDir, { recursive: true });
-  await mkdir(stagingMinuteDir, { recursive: true });
-
   const normalizedStagingPrefix = parameters.stagingPrefix.replace(/\/+$/g, '');
   const stagingMinutePrefix = `${normalizedStagingPrefix}/${stagingSubdir}`;
   await ensureFilestoreHierarchy(
@@ -623,7 +577,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     inboxNode = fallbackNodes[0] ?? null;
   }
 
-  const sourceFiles: SourceFileMetadata[] = [];
+  const stagingFiles: StagingFileMetadata[] = [];
   let recordCount = 0;
   const instrumentIds = new Set<string>();
   let normalizedAt = new Date().toISOString();
@@ -643,11 +597,28 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         );
       }
       const normalizedRelative = stagingRelative.split(path.sep).join('/');
-      sourceFiles.push({
-        relativePath: normalizedRelative,
+      const stagingPath = ensureString(
+        existingMetadata.stagingPath ?? existingMetadata.stagingFilestorePath ?? ''
+      );
+      if (!stagingPath) {
+        throw new Error(
+          `Metastore record for ${normalizedCommandPath} is missing stagingPath metadata`
+        );
+      }
+      stagingFiles.push({
+        path: stagingPath,
+        nodeId:
+          typeof existingMetadata.stagingNodeId === 'number' && Number.isFinite(existingMetadata.stagingNodeId)
+            ? existingMetadata.stagingNodeId
+            : null,
         site,
         instrumentId,
-        rows
+        rows,
+        sizeBytes:
+          typeof existingMetadata.stagingSizeBytes === 'number' && Number.isFinite(existingMetadata.stagingSizeBytes)
+            ? existingMetadata.stagingSizeBytes
+            : null,
+        checksum: ensureString(existingMetadata.stagingChecksum ?? existingMetadata.checksum ?? '') || null
       });
       if (instrumentId) {
         instrumentIds.add(instrumentId);
@@ -660,9 +631,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         minute: parameters.minute,
         instrumentCount: instrumentIds.size || (instrumentId ? 1 : 0),
         recordCount,
-        sourceFiles,
-        stagingDir: parameters.stagingDir,
-        stagingMinuteDir,
+        backendMountId: parameters.filestoreBackendId,
+        stagingPrefix: normalizedStagingPrefix,
+        stagingMinutePrefix,
+        files: stagingFiles,
         normalizedAt
       } satisfies RawAssetPayload;
 
@@ -674,9 +646,9 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       });
 
       await context.update({
-        filesProcessed: sourceFiles.length,
+        filesProcessed: stagingFiles.length,
         recordCount,
-        filesArchived: sourceFiles.length,
+        filesArchived: stagingFiles.length,
         replayed: true
       });
 
@@ -704,8 +676,6 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   }
 
   const filename = inboxNode.path.split('/').pop() ?? '';
-  const stagingRelativePath = path.join(stagingSubdir, filename);
-  const stagingRelativePosix = stagingRelativePath.split(path.sep).join('/');
   const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
 
   let stagingNode: FilestoreNodeResponse | null = null;
@@ -740,8 +710,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const download = await filestoreClient.downloadFile(stagingNode.id, {
     principal: parameters.principal
   });
-  const stagingAbsolutePath = path.resolve(parameters.stagingDir, stagingRelativePath);
-  await pipeline(download.stream, createWriteStream(stagingAbsolutePath));
+  const csvContent = await readStreamToString(download.stream);
 
   const metadata =
     inboxNode.metadata && typeof inboxNode.metadata === 'object'
@@ -751,17 +720,11 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const inferredInstrumentId = ensureString(metadata.instrumentId ?? metadata.instrument_id)
     || parseInstrumentId(filename);
 
-  const archivePlacement = deriveArchivePlacement(
-    parameters.archiveDir,
+  const archiveRelative = deriveArchiveRelativePath(
     inferredInstrumentId,
     parameters.minute,
     filename
   );
-
-  const archiveRelative = path
-    .relative(parameters.archiveDir, archivePlacement.destination)
-    .split(path.sep)
-    .join('/');
   const normalizedArchivePrefix = parameters.archivePrefix.replace(/\/+$/g, '');
   const archiveTargetPath = `${normalizedArchivePrefix}/${archiveRelative}`;
   const archiveTargetDir = archiveTargetPath.split('/').slice(0, -1).join('/');
@@ -794,22 +757,24 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     throw err;
   }
 
-  const content = await readFile(stagingAbsolutePath, 'utf8');
-  const { rows, site } = parseCsv(content);
-
-  recordCount = rows;
-
-  if (inferredInstrumentId) {
-    instrumentIds.add(inferredInstrumentId);
-  }
+  const { rows, site } = parseCsv(csvContent);
 
   const sourceSite = site || ensureString(metadata.site ?? metadata.location ?? '');
-  sourceFiles.push({
-    relativePath: stagingRelativePosix,
+  const stagingFile: StagingFileMetadata = {
+    path: stagingNode.path,
+    nodeId: stagingNode.id ?? null,
     site: sourceSite,
-    instrumentId: inferredInstrumentId,
-    rows
-  });
+    instrumentId: inferredInstrumentId || 'unknown',
+    rows,
+    sizeBytes: stagingNode.sizeBytes ?? null,
+    checksum: stagingNode.checksum ?? null
+  } satisfies StagingFileMetadata;
+  recordCount = rows;
+
+  if (stagingFile.instrumentId) {
+    instrumentIds.add(stagingFile.instrumentId);
+  }
+  stagingFiles.push(stagingFile);
 
   normalizedAt = new Date().toISOString();
   const payload: RawAssetPayload = {
@@ -817,17 +782,15 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     minute: parameters.minute,
     instrumentCount: instrumentIds.size,
     recordCount,
-    sourceFiles,
-    stagingDir: parameters.stagingDir,
-    stagingMinuteDir,
+    backendMountId: parameters.filestoreBackendId,
+    stagingPrefix: normalizedStagingPrefix,
+    stagingMinutePrefix,
+    files: stagingFiles,
     normalizedAt
   } satisfies RawAssetPayload;
 
   if (metastoreConfig) {
-    const primarySource = sourceFiles[0];
-    const stagingFilestorePath = primarySource
-      ? `${stagingMinutePrefix}/${primarySource.relativePath.split('/').pop() ?? ''}`
-      : null;
+    const primarySource = stagingFiles[0];
     const updatedMetadata: Record<string, unknown> = {
       ...existingMetadata,
       type: existingMetadata.type ?? INGEST_RECORD_TYPE,
@@ -836,30 +799,32 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       minute: parameters.minute,
       minuteKey: stagingSubdir,
       instrumentId: primarySource?.instrumentId ?? existingMetadata.instrumentId ?? null,
-      site: primarySource?.site ?? sourceSite ?? existingMetadata.site ?? null,
+      site: primarySource?.site ?? existingMetadata.site ?? null,
       rows: recordCount,
       instrumentCount: instrumentIds.size,
       filestorePath: normalizedCommandPath ?? existingMetadata.filestorePath ?? null,
-      stagingPath: stagingFilestorePath ?? existingMetadata.stagingPath ?? null,
-      stagingRelativePath: primarySource?.relativePath ?? existingMetadata.stagingRelativePath ?? null,
+      stagingPath: primarySource?.path ?? existingMetadata.stagingPath ?? null,
+      stagingNodeId: primarySource?.nodeId ?? existingMetadata.stagingNodeId ?? null,
+      stagingSizeBytes: primarySource?.sizeBytes ?? existingMetadata.stagingSizeBytes ?? null,
+      stagingChecksum: primarySource?.checksum ?? existingMetadata.stagingChecksum ?? existingMetadata.checksum ?? null,
       archivePath: archiveTargetPath ?? existingMetadata.archivePath ?? null,
-      archiveLocalPath: archivePlacement.destination ?? existingMetadata.archiveLocalPath ?? null
+      archiveRelativePath: archiveRelative
     };
     await upsertMetastoreRecord(metastoreConfig, recordKeySource, updatedMetadata);
   }
 
   await context.update({
-    filesProcessed: sourceFiles.length,
+    filesProcessed: stagingFiles.length,
     recordCount,
-    filesArchived: sourceFiles.length,
-    instrumentId: sourceFiles[0]?.instrumentId ?? null
+    filesArchived: stagingFiles.length,
+    instrumentId: stagingFiles[0]?.instrumentId ?? null
   });
 
   context.logger('Normalized observatory inbox file', {
     minute: parameters.minute,
-    filesProcessed: sourceFiles.length,
+    filesProcessed: stagingFiles.length,
     recordCount,
-    instrumentId: sourceFiles[0]?.instrumentId ?? null,
+    instrumentId: stagingFiles[0]?.instrumentId ?? null,
     stagingPrefix: stagingMinutePrefix,
     archivePrefix: parameters.archivePrefix
   });
@@ -871,7 +836,7 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       commandPath: normalizedCommandPath,
       stagingPrefix: stagingMinutePrefix,
       archivePrefix: parameters.archivePrefix,
-      files: sourceFiles
+      files: stagingFiles
     });
 
     await observatoryEvents.publish({
@@ -882,8 +847,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         backendMountId: parameters.filestoreBackendId,
         nodeId: inboxNode.id ?? null,
         path: inboxNode.path,
-        instrumentId: sourceFiles[0]?.instrumentId ?? null,
-        site: sourceFiles[0]?.site ?? null,
+        instrumentId: stagingFiles[0]?.instrumentId ?? null,
+        site: stagingFiles[0]?.site ?? null,
         metadata: metadataRecord,
         principal: parameters.principal ?? null,
         sizeBytes: inboxNode.sizeBytes ?? null,

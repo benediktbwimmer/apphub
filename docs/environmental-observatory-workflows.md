@@ -84,7 +84,7 @@ Each bundle ships with an `apphub.bundle.json` and Node entry point so you can r
 
 | Asset id | Producer | Consumers | Notes |
 | -------- | -------- | --------- | ----- |
-| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes `sourceFiles`, row counts, and staging directory metadata. |
+| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes Filestore `files` metadata (paths, node ids, checksums) and staging prefixes. |
 | `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, and row counts. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
 | `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new Timestore partitions retrigger plotting automatically. |
 | `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications.
@@ -99,24 +99,24 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 - **Steps:**
   1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
   2. `observatory-timestore-loader` consumes the raw asset, streams data into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence.
-- **Parameters:** `inboxDir`, `stagingDir`, `archiveDir`, `minute`, `timestoreBaseUrl`, `timestoreDatasetSlug`, and optional limits like `maxFiles`.
-- **Default directories:** Match the example layout under `examples/environmental-observatory-event-driven/data/`.
+- **Parameters:** `minute`, Filestore connection details (`filestoreBaseUrl`, `filestoreBackendId`, `inboxPrefix`, `stagingPrefix`, `archivePrefix`), optional `maxFiles`, and the Timestore dataset coordinates.
+- **Defaults:** Derived from the generated observatory config; ingestion works entirely through Filestore prefixes.
 
 ### 2. `observatory-daily-publication`
 
 - **Trigger:** Auto-materialization on `observatory.visualizations.minute` plus an optional 24-hour cadence for end-of-day summaries.
 - **Steps:**
-  1. `observatory-visualization-runner` reads `observatory.timeseries.timestore`, writes plots into `plots/`, and produces `observatory.visualizations.minute` with artifact metadata.
-  2. `observatory-report-publisher` consumes the visualization asset and produces `observatory.reports.status` along with Markdown (`status.md`), HTML (`status.html`), and JSON (`status.json`) outputs in `reports/`.
-- **Parameters:** `timestoreBaseUrl`, `timestoreDatasetSlug`, `plotsDir`, `reportsDir`, optional `siteFilter`, `reportTemplate`, and optional Metastore settings (`metastoreBaseUrl`, `metastoreNamespace`).
+  1. `observatory-visualization-runner` reads `observatory.timeseries.timestore`, uploads plots into the visualization prefix, and produces `observatory.visualizations.minute` with Filestore artifact metadata.
+  2. `observatory-report-publisher` consumes the visualization asset and produces `observatory.reports.status`, uploading Markdown (`status.md`), HTML (`status.html`), and JSON (`status.json`) artifacts to the reports prefix.
+- **Parameters:** `timestoreBaseUrl`, `timestoreDatasetSlug`, Filestore settings (`filestoreBaseUrl`, `filestoreBackendId`, `visualizationsPrefix`, `reportsPrefix`), optional `siteFilter`, `reportTemplate`, and optional Metastore settings (`metastoreBaseUrl`, `metastoreNamespace`).
 
 ## Auto-materialization flow
 
-1. Inbox workflow runs after new CSV drops. Step 1 copies files into `staging/<minute>/`, moves the originals into `archive/<instrument>/<hour>/<minute>.csv`, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
+1. Inbox workflow runs after new CSV drops. Step 1 copies files into the staging Filestore prefix, moves the originals under the archive prefix, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
 2. Because the ingest step declares `autoMaterialize.onUpstreamUpdate`, the workflow enqueues the Timestore loader immediately for the same partition. The loader produces `observatory.timeseries.timestore` and schedules an expiry after 60 minutes.
-3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating plots.
-4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports.
-5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service polls the latest `status.json` file so operators always see fresh metrics without refreshing manually. Asset history exposes run keys, run IDs, and payload diffs for auditing.
+3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating SVG plots straight to Filestore.
+4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports (Markdown/HTML/JSON) in Filestore.
+5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service streams the latest report files directly from Filestore, so operators always see fresh metrics without relying on repository directories. Asset history exposes run keys, run IDs, and payload diffs for auditing.
 
 ## Running the demo locally
 

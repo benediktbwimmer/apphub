@@ -17,14 +17,6 @@
       "timestoreAuthToken": {
         "type": "string"
       },
-      "plotsDir": {
-        "type": "string",
-        "minLength": 1
-      },
-      "reportsDir": {
-        "type": "string",
-        "minLength": 1
-      },
       "partitionKey": {
         "type": "string",
         "minLength": 1
@@ -51,28 +43,56 @@
       },
       "metastoreNamespace": {
         "type": "string"
+      },
+      "visualizationsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "reportsPrefix": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBaseUrl": {
+        "type": "string",
+        "minLength": 1
+      },
+      "filestoreBackendId": {
+        "type": "number",
+        "minimum": 1
+      },
+      "filestoreToken": {
+        "type": "string"
+      },
+      "filestorePrincipal": {
+        "type": "string"
       }
     },
     "required": [
       "timestoreBaseUrl",
       "timestoreDatasetSlug",
-      "plotsDir",
-      "reportsDir",
       "partitionKey",
-      "instrumentId"
+      "instrumentId",
+      "visualizationsPrefix",
+      "reportsPrefix",
+      "filestoreBaseUrl",
+      "filestoreBackendId"
     ]
   },
   "defaultParameters": {
     "lookbackMinutes": 180,
     "timestoreBaseUrl": "http://127.0.0.1:4200",
     "timestoreDatasetSlug": "observatory-timeseries",
-    "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
-    "reportsDir": "examples/environmental-observatory-event-driven/data/reports",
     "metastoreBaseUrl": "http://127.0.0.1:4100",
     "metastoreNamespace": "observatory.reports",
     "timestoreAuthToken": null,
     "metastoreAuthToken": null,
-    "instrumentId": null
+    "instrumentId": null,
+    "visualizationsPrefix": "datasets/observatory/visualizations",
+    "reportsPrefix": "datasets/observatory/reports",
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
+    "filestoreBackendId": 1,
+    "filestoreToken": null,
+    "filestorePrincipal": null
   },
   "steps": [
     {
@@ -84,11 +104,15 @@
         "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
         "timestoreDatasetSlug": "{{ parameters.timestoreDatasetSlug }}",
         "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
-        "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
         "instrumentId": "{{ parameters.instrumentId }}",
         "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
-        "siteFilter": "{{ parameters.siteFilter }}"
+        "siteFilter": "{{ parameters.siteFilter }}",
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
+        "visualizationsPrefix": "{{ parameters.visualizationsPrefix }}"
       },
       "storeResultAs": "visualizations",
       "consumes": [
@@ -116,7 +140,7 @@
               "partitionKey": {
                 "type": "string"
               },
-              "plotsDir": {
+              "storagePrefix": {
                 "type": "string"
               },
               "lookbackMinutes": {
@@ -127,8 +151,11 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": {
+                    "path": {
                       "type": "string"
+                    },
+                    "nodeId": {
+                      "type": "number"
                     },
                     "mediaType": {
                       "type": "string"
@@ -138,10 +165,13 @@
                     },
                     "sizeBytes": {
                       "type": "number"
+                    },
+                    "checksum": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "relativePath",
+                    "path",
                     "mediaType"
                   ]
                 }
@@ -154,7 +184,7 @@
             "required": [
               "generatedAt",
               "partitionKey",
-              "plotsDir",
+              "storagePrefix",
               "artifacts"
             ]
           }
@@ -170,15 +200,18 @@
         "generate-plots"
       ],
       "parameters": {
-        "reportsDir": "{{ parameters.reportsDir }}",
-        "plotsDir": "{{ parameters.plotsDir }}",
         "partitionKey": "{{ parameters.partitionKey }}",
         "instrumentId": "{{ parameters.instrumentId }}",
         "reportTemplate": "{{ parameters.reportTemplate }}",
         "visualizationAsset": "{{ shared.visualizations.visualization }}",
         "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
         "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
-        "metastoreNamespace": "{{ parameters.metastoreNamespace }}"
+        "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+        "reportsPrefix": "{{ parameters.reportsPrefix }}",
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}"
       },
       "consumes": [
         {
@@ -199,7 +232,7 @@
                 "type": "string",
                 "format": "date-time"
               },
-              "reportsDir": {
+              "storagePrefix": {
                 "type": "string"
               },
               "reportFiles": {
@@ -207,18 +240,24 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": {
+                    "path": {
                       "type": "string"
+                    },
+                    "nodeId": {
+                      "type": "number"
                     },
                     "mediaType": {
                       "type": "string"
                     },
                     "sizeBytes": {
                       "type": "number"
+                    },
+                    "checksum": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "relativePath",
+                    "path",
                     "mediaType"
                   ]
                 }
@@ -242,7 +281,7 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "relativePath": {
+                    "path": {
                       "type": "string"
                     },
                     "altText": {
@@ -250,14 +289,17 @@
                     }
                   },
                   "required": [
-                    "relativePath"
+                    "path"
                   ]
                 }
+              },
+              "instrumentId": {
+                "type": "string"
               }
             },
             "required": [
               "generatedAt",
-              "reportsDir",
+              "storagePrefix",
               "reportFiles"
             ]
           }
@@ -293,11 +335,13 @@
             "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
             "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
             "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
-            "plotsDir": "{{ trigger.metadata.paths.plotsDir }}",
-            "reportsDir": "{{ trigger.metadata.paths.reportsDir }}",
             "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
-            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
+            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}",
+            "visualizationsPrefix": "{{ trigger.metadata.paths.visualizationsPrefix }}",
+            "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
+            "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
+            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}"
           },
           "runKeyTemplate": "observatory-publish-{{ parameters.instrumentId | replace: ':', '-' }}-{{ parameters.partitionKey | replace: ':', '-' }}",
           "metadata": {
@@ -307,8 +351,8 @@
               "authToken": "{{ defaultParameters.timestoreAuthToken }}"
             },
             "paths": {
-              "plotsDir": "{{ defaultParameters.plotsDir }}",
-              "reportsDir": "{{ defaultParameters.reportsDir }}"
+              "visualizationsPrefix": "{{ defaultParameters.visualizationsPrefix }}",
+              "reportsPrefix": "{{ defaultParameters.reportsPrefix }}"
             },
             "metastore": {
               "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",

@@ -1,13 +1,13 @@
 {
   "parameters": {
-    "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
-    "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
     "minute": "2025-08-01T09:00",
     "maxFiles": 10,
     "filestoreBaseUrl": "http://127.0.0.1:4300",
     "filestoreBackendId": 1,
     "inboxPrefix": "datasets/observatory/inbox",
     "stagingPrefix": "datasets/observatory/staging",
-    "archivePrefix": "datasets/observatory/archive"
+    "archivePrefix": "datasets/observatory/archive",
+    "commandPath": "datasets/observatory/inbox/instrument_01_202508010900.csv",
+    "principal": "observatory-inbox-normalizer"
   }
 }

@@ -1,4 +1,7 @@
 import { FilestoreClient, FilestoreClientError } from '@apphub/filestore-client';
+import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
+
+enforceScratchOnlyWrites();
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 

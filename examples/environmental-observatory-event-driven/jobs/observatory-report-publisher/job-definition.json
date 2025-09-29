@@ -13,33 +13,44 @@
   "parametersSchema": {
     "type": "object",
     "properties": {
-      "reportsDir": { "type": "string", "minLength": 1 },
-      "plotsDir": { "type": "string", "minLength": 1 },
+      "reportsPrefix": { "type": "string", "minLength": 1 },
       "partitionKey": { "type": "string", "minLength": 1 },
       "instrumentId": { "type": "string" },
       "reportTemplate": { "type": "string" },
       "visualizationAsset": { "type": "object" },
+      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "filestoreBackendId": { "type": "number", "minimum": 1 },
+      "filestoreToken": { "type": "string" },
+      "filestorePrincipal": { "type": "string" },
       "metastoreBaseUrl": { "type": "string" },
       "metastoreAuthToken": { "type": "string" },
       "metastoreNamespace": { "type": "string" }
     },
-    "required": ["reportsDir", "plotsDir", "partitionKey", "instrumentId", "visualizationAsset"]
+    "required": [
+      "reportsPrefix",
+      "partitionKey",
+      "visualizationAsset",
+      "filestoreBaseUrl",
+      "filestoreBackendId"
+    ]
   },
   "outputSchema": {
     "type": "object",
     "properties": {
       "generatedAt": { "type": "string", "format": "date-time" },
-      "reportsDir": { "type": "string" },
+      "storagePrefix": { "type": "string" },
       "reportFiles": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "relativePath": { "type": "string" },
+            "path": { "type": "string" },
+            "nodeId": { "type": "number" },
             "mediaType": { "type": "string" },
-            "sizeBytes": { "type": "number" }
+            "sizeBytes": { "type": "number" },
+            "checksum": { "type": "string" }
           },
-          "required": ["relativePath", "mediaType"]
+          "required": ["path", "mediaType"]
         }
       },
       "summary": {
@@ -55,14 +66,14 @@
         "items": {
           "type": "object",
           "properties": {
-            "relativePath": { "type": "string" },
+            "path": { "type": "string" },
             "altText": { "type": "string" }
           },
-          "required": ["relativePath"]
+          "required": ["path"]
         }
       },
       "instrumentId": { "type": "string" }
     },
-    "required": ["generatedAt", "reportsDir", "reportFiles", "instrumentId"]
+    "required": ["generatedAt", "storagePrefix", "reportFiles"]
   }
 }

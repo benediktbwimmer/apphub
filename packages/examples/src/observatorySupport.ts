@@ -94,8 +94,6 @@ export function applyObservatoryWorkflowDefaults(
       defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
       break;
     case 'observatory-minute-ingest':
-      defaults.stagingDir = config.paths.staging;
-      defaults.archiveDir = config.paths.archive;
       defaults.filestoreBaseUrl = config.filestore.baseUrl;
       defaults.filestoreBackendId = config.filestore.backendMountId;
       defaults.inboxPrefix = config.filestore.inboxPrefix;
@@ -118,17 +116,25 @@ export function applyObservatoryWorkflowDefaults(
       defaults.timestoreBaseUrl = config.timestore.baseUrl;
       defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
-      defaults.plotsDir = config.paths.plots;
-      defaults.reportsDir = config.paths.reports;
+      defaults.filestoreBaseUrl = config.filestore.baseUrl;
+      defaults.filestoreBackendId = config.filestore.backendMountId;
+      defaults.filestoreToken = config.filestore.token ?? null;
+      defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-visualization-runner';
+      defaults.visualizationsPrefix = config.filestore.visualizationsPrefix ?? 'datasets/observatory/visualizations';
+      defaults.reportsPrefix = config.filestore.reportsPrefix ?? 'datasets/observatory/reports';
       defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? null;
       defaults.metastoreNamespace = config.metastore?.namespace ?? null;
       defaults.metastoreAuthToken = config.metastore?.authToken ?? null;
       break;
     case 'observatory-dashboard-aggregate':
       defaults.partitionKey = defaults.partitionKey ?? null;
-      defaults.reportsDir = config.paths.reports;
-      defaults.overviewDirName =
-        defaults.overviewDirName ?? config.workflows.dashboard?.overviewDirName ?? 'overview';
+      defaults.filestoreBaseUrl = config.filestore.baseUrl;
+      defaults.filestoreBackendId = config.filestore.backendMountId;
+      defaults.filestoreToken = config.filestore.token ?? null;
+      defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-dashboard-aggregator';
+      defaults.reportsPrefix = config.filestore.reportsPrefix ?? 'datasets/observatory/reports';
+      defaults.overviewPrefix =
+        defaults.overviewPrefix ?? config.workflows.dashboard?.overviewPrefix ?? `${config.filestore.reportsPrefix ?? 'datasets/observatory/reports'}/overview`;
       defaults.lookbackMinutes =
         defaults.lookbackMinutes ?? config.workflows.dashboard?.lookbackMinutes ?? 720;
       defaults.timestoreBaseUrl = config.timestore.baseUrl;

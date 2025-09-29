@@ -131,10 +131,6 @@ async function main(): Promise<void> {
 
   const ingestMetadata: Record<string, unknown> = {
     maxFiles: 1000,
-    paths: {
-      stagingDir: config.paths.staging,
-      archiveDir: config.paths.archive
-    },
     filestore: {
       baseUrl: config.filestore.baseUrl,
       backendMountId: config.filestore.backendMountId,
@@ -166,8 +162,6 @@ async function main(): Promise<void> {
     minute: '{{ event.payload.node.metadata.minute }}',
     instrumentId: '{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: "unknown" }}',
     maxFiles: '{{ trigger.metadata.maxFiles }}',
-    stagingDir: '{{ trigger.metadata.paths.stagingDir }}',
-    archiveDir: '{{ trigger.metadata.paths.archiveDir }}',
     filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
     filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
     inboxPrefix: '{{ trigger.metadata.filestore.inboxPrefix }}',
@@ -204,9 +198,13 @@ async function main(): Promise<void> {
       datasetSlug: config.timestore.datasetSlug,
       authToken: config.timestore.authToken ?? null
     },
-    paths: {
-      plotsDir: config.paths.plots,
-      reportsDir: config.paths.reports
+    filestore: {
+      baseUrl: config.filestore.baseUrl,
+      backendMountId: config.filestore.backendMountId,
+      token: config.filestore.token ?? null,
+      visualizationsPrefix: config.filestore.visualizationsPrefix ?? 'datasets/observatory/visualizations',
+      reportsPrefix: config.filestore.reportsPrefix ?? 'datasets/observatory/reports',
+      principal: 'observatory-visualization-runner'
     },
     metastore: {
       baseUrl: config.metastore?.baseUrl ?? null,
@@ -222,12 +220,20 @@ async function main(): Promise<void> {
     rowsIngested: '{{ event.payload.rowsIngested }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
     timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
-    plotsDir: '{{ trigger.metadata.paths.plotsDir }}',
-    reportsDir: '{{ trigger.metadata.paths.reportsDir }}'
+    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+    visualizationsPrefix: '{{ trigger.metadata.filestore.visualizationsPrefix }}',
+    reportsPrefix: '{{ trigger.metadata.filestore.reportsPrefix }}'
   };
 
   if (config.timestore.authToken) {
     publicationTemplate.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+  if (config.filestore.token) {
+    publicationTemplate.filestoreToken = '{{ trigger.metadata.filestore.token }}';
+  }
+  if (config.filestore.token || config.filestore.visualizationsPrefix || config.filestore.reportsPrefix) {
+    publicationTemplate.filestorePrincipal = '{{ trigger.metadata.filestore.principal }}';
   }
   if (config.metastore?.baseUrl) {
     publicationTemplate.metastoreBaseUrl = '{{ trigger.metadata.metastore.baseUrl }}';
@@ -244,8 +250,16 @@ async function main(): Promise<void> {
   );
 
   const dashboardMetadata = {
-    paths: {
-      reportsDir: config.paths.reports
+    filestore: {
+      baseUrl: config.filestore.baseUrl,
+      backendMountId: config.filestore.backendMountId,
+      token: config.filestore.token ?? null,
+      reportsPrefix: config.filestore.reportsPrefix ?? 'datasets/observatory/reports',
+      overviewPrefix:
+        config.workflows.dashboard?.overviewPrefix ??
+        config.filestore.reportsPrefix?.concat('/overview') ??
+        'datasets/observatory/reports/overview',
+      principal: 'observatory-dashboard-aggregator'
     },
     timestore: {
       baseUrl: config.timestore.baseUrl,
@@ -253,15 +267,16 @@ async function main(): Promise<void> {
       authToken: config.timestore.authToken ?? null
     },
     dashboard: {
-      overviewDirName: config.workflows.dashboard?.overviewDirName ?? 'overview',
       lookbackMinutes: dashboardLookbackMinutes
     }
   } satisfies Record<string, unknown>;
 
   const dashboardTemplate: Record<string, unknown> = {
     partitionKey: '{{ event.payload.minute }}',
-    reportsDir: '{{ trigger.metadata.paths.reportsDir }}',
-    overviewDirName: '{{ trigger.metadata.dashboard.overviewDirName }}',
+    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+    reportsPrefix: '{{ trigger.metadata.filestore.reportsPrefix }}',
+    overviewPrefix: '{{ trigger.metadata.filestore.overviewPrefix }}',
     lookbackMinutes: '{{ trigger.metadata.dashboard.lookbackMinutes }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
     timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}'
@@ -270,6 +285,10 @@ async function main(): Promise<void> {
   if (config.timestore.authToken) {
     dashboardTemplate.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
   }
+  if (config.filestore.token) {
+    dashboardTemplate.filestoreToken = '{{ trigger.metadata.filestore.token }}';
+  }
+  dashboardTemplate.filestorePrincipal = '{{ trigger.metadata.filestore.principal }}';
 
   if (!config.workflows.aggregateSlug) {
     throw new Error('Aggregate workflow slug missing in observatory config');
