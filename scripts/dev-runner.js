@@ -87,6 +87,15 @@ async function main() {
   }
 
   const baseEnv = { ...process.env };
+  if (!baseEnv.NODE_ENV) {
+    baseEnv.NODE_ENV = 'development';
+  }
+  if (!baseEnv.APPHUB_AUTH_DISABLED || baseEnv.APPHUB_AUTH_DISABLED.trim() === '') {
+    baseEnv.APPHUB_AUTH_DISABLED = '1';
+  }
+  if (!baseEnv.APPHUB_SESSION_SECRET || baseEnv.APPHUB_SESSION_SECRET.trim() === '') {
+    baseEnv.APPHUB_SESSION_SECRET = 'dev-session-secret';
+  }
   const normalizedRedis = baseEnv.REDIS_URL?.trim();
   if (!normalizedRedis || normalizedRedis === '127.0.0.1' || normalizedRedis === 'localhost') {
     baseEnv.REDIS_URL = DEFAULT_REDIS_URL;
