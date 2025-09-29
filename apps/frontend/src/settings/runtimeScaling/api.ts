@@ -165,8 +165,11 @@ export async function updateRuntimeScalingTarget(
 ): Promise<{ target: RuntimeScalingTarget; writesEnabled: boolean }> {
   const response = await fetcher(`/admin/runtime-scaling/${encodeURIComponent(target)}`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({
-      desiredConcurrency: input.desiredConcurrency,
+      desiredConcurrency: Number.isFinite(input.desiredConcurrency) ? input.desiredConcurrency : Number(input.desiredConcurrency),
       reason: input.reason
     })
   });
