@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import simpleGit from 'simple-git';
+import { resolveLocalRepoOverride } from '@apphub/shared/gitRepo';
 import { z } from 'zod';
 import {
   joinSourceLabel,
@@ -1024,37 +1025,50 @@ async function loadConfigImport(
     let sourceLabelBase: string;
 
     if (importConfig.repo) {
-      const cloneArgs: string[] = [];
-      if (!importConfig.commit) {
-        cloneArgs.push('--depth', '1');
-      }
-      if (importConfig.ref) {
-        cloneArgs.push('--branch', importConfig.ref);
-        cloneArgs.push('--single-branch');
-      }
-      await git.clone(importConfig.repo, tempDir, cloneArgs);
-      const repoGit = simpleGit(tempDir);
+      const repoOverride = await resolveLocalRepoOverride(importConfig.repo, {
+        candidateRoots: [
+          path.resolve(__dirname, '..', '..', '..'),
+          path.resolve(__dirname, '..', '..', '..', '..')
+        ]
+      });
 
-      if (importConfig.commit) {
-        await repoGit.checkout(importConfig.commit);
-      } else if (importConfig.ref) {
-        await repoGit.checkout(importConfig.ref);
-      }
+      if (repoOverride) {
+        repoRoot = repoOverride.repoRoot;
+        resolvedCommit = repoOverride.commit ?? null;
+        sourceLabelBase = repoOverride.sourceLabelBase;
+      } else {
+        const cloneArgs: string[] = [];
+        if (!importConfig.commit) {
+          cloneArgs.push('--depth', '1');
+        }
+        if (importConfig.ref) {
+          cloneArgs.push('--branch', importConfig.ref);
+          cloneArgs.push('--single-branch');
+        }
+        await git.clone(importConfig.repo, tempDir, cloneArgs);
+        const repoGit = simpleGit(tempDir);
 
-      try {
-        const headSha = await repoGit.revparse(['HEAD']);
-        resolvedCommit = headSha.trim();
-      } catch (err) {
-        errors.push({
-          source: `git:${importConfig.repo}`,
-          error: new Error(`failed to resolve HEAD commit: ${(err as Error).message}`)
-        });
-      }
+        if (importConfig.commit) {
+          await repoGit.checkout(importConfig.commit);
+        } else if (importConfig.ref) {
+          await repoGit.checkout(importConfig.ref);
+        }
 
-      repoRoot = tempDir;
-      const baseLabel = `git:${importConfig.repo}`;
-      const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
-      sourceLabelBase = `${baseLabel}#${commitLabel}`;
+        try {
+          const headSha = await repoGit.revparse(['HEAD']);
+          resolvedCommit = headSha.trim();
+        } catch (err) {
+          errors.push({
+            source: `git:${importConfig.repo}`,
+            error: new Error(`failed to resolve HEAD commit: ${(err as Error).message}`)
+          });
+        }
+
+        repoRoot = tempDir;
+        const baseLabel = `git:${importConfig.repo}`;
+        const commitLabel = resolvedCommit ?? importConfig.commit ?? importConfig.ref ?? 'HEAD';
+        sourceLabelBase = `${baseLabel}#${commitLabel}`;
+      }
     } else if (importConfig.path) {
       repoRoot = path.resolve(importConfig.path);
       sourceLabelBase = `path:${repoRoot}`;

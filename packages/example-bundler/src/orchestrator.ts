@@ -7,6 +7,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import fg from 'fast-glob';
 import simpleGit from 'simple-git';
+import { resolveLocalRepoOverride } from '@apphub/shared/gitRepo';
 import {
   getExampleJobBundle,
   isExampleJobSlug,
@@ -229,6 +230,26 @@ export class ExampleBundler {
     }
 
     if (repo) {
+      const override = await resolveLocalRepoOverride(repo, {
+        candidateRoots: [
+          this.repoRoot,
+          path.resolve(this.repoRoot, '..')
+        ],
+        requireExamplesDir: false
+      });
+      if (override) {
+        const relativeConfig = configOverride ?? 'config.json';
+        const configPath = path.resolve(override.repoRoot, relativeConfig);
+        if (!(await pathExists(configPath))) {
+          throw new Error(`Descriptor config not found at ${relativeConfig}`);
+        }
+        return {
+          workspaceRoot: override.repoRoot,
+          configPath,
+          cleanup: async () => {}
+        } satisfies DescriptorWorkspace;
+      }
+
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'apphub-example-descriptor-'));
       const git = simpleGit();
       const cloneArgs: string[] = [];

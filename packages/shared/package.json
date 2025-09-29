@@ -49,6 +49,11 @@
       "require": "./dist/retries/backoff.js",
       "default": "./dist/retries/backoff.js"
     },
+    "./gitRepo": {
+      "types": "./dist/gitRepo.d.ts",
+      "require": "./dist/gitRepo.js",
+      "default": "./dist/gitRepo.js"
+    },
     "./timestoreAdmin": {
       "types": "./dist/timestoreAdmin.d.ts",
       "require": "./dist/timestoreAdmin.js",
