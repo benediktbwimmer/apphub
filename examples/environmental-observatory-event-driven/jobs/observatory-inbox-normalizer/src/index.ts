@@ -6,6 +6,7 @@ import {
   FilestoreClientError,
   FilestoreNodeResponse
 } from '@apphub/filestore-client';
+import { createObservatoryEventPublisher, toJsonRecord } from '../../shared/events';
 import { pipeline } from 'node:stream/promises';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -553,6 +554,11 @@ function parseCsv(content: string): ParsedCsvMetadata {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
+  const observatoryEvents = createObservatoryEventPublisher({
+    source: 'observatory.inbox-normalizer'
+  });
+
+  try {
   const minuteSuffixes = deriveMinuteSuffixes(parameters.minute);
   const filestoreClient = new FilestoreClient({
     baseUrl: parameters.filestoreBaseUrl,
@@ -858,6 +864,34 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     archivePrefix: parameters.archivePrefix
   });
 
+  if (inboxNode) {
+    const observedAt = inboxNode.observedAt ?? normalizedAt;
+    const metadataRecord = toJsonRecord({
+      minute: parameters.minute,
+      commandPath: normalizedCommandPath,
+      stagingPrefix: stagingMinutePrefix,
+      archivePrefix: parameters.archivePrefix,
+      files: sourceFiles
+    });
+
+    await observatoryEvents.publish({
+      type: 'observatory.minute.raw-uploaded',
+      payload: {
+        minute: parameters.minute,
+        observedAt,
+        backendMountId: parameters.filestoreBackendId,
+        nodeId: inboxNode.id ?? null,
+        path: inboxNode.path,
+        instrumentId: sourceFiles[0]?.instrumentId ?? null,
+        site: sourceFiles[0]?.site ?? null,
+        metadata: metadataRecord,
+        principal: parameters.principal ?? null,
+        sizeBytes: inboxNode.sizeBytes ?? null,
+        checksum: inboxNode.checksum ?? null
+      }
+    });
+  }
+
   return {
     status: 'succeeded',
     result: {
@@ -873,6 +907,9 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       ]
     }
   } satisfies JobRunResult;
+  } finally {
+    await observatoryEvents.close().catch(() => undefined);
+  }
 }
 
 export default handler;

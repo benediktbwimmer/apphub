@@ -299,7 +299,7 @@
           ],
           "parameterTemplate": {
             "minute": "{{ event.payload.node.metadata.minute }}",
-            "instrumentId": "{{ event.payload.node.metadata.instrumentId }}",
+            "instrumentId": "{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: 'unknown' }}",
             "maxFiles": "{{ trigger.metadata.maxFiles }}",
             "stagingDir": "{{ trigger.metadata.paths.stagingDir }}",
             "archiveDir": "{{ trigger.metadata.paths.archiveDir }}",
@@ -309,7 +309,7 @@
             "inboxPrefix": "{{ trigger.metadata.filestore.inboxPrefix }}",
             "stagingPrefix": "{{ trigger.metadata.filestore.stagingPrefix }}",
             "archivePrefix": "{{ trigger.metadata.filestore.archivePrefix }}",
-            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal | default: event.payload.principal }}",
             "commandPath": "{{ event.payload.path }}",
             "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
             "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
@@ -321,7 +321,7 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
-          "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ":", "-" }}",
+          "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: \":\", \"-\" }}-{{ parameters.minute | replace: \":\", \"-\" }}",
           "metadata": {
             "maxFiles": "{{ defaultParameters.maxFiles }}",
             "paths": {
@@ -351,10 +351,10 @@
               "authToken": "{{ defaultParameters.metastoreAuthToken }}"
             }
           },
-    "idempotencyKeyExpression": "{{ event.payload.path | replace: '/', '_' | replace: ':', '-' }}",
-    "status": "active"
-  }
-]
+          "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ":", '-' }}",
+          "status": "active"
+        }
+      ]
     }
   }
 }

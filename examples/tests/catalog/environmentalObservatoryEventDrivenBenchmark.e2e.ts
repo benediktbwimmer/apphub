@@ -121,7 +121,8 @@ const OBSERVATORY_BUNDLE_SLUGS = [
 const OBSERVATORY_WORKFLOW_SLUGS = [
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
-  'observatory-daily-publication'
+  'observatory-daily-publication',
+  'observatory-dashboard-aggregate'
 ] as const;
 const GENERATOR_WORKFLOW_SLUG = 'observatory-minute-data-generator';
 const DEFAULT_INSTRUMENT_COUNT = 5;

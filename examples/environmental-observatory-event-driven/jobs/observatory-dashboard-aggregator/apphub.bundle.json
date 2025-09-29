@@ -1,0 +1,16 @@
+{
+  "slug": "observatory-dashboard-aggregator",
+  "entry": "src/index.ts",
+  "outDir": "dist",
+  "manifestPath": "manifest.json",
+  "artifactDir": "artifacts",
+  "files": [
+    "manifest.json",
+    "dist/**/*",
+    "node_modules/**/*"
+  ],
+  "externals": [],
+  "tests": {
+    "sampleInputPath": "tests/sample-input.json"
+  }
+}

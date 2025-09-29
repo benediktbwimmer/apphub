@@ -164,6 +164,7 @@ async function main(): Promise<void> {
 
   const ingestTemplate: Record<string, unknown> = {
     minute: '{{ event.payload.node.metadata.minute }}',
+    instrumentId: '{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: "unknown" }}',
     maxFiles: '{{ trigger.metadata.maxFiles }}',
     stagingDir: '{{ trigger.metadata.paths.stagingDir }}',
     archiveDir: '{{ trigger.metadata.paths.archiveDir }}',
@@ -173,7 +174,7 @@ async function main(): Promise<void> {
     stagingPrefix: '{{ trigger.metadata.filestore.stagingPrefix }}',
     archivePrefix: '{{ trigger.metadata.filestore.archivePrefix }}',
     commandPath: '{{ event.payload.path }}',
-    filestorePrincipal: '{{ trigger.metadata.filestore.principal }}',
+    filestorePrincipal: '{{ trigger.metadata.filestore.principal | default: event.payload.principal }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
     timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
     timestoreDatasetName: '{{ trigger.metadata.timestore.datasetName }}',
@@ -215,8 +216,10 @@ async function main(): Promise<void> {
   } satisfies Record<string, unknown>;
 
   const publicationTemplate: Record<string, unknown> = {
-    partitionKey: '{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window }}',
-    instrumentId: '{{ event.payload.attributes.instrumentId | default: event.payload.partitionKeyFields.instrument | default: "unknown" }}',
+    partitionKey: '{{ event.payload.partitionKey }}',
+    instrumentId: '{{ event.payload.instrumentId | default: event.payload.partitionKeyFields.instrument | default: "unknown" }}',
+    minute: '{{ event.payload.minute }}',
+    rowsIngested: '{{ event.payload.rowsIngested }}',
     timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
     timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}',
     plotsDir: '{{ trigger.metadata.paths.plotsDir }}',
@@ -236,6 +239,42 @@ async function main(): Promise<void> {
     publicationTemplate.metastoreNamespace = '{{ trigger.metadata.metastore.namespace }}';
   }
 
+  const dashboardLookbackMinutes = Number(
+    config.workflows.dashboard?.lookbackMinutes ?? process.env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES ?? 720
+  );
+
+  const dashboardMetadata = {
+    paths: {
+      reportsDir: config.paths.reports
+    },
+    timestore: {
+      baseUrl: config.timestore.baseUrl,
+      datasetSlug: config.timestore.datasetSlug,
+      authToken: config.timestore.authToken ?? null
+    },
+    dashboard: {
+      overviewDirName: config.workflows.dashboard?.overviewDirName ?? 'overview',
+      lookbackMinutes: dashboardLookbackMinutes
+    }
+  } satisfies Record<string, unknown>;
+
+  const dashboardTemplate: Record<string, unknown> = {
+    partitionKey: '{{ event.payload.minute }}',
+    reportsDir: '{{ trigger.metadata.paths.reportsDir }}',
+    overviewDirName: '{{ trigger.metadata.dashboard.overviewDirName }}',
+    lookbackMinutes: '{{ trigger.metadata.dashboard.lookbackMinutes }}',
+    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
+    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}'
+  };
+
+  if (config.timestore.authToken) {
+    dashboardTemplate.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+
+  if (!config.workflows.aggregateSlug) {
+    throw new Error('Aggregate workflow slug missing in observatory config');
+  }
+
   const triggers: TriggerDefinition[] = [
     {
       workflowSlug: config.workflows.ingestSlug,
@@ -252,14 +291,14 @@ async function main(): Promise<void> {
       throttleWindowMs: null,
       throttleCount: null,
       maxConcurrency: null,
-      idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}'
+      idempotencyKeyExpression: '{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: "/", "_" | replace: ":", "-" }}'
     },
     {
       workflowSlug: config.workflows.publicationSlug,
-      name: 'Observatory publication on timestore partition',
-      description: 'Render plots and reports whenever a new observatory partition is ingested into Timestore.',
-      eventType: 'timestore.partition.created',
-      eventSource: 'timestore.ingest',
+      name: 'Observatory publication on observatory partition',
+      description: 'Render plots and reports when the ingest job publishes a partition-ready event.',
+      eventType: 'observatory.minute.partition-ready',
+      eventSource: 'observatory.timestore-loader',
       predicates: [
         { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
       ],
@@ -269,9 +308,26 @@ async function main(): Promise<void> {
       throttleCount: null,
       maxConcurrency: null,
       idempotencyKeyExpression:
-        '{{ event.payload.attributes.instrumentId | default: "unknown" }}-{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window }}',
+        '{{ event.payload.instrumentId | default: "unknown" }}-{{ event.payload.partitionKey }}',
       runKeyTemplate:
         'observatory-publish-{{ parameters.instrumentId | replace: ":", "-" }}-{{ parameters.partitionKey | replace: ":", "-" }}'
+    },
+    {
+      workflowSlug: config.workflows.aggregateSlug,
+      name: 'Observatory dashboard aggregate',
+      description: 'Refresh the aggregate dashboard after each partition is ready.',
+      eventType: 'observatory.minute.partition-ready',
+      eventSource: 'observatory.timestore-loader',
+      predicates: [
+        { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
+      ],
+      parameterTemplate: dashboardTemplate,
+      metadata: dashboardMetadata,
+      throttleWindowMs: 0,
+      throttleCount: null,
+      maxConcurrency: 1,
+      idempotencyKeyExpression: 'observatory-dashboard-{{ event.payload.minute }}',
+      runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
     }
   ];
 

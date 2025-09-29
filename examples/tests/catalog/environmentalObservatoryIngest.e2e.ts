@@ -85,7 +85,8 @@ const OBSERVATORY_INTERVAL_MINUTES = 1;
 const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
-  'observatory-daily-publication'
+  'observatory-daily-publication',
+  'observatory-dashboard-aggregate'
 ];
 
 function isProvisioningObject(value: JsonValue | undefined): value is Record<string, JsonValue> {

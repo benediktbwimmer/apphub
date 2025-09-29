@@ -15,14 +15,14 @@ async function run() {
     assert.equal(preview.errors.length, 0, 'descriptor import should not report errors');
     assert(preview.bootstrap?.actions?.length, 'descriptor should expose bootstrap actions');
 
-    const gateway = preview.entries.find((entry) => entry.slug === 'observatory-event-gateway');
-    assert(gateway, 'event gateway manifest should be present');
-    const dataRootEnv = gateway?.env?.find((env) => env.key === 'OBSERVATORY_DATA_ROOT');
-    assert(dataRootEnv, 'OBSERVATORY_DATA_ROOT env should be present');
+    const dashboard = preview.entries.find((entry) => entry.slug === 'observatory-dashboard');
+    assert(dashboard, 'dashboard manifest should be present');
+    const configEnv = dashboard?.env?.find((env) => env.key === 'OBSERVATORY_CONFIG_PATH');
+    assert(configEnv, 'OBSERVATORY_CONFIG_PATH env should be present');
     assert.equal(
-      dataRootEnv?.value,
-      'examples/environmental-observatory-event-driven/data',
-      'descriptor placeholder default should hydrate manifest env value'
+      configEnv?.value,
+      'examples/environmental-observatory-event-driven/.generated/observatory-config.json',
+      'descriptor should hydrate manifest config path'
     );
 
     const placeholder = preview.placeholders.find((entry) => entry.name === 'OBSERVATORY_DATA_ROOT');

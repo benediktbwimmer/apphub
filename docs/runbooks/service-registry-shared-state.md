@@ -76,7 +76,7 @@ This runbook covers the Postgres-backed service registry introduced in Ticket 15
 psql $DATABASE_URL -c "select module_id, service_slug, checksum from service_manifests where superseded_at is null order by module_id, service_slug;"
 
 # Inspect latest health snapshot for the gateway example
-psql $DATABASE_URL -c "select status, latency_ms, checked_at from service_health_snapshots where service_slug = 'observatory-event-gateway' order by version desc limit 1;"
+psql $DATABASE_URL -c "select status, latency_ms, checked_at from service_health_snapshots where service_slug = 'observatory-dashboard' order by version desc limit 1;"
 ```
 
 Use `examples/environmental-observatory-event-driven` as the canonical smoke test module whenever verifying shared registry behaviour locally or in staging.

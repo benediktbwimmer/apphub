@@ -1,0 +1,8 @@
+{
+  "partitionKey": "2025-08-01T09:00",
+  "reportsDir": "examples/environmental-observatory-event-driven/data/reports",
+  "overviewDirName": "overview",
+  "lookbackMinutes": 720,
+  "timestoreBaseUrl": "http://127.0.0.1:4200",
+  "timestoreDatasetSlug": "observatory-timeseries"
+}

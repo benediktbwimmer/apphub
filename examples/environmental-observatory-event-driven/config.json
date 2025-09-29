@@ -25,6 +25,10 @@
     {
       "path": "./jobs/observatory-report-publisher/apphub.bundle.json",
       "kind": "bundle"
+    },
+    {
+      "path": "./jobs/observatory-dashboard-aggregator/apphub.bundle.json",
+      "kind": "bundle"
     }
   ],
   "placeholders": [
@@ -120,11 +124,18 @@
             "apiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}"
           },
           "workflows": {
-          "ingestSlug": "{{ env.OBSERVATORY_INGEST_WORKFLOW_SLUG | default:observatory-minute-ingest }}",
-          "publicationSlug": "{{ env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG | default:observatory-daily-publication }}",
-          "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}",
-          "generator": {
-            "instrumentCount": "{{ env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT | default: env.OBSERVATORY_INSTRUMENT_COUNT | default:3 | number }}"
+            "generatorSlug": "{{ env.OBSERVATORY_GENERATOR_WORKFLOW_SLUG | default:observatory-minute-data-generator }}",
+            "ingestSlug": "{{ env.OBSERVATORY_INGEST_WORKFLOW_SLUG | default:observatory-minute-ingest }}",
+            "publicationSlug": "{{ env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG | default:observatory-daily-publication }}",
+            "aggregateSlug": "{{ env.OBSERVATORY_DASHBOARD_WORKFLOW_SLUG | default:observatory-dashboard-aggregate }}",
+            "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}",
+            "dashboard": {
+              "overviewDirName": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_DIR | default:overview }}",
+              "lookbackMinutes": "{{ env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES | default:720 | number }}"
+            },
+            "generator": {
+              "instrumentCount": "{{ env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT | default: env.OBSERVATORY_INSTRUMENT_COUNT | default:3 | number }}"
+            }
           }
         }
       }
@@ -177,6 +188,17 @@
               "metastoreBaseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",
               "metastoreNamespace": "{{ env.OBSERVATORY_METASTORE_NAMESPACE | default:observatory.reports }}",
               "metastoreAuthToken": "{{ env.OBSERVATORY_METASTORE_TOKEN | default:null }}"
+            }
+          },
+          {
+            "slug": "observatory-dashboard-aggregate",
+            "defaults": {
+              "reportsDir": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports",
+              "overviewDirName": "{{ env.OBSERVATORY_DASHBOARD_OVERVIEW_DIR | default:overview }}",
+              "lookbackMinutes": "{{ env.OBSERVATORY_DASHBOARD_LOOKBACK_MINUTES | default:720 | number }}",
+              "timestoreBaseUrl": "{{ env.OBSERVATORY_TIMESTORE_BASE_URL | default:http://127.0.0.1:4200 }}",
+              "timestoreDatasetSlug": "{{ env.OBSERVATORY_TIMESTORE_DATASET_SLUG | default:observatory-timeseries }}",
+              "timestoreAuthToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}"
             }
           }
         ]

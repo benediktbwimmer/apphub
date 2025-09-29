@@ -1,26 +1,6 @@
 {
   "services": [
     {
-      "slug": "observatory-event-gateway",
-      "displayName": "Observatory Event Gateway",
-      "kind": "workflow-watcher",
-      "baseUrl": "http://127.0.0.1:4310",
-      "healthEndpoint": "/healthz",
-      "devCommand": "npm run dev",
-      "workingDir": "examples/environmental-observatory-event-driven/services/observatory-file-watcher",
-      "env": [
-        { "key": "PORT", "value": "4310" },
-        {
-          "key": "OBSERVATORY_CONFIG_PATH",
-          "value": "examples/environmental-observatory-event-driven/.generated/observatory-config.json"
-        },
-        {
-          "key": "OBSERVATORY_DATA_ROOT",
-          "value": "${OBSERVATORY_DATA_ROOT}"
-        }
-      ]
-    },
-    {
       "slug": "observatory-dashboard",
       "displayName": "Observatory Dashboard",
       "kind": "dashboard",

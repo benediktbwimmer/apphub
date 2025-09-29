@@ -13,7 +13,8 @@ const OBSERVATORY_BACKEND_MOUNT_KEY = process.env.OBSERVATORY_FILESTORE_MOUNT_KE
 const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
-  'observatory-daily-publication'
+  'observatory-daily-publication',
+  'observatory-dashboard-aggregate'
 ]);
 
 function resolveContainerPath(targetPath: string): string {
@@ -122,6 +123,17 @@ export function applyObservatoryWorkflowDefaults(
       defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? null;
       defaults.metastoreNamespace = config.metastore?.namespace ?? null;
       defaults.metastoreAuthToken = config.metastore?.authToken ?? null;
+      break;
+    case 'observatory-dashboard-aggregate':
+      defaults.partitionKey = defaults.partitionKey ?? null;
+      defaults.reportsDir = config.paths.reports;
+      defaults.overviewDirName =
+        defaults.overviewDirName ?? config.workflows.dashboard?.overviewDirName ?? 'overview';
+      defaults.lookbackMinutes =
+        defaults.lookbackMinutes ?? config.workflows.dashboard?.lookbackMinutes ?? 720;
+      defaults.timestoreBaseUrl = config.timestore.baseUrl;
+      defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
+      defaults.timestoreAuthToken = config.timestore.authToken ?? null;
       break;
     default:
       break;

@@ -23,7 +23,6 @@ import { queueManager } from '../src/queueManager';
 
 const EVENT_MODULE_ID = 'github.com/apphub/examples/environmental-observatory-event-driven';
 const EVENT_MODULE_PATH = 'examples/environmental-observatory-event-driven';
-const GATEWAY_SLUG = 'observatory-event-gateway';
 const DASHBOARD_SLUG = 'observatory-dashboard';
 
 let postgres: EmbeddedPostgres | null = null;
@@ -82,27 +81,27 @@ async function run() {
 
     assert.equal(backfillResults.length, 1, 'expected single module backfill result');
     assert.equal(backfillResults[0]?.moduleId, EVENT_MODULE_ID);
-    assert.equal(backfillResults[0]?.servicesApplied, 2);
+    assert.equal(backfillResults[0]?.servicesApplied, 1);
 
-    const manifest = await getServiceManifest(GATEWAY_SLUG);
-    assert(manifest, 'gateway manifest should be available after backfill');
-    assert.equal(manifest?.baseUrl, 'http://127.0.0.1:4310');
+    const manifest = await getServiceManifest(DASHBOARD_SLUG);
+    assert(manifest, 'dashboard manifest should be available after backfill');
+    assert.equal(manifest?.baseUrl, 'http://127.0.0.1:4311');
 
     const networkRepositoryIds = await listServiceNetworkRepositoryIds();
     assert.equal(networkRepositoryIds.length, 0, 'event-driven example does not define service networks');
 
     resetServiceManifestState();
-    const manifestAfterReset = await getServiceManifest(GATEWAY_SLUG);
+    const manifestAfterReset = await getServiceManifest(DASHBOARD_SLUG);
     assert(manifestAfterReset, 'manifest should reload from shared store after reset');
 
     const manifestList = await listActiveServiceManifests();
     assert.equal(
-      manifestList.filter((entry) => entry.serviceSlug === GATEWAY_SLUG).length,
+      manifestList.filter((entry) => entry.serviceSlug === DASHBOARD_SLUG).length,
       1,
       'exactly one active manifest record should exist per service'
     );
 
-    const service = await getServiceBySlug(GATEWAY_SLUG);
+    const service = await getServiceBySlug(DASHBOARD_SLUG);
     assert(service, 'service row should exist after backfill');
 
     const previousFetch = global.fetch;
@@ -113,13 +112,13 @@ async function run() {
       });
 
     try {
-      const initialSnapshot = await getServiceHealthSnapshot(GATEWAY_SLUG);
+      const initialSnapshot = await getServiceHealthSnapshot(DASHBOARD_SLUG);
       assert.equal(initialSnapshot, null, 'no health snapshot expected before poll');
 
       await __testing.checkServiceHealth(service!);
       await __testing.waitForInvalidations();
 
-      const snapshot = await getServiceHealthSnapshot(GATEWAY_SLUG);
+      const snapshot = await getServiceHealthSnapshot(DASHBOARD_SLUG);
       assert(snapshot, 'health snapshot should be recorded after poll');
       assert.equal(snapshot?.status, 'healthy');
       assert.equal(snapshot?.statusCode, 200);
@@ -131,12 +130,10 @@ async function run() {
     const secondPass = await backfillServiceRegistry({
       targets: [{ path: EVENT_MODULE_PATH, moduleId: EVENT_MODULE_ID }]
     });
-    assert.equal(secondPass[0]?.servicesApplied, 2, 'second pass should report same service count');
+    assert.equal(secondPass[0]?.servicesApplied, 1, 'second pass should report single service count');
 
     const activeManifests = await listActiveServiceManifests();
-    const gatewayActive = activeManifests.filter((entry) => entry.serviceSlug === GATEWAY_SLUG);
     const dashboardActive = activeManifests.filter((entry) => entry.serviceSlug === DASHBOARD_SLUG);
-    assert.equal(gatewayActive.length, 1, 'backfill should remain idempotent for gateway manifest');
     assert.equal(dashboardActive.length, 1, 'backfill should remain idempotent for dashboard manifest');
   } finally {
     registry.stop();

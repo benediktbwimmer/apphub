@@ -48,10 +48,23 @@ export type ObservatoryCatalogConfig = {
   apiToken?: string;
 };
 
+export type ObservatoryWorkflowGeneratorConfig = {
+  instrumentCount?: number;
+};
+
+export type ObservatoryWorkflowDashboardConfig = {
+  overviewDirName?: string;
+  lookbackMinutes?: number;
+};
+
 export type ObservatoryWorkflowConfig = {
+  generatorSlug: string;
   ingestSlug: string;
   publicationSlug: string;
+  aggregateSlug: string;
   visualizationAssetId: string;
+  generator?: ObservatoryWorkflowGeneratorConfig;
+  dashboard?: ObservatoryWorkflowDashboardConfig;
 };
 
 export type ObservatoryConfig = {

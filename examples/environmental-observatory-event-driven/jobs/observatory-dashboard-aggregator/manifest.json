@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Dashboard Aggregator",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Aggregates recent observatory measurements from Timestore and renders an interactive HTML dashboard.",
+  "capabilities": ["fs", "network"]
+}

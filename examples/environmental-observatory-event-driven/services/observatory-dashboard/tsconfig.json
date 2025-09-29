@@ -8,9 +8,13 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "src",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": "./",
+    "paths": {
+      "@observatory/shared-config": ["../../shared/config.ts"],
+      "@observatory/shared-events": ["../../shared/events.ts"]
+    }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "../../shared/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

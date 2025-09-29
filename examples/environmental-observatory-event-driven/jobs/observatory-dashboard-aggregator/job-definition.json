@@ -1,0 +1,55 @@
+{
+  "slug": "observatory-dashboard-aggregator",
+  "name": "Observatory Dashboard Aggregator",
+  "type": "batch",
+  "runtime": "node",
+  "entryPoint": "bundle:observatory-dashboard-aggregator@0.1.0#handler",
+  "timeoutMs": 120000,
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "strategy": "exponential",
+    "initialDelayMs": 5000
+  },
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "partitionKey": { "type": "string", "minLength": 1 },
+      "reportsDir": { "type": "string", "minLength": 1 },
+      "overviewDirName": { "type": "string", "minLength": 1 },
+      "lookbackMinutes": { "type": "number", "minimum": 5, "maximum": 4320 },
+      "timestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "timestoreDatasetSlug": { "type": "string", "minLength": 1 },
+      "timestoreAuthToken": { "type": "string" }
+    },
+    "required": [
+      "partitionKey",
+      "reportsDir",
+      "overviewDirName",
+      "lookbackMinutes",
+      "timestoreBaseUrl",
+      "timestoreDatasetSlug"
+    ]
+  },
+  "defaultParameters": {
+    "overviewDirName": "overview",
+    "lookbackMinutes": 720
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "generatedAt": { "type": "string", "format": "date-time" },
+      "samples": { "type": "number" },
+      "instrumentCount": { "type": "number" },
+      "siteCount": { "type": "number" },
+      "dashboardPath": { "type": "string" },
+      "dataPath": { "type": "string" }
+    },
+    "required": [
+      "generatedAt",
+      "samples",
+      "instrumentCount",
+      "siteCount",
+      "dashboardPath"
+    ]
+  }
+}

@@ -309,7 +309,7 @@ async function testLoadAllExamples(): Promise<void> {
     assert.equal(servicesRes.statusCode, 200);
     const servicesBody = JSON.parse(servicesRes.payload) as { data: ServiceSummary[] };
     const serviceSlugs = new Set(servicesBody.data.map((service) => service.slug));
-    const expectedServiceSlugs = ['observatory-event-gateway', 'observatory-dashboard'];
+    const expectedServiceSlugs = ['observatory-dashboard'];
     for (const slug of expectedServiceSlugs) {
       assert(serviceSlugs.has(slug), `Service import should register ${slug}`);
       assert.equal(initialServiceSlugs.has(slug), false, `${slug} should not exist before import`);

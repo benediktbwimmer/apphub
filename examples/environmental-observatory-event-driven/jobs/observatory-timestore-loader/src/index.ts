@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createObservatoryEventPublisher } from '../../shared/events';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -276,165 +277,207 @@ type InstrumentBucket = {
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const parameters = parseParameters(context.parameters);
-  const instrumentBuckets = new Map<string, InstrumentBucket>();
-  let totalRows = 0;
+  const observatoryEvents = createObservatoryEventPublisher({
+    source: 'observatory.timestore-loader'
+  });
+  const publishOperations: Array<Promise<void>> = [];
 
-  if (parameters.rawAsset.sourceFiles.length === 0) {
-    context.logger('No source files provided for Timestore ingestion; skipping', {
-      minute: parameters.minute,
-      datasetSlug: parameters.datasetSlug
+  try {
+    const instrumentBuckets = new Map<string, InstrumentBucket>();
+    let totalRows = 0;
+
+    if (parameters.rawAsset.sourceFiles.length === 0) {
+      context.logger('No source files provided for Timestore ingestion; skipping', {
+        minute: parameters.minute,
+        datasetSlug: parameters.datasetSlug
+      });
+      await context.update({ skipped: true, reason: 'no-source-files' });
+      return {
+        status: 'succeeded',
+        result: {
+          skipped: true,
+          rowsIngested: 0,
+          datasetSlug: parameters.datasetSlug,
+          minute: parameters.minute
+        }
+      } satisfies JobRunResult;
+    }
+
+    for (const source of parameters.rawAsset.sourceFiles) {
+      const { rows, minTimestamp, maxTimestamp } = await ingestableRowsFromCsv(
+        parameters.rawAsset.stagingDir,
+        source
+      );
+      context.logger('Parsed staging file for Timestore ingestion', {
+        relativePath: source.relativePath,
+        rows: rows.length
+      });
+      for (const row of rows) {
+        const instrumentId = row.instrument_id || 'unknown';
+        const bucket = instrumentBuckets.get(instrumentId) ?? {
+          rows: [],
+          minTimestamp: '',
+          maxTimestamp: ''
+        };
+        bucket.rows.push(row);
+        const candidateMin = minTimestamp && minTimestamp.length > 0 ? minTimestamp : row.timestamp;
+        const candidateMax = maxTimestamp && maxTimestamp.length > 0 ? maxTimestamp : row.timestamp;
+        if (!bucket.minTimestamp || candidateMin < bucket.minTimestamp) {
+          bucket.minTimestamp = candidateMin;
+        }
+        if (!bucket.maxTimestamp || candidateMax > bucket.maxTimestamp) {
+          bucket.maxTimestamp = candidateMax;
+        }
+        instrumentBuckets.set(instrumentId, bucket);
+      }
+    }
+
+    if (instrumentBuckets.size === 0) {
+      throw new Error('No valid observatory readings found in staging directory');
+    }
+
+    context.logger('Prepared instrument-partitioned Timestore ingestion batches', {
+      instrumentCount: instrumentBuckets.size,
+      minute: parameters.minute
     });
-    await context.update({ skipped: true, reason: 'no-source-files' });
+
+    const headers: Record<string, string> = {
+      'content-type': 'application/json'
+    };
+    if (parameters.timestoreAuthToken) {
+      headers.authorization = `Bearer ${parameters.timestoreAuthToken}`;
+    }
+
+    const ingestionUrl = `${parameters.timestoreBaseUrl.replace(/\/$/, '')}/datasets/${encodeURIComponent(
+      parameters.datasetSlug
+    )}/ingest`;
+    const sanitizedMinuteKey = parameters.minute.replace(/:/g, '-');
+
+    const ingestionSummaries: Array<Record<string, unknown>> = [];
+    const assetEntries: Array<Record<string, unknown>> = [];
+
+    for (const [instrumentId, bucket] of instrumentBuckets.entries()) {
+      totalRows += bucket.rows.length;
+
+      const partitionKey = buildPartitionKey(
+        parameters.partitionNamespace ?? DEFAULT_PARTITION_NAMESPACE,
+        instrumentId,
+        parameters.minute
+      );
+      const partitionAttributes = {
+        instrumentId,
+        window: parameters.minute,
+        minuteKey: sanitizedMinuteKey
+      } satisfies Record<string, string>;
+
+      const ingestionRequest = {
+        datasetSlug: parameters.datasetSlug,
+        datasetName: parameters.datasetName ?? parameters.datasetSlug,
+        tableName: parameters.tableName,
+        storageTargetId: parameters.storageTargetId,
+        schema: {
+          fields: DEFAULT_SCHEMA_FIELDS
+        },
+        partition: {
+          key: partitionKey,
+          attributes: partitionAttributes,
+          timeRange: {
+            start: bucket.minTimestamp || `${parameters.minute}:00Z`,
+            end: bucket.maxTimestamp || `${parameters.minute}:59:59.999Z`
+          }
+        },
+        rows: bucket.rows,
+        idempotencyKey: parameters.idempotencyKey ? `${parameters.idempotencyKey}:${instrumentId}` : undefined
+      } satisfies Record<string, unknown>;
+
+      const response = await fetch(ingestionUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(ingestionRequest)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`Timestore ingestion failed with status ${response.status}: ${errorText}`);
+      }
+
+      const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const manifest = isRecord(responseBody.manifest) ? responseBody.manifest : null;
+      const dataset = isRecord(responseBody.dataset) ? responseBody.dataset : null;
+      const manifestId = manifest && typeof manifest.id === 'string' ? manifest.id : null;
+      const datasetId = dataset && typeof dataset.id === 'string' ? dataset.id : null;
+
+      const partitionKeyString = serializePartitionKey(partitionKey);
+      const ingestedAt = new Date().toISOString();
+
+      const summary = {
+        instrumentId,
+        partitionKey: partitionKeyString,
+        partitionKeyFields: partitionKey,
+        datasetSlug: parameters.datasetSlug,
+        datasetId,
+        manifestId,
+        rowCount: bucket.rows.length,
+        storageTargetId: parameters.storageTargetId ?? null,
+        ingestionMode: ensureString(responseBody.mode, 'inline')
+      } satisfies Record<string, unknown>;
+
+      ingestionSummaries.push({ ...summary, ingestedAt });
+      assetEntries.push({
+        assetId: 'observatory.timeseries.timestore',
+        partitionKey: partitionKeyString,
+        producedAt: new Date().toISOString(),
+        payload: summary
+      });
+
+      await context.update({
+        instrumentId,
+        rows: bucket.rows.length,
+        partitionKey: partitionKeyString
+      });
+
+      publishOperations.push(
+        observatoryEvents
+          .publish({
+            type: 'observatory.minute.partition-ready',
+            payload: {
+              minute: parameters.minute,
+              instrumentId,
+              partitionKey: partitionKeyString,
+              partitionKeyFields: partitionKey,
+              datasetSlug: parameters.datasetSlug,
+              datasetId,
+              manifestId,
+              storageTargetId: parameters.storageTargetId ?? null,
+              rowsIngested: bucket.rows.length,
+              ingestedAt,
+              ingestionMode: summary.ingestionMode as string
+            },
+            occurredAt: ingestedAt
+          })
+          .catch((err) => {
+            context.logger('Failed to publish observatory partition event', {
+              instrumentId,
+              partitionKey: partitionKeyString,
+              error: err instanceof Error ? err.message : String(err)
+            });
+          })
+      );
+    }
+
+    await Promise.all(publishOperations);
+
     return {
       status: 'succeeded',
       result: {
-        skipped: true,
-        rowsIngested: 0,
-        datasetSlug: parameters.datasetSlug,
-        minute: parameters.minute
+        partitions: ingestionSummaries,
+        totalRows,
+        assets: assetEntries
       }
     } satisfies JobRunResult;
+  } finally {
+    await observatoryEvents.close().catch(() => undefined);
   }
-
-  for (const source of parameters.rawAsset.sourceFiles) {
-    const { rows, minTimestamp, maxTimestamp } = await ingestableRowsFromCsv(
-      parameters.rawAsset.stagingDir,
-      source
-    );
-    context.logger('Parsed staging file for Timestore ingestion', {
-      relativePath: source.relativePath,
-      rows: rows.length
-    });
-    for (const row of rows) {
-      const instrumentId = row.instrument_id || 'unknown';
-      const bucket = instrumentBuckets.get(instrumentId) ?? {
-        rows: [],
-        minTimestamp: '',
-        maxTimestamp: ''
-      };
-      bucket.rows.push(row);
-      const candidateMin = minTimestamp && minTimestamp.length > 0 ? minTimestamp : row.timestamp;
-      const candidateMax = maxTimestamp && maxTimestamp.length > 0 ? maxTimestamp : row.timestamp;
-      if (!bucket.minTimestamp || candidateMin < bucket.minTimestamp) {
-        bucket.minTimestamp = candidateMin;
-      }
-      if (!bucket.maxTimestamp || candidateMax > bucket.maxTimestamp) {
-        bucket.maxTimestamp = candidateMax;
-      }
-      instrumentBuckets.set(instrumentId, bucket);
-    }
-  }
-
-  if (instrumentBuckets.size === 0) {
-    throw new Error('No valid observatory readings found in staging directory');
-  }
-
-  context.logger('Prepared instrument-partitioned Timestore ingestion batches', {
-    instrumentCount: instrumentBuckets.size,
-    minute: parameters.minute
-  });
-
-  const headers: Record<string, string> = {
-    'content-type': 'application/json'
-  };
-  if (parameters.timestoreAuthToken) {
-    headers.authorization = `Bearer ${parameters.timestoreAuthToken}`;
-  }
-
-  const ingestionUrl = `${parameters.timestoreBaseUrl.replace(/\/$/, '')}/datasets/${encodeURIComponent(
-    parameters.datasetSlug
-  )}/ingest`;
-  const sanitizedMinuteKey = parameters.minute.replace(/:/g, '-');
-
-  const ingestionSummaries: Array<Record<string, unknown>> = [];
-  const assetEntries: Array<Record<string, unknown>> = [];
-
-  for (const [instrumentId, bucket] of instrumentBuckets.entries()) {
-    totalRows += bucket.rows.length;
-
-    const partitionKey = buildPartitionKey(
-      parameters.partitionNamespace ?? DEFAULT_PARTITION_NAMESPACE,
-      instrumentId,
-      parameters.minute
-    );
-    const partitionAttributes = {
-      instrumentId,
-      window: parameters.minute,
-      minuteKey: sanitizedMinuteKey
-    } satisfies Record<string, string>;
-
-    const ingestionRequest = {
-      datasetSlug: parameters.datasetSlug,
-      datasetName: parameters.datasetName ?? parameters.datasetSlug,
-      tableName: parameters.tableName,
-      storageTargetId: parameters.storageTargetId,
-      schema: {
-        fields: DEFAULT_SCHEMA_FIELDS
-      },
-      partition: {
-        key: partitionKey,
-        attributes: partitionAttributes,
-        timeRange: {
-          start: bucket.minTimestamp || `${parameters.minute}:00Z`,
-          end: bucket.maxTimestamp || `${parameters.minute}:59:59.999Z`
-        }
-      },
-      rows: bucket.rows,
-      idempotencyKey: parameters.idempotencyKey ? `${parameters.idempotencyKey}:${instrumentId}` : undefined
-    } satisfies Record<string, unknown>;
-
-    const response = await fetch(ingestionUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(ingestionRequest)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      throw new Error(`Timestore ingestion failed with status ${response.status}: ${errorText}`);
-    }
-
-    const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    const manifest = isRecord(responseBody.manifest) ? responseBody.manifest : null;
-    const dataset = isRecord(responseBody.dataset) ? responseBody.dataset : null;
-
-    const partitionKeyString = serializePartitionKey(partitionKey);
-
-    const summary = {
-      instrumentId,
-      partitionKey: partitionKeyString,
-      partitionKeyFields: partitionKey,
-      datasetSlug: parameters.datasetSlug,
-      datasetId: dataset?.id ?? null,
-      manifestId: manifest?.id ?? null,
-      rowCount: bucket.rows.length,
-      storageTargetId: parameters.storageTargetId ?? null,
-      ingestionMode: ensureString(responseBody.mode, 'inline')
-    } satisfies Record<string, unknown>;
-
-    ingestionSummaries.push(summary);
-    assetEntries.push({
-      assetId: 'observatory.timeseries.timestore',
-      partitionKey: partitionKeyString,
-      producedAt: new Date().toISOString(),
-      payload: summary
-    });
-
-    await context.update({
-      instrumentId,
-      rows: bucket.rows.length,
-      partitionKey: partitionKeyString
-    });
-  }
-
-  return {
-    status: 'succeeded',
-    result: {
-      partitions: ingestionSummaries,
-      totalRows,
-      assets: assetEntries
-    }
-  } satisfies JobRunResult;
 }
 
 export default handler;
