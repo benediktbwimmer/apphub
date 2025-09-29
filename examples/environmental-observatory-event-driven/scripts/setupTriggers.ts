@@ -138,7 +138,9 @@ async function main(): Promise<void> {
       inboxPrefix: config.filestore.inboxPrefix,
       stagingPrefix: config.filestore.stagingPrefix,
       archivePrefix: config.filestore.archivePrefix,
-      principal: 'observatory-inbox-normalizer'
+      principal: 'observatory-inbox-normalizer',
+      calibrationsPrefix: config.filestore.calibrationsPrefix,
+      plansPrefix: config.filestore.plansPrefix ?? null
     },
     timestore: {
       baseUrl: config.timestore.baseUrl,
@@ -210,6 +212,10 @@ async function main(): Promise<void> {
       baseUrl: config.metastore?.baseUrl ?? null,
       namespace: config.metastore?.namespace ?? null,
       authToken: config.metastore?.authToken ?? null
+    },
+    calibrations: {
+      prefix: config.filestore.calibrationsPrefix,
+      plansPrefix: config.filestore.plansPrefix ?? null
     }
   } satisfies Record<string, unknown>;
 
@@ -259,7 +265,9 @@ async function main(): Promise<void> {
         config.workflows.dashboard?.overviewPrefix ??
         config.filestore.reportsPrefix?.concat('/overview') ??
         'datasets/observatory/reports/overview',
-      principal: 'observatory-dashboard-aggregator'
+      principal: 'observatory-dashboard-aggregator',
+      calibrationsPrefix: config.filestore.calibrationsPrefix,
+      plansPrefix: config.filestore.plansPrefix ?? null
     },
     timestore: {
       baseUrl: config.timestore.baseUrl,
@@ -270,6 +278,43 @@ async function main(): Promise<void> {
       lookbackMinutes: dashboardLookbackMinutes
     }
   } satisfies Record<string, unknown>;
+
+  const calibrationNamespace =
+    config.metastore?.namespace && config.metastore.namespace !== 'observatory.reports'
+      ? config.metastore.namespace
+      : 'observatory.calibrations';
+
+  const calibrationMetadata = {
+    filestore: {
+      baseUrl: config.filestore.baseUrl,
+      backendMountId: config.filestore.backendMountId,
+      token: config.filestore.token ?? null,
+      principal: 'observatory-calibration-importer'
+    },
+    metastore: {
+      baseUrl: config.metastore?.baseUrl ?? 'http://127.0.0.1:4100',
+      namespace: calibrationNamespace,
+      authToken: config.metastore?.authToken ?? null
+    },
+    calibrations: {
+      prefix: config.filestore.calibrationsPrefix,
+      plansPrefix: config.filestore.plansPrefix ?? null
+    }
+  } satisfies Record<string, unknown>;
+
+  const calibrationTemplate: Record<string, unknown> = {
+    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+    filestoreToken: '{{ trigger.metadata.filestore.token }}',
+    filestorePrincipal: '{{ trigger.metadata.filestore.principal }}',
+    calibrationPath: '{{ event.payload.path }}',
+    calibrationNodeId: '{{ event.payload.node.id }}',
+    calibrationsPrefix: '{{ trigger.metadata.calibrations.prefix }}',
+    checksum: '{{ event.payload.node.checksum }}',
+    metastoreBaseUrl: '{{ trigger.metadata.metastore.baseUrl }}',
+    metastoreNamespace: '{{ trigger.metadata.metastore.namespace }}',
+    metastoreAuthToken: '{{ trigger.metadata.metastore.authToken }}'
+  };
 
   const dashboardTemplate: Record<string, unknown> = {
     partitionKey: '{{ event.payload.minute }}',
@@ -293,6 +338,8 @@ async function main(): Promise<void> {
   if (!config.workflows.aggregateSlug) {
     throw new Error('Aggregate workflow slug missing in observatory config');
   }
+
+  const calibrationWorkflowSlug = config.workflows.calibrationImportSlug ?? 'observatory-calibration-import';
 
   const triggers: TriggerDefinition[] = [
     {
@@ -347,6 +394,26 @@ async function main(): Promise<void> {
       maxConcurrency: 1,
       idempotencyKeyExpression: 'observatory-dashboard-{{ event.payload.minute }}',
       runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
+    },
+    {
+      workflowSlug: calibrationWorkflowSlug,
+      name: 'Observatory calibration import',
+      description: 'Process calibration uploads from the observatory calibrations prefix.',
+      eventType: 'filestore.command.completed',
+      eventSource: 'filestore.service',
+      predicates: [
+        { path: '$.payload.command', operator: 'equals', value: 'uploadFile' },
+        { path: '$.payload.backendMountId', operator: 'equals', value: config.filestore.backendMountId }
+      ],
+      parameterTemplate: calibrationTemplate,
+      metadata: calibrationMetadata,
+      throttleWindowMs: null,
+      throttleCount: null,
+      maxConcurrency: null,
+      idempotencyKeyExpression:
+        'observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: "/", "_" | replace: ":", "-" }}',
+      runKeyTemplate:
+        'observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: "/", "-" | replace: ":", "-" }}'
     }
   ];
 

@@ -8,17 +8,25 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - **Aggregate overview:** a second workflow reacts to `observatory.minute.partition-ready`, runs the new dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
 - **Timestore + Metastore:** once ingestion completes, the timestore loader emits `observatory.minute.partition-ready`; the publication workflow regenerates plots and status reports, optionally upserting metadata into the Metastore.
 - **Shared configuration:** operators resolve folder paths, tokens, and slugs once via `scripts/materializeConfig.ts`; both services and trigger definitions read the generated `.generated/observatory-config.json`.
+- **Calibration-ready:** the materializer now provisions Filestore prefixes for `datasets/observatory/calibrations` (and `.../calibrations/plans`) so operators can stage calibration files alongside raw uploads.
 - **Live visibility:** the revamped dashboard lets you browse per-instrument plots, reports, and the aggregate visualization from one place.
 
 ## Directory Tour
 - `data/` – historical scratch layout kept for reference; jobs now stream directly to Filestore prefixes and avoid writing to these directories.
-- `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem.
-- `workflows/` – minute ingest + publication definitions with new Filestore/Timestore parameters.
+- `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem (now including the calibration importer).
+- `workflows/` – minute ingest, calibration import, and publication definitions with new Filestore/Timestore parameters.
 - `services/` – the static dashboard frontend.
 - `scripts/` – helper utilities for generating the config file and provisioning workflow triggers.
 - `config.json` – example descriptor wiring placeholders, bootstrap actions, and manifest references.
 - `service-manifests/` – minimal manifest for the two services (they now read the shared config instead of embedding prompts).
 - `shared/` – TypeScript helper for loading the config JSON from any package.
+
+## Calibration Files
+- Materialization writes `filestore.calibrationsPrefix` (default `datasets/observatory/calibrations`) and `filestore.plansPrefix` (`datasets/observatory/calibrations/plans`) into `.generated/observatory-config.json`.
+- Upload new calibration files to the calibrated prefix via the Filestore API/CLI; the script pre-creates the hierarchy so operators can drop JSON/CSV files without manual setup.
+- The `observatory-calibration-import` workflow listens for uploads under the calibration prefix, validates payloads, writes canonical records to the Metastore, and emits `observatory.calibration.updated` events.
+- Use descriptive names such as `instrument_alpha_20250101T0000.json` and include an effective timestamp in the payload to help future reprocessing flows.
+- Generated config exposes these prefixes for workflows, triggers, and services; downstream features will rely on them to locate calibration inputs and generated reprocessing plans.
 
 ## Bootstrapping the Scenario
 1. Install dependencies if you have not yet (`npm install`).
@@ -27,7 +35,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    OBSERVATORY_DATA_ROOT=/Users/you/observatory \
    npx tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts
    ```
-   The script writes `.generated/observatory-config.json`, provisions the Filestore backend, and records the inbox/staging/archive/visualization/report prefixes so jobs can read/write exclusively through Filestore. Keep the generated file out of source control.
+   The script writes `.generated/observatory-config.json`, provisions the Filestore backend, and records the inbox/staging/archive/visualization/report/calibration prefixes so jobs can read/write exclusively through Filestore. Keep the generated file out of source control.
 3. Register the workflow event triggers:
    ```bash
    npx tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts

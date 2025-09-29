@@ -1,0 +1,150 @@
+{
+  "slug": "observatory-calibration-import",
+  "name": "Observatory Calibration Import",
+  "version": 1,
+  "description": "Validates uploaded calibration files, persists canonical records in the Metastore, and emits calibration updates for downstream workflows.",
+  "parametersSchema": {
+    "type": "object",
+    "properties": {
+      "filestoreBaseUrl": { "type": "string", "minLength": 1 },
+      "filestoreBackendId": { "type": "number", "minimum": 1 },
+      "filestoreToken": { "type": "string" },
+      "filestorePrincipal": { "type": "string" },
+      "calibrationPath": { "type": "string", "minLength": 1 },
+      "calibrationNodeId": { "type": "number", "minimum": 1 },
+      "calibrationsPrefix": { "type": "string", "minLength": 1 },
+      "checksum": { "type": "string" },
+      "metastoreBaseUrl": { "type": "string", "minLength": 1 },
+      "metastoreNamespace": { "type": "string", "minLength": 1 },
+      "metastoreAuthToken": { "type": "string" }
+    },
+    "required": [
+      "filestoreBaseUrl",
+      "filestoreBackendId",
+      "calibrationPath",
+      "metastoreBaseUrl"
+    ]
+  },
+  "defaultParameters": {
+    "filestoreBaseUrl": "http://127.0.0.1:4300",
+    "filestoreBackendId": 1,
+    "filestoreToken": null,
+    "filestorePrincipal": "observatory-calibration-importer",
+    "metastoreBaseUrl": "http://127.0.0.1:4100",
+    "metastoreNamespace": "observatory.calibrations",
+    "metastoreAuthToken": null,
+    "calibrationsPrefix": "datasets/observatory/calibrations"
+  },
+  "steps": [
+    {
+      "id": "import-calibration",
+      "name": "Import calibration file",
+      "type": "job",
+      "jobSlug": "observatory-calibration-importer",
+      "parameters": {
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
+        "calibrationPath": "{{ parameters.calibrationPath }}",
+        "calibrationNodeId": "{{ parameters.calibrationNodeId }}",
+        "calibrationsPrefix": "{{ parameters.calibrationsPrefix }}",
+        "checksum": "{{ parameters.checksum }}",
+        "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+        "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}"
+      },
+      "storeResultAs": "importResult",
+      "produces": [
+        {
+          "assetId": "observatory.calibration.instrument",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "calibrationId": { "type": "string" },
+              "instrumentId": { "type": "string" },
+              "effectiveAt": { "type": "string", "format": "date-time" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "revision": { "type": ["number", "null"] },
+              "offsets": { "type": "object", "additionalProperties": { "type": "number" } },
+              "scales": { "type": ["object", "null"], "additionalProperties": { "type": "number" } },
+              "notes": { "type": ["string", "null"] },
+              "metadata": { "type": "object", "additionalProperties": true },
+              "sourcePath": { "type": "string" },
+              "metastoreNamespace": { "type": "string" },
+              "metastoreRecordKey": { "type": "string" },
+              "metastoreVersion": { "type": ["number", "null"] }
+            },
+            "required": [
+              "calibrationId",
+              "instrumentId",
+              "effectiveAt",
+              "createdAt",
+              "offsets",
+              "metadata",
+              "sourcePath",
+              "metastoreNamespace",
+              "metastoreRecordKey"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    { "type": "manual" }
+  ],
+  "metadata": {
+    "provisioning": {
+      "eventTriggers": [
+        {
+          "name": "Observatory calibration upload",
+          "description": "Import calibration records whenever a calibration file is added to the observatory calibrations prefix.",
+          "eventType": "filestore.command.completed",
+          "eventSource": "filestore.service",
+          "predicates": [
+            { "path": "$.payload.command", "operator": "equals", "value": "uploadFile" },
+            {
+              "path": "$.payload.backendMountId",
+              "operator": "equals",
+              "value": "{{ trigger.metadata.filestore.backendMountId }}"
+            }
+          ],
+          "parameterTemplate": {
+            "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
+            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
+            "filestoreToken": "{{ trigger.metadata.filestore.token }}",
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}",
+            "calibrationPath": "{{ event.payload.path }}",
+            "calibrationNodeId": "{{ event.payload.node.id }}",
+            "calibrationsPrefix": "{{ trigger.metadata.calibrations.prefix }}",
+            "checksum": "{{ event.payload.node.checksum }}",
+            "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
+            "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
+            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
+          },
+          "metadata": {
+            "filestore": {
+              "baseUrl": "{{ defaultParameters.filestoreBaseUrl }}",
+              "backendMountId": "{{ defaultParameters.filestoreBackendId }}",
+              "token": "{{ defaultParameters.filestoreToken }}",
+              "principal": "{{ defaultParameters.filestorePrincipal }}"
+            },
+            "metastore": {
+              "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
+              "namespace": "{{ defaultParameters.metastoreNamespace }}",
+              "authToken": "{{ defaultParameters.metastoreAuthToken }}"
+            },
+            "calibrations": {
+              "prefix": "{{ trigger.metadata.calibrations.prefix }}",
+              "plansPrefix": "{{ trigger.metadata.calibrations.plansPrefix }}"
+            }
+          },
+          "idempotencyKeyExpression": "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '_' }}",
+          "runKeyTemplate": "observatory-calibration-{{ event.payload.node.id | default: event.payload.path | replace: '/', '-' }}",
+          "status": "active"
+        }
+      ]
+    }
+  }
+}

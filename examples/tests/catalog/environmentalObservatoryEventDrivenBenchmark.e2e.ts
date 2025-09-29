@@ -116,13 +116,15 @@ const OBSERVATORY_BUNDLE_SLUGS = [
   'observatory-inbox-normalizer',
   'observatory-timestore-loader',
   'observatory-visualization-runner',
-  'observatory-report-publisher'
+  'observatory-report-publisher',
+  'observatory-calibration-importer'
 ] as const;
 const OBSERVATORY_WORKFLOW_SLUGS = [
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
   'observatory-daily-publication',
-  'observatory-dashboard-aggregate'
+  'observatory-dashboard-aggregate',
+  'observatory-calibration-import'
 ] as const;
 const GENERATOR_WORKFLOW_SLUG = 'observatory-minute-data-generator';
 const DEFAULT_INSTRUMENT_COUNT = 5;
@@ -1236,6 +1238,19 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
       variables: { ...process.env },
       outputPath: path.join(serverContext.tempRoot, 'observatory-config.json')
     });
+    assert.ok(
+      typeof config.filestore.calibrationsPrefix === 'string' && config.filestore.calibrationsPrefix.length > 0,
+      'Observatory config missing filestore.calibrationsPrefix'
+    );
+    assert.ok(
+      typeof config.filestore.plansPrefix === 'string' && config.filestore.plansPrefix.length > 0,
+      'Observatory config missing filestore.plansPrefix'
+    );
+    assert.equal(
+      config.workflows.calibrationImportSlug,
+      'observatory-calibration-import',
+      'Unexpected calibration import workflow slug'
+    );
     console.log('[benchmark] resolved observatory config paths', config.paths);
     console.log('[benchmark] resolved observatory filestore prefixes', config.filestore);
     console.log('[benchmark] resolved generator settings', config.workflows.generator);

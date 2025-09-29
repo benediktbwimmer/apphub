@@ -1,0 +1,8 @@
+{
+  "name": "Observatory Calibration Importer",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "runtime": "node18",
+  "description": "Parses calibration uploads from Filestore, writes canonical records to the Metastore, and emits observatory.calibration.updated events.",
+  "capabilities": ["network"]
+}

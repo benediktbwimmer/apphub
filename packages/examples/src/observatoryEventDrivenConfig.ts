@@ -17,6 +17,8 @@ export type ObservatoryConfig = {
     archivePrefix: string;
     visualizationsPrefix?: string;
     reportsPrefix?: string;
+    calibrationsPrefix: string;
+    plansPrefix?: string;
     bucket?: string;
     endpoint?: string;
     region?: string;
@@ -49,6 +51,7 @@ export type ObservatoryConfig = {
     ingestSlug: string;
     publicationSlug: string;
     aggregateSlug: string;
+    calibrationImportSlug: string;
     visualizationAssetId: string;
     generator?: {
       instrumentCount?: number;
@@ -214,6 +217,14 @@ export function createEventDrivenObservatoryConfig(
         'datasets/observatory/reports',
         'filestore.reportsPrefix'
       ),
+      calibrationsPrefix: resolveString(
+        getVar('OBSERVATORY_FILESTORE_CALIBRATIONS_PREFIX'),
+        'datasets/observatory/calibrations',
+        'filestore.calibrationsPrefix'
+      ),
+      plansPrefix: optionalString(
+        getVar('OBSERVATORY_FILESTORE_PLANS_PREFIX') ?? 'datasets/observatory/calibrations/plans'
+      ),
       bucket: optionalString(
         getVar('OBSERVATORY_FILESTORE_S3_BUCKET', ['FILESTORE_S3_BUCKET', 'APPHUB_BUNDLE_STORAGE_BUCKET'])
       ) ?? 'apphub-filestore',
@@ -377,6 +388,11 @@ export function createEventDrivenObservatoryConfig(
         getVar('OBSERVATORY_DASHBOARD_WORKFLOW_SLUG'),
         'observatory-dashboard-aggregate',
         'workflows.aggregateSlug'
+      ),
+      calibrationImportSlug: resolveString(
+        getVar('OBSERVATORY_CALIBRATION_WORKFLOW_SLUG'),
+        'observatory-calibration-import',
+        'workflows.calibrationImportSlug'
       ),
       visualizationAssetId: resolveString(
         getVar('OBSERVATORY_VISUALIZATION_ASSET_ID'),

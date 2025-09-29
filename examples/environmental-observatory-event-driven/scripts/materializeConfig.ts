@@ -3,8 +3,38 @@ import path from 'node:path';
 
 import {
   createEventDrivenObservatoryConfig,
-  ensureObservatoryBackend
+  ensureObservatoryBackend,
+  type EventDrivenObservatoryConfig
 } from '@apphub/examples';
+import { FilestoreClient } from '@apphub/filestore-client';
+import { ensureFilestoreHierarchy } from '../shared/filestore';
+
+async function ensureConfiguredPrefixes(config: EventDrivenObservatoryConfig): Promise<void> {
+  const backendMountId = config.filestore.backendMountId;
+  if (!backendMountId || !Number.isFinite(backendMountId)) {
+    return;
+  }
+
+  const client = new FilestoreClient({
+    baseUrl: config.filestore.baseUrl,
+    token: config.filestore.token,
+    userAgent: 'observatory-config-materializer/0.3.0'
+  });
+
+  const prefixes = [
+    config.filestore.inboxPrefix,
+    config.filestore.stagingPrefix,
+    config.filestore.archivePrefix,
+    config.filestore.visualizationsPrefix,
+    config.filestore.reportsPrefix,
+    config.filestore.calibrationsPrefix,
+    config.filestore.plansPrefix
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+  for (const prefix of prefixes) {
+    await ensureFilestoreHierarchy(client, backendMountId, prefix, 'observatory-config');
+  }
+}
 
 async function main(): Promise<void> {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -28,6 +58,8 @@ async function main(): Promise<void> {
   if (typeof backendId === 'number' && Number.isFinite(backendId)) {
     config.filestore.backendMountId = backendId;
   }
+
+  await ensureConfiguredPrefixes(config);
 
   const timestoreDirs = [config.timestore.storageRoot, config.timestore.cacheDir]
     .filter((entry): entry is string => Boolean(entry))

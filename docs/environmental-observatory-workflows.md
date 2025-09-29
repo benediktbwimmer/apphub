@@ -67,6 +67,12 @@ CSV columns:
 | `pm2_5_ug_m3` | Particulate matter (µg/m³). |
 | `battery_voltage` | Sensor battery voltage. |
 
+## Calibration inputs (event-driven variant)
+
+- `scripts/materializeConfig.ts` now records `filestore.calibrationsPrefix` (default `datasets/observatory/calibrations`) and `filestore.plansPrefix` (`datasets/observatory/calibrations/plans`) in the generated configuration.
+- The materializer pre-creates both prefixes in Filestore so operators can upload calibration JSON/CSV files and future reprocessing plans without manual setup.
+- Workflows, triggers, and services read these prefixes from `.generated/observatory-config.json`; upcoming calibration tooling will rely on them to locate operator uploads and generated plan artifacts.
+
 ## Jobs
 
 Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/index.ts jobs package <bundle>` before registering definitions.
@@ -87,7 +93,8 @@ Each bundle ships with an `apphub.bundle.json` and Node entry point so you can r
 | `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes Filestore `files` metadata (paths, node ids, checksums) and staging prefixes. |
 | `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, and row counts. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
 | `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new Timestore partitions retrigger plotting automatically. |
-| `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications.
+| `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications. |
+| `observatory.calibration.instrument` | Calibration import workflow step | Future ingest/planning flows | Stores the canonical calibration payload (instrument, effectiveAt, offsets/scales, metadata) plus metastore linkage for reprocessing planners. |
 
 The lineage graph forms a linear chain: inbox → Timestore → plots → reports. Auto-materialization guarantees the visualization workflow runs after each upstream Timestore ingest, which in turn triggers the reporting step. The asset history for `observatory.reports.status` makes it easy to diff report revisions over time.
 
@@ -110,6 +117,13 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
   2. `observatory-report-publisher` consumes the visualization asset and produces `observatory.reports.status`, uploading Markdown (`status.md`), HTML (`status.html`), and JSON (`status.json`) artifacts to the reports prefix.
 - **Parameters:** `timestoreBaseUrl`, `timestoreDatasetSlug`, Filestore settings (`filestoreBaseUrl`, `filestoreBackendId`, `visualizationsPrefix`, `reportsPrefix`), optional `siteFilter`, `reportTemplate`, and optional Metastore settings (`metastoreBaseUrl`, `metastoreNamespace`).
 
+### 3. `observatory-calibration-import`
+
+- **Trigger:** `filestore.command.completed` scoped to the calibration prefix.
+- **Steps:** Single step that runs `observatory-calibration-importer`, downloading the uploaded calibration JSON, validating offsets/gains, and upserting the canonical record into the Metastore.
+- **Outputs:** Emits the `observatory.calibration.instrument` asset and an `observatory.calibration.updated` event so orchestrators can plan reprocessing.
+- **Parameters:** Filestore connection (`filestoreBaseUrl`, `filestoreBackendId`, optional `filestoreToken`/`principal`), the uploaded file path/node id, and Metastore coordinates (`metastoreBaseUrl`, `metastoreNamespace`, optional token).
+
 ## Auto-materialization flow
 
 1. Inbox workflow runs after new CSV drops. Step 1 copies files into the staging Filestore prefix, moves the originals under the archive prefix, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
@@ -117,6 +131,7 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 3. The visualization workflow listens to `observatory.timeseries.timestore`. When a snapshot is produced or expires, the materializer runs `observatory-visualization-runner`, regenerating SVG plots straight to Filestore.
 4. The reporting step consumes the visualization asset. Since it also opts into `autoMaterialize.onUpstreamUpdate`, any new plots automatically yield fresh reports (Markdown/HTML/JSON) in Filestore.
 5. Reports are now available for the frontend or external publishing, and when Metastore credentials are supplied the latest payload metadata is upserted into `observatory.reports` for search and auditing. The dashboard service streams the latest report files directly from Filestore, so operators always see fresh metrics without relying on repository directories. Asset history exposes run keys, run IDs, and payload diffs for auditing.
+6. When calibration uploads arrive the calibration workflow publishes `observatory.calibration.instrument`, which downstream reprocessing planners can use to decide which partitions to rebuild before re-triggering ingest.
 
 ## Running the demo locally
 

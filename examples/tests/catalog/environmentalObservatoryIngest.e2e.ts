@@ -76,7 +76,8 @@ const OBSERVATORY_BUNDLE_SLUGS: ExampleJobSlug[] = [
   'observatory-inbox-normalizer',
   'observatory-timestore-loader',
   'observatory-visualization-runner',
-  'observatory-report-publisher'
+  'observatory-report-publisher',
+  'observatory-calibration-importer'
 ];
 
 const OBSERVATORY_ROWS_PER_INSTRUMENT = 6;
@@ -86,7 +87,8 @@ const OBSERVATORY_WORKFLOW_SLUGS: ExampleWorkflowSlug[] = [
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
   'observatory-daily-publication',
-  'observatory-dashboard-aggregate'
+  'observatory-dashboard-aggregate',
+  'observatory-calibration-import'
 ];
 
 function isProvisioningObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
@@ -827,6 +829,10 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
         inboxPrefix: 'inbox',
         stagingPrefix: 'staging',
         archivePrefix: 'archive',
+        visualizationsPrefix: 'visualizations',
+        reportsPrefix: 'reports',
+        calibrationsPrefix: 'calibrations',
+        plansPrefix: 'calibrations/plans',
         token: null,
         principal: 'observatory-inbox-normalizer'
       },
@@ -846,7 +852,8 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       workflows: {
         generatorSlug: 'observatory-minute-data-generator',
         ingestSlug: 'observatory-minute-ingest',
-        publicationSlug: 'observatory-daily-publication'
+        publicationSlug: 'observatory-daily-publication',
+        calibrationImportSlug: 'observatory-calibration-import'
       }
     } as const;
 

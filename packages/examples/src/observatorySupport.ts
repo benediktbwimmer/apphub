@@ -14,8 +14,11 @@ const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
   'observatory-daily-publication',
-  'observatory-dashboard-aggregate'
+  'observatory-dashboard-aggregate',
+  'observatory-calibration-import'
 ]);
+
+const DEFAULT_CALIBRATION_NAMESPACE = 'observatory.calibrations';
 
 function resolveContainerPath(targetPath: string): string {
   return resolveSharedContainerPath(targetPath);
@@ -140,6 +143,18 @@ export function applyObservatoryWorkflowDefaults(
       defaults.timestoreBaseUrl = config.timestore.baseUrl;
       defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
+      break;
+    case 'observatory-calibration-import':
+      defaults.filestoreBaseUrl = config.filestore.baseUrl;
+      defaults.filestoreBackendId = config.filestore.backendMountId;
+      defaults.filestoreToken = config.filestore.token ?? null;
+      defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-calibration-importer';
+      defaults.calibrationsPrefix =
+        defaults.calibrationsPrefix ?? config.filestore.calibrationsPrefix ?? 'datasets/observatory/calibrations';
+      defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
+      defaults.metastoreNamespace =
+        defaults.metastoreNamespace ?? config.metastore?.namespace ?? DEFAULT_CALIBRATION_NAMESPACE;
+      defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
       break;
     default:
       break;

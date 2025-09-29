@@ -1,5 +1,6 @@
 import { createEventPublisher, type EventEnvelope, type EventPublisherOptions, type JsonValue } from '@apphub/event-bus';
 import { z } from 'zod';
+import { calibrationFileSchema } from './calibrations';
 
 type JsonRecord = Record<string, JsonValue>;
 
@@ -89,6 +90,15 @@ const dashboardUpdatedPayloadSchema = z
   })
   .strip();
 
+const calibrationUpdatedPayloadSchema = calibrationFileSchema
+  .extend({
+    calibrationId: z.string().min(1),
+    createdAt: z.string().datetime({ offset: true }),
+    sourcePath: z.string().min(1),
+    metastoreVersion: z.number().int().nonnegative().optional()
+  })
+  .strip();
+
 const observatoryEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('observatory.minute.raw-uploaded'),
@@ -101,6 +111,10 @@ const observatoryEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('observatory.dashboard.updated'),
     payload: dashboardUpdatedPayloadSchema
+  }),
+  z.object({
+    type: z.literal('observatory.calibration.updated'),
+    payload: calibrationUpdatedPayloadSchema
   })
 ]);
 

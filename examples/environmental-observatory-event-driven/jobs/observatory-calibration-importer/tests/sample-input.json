@@ -1,0 +1,7 @@
+{
+  "filestoreBaseUrl": "http://127.0.0.1:4300",
+  "filestoreBackendId": 1,
+  "calibrationPath": "datasets/observatory/calibrations/instrument_alpha_20250101T000000Z.json",
+  "metastoreBaseUrl": "http://127.0.0.1:4100",
+  "metastoreNamespace": "observatory.calibrations"
+}

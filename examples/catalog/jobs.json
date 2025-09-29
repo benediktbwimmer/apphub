@@ -815,6 +815,100 @@
           ]
         }
       }
+    },
+    {
+      "slug": "observatory-calibration-importer",
+      "version": "0.1.0",
+      "directory": "examples/environmental-observatory-event-driven/jobs/observatory-calibration-importer",
+      "manifestPath": "examples/environmental-observatory-event-driven/jobs/observatory-calibration-importer/manifest.json",
+      "jobDefinitionPath": "examples/environmental-observatory-event-driven/jobs/observatory-calibration-importer/job-definition.json",
+      "manifest": {
+        "name": "Observatory Calibration Importer",
+        "version": "0.1.0",
+        "entry": "dist/index.js",
+        "runtime": "node18",
+        "description": "Parses calibration uploads from Filestore, writes canonical records to the Metastore, and emits observatory.calibration.updated events.",
+        "capabilities": ["network"]
+      },
+      "definition": {
+        "slug": "observatory-calibration-importer",
+        "name": "Observatory Calibration Importer",
+        "type": "batch",
+        "runtime": "node",
+        "entryPoint": "bundle:observatory-calibration-importer@0.1.0#handler",
+        "timeoutMs": 60000,
+        "retryPolicy": {
+          "maxAttempts": 3,
+          "strategy": "fixed",
+          "initialDelayMs": 10000
+        },
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "filestoreBaseUrl": { "type": "string", "minLength": 1 },
+            "filestoreBackendId": { "type": "number", "minimum": 1 },
+            "filestoreToken": { "type": "string" },
+            "filestorePrincipal": { "type": "string" },
+            "calibrationPath": { "type": "string", "minLength": 1 },
+            "calibrationNodeId": { "type": "number", "minimum": 1 },
+            "calibrationsPrefix": { "type": "string", "minLength": 1 },
+            "checksum": { "type": "string" },
+            "metastoreBaseUrl": { "type": "string", "minLength": 1 },
+            "metastoreNamespace": { "type": "string", "minLength": 1 },
+            "metastoreAuthToken": { "type": "string" }
+          },
+          "required": [
+            "filestoreBaseUrl",
+            "filestoreBackendId",
+            "calibrationPath",
+            "metastoreBaseUrl"
+          ]
+        },
+        "defaultParameters": {
+          "filestoreBaseUrl": "http://127.0.0.1:4300",
+          "filestoreBackendId": 1,
+          "filestoreToken": null,
+          "filestorePrincipal": "observatory-calibration-importer",
+          "calibrationsPrefix": "datasets/observatory/calibrations",
+          "metastoreBaseUrl": "http://127.0.0.1:4100",
+          "metastoreNamespace": "observatory.calibrations",
+          "metastoreAuthToken": null
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "calibrationId": { "type": "string" },
+            "instrumentId": { "type": "string" },
+            "effectiveAt": { "type": "string", "format": "date-time" },
+            "metastoreRecordKey": { "type": "string" },
+            "metastoreVersion": { "type": ["number", "null"] },
+            "assets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "assetId": { "type": "string" },
+                  "partitionKey": { "type": "string" },
+                  "producedAt": { "type": "string", "format": "date-time" },
+                  "payload": { "type": "object", "additionalProperties": true }
+                },
+                "required": [
+                  "assetId",
+                  "partitionKey",
+                  "producedAt",
+                  "payload"
+                ]
+              }
+            }
+          },
+          "required": [
+            "calibrationId",
+            "instrumentId",
+            "effectiveAt",
+            "metastoreRecordKey"
+          ]
+        }
+      }
     }
   ]
 }

@@ -18,6 +18,8 @@ export type ObservatoryFilestoreConfig = {
   archivePrefix: string;
   visualizationsPrefix?: string;
   reportsPrefix?: string;
+  calibrationsPrefix: string;
+  plansPrefix?: string;
   bucket?: string;
   endpoint?: string;
   region?: string;
@@ -159,9 +161,9 @@ export function resolvePath(config: ObservatoryConfig, key: keyof ObservatoryPat
 }
 
 export function resolveFilestorePrefixes(config: ObservatoryConfig) {
-  const { inboxPrefix, stagingPrefix, archivePrefix } = config.filestore;
-  if (!inboxPrefix || !stagingPrefix || !archivePrefix) {
+  const { inboxPrefix, stagingPrefix, archivePrefix, calibrationsPrefix } = config.filestore;
+  if (!inboxPrefix || !stagingPrefix || !archivePrefix || !calibrationsPrefix) {
     throw new Error('Filestore prefixes missing from observatory configuration');
   }
-  return { inboxPrefix, stagingPrefix, archivePrefix };
+  return { inboxPrefix, stagingPrefix, archivePrefix, calibrationsPrefix };
 }
