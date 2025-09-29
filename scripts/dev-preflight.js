@@ -99,7 +99,7 @@ function checkCommand(cmd, args = [], { timeoutMs = 2000 } = {}) {
 }
 
 function detectKubectl() {
-  const version = checkCommand('kubectl', ['version', '--client', '--short']);
+  const version = checkCommand('kubectl', ['version', '--client', '--output=json']);
   if (!version.ok) {
     const reason = version.missing
       ? 'kubectl not detected on PATH'

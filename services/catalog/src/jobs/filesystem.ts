@@ -2,8 +2,6 @@ import path from 'node:path';
 import { Buffer } from 'node:buffer';
 import { promises as fs, constants as fsConstants, type Stats } from 'node:fs';
 import { registerJobHandler, type JobRunContext, type JobResult } from './runtime';
-
-const HOST_ROOT_MOUNT = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? '/root-fs';
 const DEFAULT_ENCODING: BufferEncoding = 'utf8';
 
 const ENCODING_ALIASES: Record<string, BufferEncoding> = {
@@ -53,18 +51,7 @@ function ensureAbsolutePath(value: unknown, fieldName: string): string {
 }
 
 function buildCandidatePaths(normalizedHostPath: string): { containerPath: string; candidates: string[] } {
-  const relativeFromRoot = path.relative('/', normalizedHostPath);
-  const hasHostRoot = Boolean(HOST_ROOT_MOUNT && path.isAbsolute(HOST_ROOT_MOUNT));
-  const containerPath = hasHostRoot && !relativeFromRoot.startsWith('..')
-    ? path.join(HOST_ROOT_MOUNT, relativeFromRoot)
-    : normalizedHostPath;
-
-  const candidates: string[] = [];
-  if (hasHostRoot && !relativeFromRoot.startsWith('..')) {
-    candidates.push(containerPath);
-  }
-  candidates.push(normalizedHostPath);
-  return { containerPath, candidates };
+  return { containerPath: normalizedHostPath, candidates: [normalizedHostPath] };
 }
 
 async function resolveReadableFile(hostPath: string): Promise<ResolvedReadablePath> {

@@ -221,10 +221,6 @@ async function withServer(
   activeRedisUrl = redisUrl;
   const previousFilestoreLogLevel = process.env.FILESTORE_LOG_LEVEL;
   process.env.FILESTORE_LOG_LEVEL = previousFilestoreLogLevel ?? 'trace';
-  const previousHostRoot = process.env.APPHUB_HOST_ROOT;
-  if (previousHostRoot !== undefined) {
-    delete process.env.APPHUB_HOST_ROOT;
-  }
 
   await resetDatabasePool();
 
@@ -285,7 +281,6 @@ async function withServer(
     if (previousHostRoot === undefined) {
       // keep unset
     } else {
-      process.env.APPHUB_HOST_ROOT = previousHostRoot;
     }
 
     if (previousServiceConfig === undefined) {

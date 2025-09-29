@@ -33,15 +33,11 @@ const path = require('path');
 const fsPromises = require('fs/promises');
 const fsConstants = require('fs').constants;
 const { Buffer } = require('buffer');
-const HOST_ROOT = process.env.APPHUB_HOST_ROOT || process.env.HOST_ROOT_PATH || '/root-fs';
 const DEFAULT_ENCODING = 'utf8';
 const ENCODING_ALIASES = { utf8: 'utf8', 'utf-8': 'utf8', utf16le: 'utf16le', 'utf-16le': 'utf16le', latin1: 'latin1', ascii: 'ascii', base64: 'base64', hex: 'hex' };
 function normalizeEncoding(value, fallback = DEFAULT_ENCODING) { if (typeof value !== 'string') return fallback; const candidate = value.trim().toLowerCase(); return candidate ? (ENCODING_ALIASES[candidate] || fallback) : fallback; }
 function ensureAbsolutePath(value, fieldName) { if (typeof value !== 'string') throw new Error(`${fieldName} parameter is required`); const trimmed = value.trim(); if (!trimmed) throw new Error(`${fieldName} parameter is required`); if (!path.isAbsolute(trimmed)) throw new Error(`${fieldName} must be an absolute path`); return path.resolve(trimmed); }
-function buildCandidatePaths(normalizedHostPath) { const relative = path.relative('/', normalizedHostPath); const hasHostRoot = HOST_ROOT && path.isAbsolute(HOST_ROOT); const candidates = []; let containerPath = normalizedHostPath; if (hasHostRoot && !relative.startsWith('..')) { containerPath = path.join(HOST_ROOT, relative); candidates.push(containerPath); }
-  if (!candidates.includes(normalizedHostPath)) { candidates.push(normalizedHostPath); }
-  return { containerPath, candidates };
-}
+function buildCandidatePaths(normalizedHostPath) { return { containerPath: normalizedHostPath, candidates: [normalizedHostPath] }; }
 function toIsoDate(date) { return date instanceof Date && !Number.isNaN(date.valueOf()) ? date.toISOString() : null; }
 async function resolveReadableFile(hostPath, fieldName) { const normalized = ensureAbsolutePath(hostPath, fieldName); const { containerPath, candidates } = buildCandidatePaths(normalized); const errors = []; for (const candidate of candidates) {
     try { const stats = await fsPromises.stat(candidate); if (!stats.isFile()) { errors.push(`${candidate} is not a regular file`); continue; } await fsPromises.access(candidate, fsConstants.R_OK); return { hostPath: normalized, containerPath, effectivePath: candidate, stats }; } catch (err) { errors.push(err && err.message ? err.message : String(err)); }
@@ -93,15 +89,11 @@ const path = require('path');
 const fsPromises = require('fs/promises');
 const fsConstants = require('fs').constants;
 const { Buffer } = require('buffer');
-const HOST_ROOT = process.env.APPHUB_HOST_ROOT || process.env.HOST_ROOT_PATH || '/root-fs';
 const DEFAULT_ENCODING = 'utf8';
 const ENCODING_ALIASES = { utf8: 'utf8', 'utf-8': 'utf8', utf16le: 'utf16le', 'utf-16le': 'utf16le', latin1: 'latin1', ascii: 'ascii', base64: 'base64', hex: 'hex' };
 function normalizeEncoding(value, fallback = DEFAULT_ENCODING) { if (typeof value !== 'string') return fallback; const candidate = value.trim().toLowerCase(); return candidate ? (ENCODING_ALIASES[candidate] || fallback) : fallback; }
 function ensureAbsolutePath(value, fieldName) { if (typeof value !== 'string') throw new Error(`${fieldName} parameter is required`); const trimmed = value.trim(); if (!trimmed) throw new Error(`${fieldName} parameter is required`); if (!path.isAbsolute(trimmed)) throw new Error(`${fieldName} must be an absolute path`); return path.resolve(trimmed); }
-function buildCandidatePaths(normalizedHostPath) { const relative = path.relative('/', normalizedHostPath); const hasHostRoot = HOST_ROOT && path.isAbsolute(HOST_ROOT); const candidates = []; let containerPath = normalizedHostPath; if (hasHostRoot && !relative.startsWith('..')) { containerPath = path.join(HOST_ROOT, relative); candidates.push(containerPath); }
-  if (!candidates.includes(normalizedHostPath)) { candidates.push(normalizedHostPath); }
-  return { containerPath, candidates };
-}
+function buildCandidatePaths(normalizedHostPath) { return { containerPath: normalizedHostPath, candidates: [normalizedHostPath] }; }
 async function resolveWritablePath(targetHostPath, fieldName) { const normalized = ensureAbsolutePath(targetHostPath, fieldName); const { containerPath, candidates } = buildCandidatePaths(normalized); const errors = []; for (const candidate of candidates) {
     try {
       const parent = path.dirname(candidate);

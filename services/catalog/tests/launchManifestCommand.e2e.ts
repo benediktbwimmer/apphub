@@ -93,16 +93,6 @@ async function withServer(fn: (app: FastifyInstance) => Promise<void>): Promise<
 }
 
 runE2E(async ({ registerCleanup }) => {
-  const previousHostRoot = process.env.APPHUB_HOST_ROOT;
-  process.env.APPHUB_HOST_ROOT = '/';
-  registerCleanup(() => {
-    if (previousHostRoot === undefined) {
-      delete process.env.APPHUB_HOST_ROOT;
-    } else {
-      process.env.APPHUB_HOST_ROOT = previousHostRoot;
-    }
-  });
-
   const kubectlMock = new KubectlMock();
   const kubectlPaths = await kubectlMock.start();
   registerCleanup(() => kubectlMock.stop());

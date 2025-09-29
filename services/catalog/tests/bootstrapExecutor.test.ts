@@ -1,6 +1,6 @@
 import './setupTestEnv';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { executeBootstrapPlan, type BootstrapPlanSpec } from '../src/bootstrap';
@@ -88,13 +88,8 @@ async function run(): Promise<void> {
   assert(Array.isArray(queries[1]?.params), 'expected query parameters');
   assert.equal(queries[1]?.params?.[1], path.join(workspaceRoot, 'filestore'));
 
-  const originalHostRoot = process.env.APPHUB_HOST_ROOT;
-  const hostRoot = path.join(workspaceRoot, 'host-root');
-  await mkdir(hostRoot, { recursive: true });
-  process.env.APPHUB_HOST_ROOT = hostRoot;
-
   const hostQueries: Array<{ text: string; params: unknown[] }> = [];
-  const externalRoot = '/Users/apphub/example/observatory';
+  const externalRoot = path.join(workspaceRoot, 'external-observatory');
   await executeBootstrapPlan({
     moduleId: 'test/module',
     plan: {
@@ -122,22 +117,11 @@ async function run(): Promise<void> {
   });
 
   const absoluteExternalRoot = path.resolve(externalRoot);
-  let expectedRootPath = absoluteExternalRoot;
-  const relativeFromRoot = path.relative('/', absoluteExternalRoot);
-  if (relativeFromRoot && !relativeFromRoot.startsWith('..')) {
-    expectedRootPath = path.join(hostRoot, relativeFromRoot);
-  }
   assert(hostQueries.length === 2, 'expected host-mapped backend queries to run');
   assert(Array.isArray(hostQueries[1]?.params), 'expected host-mapped query parameters');
-  assert.equal(hostQueries[1]?.params?.[1], expectedRootPath);
-  const mappedStats = await stat(expectedRootPath);
+  assert.equal(hostQueries[1]?.params?.[1], absoluteExternalRoot);
+  const mappedStats = await stat(absoluteExternalRoot);
   assert(mappedStats.isDirectory(), 'expected host-mapped directory to exist');
-
-  if (originalHostRoot === undefined) {
-    delete process.env.APPHUB_HOST_ROOT;
-  } else {
-    process.env.APPHUB_HOST_ROOT = originalHostRoot;
-  }
 }
 
 run().catch((err) => {

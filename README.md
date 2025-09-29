@@ -209,15 +209,12 @@ docker run --rm -it \
   -p 6379:6379 \
   -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \
-  -e APPHUB_HOST_ROOT=/host-root \
   -e NODE_ENV=development \
   -e APPHUB_AUTH_DISABLED=true \
   -e APPHUB_SESSION_SECRET=legacy-session-secret-change-me \
   -e APPHUB_SESSION_COOKIE_SECURE=false \
   apphub:latest
 ```
-
-> Tip: Bind mount any host paths that workflows require (for example `-v $(pwd):/host-root/workspace`) and update `APPHUB_HOST_ROOT` accordingly.
 
 #### Catalog Kubernetes Runtime
 
@@ -285,7 +282,6 @@ SERVICE_CLIENT_TIMEOUT_MS=60000
 SERVICE_HEALTH_INTERVAL_MS=30000
 SERVICE_HEALTH_TIMEOUT_MS=5000
 SERVICE_OPENAPI_REFRESH_INTERVAL_MS=900000
-APPHUB_HOST_ROOT=                      # Optional host root used for automatic host bind mounts (legacy alias HOST_ROOT_PATH)
 ```
 
 
@@ -539,8 +535,6 @@ docker run \
   -v apphub-data:/app/data \
   -v "$(pwd)/services/catalog/config:/app/config:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /:/root-fs:ro \
-  -e APPHUB_HOST_ROOT=/root-fs \
   -e APPHUB_OPERATOR_TOKENS_PATH=/app/config/operator-tokens.json \
   -e APPHUB_SECRET_STORE_PATH=/app/config/secret-store.json \
   -e APPHUB_CODEX_PROXY_URL=http://host.docker.internal:3030 \
@@ -550,7 +544,6 @@ docker run \
 Notes:
 - The container exposes Redis on port `6379`; external services should point `REDIS_URL` at `redis://<host>:6379` (use `host.docker.internal` on macOS).
 - Build and launch workers submit workloads to Kubernetes when `APPHUB_BUILD_EXECUTION_MODE` / `APPHUB_LAUNCH_EXECUTION_MODE` are `kubernetes` (default). Ensure the container can talk to your cluster (mount a service account, inject kubeconfig, or use the in-cluster configuration). Set the modes to `docker` if you still rely on local Docker; in that case mount `/var/run/docker.sock` plus any required host paths.
-- Mount the host filesystem (or specific directories your workloads need) into the container and set `APPHUB_HOST_ROOT` so the launch runner can automatically mirror absolute paths from service environment variables. The example above binds `/` read-only to `/root-fs`; you can narrow scope with mounts like `-v /Users:/root-fs/Users:ro`.
 - Start `services/codex-proxy` on the host before launching the container so the AI builder can reach Codex via `APPHUB_CODEX_PROXY_URL`.
 - `apphub-data` persists PostgreSQL (`/app/data/postgres`) and local job-bundle artifacts (`/app/data/job-bundles`). Remove the volume for a clean slate.
 - The compiled frontend is served from http://localhost:4173 and the API remains at http://localhost:4000. External service manifests are **not** bundled—load them dynamically through the API at runtime.

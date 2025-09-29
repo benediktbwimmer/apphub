@@ -1,10 +1,8 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
-import os from 'node:os';
 import type {
   JobDefinitionRecord,
   JobRunRecord,
@@ -129,37 +127,10 @@ export class SandboxRunner {
 
   async execute(options: SandboxExecutionOptions): Promise<SandboxExecutionResult> {
     const taskId = randomUUID();
-    let hostRootPrefix = process.env.APPHUB_HOST_ROOT ?? process.env.HOST_ROOT_PATH ?? null;
-    const bundleCapabilities = Array.isArray(options.bundle.manifest.capabilities)
-      ? options.bundle.manifest.capabilities
-      : [];
-    const hasFilesystemCapability = bundleCapabilities.includes('fs');
-    let sandboxHostRootMirror: string | null = null;
-
-    if (!hostRootPrefix && hasFilesystemCapability && process.platform !== 'win32') {
-      const mirrorBase = await mkdtemp(path.join(os.tmpdir(), 'apphub-host-root-'));
-      const mirrorTarget = path.join(mirrorBase, 'root');
-      try {
-        await symlink('/', mirrorTarget, 'junction');
-        hostRootPrefix = mirrorTarget;
-        sandboxHostRootMirror = mirrorBase;
-      } catch (error) {
-        options.logger('Failed to create sandbox host root mirror', {
-          taskId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        await rm(mirrorBase, { recursive: true, force: true }).catch(() => {});
-      }
-    }
-
-    const shouldPrefixHostPaths = Boolean(hostRootPrefix && hasFilesystemCapability);
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       APPHUB_SANDBOX_TASK_ID: taskId
     };
-    if (shouldPrefixHostPaths && hostRootPrefix) {
-      childEnv.APPHUB_SANDBOX_HOST_ROOT_PREFIX = hostRootPrefix;
-    }
     if (options.workflowEventContext) {
       childEnv[WORKFLOW_EVENT_CONTEXT_ENV] = serializeWorkflowEventContext(
         options.workflowEventContext
@@ -432,9 +403,6 @@ export class SandboxRunner {
     try {
       return await outcomePromise;
     } finally {
-      if (sandboxHostRootMirror) {
-        await rm(sandboxHostRootMirror, { recursive: true, force: true }).catch(() => {});
-      }
     }
   }
 }
