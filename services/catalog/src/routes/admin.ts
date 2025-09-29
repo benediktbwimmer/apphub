@@ -166,14 +166,22 @@ type RuntimeScalingTargetPayload = {
   }>;
 };
 
-function normalizeQueueCounts(counts?: Record<string, number>): Record<string, number> {
+function normalizeQueueCounts(counts?: Record<string, number | string | null | undefined>): Record<string, number> {
   if (!counts) {
     return {};
   }
   const normalized: Record<string, number> = {};
   for (const [state, value] of Object.entries(counts)) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      normalized[state] = value;
+    const numeric =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string'
+          ? Number(value)
+          : typeof value === 'bigint'
+            ? Number(value)
+            : Number.NaN;
+    if (Number.isFinite(numeric)) {
+      normalized[state] = numeric;
     }
   }
   return normalized;

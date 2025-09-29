@@ -6,6 +6,23 @@ import {
 } from './api';
 import type { RuntimeScalingOverview, RuntimeScalingTarget, RuntimeScalingUpdateInput } from './types';
 
+const TARGET_PRIORITY: Readonly<Record<string, number>> = {
+  'catalog:workflow': 0
+};
+
+function sortTargets(targets: RuntimeScalingTarget[]): RuntimeScalingTarget[] {
+  const annotated = targets.map((target, index) => ({ target, index }));
+  annotated.sort((a, b) => {
+    const priorityA = TARGET_PRIORITY[a.target.target] ?? 1;
+    const priorityB = TARGET_PRIORITY[b.target.target] ?? 1;
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+    return a.index - b.index;
+  });
+  return annotated.map((entry) => entry.target);
+}
+
 export type RuntimeScalingSettingsState = {
   targets: RuntimeScalingTarget[];
   writesEnabled: boolean;
@@ -29,7 +46,7 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
     setError(null);
     try {
       const result: RuntimeScalingOverview = await fetchRuntimeScalingOverview(authorizedFetch);
-      setTargets(result.targets);
+      setTargets(sortTargets(result.targets));
       setWritesEnabled(result.writesEnabled);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load runtime scaling settings';
@@ -53,11 +70,11 @@ export function useRuntimeScalingSettings(): RuntimeScalingSettingsState {
         setTargets((prev) => {
           const index = prev.findIndex((entry) => entry.target === result.target.target);
           if (index === -1) {
-            return [...prev, result.target];
+            return sortTargets([...prev, result.target]);
           }
           const next = [...prev];
           next[index] = result.target;
-          return next;
+          return sortTargets(next);
         });
         setError(null);
         return result.target;

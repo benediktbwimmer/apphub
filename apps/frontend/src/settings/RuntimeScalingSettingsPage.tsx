@@ -287,6 +287,8 @@ export default function RuntimeScalingSettingsPage() {
       (normalizedDraft.reason ?? '') !== (target.reason ?? '');
     const disableActions = !writesEnabled || isUpdating || !hasChanges;
     const message = messages[target.target];
+    // Fall back to the freshest acknowledgement when no policy timestamp is available.
+    const lastUpdatedAt = target.updatedAt ?? target.acknowledgements[0]?.updatedAt ?? null;
 
     const sortedCounts = Object.entries(target.queue.counts).filter(([, value]) => Number.isFinite(value));
 
@@ -313,7 +315,7 @@ export default function RuntimeScalingSettingsPage() {
               ({differenceLabel(target)} vs desired)
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Updated {formatInstant(target.updatedAt)}
+              Updated {formatInstant(lastUpdatedAt)}
             </span>
           </div>
         </header>
