@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
-import { resolveContainerPath as resolveSharedContainerPath, resolveHostRootMount } from './containerPaths';
+import { resolveContainerPath as resolveSharedContainerPath } from './containerPaths';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types';
 
@@ -17,10 +17,8 @@ const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-daily-publication'
 ]);
 
-const HOST_ROOT_MOUNT = resolveHostRootMount();
-
 function resolveContainerPath(targetPath: string): string {
-  return resolveSharedContainerPath(targetPath, { hostRoot: HOST_ROOT_MOUNT });
+  return resolveSharedContainerPath(targetPath);
 }
 
 function isWithinDirectory(base: string, target: string): boolean {
@@ -193,7 +191,9 @@ async function ensurePaths(config: EventDrivenObservatoryConfig): Promise<void> 
     config.paths.staging,
     config.paths.archive,
     config.paths.plots,
-    config.paths.reports
+    config.paths.reports,
+    config.timestore.storageRoot ?? '',
+    config.timestore.cacheDir ?? ''
   ]);
 
   for (const entry of uniquePaths) {

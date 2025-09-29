@@ -10,7 +10,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - **Live visibility:** the `observatory-event-gateway` service tails the Filestore SSE stream and exposes lightweight diagnostics while the dashboard serves the latest HTML/MD/JSON report bundle.
 
 ## Directory Tour
-- `data/` – sandbox directories mounted by Filestore (`inbox`, `staging`, `archive`, `plots`, `reports`).
+- `data/` – sandbox directories mounted by Filestore (`inbox`, `staging`, `archive`, `plots`, `reports`) plus Timestore's local `timestore/storage` + `timestore/cache` directories.
 - `jobs/` – updated Node bundles that talk to Filestore instead of the raw filesystem.
 - `workflows/` – minute ingest + publication definitions with new Filestore/Timestore parameters.
 - `services/` – `observatory-event-gateway` (Filestore event monitor) and the static dashboard.
@@ -21,12 +21,12 @@ This variant of the observatory example uses **Filestore** uploads as the system
 
 ## Bootstrapping the Scenario
 1. Install dependencies if you have not yet (`npm install`).
-2. Generate the shared config. Set `OBSERVATORY_DATA_ROOT` once to point at the host directory where you want datasets, staging, archives, plots, and reports to live; everything else derives from that root:
+2. Generate the shared config. Set `OBSERVATORY_DATA_ROOT` once to point at the host directory where you want datasets, staging, archives, plots, reports, and DuckDB partitions to live; everything else derives from that root:
    ```bash
    OBSERVATORY_DATA_ROOT=/Users/you/observatory \
    npx tsx examples/environmental-observatory-event-driven/scripts/materializeConfig.ts
    ```
-   The script writes `.generated/observatory-config.json` – keep it out of source control.
+   The script writes `.generated/observatory-config.json`, provisions the Filestore backend, and ensures `TIMESTORE_STORAGE_ROOT` / `TIMESTORE_QUERY_CACHE_DIR` resolve under `OBSERVATORY_DATA_ROOT`. Keep the generated file out of source control.
 3. Register the workflow event triggers:
    ```bash
    npx tsx examples/environmental-observatory-event-driven/scripts/setupTriggers.ts

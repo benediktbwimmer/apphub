@@ -25,6 +25,9 @@ export type ObservatoryTimestoreConfig = {
   tableName?: string;
   storageTargetId?: string;
   authToken?: string;
+  storageDriver?: 'local' | 's3' | 'gcs' | 'azure_blob';
+  storageRoot?: string;
+  cacheDir?: string;
 };
 
 export type ObservatoryMetastoreConfig = {
@@ -140,4 +143,3 @@ export function resolveFilestorePrefixes(config: ObservatoryConfig) {
   }
   return { inboxPrefix, stagingPrefix, archivePrefix };
 }
-

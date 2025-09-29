@@ -23,6 +23,9 @@ export type ObservatoryConfig = {
     tableName?: string;
     storageTargetId?: string;
     authToken?: string;
+    storageDriver?: 'local' | 's3' | 'gcs' | 'azure_blob';
+    storageRoot?: string;
+    cacheDir?: string;
   };
   metastore?: {
     baseUrl?: string;
@@ -42,6 +45,8 @@ export type ObservatoryConfig = {
     };
   };
 };
+
+type TimestoreDriver = 'local' | 's3' | 'gcs' | 'azure_blob';
 
 export type EventDrivenObservatoryConfigOptions = {
   repoRoot: string;
@@ -91,6 +96,14 @@ function resolvePathValue(repoRoot: string, value: string | undefined, fallback:
   return path.isAbsolute(candidate) ? candidate : path.resolve(repoRoot, candidate);
 }
 
+function resolveOptionalPath(repoRoot: string, value: string | undefined): string | undefined {
+  const candidate = optionalString(value);
+  if (!candidate) {
+    return undefined;
+  }
+  return path.isAbsolute(candidate) ? candidate : path.resolve(repoRoot, candidate);
+}
+
 function resolveString(value: string | undefined, fallback: string | undefined, key: string): string {
   const candidate = optionalString(value) ?? fallback;
   if (!candidate) {
@@ -105,9 +118,18 @@ export function createEventDrivenObservatoryConfig(
   const repoRoot = path.resolve(options.repoRoot);
   const vars = options.variables ?? {};
 
-  const getVar = (name: string): string | undefined => {
-    const raw = vars[name];
-    return raw === undefined ? undefined : raw;
+  const getVar = (name: string, fallbacks: string[] = []): string | undefined => {
+    if (Object.prototype.hasOwnProperty.call(vars, name)) {
+      const raw = vars[name];
+      return raw === undefined ? undefined : raw;
+    }
+    for (const candidate of fallbacks) {
+      if (Object.prototype.hasOwnProperty.call(vars, candidate)) {
+        const raw = vars[candidate];
+        return raw === undefined ? undefined : raw;
+      }
+    }
+    return undefined;
   };
 
   const exampleRoot = path.resolve(repoRoot, 'examples', 'environmental-observatory-event-driven');
@@ -200,6 +222,55 @@ export function createEventDrivenObservatoryConfig(
     )
   } as const;
 
+  const defaultTimestoreStorageRoot = path.join(dataRoot, 'timestore', 'storage');
+  const defaultTimestoreCacheDir = path.join(dataRoot, 'timestore', 'cache');
+
+  const resolveTimestoreDriver = (rawValue: string | undefined): TimestoreDriver => {
+    const raw = optionalString(rawValue);
+    if (!raw) {
+      return 'local';
+    }
+    const normalized = raw.trim().toLowerCase().replace(/-/g, '_');
+    switch (normalized) {
+      case 'local':
+      case 's3':
+      case 'gcs':
+      case 'azure_blob':
+        return normalized as TimestoreDriver;
+      default:
+        throw new Error(
+          `Unsupported OBSERVATORY_TIMESTORE_STORAGE_DRIVER '${raw}'. Expected one of local, s3, gcs, azure_blob.`
+        );
+    }
+  };
+
+  const timestoreDriver = resolveTimestoreDriver(
+    getVar('OBSERVATORY_TIMESTORE_STORAGE_DRIVER', ['TIMESTORE_STORAGE_DRIVER'])
+  );
+  const rawTimestoreStorageRoot = getVar('OBSERVATORY_TIMESTORE_STORAGE_ROOT', ['TIMESTORE_STORAGE_ROOT']);
+  const rawTimestoreCacheDir = getVar('OBSERVATORY_TIMESTORE_CACHE_DIR', ['TIMESTORE_QUERY_CACHE_DIR']);
+
+  const storageRoot =
+    timestoreDriver === 'local'
+      ? resolvePathValue(
+          repoRoot,
+          rawTimestoreStorageRoot,
+          defaultTimestoreStorageRoot,
+          'timestore.storageRoot'
+        )
+      : resolveOptionalPath(repoRoot, rawTimestoreStorageRoot);
+
+  const cacheDir =
+    resolveOptionalPath(repoRoot, rawTimestoreCacheDir) ??
+    (timestoreDriver === 'local'
+      ? resolvePathValue(
+          repoRoot,
+          rawTimestoreCacheDir,
+          defaultTimestoreCacheDir,
+          'timestore.cacheDir'
+        )
+      : undefined);
+
   const config: ObservatoryConfig = {
     paths,
     filestore,
@@ -219,7 +290,10 @@ export function createEventDrivenObservatoryConfig(
       ),
       tableName: optionalString(getVar('OBSERVATORY_TIMESTORE_TABLE_NAME') ?? 'observations'),
       storageTargetId: optionalString(getVar('OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID')),
-      authToken: optionalString(getVar('OBSERVATORY_TIMESTORE_TOKEN'))
+      authToken: optionalString(getVar('OBSERVATORY_TIMESTORE_TOKEN')),
+      storageDriver: timestoreDriver,
+      storageRoot: storageRoot ?? undefined,
+      cacheDir: cacheDir ?? undefined
     },
     metastore: {
       baseUrl: optionalString(getVar('OBSERVATORY_METASTORE_BASE_URL') ?? 'http://127.0.0.1:4100'),

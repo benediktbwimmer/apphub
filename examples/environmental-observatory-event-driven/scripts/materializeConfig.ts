@@ -29,6 +29,14 @@ async function main(): Promise<void> {
     config.filestore.backendMountId = backendId;
   }
 
+  const timestoreDirs = [config.timestore.storageRoot, config.timestore.cacheDir]
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => path.resolve(entry));
+
+  for (const targetDir of timestoreDirs) {
+    await mkdir(targetDir, { recursive: true });
+  }
+
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 

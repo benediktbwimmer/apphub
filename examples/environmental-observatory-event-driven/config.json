@@ -40,7 +40,13 @@
         "type": "setEnvDefaults",
         "description": "Capture optional observatory overrides provided via the CLI environment",
         "values": {
-          "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ env.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 }}"
+          "OBSERVATORY_FILESTORE_BACKEND_ID": "{{ env.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 }}",
+          "OBSERVATORY_TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
+          "OBSERVATORY_TIMESTORE_CACHE_DIR": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache",
+          "OBSERVATORY_TIMESTORE_STORAGE_DRIVER": "{{ env.OBSERVATORY_TIMESTORE_STORAGE_DRIVER | default: env.TIMESTORE_STORAGE_DRIVER | default:local }}",
+          "TIMESTORE_STORAGE_ROOT": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
+          "TIMESTORE_QUERY_CACHE_DIR": "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache",
+          "TIMESTORE_STORAGE_DRIVER": "{{ env.TIMESTORE_STORAGE_DRIVER | default:local }}"
         }
       },
       {
@@ -51,7 +57,9 @@
           "{{ placeholders.OBSERVATORY_DATA_ROOT }}/staging",
           "{{ placeholders.OBSERVATORY_DATA_ROOT }}/archive",
           "{{ placeholders.OBSERVATORY_DATA_ROOT }}/plots",
-          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports"
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/reports",
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/storage",
+          "{{ placeholders.OBSERVATORY_DATA_ROOT }}/timestore/cache"
         ]
       },
       {
@@ -97,7 +105,10 @@
             "datasetName": "{{ env.OBSERVATORY_TIMESTORE_DATASET_NAME | default:Observatory Time Series }}",
             "tableName": "{{ env.OBSERVATORY_TIMESTORE_TABLE_NAME | default:observations }}",
             "storageTargetId": "{{ env.OBSERVATORY_TIMESTORE_STORAGE_TARGET_ID | default:null }}",
-            "authToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}"
+            "authToken": "{{ env.OBSERVATORY_TIMESTORE_TOKEN | default:null }}",
+            "storageDriver": "{{ env.OBSERVATORY_TIMESTORE_STORAGE_DRIVER }}",
+            "storageRoot": "{{ env.OBSERVATORY_TIMESTORE_STORAGE_ROOT }}",
+            "cacheDir": "{{ env.OBSERVATORY_TIMESTORE_CACHE_DIR }}"
           },
           "metastore": {
             "baseUrl": "{{ env.OBSERVATORY_METASTORE_BASE_URL | default:http://127.0.0.1:4100 }}",

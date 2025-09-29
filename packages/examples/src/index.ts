@@ -14,7 +14,7 @@ export {
 } from './catalog';
 export type { ExampleCatalogData, LoadCatalogOptions } from './catalog';
 export { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
-export { resolveContainerPath, resolveHostRootMount } from './containerPaths';
+export { resolveContainerPath } from './containerPaths';
 export {
   applyObservatoryWorkflowDefaults,
   ensureObservatoryBackend,
