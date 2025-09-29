@@ -1,3 +1,4 @@
+import { createWriteStream } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -5,6 +6,7 @@ import {
   FilestoreClientError,
   FilestoreNodeResponse
 } from '@apphub/filestore-client';
+import { pipeline } from 'node:stream/promises';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -700,14 +702,16 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const stagingRelativePosix = stagingRelativePath.split(path.sep).join('/');
   const stagingTargetPath = `${stagingMinutePrefix}/${filename}`;
 
+  let stagingNode: FilestoreNodeResponse | null = null;
   try {
-    await filestoreClient.copyNode({
+    const copyResponse = await filestoreClient.copyNode({
       backendMountId: parameters.filestoreBackendId,
       path: inboxNode.path,
       targetPath: stagingTargetPath,
       overwrite: true,
       principal: parameters.principal
     });
+    stagingNode = copyResponse.node;
   } catch (err) {
     context.logger('Filestore copy failed', {
       error: err instanceof FilestoreClientError ? err.message : String(err),
@@ -719,6 +723,19 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     });
     throw err;
   }
+
+  if (!stagingNode) {
+    stagingNode = await filestoreClient.getNodeByPath({
+      backendMountId: parameters.filestoreBackendId,
+      path: stagingTargetPath
+    });
+  }
+
+  const download = await filestoreClient.downloadFile(stagingNode.id, {
+    principal: parameters.principal
+  });
+  const stagingAbsolutePath = path.resolve(parameters.stagingDir, stagingRelativePath);
+  await pipeline(download.stream, createWriteStream(stagingAbsolutePath));
 
   const metadata =
     inboxNode.metadata && typeof inboxNode.metadata === 'object'
@@ -771,7 +788,6 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     throw err;
   }
 
-  const stagingAbsolutePath = path.resolve(parameters.stagingDir, stagingRelativePath);
   const content = await readFile(stagingAbsolutePath, 'utf8');
   const { rows, site } = parseCsv(content);
 

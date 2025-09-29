@@ -1,9 +1,19 @@
 import '@apphub/catalog-tests/setupTestEnv';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, readdir, stat, readFile, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  readdir,
+  stat,
+  readFile,
+  writeFile
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
@@ -56,6 +66,50 @@ import { TIMESTORE_INGEST_QUEUE_NAME } from '../../../services/timestore/src/que
 import { processIngestionJob } from '../../../services/timestore/src/ingestion/processor';
 import type { IngestionJobPayload } from '../../../services/timestore/src/ingestion/types';
 
+const execFile = promisify(execFileCallback);
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+
+type ManagedCleanup = () => Promise<void> | void;
+
+const managedCleanups: ManagedCleanup[] = [];
+let managedCleanupExecuted = false;
+
+function registerResourceCleanup(cleanup: ManagedCleanup): void {
+  managedCleanups.push(cleanup);
+}
+
+async function runResourceCleanups(): Promise<void> {
+  if (managedCleanupExecuted) {
+    return;
+  }
+  managedCleanupExecuted = true;
+  while (managedCleanups.length > 0) {
+    const cleanup = managedCleanups.pop();
+    if (!cleanup) {
+      continue;
+    }
+    try {
+      await cleanup();
+    } catch (error) {
+      console.error('[benchmark] resource cleanup failed', error);
+    }
+  }
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    void (async () => {
+      console.warn(`[benchmark] received ${signal}, tearing down resources`);
+      try {
+        await runResourceCleanups();
+      } finally {
+        process.exit(130);
+      }
+    })();
+  });
+}
+
 const OPERATOR_TOKEN = 'observatory-event-benchmark-token';
 const OBSERVATORY_BUNDLE_SLUGS = [
   'observatory-data-generator',
@@ -100,6 +154,255 @@ let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function applyEnvDefaults(defaults: Record<string, string>): () => void {
+  const applied: string[] = [];
+  for (const [key, value] of Object.entries(defaults)) {
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+      applied.push(key);
+    }
+  }
+  return () => {
+    for (const key of applied) {
+      delete process.env[key];
+    }
+  };
+}
+
+function applyEnvOverrides(overrides: Record<string, string>): () => void {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(overrides)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  return () => {
+    for (const [key, prior] of previous) {
+      if (prior === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = prior;
+      }
+    }
+  };
+}
+
+async function ensureDockerAvailable(): Promise<void> {
+  try {
+    await execFile('docker', ['version', '--format', '{{.Server.Version}}']);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`[benchmark] Docker CLI is required for this test: ${message}`);
+  }
+}
+
+type MinioContainerInfo = {
+  name: string;
+  dataDir: string;
+  apiPort: number;
+  consolePort: number;
+  rootUser: string;
+  rootPassword: string;
+};
+
+type RedisContainerInfo = {
+  name: string;
+  port: number;
+};
+
+const MINIO_ROOT_USER = 'apphub';
+const MINIO_ROOT_PASSWORD = 'apphub123';
+const MINIO_BUCKETS = ['apphub-filestore', 'apphub-example-bundles', 'apphub-timestore'];
+
+async function startMinioContainer(): Promise<MinioContainerInfo> {
+  const apiPort = await findAvailablePort();
+  const consolePort = await findAvailablePort();
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'observatory-minio-'));
+  const name = `observatory-minio-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await execFile('docker', [
+      'run',
+      '-d',
+      '--rm',
+      '--name',
+      name,
+      '-p',
+      `${apiPort}:9000`,
+      '-p',
+      `${consolePort}:9001`,
+      '-e',
+      `MINIO_ROOT_USER=${MINIO_ROOT_USER}`,
+      '-e',
+      `MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}`,
+      '-v',
+      `${dataDir}:/data`,
+      'minio/minio:latest',
+      'server',
+      '/data',
+      '--address',
+      ':9000',
+      '--console-address',
+      ':9001'
+    ]);
+
+    await waitForMinio(apiPort);
+    await ensureMinioBuckets(name, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
+
+    return {
+      name,
+      dataDir,
+      apiPort,
+      consolePort,
+      rootUser: MINIO_ROOT_USER,
+      rootPassword: MINIO_ROOT_PASSWORD
+    } satisfies MinioContainerInfo;
+  } catch (error) {
+    await execFile('docker', ['rm', '-f', name]).catch(() => undefined);
+    await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function ensureMinioBuckets(containerName: string, rootUser: string, rootPassword: string): Promise<void> {
+  for (const bucket of MINIO_BUCKETS) {
+    await execFile('docker', [
+      'run',
+      '--rm',
+      '--network',
+      `container:${containerName}`,
+      '-e',
+      `MC_HOST_local=http://${encodeURIComponent(rootUser)}:${encodeURIComponent(rootPassword)}@127.0.0.1:9000`,
+      'minio/mc:latest',
+      'mb',
+      '--ignore-existing',
+      `local/${bucket}`
+    ]);
+  }
+}
+
+async function waitForMinio(port: number, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/minio/health/ready`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // retry
+    }
+    await delay(250);
+  }
+  throw new Error('[benchmark] Timed out waiting for MinIO to become ready');
+}
+
+async function startRedisContainer(): Promise<RedisContainerInfo> {
+  const port = await findAvailablePort();
+  const name = `observatory-redis-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await execFile('docker', [
+      'run',
+      '-d',
+      '--rm',
+      '--name',
+      name,
+      '-p',
+      `${port}:6379`,
+      'redis:7'
+    ]);
+    await waitForRedis(`redis://127.0.0.1:${port}`);
+    return { name, port } satisfies RedisContainerInfo;
+  } catch (error) {
+    await execFile('docker', ['rm', '-f', name]).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function waitForRedis(url: string, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    const client = new IORedis(url, {
+      maxRetriesPerRequest: 0,
+      lazyConnect: true,
+      retryStrategy: () => null
+    });
+    client.on('error', () => {
+      // suppress unhandled error events during startup retries
+    });
+    try {
+      await client.connect();
+      await client.ping();
+      await client.quit();
+      return;
+    } catch (error) {
+      lastError = error;
+      await client.quit().catch(() => undefined);
+      await delay(250);
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown error');
+  throw new Error(`[benchmark] Timed out waiting for Redis at ${url}: ${message}`);
+}
+
+async function stopDockerContainer(name: string): Promise<void> {
+  try {
+    await execFile('docker', ['stop', name]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/No such container/i.test(message)) {
+      return;
+    }
+    console.warn(`[benchmark] Failed to stop container ${name}:`, message);
+  }
+}
+
+async function setupExternalInfrastructure(): Promise<void> {
+  await ensureDockerAvailable();
+
+  const minio = await startMinioContainer();
+  registerResourceCleanup(async () => {
+    await stopDockerContainer(minio.name);
+    await rm(minio.dataDir, { recursive: true, force: true }).catch(() => undefined);
+  });
+
+  const redis = await startRedisContainer();
+  registerResourceCleanup(() => stopDockerContainer(redis.name));
+
+  const restoreOverrides = applyEnvOverrides({
+    REDIS_URL: `redis://127.0.0.1:${redis.port}`,
+    OBSERVATORY_FILESTORE_S3_ENDPOINT: `http://127.0.0.1:${minio.apiPort}`,
+    OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID: minio.rootUser,
+    OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: minio.rootPassword,
+    OBSERVATORY_FILESTORE_S3_REGION: 'us-east-1',
+    OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE: 'true',
+    OBSERVATORY_INSTRUMENT_COUNT: '10',
+    OBSERVATORY_GENERATOR_INSTRUMENT_COUNT: '10',
+    FILESTORE_S3_ENDPOINT: `http://127.0.0.1:${minio.apiPort}`,
+    FILESTORE_S3_ACCESS_KEY_ID: minio.rootUser,
+    FILESTORE_S3_SECRET_ACCESS_KEY: minio.rootPassword,
+    FILESTORE_S3_REGION: 'us-east-1',
+    FILESTORE_S3_FORCE_PATH_STYLE: 'true',
+    APPHUB_BUNDLE_STORAGE_BACKEND: 's3',
+    APPHUB_BUNDLE_STORAGE_BUCKET: 'apphub-example-bundles',
+    APPHUB_BUNDLE_STORAGE_ENDPOINT: `http://127.0.0.1:${minio.apiPort}`,
+    APPHUB_BUNDLE_STORAGE_REGION: 'us-east-1',
+    APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: 'true',
+    APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: minio.rootUser,
+    APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: minio.rootPassword,
+    APPHUB_BUNDLE_STORAGE_SIGNING_SECRET: 'local-benchmark-secret'
+  });
+  registerResourceCleanup(restoreOverrides);
+
+  const restoreDefaults = applyEnvDefaults({
+    APPHUB_ALLOW_INLINE_MODE: '1',
+    APPHUB_EVENTS_MODE: 'redis',
+    APPHUB_DISABLE_ANALYTICS: '1',
+    OBSERVATORY_BENCH_INSTRUMENTS: '10',
+    OBSERVATORY_BENCH_INSTRUMENT_COUNT: '10'
+  });
+  registerResourceCleanup(restoreDefaults);
+}
+
 type BenchmarkTiming = {
   minute: string;
   generatorMs: number;
@@ -128,6 +431,7 @@ type ServerContext = {
 
 type BenchmarkContext = ServerContext & {
   config: EventDrivenObservatoryConfig;
+  instrumentCount: number;
 };
 
 type InstrumentProfileInput = {
@@ -215,6 +519,7 @@ async function withServer(
   fn: (app: FastifyInstance, context: ServerContext) => Promise<void>
 ): Promise<void> {
   await ensureEmbeddedPostgres();
+  const previousHostRoot = process.env.HOST_ROOT;
   const previousRedisUrl = process.env.REDIS_URL;
   const redisUrl = previousRedisUrl ?? 'redis://127.0.0.1:6379';
   process.env.REDIS_URL = redisUrl;
@@ -279,8 +584,9 @@ async function withServer(
     }
 
     if (previousHostRoot === undefined) {
-      // keep unset
+      delete process.env.HOST_ROOT;
     } else {
+      process.env.HOST_ROOT = previousHostRoot;
     }
 
     if (previousServiceConfig === undefined) {
@@ -314,53 +620,13 @@ async function writeServiceConfig(configPath: string): Promise<void> {
   await writeFile(configPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
-async function enqueueExampleBundles(app: FastifyInstance, slugs: readonly string[]): Promise<void> {
-  const response = await app.inject({
-    method: 'POST',
-    url: '/examples/load',
-    headers: {
-      Authorization: `Bearer ${OPERATOR_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    payload: { slugs, force: true }
-  });
-  assert.equal(response.statusCode, 202, `Failed to enqueue bundles: ${response.payload}`);
-}
-
-async function waitForExampleBundles(app: FastifyInstance, slugs: readonly string[]): Promise<void> {
-  const remaining = new Set(slugs.map((slug) => slug.toLowerCase()));
-  const deadline = Date.now() + 60_000;
-
-  while (Date.now() < deadline) {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/examples/bundles/status',
-      headers: { Authorization: `Bearer ${OPERATOR_TOKEN}` }
-    });
-    assert.equal(response.statusCode, 200, `Status check failed: ${response.payload}`);
-    const payload = JSON.parse(response.payload) as {
-      data: { statuses: Array<{ slug: string; state: string; error?: string | null }> };
-    };
-
-    for (const entry of payload.data.statuses ?? []) {
-      const normalized = entry.slug.toLowerCase();
-      if (!remaining.has(normalized)) {
-        continue;
-      }
-      if (entry.state === 'completed') {
-        remaining.delete(normalized);
-      } else if (entry.state === 'failed') {
-        throw new Error(`Example bundle ${entry.slug} failed: ${entry.error ?? 'unknown error'}`);
-      }
-    }
-
-    if (remaining.size === 0) {
-      return;
-    }
-    await delay(200);
+async function packageExampleBundles(slugs: readonly string[]): Promise<void> {
+  const module = await import('../../../services/catalog/src/exampleBundleWorker');
+  for (const slug of slugs) {
+    const jobId = `benchmark-inline-${slug}-${Date.now()}`;
+    console.log('[benchmark] packaging bundle', { slug });
+    await module.processExampleBundleJob({ slug, force: true }, jobId);
   }
-
-  throw new Error(`Timed out waiting for bundles: ${Array.from(remaining).join(', ')}`);
 }
 
 async function importExampleBundle(app: FastifyInstance, slug: string): Promise<void> {
@@ -895,7 +1161,11 @@ async function waitForTimestoreRowCount(
   );
 }
 
-async function verifyReports(paths: { plots: string; reports: string }, minute: string): Promise<void> {
+async function verifyReports(
+  paths: { plots: string; reports: string },
+  minute: string,
+  expectedInstrumentCount: number
+): Promise<void> {
   const key = minuteKey(minute);
   const plotsDir = path.join(paths.plots, key);
   const reportsDir = path.join(paths.reports, key);
@@ -928,7 +1198,7 @@ async function verifyReports(paths: { plots: string; reports: string }, minute: 
     parsed.summary?.instrumentCount ?? parsed.visualization?.metrics?.instrumentCount;
   assert.equal(
     instrumentCount,
-    OBSERVATORY_INSTRUMENT_COUNT,
+    expectedInstrumentCount,
     `Instrument count mismatch for ${minute}`
   );
 }
@@ -967,6 +1237,7 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
     });
     console.log('[benchmark] resolved observatory config paths', config.paths);
     console.log('[benchmark] resolved observatory filestore prefixes', config.filestore);
+    console.log('[benchmark] resolved generator settings', config.workflows.generator);
     config.catalog = {
       baseUrl: 'http://127.0.0.1:4000',
       apiToken: OPERATOR_TOKEN
@@ -997,8 +1268,7 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
       }
     }
 
-    await enqueueExampleBundles(app, OBSERVATORY_BUNDLE_SLUGS);
-    await waitForExampleBundles(app, OBSERVATORY_BUNDLE_SLUGS);
+    await packageExampleBundles(OBSERVATORY_BUNDLE_SLUGS);
     for (const slug of OBSERVATORY_BUNDLE_SLUGS) {
       await importExampleBundle(app, slug);
     }
@@ -1014,7 +1284,10 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
       console.log('[benchmark] triggers for', slug, info.payload);
     }
 
-    await runBenchmark(app, { ...serverContext, config });
+    const instrumentCount =
+      config.workflows.generator?.instrumentCount ?? OBSERVATORY_INSTRUMENT_COUNT;
+
+    await runBenchmark(app, { ...serverContext, config, instrumentCount });
   } finally {
     for (const [key, value] of originalEnv.entries()) {
       if (value === undefined) {
@@ -1038,8 +1311,9 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
 async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Promise<void> {
   const minutes = generateMinuteSeries('2032-06-15T09:00', RUN_MINUTES);
   const timings: BenchmarkTiming[] = [];
-  const instrumentProfiles = buildInstrumentProfiles(OBSERVATORY_INSTRUMENT_COUNT);
-  const expectedRowsPerMinute = OBSERVATORY_ROWS_PER_INSTRUMENT * OBSERVATORY_INSTRUMENT_COUNT;
+  const instrumentProfiles = buildInstrumentProfiles(context.instrumentCount);
+  const expectedRowsPerMinute =
+    OBSERVATORY_ROWS_PER_INSTRUMENT * context.instrumentCount;
   const metastoreConfig = context.config.metastore;
 
   await ensureEmptyDirectories(context.config.paths);
@@ -1050,6 +1324,7 @@ async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Pr
       minute,
       rowsPerInstrument: OBSERVATORY_ROWS_PER_INSTRUMENT,
       intervalMinutes: OBSERVATORY_INTERVAL_MINUTES,
+      instrumentCount: context.instrumentCount,
       instrumentProfiles: instrumentProfiles.map((profile) => ({ ...profile })),
       filestoreBaseUrl: context.config.filestore.baseUrl,
       filestoreBackendId: context.config.filestore.backendMountId,
@@ -1109,7 +1384,7 @@ async function runBenchmark(app: FastifyInstance, context: BenchmarkContext): Pr
     const inboxEntries = await readdir(context.config.paths.inbox);
     assert.equal(inboxEntries.length, 0, `Inbox should be empty after processing ${minute}`);
 
-    await verifyReports(context.config.paths, minute);
+    await verifyReports(context.config.paths, minute, context.instrumentCount);
 
     timings.push({
       minute,
@@ -1174,6 +1449,9 @@ async function resetDirectory(target: string): Promise<void> {
 }
 
 runE2E(async ({ registerCleanup }) => {
+  registerCleanup(() => runResourceCleanups());
+  await setupExternalInfrastructure();
+
   const hardTimeout = setTimeout(() => {
     console.error(
       `[benchmark] Forcing exit after ${TEST_TIMEOUT_MS}ms without completing benchmark`
@@ -1194,6 +1472,7 @@ runE2E(async ({ registerCleanup }) => {
   await withServer(async (app, context) => {
     await runBenchmarkScenario(app, context);
   });
+  await runResourceCleanups();
 }, { name: 'examples-environmentalObservatoryEventDrivenBenchmark.e2e' });
 function resolveInstrumentCount(): number {
   const raw = process.env.OBSERVATORY_BENCH_INSTRUMENTS ?? process.env.OBSERVATORY_BENCH_INSTRUMENT_COUNT;

@@ -8,6 +8,15 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 >
 > In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, workflow triggers react to `filestore.command.completed` and `timestore.partition.created` events, and a shared config file keeps jobs, services, and triggers in sync. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the new services).
 
+## Event-driven benchmark status (2025-09-29)
+
+- The `environmentalObservatoryEventDrivenBenchmark.e2e.ts` harness now provisions dedicated Dockerized MinIO and Redis instances, packages example bundles inline, and wires cleanup on `SIGINT/SIGTERM` so the scenario runs from a single command.
+- Embedded Postgres plus catalog/filestore/metastore/timestore test servers start successfully and the data generator uploads 10 instrument CSVs to MinIO with matching metastore records.
+- Filestore emits `filestore.command.completed` events into the catalog queue, trigger deliveries are created, but the `observatory-minute-ingest` workflow never launches; the benchmark currently fails waiting for that run.
+- Suspect area: catalog event trigger processing when queues run against the external Redis container. The next session should inspect the event ingress queue and trigger delivery retries to confirm whether events are enqueued but not drained, or if a rendering error drops the job before launch.
+- To resume quickly: rerun `npx tsx examples/tests/catalog/environmentalObservatoryEventDrivenBenchmark.e2e.ts` (set `OBSERVATORY_BENCH_INSTRUMENTS=10`) and tail catalog logs for trigger processing around the first minute (look for `Trigger delivery not found for retry`).
+
+
 ## Architecture overview
 
 ```mermaid
