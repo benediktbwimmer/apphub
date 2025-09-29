@@ -38,6 +38,22 @@ npm test
 
 Executes every workspace's `test` script sequentially, ensuring unit, integration, and end-to-end suites stay green together.
 
+### One-command Minikube stack
+
+Provision the full AppHub stack on minikube (build images, load them, deploy manifests) with:
+
+```bash
+npm run minikube:up
+```
+
+When you're done, tear it back down:
+
+```bash
+npm run minikube:down
+```
+
+Prerequisites: Docker, minikube, kubectl, and enough local resources (recommended: 4 CPUs, 8 GiB RAM). See `infra/minikube/README.md` for detailed ingress and troubleshooting notes.
+
 ### Catalog API
 
 ```bash
@@ -148,28 +164,39 @@ The Vite dev server binds to `http://localhost:5173`.
 
 Override `VITE_FILESTORE_BASE_URL` in `.env.local` when the filestore service runs on a distinct origin from the catalog proxy.
 
-### Docker Images
+### Kubernetes runtime (recommended)
 
-Build the combined API + worker + frontend image:
+Use the Kubernetes declarative stack for both local testing and staging. The turnkey workflow builds images, loads them into minikube, applies manifests, and waits for pods to settle:
+
+```bash
+npm run minikube:up
+```
+
+Validate the deployment whenever you refresh the cluster:
+
+```bash
+npm run minikube:verify
+```
+
+Tear everything down once you are finished:
+
+```bash
+npm run minikube:down
+```
+
+See `infra/minikube/README.md` and `docs/runbooks/minikube-bootstrap.md` for ingress setup, troubleshooting, and production alignment guidelines.
+
+### Legacy Docker image (deprecated)
+
+The monolithic Docker workflow now exists solely for air-gapped demos and should not be used for day-to-day development.
+
+Build the combined API + worker + frontend image when necessary:
 
 ```bash
 docker build -t apphub:latest .
 ```
 
-> **Docker-in-Docker note:** the container bundles its own Docker daemon so background workers can build application images. Run it with `--privileged` (or an equivalent capability set) and mount a writable data volume at `/app/data/docker` so overlay storage and iptables NAT can initialize cleanly. The bundled daemon now logs at `warn` level to keep container logs concise.
-
-#### Local development
-
-Run everything (API, workers, Redis, Postgres, static frontend) inside the container with persistent data:
-
-Create the named volumes once:
-
-```bash
-docker volume create apphub-data
-docker volume create apphub-docker-data
-```
-
-Start the container:
+Run the container with elevated privileges and persistent volumes if you still rely on this path:
 
 ```bash
 docker run --rm -it \
@@ -182,18 +209,15 @@ docker run --rm -it \
   -p 6379:6379 \
   -v apphub-data:/app/data \
   -v apphub-docker-data:/app/data/docker \
-  -v /Users/bene/work:/host-root/Users/bene/work \
   -e APPHUB_HOST_ROOT=/host-root \
   -e NODE_ENV=development \
   -e APPHUB_AUTH_DISABLED=true \
-  -e APPHUB_SESSION_SECRET=dev-session-secret-change-me \
+  -e APPHUB_SESSION_SECRET=legacy-session-secret-change-me \
   -e APPHUB_SESSION_COOKIE_SECURE=false \
   apphub:latest
 ```
 
-> Tip: Adjust `/Users/bene/work` to the portion of your host filesystem that workflows need to access. On macOS/Linux no `/host_mnt` prefix is required; the bind mount path you specify is exactly what the container sees. Windows users should map the drive into `/host_mnt/<drive-letter>` and set `APPHUB_HOST_ROOT` accordingly.
-
-You can now hit `http://localhost:4000` (catalog API), `http://localhost:4100` (metastore API), and `http://localhost:4173` (frontend) without providing any bearer tokens. If you prefer to exercise the legacy token path, unset `APPHUB_AUTH_DISABLED` and supply `APPHUB_OPERATOR_TOKENS` or `APPHUB_OPERATOR_TOKENS_PATH` as before. PostgreSQL and Redis state persist in the `apphub-data` volume—remove the volume for a clean slate.
+> Tip: Bind mount any host paths that workflows require (for example `-v $(pwd):/host-root/workspace`) and update `APPHUB_HOST_ROOT` accordingly.
 
 #### Catalog Kubernetes Runtime
 

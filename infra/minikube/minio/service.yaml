@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: apphub-minio
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: apphub-infra
+spec:
+  selector:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: apphub-infra
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  type: ClusterIP

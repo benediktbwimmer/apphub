@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-filestore-api
+  labels:
+    app.kubernetes.io/name: filestore
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: apphub-runtime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: filestore
+      app.kubernetes.io/component: api
+      app.kubernetes.io/part-of: apphub-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: filestore
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: apphub-runtime
+    spec:
+      containers:
+        - name: api
+          image: apphub/filestore:dev
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: apphub-core-config
+            - secretRef:
+                name: apphub-core-secrets
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: FILESTORE_PORT
+              value: "4300"
+            - name: PORT
+              value: "4300"
+          ports:
+            - containerPort: 4300
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apphub-filestore-reconcile
+  labels:
+    app.kubernetes.io/name: filestore
+    app.kubernetes.io/component: reconcile-worker
+    app.kubernetes.io/part-of: apphub-runtime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: filestore
+      app.kubernetes.io/component: reconcile-worker
+      app.kubernetes.io/part-of: apphub-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: filestore
+        app.kubernetes.io/component: reconcile-worker
+        app.kubernetes.io/part-of: apphub-runtime
+    spec:
+      containers:
+        - name: worker
+          image: apphub/filestore:dev
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+          args:
+            - services/filestore/dist/reconciliation/worker.js
+          envFrom:
+            - configMapRef:
+                name: apphub-core-config
+            - secretRef:
+                name: apphub-core-secrets
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi

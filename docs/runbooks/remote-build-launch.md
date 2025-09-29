@@ -39,71 +39,24 @@ The catalog runtime image now bundles `kubectl` (1.29) and `helm` (3.14). On sta
 
 Set `APPHUB_K8S_REQUIRE_TOOLING=1` to fail fast when the smoke check reports errors (for example, when `kubectl` is absent). Use `APPHUB_K8S_DISABLE_DEFAULTS=1` if the minikube defaults conflict with production namespace or registry naming.
 
-## Minikube Setup
+## Minikube (local development)
 
-1. **Start minikube with ingress and registry enabled**
-   ```bash
-   minikube start --memory=8192 --cpus=4
-   minikube addons enable ingress
-   minikube addons enable registry
-   ```
-2. **Provision Redis for queues (matches staging/prod credentials)**
-   ```bash
-   helm repo add bitnami https://charts.bitnami.com/bitnami
-   helm upgrade --install apphub-redis bitnami/redis \
-     --namespace apphub \
-     --create-namespace \
-     --set auth.enabled=false
-   kubectl rollout status statefulset/apphub-redis-master -n apphub
-   ```
-   Point catalog, filestore, metastore, and timestore at the instance:
-   ```bash
-   export REDIS_URL=redis://apphub-redis-master.apphub.svc.cluster.local:6379
-   export FILESTORE_REDIS_URL=$REDIS_URL
-   export APPHUB_ALLOW_INLINE_MODE=false
-   ```
-   For debugging, port-forward locally:
-   ```bash
-   kubectl port-forward svc/apphub-redis-master -n apphub 6379:6379
-   ```
+Use the turnkey runner introduced in Tickets 182–185:
 
-3. **Expose the registry endpoint**
-   ```bash
-   kubectl port-forward --namespace kube-system svc/registry 5000:80
-   ```
-4. **Configure the catalog environment**
-   ```bash
-   export APPHUB_BUILD_EXECUTION_MODE=kubernetes
-   export APPHUB_LAUNCH_EXECUTION_MODE=kubernetes
-   export APPHUB_K8S_NAMESPACE=apphub
-   export APPHUB_K8S_PREVIEW_URL_TEMPLATE="http://preview.minikube.local/{launch}"
-   export KUBECONFIG=$(minikube kubeconfig)
-   ```
-   The catalog runtime entrypoint now defaults the build and preview service accounts to `apphub-builder` / `apphub-preview` and the registry endpoint to the minikube registry service. Override them if your cluster names differ. Create the namespace and service accounts:
-   ```bash
-   kubectl create namespace apphub
-   kubectl create serviceaccount apphub-builder -n apphub
-   kubectl create serviceaccount apphub-preview -n apphub
-   kubectl create rolebinding apphub-builder-edit \
-     --clusterrole=edit \
-     --serviceaccount apphub:apphub-builder \
-     --namespace apphub
-   kubectl create rolebinding apphub-preview-edit \
-     --clusterrole=edit \
-     --serviceaccount apphub:apphub-preview \
-     --namespace apphub
-   ```
-   Then export:
-   ```bash
-   export APPHUB_K8S_BUILDER_SERVICE_ACCOUNT=apphub-builder
-   export APPHUB_K8S_LAUNCH_SERVICE_ACCOUNT=apphub-preview
-   ```
-5. **Configure DNS for preview URLs (optional)**
-   - Add a wildcard entry in `/etc/hosts` for `preview.minikube.local` pointing to `$(minikube ip)`.
-   - Alternatively, use `kubectl port-forward` to reach the preview Service manually.
+```bash
+npm run minikube:up
+npm run minikube:verify
+```
 
-6. **Restart the catalog workers**
-   Ensure the catalog API and worker processes inherit the environment variables above. Builds will render as Kubernetes Jobs and previews as Deployments/Services/Ingress resources in the `apphub` namespace.
+This combination starts minikube (if needed), enables the ingress addon, builds the modular service images, loads them into the cluster cache, applies `infra/minikube`, and validates Redis/Postgres/MinIO plus the HTTP health checks. Review `docs/runbooks/minikube-bootstrap.md` for ingress DNS, troubleshooting, and teardown (`npm run minikube:down`).
+
+Need to iterate rapidly on manifests or reuse existing images? Combine flags:
+
+```bash
+npm run minikube:up -- --skip-build --skip-start
+```
+
+After bootstrap, the catalog API and workers read credentials from the manifests (Secrets/ConfigMaps), and build/launch workers rely on the `apphub-builder` and `apphub-preview` service accounts defined in `infra/minikube/rbac.yaml`.
 
 ## Production Checklist
 
@@ -143,8 +96,9 @@ Set `APPHUB_K8S_REQUIRE_TOOLING=1` to fail fast when the smoke check reports err
 ## Minikube Teardown
 
 ```bash
-kubectl delete namespace apphub
-minikube stop
+npm run minikube:down
 ```
+
+Use `-- --purge-images --stop-cluster` to remove cached images and halt the VM after deleting the namespace.
 
 The catalog will automatically fall back to the Docker stub if `APPHUB_BUILD_EXECUTION_MODE=stub` or if Kubernetes commands fail, but the preferred flow is to keep the execution modes consistent across local and remote environments.

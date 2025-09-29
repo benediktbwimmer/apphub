@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apphub
+  labels:
+    app.kubernetes.io/name: apphub-ingress
+    app.kubernetes.io/part-of: apphub-runtime
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: apphub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-frontend
+                port:
+                  number: 80
+    - host: catalog.apphub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-catalog
+                port:
+                  number: 4000
+    - host: metastore.apphub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-metastore
+                port:
+                  number: 4100
+    - host: filestore.apphub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-filestore
+                port:
+                  number: 4300
+    - host: timestore.apphub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apphub-timestore
+                port:
+                  number: 4100

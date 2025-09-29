@@ -99,10 +99,11 @@ RUN set -eux; \
     chmod 0555 /usr/local/bin/kubectl; \
     rm -f /tmp/kubectl.sha256; \
     tmpdir="$(mktemp -d)"; \
-    curl -fsSLo "${tmpdir}/helm.tar.gz" "https://get.helm.sh/helm-${HELM_VERSION}-linux-${kubearch}.tar.gz"; \
-    curl -fsSLo "${tmpdir}/helm.tar.gz.sha256sum" "https://get.helm.sh/helm-${HELM_VERSION}-linux-${kubearch}.tar.gz.sha256sum"; \
-    (cd "${tmpdir}" && sha256sum -c helm.tar.gz.sha256sum); \
-    tar -xzf "${tmpdir}/helm.tar.gz" -C "${tmpdir}"; \
+    helm_archive=helm-${HELM_VERSION}-linux-${kubearch}.tar.gz; \
+    curl -fsSLo "${tmpdir}/${helm_archive}" "https://get.helm.sh/${helm_archive}"; \
+    curl -fsSLo "${tmpdir}/${helm_archive}.sha256sum" "https://get.helm.sh/${helm_archive}.sha256sum"; \
+    (cd "${tmpdir}" && sha256sum -c ${helm_archive}.sha256sum); \
+    tar -xzf "${tmpdir}/${helm_archive}" -C "${tmpdir}"; \
     install -m 0555 "${tmpdir}/linux-${kubearch}/helm" /usr/local/bin/helm; \
     rm -rf "${tmpdir}";
 
