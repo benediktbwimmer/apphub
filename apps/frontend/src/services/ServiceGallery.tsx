@@ -140,6 +140,24 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
 
 export default function ServiceGallery() {
   const { width } = usePreviewLayout();
+  const fetchServices = useCallback(
+    async ({
+      authorizedFetch,
+      signal
+    }: {
+      authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+      signal: AbortSignal;
+    }) => {
+      const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      const payload = (await response.json()) as ServicesResponse;
+      return hasServiceData(payload) ? payload.data : [];
+    },
+    []
+  );
+
   const {
     data: servicesData,
     loading,
@@ -147,14 +165,7 @@ export default function ServiceGallery() {
     refetch
   } = usePollingResource<ServiceSummary[]>({
     intervalMs: REFRESH_INTERVAL_MS,
-    fetcher: async ({ authorizedFetch, signal }) => {
-      const response = await authorizedFetch(`${API_BASE_URL}/services`, { signal });
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-      const payload = (await response.json()) as ServicesResponse;
-      return hasServiceData(payload) ? payload.data : [];
-    }
+    fetcher: fetchServices
   });
   const services = servicesData ?? EMPTY_SERVICES;
   const errorMessage = error
