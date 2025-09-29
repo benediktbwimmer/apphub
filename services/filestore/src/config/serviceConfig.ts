@@ -73,6 +73,20 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+const DEFAULT_LOCAL_REDIS_URL = 'redis://127.0.0.1:6379';
+
+function isProductionEnv(): boolean {
+  const value = process.env.NODE_ENV?.trim().toLowerCase();
+  return value === 'production';
+}
+
+function normalizeRedisUrl(value: string): string {
+  if (value === 'inline') {
+    return value;
+  }
+  return /^redis:\/\//i.test(value) ? value : `redis://${value}`;
+}
+
 function allowInlineMode(): boolean {
   return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE, false);
 }
@@ -105,7 +119,7 @@ export function loadServiceConfig(): ServiceConfig {
 
   const env = process.env;
   const host = env.FILESTORE_HOST || env.HOST || '127.0.0.1';
-  const port = parseNumber(env.FILESTORE_PORT || env.PORT, 4200);
+  const port = parseNumber(env.FILESTORE_PORT || env.PORT, 4300);
   const logLevel = resolveLogLevel(env.FILESTORE_LOG_LEVEL);
   const databaseUrl = env.FILESTORE_DATABASE_URL || env.DATABASE_URL || 'postgres://apphub:apphub@127.0.0.1:5432/apphub';
   const schema = env.FILESTORE_PG_SCHEMA || 'filestore';
@@ -116,11 +130,13 @@ export function loadServiceConfig(): ServiceConfig {
     10_000
   );
   const metricsEnabled = parseBoolean(env.FILESTORE_METRICS_ENABLED, true);
-  const redisUrlSource = env.FILESTORE_REDIS_URL || env.REDIS_URL;
-  if (!redisUrlSource || !redisUrlSource.trim()) {
+  const fallbackRedisUrl = isProductionEnv() ? null : DEFAULT_LOCAL_REDIS_URL;
+  const redisUrlSource = env.FILESTORE_REDIS_URL || env.REDIS_URL || fallbackRedisUrl;
+  const normalizedRedisSource = (redisUrlSource ?? '').trim();
+  if (!normalizedRedisSource) {
     throw new Error('Set FILESTORE_REDIS_URL or REDIS_URL to a redis:// connection string');
   }
-  const redisUrl = redisUrlSource.trim();
+  const redisUrl = normalizeRedisUrl(normalizedRedisSource);
   const redisKeyPrefix = env.FILESTORE_REDIS_KEY_PREFIX || 'filestore';
   const rollupQueueName = env.FILESTORE_ROLLUP_QUEUE_NAME || 'filestore_rollup_queue';
   const rollupCacheTtlSeconds = parseNumber(env.FILESTORE_ROLLUP_CACHE_TTL_SECONDS, 300);

@@ -610,7 +610,7 @@ export function loadServiceConfig(): ServiceConfig {
     assertInlineAllowed('REDIS_URL');
   }
   const host = env.TIMESTORE_HOST || env.HOST || '127.0.0.1';
-  const port = parseNumber(env.TIMESTORE_PORT || env.PORT, 4100);
+  const port = parseNumber(env.TIMESTORE_PORT || env.PORT, 4200);
   const logLevel = (env.TIMESTORE_LOG_LEVEL || 'info') as LogLevel;
   const databaseUrl = env.TIMESTORE_DATABASE_URL || env.DATABASE_URL || 'postgres://apphub:apphub@127.0.0.1:5432/apphub';
   const schema = env.TIMESTORE_PG_SCHEMA || 'timestore';

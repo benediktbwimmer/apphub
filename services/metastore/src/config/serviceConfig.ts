@@ -87,6 +87,20 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+const DEFAULT_LOCAL_REDIS_URL = 'redis://127.0.0.1:6379';
+
+function isProductionEnv(): boolean {
+  const value = process.env.NODE_ENV?.trim().toLowerCase();
+  return value === 'production';
+}
+
+function normalizeRedisUrl(value: string): string {
+  if (value === 'inline') {
+    return value;
+  }
+  return /^redis:\/\//i.test(value) ? value : `redis://${value}`;
+}
+
 function allowInlineMode(): boolean {
   return parseBoolean(process.env.APPHUB_ALLOW_INLINE_MODE, false);
 }
@@ -355,11 +369,14 @@ export function loadServiceConfig(): ServiceConfig {
     10_000
   );
   const filestoreSyncEnabled = parseBoolean(process.env.METASTORE_FILESTORE_SYNC_ENABLED, true);
-  const filestoreRedisSource = process.env.FILESTORE_REDIS_URL || process.env.REDIS_URL;
-  if (!filestoreRedisSource || !filestoreRedisSource.trim()) {
+  const fallbackRedisUrl = isProductionEnv() ? null : DEFAULT_LOCAL_REDIS_URL;
+  const filestoreRedisSource =
+    process.env.FILESTORE_REDIS_URL || process.env.REDIS_URL || fallbackRedisUrl;
+  const normalizedFilestoreRedisSource = (filestoreRedisSource ?? '').trim();
+  if (!normalizedFilestoreRedisSource) {
     throw new Error('Set FILESTORE_REDIS_URL or REDIS_URL to a redis:// connection string');
   }
-  const filestoreRedisUrl = filestoreRedisSource.trim();
+  const filestoreRedisUrl = normalizeRedisUrl(normalizedFilestoreRedisSource);
   const filestoreChannel = process.env.FILESTORE_EVENTS_CHANNEL || 'apphub:filestore';
   const filestoreNamespace = process.env.METASTORE_FILESTORE_NAMESPACE || 'filestore';
   const filestoreRetryDelayMs = parseInt(process.env.METASTORE_FILESTORE_RETRY_MS ?? '', 10);

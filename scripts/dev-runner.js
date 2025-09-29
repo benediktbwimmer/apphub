@@ -108,6 +108,12 @@ async function main() {
       baseEnv[alias] = baseEnv.REDIS_URL;
     }
   }
+  if (!baseEnv.APPHUB_FILESTORE_BASE_URL) {
+    baseEnv.APPHUB_FILESTORE_BASE_URL = 'http://127.0.0.1:4300';
+  }
+  if (!baseEnv.APPHUB_METASTORE_BASE_URL) {
+    baseEnv.APPHUB_METASTORE_BASE_URL = 'http://127.0.0.1:4100';
+  }
 
   const commands = BASE_COMMANDS.filter((entry) => {
     if (entry.name === 'redis' && preflightResult?.skipRedis) {
