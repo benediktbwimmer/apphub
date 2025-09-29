@@ -67,7 +67,7 @@ All entry points rely on shared helper `normalizeRunKey(input?: string, context:
 
 ## Integration Surfaces
 - **API Responses:** Include `runKey` in serialized run payloads. Update OpenAPI spec accordingly.
-- **Queues:** Embed `runKey` in job ID (`workflow-run:{runKey}:{uuid}`) when available to aid queue inspection.
+- **Queues:** Embed `runKey` in job ID (`workflow-run--{runKey}--{uuid}`) when available to aid queue inspection.
 - **Workflow Worker Logs:** Add `runKey` to structured log metadata and alerts (`workflow.run.failed`).
 - **Event Bus Metadata:** Append `workflowRunKey` field in emitted events for dashboards and consumers.
 - **Docker Runner:** Prefer sanitized `runKey` for workspace prefix/container names, falling back to UUID when sanitized key is empty or collides (Ticket 203).
@@ -102,4 +102,3 @@ All entry points rely on shared helper `normalizeRunKey(input?: string, context:
 - RFC reviewed and signed off by catalog, frontend, and operations leads.
 - Tickets 201-204 reference this document for normalization rules and collision handling.
 - Feature flag plan documented and initial telemetry charts defined.
-

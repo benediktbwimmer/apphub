@@ -286,7 +286,7 @@ export async function scheduleEventRetryJob(
       { eventId, retryKind: 'source' },
       {
         delay: computeDelayMs(runAtIso),
-        jobId: `event-retry:${eventId}:${attempt}`,
+        jobId: buildJobId('event-retry', eventId, attempt),
         removeOnComplete: 100,
         removeOnFail: 100
       }
@@ -308,7 +308,7 @@ export async function removeEventRetryJob(eventId: string, attempt: number): Pro
     return;
   }
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
-  const jobId = `event-retry:${eventId}:${safeAttempt}`;
+  const jobId = buildJobId('event-retry', eventId, safeAttempt);
   try {
     await queue.remove(jobId);
   } catch (err) {
@@ -342,7 +342,7 @@ export async function scheduleEventTriggerRetryJob(
       { deliveryId, eventId, retryKind: 'trigger' },
       {
         delay: computeDelayMs(runAtIso),
-        jobId: `event-trigger-retry:${deliveryId}:${attempt}`,
+        jobId: buildJobId('event-trigger-retry', deliveryId, attempt),
         removeOnComplete: 100,
         removeOnFail: 100
       }
@@ -364,7 +364,7 @@ export async function removeEventTriggerRetryJob(deliveryId: string, attempt: nu
     return;
   }
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
-  const jobId = `event-trigger-retry:${deliveryId}:${safeAttempt}`;
+  const jobId = buildJobId('event-trigger-retry', deliveryId, safeAttempt);
   try {
     await queue.remove(jobId);
   } catch (err) {
@@ -386,10 +386,24 @@ function computeWorkflowRetryDelayMs(runAtIso: string): number {
   return Math.max(parsed - Date.now(), 0);
 }
 
+const JOB_ID_SEGMENT_SEPARATOR = '--';
+
 function sanitizeRunKeyForJobId(value: string): string {
   const lowered = value.toLowerCase();
-  const sanitized = lowered.replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
+  const sanitized = lowered.replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
   return sanitized.slice(0, 48) || 'run';
+}
+
+function buildJobId(...segments: Array<string | number | null | undefined>): string {
+  const sanitizedSegments = segments
+    .map((segment) => (segment == null ? '' : String(segment)))
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.replace(/[:]/g, '-'));
+  if (sanitizedSegments.length === 0) {
+    return 'job';
+  }
+  return sanitizedSegments.join(JOB_ID_SEGMENT_SEPARATOR);
 }
 
 export async function scheduleWorkflowRetryJob(
@@ -411,7 +425,7 @@ export async function scheduleWorkflowRetryJob(
   const queue = queueManager.getQueue<WorkflowRetryJobData>(QUEUE_KEYS.workflow);
   const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
   const runKeyToken = options.runKey ? sanitizeRunKeyForJobId(options.runKey) : workflowRunId;
-  const jobId = ['workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${attempt}`].join(':');
+  const jobId = buildJobId('workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${attempt}`);
 
   try {
     await queue.add(
@@ -453,7 +467,7 @@ export async function removeWorkflowRetryJob(
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
   const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
   const runKeyToken = options.runKey ? sanitizeRunKeyForJobId(options.runKey) : workflowRunId;
-  const jobId = ['workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${safeAttempt}`].join(':');
+  const jobId = buildJobId('workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${safeAttempt}`);
   try {
     await queue.remove(jobId);
   } catch (err) {
@@ -690,7 +704,7 @@ export async function enqueueWorkflowRun(
 
   const queue = queueManager.getQueue(QUEUE_KEYS.workflow);
   const baseOptions = queue.opts.defaultJobOptions ?? {};
-  const jobId = ['workflow-run', runKeyToken, trimmedId, 'run'].join(':');
+  const jobId = buildJobId('workflow-run', runKeyToken, trimmedId, 'run');
   console.log('[enqueueWorkflowRun] scheduling run', {
     workflowRunId: trimmedId,
     jobId,
@@ -746,7 +760,7 @@ export async function enqueueExampleBundleJob(
 
   if (inlineMode) {
     await queueManager.ensureWorker(QUEUE_KEYS.exampleBundle);
-    const jobId = `inline:${Date.now()}`;
+    const jobId = buildJobId('inline', Date.now());
     const module = await import('./exampleBundleWorker');
     const result = await module.processExampleBundleJob(payload, jobId);
     return {
