@@ -1,13 +1,13 @@
 {
   "paths": {
-    "inbox": "/Users/bene/work/observatory/datasets/observatory/inbox",
-    "staging": "/Users/bene/work/observatory/staging",
-    "archive": "/Users/bene/work/observatory/archive",
-    "plots": "/Users/bene/work/observatory/plots",
-    "reports": "/Users/bene/work/observatory/reports"
+    "inbox": "examples/environmental-observatory-event-driven/data/datasets/observatory/inbox",
+    "staging": "examples/environmental-observatory-event-driven/data/staging",
+    "archive": "examples/environmental-observatory-event-driven/data/archive",
+    "plots": "examples/environmental-observatory-event-driven/data/plots",
+    "reports": "examples/environmental-observatory-event-driven/data/reports"
   },
   "filestore": {
-    "baseUrl": "http",
+    "baseUrl": "http://127.0.0.1:4300",
     "backendMountId": 1,
     "token": null,
     "inboxPrefix": "datasets/observatory/inbox",
@@ -20,7 +20,10 @@
     "datasetName": "Observatory Time Series",
     "tableName": "observations",
     "storageTargetId": null,
-    "authToken": null
+    "authToken": null,
+    "storageDriver": null,
+    "storageRoot": null,
+    "cacheDir": null
   },
   "metastore": {
     "baseUrl": "http",
@@ -34,6 +37,9 @@
   "workflows": {
     "ingestSlug": "observatory-minute-ingest",
     "publicationSlug": "observatory-daily-publication",
-    "visualizationAssetId": "observatory.visualizations.minute"
+    "visualizationAssetId": "observatory.visualizations.minute",
+    "generator": {
+      "instrumentCount": "env.OBSERVATORY_INSTRUMENT_COUNT"
+    }
   }
 }
