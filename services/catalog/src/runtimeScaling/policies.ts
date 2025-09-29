@@ -70,8 +70,8 @@ export class RuntimeScalingValidationError extends Error {
 
 export function isRuntimeScalingWriteEnabled(): boolean {
   const raw = process.env.APPHUB_RUNTIME_SCALING_WRITES_ENABLED;
-  if (!raw) {
-    return false;
+  if (raw === undefined) {
+    return true;
   }
   const normalized = raw.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
