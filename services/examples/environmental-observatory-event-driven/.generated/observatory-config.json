@@ -1,0 +1,39 @@
+{
+  "paths": {
+    "inbox": "/Users/bene/work/observatory/datasets/observatory/inbox",
+    "staging": "/Users/bene/work/observatory/staging",
+    "archive": "/Users/bene/work/observatory/archive",
+    "plots": "/Users/bene/work/observatory/plots",
+    "reports": "/Users/bene/work/observatory/reports"
+  },
+  "filestore": {
+    "baseUrl": "http",
+    "backendMountId": 1,
+    "token": null,
+    "inboxPrefix": "datasets/observatory/inbox",
+    "stagingPrefix": "datasets/observatory/staging",
+    "archivePrefix": "datasets/observatory/archive"
+  },
+  "timestore": {
+    "baseUrl": "http",
+    "datasetSlug": "observatory-timeseries",
+    "datasetName": "Observatory Time Series",
+    "tableName": "observations",
+    "storageTargetId": null,
+    "authToken": null
+  },
+  "metastore": {
+    "baseUrl": "http",
+    "namespace": "observatory.reports",
+    "authToken": null
+  },
+  "catalog": {
+    "baseUrl": "http",
+    "apiToken": "dev-token"
+  },
+  "workflows": {
+    "ingestSlug": "observatory-minute-ingest",
+    "publicationSlug": "observatory-daily-publication",
+    "visualizationAssetId": "observatory.visualizations.minute"
+  }
+}
