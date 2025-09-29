@@ -44,6 +44,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    npm run dev
    ```
 6. Kick off the synthetic instruments manually (`observatory-minute-data-generator` workflow) or leave the trigger to respond as Filestore uploads arrive. The event gateway will reflect upload/move activity, and the dashboard will render the latest report bundle under `/reports/<minute>/`.
+   - Want more (or fewer) sensors? Set `OBSERVATORY_INSTRUMENT_COUNT` (alias `OBSERVATORY_GENERATOR_INSTRUMENT_COUNT`) before running `npm run obs:event:config`, or edit the generator schedule in the catalog UI afterwards. The value feeds the workflow’s `instrumentCount` parameter at runtime.
 
 ## Related Scripts
 Convenience aliases (add to your global npm scripts if desired):

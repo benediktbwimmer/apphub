@@ -298,6 +298,13 @@ const migrations: Migration[] = [
       `ALTER TABLE dataset_partitions
          ADD COLUMN IF NOT EXISTS column_bloom_filters JSONB NOT NULL DEFAULT '{}'::jsonb;`
     ]
+  },
+  {
+    id: '011_timestore_dataset_access_audit_ttl',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_dataset_access_audit_created_at
+         ON dataset_access_audit(created_at ASC);`
+    ]
   }
 ];
 

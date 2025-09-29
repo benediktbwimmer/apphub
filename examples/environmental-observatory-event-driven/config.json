@@ -109,12 +109,15 @@
             "apiToken": "{{ env.OBSERVATORY_CATALOG_TOKEN | default:dev-token }}"
           },
           "workflows": {
-            "ingestSlug": "{{ env.OBSERVATORY_INGEST_WORKFLOW_SLUG | default:observatory-minute-ingest }}",
-            "publicationSlug": "{{ env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG | default:observatory-daily-publication }}",
-            "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}"
+          "ingestSlug": "{{ env.OBSERVATORY_INGEST_WORKFLOW_SLUG | default:observatory-minute-ingest }}",
+          "publicationSlug": "{{ env.OBSERVATORY_PUBLICATION_WORKFLOW_SLUG | default:observatory-daily-publication }}",
+          "visualizationAssetId": "{{ env.OBSERVATORY_VISUALIZATION_ASSET_ID | default:observatory.visualizations.minute }}",
+          "generator": {
+            "instrumentCount": "{{ env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT | default: env.OBSERVATORY_INSTRUMENT_COUNT | default:3 | number }}"
           }
         }
-      },
+      }
+    },
       {
         "type": "applyWorkflowDefaults",
         "description": "Apply default parameters for observatory workflows",
@@ -128,7 +131,8 @@
               "stagingPrefix": "{{ env.OBSERVATORY_FILESTORE_STAGING_PREFIX | default:datasets/observatory/staging }}",
               "archivePrefix": "{{ env.OBSERVATORY_FILESTORE_ARCHIVE_PREFIX | default:datasets/observatory/archive }}",
               "filestorePrincipal": "observatory-data-generator",
-              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}"
+              "filestoreToken": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:null }}",
+              "instrumentCount": "{{ env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT | default: env.OBSERVATORY_INSTRUMENT_COUNT | default:3 | number }}"
             }
           },
           {

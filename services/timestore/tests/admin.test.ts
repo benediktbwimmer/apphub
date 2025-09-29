@@ -554,6 +554,50 @@ test('requires admin scope to fetch dataset audit history', async () => {
   assert.equal(response.statusCode, 403);
 });
 
+test('deleteExpiredDatasetAccessEvents prunes stale audit entries', async () => {
+  assert.ok(datasetA);
+  const oldEventId = `audit-${randomUUID()}`;
+  const recentEventId = `audit-${randomUUID()}`;
+
+  await metadataModule.recordDatasetAccessEvent({
+    id: oldEventId,
+    datasetId: datasetA.id,
+    datasetSlug: datasetA.slug,
+    actorId: 'tester-old',
+    actorScopes: ['timestore:admin'],
+    action: 'query',
+    success: true,
+    metadata: { rowCount: 25 }
+  });
+
+  await metadataModule.recordDatasetAccessEvent({
+    id: recentEventId,
+    datasetId: datasetA.id,
+    datasetSlug: datasetA.slug,
+    actorId: 'tester-new',
+    actorScopes: ['timestore:admin'],
+    action: 'query',
+    success: true,
+    metadata: { rowCount: 10 }
+  });
+
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  await clientModule.withConnection((client) =>
+    client.query('UPDATE dataset_access_audit SET created_at = $1 WHERE id = $2', [
+      eightDaysAgo,
+      oldEventId
+    ])
+  );
+
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const deleted = await metadataModule.deleteExpiredDatasetAccessEvents(cutoff, 10);
+  assert.equal(deleted, 1);
+
+  const remaining = await metadataModule.listDatasetAccessEvents(datasetA.id, { limit: 10 });
+  assert.equal(remaining.events.some((event) => event.id === oldEventId), false);
+  assert.equal(remaining.events.some((event) => event.id === recentEventId), true);
+});
+
 test('updates retention policy via admin API', async () => {
   assert.ok(app);
   const response = await app!.inject({

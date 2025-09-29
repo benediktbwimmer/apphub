@@ -1363,6 +1363,37 @@ export async function listDatasetAccessEvents(
   });
 }
 
+export async function deleteExpiredDatasetAccessEvents(
+  cutoffIso: string,
+  limit = 1_000
+): Promise<number> {
+  if (!cutoffIso) {
+    return 0;
+  }
+  const boundedLimit = Math.max(1, Math.min(limit, 5_000));
+  return withConnection(async (client) => {
+    const { rows } = await client.query<{ deleted: number }>(
+      `WITH removed AS (
+         DELETE FROM dataset_access_audit
+          WHERE id IN (
+            SELECT id
+              FROM dataset_access_audit
+             WHERE created_at < $1::timestamptz
+             ORDER BY created_at ASC, id ASC
+             LIMIT $2
+          )
+          RETURNING 1
+       )
+       SELECT COUNT(*)::int AS deleted FROM removed`,
+      [cutoffIso, boundedLimit]
+    );
+    const deletedCount = rows[0]?.deleted;
+    return typeof deletedCount === 'number' && Number.isFinite(deletedCount)
+      ? deletedCount
+      : 0;
+  });
+}
+
 export async function updateManifestSummaryAndMetadata(
   manifestId: string,
   summary: JsonObject,

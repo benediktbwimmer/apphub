@@ -15,6 +15,7 @@ import { setupTracing } from './observability/tracing';
 import { initializeFilestoreActivity, shutdownFilestoreActivity } from './filestore/consumer';
 import { shutdownManifestCache } from './cache/manifestCache';
 import { initializeIngestionConnectors, shutdownIngestionConnectors } from './ingestion/connectors';
+import { initializeDatasetAccessCleanup, shutdownDatasetAccessCleanup } from './service/auditCleanup';
 
 async function start(): Promise<void> {
   const config = loadServiceConfig();
@@ -46,6 +47,7 @@ async function start(): Promise<void> {
     await shutdownManifestCache();
     await shutdownFilestoreActivity();
     await shutdownIngestionConnectors();
+    await shutdownDatasetAccessCleanup();
   });
 
   await ensureSchemaExists(POSTGRES_SCHEMA);
@@ -54,6 +56,7 @@ async function start(): Promise<void> {
   await verifyLifecycleQueueConnection();
   await initializeFilestoreActivity({ config, logger: app.log });
   await initializeIngestionConnectors({ config, logger: app.log });
+  await initializeDatasetAccessCleanup({ config, logger: app.log });
 
   try {
     await app.listen({ port: config.port, host: config.host });

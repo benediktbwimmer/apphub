@@ -260,6 +260,12 @@ const filestoreSchema = z.object({
   inline: z.boolean()
 });
 
+const auditLogSchema = z.object({
+  ttlHours: z.number().int().positive(),
+  cleanupIntervalSeconds: z.number().int().positive(),
+  deleteBatchSize: z.number().int().positive()
+});
+
 const gcsSchema = z.object({
   bucket: z.string().min(1),
   projectId: z.string().min(1).optional(),
@@ -329,7 +335,8 @@ const configSchema = z.object({
     metrics: metricsSchema,
     tracing: tracingSchema
   }),
-  filestore: filestoreSchema
+  filestore: filestoreSchema,
+  auditLog: auditLogSchema
 });
 
 export type ServiceConfig = z.infer<typeof configSchema>;
@@ -709,6 +716,15 @@ export function loadServiceConfig(): ServiceConfig {
   if (filestoreInline) {
     assertInlineAllowed('FILESTORE_REDIS_URL');
   }
+  const auditTtlDays = parseNumber(env.TIMESTORE_AUDIT_TTL_DAYS, 7);
+  const auditCleanupIntervalSeconds = parseNumber(
+    env.TIMESTORE_AUDIT_CLEANUP_INTERVAL_SECONDS,
+    3_600
+  );
+  const auditCleanupBatchSize = parseNumber(env.TIMESTORE_AUDIT_CLEANUP_BATCH_SIZE, 1_000);
+  const auditTtlHours = Math.max(1, Math.round((auditTtlDays > 0 ? auditTtlDays : 7) * 24));
+  const auditCleanupInterval = auditCleanupIntervalSeconds > 0 ? auditCleanupIntervalSeconds : 3_600;
+  const auditBatchSize = auditCleanupBatchSize > 0 ? auditCleanupBatchSize : 1_000;
   const executionDefaultBackendRaw = env.TIMESTORE_QUERY_EXECUTION_DEFAULT;
   const executionDefaultBackend = executionDefaultBackendRaw && executionDefaultBackendRaw.trim().length > 0
     ? executionDefaultBackendRaw.trim()
@@ -860,6 +876,11 @@ export function loadServiceConfig(): ServiceConfig {
         enabled: tracingEnabled,
         serviceName: tracingServiceName
       }
+    },
+    auditLog: {
+      ttlHours: auditTtlHours,
+      cleanupIntervalSeconds: auditCleanupInterval,
+      deleteBatchSize: auditBatchSize
     },
     filestore: {
       enabled: filestoreEnabled,
