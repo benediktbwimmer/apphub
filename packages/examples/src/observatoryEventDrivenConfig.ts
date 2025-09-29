@@ -15,6 +15,13 @@ export type ObservatoryConfig = {
     inboxPrefix: string;
     stagingPrefix: string;
     archivePrefix: string;
+    bucket?: string;
+    endpoint?: string;
+    region?: string;
+    forcePathStyle?: boolean;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
   };
   timestore: {
     baseUrl: string;
@@ -112,6 +119,20 @@ function resolveString(value: string | undefined, fallback: string | undefined, 
   return candidate;
 }
 
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
 export function createEventDrivenObservatoryConfig(
   options: EventDrivenObservatoryConfigOptions
 ): { config: ObservatoryConfig; outputPath: string } {
@@ -175,7 +196,27 @@ export function createEventDrivenObservatoryConfig(
       getVar('OBSERVATORY_FILESTORE_ARCHIVE_PREFIX'),
       'datasets/observatory/archive',
       'filestore.archivePrefix'
-      )
+      ),
+      bucket: optionalString(
+        getVar('OBSERVATORY_FILESTORE_S3_BUCKET', ['FILESTORE_S3_BUCKET', 'APPHUB_BUNDLE_STORAGE_BUCKET'])
+      ) ?? 'apphub-filestore',
+      endpoint: optionalString(
+        getVar('OBSERVATORY_FILESTORE_S3_ENDPOINT', ['FILESTORE_S3_ENDPOINT', 'APPHUB_BUNDLE_STORAGE_ENDPOINT'])
+      ) ?? 'http://127.0.0.1:9000',
+      region: optionalString(
+        getVar('OBSERVATORY_FILESTORE_S3_REGION', ['FILESTORE_S3_REGION', 'APPHUB_BUNDLE_STORAGE_REGION'])
+      ) ?? 'us-east-1',
+      forcePathStyle: parseBoolean(
+        getVar('OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE', ['FILESTORE_S3_FORCE_PATH_STYLE']),
+        true
+      ),
+      accessKeyId: optionalString(
+        getVar('OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID', ['FILESTORE_S3_ACCESS_KEY_ID', 'APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID'])
+      ) ?? 'apphub',
+      secretAccessKey: optionalString(
+        getVar('OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY', ['FILESTORE_S3_SECRET_ACCESS_KEY', 'APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY'])
+      ) ?? 'apphub123',
+      sessionToken: optionalString(getVar('OBSERVATORY_FILESTORE_S3_SESSION_TOKEN', ['FILESTORE_S3_SESSION_TOKEN']))
     } as const;
 
   const derivedInboxDefault = path.join(
@@ -228,7 +269,7 @@ export function createEventDrivenObservatoryConfig(
   const resolveTimestoreDriver = (rawValue: string | undefined): TimestoreDriver => {
     const raw = optionalString(rawValue);
     if (!raw) {
-      return 'local';
+      return 's3';
     }
     const normalized = raw.trim().toLowerCase().replace(/-/g, '_');
     switch (normalized) {

@@ -1,20 +1,17 @@
 {
   "services": [
     {
-      "slug": "observatory-file-watcher",
-      "displayName": "Observatory File Watcher",
-      "kind": "workflow-watcher",
+      "slug": "filestore-ingest-watcher",
+      "displayName": "Filestore Ingest Watcher",
+      "kind": "utility",
       "baseUrl": "http://127.0.0.1:4310",
       "healthEndpoint": "/healthz",
-      "devCommand": "npm run dev",
-      "workingDir": "examples/environmental-observatory/services/observatory-file-watcher",
+      "devCommand": "npm run dev --workspace @apphub/filestore-ingest-watcher",
+      "workingDir": "services/filestore-ingest-watcher",
       "env": [
+        { "key": "PORT", "value": "4310" },
         {
-          "key": "PORT",
-          "value": "4310"
-        },
-        {
-          "key": "FILE_WATCH_ROOT",
+          "key": "WATCH_ROOT",
           "value": {
             "$var": {
               "name": "FILE_WATCH_ROOT",
@@ -24,130 +21,48 @@
           }
         },
         {
-          "key": "FILE_WATCH_STAGING_DIR",
-          "value": {
-            "$var": {
-              "name": "FILE_WATCH_STAGING_DIR",
-              "default": "examples/environmental-observatory/data/staging",
-              "description": "Staging directory where normalized files are copied prior to ingest."
-            }
-          }
-        },
-        {
-          "key": "FILE_ARCHIVE_DIR",
+          "key": "WATCH_ARCHIVE_DIR",
           "value": {
             "$var": {
               "name": "FILE_ARCHIVE_DIR",
               "default": "examples/environmental-observatory/data/archive",
-              "description": "Archive directory where processed inbox files are moved after normalization."
+              "description": "Archive directory where processed inbox files are moved after upload."
             }
           }
         },
         {
-          "key": "OBSERVATORY_PLOTS_DIR",
+          "key": "WATCH_CONCURRENCY",
           "value": {
             "$var": {
-              "name": "OBSERVATORY_PLOTS_DIR",
-              "default": "examples/environmental-observatory/data/plots",
-              "description": "Directory where visualization artifacts are written before publication."
+              "name": "WATCH_CONCURRENCY",
+              "default": "4",
+              "description": "Maximum number of concurrent uploads to the Filestore backend."
             }
           }
         },
         {
-          "key": "OBSERVATORY_REPORTS_DIR",
-          "value": {
-            "$var": {
-              "name": "OBSERVATORY_REPORTS_DIR",
-              "default": "examples/environmental-observatory/data/reports",
-              "description": "Directory where published reports should be stored."
-            }
-          }
+          "key": "FILESTORE_BACKEND_ID",
+          "value": "{{ env.OBSERVATORY_FILESTORE_BACKEND_ID | default:1 }}"
         },
         {
-          "key": "TIMESTORE_BASE_URL",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_BASE_URL",
-              "default": "http://host.docker.internal:4200",
-              "description": "Timestore API base URL used by the ingestion job."
-            }
-          }
+          "key": "FILESTORE_BASE_URL",
+          "value": "{{ env.OBSERVATORY_FILESTORE_BASE_URL | default:'http://127.0.0.1:4300' }}"
         },
         {
-          "key": "TIMESTORE_DATASET_SLUG",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_DATASET_SLUG",
-              "default": "observatory-timeseries",
-              "description": "Dataset slug written by the Timestore loader."
-            }
-          }
+          "key": "FILESTORE_TOKEN",
+          "value": "{{ env.OBSERVATORY_FILESTORE_TOKEN | default:'' }}"
         },
         {
-          "key": "TIMESTORE_DATASET_NAME",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_DATASET_NAME",
-              "default": "Observatory Time Series",
-              "description": "Human-readable dataset name created on first ingest."
-            }
-          }
+          "key": "FILESTORE_TARGET_PREFIX",
+          "value": "{{ env.OBSERVATORY_FILESTORE_INBOX_PREFIX | default:'datasets/observatory/inbox' }}"
         },
         {
-          "key": "TIMESTORE_TABLE_NAME",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_TABLE_NAME",
-              "default": "observations",
-              "description": "Logical table name used inside Timestore."
-            }
-          }
+          "key": "WATCH_DELETE_AFTER_UPLOAD",
+          "value": "false"
         },
         {
-          "key": "TIMESTORE_STORAGE_TARGET_ID",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_STORAGE_TARGET_ID",
-              "default": "",
-              "description": "Optional storage target override for the ingestion job."
-            }
-          }
-        },
-        {
-          "key": "TIMESTORE_API_TOKEN",
-          "value": {
-            "$var": {
-              "name": "TIMESTORE_API_TOKEN",
-              "default": "",
-              "description": "Bearer token forwarded to the Timestore API if required."
-            }
-          }
-        },
-        {
-          "key": "OBSERVATORY_WORKFLOW_SLUG",
-          "value": "observatory-minute-ingest"
-        },
-        {
-          "key": "FILE_WATCH_MAX_FILES",
-          "value": "64"
-        },
-        {
-          "key": "OBSERVATORY_AUTO_COMPLETE",
+          "key": "WATCH_OVERWRITE",
           "value": "true"
-        },
-        {
-          "key": "CATALOG_API_BASE_URL",
-          "value": "http://host.docker.internal:4000"
-        },
-        {
-          "key": "CATALOG_API_TOKEN",
-          "value": {
-            "$var": {
-              "name": "CATALOG_API_TOKEN",
-              "default": "dev-token",
-              "description": "Operator API token used to trigger workflows and update run status."
-            }
-          }
         }
       ]
     },

@@ -1,0 +1,24 @@
+{
+  "name": "@apphub/filestore-ingest-watcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@apphub/filestore-client": "workspace:*",
+    "@apphub/shared": "workspace:*",
+    "chokidar": "^3.6.0",
+    "fastify": "^4.27.2",
+    "pino": "^9.4.0"
+  },
+  "devDependencies": {
+    "@types/chokidar": "^3.5.5",
+    "tsx": "^4.15.2",
+    "typescript": "^5.9.2"
+  }
+}

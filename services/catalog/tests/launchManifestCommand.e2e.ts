@@ -10,7 +10,7 @@ import { KubectlMock } from '@apphub/kubectl-mock';
 import type { FastifyInstance } from 'fastify';
 
 const SERVICE_MODULE = 'github.com/apphub/examples/environmental-observatory';
-const REPOSITORY_ID = 'observatory-file-watcher';
+const REPOSITORY_ID = 'filestore-ingest-watcher';
 
 async function loadModule<T>(modulePath: string): Promise<any> {
   const mod = await import(modulePath);
@@ -187,7 +187,7 @@ runE2E(async ({ registerCleanup }) => {
         description:
           'Watches the observatory inbox for minute-level CSV drops and triggers ingest workflows automatically.',
         repoUrl: 'https://github.com/benediktbwimmer/apphub.git',
-        dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+        dockerfilePath: 'services/filestore-ingest-watcher/Dockerfile',
         tags: [
           { key: 'language', value: 'typescript' },
           { key: 'framework', value: 'fastify' }

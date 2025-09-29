@@ -123,6 +123,47 @@ async function main() {
     baseEnv.APPHUB_METASTORE_BASE_URL = 'http://127.0.0.1:4100';
   }
 
+  const ensureEnv = (key, value) => {
+    const current = baseEnv[key];
+    if (typeof current !== 'string' || current.trim() === '') {
+      baseEnv[key] = value;
+    }
+  };
+
+  // Catalog bundle storage (example bundles + job bundles) now defaults to MinIO.
+  ensureEnv('APPHUB_BUNDLE_STORAGE_BACKEND', 's3');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_BUCKET', 'apphub-example-bundles');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_REGION', 'us-east-1');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE', 'true');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID', 'apphub');
+  ensureEnv('APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY', 'apphub123');
+
+  ensureEnv('APPHUB_JOB_BUNDLE_STORAGE_BACKEND', 's3');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_BUCKET', 'apphub-example-bundles');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_REGION', 'us-east-1');
+  ensureEnv('APPHUB_JOB_BUNDLE_S3_FORCE_PATH_STYLE', 'true');
+
+  // Timestore partitions and exports rely on the shared MinIO instance as well.
+  ensureEnv('TIMESTORE_STORAGE_DRIVER', 's3');
+  ensureEnv('TIMESTORE_S3_BUCKET', 'apphub-timestore');
+  ensureEnv('TIMESTORE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('TIMESTORE_S3_REGION', 'us-east-1');
+  ensureEnv('TIMESTORE_S3_FORCE_PATH_STYLE', 'true');
+  ensureEnv('TIMESTORE_S3_ACCESS_KEY_ID', baseEnv.TIMESTORE_S3_ACCESS_KEY_ID ?? baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub');
+  ensureEnv('TIMESTORE_S3_SECRET_ACCESS_KEY', baseEnv.TIMESTORE_S3_SECRET_ACCESS_KEY ?? baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123');
+
+  // Provide defaults for observatory tooling that now provisions an S3-backed mount.
+  ensureEnv('OBSERVATORY_FILESTORE_BASE_URL', baseEnv.APPHUB_FILESTORE_BASE_URL);
+  ensureEnv('OBSERVATORY_FILESTORE_TOKEN', baseEnv.FILESTORE_TOKEN ?? '');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_BUCKET', 'apphub-filestore');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_ENDPOINT', 'http://127.0.0.1:9000');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_REGION', 'us-east-1');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE', 'true');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_ACCESS_KEY_ID', baseEnv.APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID ?? 'apphub');
+  ensureEnv('OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY', baseEnv.APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY ?? 'apphub123');
+
   const normalizeEnvValue = (value) => (typeof value === 'string' ? value.trim() : '');
   const tooling = preflightResult?.tooling ?? {};
   const preferKubernetes = normalizeEnvValue(baseEnv.APPHUB_DEV_FORCE_KUBERNETES) === '1';

@@ -71,22 +71,22 @@ flowchart TD
 
 ## Using the Watcher for the Environmental Observatory Example
 
-Use the observatory watcher to trigger the `observatory-minute-ingest` workflow automatically whenever instruments drop new minute CSVs into the inbox. From the repository root:
+Use the filestore ingest watcher to trigger the `observatory-minute-ingest` workflow automatically whenever instruments drop new minute CSVs into the inbox. From the repository root:
 
 ```bash
-cd examples/environmental-observatory/services/observatory-file-watcher
+npm run dev:minio
+
+cd services/filestore-ingest-watcher
 npm install
 
-FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
-FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
-FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
-TIMESTORE_BASE_URL=http://127.0.0.1:4200 \
-TIMESTORE_DATASET_SLUG=observatory-timeseries \
-OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
-CATALOG_API_TOKEN=dev-ops-token \
+WATCH_ROOT=$(pwd)/../examples/environmental-observatory/data/inbox \
+WATCH_ARCHIVE_DIR=$(pwd)/../examples/environmental-observatory/data/archive \
+FILESTORE_BASE_URL=http://127.0.0.1:4300 \
+FILESTORE_BACKEND_ID=1 \
+FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
 npm run dev
 ```
 
-The watcher batches files by minute, triggers the ingest workflow with the correct parameters, and marks runs as completed after launch so the dashboard stays tidy. Processed inbox files land in `archive/<instrument>/<hour>/<minute>.csv`, keeping replays idempotent. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → Timestore → visualization → report pipeline operate end-to-end.
+The watcher uploads new files to MinIO through Filestore, then launches the ingest workflow with the appropriate parameters. Combine this with the steps in `docs/environmental-observatory-workflows.md` to see the ingest → Timestore → visualization → report pipeline operate end-to-end.
 
 > Tip: the repository ships a ready-made service manifest at `examples/environmental-observatory/service-manifests/service-manifest.json`. Import it via the catalog UI to register the watcher with these settings—the importer now prompts for the inbox/staging/archive/Timestore settings (base URL + dataset) and reports directory (prefilled with defaults) and an operator API token so you don't have to edit JSON by hand. The same manifest also registers the observatory dashboard so you can watch `status.html` refresh automatically.

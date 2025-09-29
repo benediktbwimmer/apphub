@@ -11,6 +11,19 @@ export type FilestoreBackendMountState = z.infer<typeof filestoreBackendMountSta
 
 const labeledStringSchema = z.string().trim().min(1).max(64);
 
+const filestoreBackendMountConfigSchema = z
+  .object({
+    endpoint: z.string().trim().min(1).max(2048).optional(),
+    region: z.string().trim().min(1).max(256).optional(),
+    forcePathStyle: z.boolean().optional(),
+    accessKeyId: z.string().trim().min(1).max(256).optional(),
+    secretAccessKey: z.string().trim().min(1).max(256).optional(),
+    sessionToken: z.string().trim().min(1).max(2048).optional()
+  })
+  .passthrough();
+
+export type FilestoreBackendMountConfig = z.infer<typeof filestoreBackendMountConfigSchema>;
+
 export const filestoreBackendMountSchema = z.object({
   id: z.number().int().positive(),
   mountKey: z.string().trim().min(1).max(128),
@@ -25,6 +38,7 @@ export const filestoreBackendMountSchema = z.object({
   rootPath: z.string().trim().min(1).max(2048).nullable(),
   bucket: z.string().trim().min(1).max(256).nullable(),
   prefix: z.string().trim().max(512).nullable(),
+  config: filestoreBackendMountConfigSchema.optional(),
   lastHealthCheckAt: z.string().nullable(),
   lastHealthStatus: z.string().trim().min(1).max(128).nullable(),
   createdAt: z.string(),
@@ -42,7 +56,8 @@ const mutationBaseSchema = z.object({
   accessMode: filestoreBackendAccessModeSchema.optional(),
   rootPath: z.string().trim().min(1).max(2048).nullable().optional(),
   bucket: z.string().trim().min(1).max(256).nullable().optional(),
-  prefix: z.string().trim().max(512).nullable().optional()
+  prefix: z.string().trim().max(512).nullable().optional(),
+  config: filestoreBackendMountConfigSchema.optional()
 });
 
 export const filestoreBackendMountCreateSchema = mutationBaseSchema

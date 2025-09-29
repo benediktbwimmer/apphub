@@ -11,8 +11,8 @@ The environmental observatory scenario models a network of field instruments tha
 ```mermaid
 graph TD
   Instruments[[Field instruments]] -->|Minute CSV drops| Inbox[[Inbox directory]]
-  Inbox --> Watcher{{Observatory file watcher}}
-  Watcher -->|Triggers workflow| Normalizer[observatory-inbox-normalizer]
+  Inbox --> Watcher{{Filestore ingest watcher}}
+  Watcher -->|Uploads + triggers workflow| Normalizer[observatory-inbox-normalizer]
   Normalizer --> Staging[(staging/<minute>/)]
   Normalizer --> Archive[(archive/<instrument>/<hour>/<minute>.csv)]
   Normalizer --> RawAsset[(Asset: observatory.timeseries.raw)]
@@ -120,23 +120,21 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-report-
 2. Publish bundles and register the job definitions exported from the example module.
 3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
-4. Launch the observatory watcher so new inbox files trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
+4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
    ```bash
-   cd examples/environmental-observatory/services/observatory-file-watcher
+   npm run dev:minio
+
+   cd services/filestore-ingest-watcher
    npm install
 
-   FILE_WATCH_ROOT=$(pwd)/../../data/inbox \
-   FILE_WATCH_STAGING_DIR=$(pwd)/../../data/staging \
-   FILE_ARCHIVE_DIR=$(pwd)/../../data/archive \
-   TIMESTORE_BASE_URL=http://127.0.0.1:4200 \
-   TIMESTORE_DATASET_SLUG=observatory-timeseries \
-   TIMESTORE_DATASET_NAME="Observatory Time Series" \
-   TIMESTORE_TABLE_NAME=observations \
-   OBSERVATORY_WORKFLOW_SLUG=observatory-minute-ingest \
-   CATALOG_API_TOKEN=dev-ops-token \
+   WATCH_ROOT=$(pwd)/../examples/environmental-observatory/data/inbox \
+   WATCH_ARCHIVE_DIR=$(pwd)/../examples/environmental-observatory/data/archive \
+   FILESTORE_BASE_URL=http://127.0.0.1:4300 \
+   FILESTORE_BACKEND_ID=1 \
+   FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
    npm run dev
    ```
-   Override `CATALOG_API_BASE_URL` if the catalog API is not running on `127.0.0.1:4000`.
+   The watcher streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
 5. Launch the dashboard alongside the watcher so the latest `status.html` is always visible:
    ```bash
    cd examples/environmental-observatory/services/observatory-dashboard

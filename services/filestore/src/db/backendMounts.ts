@@ -86,6 +86,7 @@ export type UpdateBackendMountInput = {
   contact?: string | null;
   labels?: string[];
   stateReason?: string | null;
+  config?: Record<string, unknown> | null;
 };
 
 function sanitizeLabels(labels: string[] | undefined): string[] {
@@ -367,6 +368,9 @@ export async function updateBackendMount(
   }
   if (input.labels !== undefined) {
     pushAssignment('labels', sanitizeLabels(input.labels));
+  }
+  if (input.config !== undefined) {
+    pushAssignment('config', JSON.stringify(input.config ?? {}));
   }
 
   if (assignments.length === 0) {

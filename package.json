@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "node scripts/dev-runner.js",
+    "dev:minio": "node scripts/dev-minio.mjs",
     "test": "npm run test:workspaces",
     "test:workspaces": "npm run test --workspaces --if-present",
     "lint": "npm run check:artifacts && npm run lint --workspaces --if-present",

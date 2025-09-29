@@ -355,7 +355,7 @@ async function launchWorkflow(record: DropRecord, attempt: number) {
     body = {
       partitionKey: minute,
       parameters,
-      triggeredBy: 'observatory-file-watcher',
+      triggeredBy: 'filestore-ingest-watcher',
       trigger: {
         type: 'file-drop',
         options: {

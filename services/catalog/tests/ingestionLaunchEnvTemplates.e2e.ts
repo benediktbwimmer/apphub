@@ -72,7 +72,7 @@ runE2E(async ({ registerCleanup }) => {
 
   await ensureDatabase();
 
-  const repositoryId = 'observatory-file-watcher';
+  const repositoryId = 'filestore-ingest-watcher';
   const launchEnvTemplates = [
     { key: 'PORT', value: '4310' },
     { key: 'FILE_WATCH_ROOT', value: 'examples/environmental-observatory/data/inbox' },
@@ -89,7 +89,7 @@ runE2E(async ({ registerCleanup }) => {
     name: 'Observatory File Watcher',
     description: 'Test repository for launch env persistence',
     repoUrl: 'https://example.com/observatory.git',
-    dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+    dockerfilePath: 'services/filestore-ingest-watcher/Dockerfile',
     ingestStatus: 'ready',
     tags: [],
     launchEnvTemplates
@@ -106,7 +106,7 @@ runE2E(async ({ registerCleanup }) => {
     name: 'Observatory File Watcher',
     description: 'Test repository for launch env persistence',
     repoUrl: 'https://example.com/observatory.git',
-    dockerfilePath: 'examples/environmental-observatory/services/observatory-file-watcher/Dockerfile',
+    dockerfilePath: 'services/filestore-ingest-watcher/Dockerfile',
     ingestStatus: 'ready',
     updatedAt: now,
     lastIngestedAt: now,

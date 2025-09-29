@@ -1,6 +1,5 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Pool } from 'pg';
 import { resolveContainerPath as resolveSharedContainerPath } from './containerPaths';
 import { createEventDrivenObservatoryConfig } from './observatoryEventDrivenConfig';
 import type { JsonObject, JsonValue, WorkflowDefinitionTemplate } from './types';
@@ -10,7 +9,7 @@ export type EventDrivenObservatoryConfig = ReturnType<typeof createEventDrivenOb
 const OBSERVATORY_MODULE_ID = 'github.com/apphub/examples/environmental-observatory-event-driven';
 const OBSERVATORY_BACKEND_MOUNT_KEY = process.env.OBSERVATORY_FILESTORE_MOUNT_KEY
   ? process.env.OBSERVATORY_FILESTORE_MOUNT_KEY.trim()
-  : 'observatory-event-driven-local';
+  : 'observatory-event-driven-s3';
 const OBSERVATORY_WORKFLOW_SLUGS = new Set([
   'observatory-minute-data-generator',
   'observatory-minute-ingest',
@@ -129,62 +128,6 @@ export function applyObservatoryWorkflowDefaults(
   }
 }
 
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-function resolveBackendRoot(config: EventDrivenObservatoryConfig): string {
-  const directories = [config.paths.inbox, config.paths.staging, config.paths.archive]
-    .filter(Boolean)
-    .map((entry) => resolveContainerPath(entry));
-
-  if (directories.length === 0) {
-    throw new Error('Observatory configuration is missing directories for filestore backend root resolution');
-  }
-
-  const inboxPrefixSegments = config.filestore.inboxPrefix
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  if (inboxPrefixSegments.length > 0) {
-    let derived: string | null = directories[0];
-    for (let index = 0; index < inboxPrefixSegments.length; index += 1) {
-      if (!derived) {
-        break;
-      }
-      const parent = path.dirname(derived);
-      if (parent === derived) {
-        derived = null;
-        break;
-      }
-      derived = parent;
-    }
-    if (derived) {
-      const normalized = resolveContainerPath(derived);
-      const allWithinDerived = directories.every((dir) => isWithinDirectory(normalized, dir));
-      if (allWithinDerived) {
-        return normalized;
-      }
-    }
-  }
-
-  let candidate = directories[0];
-  while (candidate) {
-    const normalized = resolveContainerPath(candidate);
-    if (directories.every((dir) => isWithinDirectory(normalized, dir))) {
-      return normalized;
-    }
-    const parent = path.dirname(normalized);
-    if (parent === normalized) {
-      return normalized;
-    }
-    candidate = parent;
-  }
-
-  return directories[0];
-}
-
 async function ensurePaths(config: EventDrivenObservatoryConfig): Promise<void> {
   const uniquePaths = new Set<string>([
     config.paths.inbox,
@@ -209,6 +152,101 @@ export type EnsureObservatoryBackendOptions = {
   logger?: ObservatoryBootstrapLogger;
 };
 
+type BackendMountRecordPayload = {
+  id: number;
+  mountKey: string;
+  backendKind: string;
+  bucket: string | null;
+  prefix?: string | null;
+  config?: Record<string, unknown> | null;
+};
+
+type BackendMountListEnvelope = {
+  data: {
+    mounts: BackendMountRecordPayload[];
+    pagination: {
+      nextOffset: number | null;
+    };
+  };
+};
+
+type BackendMountEnvelope = {
+  data: BackendMountRecordPayload;
+};
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry === undefined || entry === null) {
+      continue;
+    }
+    if (typeof entry === 'string' && entry.trim().length === 0) {
+      continue;
+    }
+    result[key] = entry;
+  }
+  return result;
+}
+
+async function requestFilestore(
+  method: 'GET' | 'POST' | 'PATCH',
+  baseUrl: string,
+  pathSegment: string,
+  headers: Headers,
+  body?: Record<string, unknown>
+): Promise<unknown> {
+  const requestHeaders = new Headers(headers);
+  const hasBody = body !== undefined && Object.keys(body ?? {}).length > 0;
+  if (hasBody) {
+    requestHeaders.set('content-type', 'application/json');
+  }
+  const url = new URL(pathSegment, baseUrl);
+  const response = await fetch(url, {
+    method,
+    headers: requestHeaders,
+    body: hasBody ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Filestore request ${method} ${url.toString()} failed: ${response.status} ${errorText}`);
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+async function findMountByKey(
+  baseUrl: string,
+  headers: Headers,
+  mountKey: string
+): Promise<BackendMountRecordPayload | null> {
+  let offset = 0;
+  const limit = 100;
+  for (;;) {
+    const response = (await requestFilestore(
+      'GET',
+      baseUrl,
+      `/v1/backend-mounts?limit=${limit}&offset=${offset}`,
+      headers
+    )) as BackendMountListEnvelope;
+    const envelope = response;
+    const match = envelope.data.mounts.find((mount) => mount.mountKey === mountKey);
+    if (match) {
+      return match;
+    }
+    const nextOffset = envelope.data.pagination.nextOffset;
+    if (nextOffset === null || nextOffset === undefined) {
+      break;
+    }
+    offset = nextOffset;
+  }
+  return null;
+}
+
 export async function ensureObservatoryBackend(
   config: EventDrivenObservatoryConfig,
   options?: EnsureObservatoryBackendOptions
@@ -219,56 +257,59 @@ export async function ensureObservatoryBackend(
   }
 
   await ensurePaths(config);
+  const baseUrl = config.filestore.baseUrl;
+  const desiredBucket = config.filestore.bucket ?? 'apphub-filestore';
+  const desiredConfig = stripUndefined({
+    endpoint: config.filestore.endpoint ?? 'http://127.0.0.1:9000',
+    region: config.filestore.region ?? 'us-east-1',
+    forcePathStyle: config.filestore.forcePathStyle !== false,
+    accessKeyId: config.filestore.accessKeyId ?? 'apphub',
+    secretAccessKey: config.filestore.secretAccessKey ?? 'apphub123',
+    sessionToken: config.filestore.sessionToken ?? undefined
+  });
 
-  const connectionString =
-    process.env.FILESTORE_DATABASE_URL ??
-    process.env.DATABASE_URL ??
-    'postgres://apphub:apphub@127.0.0.1:5432/apphub';
-  const schema = (process.env.FILESTORE_PG_SCHEMA ?? 'filestore').trim();
-
-  const pool = new Pool({ connectionString, max: 1 });
-  try {
-    const backendRoot = resolveBackendRoot(config);
-    await mkdir(backendRoot, { recursive: true });
-
-    const quotedSchema = quoteIdentifier(schema);
-    const result = await pool.query<{ id: number }>(
-      `INSERT INTO ${quotedSchema}.backend_mounts (mount_key, backend_kind, root_path, access_mode, state, config)
-       VALUES ($1, 'local', $2, 'rw', 'active', $3::jsonb)
-       ON CONFLICT (mount_key)
-       DO UPDATE SET
-         root_path = EXCLUDED.root_path,
-         access_mode = 'rw',
-         state = 'active',
-         config = ${quotedSchema}.backend_mounts.config || EXCLUDED.config,
-         updated_at = NOW()
-       RETURNING id`,
-      [
-        OBSERVATORY_BACKEND_MOUNT_KEY,
-        backendRoot,
-        JSON.stringify({ provisionedBy: 'observatory-import' })
-      ]
-    );
-
-    options?.logger?.debug?.({ rows: result.rows }, 'Ensured observatory filestore backend');
-
-    const rawBackendId = result.rows[0]?.id;
-    const backendId =
-      typeof rawBackendId === 'string'
-        ? Number.parseInt(rawBackendId, 10)
-        : typeof rawBackendId === 'number'
-          ? rawBackendId
-          : null;
-    if (typeof backendId !== 'number' || !Number.isFinite(backendId)) {
-      throw new Error('Failed to resolve filestore backend id after insert');
-    }
-    return backendId;
-  } catch (err) {
-    options?.logger?.error?.({ err: err instanceof Error ? err.message : err }, 'Failed to ensure observatory filestore backend');
-    throw err;
-  } finally {
-    await pool.end().catch(() => undefined);
+  const headers = new Headers({
+    'content-type': 'application/json',
+    'x-iam-scopes': 'filestore:admin'
+  });
+  const token = config.filestore.token?.trim();
+  if (token) {
+    headers.set('authorization', `Bearer ${token}`);
   }
+
+  const existing = await findMountByKey(baseUrl, headers, OBSERVATORY_BACKEND_MOUNT_KEY);
+  if (existing) {
+    if (existing.backendKind !== 's3') {
+      throw new Error(
+        `Expected observatory filestore backend ${existing.id} to use s3, found ${existing.backendKind}`
+      );
+    }
+
+    await requestFilestore('PATCH', baseUrl, `/v1/backend-mounts/${existing.id}`, headers, stripUndefined({
+      bucket: desiredBucket,
+      prefix: null,
+      accessMode: 'rw',
+      state: 'active',
+      config: desiredConfig
+    }));
+
+    options?.logger?.debug?.({ backendId: existing.id }, 'Reused existing observatory filestore backend');
+    return existing.id;
+  }
+
+  const created = (await requestFilestore('POST', baseUrl, '/v1/backend-mounts', headers, {
+    mountKey: OBSERVATORY_BACKEND_MOUNT_KEY,
+    backendKind: 's3',
+    bucket: desiredBucket,
+    prefix: null,
+    accessMode: 'rw',
+    state: 'active',
+    config: desiredConfig,
+    displayName: 'Observatory (event-driven)'
+  })) as BackendMountEnvelope;
+  const backendId = created.data.id;
+  options?.logger?.debug?.({ backendId }, 'Created observatory filestore backend');
+  return backendId;
 }
 
 export async function loadObservatoryConfig(): Promise<EventDrivenObservatoryConfig> {

@@ -18,6 +18,12 @@ Set the following environment variables for the catalog service:
 | `APPHUB_BUNDLE_STORAGE_SIGNING_SECRET` | Overrides the token secret for local download URLs. | _(unset – generated)_ |
 | `APPHUB_BUNDLE_STORAGE_DOWNLOAD_TTL_MS` | TTL (ms) for signed download URLs. | `300000` |
 
+For local development the repository ships a helper script that starts a single-node MinIO instance with the expected buckets and credentials:
+
+```bash
+npm run dev:minio
+```
+
 When `APPHUB_BUNDLE_STORAGE_BACKEND=local`, artifacts are written to `services/catalog/data/example-bundles/artifacts`. This mode is convenient for quick smoke tests but does not satisfy multi-pod deployments.
 
 ## MinIO on Minikube

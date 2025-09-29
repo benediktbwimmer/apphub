@@ -346,7 +346,22 @@ function normalizeBackendMountState(value: string): BackendMountState {
   return parsed.success ? parsed.data : 'unknown';
 }
 
+function sanitizeBackendConfig(config: Record<string, unknown> | null | undefined) {
+  if (!config) {
+    return undefined;
+  }
+  const sanitized: Record<string, unknown> = { ...config };
+  if ('secretAccessKey' in sanitized) {
+    delete sanitized.secretAccessKey;
+  }
+  if ('sessionToken' in sanitized) {
+    delete sanitized.sessionToken;
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
 function serializeBackendMount(record: BackendMountRecord) {
+  const config = sanitizeBackendConfig(record.config);
   return {
     id: record.id,
     mountKey: record.mountKey,
@@ -361,6 +376,7 @@ function serializeBackendMount(record: BackendMountRecord) {
     rootPath: record.rootPath,
     bucket: record.bucket,
     prefix: record.prefix,
+    config,
     lastHealthCheckAt: record.lastHealthCheckAt ? record.lastHealthCheckAt.toISOString() : null,
     lastHealthStatus: normalizeOptionalString(record.lastHealthStatus),
     createdAt: record.createdAt.toISOString(),
@@ -929,7 +945,8 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           description: body.description ?? null,
           contact: body.contact ?? null,
           labels: body.labels ?? [],
-          stateReason: body.stateReason ?? null
+          stateReason: body.stateReason ?? null,
+          config: body.config ?? {}
         })
       );
 
@@ -980,7 +997,8 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           description: body.description,
           contact: body.contact,
           labels: body.labels,
-          stateReason: body.stateReason
+          stateReason: body.stateReason,
+          config: body.config
         });
 
         return updated;

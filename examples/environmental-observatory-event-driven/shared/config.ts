@@ -16,6 +16,13 @@ export type ObservatoryFilestoreConfig = {
   inboxPrefix: string;
   stagingPrefix: string;
   archivePrefix: string;
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
+  forcePathStyle?: boolean;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
 };
 
 export type ObservatoryTimestoreConfig = {
