@@ -10,7 +10,9 @@ import {
   listWorkflowDefinitions,
   listLatestWorkflowAssetSnapshots,
   createWorkflowRun,
-  getWorkflowAssetPartitionParameters
+  getWorkflowAssetPartitionParameters,
+  getActiveWorkflowRunByKey,
+  isRunKeyConflict
 } from './db/workflows';
 import {
   claimWorkflowAutoRun,
@@ -52,6 +54,7 @@ import {
   canonicalAssetId as canonicalizeAssetId,
   normalizeAssetId as normalizeAssetIdentifier
 } from './assets/identifiers';
+import { buildRunKeyFromParts, computeRunKeyColumns } from './workflows/runKey';
 
 const BASE_FAILURE_BACKOFF_MS = Math.max(
   30_000,
@@ -856,13 +859,45 @@ export class AssetMaterializer {
 
     const trigger = this.buildTriggerPayload(payload);
 
+    const runKeyParts: Array<string | null> = [
+      'asset',
+      payload.assetId ?? config.slug,
+      partitionKey
+    ];
+    runKeyParts.push(payload.reason);
+    if (payload.reason === 'upstream-update') {
+      runKeyParts.push(payload.upstreamRunId);
+    } else if (payload.reason === 'expiry') {
+      runKeyParts.push(payload.expiryReason);
+    }
+    const runKeyCandidate = buildRunKeyFromParts(...runKeyParts);
+    let runKeyColumns: { runKey: string | null; runKeyNormalized: string | null } = {
+      runKey: null,
+      runKeyNormalized: null
+    };
+    if (runKeyCandidate) {
+      try {
+        runKeyColumns = computeRunKeyColumns(runKeyCandidate);
+      } catch (err) {
+        logger.warn('Auto-materialize run skipped due to invalid run key', {
+          workflowId,
+          workflowSlug: config.slug,
+          runKey: runKeyCandidate,
+          error: (err as Error).message ?? 'unknown'
+        });
+        await releaseWorkflowAutoRun(workflowId, { ownerId: this.instanceId });
+        return;
+      }
+    }
+
     let run: WorkflowRunRecord | null = null;
     try {
       run = await createWorkflowRun(workflowId, {
         triggeredBy: 'asset-materializer',
         parameters,
         trigger,
-        partitionKey
+        partitionKey,
+        runKey: runKeyColumns.runKey
       });
 
       const attached = await attachWorkflowRunToClaim(workflowId, this.instanceId, run.id);
@@ -876,7 +911,7 @@ export class AssetMaterializer {
         return;
       }
 
-      await enqueueWorkflowRun(run.id);
+      await enqueueWorkflowRun(run.id, { runKey: run.runKey ?? runKeyColumns.runKey ?? null });
       logger.info('Auto-materialize run enqueued', {
         workflowId,
         workflowSlug: config.slug,
@@ -885,6 +920,20 @@ export class AssetMaterializer {
         assetId: payload.assetId
       });
     } catch (err) {
+      if (!run && runKeyColumns.runKeyNormalized && isRunKeyConflict(err)) {
+        const existing = await getActiveWorkflowRunByKey(workflowId, runKeyColumns.runKeyNormalized);
+        await releaseWorkflowAutoRun(workflowId, { ownerId: this.instanceId });
+        if (existing) {
+          logger.info('Auto-materialize run already active for run key', {
+            workflowId,
+            workflowSlug: config.slug,
+            runKey: runKeyColumns.runKey,
+            existingRunId: existing.id
+          });
+          return;
+        }
+        throw err;
+      }
       if (run) {
         await releaseWorkflowAutoRun(workflowId, { workflowRunId: run.id });
       } else {

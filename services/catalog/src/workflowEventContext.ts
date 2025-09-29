@@ -6,6 +6,7 @@ export type WorkflowEventContext = {
   workflowRunStepId: string;
   jobRunId: string;
   jobSlug: string;
+  workflowRunKey?: string | null;
 };
 
 export const WORKFLOW_EVENT_CONTEXT_ENV = 'APPHUB_WORKFLOW_EVENT_CONTEXT';
@@ -49,7 +50,8 @@ export function parseWorkflowEventContext(
       workflowRunId,
       workflowRunStepId,
       jobRunId,
-      jobSlug
+      jobSlug,
+      workflowRunKey
     } = value as WorkflowEventContext;
     if (
       typeof workflowDefinitionId !== 'string' ||
@@ -60,12 +62,16 @@ export function parseWorkflowEventContext(
     ) {
       return null;
     }
+    if (workflowRunKey !== undefined && workflowRunKey !== null && typeof workflowRunKey !== 'string') {
+      return null;
+    }
     return {
       workflowDefinitionId,
       workflowRunId,
       workflowRunStepId,
       jobRunId,
-      jobSlug
+      jobSlug,
+      workflowRunKey: workflowRunKey ?? null
     } satisfies WorkflowEventContext;
   } catch {
     return null;

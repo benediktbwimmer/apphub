@@ -20,6 +20,7 @@ type WorkflowMetadataContext = {
   workflowRunStepId: string;
   jobRunId: string;
   jobSlug: string;
+  workflowRunKey: string | null;
 };
 
 type WorkflowMetadataParseResult =
@@ -71,6 +72,14 @@ function parseWorkflowMetadata(envelope: EventEnvelope): WorkflowMetadataParseRe
   const workflowRunStepId = normalizeIdentifier(context.workflowRunStepId);
   const jobRunId = normalizeIdentifier(context.jobRunId);
   const jobSlug = normalizeIdentifier(context.jobSlug);
+  const workflowRunKeyRaw = context.workflowRunKey;
+  let workflowRunKey: string | null = null;
+  if (workflowRunKeyRaw !== undefined && workflowRunKeyRaw !== null) {
+    const keyCandidate = normalizeIdentifier(workflowRunKeyRaw);
+    if (keyCandidate) {
+      workflowRunKey = keyCandidate;
+    }
+  }
 
   if (!workflowDefinitionId || !workflowRunId || !workflowRunStepId || !jobRunId || !jobSlug) {
     return {
@@ -93,7 +102,8 @@ function parseWorkflowMetadata(envelope: EventEnvelope): WorkflowMetadataParseRe
       workflowRunId,
       workflowRunStepId,
       jobRunId,
-      jobSlug
+      jobSlug,
+      workflowRunKey
     }
   };
 }

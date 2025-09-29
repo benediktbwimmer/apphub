@@ -5,6 +5,7 @@ import {
   createWorkflowRun,
   getWorkflowDefinitionBySlug,
   getWorkflowRunById,
+  getActiveWorkflowRunByKey,
   getWorkflowRunMetricsBySlug,
   getWorkflowRunStatsBySlug,
   listWorkflowDefinitions,
@@ -71,6 +72,8 @@ import {
   enumeratePartitionKeys,
   validatePartitionKey
 } from '../workflows/partitioning';
+import { computeRunKeyColumns, RUN_KEY_MAX_LENGTH } from '../workflows/runKey';
+import { isRunKeyConflict } from '../db/workflows';
 import { parseBundleEntryPoint } from '../jobs/bundleBinding';
 import {
   enqueueWorkflowRun
@@ -816,7 +819,8 @@ const workflowRunRequestSchema = z
     parameters: jsonValueSchema.optional(),
     triggeredBy: z.string().min(1).max(200).optional(),
     trigger: workflowTriggerSchema.optional(),
-    partitionKey: z.string().min(1).max(200).optional()
+    partitionKey: z.string().min(1).max(200).optional(),
+    runKey: z.string().min(1).max(RUN_KEY_MAX_LENGTH).optional()
   })
   .strict();
 
@@ -2514,15 +2518,56 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       partitionKey = rawPartitionKey.trim();
     }
 
-    const run = await createWorkflowRun(workflow.id, {
-      parameters,
-      triggeredBy,
-      trigger,
-      partitionKey
-    });
+    const requestedRunKey = parseBody.data.runKey ?? null;
+    let runKeyColumns: { runKey: string | null; runKeyNormalized: string | null } = {
+      runKey: null,
+      runKeyNormalized: null
+    };
+    if (requestedRunKey !== null && requestedRunKey !== undefined) {
+      try {
+        runKeyColumns = computeRunKeyColumns(requestedRunKey);
+      } catch (err) {
+        reply.status(400);
+        await authResult.auth.log('failed', {
+          reason: 'invalid_run_key',
+          workflowSlug: workflow.slug,
+          message: (err as Error).message
+        });
+        return { error: (err as Error).message };
+      }
+    }
+
+    let run = null;
+    try {
+      run = await createWorkflowRun(workflow.id, {
+        parameters,
+        triggeredBy,
+        trigger,
+        partitionKey,
+        runKey: runKeyColumns.runKey
+      });
+    } catch (err) {
+      if (runKeyColumns.runKeyNormalized && isRunKeyConflict(err)) {
+        const existing = await getActiveWorkflowRunByKey(workflow.id, runKeyColumns.runKeyNormalized);
+        if (existing) {
+          reply.status(409);
+          await authResult.auth.log('failed', {
+            reason: 'run_key_conflict',
+            workflowSlug: workflow.slug,
+            runKey: runKeyColumns.runKey,
+            existingRunId: existing.id
+          });
+          return {
+            error: 'workflow run with the provided runKey is already pending or running',
+            data: serializeWorkflowRun(existing)
+          };
+        }
+      }
+      throw err;
+    }
 
     try {
-      await enqueueWorkflowRun(run.id);
+      await enqueueWorkflowRun(run.id, { runKey: run.runKey ?? runKeyColumns.runKey ?? null });
     } catch (err) {
       request.log.error({ err, workflow: workflow.slug }, 'Failed to enqueue workflow run');
       const message = (err as Error).message ?? 'Failed to enqueue workflow run';
@@ -2548,7 +2593,8 @@ export async function registerWorkflowRoutes(app: FastifyInstance): Promise<void
       workflowSlug: workflow.slug,
       runId: latestRun.id,
       status: latestRun.status,
-      partitionKey: latestRun.partitionKey ?? partitionKey ?? null
+      partitionKey: latestRun.partitionKey ?? partitionKey ?? null,
+      runKey: latestRun.runKey ?? runKeyColumns.runKey ?? null
     });
     return { data: serializeWorkflowRun(latestRun) };
   });

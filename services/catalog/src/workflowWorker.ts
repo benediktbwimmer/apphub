@@ -95,6 +95,8 @@ async function reconcileScheduledWorkflowRetries(batchSize = WORKFLOW_RETRY_RECO
 
   let reconciled = 0;
 
+  const runKeyCache = new Map<string, string | null>();
+
   for (const step of scheduledSteps) {
     if (step.retryState !== 'scheduled') {
       continue;
@@ -103,7 +105,15 @@ async function reconcileScheduledWorkflowRetries(batchSize = WORKFLOW_RETRY_RECO
     const runAt = step.nextAttemptAt ?? new Date().toISOString();
     const attempt = Math.max(step.retryAttempts ?? 1, 1);
     try {
-      await scheduleWorkflowRetryJob(step.workflowRunId, stepId, runAt, attempt);
+      let runKey: string | null | undefined = runKeyCache.get(step.workflowRunId);
+      if (runKey === undefined) {
+        const runRecord = await getWorkflowRunById(step.workflowRunId);
+        runKey = runRecord?.runKey ?? null;
+        runKeyCache.set(step.workflowRunId, runKey);
+      }
+      await scheduleWorkflowRetryJob(step.workflowRunId, stepId, runAt, attempt, {
+        runKey: runKey ?? null
+      });
       reconciled += 1;
     } catch (err) {
       logger.error('Failed to reconcile workflow retry scheduling', {
@@ -332,7 +342,7 @@ async function handleStaleStep(
   }
 
   try {
-    await enqueueWorkflowRun(run.id);
+    await enqueueWorkflowRun(run.id, { runKey: run.runKey ?? null });
     logger.warn('Requeued workflow run after heartbeat timeout', {
       workflowRunId: run.id,
       workflowRunStepId: updatedStep.id,
@@ -434,17 +444,22 @@ async function runQueueWorker() {
         log('Processing workflow retry', {
           jobId: job.id ?? 'unknown',
           workflowRunId: data.workflowRunId,
-          stepId: data.stepId ?? null
+          stepId: data.stepId ?? null,
+          runKey: data.runKey ?? null
         });
         await runWorkflowOrchestration(data.workflowRunId);
         return;
       }
 
-      const { workflowRunId } = job.data as { workflowRunId?: string };
+      const { workflowRunId, runKey } = job.data as { workflowRunId?: string; runKey?: string | null };
       if (!workflowRunId || typeof workflowRunId !== 'string') {
         throw new Error('workflowRunId is required');
       }
-      log('Processing workflow run', { jobId: job.id ?? 'unknown', workflowRunId });
+      log('Processing workflow run', {
+        jobId: job.id ?? 'unknown',
+        workflowRunId,
+        runKey: runKey ?? null
+      });
       await runWorkflowOrchestration(workflowRunId);
     },
     {

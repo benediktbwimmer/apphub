@@ -9,6 +9,7 @@ import {
 } from '@apphub/event-bus';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { getJobRunById } from './db/jobs';
+import { getWorkflowRunById } from './db/workflows';
 import { type JobRunRecord, type JsonValue } from './db/types';
 import type { ExampleDescriptorReference } from '@apphub/example-bundler';
 import type { ExampleBundleJobData, ExampleBundleJobResult } from './exampleBundleWorker';
@@ -43,6 +44,7 @@ export type EventTriggerJobData = {
 
 export type WorkflowRetryJobData = {
   workflowRunId: string;
+  runKey?: string | null;
   stepId?: string | null;
   retryKind: 'workflow';
 };
@@ -384,11 +386,18 @@ function computeWorkflowRetryDelayMs(runAtIso: string): number {
   return Math.max(parsed - Date.now(), 0);
 }
 
+function sanitizeRunKeyForJobId(value: string): string {
+  const lowered = value.toLowerCase();
+  const sanitized = lowered.replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
+  return sanitized.slice(0, 48) || 'run';
+}
+
 export async function scheduleWorkflowRetryJob(
   workflowRunId: string,
   stepId: string | null,
   runAtIso: string,
-  attempt: number
+  attempt: number,
+  options: { runKey?: string | null } = {}
 ): Promise<void> {
   if (queueManager.isInlineMode()) {
     console.warn('[workflow-retry] Inline mode active; skipping retry scheduling', {
@@ -401,13 +410,15 @@ export async function scheduleWorkflowRetryJob(
 
   const queue = queueManager.getQueue<WorkflowRetryJobData>(QUEUE_KEYS.workflow);
   const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
-  const jobId = ['workflow-retry', workflowRunId, `${safeStepId}-${attempt}`].join(':');
+  const runKeyToken = options.runKey ? sanitizeRunKeyForJobId(options.runKey) : workflowRunId;
+  const jobId = ['workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${attempt}`].join(':');
 
   try {
     await queue.add(
       WORKFLOW_RETRY_JOB_NAME,
       {
         workflowRunId,
+        runKey: options.runKey ?? null,
         stepId,
         retryKind: 'workflow'
       },
@@ -429,7 +440,8 @@ export async function scheduleWorkflowRetryJob(
 export async function removeWorkflowRetryJob(
   workflowRunId: string,
   stepId: string | null,
-  attempt: number
+  attempt: number,
+  options: { runKey?: string | null } = {}
 ): Promise<void> {
   if (queueManager.isInlineMode()) {
     return;
@@ -440,7 +452,8 @@ export async function removeWorkflowRetryJob(
   }
   const safeAttempt = Math.max(Math.floor(attempt) || 1, 1);
   const safeStepId = (stepId ?? 'run').replace(/:/g, '-');
-  const jobId = ['workflow-retry', workflowRunId, `${safeStepId}-${safeAttempt}`].join(':');
+  const runKeyToken = options.runKey ? sanitizeRunKeyForJobId(options.runKey) : workflowRunId;
+  const jobId = ['workflow-retry', runKeyToken, workflowRunId, `${safeStepId}-${safeAttempt}`].join(':');
   try {
     await queue.remove(jobId);
   } catch (err) {
@@ -641,7 +654,10 @@ export async function enqueueLaunchStop(launchId: string) {
   await queue.add('launch-stop', { launchId, type: 'stop' });
 }
 
-export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
+export async function enqueueWorkflowRun(
+  workflowRunId: string,
+  options: { runKey?: string | null } = {}
+): Promise<void> {
   const inlineMode = queueManager.isInlineMode();
   const trimmedId = workflowRunId.trim();
   if (!trimmedId) {
@@ -654,14 +670,36 @@ export async function enqueueWorkflowRun(workflowRunId: string): Promise<void> {
     return;
   }
 
+  let runKey = options.runKey ?? null;
+  if (runKey === undefined) {
+    runKey = null;
+  }
+  if (runKey === null) {
+    try {
+      const existing = await getWorkflowRunById(trimmedId);
+      runKey = existing?.runKey ?? null;
+    } catch (err) {
+      console.error('[enqueueWorkflowRun] failed to resolve workflow run key', {
+        workflowRunId: trimmedId,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  const runKeyToken = runKey ? sanitizeRunKeyForJobId(runKey) : trimmedId;
+
   const queue = queueManager.getQueue(QUEUE_KEYS.workflow);
   const baseOptions = queue.opts.defaultJobOptions ?? {};
-  const jobId = ['workflow-run', trimmedId, 'run'].join(':');
-  console.log('[enqueueWorkflowRun] scheduling run', { workflowRunId: trimmedId, jobId });
+  const jobId = ['workflow-run', runKeyToken, trimmedId, 'run'].join(':');
+  console.log('[enqueueWorkflowRun] scheduling run', {
+    workflowRunId: trimmedId,
+    jobId,
+    runKey: runKey ?? null
+  });
   try {
     await queue.add(
       'workflow-run',
-      { workflowRunId: trimmedId },
+      { workflowRunId: trimmedId, runKey: runKey ?? null },
       {
         ...baseOptions,
         jobId

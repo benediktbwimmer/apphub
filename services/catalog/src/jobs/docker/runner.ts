@@ -147,6 +147,7 @@ type DockerExecutionTelemetry = {
   gpuRequested: boolean;
   entryPoint: string | null;
   command: string[];
+  workflowRunKey: string | null;
 } & BufferedLogs;
 
 export type DockerExecutionResult = {
@@ -171,10 +172,15 @@ function buildContainerName(definition: JobDefinitionRecord, run: JobRunRecord):
   return `apphub-${slugSegment}-${runSegment}${suffix}`.slice(0, 63);
 }
 
-async function ensureWorkspace(runId: string, workspaceRoot: string): Promise<WorkspacePaths> {
+async function ensureWorkspace(
+  runId: string,
+  workspaceRoot: string,
+  runKey: string | null = null
+): Promise<WorkspacePaths> {
   const root = workspaceRoot;
   await mkdir(root, { recursive: true });
-  const sanitized = runId.replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 24) || 'job';
+  const tokenSource = runKey ?? runId;
+  const sanitized = sanitizeWorkspaceToken(tokenSource);
   const base = await mkdtemp(path.join(root, `run-${sanitized}-`));
   const workDir = path.join(base, 'workspace');
   await mkdir(workDir, { recursive: true });
@@ -185,6 +191,10 @@ async function ensureWorkspace(runId: string, workspaceRoot: string): Promise<Wo
   } catch {
     return { base, workDir, mountSource: workDir } satisfies WorkspacePaths;
   }
+}
+
+function sanitizeWorkspaceToken(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 24) || 'job';
 }
 
 async function cleanupWorkspace(paths: WorkspacePaths): Promise<void> {
@@ -601,7 +611,11 @@ export class DockerJobRunner {
     workflowEventContext: WorkflowEventContext | null;
   }): Promise<DockerExecutionResult> {
     const runtimeConfig = getDockerRuntimeConfig();
-    const workspace = await ensureWorkspace(options.run.id, runtimeConfig.workspaceRoot);
+    const workspace = await ensureWorkspace(
+      options.run.id,
+      runtimeConfig.workspaceRoot,
+      options.workflowEventContext?.workflowRunKey ?? null
+    );
     const resolvePath = (relative: string) => resolveWorkspacePath(workspace.workDir, relative);
     const requiresFilestore = Boolean(
       (options.metadata.inputs && options.metadata.inputs.length > 0) ||
@@ -741,6 +755,7 @@ export class DockerJobRunner {
         gpuRequested: commandPlan.gpuRequested,
         entryPoint: commandPlan.entryPoint,
         command: commandPlan.command,
+        workflowRunKey: options.workflowEventContext?.workflowRunKey ?? null,
         ...execution.logs,
       } satisfies DockerExecutionTelemetry;
 

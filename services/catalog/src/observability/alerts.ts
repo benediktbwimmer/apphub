@@ -70,6 +70,7 @@ export async function handleWorkflowFailureAlert(run: WorkflowRunRecord): Promis
   const payload = {
     workflowDefinitionId: run.workflowDefinitionId,
     workflowRunId: run.id,
+    workflowRunKey: run.runKey ?? null,
     failureCount,
     windowMinutes,
     triggeredBy: run.triggeredBy,

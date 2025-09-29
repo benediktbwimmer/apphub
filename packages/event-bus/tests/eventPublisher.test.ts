@@ -49,7 +49,8 @@ const baseContext: WorkflowEventContext = {
   workflowRunId: 'run-456',
   workflowRunStepId: 'step-789',
   jobRunId: 'job-101',
-  jobSlug: 'example-job'
+  jobSlug: 'example-job',
+  workflowRunKey: 'order-123'
 };
 
 function readWorkflowMetadata(envelope: EventEnvelope): WorkflowMetadata | undefined {
@@ -90,14 +91,16 @@ test('resolveWorkflowContext prefers AsyncLocalStorage context when available', 
   const contextWithWhitespace: WorkflowEventContext = {
     ...baseContext,
     workflowRunStepId: ` ${baseContext.workflowRunStepId} `,
-    jobSlug: `${baseContext.jobSlug} \n`
+    jobSlug: `${baseContext.jobSlug} \n`,
+    workflowRunKey: ` ${baseContext.workflowRunKey} `
   };
   const resolvedEnvelope = await runWithWorkflowEventContext(contextWithWhitespace, async () => {
     const resolved = resolveWorkflowContext();
     assert.deepEqual(resolved, {
       ...baseContext,
       workflowRunStepId: baseContext.workflowRunStepId,
-      jobSlug: baseContext.jobSlug
+      jobSlug: baseContext.jobSlug,
+      workflowRunKey: baseContext.workflowRunKey
     });
 
     return normalizeEventEnvelope({
@@ -110,7 +113,8 @@ test('resolveWorkflowContext prefers AsyncLocalStorage context when available', 
   assert.deepEqual(metadata, {
     ...baseContext,
     workflowRunStepId: baseContext.workflowRunStepId,
-    jobSlug: baseContext.jobSlug
+    jobSlug: baseContext.jobSlug,
+    workflowRunKey: baseContext.workflowRunKey
   });
 });
 
@@ -134,7 +138,8 @@ test('normalizeEventEnvelope falls back to environment workflow context', () => 
     workflowRunId: baseContext.workflowRunId,
     workflowRunStepId: baseContext.workflowRunStepId,
     jobRunId: baseContext.jobRunId,
-    jobSlug: 'env-job'
+    jobSlug: 'env-job',
+    workflowRunKey: baseContext.workflowRunKey
   });
 });
 

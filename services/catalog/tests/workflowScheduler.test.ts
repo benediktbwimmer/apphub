@@ -47,7 +47,7 @@ type SchedulerContextOptions = {
   definition?: Partial<WorkflowDefinitionRecord>;
   shouldReturnSchedule?: (input: { schedule: WorkflowScheduleRecord; now: Date; invocation: number }) => boolean;
   mocks?: {
-    enqueueWorkflowRun?: (runId: string) => Promise<void> | void;
+    enqueueWorkflowRun?: (runId: string, options?: { runKey?: string | null }) => Promise<void> | void;
   };
 };
 
@@ -153,10 +153,10 @@ function createSchedulerContext(options: SchedulerContextOptions = {}) {
     });
 
   const deps = {
-    enqueueWorkflowRun: mock.fn(async (runId: string) => {
+    enqueueWorkflowRun: mock.fn(async (runId: string, enqueueOptions?: { runKey?: string | null }) => {
       enqueuedRuns.push(runId);
       if (options.mocks?.enqueueWorkflowRun) {
-        await options.mocks.enqueueWorkflowRun(runId);
+        await options.mocks.enqueueWorkflowRun(runId, enqueueOptions);
       }
     }),
     listDueWorkflowSchedules: mock.fn(
@@ -185,10 +185,13 @@ function createSchedulerContext(options: SchedulerContextOptions = {}) {
     createWorkflowRun: mock.fn(
       async (workflowId: string, input: WorkflowRunCreateInput = {}): Promise<WorkflowRunRecord> => {
         const timestamp = new Date().toISOString();
+        const runKey = typeof input.runKey === 'string' && input.runKey.trim().length > 0 ? input.runKey.trim() : null;
         const run: WorkflowRunRecord = {
           id: `run-${runs.length + 1}`,
           workflowDefinitionId: workflowId,
           status: input.status ?? 'pending',
+          runKey,
+          runKeyNormalized: runKey ? runKey.toLowerCase() : null,
           parameters: input.parameters ?? {},
           context: input.context ?? {},
           output: null,
@@ -203,7 +206,12 @@ function createSchedulerContext(options: SchedulerContextOptions = {}) {
           completedAt: null,
           durationMs: null,
           createdAt: timestamp,
-          updatedAt: timestamp
+          updatedAt: timestamp,
+          retrySummary: {
+            pendingSteps: 0,
+            nextAttemptAt: null,
+            overdueSteps: 0
+          }
         } satisfies WorkflowRunRecord;
 
         const triggerPayload = (input.trigger as { schedule?: { occurrence?: string; window?: WorkflowScheduleWindow } }) ?? {};

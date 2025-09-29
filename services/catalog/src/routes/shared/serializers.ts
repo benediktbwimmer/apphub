@@ -359,6 +359,7 @@ export function serializeWorkflowRun(run: WorkflowRunRecord) {
     id: run.id,
     workflowDefinitionId: run.workflowDefinitionId,
     status: run.status,
+    runKey: run.runKey,
     parameters: run.parameters,
     context: run.context,
     output: run.output,

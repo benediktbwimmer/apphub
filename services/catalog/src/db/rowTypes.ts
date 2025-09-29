@@ -329,6 +329,8 @@ export type WorkflowRunRow = {
   id: string;
   workflow_definition_id: string;
   status: string;
+  run_key: string | null;
+  run_key_normalized: string | null;
   parameters: unknown;
   context: unknown;
   output: unknown;

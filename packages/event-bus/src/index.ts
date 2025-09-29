@@ -6,7 +6,7 @@ const WORKFLOW_METADATA_KEY = '__apphubWorkflow' as const;
 const WORKFLOW_EVENT_CONTEXT_ENV = 'APPHUB_WORKFLOW_EVENT_CONTEXT';
 const WORKFLOW_METADATA_MAX_BYTES = 2048;
 
-const WORKFLOW_METADATA_FIELDS = [
+const WORKFLOW_METADATA_REQUIRED_FIELDS = [
   'workflowDefinitionId',
   'workflowRunId',
   'workflowRunStepId',
@@ -14,9 +14,23 @@ const WORKFLOW_METADATA_FIELDS = [
   'jobSlug'
 ] as const;
 
+const WORKFLOW_METADATA_OPTIONAL_FIELDS = ['workflowRunKey'] as const;
+
+const WORKFLOW_METADATA_FIELDS = [
+  ...WORKFLOW_METADATA_REQUIRED_FIELDS,
+  ...WORKFLOW_METADATA_OPTIONAL_FIELDS
+] as const;
+
 type WorkflowMetadataField = (typeof WORKFLOW_METADATA_FIELDS)[number];
 
-export type WorkflowMetadata = Record<WorkflowMetadataField, string>;
+export type WorkflowMetadata = {
+  workflowDefinitionId: string;
+  workflowRunId: string;
+  workflowRunStepId: string;
+  jobRunId: string;
+  jobSlug: string;
+  workflowRunKey?: string;
+};
 
 type WorkflowRuntimeModule = {
   getWorkflowEventContext?: () => unknown;
@@ -81,7 +95,8 @@ const workflowMetadataSchema = z
     workflowRunId: z.string().min(1),
     workflowRunStepId: z.string().min(1),
     jobRunId: z.string().min(1),
-    jobSlug: z.string().min(1)
+    jobSlug: z.string().min(1),
+    workflowRunKey: z.string().min(1).optional()
   })
   .strict();
 
@@ -306,7 +321,7 @@ function sanitizeWorkflowContext(raw: unknown): WorkflowMetadata | null {
   const record = raw as Record<string, unknown>;
   const sanitized: Partial<WorkflowMetadata> = {};
 
-  for (const field of WORKFLOW_METADATA_FIELDS) {
+  for (const field of WORKFLOW_METADATA_REQUIRED_FIELDS) {
     const value = record[field];
     if (typeof value !== 'string') {
       return null;
@@ -316,6 +331,20 @@ function sanitizeWorkflowContext(raw: unknown): WorkflowMetadata | null {
       return null;
     }
     sanitized[field] = trimmed;
+  }
+
+  for (const field of WORKFLOW_METADATA_OPTIONAL_FIELDS) {
+    const value = record[field];
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (trimmed) {
+      sanitized[field] = trimmed;
+    }
   }
 
   return sanitized as WorkflowMetadata;

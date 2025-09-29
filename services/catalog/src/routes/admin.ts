@@ -38,6 +38,7 @@ import type { JsonValue } from '../db/types';
 import {
   getWorkflowTriggerDeliveryById,
   getWorkflowRunStepById,
+  getWorkflowRunById,
   updateWorkflowRunStep,
   updateWorkflowTriggerDelivery
 } from '../db/workflows';
@@ -921,7 +922,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           retryMetadata: metadata
         });
 
-        await removeWorkflowRetryJob(step.workflowRunId, step.stepId ?? null, step.retryAttempts ?? 1);
+        const runRecord = await getWorkflowRunById(step.workflowRunId);
+        await removeWorkflowRetryJob(step.workflowRunId, step.stepId ?? null, step.retryAttempts ?? 1, {
+          runKey: runRecord?.runKey ?? null
+        });
 
         await authResult.auth.log('succeeded', {
           action: 'retries.workflow_steps.cancel',
@@ -1007,12 +1011,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           retryMetadata: metadata
         });
 
-        await removeWorkflowRetryJob(step.workflowRunId, step.stepId ?? null, step.retryAttempts ?? 1);
+        const runRecord = await getWorkflowRunById(step.workflowRunId);
+        await removeWorkflowRetryJob(step.workflowRunId, step.stepId ?? null, step.retryAttempts ?? 1, {
+          runKey: runRecord?.runKey ?? null
+        });
         await scheduleWorkflowRetryJob(
           step.workflowRunId,
           step.stepId ?? null,
           scheduledAt,
-          Math.max(step.retryAttempts ?? 1, 1)
+          Math.max(step.retryAttempts ?? 1, 1),
+          { runKey: runRecord?.runKey ?? null }
         );
 
         await authResult.auth.log('succeeded', {

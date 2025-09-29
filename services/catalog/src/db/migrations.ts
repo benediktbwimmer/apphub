@@ -1229,6 +1229,19 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_saved_catalog_searches_category
          ON saved_catalog_searches(category);`
     ]
+  },
+  {
+    id: '041_workflow_run_keys',
+    statements: [
+      `ALTER TABLE workflow_runs
+         ADD COLUMN IF NOT EXISTS run_key TEXT;`,
+      `ALTER TABLE workflow_runs
+         ADD COLUMN IF NOT EXISTS run_key_normalized TEXT;`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_runs_active_run_key
+         ON workflow_runs (workflow_definition_id, run_key_normalized)
+         WHERE run_key_normalized IS NOT NULL
+           AND status IN ('pending', 'running');`
+    ]
   }
 ];
 

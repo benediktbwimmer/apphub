@@ -437,6 +437,7 @@ export type WorkflowRun = {
   id: string;
   workflowDefinitionId: string;
   status: string;
+  runKey: string | null;
   health: 'healthy' | 'degraded';
   currentStepId: string | null;
   currentStepIndex: number | null;

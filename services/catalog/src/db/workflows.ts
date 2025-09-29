@@ -60,6 +60,7 @@ import {
   mapWorkflowEventTriggerRow,
   mapWorkflowTriggerDeliveryRow
 } from './rowMappers';
+import { computeRunKeyColumns } from '../workflows/runKey';
 import type {
   WorkflowDefinitionRow,
   WorkflowScheduleRow,
@@ -81,6 +82,22 @@ import {
 } from '../workflows/eventTriggerValidation';
 import { assertNoTemplateIssues, validateTriggerTemplates } from '../workflows/liquidTemplateValidation';
 import { useConnection, useTransaction } from './utils';
+
+const RUN_KEY_UNIQUE_INDEX = 'idx_workflow_runs_active_run_key';
+
+export function isRunKeyConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const pgError = error as { code?: string; constraint?: string; message?: string };
+  if (pgError.code !== '23505') {
+    return false;
+  }
+  if (pgError.constraint === RUN_KEY_UNIQUE_INDEX) {
+    return true;
+  }
+  return (pgError.message ?? '').includes(RUN_KEY_UNIQUE_INDEX);
+}
 
 type AnalyticsTimeRange = {
   from: Date;
@@ -2733,6 +2750,7 @@ export async function createWorkflowRun(
     typeof input.partitionKey === 'string' && input.partitionKey.trim().length > 0
       ? input.partitionKey.trim()
       : null;
+  const { runKey, runKeyNormalized } = computeRunKeyColumns(input.runKey ?? null);
 
   let run: WorkflowRunRecord | null = null;
 
@@ -2751,6 +2769,8 @@ export async function createWorkflowRun(
          triggered_by,
          trigger,
          partition_key,
+         run_key,
+         run_key_normalized,
          started_at,
          completed_at,
          duration_ms,
@@ -2769,6 +2789,8 @@ export async function createWorkflowRun(
          $8,
          $9::jsonb,
          $10,
+         $11,
+         $12,
          NULL,
          NULL,
          NULL,
@@ -2786,7 +2808,9 @@ export async function createWorkflowRun(
         currentStepIndex,
         triggeredBy,
         trigger,
-        partitionKey
+        partitionKey,
+        runKey,
+        runKeyNormalized
       ]
     );
     if (rows.length === 0) {
@@ -2813,6 +2837,36 @@ export async function getWorkflowRunById(id: string): Promise<WorkflowRunRecord 
   if (!run) {
     return null;
   }
+  await attachWorkflowRunRetrySummaries([run]);
+  return run;
+}
+
+export async function getActiveWorkflowRunByKey(
+  workflowDefinitionId: string,
+  runKeyNormalized: string
+): Promise<WorkflowRunRecord | null> {
+  if (!runKeyNormalized) {
+    return null;
+  }
+
+  const { rows } = await useConnection((client) =>
+    client.query<WorkflowRunRow>(
+      `SELECT *
+         FROM workflow_runs
+        WHERE workflow_definition_id = $1
+          AND run_key_normalized = $2
+          AND status IN ('pending', 'running')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [workflowDefinitionId, runKeyNormalized]
+    )
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const run = mapWorkflowRunRow(rows[0]);
   await attachWorkflowRunRetrySummaries([run]);
   return run;
 }
@@ -3071,6 +3125,13 @@ export async function updateWorkflowRun(
         nextPartitionKey = null;
       }
     }
+    let nextRunKey = existing.run_key ?? null;
+    let nextRunKeyNormalized = existing.run_key_normalized ?? null;
+    if (Object.prototype.hasOwnProperty.call(updates, 'runKey')) {
+      const columns = computeRunKeyColumns(updates.runKey ?? null);
+      nextRunKey = columns.runKey;
+      nextRunKeyNormalized = columns.runKeyNormalized;
+    }
 
     const { rows: updatedRows } = await client.query<WorkflowRunRow>(
       `UPDATE workflow_runs
@@ -3085,9 +3146,11 @@ export async function updateWorkflowRun(
            triggered_by = $10,
            trigger = $11::jsonb,
            partition_key = $12,
-           started_at = $13,
-           completed_at = $14,
-           duration_ms = $15,
+           run_key = $13,
+           run_key_normalized = $14,
+           started_at = $15,
+           completed_at = $16,
+           duration_ms = $17,
            updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -3104,6 +3167,8 @@ export async function updateWorkflowRun(
         nextTriggeredBy,
         nextTrigger,
         nextPartitionKey,
+        nextRunKey,
+        nextRunKeyNormalized,
         nextStartedAt,
         nextCompletedAt,
         nextDurationMs
@@ -3121,6 +3186,7 @@ export async function updateWorkflowRun(
       existing.current_step_id !== updated.currentStepId ||
       existing.current_step_index !== updated.currentStepIndex ||
       existing.partition_key !== updated.partitionKey ||
+      existing.run_key !== updated.runKey ||
       existing.error_message !== updated.errorMessage ||
       JSON.stringify(existing.output ?? null) !== JSON.stringify(updated.output ?? null);
   });

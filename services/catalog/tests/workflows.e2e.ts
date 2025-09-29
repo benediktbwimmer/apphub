@@ -680,6 +680,46 @@ async function testWorkflowEndpoints(): Promise<void> {
         await releaseWorkflowAutoRun(workflowRecord.id);
       }
 
+      const manualRunKey = 'manual-order-1';
+      const manualRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-demo/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          runKey: manualRunKey,
+          triggeredBy: 'operator',
+          parameters: { tenant: 'manual' }
+        }
+      });
+      assert.equal(manualRunResponse.statusCode, 202);
+      const manualRunBody = JSON.parse(manualRunResponse.payload) as {
+        data: { id: string; runKey: string | null };
+      };
+      assert.equal(manualRunBody.data.runKey, manualRunKey);
+
+      const duplicateRunResponse = await app.inject({
+        method: 'POST',
+        url: '/workflows/wf-demo/run',
+        headers: {
+          Authorization: `Bearer ${OPERATOR_TOKEN}`
+        },
+        payload: {
+          runKey: manualRunKey,
+          triggeredBy: 'operator'
+        }
+      });
+      assert.equal(duplicateRunResponse.statusCode, 409);
+      const duplicateRunBody = JSON.parse(duplicateRunResponse.payload) as {
+        error: string;
+        data?: { id: string; runKey?: string | null };
+      };
+      assert.match(duplicateRunBody.error, /already pending or running/i);
+      assert(duplicateRunBody.data, 'expected existing run in conflict response');
+      assert.equal(duplicateRunBody.data?.id, manualRunBody.data.id);
+      assert.equal(duplicateRunBody.data?.runKey ?? null, manualRunKey);
+
       const missingDependencyResponse = await app.inject({
         method: 'POST',
         url: '/workflows',

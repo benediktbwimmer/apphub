@@ -1342,6 +1342,7 @@ export function normalizeWorkflowRun(payload: unknown): WorkflowRun | null {
     id,
     workflowDefinitionId,
     status,
+    runKey: typeof raw.runKey === 'string' ? raw.runKey : null,
     health,
     currentStepId: typeof raw.currentStepId === 'string' ? raw.currentStepId : null,
     currentStepIndex: typeof raw.currentStepIndex === 'number' ? raw.currentStepIndex : null,

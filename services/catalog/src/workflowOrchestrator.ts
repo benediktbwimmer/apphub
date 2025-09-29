@@ -1196,7 +1196,9 @@ async function scheduleWorkflowStepRetry(
       ...updatePayload
     } satisfies WorkflowRunStepRecord;
 
-  await scheduleWorkflowRetryJob(run.id, step.id, nextAttemptAt, nextRetryAttempts);
+  await scheduleWorkflowRetryJob(run.id, step.id, nextAttemptAt, nextRetryAttempts, {
+    runKey: run.runKey ?? null
+  });
 
   const retryContext = updateStepContext(context, step.id, {
     status: 'pending',
@@ -2221,7 +2223,8 @@ async function executeJobStep(
       workflowRunId: run.id,
       workflowRunStepId: stepRecord.id,
       jobRunId: jobRun.id,
-      jobSlug: step.jobSlug
+      jobSlug: step.jobSlug,
+      workflowRunKey: run.runKey ?? null
     },
     () => executeJobRun(jobRun.id)
   );

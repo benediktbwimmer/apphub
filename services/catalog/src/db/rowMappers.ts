@@ -1855,6 +1855,8 @@ export function mapWorkflowRunRow(row: WorkflowRunRow): WorkflowRunRecord {
     id: row.id,
     workflowDefinitionId: row.workflow_definition_id,
     status: normalizeWorkflowRunStatus(row.status),
+    runKey: row.run_key ?? null,
+    runKeyNormalized: row.run_key_normalized ?? null,
     parameters: ensureJsonValue(row.parameters, {} as JsonValue),
     context: ensureJsonValue(row.context, {} as JsonValue),
     output: toJsonValue(row.output),

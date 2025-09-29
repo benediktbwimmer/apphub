@@ -16,6 +16,7 @@ import {
   collectPartitionedAssetsFromSteps,
   deriveTimeWindowPartitionKey
 } from './workflows/partitioning';
+import { buildRunKeyFromParts, computeRunKeyColumns } from './workflows/runKey';
 import { useTransaction } from './db/utils';
 import { getClient } from './db/client';
 import { mapWorkflowScheduleRow } from './db/rowMappers';
@@ -171,7 +172,7 @@ function determineWindowStart(
   return null;
 }
 
-type EnqueueWorkflowRun = (runId: string) => Promise<void>;
+type EnqueueWorkflowRun = (runId: string, options?: { runKey?: string | null }) => Promise<void>;
 
 type MaterializationStats = {
   runsCreated: number;
@@ -195,9 +196,9 @@ type WorkflowSchedulerDependencies = {
 
 const defaultDependencies: WorkflowSchedulerDependencies = {
   createWorkflowRun: workflowDb.createWorkflowRun,
-  enqueueWorkflowRun: async (runId: string) => {
+  enqueueWorkflowRun: async (runId: string, options?: { runKey?: string | null }) => {
     const { enqueueWorkflowRun } = await import('./queue');
-    return enqueueWorkflowRun(runId);
+    return enqueueWorkflowRun(runId, options ?? {});
   },
   listDueWorkflowSchedules: workflowDb.listDueWorkflowSchedules,
   updateWorkflowScheduleRuntimeMetadata: workflowDb.updateWorkflowScheduleRuntimeMetadata,
@@ -352,14 +353,44 @@ async function materializeSchedule(
       partitionKey = deriveTimeWindowPartitionKey(referenceTimePartition, occurrenceDate);
     }
 
+    let runKeyColumns: { runKey: string | null; runKeyNormalized: string | null } = {
+      runKey: null,
+      runKeyNormalized: null
+    };
+    const runKeyCandidate = buildRunKeyFromParts(
+      'schedule',
+      schedule.id,
+      partitionKey ?? null,
+      partitionKey ? null : windowEndIso ?? null
+    );
+    if (runKeyCandidate) {
+      try {
+        runKeyColumns = computeRunKeyColumns(runKeyCandidate);
+      } catch (err) {
+        logError('Failed to normalize run key for scheduled run', {
+          workflowId: definition.id,
+          workflowSlug: definition.slug,
+          scheduleId: schedule.id,
+          error: (err as Error).message ?? 'unknown'
+        });
+        recordWorkflowSchedulerScheduleEvent('error', {
+          scheduleId: schedule.id,
+          reason: 'invalid_run_key'
+        });
+        skipReason = 'invalid_run_key';
+        break;
+      }
+    }
+
     try {
       const run = await deps.createWorkflowRun(definition.id, {
         parameters: runParameters,
         trigger: triggerPayload,
         triggeredBy: 'scheduler',
-        partitionKey
+        partitionKey,
+        runKey: runKeyColumns.runKey
       });
-      await deps.enqueueWorkflowRun(run.id);
+      await deps.enqueueWorkflowRun(run.id, { runKey: run.runKey ?? runKeyColumns.runKey ?? null });
       runsCreated += 1;
 
       log('Enqueued scheduled workflow run', {
@@ -370,6 +401,27 @@ async function materializeSchedule(
         occurrence: windowEndIso
       });
     } catch (err) {
+      if (runKeyColumns.runKeyNormalized && workflowDb.isRunKeyConflict(err)) {
+        const existing = await workflowDb.getActiveWorkflowRunByKey(
+          definition.id,
+          runKeyColumns.runKeyNormalized
+        );
+        if (existing) {
+          log('Skipped scheduled run due to existing active run key', {
+            workflowId: definition.id,
+            workflowSlug: definition.slug,
+            scheduleId: schedule.id,
+            workflowRunId: existing.id,
+            runKey: runKeyColumns.runKey
+          });
+          recordWorkflowSchedulerScheduleEvent('skipped', {
+            scheduleId: schedule.id,
+            reason: 'duplicate_run_key'
+          });
+          skipReason = 'duplicate_run_key';
+          break;
+        }
+      }
       logError('Failed to enqueue scheduled workflow run', {
         workflowId: definition.id,
         workflowSlug: definition.slug,

@@ -7,8 +7,10 @@ import {
   createWorkflowRun,
   createWorkflowTriggerDelivery,
   findWorkflowTriggerDeliveryByDedupeKey,
+  getActiveWorkflowRunByKey,
   getWorkflowEventTriggerById,
   getWorkflowTriggerDeliveryById,
+  isRunKeyConflict,
   listScheduledWorkflowTriggerDeliveries,
   listWorkflowEventTriggersForEvent,
   updateWorkflowTriggerDelivery
@@ -27,6 +29,7 @@ import { recordTriggerEvaluation } from './eventSchedulerMetrics';
 import { isTriggerPaused, registerTriggerFailure, registerTriggerSuccess } from './eventSchedulerState';
 import { computeNextAttemptTimestamp } from '@apphub/shared/retries/backoff';
 import { getWorkflowEventById } from './workflowEvents';
+import { buildRunKeyFromParts, computeRunKeyColumns } from './workflows/runKey';
 
 const liquid = new Liquid({ cache: false, strictFilters: false, strictVariables: false });
 
@@ -590,6 +593,35 @@ async function processTrigger(
 
   await recordTriggerEvaluation(trigger, 'matched');
 
+  const runKeyParts: Array<string | null> = [
+    'trigger',
+    trigger.id,
+    dedupeKey ?? null,
+    delivery.id
+  ];
+  if (event.id) {
+    runKeyParts.push(event.id);
+  }
+  const runKeyCandidate = buildRunKeyFromParts(...runKeyParts);
+  let runKeyColumns: { runKey: string | null; runKeyNormalized: string | null } = {
+    runKey: null,
+    runKeyNormalized: null
+  };
+  if (runKeyCandidate) {
+    try {
+      runKeyColumns = computeRunKeyColumns(runKeyCandidate);
+    } catch (err) {
+      logger.warn('Event trigger run skipped due to invalid run key', {
+        triggerId: trigger.id,
+        workflowDefinitionId: trigger.workflowDefinitionId,
+        runKey: runKeyCandidate,
+        error: (err as Error).message ?? 'unknown'
+      });
+      await recordTriggerEvaluation(trigger, 'skipped');
+      return;
+    }
+  }
+
   try {
     const renderedParameters = await renderJsonTemplate(trigger.parameterTemplate, context);
     const run = await createWorkflowRun(trigger.workflowDefinitionId, {
@@ -608,7 +640,8 @@ async function processTrigger(
         triggerName: trigger.name ?? null,
         dedupeKey,
         deliveryId: delivery.id
-      }
+      },
+      runKey: runKeyColumns.runKey
     });
 
     await updateWorkflowTriggerDelivery(delivery.id, {
@@ -620,10 +653,35 @@ async function processTrigger(
       nextAttemptAt: null
     });
 
-    await enqueueWorkflowRun(run.id);
+    await enqueueWorkflowRun(run.id, { runKey: run.runKey ?? runKeyColumns.runKey ?? null });
     await recordTriggerEvaluation(trigger, 'launched');
     await registerTriggerSuccess(trigger.id);
   } catch (err) {
+    if (runKeyColumns.runKeyNormalized && isRunKeyConflict(err)) {
+      const existing = await getActiveWorkflowRunByKey(
+        trigger.workflowDefinitionId,
+        runKeyColumns.runKeyNormalized
+      );
+      if (existing) {
+        await updateWorkflowTriggerDelivery(delivery.id, {
+          status: 'launched',
+          workflowRunId: existing.id,
+          lastError: null,
+          retryState: 'pending',
+          retryMetadata: null,
+          nextAttemptAt: null
+        });
+        await recordTriggerEvaluation(trigger, 'launched');
+        await registerTriggerSuccess(trigger.id);
+        logger.info('Reused existing workflow run for trigger run key', {
+          triggerId: trigger.id,
+          workflowDefinitionId: trigger.workflowDefinitionId,
+          runKey: runKeyColumns.runKey,
+          workflowRunId: existing.id
+        });
+        return;
+      }
+    }
     const message = err instanceof Error ? err.message : String(err);
     await updateWorkflowTriggerDelivery(delivery.id, {
       status: 'failed',

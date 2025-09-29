@@ -23,6 +23,9 @@ export default function WorkflowRunDetails({ run, steps, stepsLoading, stepsErro
         <div>
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run Details</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Run ID: {run.id}</p>
+          {run.runKey && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Run Key: {run.runKey}</p>
+          )}
         </div>
         {run.errorMessage && (
           <p className="max-w-sm text-right text-sm font-semibold text-rose-600 dark:text-rose-300">{run.errorMessage}</p>

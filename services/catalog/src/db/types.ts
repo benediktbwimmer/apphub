@@ -1377,6 +1377,8 @@ export type WorkflowRunRecord = {
   id: string;
   workflowDefinitionId: string;
   status: WorkflowRunStatus;
+  runKey: string | null;
+  runKeyNormalized: string | null;
   parameters: JsonValue;
   context: JsonValue;
   output: JsonValue | null;
@@ -1414,6 +1416,7 @@ export type WorkflowRunCreateInput = {
   currentStepId?: string | null;
   currentStepIndex?: number | null;
   partitionKey?: string | null;
+  runKey?: string | null;
 };
 
 export type WorkflowRunUpdateInput = {
@@ -1436,6 +1439,7 @@ export type WorkflowRunUpdateInput = {
   completedAt?: string | null;
   durationMs?: number | null;
   partitionKey?: string | null;
+  runKey?: string | null;
 };
 
 export type WorkflowRunStepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
