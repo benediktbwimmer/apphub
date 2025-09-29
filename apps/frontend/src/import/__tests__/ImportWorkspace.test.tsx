@@ -10,9 +10,9 @@ const catalogData = catalog as { scenarios?: ExampleScenario[] };
 const catalogScenarios: ExampleScenario[] = catalogData.scenarios ?? [];
 
 const SCENARIO_FIXTURE_IDS = new Set([
-  'retail-sales-csv-loader-job',
-  'retail-sales-parquet-job',
-  'retail-sales-daily-ingest-workflow'
+  'observatory-inbox-normalizer-job',
+  'observatory-timestore-loader-job',
+  'observatory-minute-ingest-workflow'
 ]);
 const exampleScenarios: ExampleScenario[] = catalogScenarios.filter((scenario) =>
   SCENARIO_FIXTURE_IDS.has(scenario.id)
@@ -83,7 +83,7 @@ describe('ImportWorkspace wizard', () => {
     const now = new Date().toISOString();
     bundleStatuses = [
       {
-        slug: 'retail-sales-csv-loader',
+        slug: 'observatory-inbox-normalizer',
         fingerprint: 'abc',
         stage: 'packaging',
         state: 'running',
@@ -104,7 +104,7 @@ describe('ImportWorkspace wizard', () => {
     const workflowFilter = within(picker).getAllByRole('button', { name: /Workflows/i })[0];
     await user.click(workflowFilter);
 
-    const workflowCard = screen.getByRole('heading', { name: 'Retail sales daily ingest' }).closest('article');
+    const workflowCard = screen.getByRole('heading', { name: 'Observatory minute ingest' }).closest('article');
     expect(workflowCard).toBeTruthy();
     const loadButton = within(workflowCard as HTMLElement).getByRole('button', { name: /Load this scenario|Reload scenario/i });
     await user.click(loadButton);
@@ -113,8 +113,8 @@ describe('ImportWorkspace wizard', () => {
       expect(screen.getByText('Dependencies')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Retail sales CSV loader')).toBeInTheDocument();
-    expect(screen.getByText('Retail sales parquet builder')).toBeInTheDocument();
+    expect(screen.getByText('Observatory inbox normalizer')).toBeInTheDocument();
+    expect(screen.getByText('Observatory Timestore loader')).toBeInTheDocument();
     expect(screen.getByText('Packaging')).toBeInTheDocument();
     expect(screen.getByText('Packaging bundle')).toBeInTheDocument();
   });
@@ -123,7 +123,7 @@ describe('ImportWorkspace wizard', () => {
     const now = new Date().toISOString();
     bundleStatuses = [
       {
-        slug: 'retail-sales-csv-loader',
+        slug: 'observatory-inbox-normalizer',
         fingerprint: 'xyz',
         stage: 'failed',
         state: 'failed',
@@ -144,7 +144,7 @@ describe('ImportWorkspace wizard', () => {
     const workflowFilter = within(picker).getAllByRole('button', { name: /Workflows/i })[0];
     await user.click(workflowFilter);
 
-    const workflowCard = screen.getByRole('heading', { name: 'Retail sales daily ingest' }).closest('article');
+    const workflowCard = screen.getByRole('heading', { name: 'Observatory minute ingest' }).closest('article');
     const loadButton = within(workflowCard as HTMLElement).getByRole('button', { name: /Load this scenario|Reload scenario/i });
     await user.click(loadButton);
 

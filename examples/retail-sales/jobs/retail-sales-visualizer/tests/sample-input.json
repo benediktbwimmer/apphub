@@ -1,5 +1,0 @@
-{
-  "warehouseDir": "./tmp/warehouse",
-  "outputDir": "./tmp/report",
-  "reportTitle": "Retail Sales Daily Report"
-}

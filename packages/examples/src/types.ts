@@ -44,20 +44,11 @@ export type JobManifestTemplate = {
 };
 
 export type ExampleJobSlug =
-  | 'file-relocator'
-  | 'retail-sales-csv-loader'
-  | 'retail-sales-parquet-builder'
-  | 'retail-sales-visualizer'
-  | 'fleet-telemetry-metrics'
-  | 'greenhouse-alerts-runner'
   | 'observatory-data-generator'
   | 'observatory-inbox-normalizer'
   | 'observatory-timestore-loader'
   | 'observatory-visualization-runner'
-  | 'observatory-report-publisher'
-  | 'scan-directory'
-  | 'generate-visualizations'
-  | 'archive-report';
+  | 'observatory-report-publisher';
 
 export type ExampleJobBundle = {
   slug: ExampleJobSlug;
@@ -260,13 +251,7 @@ export type WorkflowProvisioningPlanTemplate = {
 export type ExampleWorkflowSlug =
   | 'observatory-minute-data-generator'
   | 'observatory-minute-ingest'
-  | 'observatory-daily-publication'
-  | 'retail-sales-daily-ingest'
-  | 'retail-sales-insights'
-  | 'fleet-telemetry-daily-rollup'
-  | 'fleet-telemetry-alerts'
-  | 'directory-insights-report'
-  | 'directory-insights-archive';
+  | 'observatory-daily-publication';
 
 export type ExampleWorkflow = {
   slug: ExampleWorkflowSlug;

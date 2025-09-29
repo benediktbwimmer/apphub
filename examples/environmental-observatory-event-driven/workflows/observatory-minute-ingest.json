@@ -321,7 +321,7 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
-          "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: \":\", \"-\" }}-{{ parameters.minute | replace: \":\", \"-\" }}",
+          "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ':', '-' }}",
           "metadata": {
             "maxFiles": "{{ defaultParameters.maxFiles }}",
             "paths": {

@@ -1,8 +1,0 @@
-{
-  "name": "Retail Sales Visualizer",
-  "version": "0.1.0",
-  "entry": "dist/index.js",
-  "runtime": "node18",
-  "description": "Generates SVG plots and a static HTML dashboard for retail sales data.",
-  "capabilities": ["fs"]
-}

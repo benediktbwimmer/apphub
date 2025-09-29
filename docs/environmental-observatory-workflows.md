@@ -42,10 +42,10 @@ graph TD
 
 ## Data drop and directory layout
 
-Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
+Each instrument pushes a minute CSV into an inbox (`examples/environmental-observatory-event-driven/data/inbox`). Filenames follow `instrument_<ID>_<YYYYMMDDHHmm>.csv` and include per-reading metadata. The normalizer workflow copies matching files into minute-stamped folders under `staging/` before handing them to the Timestore ingestion job:
 
 ```
-examples/environmental-observatory/data/
+examples/environmental-observatory-event-driven/data/
   inbox/
     instrument_alpha_202508010900.csv
     instrument_alpha_202508011000.csv
@@ -73,10 +73,10 @@ Four Node jobs orchestrate the pipeline. Bundle them with `npx tsx apps/cli/src/
 
 | Bundle | Slug | Purpose |
 | ------ | ---- | ------- |
-| `examples/environmental-observatory/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
-| `examples/environmental-observatory/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
-| `examples/environmental-observatory/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
-| `examples/environmental-observatory/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
+| `examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer` | `observatory-inbox-normalizer` | Moves new CSV files from `inbox` to `staging`, archives the originals under instrument/hour folders, extracts metadata, and emits the partitioned raw asset. |
+| `examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader` | `observatory-timestore-loader` | Streams normalized readings into Timestore, producing per-instrument minute partitions and tagging each manifest entry with instrument metadata. |
+| `examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner` | `observatory-visualization-runner` | Queries Timestore for fresh aggregates, saves plot SVGs into `plots`, and emits a visualization asset cataloguing the artifacts. |
+| `examples/environmental-observatory-event-driven/jobs/observatory-report-publisher` | `observatory-report-publisher` | Renders Markdown and HTML reports plus JSON API payloads in `reports`, consuming the visualization asset and republishing web-ready content.
 
 Each bundle ships with an `apphub.bundle.json` and Node entry point so you can register them via the catalog API once built.
 
@@ -93,14 +93,14 @@ The lineage graph forms a linear chain: inbox → Timestore → plots → report
 
 ## Workflows
 
-Two workflows manage the example. Their JSON definitions live in `examples/environmental-observatory/workflows/`.
+Two workflows manage the example. Their JSON definitions live in `examples/environmental-observatory-event-driven/workflows/`.
 
 - **Trigger:** Manual or filesystem watcher (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
   1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
   2. `observatory-timestore-loader` consumes the raw asset, streams data into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence.
 - **Parameters:** `inboxDir`, `stagingDir`, `archiveDir`, `minute`, `timestoreBaseUrl`, `timestoreDatasetSlug`, and optional limits like `maxFiles`.
-- **Default directories:** Match the example layout under `examples/environmental-observatory/data/`.
+- **Default directories:** Match the example layout under `examples/environmental-observatory-event-driven/data/`.
 
 ### 2. `observatory-daily-publication`
 
@@ -122,24 +122,24 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 1. Install dependencies for the watcher, visualization, and publisher bundles:
 ```bash
-npm install --prefix examples/environmental-observatory/jobs/observatory-timestore-loader
-npm install --prefix examples/environmental-observatory/jobs/observatory-visualization-runner
-npm install --prefix examples/environmental-observatory/jobs/observatory-report-publisher
+npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader
+npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner
+npm install --prefix examples/environmental-observatory-event-driven/jobs/observatory-report-publisher
 ```
 
    The catalog rebuilds each observatory bundle automatically when you import the example jobs. Every `/job-imports` request now copies the bundle into an isolated workspace, runs `npm ci`, executes the build, and force-publishes the tarball so the catalog overwrites any previous artifact. Pre-installing dependencies locally keeps the first rebuild snappy; otherwise the API performs the install step inside the container on every import.
 2. Publish bundles and register the job definitions exported from the example module.
-3. Import the bundled service manifest (`examples/environmental-observatory/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
+3. Import the bundled service manifest (`examples/environmental-observatory-event-driven/service-manifests/service-manifest.json`) through the catalog UI or copy it into your manifest directory so the watcher and dashboard show up as managed services. When importing through the UI the catalog now prompts for the inbox, staging, archive, and Timestore settings (base URL + dataset) plus the reports directory, all pre-filled with the defaults above, and requires an operator API token before applying the manifest. Adjust the directories if you keep the data elsewhere and paste a token with permission to trigger workflows.
 
-4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (see `docs/file-drop-watcher.md` for details):
+4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):
    ```bash
    npm run dev:minio
 
    cd services/filestore-ingest-watcher
    npm install
 
-   WATCH_ROOT=$(pwd)/../examples/environmental-observatory/data/inbox \
-   WATCH_ARCHIVE_DIR=$(pwd)/../examples/environmental-observatory/data/archive \
+   WATCH_ROOT=$(pwd)/../examples/environmental-observatory-event-driven/data/inbox \
+   WATCH_ARCHIVE_DIR=$(pwd)/../examples/environmental-observatory-event-driven/data/archive \
    FILESTORE_BASE_URL=http://127.0.0.1:4300 \
    FILESTORE_BACKEND_ID=1 \
    FILESTORE_TARGET_PREFIX=datasets/observatory/inbox \
@@ -148,7 +148,7 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-report-
    The watcher streams new inbox files into the `apphub-filestore` bucket (via Filestore) before launching the ingest workflow. Adjust `FILESTORE_BACKEND_ID` if you provisioned a different mount via `npm run obs:event:config`.
 5. Launch the dashboard alongside the watcher so the latest `status.html` is always visible:
    ```bash
-   cd examples/environmental-observatory/services/observatory-dashboard
+   cd examples/environmental-observatory-event-driven/services/observatory-dashboard
    npm install
 
    REPORTS_DIR=$(pwd)/../../data/reports \
@@ -157,8 +157,8 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-report-
    ```
 6. Register both workflows by copying the curated JSON definitions:
    ```bash
-   cp examples/environmental-observatory/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
-   cp examples/environmental-observatory/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
+   cp examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json tmp/observatory-minute-ingest.json
+   cp examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json tmp/observatory-daily-publication.json
    ```
 7. Simulate an instrument drop by writing new minute CSV files into `inbox` (the watcher will mirror them into `staging/<minute>/` and queue the ingest workflow automatically). Trigger the ingest workflow manually with:
    ```bash
@@ -169,9 +169,9 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-report-
        "partitionKey": "2025-08-01T09:00",
        "parameters": {
          "minute": "2025-08-01T09:00",
-         "inboxDir": "examples/environmental-observatory/data/inbox",
-         "stagingDir": "examples/environmental-observatory/data/staging",
-         "archiveDir": "examples/environmental-observatory/data/archive",
+         "inboxDir": "examples/environmental-observatory-event-driven/data/inbox",
+         "stagingDir": "examples/environmental-observatory-event-driven/data/staging",
+         "archiveDir": "examples/environmental-observatory-event-driven/data/archive",
         "timestoreBaseUrl": "http://127.0.0.1:4200",
         "timestoreDatasetSlug": "observatory-timeseries",
         "timestoreDatasetName": "Observatory Time Series",
@@ -185,6 +185,6 @@ npm install --prefix examples/environmental-observatory/jobs/observatory-report-
    curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
    ```
 
-9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
+9. After the visualization workflow emits `observatory.visualizations.minute`, either trigger `observatory-daily-publication` manually once (to provide initial parameters) or let auto-materialization run it. Inspect the rendered files under `examples/environmental-observatory-event-driven/data/reports/<minute>/` to view the Markdown, HTML, and JSON outputs side by side.
 
 This example demonstrates how AppHub’s asset graph keeps downstream pages synchronized with instrument feeds. By pairing partitioned assets, Timestore manifests, SVG plots, and auto-materialized reports, operators get traceable lineage and consistently fresh observatory dashboards.

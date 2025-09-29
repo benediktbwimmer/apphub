@@ -74,9 +74,9 @@ Two flavors share a base:
 ## Edge Schema
 ```json
 {
-  "id": "trigger:event:file-drop->workflow:file-drop-relocation",
-  "from": "trigger:event:file-drop",
-  "to": "workflow:file-drop-relocation",
+  "id": "trigger:event:observatory-inbox->workflow:observatory-minute-ingest",
+  "from": "trigger:event:observatory-inbox",
+  "to": "workflow:observatory-minute-ingest",
   "type": "activates",
   "metadata": { ... }
 }
@@ -123,7 +123,7 @@ Overlays provide real-time status without replacing base topology.
 ### Trigger Health
 ```json
 {
-  "triggerId": "trigger:event:file-drop",
+  "triggerId": "trigger:event:observatory-inbox",
   "status": "active",
   "lastFiredAt": "2024-03-18T17:59:10.000Z",
   "pauseState": null,

@@ -1,570 +1,6 @@
 {
   "bundles": [
     {
-      "slug": "file-relocator",
-      "version": "0.1.0",
-      "directory": "examples/file-drop/jobs/file-relocator",
-      "manifestPath": "examples/file-drop/jobs/file-relocator/manifest.json",
-      "jobDefinitionPath": "examples/file-drop/jobs/file-relocator/job-definition.json",
-      "manifest": {
-        "name": "File Relocator",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Moves a dropped file into the archival directory while preserving relative structure.",
-        "capabilities": [
-          "fs"
-        ],
-        "metadata": {
-          "docs": "docs/file-drop-watcher.md",
-          "tags": [
-            "file-drop",
-            "examples"
-          ]
-        }
-      },
-      "definition": {
-        "slug": "file-relocator",
-        "name": "File Relocator",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:file-relocator@0.1.0#handler",
-        "timeoutMs": 90000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "dropId": {
-              "type": "string",
-              "minLength": 1
-            },
-            "sourcePath": {
-              "type": "string",
-              "minLength": 1
-            },
-            "relativePath": {
-              "type": "string",
-              "minLength": 1
-            },
-            "destinationDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "destinationFilename": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "dropId",
-            "sourcePath",
-            "relativePath",
-            "destinationDir"
-          ]
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "dropId": {
-              "type": "string"
-            },
-            "sourcePath": {
-              "type": "string"
-            },
-            "destinationPath": {
-              "type": "string"
-            },
-            "relativePath": {
-              "type": "string"
-            },
-            "bytesMoved": {
-              "type": "number"
-            },
-            "startedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "completedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "durationMs": {
-              "type": "number"
-            },
-            "attempts": {
-              "type": "number"
-            }
-          }
-        }
-      }
-    },
-    {
-      "slug": "retail-sales-csv-loader",
-      "version": "0.1.0",
-      "directory": "examples/retail-sales/jobs/retail-sales-csv-loader",
-      "manifestPath": "examples/retail-sales/jobs/retail-sales-csv-loader/manifest.json",
-      "jobDefinitionPath": "examples/retail-sales/jobs/retail-sales-csv-loader/job-definition.json",
-      "manifest": {
-        "name": "Retail Sales CSV Loader",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Loads partitioned retail CSV files and emits normalized sales records.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "retail-sales-csv-loader",
-        "name": "Retail Sales CSV Loader",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:retail-sales-csv-loader@0.1.0#handler",
-        "timeoutMs": 60000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "exponential"
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "dataRoot": {
-              "type": "string",
-              "minLength": 1
-            },
-            "partitionKey": {
-              "type": "string",
-              "minLength": 1
-            },
-            "datasetName": {
-              "type": "string"
-            },
-            "sampleSize": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 20
-            }
-          },
-          "required": [
-            "dataRoot",
-            "partitionKey"
-          ]
-        },
-        "defaultParameters": {
-          "datasetName": "retail_sales",
-          "sampleSize": 5
-        }
-      }
-    },
-    {
-      "slug": "retail-sales-parquet-builder",
-      "version": "0.1.0",
-      "directory": "examples/retail-sales/jobs/retail-sales-parquet-builder",
-      "manifestPath": "examples/retail-sales/jobs/retail-sales-parquet-builder/manifest.json",
-      "jobDefinitionPath": "examples/retail-sales/jobs/retail-sales-parquet-builder/job-definition.json",
-      "manifest": {
-        "name": "Retail Sales Parquet Builder",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Converts normalized retail sales data into Parquet and summary artifacts.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "retail-sales-parquet-builder",
-        "name": "Retail Sales Parquet Builder",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:retail-sales-parquet-builder@0.1.0#handler",
-        "timeoutMs": 120000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "warehouseDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "partitionKey": {
-              "type": "string",
-              "minLength": 1
-            },
-            "rawPartition": {
-              "type": "object"
-            }
-          },
-          "required": [
-            "warehouseDir",
-            "partitionKey",
-            "rawPartition"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "retail-sales-visualizer",
-      "version": "0.1.0",
-      "directory": "examples/retail-sales/jobs/retail-sales-visualizer",
-      "manifestPath": "examples/retail-sales/jobs/retail-sales-visualizer/manifest.json",
-      "jobDefinitionPath": "examples/retail-sales/jobs/retail-sales-visualizer/job-definition.json",
-      "manifest": {
-        "name": "Retail Sales Visualizer",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Generates SVG plots and a static HTML dashboard for retail sales data.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "retail-sales-visualizer",
-        "name": "Retail Sales Visualizer",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:retail-sales-visualizer@0.1.0#handler",
-        "timeoutMs": 90000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "warehouseDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "outputDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "reportTitle": {
-              "type": "string"
-            },
-            "lookback": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 90
-            }
-          },
-          "required": [
-            "warehouseDir",
-            "outputDir"
-          ]
-        },
-        "defaultParameters": {
-          "reportTitle": "Retail Sales Daily Report",
-          "lookback": 14
-        }
-      }
-    },
-    {
-      "slug": "fleet-telemetry-metrics",
-      "version": "0.1.0",
-      "directory": "examples/fleet-telemetry/jobs/fleet-telemetry-metrics",
-      "manifestPath": "examples/fleet-telemetry/jobs/fleet-telemetry-metrics/manifest.json",
-      "jobDefinitionPath": "examples/fleet-telemetry/jobs/fleet-telemetry-metrics/job-definition.json",
-      "manifest": {
-        "name": "Fleet Telemetry Metrics",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Aggregates greenhouse instrument CSV readings into telemetry assets partitioned by instrument.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "fleet-telemetry-metrics",
-        "name": "Fleet Telemetry Metrics",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:fleet-telemetry-metrics@0.1.0#handler",
-        "timeoutMs": 120000,
-        "retryPolicy": {
-          "maxAttempts": 3,
-          "strategy": "exponential",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "dataRoot": {
-              "type": "string",
-              "minLength": 1
-            },
-            "instrumentId": {
-              "type": "string",
-              "minLength": 1
-            },
-            "day": {
-              "type": "string",
-              "minLength": 1
-            },
-            "temperatureLimitC": {
-              "type": "number"
-            },
-            "humidityLimitPct": {
-              "type": "number"
-            },
-            "outputDir": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "required": [
-            "dataRoot",
-            "instrumentId",
-            "day",
-            "outputDir"
-          ]
-        },
-        "defaultParameters": {
-          "temperatureLimitC": 30,
-          "humidityLimitPct": 65,
-          "outputDir": "examples/fleet-telemetry/data/rollups"
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "partitionKey": {
-              "type": "string"
-            },
-            "instrumentId": {
-              "type": "string"
-            },
-            "day": {
-              "type": "string"
-            },
-            "aggregatedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "sourceFiles": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "relativePath": {
-                    "type": "string"
-                  },
-                  "samples": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "relativePath"
-                ]
-              }
-            },
-            "metrics": {
-              "type": "object",
-              "properties": {
-                "samples": {
-                  "type": "number"
-                },
-                "temperatureC": {
-                  "type": "object",
-                  "properties": {
-                    "min": {
-                      "type": "number"
-                    },
-                    "max": {
-                      "type": "number"
-                    },
-                    "mean": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "min",
-                    "max",
-                    "mean"
-                  ]
-                },
-                "humidityPct": {
-                  "type": "object",
-                  "properties": {
-                    "min": {
-                      "type": "number"
-                    },
-                    "max": {
-                      "type": "number"
-                    },
-                    "mean": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "min",
-                    "max",
-                    "mean"
-                  ]
-                }
-              },
-              "required": [
-                "samples",
-                "temperatureC",
-                "humidityPct"
-              ]
-            },
-            "anomalyWindow": {
-              "type": "object",
-              "properties": {
-                "flagged": {
-                  "type": "boolean"
-                },
-                "reason": {
-                  "type": "string"
-                },
-                "firstSample": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "lastSample": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              },
-              "required": [
-                "flagged"
-              ]
-            }
-          },
-          "required": [
-            "partitionKey",
-            "instrumentId",
-            "aggregatedAt",
-            "metrics"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "greenhouse-alerts-runner",
-      "version": "0.1.0",
-      "directory": "examples/fleet-telemetry/jobs/greenhouse-alerts-runner",
-      "manifestPath": "examples/fleet-telemetry/jobs/greenhouse-alerts-runner/manifest.json",
-      "jobDefinitionPath": "examples/fleet-telemetry/jobs/greenhouse-alerts-runner/job-definition.json",
-      "manifest": {
-        "name": "Greenhouse Alerts Runner",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Evaluates telemetry partitions and publishes greenhouse alert summaries.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "greenhouse-alerts-runner",
-        "name": "Greenhouse Alerts Runner",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:greenhouse-alerts-runner@0.1.0#handler",
-        "timeoutMs": 90000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "telemetryDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "windowHours": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 168
-            },
-            "temperatureLimitC": {
-              "type": "number"
-            },
-            "humidityLimitPct": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "windowHours"
-          ]
-        },
-        "defaultParameters": {
-          "telemetryDir": "examples/fleet-telemetry/data/rollups",
-          "windowHours": 24,
-          "temperatureLimitC": 30,
-          "humidityLimitPct": 65
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "generatedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "windowHours": {
-              "type": "number"
-            },
-            "temperatureLimitC": {
-              "type": "number"
-            },
-            "humidityLimitPct": {
-              "type": "number"
-            },
-            "totalPartitions": {
-              "type": "number"
-            },
-            "flaggedInstruments": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "partitionKey": {
-                    "type": "string"
-                  },
-                  "instrumentId": {
-                    "type": "string"
-                  },
-                  "reason": {
-                    "type": "string"
-                  },
-                  "lastReadingAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "latestMetrics": {
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "partitionKey",
-                  "instrumentId",
-                  "reason"
-                ]
-              }
-            }
-          },
-          "required": [
-            "generatedAt",
-            "flaggedInstruments"
-          ]
-        }
-      }
-    },
-    {
       "slug": "observatory-data-generator",
       "version": "0.2.0",
       "directory": "examples/environmental-observatory-event-driven/jobs/observatory-data-generator",
@@ -577,7 +13,8 @@
         "runtime": "node18",
         "description": "Produces synthetic minute-level instrument CSVs and uploads them to Filestore.",
         "capabilities": [
-          "fs"
+          "fs",
+          "network"
         ]
       },
       "definition": {
@@ -608,6 +45,11 @@
               "type": "number",
               "minimum": 1,
               "maximum": 120
+            },
+            "instrumentCount": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 50
             },
             "seed": {
               "type": "number"
@@ -679,11 +121,6 @@
                 ]
               },
               "minItems": 1
-            },
-            "instrumentCount": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 50
             }
           },
           "required": [
@@ -698,6 +135,7 @@
         "defaultParameters": {
           "rowsPerInstrument": 6,
           "intervalMinutes": 10,
+          "instrumentCount": 3,
           "filestoreBaseUrl": "http://127.0.0.1:4300",
           "filestoreBackendId": 1,
           "inboxPrefix": "datasets/observatory/inbox",
@@ -706,8 +144,7 @@
           "principal": "observatory-data-generator",
           "metastoreBaseUrl": null,
           "metastoreNamespace": "observatory.ingest",
-          "metastoreAuthToken": null,
-          "instrumentCount": 3
+          "metastoreAuthToken": null
         },
         "outputSchema": {
           "type": "object",
@@ -833,7 +270,8 @@
         "runtime": "node18",
         "description": "Copies minute-level instrument CSVs into staging, archives the originals, and emits normalized observatory.timeseries.raw assets.",
         "capabilities": [
-          "fs"
+          "fs",
+          "network"
         ]
       },
       "definition": {
@@ -866,7 +304,10 @@
             "maxFiles": {
               "type": "number",
               "minimum": 1,
-              "maximum": 200
+              "maximum": 2000
+            },
+            "commandPath": {
+              "type": "string"
             },
             "filestoreBaseUrl": {
               "type": "string",
@@ -892,9 +333,6 @@
               "minLength": 1
             },
             "principal": {
-              "type": "string"
-            },
-            "commandPath": {
               "type": "string"
             },
             "metastoreBaseUrl": {
@@ -1154,6 +592,9 @@
               "type": "string",
               "minLength": 1
             },
+            "instrumentId": {
+              "type": "string"
+            },
             "lookbackMinutes": {
               "type": "number",
               "minimum": 1,
@@ -1167,11 +608,13 @@
             "timestoreBaseUrl",
             "timestoreDatasetSlug",
             "plotsDir",
-            "partitionKey"
+            "partitionKey",
+            "instrumentId"
           ]
         },
         "defaultParameters": {
-          "lookbackMinutes": 180
+          "lookbackMinutes": 180,
+          "instrumentId": null
         },
         "outputSchema": {
           "type": "object",
@@ -1271,6 +714,9 @@
               "type": "string",
               "minLength": 1
             },
+            "instrumentId": {
+              "type": "string"
+            },
             "reportTemplate": {
               "type": "string"
             },
@@ -1291,6 +737,7 @@
             "reportsDir",
             "plotsDir",
             "partitionKey",
+            "instrumentId",
             "visualizationAsset"
           ]
         },
@@ -1355,409 +802,16 @@
                   "relativePath"
                 ]
               }
+            },
+            "instrumentId": {
+              "type": "string"
             }
           },
           "required": [
             "generatedAt",
             "reportsDir",
-            "reportFiles"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "scan-directory",
-      "version": "0.1.0",
-      "directory": "examples/directory-insights/jobs/scan-directory",
-      "manifestPath": "examples/directory-insights/jobs/scan-directory/manifest.json",
-      "jobDefinitionPath": "examples/directory-insights/jobs/scan-directory/job-definition.json",
-      "manifest": {
-        "name": "Directory Scanner",
-        "version": "0.1.0",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Recursively scans a directory and captures aggregated metadata about files and folders.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "scan-directory",
-        "name": "Directory Scan",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:scan-directory@0.1.0#handler",
-        "timeoutMs": 120000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "scanDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "maxEntries": {
-              "type": "number",
-              "minimum": 1000,
-              "maximum": 200000
-            }
-          },
-          "required": [
-            "scanDir"
-          ]
-        },
-        "defaultParameters": {
-          "maxEntries": 20000
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "rootPath": {
-              "type": "string"
-            },
-            "generatedAt": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "durationMs": {
-              "type": "number"
-            },
-            "summary": {
-              "type": "object",
-              "properties": {
-                "totalFiles": {
-                  "type": "number"
-                },
-                "totalDirectories": {
-                  "type": "number"
-                },
-                "totalSize": {
-                  "type": "number"
-                },
-                "averageFileSize": {
-                  "type": "number"
-                },
-                "maxDepth": {
-                  "type": "number"
-                },
-                "earliestModifiedAt": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
-                },
-                "latestModifiedAt": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "format": "date-time"
-                },
-                "truncated": {
-                  "type": "boolean"
-                },
-                "maxEntries": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "totalFiles",
-                "totalDirectories",
-                "totalSize",
-                "averageFileSize",
-                "maxDepth",
-                "truncated",
-                "maxEntries"
-              ]
-            },
-            "directories": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "relativePath": {
-                    "type": "string"
-                  },
-                  "totalSize": {
-                    "type": "number"
-                  },
-                  "totalFileCount": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "relativePath",
-                  "totalSize",
-                  "totalFileCount"
-                ]
-              }
-            },
-            "extensionStats": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "extension": {
-                    "type": "string"
-                  },
-                  "count": {
-                    "type": "number"
-                  },
-                  "totalSize": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "extension",
-                  "count",
-                  "totalSize"
-                ]
-              }
-            },
-            "sizeDistribution": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "bucket": {
-                    "type": "string"
-                  },
-                  "count": {
-                    "type": "number"
-                  },
-                  "totalSize": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "bucket",
-                  "count",
-                  "totalSize"
-                ]
-              }
-            },
-            "largestFiles": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "relativePath": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "number"
-                  },
-                  "extension": {
-                    "type": "string"
-                  },
-                  "modifiedAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "format": "date-time"
-                  }
-                },
-                "required": [
-                  "relativePath",
-                  "size"
-                ]
-              }
-            },
-            "issues": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "message": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "path",
-                  "message"
-                ]
-              }
-            }
-          },
-          "required": [
-            "rootPath",
-            "generatedAt",
-            "durationMs",
-            "summary"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "generate-visualizations",
-      "version": "0.1.2",
-      "directory": "examples/directory-insights/jobs/generate-visualizations",
-      "manifestPath": "examples/directory-insights/jobs/generate-visualizations/manifest.json",
-      "jobDefinitionPath": "examples/directory-insights/jobs/generate-visualizations/job-definition.json",
-      "manifest": {
-        "name": "Directory Visualization Report",
-        "version": "0.1.2",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Builds an HTML report with charts and supporting artifacts from directory scan metadata.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "generate-visualizations",
-        "name": "Directory Visualization Builder",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:generate-visualizations@0.1.2#handler",
-        "timeoutMs": 180000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 5000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "outputDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "reportTitle": {
-              "type": "string"
-            },
-            "scanData": {
-              "type": "object"
-            }
-          },
-          "required": [
-            "outputDir",
-            "scanData"
-          ]
-        },
-        "defaultParameters": {
-          "reportTitle": "Directory Visualization Report"
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "files": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "relativePath": {
-                    "type": "string"
-                  },
-                  "mediaType": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "sizeBytes": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "relativePath",
-                  "mediaType",
-                  "sizeBytes"
-                ]
-              }
-            },
-            "count": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "files",
-            "count"
-          ]
-        }
-      }
-    },
-    {
-      "slug": "archive-report",
-      "version": "0.1.1",
-      "directory": "examples/directory-insights/jobs/archive-report",
-      "manifestPath": "examples/directory-insights/jobs/archive-report/manifest.json",
-      "jobDefinitionPath": "examples/directory-insights/jobs/archive-report/job-definition.json",
-      "manifest": {
-        "name": "Directory Insights Archive",
-        "version": "0.1.1",
-        "entry": "dist/index.js",
-        "runtime": "node18",
-        "description": "Archives directory insight report artifacts into a compressed tarball.",
-        "capabilities": [
-          "fs"
-        ]
-      },
-      "definition": {
-        "slug": "archive-report",
-        "name": "Directory Report Archiver",
-        "type": "batch",
-        "runtime": "node",
-        "entryPoint": "bundle:archive-report@0.1.1#handler",
-        "timeoutMs": 180000,
-        "retryPolicy": {
-          "maxAttempts": 2,
-          "strategy": "fixed",
-          "initialDelayMs": 10000
-        },
-        "parametersSchema": {
-          "type": "object",
-          "properties": {
-            "reportDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "archiveDir": {
-              "type": "string",
-              "minLength": 1
-            },
-            "archiveName": {
-              "type": "string"
-            },
-            "asset": {
-              "type": "object"
-            }
-          },
-          "required": [
-            "reportDir",
-            "archiveDir",
-            "asset"
-          ]
-        },
-        "defaultParameters": {
-          "archiveName": "directory-report.tar.gz"
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "archivePath": {
-              "type": "string"
-            },
-            "bytesWritten": {
-              "type": "number"
-            },
-            "artifactCount": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "archivePath",
-            "bytesWritten",
-            "artifactCount"
+            "reportFiles",
+            "instrumentId"
           ]
         }
       }

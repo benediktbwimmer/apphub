@@ -1,29 +1,14 @@
 {
   "jobs": {
-    "archive-report": "examples/directory-insights/jobs/archive-report/job-definition.json",
-    "file-relocator": "examples/file-drop/jobs/file-relocator/job-definition.json",
-    "fleet-telemetry-metrics": "examples/fleet-telemetry/jobs/fleet-telemetry-metrics/job-definition.json",
-    "generate-visualizations": "examples/directory-insights/jobs/generate-visualizations/job-definition.json",
-    "greenhouse-alerts-runner": "examples/fleet-telemetry/jobs/greenhouse-alerts-runner/job-definition.json",
-    "observatory-data-generator": "examples/environmental-observatory/jobs/observatory-data-generator/job-definition.json",
-    "observatory-inbox-normalizer": "examples/environmental-observatory/jobs/observatory-inbox-normalizer/job-definition.json",
-    "observatory-report-publisher": "examples/environmental-observatory/jobs/observatory-report-publisher/job-definition.json",
-    "observatory-timestore-loader": "examples/environmental-observatory/jobs/observatory-timestore-loader/job-definition.json",
-    "observatory-visualization-runner": "examples/environmental-observatory/jobs/observatory-visualization-runner/job-definition.json",
-    "retail-sales-csv-loader": "examples/retail-sales/jobs/retail-sales-csv-loader/job-definition.json",
-    "retail-sales-parquet-builder": "examples/retail-sales/jobs/retail-sales-parquet-builder/job-definition.json",
-    "retail-sales-visualizer": "examples/retail-sales/jobs/retail-sales-visualizer/job-definition.json",
-    "scan-directory": "examples/directory-insights/jobs/scan-directory/job-definition.json"
+    "observatory-data-generator": "examples/environmental-observatory-event-driven/jobs/observatory-data-generator/job-definition.json",
+    "observatory-inbox-normalizer": "examples/environmental-observatory-event-driven/jobs/observatory-inbox-normalizer/job-definition.json",
+    "observatory-timestore-loader": "examples/environmental-observatory-event-driven/jobs/observatory-timestore-loader/job-definition.json",
+    "observatory-visualization-runner": "examples/environmental-observatory-event-driven/jobs/observatory-visualization-runner/job-definition.json",
+    "observatory-report-publisher": "examples/environmental-observatory-event-driven/jobs/observatory-report-publisher/job-definition.json"
   },
   "workflows": {
-    "directory-insights-archive": "examples/directory-insights/workflows/directory-insights-archive.json",
-    "directory-insights-report": "examples/directory-insights/workflows/directory-insights-report.json",
-    "fleet-telemetry-alerts": "examples/fleet-telemetry/workflows/fleet-telemetry-alerts.json",
-    "fleet-telemetry-daily-rollup": "examples/fleet-telemetry/workflows/fleet-telemetry-daily-rollup.json",
-    "observatory-daily-publication": "examples/environmental-observatory/workflows/observatory-daily-publication.json",
-    "observatory-minute-data-generator": "examples/environmental-observatory/workflows/observatory-minute-data-generator.json",
-    "observatory-minute-ingest": "examples/environmental-observatory/workflows/observatory-minute-ingest.json",
-    "retail-sales-daily-ingest": "examples/retail-sales/workflows/retail-sales-daily-ingest.json",
-    "retail-sales-insights": "examples/retail-sales/workflows/retail-sales-insights.json"
+    "observatory-minute-data-generator": "examples/environmental-observatory-event-driven/workflows/observatory-minute-data-generator.json",
+    "observatory-minute-ingest": "examples/environmental-observatory-event-driven/workflows/observatory-minute-ingest.json",
+    "observatory-daily-publication": "examples/environmental-observatory-event-driven/workflows/observatory-daily-publication.json"
   }
 }

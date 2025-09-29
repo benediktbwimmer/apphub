@@ -14,45 +14,45 @@ Inside a workflow definition, attach `produces` and `consumes` blocks to job ste
 
 ```json
 {
-  "id": "report",
-  "jobSlug": "generate-visualizations",
+  "id": "render-visualizations",
+  "jobSlug": "observatory-visualization-runner",
   "produces": [
     {
-      "assetId": "directory.insights.report",
+      "assetId": "observatory.visualizations.minute",
       "schema": {
         "type": "object",
         "properties": {
-          "outputDir": { "type": "string" },
-          "reportTitle": { "type": "string" },
-          "generatedAt": { "type": "string", "format": "date-time" },
-          "artifacts": {
+          "partitionKey": { "type": "string" },
+          "plotsDir": { "type": "string" },
+          "plots": {
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "object",
+              "properties": {
+                "relativePath": { "type": "string" },
+                "mediaType": { "type": "string" }
+              },
+              "required": ["relativePath", "mediaType"]
+            }
           }
         },
-        "required": ["outputDir", "reportTitle", "generatedAt", "artifacts"]
+        "required": ["partitionKey", "plotsDir", "plots"]
       },
       "freshness": { "ttlMs": 3_600_000 },
       "autoMaterialize": {
         "onUpstreamUpdate": true,
         "priority": 5,
         "parameterDefaults": {
-          "archiveDir": "/app/tmp/directory-insights/archives",
-          "reportAsset": {
-            "assetId": "directory.insights.report",
-            "outputDir": "/app/tmp/directory-insights/output",
-            "artifacts": [
-              { "relativePath": "scan-data.json" },
-              { "relativePath": "index.html" },
-              { "relativePath": "summary.md" }
-            ]
+          "plotsDir": "examples/environmental-observatory-event-driven/data/plots",
+          "timestoreAsset": {
+            "assetId": "observatory.timeseries.timestore"
           }
         }
       }
     }
   ],
   "consumes": [
-    { "assetId": "directory.insights.archive" }
+    { "assetId": "observatory.timeseries.timestore" }
   ]
 }
 ```
@@ -71,18 +71,16 @@ At runtime your job handler should include an `assets` array in the returned res
 return {
   status: 'succeeded',
   result: {
-    files: artifacts,
+    plotsDir,
     assets: [
       {
-        assetId: 'directory.insights.report',
+        assetId: 'observatory.visualizations.minute',
+        partitionKey,
         payload: {
-          outputDir,
-          reportTitle,
-          generatedAt,
-          artifacts: artifacts.map(({ relativePath, mediaType, sizeBytes }) => ({
+          plotsDir,
+          plots: plots.map(({ relativePath, mediaType }) => ({
             relativePath,
-            mediaType,
-            sizeBytes
+            mediaType
           }))
         },
         producedAt: new Date().toISOString()
@@ -117,11 +115,11 @@ The catalog exposes inventory and history endpoints:
 
 - **List assets for a workflow**
   ```bash
-  curl -sS http://127.0.0.1:4000/workflows/directory-insights-report/assets | jq
+  curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets | jq
   ```
 - **Fetch history for a specific asset**
   ```bash
-  curl -sS http://127.0.0.1:4000/workflows/directory-insights-report/assets/directory.insights.report/history | jq
+  curl -sS http://127.0.0.1:4000/workflows/observatory-daily-publication/assets/observatory.visualizations.minute/history | jq
   ```
 
 Each record includes producer/consumer step metadata, the most recent payload, schema, freshness hints, and the run/step identifiers that emitted it.
@@ -163,10 +161,7 @@ API helpers:
 - Use structured payloads (rich JSON objects) so downstream consumers can extract metrics without hitting the filesystem.
 - Include TTL or cadence in the schema if data freshness matters; the catalog stores these hints for monitoring.
 - When migrating workflows, update `produces` declarations first so subsequent runs populate lineage immediately.
-- Combine assets with queue-based automation: e.g. a release workflow can block until `directory.insights.report` is fresh, or trigger downstream jobs when an asset changes.
-- Chain assets across workflows. The `directory-insights-archive` workflow (see `docs/directory-insights-archive-workflow.md`) consumes `directory.insights.report` and produces `directory.insights.archive`, making it easy to test event-driven materialization heuristics.
-- Explore the retail sales example (`docs/retail-sales-workflows.md`) for a partitioned ingest + auto-materialized reporting pipeline that emits Parquet files, SVG plots, and a static dashboard.
-- Try the fleet telemetry scenario (`docs/fleet-telemetry-workflows.md`) to see `dynamic` partition keys materialise automatically as new instruments report data.
-- Model hourly instrument drops with the environmental observatory walkthrough (`docs/environmental-observatory-workflows.md`) to watch DuckDB snapshots trigger downstream plots and reports automatically.
+- Combine assets with queue-based automation: use downstream workflows to block deployments until a critical asset is fresh, or kick off reporting runs when a new partition materialises.
+- Model hourly instrument drops with the environmental observatory walkthrough (`docs/environmental-observatory-workflows.md`) to watch Filestore events trigger ingestion, Timestore partitions, and downstream visualisations automatically.
 
 By treating workflow outputs as assets, you gain a built-in lineage system: reproducible artifacts, traceable provenance, and a queryable history that spans every workflow run while benefiting from automatic reconciliation when assets become stale.

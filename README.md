@@ -146,12 +146,11 @@ Key environment variables:
 
 See `docs/assets-overview.md` for auto-materialization policies and event flow details.
 
-### File Drop Watcher Demo
+### Environmental Observatory Example
 
-A new sample service (`examples/file-drop/services/file-drop-watcher`) demonstrates how external automations can trigger workflows. It watches
-`examples/file-drop/data/inbox` for new files, launches the `file-drop-relocation` workflow, and updates a simple dashboard once files land in the archive directory. Import the relocator job and workflow via the "File drop watcher demo" example scenario, then drop files into the inbox to replay the flow locally.
+The curated example content now focuses on the event-driven environmental observatory scenario (`examples/environmental-observatory-event-driven`). It provisions a file watcher service that streams inbox uploads through Filestore, normalisation and Timestore ingestion jobs, a reporting workflow, and a dashboard surface. Load the "Environmental observatory (event-driven)" scenario from the importer to recreate the full pipeline—including event triggers and workflow defaults—inside a fresh environment.
 
-See `docs/file-drop-watcher.md` for setup instructions and a deeper walk-through.
+The end-to-end walkthrough lives in `docs/environmental-observatory-workflows.md` and covers bootstrap scripts, trigger wiring, and validation steps once synthetic minute-level data begins to flow.
 
 ### Frontend
 

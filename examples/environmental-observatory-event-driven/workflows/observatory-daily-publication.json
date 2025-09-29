@@ -299,7 +299,7 @@
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
             "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
           },
-          "runKeyTemplate": "observatory-publish-{{ parameters.instrumentId | replace: \":\", \"-\" }}-{{ parameters.partitionKey | replace: \":\", \"-\" }}",
+          "runKeyTemplate": "observatory-publish-{{ parameters.instrumentId | replace: ':', '-' }}-{{ parameters.partitionKey | replace: ':', '-' }}",
           "metadata": {
             "timestore": {
               "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",

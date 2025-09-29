@@ -36,7 +36,7 @@ Introduce an optional-but-encouraged human-readable `runKey` that accompanies th
 | --- | --- |
 | Manual rerun for invoice 123 | `invoice-123` |
 | Daily partition `2024-05-01` | `partition-2024-05-01` |
-| Event trigger dedupe key `file-drop:abc123` | `event-file-drop-abc123` |
+| Event trigger dedupe key `observatory:instrument_alpha` | `event-observatory-instrument_alpha` |
 | Schedule window ending `2024-05-01T03:00Z` | `cron-2024-05-01t03` |
 
 ## Lifecycle & Collision Handling

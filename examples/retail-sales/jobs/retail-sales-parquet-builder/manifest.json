@@ -1,8 +1,0 @@
-{
-  "name": "Retail Sales Parquet Builder",
-  "version": "0.1.0",
-  "entry": "dist/index.js",
-  "runtime": "node18",
-  "description": "Converts normalized retail sales data into Parquet and summary artifacts.",
-  "capabilities": ["fs"]
-}

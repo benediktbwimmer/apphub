@@ -1,5 +1,0 @@
-timestamp,temperature_c,humidity_pct,quality_flag
-2024-01-01T00:00:00Z,21.5,48,OK
-2024-01-01T06:00:00Z,22.8,45,OK
-2024-01-01T12:00:00Z,24.1,40,OK
-2024-01-01T18:00:00Z,23.0,43,OK

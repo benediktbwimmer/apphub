@@ -1,8 +1,0 @@
-{
-  "name": "Observatory Report Publisher",
-  "version": "0.1.0",
-  "entry": "dist/index.js",
-  "runtime": "node18",
-  "description": "Publishes Markdown, HTML, and JSON status reports and optionally upserts them into the metastore.",
-  "capabilities": ["fs", "network"]
-}

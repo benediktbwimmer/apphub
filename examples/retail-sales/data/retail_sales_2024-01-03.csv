@@ -1,7 +1,0 @@
-order_id,date,region,category,channel,units,unit_price
-1020,2024-01-03,East,Electronics,Online,6,279.0
-1021,2024-01-03,West,Home,In-Store,4,95.0
-1022,2024-01-03,North,Grocery,Wholesale,30,4.2
-1023,2024-01-03,South,Clothing,Online,5,55.0
-1024,2024-01-03,West,Grocery,Online,16,4.85
-1025,2024-01-03,East,Home,Pop-Up,3,110.0

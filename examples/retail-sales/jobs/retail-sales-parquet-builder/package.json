@@ -1,8 +1,0 @@
-{
-  "name": "retail-sales-parquet-builder",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "parquetjs-lite": "^0.8.7"
-  }
-}
