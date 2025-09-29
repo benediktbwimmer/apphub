@@ -679,6 +679,7 @@ export function WorkflowGraphCanvas({
   const interactive = interactionMode === 'interactive';
   const hasRenderableNodes = Boolean(resolvedModel && resolvedModel.nodes.length > 0);
   const showLoadingOverlay = loading && !hasRenderableNodes;
+  const showErrorOverlay = Boolean(error && !loading && !hasRenderableNodes);
 
   useEffect(() => {
     if (!autoFit) {
@@ -903,8 +904,11 @@ export function WorkflowGraphCanvas({
             Rendering workflow topology…
           </div>
         )}
-        {error && !loading && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 p-6 text-center text-sm text-rose-600 dark:bg-slate-950/70 dark:text-rose-300">
+        {showErrorOverlay && (
+          <div
+            data-testid="workflow-topology-error-overlay"
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 p-6 text-center text-sm text-rose-600 dark:bg-slate-950/70 dark:text-rose-300"
+          >
             <p>Unable to render workflow topology.</p>
             <p className="text-xs text-rose-500/80 dark:text-rose-200/80">{error}</p>
           </div>

@@ -103,6 +103,10 @@ async function waitForTopologyRender(page: Page) {
   return canvasRegion;
 }
 
+function getErrorOverlayLocator(page: Page) {
+  return page.locator('[data-testid="workflow-topology-error-overlay"]');
+}
+
 type ViewportState = {
   x: number;
   y: number;
@@ -287,6 +291,44 @@ test.describe('Workflow topology explorer', () => {
     await expect(nodes).toHaveCount(totalNodeCount);
     const edges = canvasRegion.locator('path.react-flow__edge-path');
     await expect(edges).toHaveCount(totalEdgeCount);
+    await expect(getErrorOverlayLocator(page)).toHaveCount(0);
+  });
+
+  test('keeps topology visible when background refresh fails', async ({ page }) => {
+    await page.unroute('**/workflows/graph');
+    let requestCount = 0;
+    await page.route('**/workflows/graph', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fulfillJson(route, { data: graphFixture }, topologyOrigin);
+        return;
+      }
+      await fulfillJson(route, { error: 'internal server error' }, topologyOrigin, 500);
+    });
+
+    await page.goto('/topology');
+    const canvasRegion = await waitForTopologyRender(page);
+    const nodes = canvasRegion.locator('.react-flow__node');
+    await expect(nodes).toHaveCount(totalNodeCount);
+
+    await page.evaluate(() => {
+      window.__apphubSocketEmit?.({
+        type: 'workflow.definition.updated',
+        data: { workflowId: 'wf-orders' }
+      });
+    });
+
+    await expect.poll(() => requestCount).toBe(2);
+    await page.getByText('Topology fetch failed').waitFor();
+
+    await expect(nodes).toHaveCount(totalNodeCount);
+    const edges = canvasRegion.locator('path.react-flow__edge-path');
+    await expect(edges).toHaveCount(totalEdgeCount);
+    await expect(getErrorOverlayLocator(page)).toHaveCount(0);
   });
 
   test('keeps canvas visible during background refresh', async ({ page }) => {
