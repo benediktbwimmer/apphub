@@ -392,11 +392,34 @@ function normalizeState(state: ExampleBundleState): ExampleBundleState {
   return state;
 }
 
-function normalizeNullableString(value: string | null | undefined): string | null {
+function normalizeNullableString(value: unknown): string | null {
   if (value === undefined || value === null) {
     return null;
   }
-  const trimmed = value.trim();
+
+  let candidate: string | null = null;
+
+  if (typeof value === 'string') {
+    candidate = value;
+  } else if (value instanceof Date) {
+    candidate = value.toISOString();
+  } else if (typeof value === 'number' || typeof value === 'boolean') {
+    candidate = String(value);
+  } else if (typeof value === 'object') {
+    try {
+      candidate = JSON.stringify(value);
+    } catch {
+      candidate = null;
+    }
+  } else {
+    candidate = String(value);
+  }
+
+  if (!candidate) {
+    return null;
+  }
+
+  const trimmed = candidate.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
