@@ -47,6 +47,8 @@ import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
 import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
+import { getRuntimeScalingEffectiveConcurrency } from './runtimeScaling/state';
+import { getRuntimeScalingTarget } from './runtimeScaling/targets';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
@@ -67,6 +69,8 @@ const WORKFLOW_RETRY_BACKOFF = {
   maxMs: normalizePositiveNumber(process.env.WORKFLOW_RETRY_MAX_MS, 30 * 60_000),
   jitterRatio: normalizeRatio(process.env.WORKFLOW_RETRY_JITTER_RATIO, 0.2)
 } as const;
+
+const WORKFLOW_RUNTIME_TARGET = getRuntimeScalingTarget('catalog:workflow');
 
 function normalizePositiveNumber(value: string | undefined, fallback: number, minimum = 1): number {
   if (!value) {
@@ -91,6 +95,26 @@ function normalizeRatio(value: string | undefined, fallback: number): number {
     return fallback;
   }
   return Math.min(Math.max(parsed, 0), 1);
+}
+
+function resolveRuntimeConcurrencyBaseline(): number {
+  const runtimeValue = getRuntimeScalingEffectiveConcurrency('catalog:workflow');
+  if (runtimeValue !== null && runtimeValue > 0) {
+    return Math.max(1, Math.min(runtimeValue, WORKFLOW_RUNTIME_TARGET.maxConcurrency));
+  }
+
+  const fallbackCandidate = Number(
+    process.env.WORKFLOW_MAX_PARALLEL ??
+      process.env.WORKFLOW_CONCURRENCY ??
+      WORKFLOW_RUNTIME_TARGET.defaultConcurrency
+  );
+
+  const normalized =
+    Number.isFinite(fallbackCandidate) && fallbackCandidate > 0
+      ? Math.floor(fallbackCandidate)
+      : WORKFLOW_RUNTIME_TARGET.defaultConcurrency;
+
+  return Math.max(1, Math.min(normalized, WORKFLOW_RUNTIME_TARGET.maxConcurrency));
 }
 
 function resolveRetryAttemptLimit(policy: JobRetryPolicy | null | undefined): number | null {
@@ -1264,8 +1288,8 @@ function resolveRunConcurrency(
   run: WorkflowRunRecord,
   steps: WorkflowStepDefinition[]
 ): number {
-  const envValue = Number(process.env.WORKFLOW_MAX_PARALLEL ?? process.env.WORKFLOW_CONCURRENCY ?? 1);
-  let limit = Number.isFinite(envValue) && envValue > 0 ? Math.floor(envValue) : 1;
+  const runtimeLimit = resolveRuntimeConcurrencyBaseline();
+  let limit = runtimeLimit;
 
   const metadata = definition.metadata;
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
@@ -1273,7 +1297,7 @@ function resolveRunConcurrency(
     if (scheduler && typeof scheduler === 'object' && !Array.isArray(scheduler)) {
       const metaValue = Number((scheduler as Record<string, unknown>).maxParallel);
       if (Number.isFinite(metaValue) && metaValue > 0) {
-        limit = Math.floor(metaValue);
+        limit = Math.max(1, Math.min(Math.floor(metaValue), runtimeLimit));
       }
     }
   }
@@ -1285,11 +1309,11 @@ function resolveRunConcurrency(
       paramRecord.workflowConcurrency ?? paramRecord.maxConcurrency ?? paramRecord.concurrency
     );
     if (Number.isFinite(overrideValue) && overrideValue > 0) {
-      limit = Math.floor(overrideValue);
+      limit = Math.max(1, Math.min(Math.floor(overrideValue), runtimeLimit));
     }
   }
 
-  const maxAllowed = Math.max(1, steps.length);
+  const maxAllowed = Math.max(1, Math.min(runtimeLimit, steps.length === 0 ? 1 : steps.length));
   return Math.max(1, Math.min(limit, maxAllowed));
 }
 

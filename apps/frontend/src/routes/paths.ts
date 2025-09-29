@@ -20,6 +20,7 @@ export const ROUTE_SEGMENTS = {
   settingsPreview: 'preview',
   settingsApiAccess: 'api',
   settingsAiBuilder: 'ai-builder',
+  settingsRuntimeScaling: 'runtime-scaling',
   settingsAdmin: 'admin',
   settingsImport: 'import'
 } as const;
@@ -45,6 +46,7 @@ export const ROUTE_PATHS = {
   settings: `/${ROUTE_SEGMENTS.settings}`,
   settingsPreview: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsPreview}`,
   settingsApiAccess: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsApiAccess}`,
+  settingsRuntimeScaling: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsRuntimeScaling}`,
   settingsAiBuilder: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAiBuilder}`,
   settingsAdmin: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsAdmin}`,
   settingsImport: `/${ROUTE_SEGMENTS.settings}/${ROUTE_SEGMENTS.settingsImport}`

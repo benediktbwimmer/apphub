@@ -20,7 +20,8 @@ const DEV_SERVICE_SCOPES = [
   'metastore:read',
   'metastore:write',
   'metastore:delete',
-  'metastore:admin'
+  'metastore:admin',
+  'runtime:write'
 ] as const;
 
 function normalizeIdentity(identity: AuthIdentity | null): AuthIdentity | null {

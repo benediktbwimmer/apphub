@@ -1558,3 +1558,42 @@ export type AuditLogCreateInput = {
   userAgent?: string | null;
   metadata?: JsonValue | null;
 };
+
+export type RuntimeScalingPolicyRecord = {
+  target: string;
+  desiredConcurrency: number;
+  reason: string | null;
+  updatedBy: string | null;
+  updatedByKind: 'user' | 'service' | null;
+  updatedByTokenHash: string | null;
+  metadata: JsonValue | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuntimeScalingPolicyUpsertInput = {
+  target: string;
+  desiredConcurrency: number;
+  reason?: string | null;
+  updatedBy?: string | null;
+  updatedByKind?: 'user' | 'service' | null;
+  updatedByTokenHash?: string | null;
+  metadata?: JsonValue | null;
+};
+
+export type RuntimeScalingAcknowledgementRecord = {
+  target: string;
+  instanceId: string;
+  appliedConcurrency: number;
+  status: 'ok' | 'pending' | 'error';
+  error: string | null;
+  updatedAt: string;
+};
+
+export type RuntimeScalingAcknowledgementInput = {
+  target: string;
+  instanceId: string;
+  appliedConcurrency: number;
+  status?: 'ok' | 'pending' | 'error';
+  error?: string | null;
+};

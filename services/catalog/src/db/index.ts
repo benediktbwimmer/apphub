@@ -22,3 +22,4 @@ export * from './savedSearches';
 export * from './eventSavedViews';
 export * from './workflowEventSamples';
 export * from './workflowEventSamplingReplay';
+export * from './runtimeScaling';

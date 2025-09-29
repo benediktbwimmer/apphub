@@ -14,9 +14,14 @@ import {
 } from './jobs/runtime';
 import { IngestionPipelineError, processRepository } from './ingestion';
 import { log } from './ingestion/logger';
+import { createRuntimeScalingWorkerAgent } from './runtimeScaling/workerAgent';
+import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from './runtimeScaling/targets';
+import type { RuntimeScalingSnapshot } from './runtimeScaling/policies';
+import { setRuntimeScalingSnapshot } from './runtimeScaling/state';
 
-const INGEST_CONCURRENCY = Number(process.env.INGEST_CONCURRENCY ?? 2);
 const useInlineQueue = isInlineQueueMode();
+const INGEST_SCALING_TARGET: RuntimeScalingTargetKey = 'catalog:ingest';
+const INGEST_SCALING_CONFIG = getRuntimeScalingTarget(INGEST_SCALING_TARGET);
 
 async function runIngestionJobTask(
   repositoryId: string,
@@ -163,7 +168,7 @@ registerJobHandler('repository-ingest', ingestionJobHandler);
 async function runWorker() {
   log('Starting ingestion worker', {
     queue: INGEST_QUEUE_NAME,
-    concurrency: INGEST_CONCURRENCY,
+    concurrency: INGEST_SCALING_CONFIG.defaultConcurrency,
     mode: useInlineQueue ? 'inline' : 'redis'
   });
 
@@ -245,6 +250,8 @@ async function runWorker() {
   const connection = getQueueConnection();
   const { Worker } = await import('bullmq');
 
+  const initialConcurrency = Math.max(INGEST_SCALING_CONFIG.defaultConcurrency, 1);
+
   const worker = new Worker(
     INGEST_QUEUE_NAME,
     async (job) => {
@@ -257,7 +264,7 @@ async function runWorker() {
     },
     {
       connection,
-      concurrency: INGEST_CONCURRENCY
+      concurrency: initialConcurrency
     }
   );
 
@@ -273,10 +280,53 @@ async function runWorker() {
   });
 
   await worker.waitUntilReady();
+
+  const scalingAgent = createRuntimeScalingWorkerAgent({
+    target: INGEST_SCALING_TARGET,
+    applyConcurrency: async (concurrency: number, snapshot: RuntimeScalingSnapshot) => {
+      if (concurrency <= 0) {
+        await worker.pause(true).catch((err) => {
+          log('Failed to pause ingestion worker during scaling', { error: (err as Error).message });
+        });
+        worker.concurrency = 1;
+        log('Applied runtime scaling update', {
+          target: snapshot.target,
+          concurrency: 0,
+          reason: snapshot.reason ?? undefined
+        });
+        return;
+      }
+      const next = Math.max(1, concurrency);
+      worker.concurrency = next;
+      if (worker.isPaused()) {
+        worker.resume();
+      }
+      log('Applied runtime scaling update', {
+        target: snapshot.target,
+        concurrency: next,
+        reason: snapshot.reason ?? undefined
+      });
+    },
+    getCurrentConcurrency: () => worker.concurrency,
+    onSnapshotApplied: (snapshot: RuntimeScalingSnapshot) => {
+      setRuntimeScalingSnapshot(snapshot);
+      log('Runtime scaling snapshot applied', {
+        target: snapshot.target,
+        effectiveConcurrency: snapshot.effectiveConcurrency,
+        desiredConcurrency: snapshot.desiredConcurrency,
+        source: snapshot.source
+      });
+    }
+  });
+
+  await scalingAgent.start();
   log('Ingestion worker ready');
 
   const shutdown = async () => {
     log('Shutdown signal received');
+    await scalingAgent.stop().catch((err) => {
+      log('Error stopping runtime scaling agent', { error: (err as Error).message });
+    });
     await worker.close();
     try {
       await closeQueueConnection(connection);

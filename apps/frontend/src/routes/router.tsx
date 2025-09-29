@@ -20,6 +20,7 @@ import RunsPage from '../runs/RunsPage';
 import EventsExplorerPage from '../events/EventsExplorerPage';
 import ApiAccessPage from '../settings/ApiAccessPage';
 import AiBuilderSettingsPage from '../settings/AiBuilderSettingsPage';
+import RuntimeScalingSettingsPage from '../settings/RuntimeScalingSettingsPage';
 import SettingsLayout from '../settings/SettingsLayout';
 import PreviewSettingsPage from '../settings/PreviewSettingsPage';
 import AdminToolsPage from '../settings/AdminToolsPage';
@@ -148,6 +149,14 @@ export const appRouteConfig: RouteObject[] = [
           {
             path: ROUTE_SEGMENTS.settingsApiAccess,
             element: <ApiAccessPage />
+          },
+          {
+            path: ROUTE_SEGMENTS.settingsRuntimeScaling,
+            element: (
+              <RequireOperatorToken>
+                <RuntimeScalingSettingsPage />
+              </RequireOperatorToken>
+            )
           },
           {
             path: ROUTE_SEGMENTS.settingsImport,

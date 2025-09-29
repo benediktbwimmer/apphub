@@ -6,3 +6,4 @@ export const WORKFLOW_WRITE_SCOPES: OperatorScope[] = ['workflows:write'];
 export const WORKFLOW_RUN_SCOPES: OperatorScope[] = ['workflows:run'];
 export const JOB_BUNDLE_WRITE_SCOPES: OperatorScope[] = ['job-bundles:write'];
 export const JOB_BUNDLE_READ_SCOPES: OperatorScope[] = ['job-bundles:read'];
+export const RUNTIME_SCALING_WRITE_SCOPES: OperatorScope[] = ['runtime:write'];

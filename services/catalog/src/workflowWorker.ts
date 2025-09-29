@@ -30,9 +30,14 @@ import {
   type WorkflowStepDefinition,
   type JsonValue
 } from './db/types';
+import { createRuntimeScalingWorkerAgent } from './runtimeScaling/workerAgent';
+import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from './runtimeScaling/targets';
+import type { RuntimeScalingSnapshot } from './runtimeScaling/policies';
+import { setRuntimeScalingSnapshot } from './runtimeScaling/state';
 
-const WORKFLOW_CONCURRENCY = Number(process.env.WORKFLOW_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
+const WORKFLOW_SCALING_TARGET: RuntimeScalingTargetKey = 'catalog:workflow';
+const WORKFLOW_SCALING_CONFIG = getRuntimeScalingTarget(WORKFLOW_SCALING_TARGET);
 
 const HEARTBEAT_TIMEOUT_MS = Math.max(
   1000,
@@ -417,6 +422,7 @@ async function runQueueWorker() {
   const connection = getQueueConnection();
   const heartbeatMonitor = startHeartbeatMonitor();
   let retryReconciler: RetryReconciler | null = null;
+  const initialConcurrency = Math.max(WORKFLOW_SCALING_CONFIG.defaultConcurrency, 1);
   const worker = new Worker(
     WORKFLOW_QUEUE_NAME,
     async (job) => {
@@ -443,7 +449,7 @@ async function runQueueWorker() {
     },
     {
       connection,
-      concurrency: WORKFLOW_CONCURRENCY
+      concurrency: initialConcurrency
     }
   );
 
@@ -458,15 +464,64 @@ async function runQueueWorker() {
     });
   });
 
+  let scalingAgent: ReturnType<typeof createRuntimeScalingWorkerAgent> | null = null;
+
   try {
     await worker.waitUntilReady();
+    scalingAgent = createRuntimeScalingWorkerAgent({
+      target: WORKFLOW_SCALING_TARGET,
+      applyConcurrency: async (concurrency: number, snapshot: RuntimeScalingSnapshot) => {
+        if (concurrency <= 0) {
+          if (!worker.isPaused()) {
+            await worker.pause(true).catch((error) => {
+              log('Failed to pause workflow worker during scaling', {
+                error: (error as Error).message
+              });
+            });
+          }
+          worker.concurrency = 1;
+          log('Applied runtime scaling update', {
+            target: snapshot.target,
+            concurrency: 0,
+            reason: snapshot.reason ?? undefined
+          });
+          return;
+        }
+        const next = Math.max(1, concurrency);
+        worker.concurrency = next;
+        if (worker.isPaused()) {
+          worker.resume();
+        }
+        log('Applied runtime scaling update', {
+          target: snapshot.target,
+          concurrency: next,
+          reason: snapshot.reason ?? undefined
+        });
+      },
+      getCurrentConcurrency: () => worker.concurrency,
+      onSnapshotApplied: (snapshot: RuntimeScalingSnapshot) => {
+        setRuntimeScalingSnapshot(snapshot);
+        log('Runtime scaling snapshot applied', {
+          target: snapshot.target,
+          effectiveConcurrency: snapshot.effectiveConcurrency,
+          desiredConcurrency: snapshot.desiredConcurrency,
+          source: snapshot.source
+        });
+      }
+    });
+
+    await scalingAgent.start();
+
     log('Workflow worker ready', {
       queue: WORKFLOW_QUEUE_NAME,
-      concurrency: WORKFLOW_CONCURRENCY
+      concurrency: WORKFLOW_SCALING_CONFIG.defaultConcurrency
     });
     await reconcileScheduledWorkflowRetries();
     retryReconciler = startRetryReconciler();
   } catch (err) {
+    if (scalingAgent) {
+      await scalingAgent.stop().catch(() => undefined);
+    }
     await heartbeatMonitor.stop();
     await scheduler.stop();
     throw err;
@@ -474,6 +529,12 @@ async function runQueueWorker() {
 
   const shutdown = async () => {
     log('Shutdown signal received');
+    if (scalingAgent) {
+      await scalingAgent.stop().catch((error) => {
+        log('Error stopping runtime scaling agent', { error: (error as Error).message });
+      });
+      scalingAgent = null;
+    }
     await worker.close();
     if (retryReconciler) {
       await retryReconciler.stop();

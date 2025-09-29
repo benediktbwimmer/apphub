@@ -13,6 +13,8 @@ import {
   countPendingEventSamplingReplays
 } from './workflowEventSamplingReplay';
 
+export type { WorkflowEventProducerSampleRecord } from './types';
+
 const DEFAULT_SAMPLE_TTL_MS = resolveTtl(process.env.EVENT_SAMPLING_TTL_MS, 30 * 24 * 60 * 60 * 1000);
 const DEFAULT_INFERRED_EDGE_MAX_AGE_MS = resolveTtl(
   process.env.WORKFLOW_TOPOLOGY_INFERRED_EDGE_MAX_AGE_MS,

@@ -48,7 +48,7 @@ export type WorkflowRetryJobData = {
   retryKind: 'workflow';
 };
 
-const QUEUE_KEYS = {
+export const QUEUE_KEYS = {
   ingest: 'catalog:ingest',
   build: 'catalog:build',
   launch: 'catalog:launch',
@@ -571,6 +571,10 @@ export function isInlineQueueMode() {
 
 export async function closeQueueConnection(instance?: Redis | null) {
   await queueManager.closeConnection(instance ?? null);
+}
+
+export function getQueueKeyStatistics(key: string) {
+  return queueManager.getQueueStatistics(key);
 }
 
 export async function enqueueBuildJob(

@@ -9,9 +9,14 @@ import {
 } from './queue';
 import { createJobRunForSlug, executeJobRun } from './jobs/runtime';
 import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
+import { createRuntimeScalingWorkerAgent } from './runtimeScaling/workerAgent';
+import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from './runtimeScaling/targets';
+import type { RuntimeScalingSnapshot } from './runtimeScaling/policies';
+import { setRuntimeScalingSnapshot } from './runtimeScaling/state';
 
-const BUILD_CONCURRENCY = Number(process.env.BUILD_CONCURRENCY ?? 1);
 const useInlineQueue = isInlineQueueMode();
+const BUILD_SCALING_TARGET: RuntimeScalingTargetKey = 'catalog:build';
+const BUILD_SCALING_CONFIG = getRuntimeScalingTarget(BUILD_SCALING_TARGET);
 
 function log(message: string, meta?: Record<string, unknown>) {
   const payload = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -90,10 +95,11 @@ async function runInlineBuildLoop() {
 async function runQueuedBuildWorker() {
   log('Starting queued build worker', {
     queue: BUILD_QUEUE_NAME,
-    concurrency: BUILD_CONCURRENCY
+    concurrency: BUILD_SCALING_CONFIG.defaultConcurrency
   });
 
   const connection = getQueueConnection();
+  const initialConcurrency = Math.max(BUILD_SCALING_CONFIG.defaultConcurrency, 1);
   const worker = new Worker(
     BUILD_QUEUE_NAME,
     async (job) => {
@@ -116,7 +122,7 @@ async function runQueuedBuildWorker() {
     },
     {
       connection,
-      concurrency: BUILD_CONCURRENCY
+      concurrency: initialConcurrency
     }
   );
 
@@ -132,10 +138,55 @@ async function runQueuedBuildWorker() {
   });
 
   await worker.waitUntilReady();
+
+  const scalingAgent = createRuntimeScalingWorkerAgent({
+    target: BUILD_SCALING_TARGET,
+    applyConcurrency: async (concurrency: number, snapshot: RuntimeScalingSnapshot) => {
+      if (concurrency <= 0) {
+        if (!worker.isPaused()) {
+          await worker.pause(true).catch((err) => {
+            log('Failed to pause build worker during scaling', { error: (err as Error).message });
+          });
+        }
+        worker.concurrency = 1;
+        log('Applied runtime scaling update', {
+          target: snapshot.target,
+          concurrency: 0,
+          reason: snapshot.reason ?? undefined
+        });
+        return;
+      }
+      const next = Math.max(1, concurrency);
+      worker.concurrency = next;
+      if (worker.isPaused()) {
+        worker.resume();
+      }
+      log('Applied runtime scaling update', {
+        target: snapshot.target,
+        concurrency: next,
+        reason: snapshot.reason ?? undefined
+      });
+    },
+    getCurrentConcurrency: () => worker.concurrency,
+    onSnapshotApplied: (snapshot: RuntimeScalingSnapshot) => {
+      setRuntimeScalingSnapshot(snapshot);
+      log('Runtime scaling snapshot applied', {
+        target: snapshot.target,
+        effectiveConcurrency: snapshot.effectiveConcurrency,
+        desiredConcurrency: snapshot.desiredConcurrency,
+        source: snapshot.source
+      });
+    }
+  });
+
+  await scalingAgent.start();
   log('Build worker ready');
 
   const shutdown = async () => {
     log('Shutdown signal received');
+    await scalingAgent.stop().catch((err) => {
+      log('Error stopping runtime scaling agent', { error: (err as Error).message });
+    });
     await worker.close();
     try {
       await closeQueueConnection(connection);

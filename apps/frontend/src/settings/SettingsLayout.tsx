@@ -17,6 +17,12 @@ const TABS = [
     description: 'Manage operator tokens stored in your browser.'
   },
   {
+    key: 'runtime-scaling',
+    label: 'Runtime scaling',
+    path: ROUTE_SEGMENTS.settingsRuntimeScaling,
+    description: 'Review queue metrics and adjust worker concurrency at runtime.'
+  },
+  {
     key: 'import',
     label: 'Import workspace',
     path: ROUTE_SEGMENTS.settingsImport,

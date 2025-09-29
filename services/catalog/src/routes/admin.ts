@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   ensureDatabase,
   listWorkflowEvents,
@@ -12,6 +12,7 @@ import {
   getEventQueueStats,
   getEventTriggerQueueStats,
   getQueueHealthSnapshot,
+  getQueueKeyStatistics,
   removeEventRetryJob,
   removeEventTriggerRetryJob,
   removeWorkflowRetryJob,
@@ -45,15 +46,31 @@ import { getWorkflowEventById } from '../workflowEvents';
 import { buildWorkflowEventView } from '../workflowEventInsights';
 import { decodeWorkflowEventCursor, encodeWorkflowEventCursor } from '../workflowEventCursor';
 import { requireOperatorScopes } from './shared/operatorAuth';
-import { WORKFLOW_RUN_SCOPES } from './shared/scopes';
+import { RUNTIME_SCALING_WRITE_SCOPES, WORKFLOW_RUN_SCOPES } from './shared/scopes';
 import { getWorkflowSchedulerMetricsSnapshot } from '../workflowSchedulerMetrics';
 import { getWorkflowEventProducerSamplingSnapshot } from '../db/workflowEventSamples';
 import { replayWorkflowEventSampling } from '../eventSamplingReplay';
+import {
+  listRuntimeScalingAcknowledgements,
+  type RuntimeScalingAcknowledgementRecord
+} from '../db/runtimeScaling';
+import {
+  resolveAllRuntimeScalingSnapshots,
+  updateRuntimeScalingPolicy,
+  RuntimeScalingRateLimitError,
+  RuntimeScalingValidationError,
+  isRuntimeScalingWriteEnabled
+} from '../runtimeScaling/policies';
+import type { RuntimeScalingSnapshot } from '../runtimeScaling/policies';
+import { getRuntimeScalingTarget, type RuntimeScalingTargetKey } from '../runtimeScaling/targets';
+import { publishRuntimeScalingUpdate } from '../runtimeScaling/notifications';
 
 const DEFAULT_SAMPLING_STALE_MINUTES = normalizePositiveNumber(
   process.env.EVENT_SAMPLING_STALE_MINUTES,
   6 * 60
 );
+
+const RUNTIME_SCALING_ACK_LIMIT = 20;
 
 function normalizePositiveNumber(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -110,6 +127,122 @@ function computeStaleBefore(
   return new Date(Date.now() - DEFAULT_SAMPLING_STALE_MINUTES * 60_000).toISOString();
 }
 
+type RuntimeScalingQueueSnapshot = {
+  name: string;
+  mode: 'inline' | 'queue';
+  counts: Record<string, number>;
+  metrics: {
+    processingAvgMs?: number | null;
+    waitingAvgMs?: number | null;
+  } | null;
+  error: string | null;
+};
+
+type RuntimeScalingTargetPayload = {
+  target: string;
+  displayName: string;
+  description: string;
+  desiredConcurrency: number;
+  effectiveConcurrency: number;
+  defaultConcurrency: number;
+  minConcurrency: number;
+  maxConcurrency: number;
+  rateLimitMs: number;
+  defaultEnvVar: string;
+  source: 'policy' | 'default';
+  reason: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  updatedByKind: 'user' | 'service' | null;
+  policyMetadata: JsonValue | null;
+  queue: RuntimeScalingQueueSnapshot;
+  acknowledgements: Array<{
+    instanceId: string;
+    appliedConcurrency: number;
+    status: RuntimeScalingAcknowledgementRecord['status'];
+    error: string | null;
+    updatedAt: string;
+  }>;
+};
+
+function normalizeQueueCounts(counts?: Record<string, number>): Record<string, number> {
+  if (!counts) {
+    return {};
+  }
+  const normalized: Record<string, number> = {};
+  for (const [state, value] of Object.entries(counts)) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      normalized[state] = value;
+    }
+  }
+  return normalized;
+}
+
+function normalizeAcknowledgements(
+  entries: RuntimeScalingAcknowledgementRecord[]
+): RuntimeScalingTargetPayload['acknowledgements'] {
+  return entries.map((entry) => ({
+    instanceId: entry.instanceId,
+    appliedConcurrency: entry.appliedConcurrency,
+    status: entry.status,
+    error: entry.error ?? null,
+    updatedAt: entry.updatedAt
+  }));
+}
+
+async function buildRuntimeScalingTargetPayload(
+  snapshot: RuntimeScalingSnapshot,
+  request: FastifyRequest
+): Promise<RuntimeScalingTargetPayload> {
+  const config = getRuntimeScalingTarget(snapshot.target);
+
+  let queueError: string | null = null;
+  let queueName = config.queueName;
+  let queueMode: 'inline' | 'queue' = 'queue';
+  let queueCounts: Record<string, number> = {};
+  let queueMetrics: RuntimeScalingQueueSnapshot['metrics'] = null;
+
+  try {
+    const stats = await getQueueKeyStatistics(config.queueKey);
+    queueName = stats.queueName;
+    queueMode = stats.mode;
+    queueCounts = stats.mode === 'queue' ? normalizeQueueCounts(stats.counts) : {};
+    queueMetrics = stats.mode === 'queue' ? stats.metrics ?? null : null;
+  } catch (err) {
+    queueError = err instanceof Error ? err.message : String(err);
+    request.log.warn({ err, target: snapshot.target }, 'Failed to collect queue statistics for runtime scaling');
+  }
+
+  const acknowledgements = await listRuntimeScalingAcknowledgements(snapshot.target);
+
+  return {
+    target: snapshot.target,
+    displayName: config.displayName,
+    description: config.description,
+    desiredConcurrency: snapshot.desiredConcurrency,
+    effectiveConcurrency: snapshot.effectiveConcurrency,
+    defaultConcurrency: snapshot.defaultConcurrency,
+    minConcurrency: config.minConcurrency,
+    maxConcurrency: config.maxConcurrency,
+    rateLimitMs: config.rateLimitMs,
+    defaultEnvVar: config.defaultEnvVar,
+    source: snapshot.source,
+    reason: snapshot.reason,
+    updatedAt: snapshot.updatedAt,
+    updatedBy: snapshot.updatedBy,
+    updatedByKind: snapshot.updatedByKind,
+    policyMetadata: snapshot.policy?.metadata ?? null,
+    queue: {
+      name: queueName,
+      mode: queueMode,
+      counts: queueCounts,
+      metrics: queueMetrics,
+      error: queueError
+    },
+    acknowledgements: normalizeAcknowledgements(acknowledgements.slice(0, RUNTIME_SCALING_ACK_LIMIT))
+  } satisfies RuntimeScalingTargetPayload;
+}
+
 function mergeMetadata(existing: JsonValue | null | undefined, patch: Record<string, unknown>): JsonValue {
   if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
     return { ...(existing as Record<string, unknown>), ...patch } as JsonValue;
@@ -153,6 +286,144 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       request.log.error({ err }, 'Failed to collect event health');
       reply.status(500).send({ error: 'Failed to collect event health' });
+    }
+  });
+
+  app.get('/admin/runtime-scaling', async (request, reply) => {
+    try {
+      const snapshots = await resolveAllRuntimeScalingSnapshots();
+      const targets = await Promise.all(
+        snapshots.map((snapshot) => buildRuntimeScalingTargetPayload(snapshot, request))
+      );
+
+      reply.status(200).send({
+        data: {
+          targets,
+          writesEnabled: isRuntimeScalingWriteEnabled()
+        }
+      });
+    } catch (err) {
+      request.log.error({ err }, 'Failed to collect runtime scaling state');
+      reply.status(500).send({ error: 'Failed to load runtime scaling state' });
+    }
+  });
+
+  app.post<{
+    Params: { target: string };
+    Body: { desiredConcurrency?: number; reason?: string | null };
+  }>('/admin/runtime-scaling/:target', async (request, reply) => {
+    const targetParam = request.params.target?.trim();
+    if (!targetParam) {
+      reply.status(400).send({ error: 'Runtime scaling target is required' });
+      return;
+    }
+
+    let targetConfig: ReturnType<typeof getRuntimeScalingTarget>;
+    try {
+      targetConfig = getRuntimeScalingTarget(targetParam as RuntimeScalingTargetKey);
+    } catch (err) {
+      reply.status(404).send({ error: 'Unknown runtime scaling target' });
+      return;
+    }
+
+    const normalizedTarget: RuntimeScalingTargetKey = targetConfig.key;
+
+    const authResult = await requireOperatorScopes(request, reply, {
+      action: 'runtime-scaling.update',
+      resource: normalizedTarget,
+      requiredScopes: RUNTIME_SCALING_WRITE_SCOPES
+    });
+
+    if (!authResult.ok) {
+      return;
+    }
+
+    if (!isRuntimeScalingWriteEnabled()) {
+      await authResult.auth.log('failed', {
+        reason: 'writes_disabled',
+        target: normalizedTarget
+      });
+      reply.status(403).send({ error: 'Runtime scaling updates are disabled for this environment.' });
+      return;
+    }
+
+    const desiredInput = request.body?.desiredConcurrency;
+    const desiredValue = typeof desiredInput === 'number' ? desiredInput : Number(desiredInput);
+    if (!Number.isFinite(desiredValue)) {
+      await authResult.auth.log('failed', {
+        reason: 'invalid_desired_concurrency',
+        target: normalizedTarget
+      });
+      reply.status(400).send({ error: 'desiredConcurrency must be a finite number.' });
+      return;
+    }
+
+    let reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : null;
+    if (reason === '') {
+      reason = null;
+    }
+
+    try {
+      const result = await updateRuntimeScalingPolicy({
+        target: normalizedTarget,
+        desiredConcurrency: desiredValue,
+        reason,
+        actor: {
+          subject: authResult.auth.identity.subject,
+          kind: authResult.auth.identity.kind,
+          tokenHash: authResult.auth.identity.tokenHash
+        }
+      });
+
+      await publishRuntimeScalingUpdate({
+        type: 'policy:update',
+        target: result.snapshot.target,
+        desiredConcurrency: result.snapshot.desiredConcurrency,
+        updatedAt: result.snapshot.updatedAt ?? new Date().toISOString()
+      });
+
+      await authResult.auth.log('succeeded', {
+        action: 'runtime-scaling.update',
+        target: result.snapshot.target,
+        desiredConcurrency: result.snapshot.desiredConcurrency,
+        previousConcurrency: result.previousPolicy?.desiredConcurrency ?? null,
+        reason: result.snapshot.reason ?? null
+      });
+
+      const payload = await buildRuntimeScalingTargetPayload(result.snapshot, request);
+
+      reply.status(200).send({
+        data: payload,
+        writesEnabled: isRuntimeScalingWriteEnabled()
+      });
+    } catch (err) {
+      if (err instanceof RuntimeScalingRateLimitError) {
+        await authResult.auth.log('failed', {
+          reason: 'rate_limited',
+          target: normalizedTarget,
+          retryAfterMs: err.retryAfterMs
+        });
+        reply.status(429).send({ error: err.message, retryAfterMs: err.retryAfterMs });
+        return;
+      }
+
+      if (err instanceof RuntimeScalingValidationError) {
+        await authResult.auth.log('failed', {
+          reason: 'validation_error',
+          target: normalizedTarget,
+          message: err.message
+        });
+        reply.status(400).send({ error: err.message });
+        return;
+      }
+
+      request.log.error({ err, target: normalizedTarget }, 'Failed to update runtime scaling policy');
+      await authResult.auth.log('failed', {
+        reason: 'unknown_error',
+        target: normalizedTarget,
+        message: err instanceof Error ? err.message : 'unknown error'
+      });
+      reply.status(500).send({ error: 'Failed to update runtime scaling policy' });
     }
   });
 

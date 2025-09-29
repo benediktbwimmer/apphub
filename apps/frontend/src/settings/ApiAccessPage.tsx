@@ -55,6 +55,10 @@ const SCOPE_METADATA: Record<string, { title: string; description: string }> = {
     title: 'Publish job bundles',
     description: 'Upload new bundle versions to the registry.'
   },
+  'runtime:write': {
+    title: 'Manage runtime scaling',
+    description: 'Adjust runtime concurrency for workers and queues.'
+  },
   'auth:manage-api-keys': {
     title: 'Manage API keys',
     description: 'Create and revoke API keys for this account.'

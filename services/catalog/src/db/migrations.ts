@@ -1188,6 +1188,36 @@ const migrations: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_event_sampling_replay_processed_at
          ON workflow_event_sampling_replay_state(processed_at DESC);`
     ]
+  },
+  {
+    id: '039_runtime_scaling_policies',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS runtime_scaling_policies (
+         target TEXT PRIMARY KEY,
+         desired_concurrency INTEGER NOT NULL,
+         reason TEXT,
+         updated_by TEXT,
+         updated_by_kind TEXT,
+         updated_by_token_hash TEXT,
+         metadata JSONB,
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         CONSTRAINT runtime_scaling_policies_concurrency_check CHECK (desired_concurrency >= 0)
+       );`,
+      `CREATE TABLE IF NOT EXISTS runtime_scaling_acknowledgements (
+         target TEXT NOT NULL,
+         instance_id TEXT NOT NULL,
+         applied_concurrency INTEGER NOT NULL,
+         status TEXT NOT NULL DEFAULT 'ok',
+         error TEXT,
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         PRIMARY KEY (target, instance_id),
+         CONSTRAINT runtime_scaling_acknowledgements_concurrency_check CHECK (applied_concurrency >= 0),
+         CONSTRAINT runtime_scaling_acknowledgements_status_check CHECK (status IN ('ok', 'pending', 'error'))
+       );`,
+      `CREATE INDEX IF NOT EXISTS idx_runtime_scaling_ack_target_updated
+         ON runtime_scaling_acknowledgements(target, updated_at DESC);`
+    ]
   }
 ];
 
