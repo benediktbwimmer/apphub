@@ -37,6 +37,7 @@
     "docker:build:services": "bash scripts/docker-build-services.sh",
     "test:ui": "npm run test:ui --workspace @apphub/frontend",
     "minikube:up": "node scripts/minikube-up.mjs",
+    "minikube:redeploy": "node scripts/minikube-redeploy.mjs",
     "minikube:down": "node scripts/minikube-down.mjs",
     "minikube:verify": "node scripts/minikube-verify.mjs"
   },

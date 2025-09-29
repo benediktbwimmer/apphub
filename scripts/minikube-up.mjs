@@ -211,10 +211,56 @@ async function resourceExists(kind, name) {
   return Boolean(result);
 }
 
+async function resolveIngressAddress() {
+  let address = null;
+  let note = '';
+
+  const svcResult = await runCapture('kubectl', [
+    'get',
+    'svc',
+    'ingress-nginx-controller',
+    '-n',
+    'ingress-nginx',
+    '-o',
+    'json'
+  ]).catch(() => null);
+
+  if (svcResult?.stdout) {
+    try {
+      const svc = JSON.parse(svcResult.stdout);
+      const lbIngress = Array.isArray(svc?.status?.loadBalancer?.ingress)
+        ? svc.status.loadBalancer.ingress
+        : [];
+      const ipEntry = lbIngress.find((entry) => entry?.ip);
+      const hostnameEntry = lbIngress.find((entry) => entry?.hostname);
+      address = ipEntry?.ip ?? hostnameEntry?.hostname ?? null;
+      if (!address && Array.isArray(svc?.spec?.externalIPs) && svc.spec.externalIPs.length > 0) {
+        address = svc.spec.externalIPs[0];
+      }
+    } catch {
+      // noop, fall back below
+    }
+  }
+
+  if (!address) {
+    const ipResult = await runCapture('minikube', ['ip']).catch(() => null);
+    address = ipResult?.stdout?.trim() || null;
+  }
+
+  if (!address) {
+    address = '<resolve-ingress-ip>';
+  }
+
+  if (address === '127.0.0.1') {
+    note = 'Using the Docker driver: map hosts to 127.0.0.1 (the minikube VM IP will time out).';
+  }
+
+  return { address, note };
+}
+
 async function summarize() {
   step('Final summary');
-  const ipResult = await runCapture('minikube', ['ip']).catch(() => ({ stdout: '<minikube-ip>' }));
-  const minikubeIp = ipResult.stdout.trim() || '<minikube-ip>';
+  const ingressAddress = await resolveIngressAddress();
 
   const table = [
     { host: 'apphub.local', description: 'Frontend UI' },
@@ -225,12 +271,15 @@ async function summarize() {
   ];
 
   console.log(`\n✅  AppHub deployed to namespace ${NAMESPACE}.`);
-  console.log('\nIngress hosts (add to /etc/hosts pointing at minikube IP):');
+  console.log('\nIngress hosts (ensure they resolve to the ingress controller address):');
   for (const entry of table) {
     console.log(`  - ${entry.host} (${entry.description})`);
   }
   console.log(`\nSuggested /etc/hosts entry:`);
-  console.log(`  ${minikubeIp} ${table.map((entry) => entry.host).join(' ')}`);
+  console.log(`  ${ingressAddress.address} ${table.map((entry) => entry.host).join(' ')}`);
+  if (ingressAddress.note) {
+    console.log(`  Note: ${ingressAddress.note}`);
+  }
 
   console.log('\nDefault credentials:');
   console.log('  - Postgres: apphub / apphub');

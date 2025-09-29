@@ -8,6 +8,12 @@ Run everything (cluster start, image build, deploy) in one step:
 npm run minikube:up
 ```
 
+Already have the cluster running and just need fresh images + rollouts?
+
+```bash
+npm run minikube:redeploy
+```
+
 Need to remove resources later?
 
 ```bash
@@ -69,16 +75,19 @@ The overlay publishes an ingress resource that serves:
 | `filestore.apphub.local` | Filestore API (port 4300) |
 | `timestore.apphub.local` | Timestore API (port 4100) |
 
-1. Fetch the minikube IP:
+1. Determine the ingress controller address (falls back to the Minikube VM IP if the LoadBalancer address is still pending):
    ```bash
-   minikube ip
+   INGRESS_IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+     -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   if [[ -z "$INGRESS_IP" ]]; then INGRESS_IP=$(minikube ip); fi
+   echo "$INGRESS_IP"
    ```
+   On Docker Desktop this will usually be `127.0.0.1`; use that instead of the VM IP to avoid timeouts.
 2. Add it to `/etc/hosts` so your browser and CLI can resolve the ingress hosts:
    ```bash
-   IP=$(minikube ip)
-   sudo sh -c "echo \"$IP apphub.local catalog.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
+   sudo sh -c "echo \"$INGRESS_IP apphub.local catalog.apphub.local metastore.apphub.local filestore.apphub.local timestore.apphub.local\" >> /etc/hosts"
    ```
-3. (Optional) If you prefer a LoadBalancer IP instead of NodePort 80, run `minikube tunnel` in a separate terminal.
+3. (Optional) If your driver does not expose LoadBalancer services automatically, run `minikube tunnel` in a separate terminal.
 4. Hit the services:
    ```bash
    curl http://catalog.apphub.local/health
