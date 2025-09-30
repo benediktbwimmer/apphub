@@ -117,4 +117,22 @@ test('MCP handlers cover status updates, dependencies, assignments, and listing'
   const listJson = extractPayload(list) as { tickets: Array<{ id: string }> };
   assert.equal(listJson.tickets.length, 1);
   assert.equal(listJson.tickets[0].id, 'ticket-a');
+
+  const openList = await handlers.list(toolSchemas.list.parse({ status: ['open'] }));
+  const openJson = extractPayload(openList) as { tickets: Array<{ id: string }> };
+  assert.equal(openJson.tickets.length, 2);
+
+  await handlers.updateStatus(
+    toolSchemas.updateStatus.parse({ id: 'ticket-b', status: 'done', comment: 'Completed' })
+  );
+
+  const openAfter = await handlers.list(toolSchemas.list.parse({ status: ['open'] }));
+  const openAfterJson = extractPayload(openAfter) as { tickets: Array<{ id: string }> };
+  assert.equal(openAfterJson.tickets.length, 1);
+  assert.equal(openAfterJson.tickets[0].id, 'ticket-a');
+
+  const closedList = await handlers.list(toolSchemas.list.parse({ status: ['closed'] }));
+  const closedJson = extractPayload(closedList) as { tickets: Array<{ id: string }> };
+  assert.equal(closedJson.tickets.length, 1);
+  assert.equal(closedJson.tickets[0].id, 'ticket-b');
 });

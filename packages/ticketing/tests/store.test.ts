@@ -152,6 +152,35 @@ test('ensures unique ticket ids when not supplied', async (t) => {
 });
 
 
+test('listTickets and getTicket read latest state without refresh', async (t) => {
+  const dir = await makeTempDir();
+  t.after(async () => rm(dir, { recursive: true, force: true }));
+
+  const primary = new TicketStore({ rootDir: dir, defaultActor: 'primary' });
+  await primary.init();
+  await primary.createTicket({
+    id: 'ticket-initial',
+    title: 'Initial ticket',
+    description: 'From primary store'
+  });
+
+  const secondary = new TicketStore({ rootDir: dir, defaultActor: 'secondary' });
+  await secondary.init();
+  await secondary.createTicket({
+    id: 'ticket-secondary',
+    title: 'Secondary ticket',
+    description: 'Created via secondary store'
+  });
+
+  const listed = await primary.listTickets();
+  assert.equal(listed.length, 2);
+  assert.equal(listed.some((ticket) => ticket.id === 'ticket-secondary'), true);
+
+  const fetched = await primary.getTicket('ticket-secondary');
+  assert.equal(fetched.description, 'Created via secondary store');
+});
+
+
 test('refreshFromDisk picks up manual edits', async (t) => {
   const dir = await makeTempDir();
   t.after(async () => rm(dir, { recursive: true, force: true }));

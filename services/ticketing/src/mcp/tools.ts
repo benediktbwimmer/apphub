@@ -9,6 +9,22 @@ import {
   ticketSchema
 } from '@apphub/ticketing';
 
+type TicketStatus = z.infer<typeof ticketStatusSchema>;
+
+const statusAliases = ['open', 'closed'] as const;
+type StatusAlias = (typeof statusAliases)[number];
+
+const statusAliasMap: Record<StatusAlias, TicketStatus[]> = {
+  open: ['backlog', 'in_progress', 'blocked', 'review'],
+  closed: ['done', 'archived']
+};
+
+const isStatusAlias = (value: string): value is StatusAlias =>
+  (statusAliases as readonly string[]).includes(value);
+
+const statusAliasSchema = z.enum(statusAliases);
+const ticketStatusFilterSchema = ticketStatusSchema.or(statusAliasSchema);
+
 const authShape = {
   authToken: z.string().trim().min(1).optional()
 } as const;
@@ -75,7 +91,7 @@ const assignShape = {
 
 const listShape = {
   ...authShape,
-  status: z.array(ticketStatusSchema).optional(),
+  status: z.array(ticketStatusFilterSchema).optional(),
   tags: z.array(z.string().trim().min(1)).optional(),
   assignee: z.string().trim().min(1).optional()
 } as const;
@@ -155,6 +171,26 @@ const summarizeTicket = (ticket: z.infer<typeof ticketSchema>) => ({
   updatedAt: ticket.updatedAt,
   revision: ticket.revision
 });
+
+const expandStatusFilters = (statuses?: Array<z.infer<typeof ticketStatusFilterSchema>>): TicketStatus[] => {
+  if (!statuses || statuses.length === 0) {
+    return [];
+  }
+
+  const expanded = new Set<TicketStatus>();
+  for (const status of statuses) {
+    if (isStatusAlias(status)) {
+      for (const aliasStatus of statusAliasMap[status]) {
+        expanded.add(aliasStatus);
+      }
+      continue;
+    }
+
+    expanded.add(status);
+  }
+
+  return Array.from(expanded);
+};
 
 export const buildToolHandlers = (ctx: TicketingToolContext) => {
   const { store, tokens, defaultActor } = ctx;
@@ -244,8 +280,10 @@ export const buildToolHandlers = (ctx: TicketingToolContext) => {
     list: async (input: z.infer<typeof listSchema>) => {
       requireToken(tokens, input.authToken ?? null);
       const tickets = await store.listTickets();
+      const expandedStatuses = expandStatusFilters(input.status);
+      const hasStatusFilter = expandedStatuses.length > 0;
       const filtered = tickets.filter((ticket) => {
-        if (input.status && input.status.length > 0 && !input.status.includes(ticket.status)) {
+        if (hasStatusFilter && !expandedStatuses.includes(ticket.status)) {
           return false;
         }
         if (input.tags && input.tags.length > 0 && !input.tags.some((tag) => ticket.tags.includes(tag))) {

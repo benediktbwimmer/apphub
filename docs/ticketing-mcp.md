@@ -34,6 +34,8 @@ The MCP server reuses the ticket store directly, so all changes immediately appe
 | `ticket_list` | List tickets with filters. | `{ status?, tags?, assignee?, authToken? }` |
 | `ticket_history` | Fetch the activity log. | `{ id, authToken? }` |
 
+Status filters accept canonical names (`backlog`, `done`, etc.) or the aliases `open` (backlog, in_progress, blocked, review) and `closed` (done, archived).
+
 All tool responses include a JSON payload plus a short text summary, which most MCP clients surface to the user. When `TICKETING_MCP_TOKENS` is set, callers must pass the matching token in `authToken`.
 
 ## Development Notes

@@ -156,13 +156,17 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
 
   async listTickets(): Promise<Ticket[]> {
     await this.ensureInitialized();
-    return Array.from(this.artifacts.tickets.values()).map((ticket) => clone(ticket));
+    await this.waitForPendingOperations();
+    const artifacts = this.readArtifactsFromDatabase();
+    return Array.from(artifacts.tickets.values()).map((ticket) => clone(ticket));
   }
 
   async getTicket(ticketId: string): Promise<Ticket> {
     await this.ensureInitialized();
     const parsedId = ticketIdSchema.parse(ticketId);
-    const ticket = this.artifacts.tickets.get(parsedId);
+    await this.waitForPendingOperations();
+    const artifacts = this.readArtifactsFromDatabase();
+    const ticket = artifacts.tickets.get(parsedId);
     if (!ticket) {
       throw new TicketNotFoundError(parsedId);
     }
@@ -171,17 +175,22 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
 
   async getIndex(): Promise<TicketIndex> {
     await this.ensureInitialized();
-    return clone(this.artifacts.index);
+    await this.waitForPendingOperations();
+    const artifacts = this.readArtifactsFromDatabase();
+    return clone(artifacts.index);
   }
 
   async getDependencyGraph(): Promise<TicketDependencyGraph> {
     await this.ensureInitialized();
-    return clone(this.artifacts.dependencyGraph);
+    await this.waitForPendingOperations();
+    const artifacts = this.readArtifactsFromDatabase();
+    return clone(artifacts.dependencyGraph);
   }
 
   async createTicket(input: NewTicketInput, context: TicketMutationContext = {}): Promise<Ticket> {
     await this.ensureInitialized();
     return this.enqueue(async () => {
+      this.artifacts = this.readArtifactsFromDatabase();
       const parsedInput = newTicketInputSchema.parse(input);
       const requestedId = parsedInput.id?.trim();
       const preferredId = requestedId && requestedId.length > 0 ? requestedId : slugify(parsedInput.title);
@@ -239,6 +248,7 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
   async updateTicket(ticketId: string, updates: TicketUpdate, options: UpdateTicketOptions = {}): Promise<Ticket> {
     await this.ensureInitialized();
     return this.enqueue(async () => {
+      this.artifacts = this.readArtifactsFromDatabase();
       const id = ticketIdSchema.parse(ticketId);
       const parsedUpdates = ticketUpdateSchema.parse(updates);
       const existing = this.artifacts.tickets.get(id);
@@ -366,6 +376,7 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
   async deleteTicket(ticketId: string, options: DeleteTicketOptions = {}): Promise<void> {
     await this.ensureInitialized();
     await this.enqueue(async () => {
+      this.artifacts = this.readArtifactsFromDatabase();
       const id = ticketIdSchema.parse(ticketId);
       const existing = this.artifacts.tickets.get(id);
       if (!existing) {
@@ -497,7 +508,11 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
     return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'SQLITE_BUSY');
   }
 
-  private async rebuildArtifacts(): Promise<void> {
+  private async waitForPendingOperations(): Promise<void> {
+    await this.operationQueue;
+  }
+
+  private readArtifactsFromDatabase(): DerivedArtifacts {
     const db = this.getDb();
     const rows = db.prepare('SELECT id, data FROM tickets ORDER BY id ASC').all() as TicketRow[];
     const tickets = rows.map((row) => this.deserializeTicketRow(row));
@@ -526,12 +541,16 @@ export class TicketStore extends EventEmitter<TicketStoreEvents> {
 
     validateArtifacts(index, dependencyGraph);
 
-    this.artifacts = {
+    return {
       index,
       dependencyGraph,
       tickets: new Map(enrichedTickets.map((ticket) => [ticket.id, ticket]))
     };
+  }
 
+  private async rebuildArtifacts(): Promise<void> {
+    const artifacts = this.readArtifactsFromDatabase();
+    this.artifacts = artifacts;
     this.emit('artifacts:rebuilt', this.artifacts);
   }
 
