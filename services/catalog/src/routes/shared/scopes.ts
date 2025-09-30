@@ -7,3 +7,6 @@ export const WORKFLOW_RUN_SCOPES: OperatorScope[] = ['workflows:run'];
 export const JOB_BUNDLE_WRITE_SCOPES: OperatorScope[] = ['job-bundles:write'];
 export const JOB_BUNDLE_READ_SCOPES: OperatorScope[] = ['job-bundles:read'];
 export const RUNTIME_SCALING_WRITE_SCOPES: OperatorScope[] = ['runtime:write'];
+export const OBSERVATORY_READ_SCOPES: OperatorScope[] = ['filestore:read'];
+export const OBSERVATORY_WRITE_SCOPES: OperatorScope[] = ['filestore:write'];
+export const OBSERVATORY_REPROCESS_SCOPES: OperatorScope[] = ['filestore:write', 'workflows:run'];

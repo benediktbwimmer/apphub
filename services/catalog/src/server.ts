@@ -23,6 +23,7 @@ import { openApiDocument } from './openapi/document';
 import { registerServiceProxyRoutes } from './routes/serviceProxy';
 import { registerSavedSearchRoutes } from './routes/savedSearches';
 import { registerEventSavedViewRoutes } from './routes/eventSavedViews';
+import { registerObservatoryRoutes } from './routes/observatory';
 import './queue';
 import { queueManager } from './queueManager';
 import { checkKubectlDiagnostics } from './kubernetes/toolingDiagnostics';
@@ -145,6 +146,7 @@ export async function buildServer() {
   await app.register(async (instance) => registerSavedSearchRoutes(instance));
   await app.register(async (instance) => registerEventSavedViewRoutes(instance));
   await app.register(async (instance) => registerAdminRoutes(instance));
+  await app.register(async (instance) => registerObservatoryRoutes(instance));
 
   return app;
 }

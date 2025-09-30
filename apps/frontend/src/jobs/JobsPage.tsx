@@ -37,7 +37,6 @@ export default function JobsPage() {
   const { pushToast } = useToasts();
 
   const {
-    jobs,
     sortedJobs,
     loading: jobsLoading,
     error: jobsError,

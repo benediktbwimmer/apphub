@@ -132,6 +132,14 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 - **Outputs:** Repopulates `observatory.reprocess.plan` with per-partition status (`pending`, `running`, `succeeded`, `failed`) and increments the plan’s execution metadata so dashboards can surface run health.
 - **Parameters:** Filestore connection (`filestoreBaseUrl`, `filestoreBackendId`, optional `filestoreToken`/`principal`), the uploaded file path/node id, and Metastore coordinates (`metastoreBaseUrl`, `metastoreNamespace`, optional token).
 
+### Calibration operations dashboard
+
+- Navigate to `/observatory` in the frontend to reach the new operations workspace. The route is protected by the existing operator token flow and requires `filestore:*` plus `workflows:run` scopes.
+- **Upload panel:** Paste instrument metadata (instrument id, effective timestamp, offsets/scales, optional notes) and submit. The UI writes the payload to the configured `filestore.calibrationsPrefix`, shows the resulting node id/path, and refreshes the calibration history fetched from the Metastore search API.
+- **Plan browser:** The left rail lists calibration reprocessing plans stored under `observatory.reprocess.plans`. Selecting a plan loads the raw artifact from Filestore, renders per-instrument summaries, and polls every five seconds so the state counts track ongoing runs.
+- **Partition control:** Individual partitions can be selected from the plan detail table. Two actions are available: “Process selected partitions” (sends the chosen keys to `/observatory/plans/:planId/reprocess` with `mode=selected`) and “Process entire plan” (delegates the full artifact). Optional overrides for max concurrency, poll interval, run key, and triggered-by are surfaced so operators can tune reruns without editing YAML.
+- All operations are backed by catalog endpoints (`/observatory/calibrations`, `/observatory/plans`, `/observatory/plans/:planId`, `/observatory/calibrations/upload`, and `/observatory/plans/:planId/reprocess`), each returning structured JSON envelopes so other tools can orchestrate uploads, plan inspection, or reruns programmatically.
+
 ## Auto-materialization flow
 
 1. Inbox workflow runs after new CSV drops. Step 1 copies files into the staging Filestore prefix, moves the originals under the archive prefix, records row counts, and produces `observatory.timeseries.raw` (minute partition). The asset materializer notices the new partition.
