@@ -16,7 +16,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
-import { Queue } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 
 import {
@@ -67,6 +67,15 @@ import {
 import { TIMESTORE_INGEST_QUEUE_NAME } from '../../../services/timestore/src/queue';
 import { processIngestionJob } from '../../../services/timestore/src/ingestion/processor';
 import type { IngestionJobPayload } from '../../../services/timestore/src/ingestion/types';
+import { TIMESTORE_PARTITION_BUILD_QUEUE_NAME } from '../../../services/timestore/src/ingestion/partitionBuildQueue';
+import {
+  partitionBuildJobPayloadSchema,
+  partitionBuildJobResultSchema,
+  type PartitionBuildJobPayload
+} from '../../../services/timestore/src/ingestion/types';
+import { writePartitionFile } from '../../../services/timestore/src/ingestion/partitionWriter';
+import { loadServiceConfig } from '../../../services/timestore/src/config/serviceConfig';
+import { getStorageTargetById } from '../../../services/timestore/src/db/metadata';
 
 const execFile = promisify(execFileCallback);
 
@@ -162,6 +171,21 @@ let embeddedDatabaseUrl: string | null = null;
 let embeddedPostgresCleanup: (() => Promise<void>) | null = null;
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function normalizeEnvUrl(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveExternalDatabaseUrl(): string | null {
+  return (
+    normalizeEnvUrl(process.env.OBSERVATORY_BENCH_POSTGRES_URL)
+      ?? normalizeEnvUrl(process.env.OBSERVATORY_BENCH_DATABASE_URL)
+  );
+}
 
 function applyEnvDefaults(defaults: Record<string, string>): () => void {
   const applied: string[] = [];
@@ -559,6 +583,16 @@ function buildInstrumentProfiles(count: number): InstrumentProfileInput[] {
 }
 
 async function ensureEmbeddedPostgres(): Promise<void> {
+  const externalDatabaseUrl = resolveExternalDatabaseUrl();
+  if (externalDatabaseUrl) {
+    embeddedDatabaseUrl = externalDatabaseUrl;
+    process.env.DATABASE_URL = externalDatabaseUrl;
+    if (!process.env.PGPOOL_MAX) {
+      process.env.PGPOOL_MAX = '8';
+    }
+    return;
+  }
+
   if (embeddedPostgres) {
     if (embeddedDatabaseUrl) {
       process.env.DATABASE_URL = embeddedDatabaseUrl;
@@ -1093,8 +1127,15 @@ async function drainBackgroundQueues(): Promise<void> {
       const processedEvents = await flushEventQueue(eventQueue);
       const processedTriggers = await flushEventTriggerQueue(triggerQueue);
       const processedWorkflows = await flushWorkflowQueue(workflowQueue);
-      const processedTimestore = await flushTimestoreIngestionQueue();
-      if (!processedEvents && !processedTriggers && !processedWorkflows && !processedTimestore) {
+      const processedTimestoreIngest = await flushTimestoreIngestionQueue();
+      const processedTimestorePartitions = await flushTimestorePartitionBuildQueue();
+      if (
+        !processedEvents &&
+        !processedTriggers &&
+        !processedWorkflows &&
+        !processedTimestoreIngest &&
+        !processedTimestorePartitions
+      ) {
         break;
       }
     }
@@ -1105,13 +1146,18 @@ async function drainBackgroundQueues(): Promise<void> {
 
 async function flushEventQueue(queue: Queue<EventIngressJobData>): Promise<boolean> {
   const jobs = await queue.getJobs(['waiting', 'delayed']);
+  if (jobs.length > 0) {
+    console.log('[benchmark] flushEventQueue jobs', jobs.length);
+  }
   if (jobs.length === 0) {
     return false;
   }
 
   for (const job of jobs) {
+    console.log('[benchmark] ingesting event job', job.id);
     const envelope = validateEventEnvelope(job.data.envelope);
     await ingestWorkflowEvent(envelope);
+    console.log('[benchmark] ingested event', envelope.id);
     const evaluation = await registerSourceEvent(envelope.source ?? 'unknown');
     if (evaluation.allowed) {
       await processEventTriggersForEnvelope(envelope);
@@ -1176,6 +1222,78 @@ async function flushTimestoreIngestionQueue(): Promise<boolean> {
     for (const job of jobs) {
       await processIngestionJob(job.data as IngestionJobPayload);
       await job.remove();
+    }
+
+    return true;
+  } finally {
+    await queue.close();
+    await connection.quit();
+  }
+}
+
+async function flushTimestorePartitionBuildQueue(): Promise<boolean> {
+  const redisUrl = activeRedisUrl;
+  if (!redisUrl || redisUrl === 'inline') {
+    return false;
+  }
+
+  const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+  const queue = new Queue<PartitionBuildJobPayload>(TIMESTORE_PARTITION_BUILD_QUEUE_NAME, { connection });
+
+  try {
+    const initialCounts = await queue.getJobCounts('waiting', 'active', 'delayed');
+    const hasPendingJobs =
+      initialCounts.waiting > 0 || initialCounts.active > 0 || initialCounts.delayed > 0;
+    if (!hasPendingJobs) {
+      return false;
+    }
+
+    const config = loadServiceConfig();
+
+    const worker = new Worker(
+      TIMESTORE_PARTITION_BUILD_QUEUE_NAME,
+      async (job) => {
+        const payload = partitionBuildJobPayloadSchema.parse(job.data);
+        const storageTarget = await getStorageTargetById(payload.storageTargetId);
+        if (!storageTarget) {
+          throw new Error(`Storage target ${payload.storageTargetId} not found`);
+        }
+        const result = await writePartitionFile(config, storageTarget, {
+          datasetSlug: payload.datasetSlug,
+          partitionId: payload.partitionId,
+          partitionKey: payload.partitionKey,
+          tableName: payload.tableName,
+          schema: payload.schema,
+          rows: payload.rows,
+          sourceFilePath: payload.sourceFilePath,
+          rowCountHint: payload.rowCountHint
+        });
+
+        return partitionBuildJobResultSchema.parse({
+          storageTargetId: storageTarget.id,
+          relativePath: result.relativePath,
+          fileSizeBytes: result.fileSizeBytes,
+          rowCount: result.rowCount,
+          checksum: result.checksum
+        });
+      },
+      {
+        connection,
+        concurrency: 2
+      }
+    );
+
+    await worker.waitUntilReady();
+    try {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const counts = await queue.getJobCounts('waiting', 'active', 'delayed');
+        if (counts.waiting === 0 && counts.active === 0 && counts.delayed === 0) {
+          break;
+        }
+        await delay(100);
+      }
+    } finally {
+      await worker.close();
     }
 
     return true;
@@ -1659,3 +1777,4 @@ function resolveInstrumentCount(): number {
   }
   return Math.min(Math.floor(parsed), 10_000);
 }
+console.log('[benchmark] initial DATABASE_URL', process.env.DATABASE_URL);

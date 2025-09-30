@@ -12,6 +12,16 @@ try {
   // best effort
 }
 
+if (!process.env.DATABASE_URL) {
+  const externalUrl =
+    process.env.OBSERVATORY_BENCH_POSTGRES_URL
+      ?? process.env.OBSERVATORY_BENCH_DATABASE_URL
+      ?? process.env.CATALOG_TEST_DATABASE_URL;
+  if (externalUrl && externalUrl.trim()) {
+    process.env.DATABASE_URL = externalUrl.trim();
+  }
+}
+
 if (!process.env.APPHUB_EVENTS_MODE) {
   process.env.APPHUB_EVENTS_MODE = 'redis';
 }

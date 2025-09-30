@@ -554,6 +554,11 @@ async function processTrigger(
 
   let delivery = currentDelivery;
   if (!delivery) {
+    console.log('[debug] createWorkflowTriggerDelivery', {
+      triggerId: trigger.id,
+      eventId: event.id,
+      workflowDefinitionId: trigger.workflowDefinitionId
+    });
     delivery = await createDeliveryRecord(trigger, event, 'matched', { dedupeKey });
   } else {
     const updated = await updateWorkflowTriggerDelivery(delivery.id, {
@@ -677,6 +682,12 @@ async function processTrigger(
         deliveryId: delivery.id
       },
       runKey: runKeyColumns.runKey
+    });
+    console.log('[debug] created workflow run from trigger', {
+      runId: run.id,
+      deliveryId: delivery.id,
+      triggerId: trigger.id,
+      workflowDefinitionId: trigger.workflowDefinitionId
     });
 
     await updateWorkflowTriggerDelivery(delivery.id, {

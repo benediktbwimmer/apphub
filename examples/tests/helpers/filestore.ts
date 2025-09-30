@@ -49,6 +49,7 @@ export async function startFilestoreTestServer(options: {
   databaseUrl: string;
   redisUrl?: string;
 }): Promise<FilestoreTestServer> {
+  const eventsMode = options.redisUrl && options.redisUrl.trim().toLowerCase() !== 'inline' ? 'redis' : 'inline';
   const port = await findAvailablePort();
   const schema = `filestore_test_${Date.now().toString(36)}`;
   const envRestore = applyEnv({
@@ -60,7 +61,7 @@ export async function startFilestoreTestServer(options: {
     FILESTORE_PGPOOL_MAX: '4',
     FILESTORE_METRICS_ENABLED: '0',
     FILESTORE_REDIS_URL: options.redisUrl ?? 'inline',
-    FILESTORE_EVENTS_MODE: 'inline'
+    FILESTORE_EVENTS_MODE: eventsMode
   });
 
   const [dbClientModule, serviceConfigModule] = await Promise.all([
