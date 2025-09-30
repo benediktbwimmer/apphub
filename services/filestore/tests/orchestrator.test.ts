@@ -581,3 +581,86 @@ test('deleteNode marks node as deleted', async () => {
   assert.equal(parentRollup?.directoryCount, 0);
   assert.equal(parentRollup?.childCount, 0);
 });
+
+test('copyNode is idempotent when target already exists', async () => {
+  const backendMountId = await createBackendMount();
+  const executor: CommandExecutor = createLocalExecutor();
+  const executors = new Map<string, CommandExecutor>([['local', executor]]);
+
+  for (const dir of ['datasets', 'datasets/inbox', 'datasets/staging']) {
+    await orchestratorModule.runCommand({
+      command: {
+        type: 'createDirectory',
+        backendMountId,
+        path: dir
+      },
+      executors
+    });
+  }
+
+  const stagingDir = await mkdtemp(path.join(tmpdir(), 'filestore-copy-source-'));
+  try {
+    const stagingFile = path.join(stagingDir, 'source.csv');
+    const fileContents = 'timestamp,value\n2025-01-01T00:00:00Z,42\n';
+    await writeFile(stagingFile, fileContents);
+
+    await orchestratorModule.runCommand({
+      command: {
+        type: 'uploadFile',
+        backendMountId,
+        path: 'datasets/inbox/source.csv',
+        stagingPath: stagingFile,
+        sizeBytes: Buffer.byteLength(fileContents),
+        metadata: { scenario: 'copy-node-idempotent-test' }
+      },
+      executors
+    });
+
+    const firstCopy = await orchestratorModule.runCommand({
+      command: {
+        type: 'copyNode',
+        backendMountId,
+        path: 'datasets/inbox/source.csv',
+        targetPath: 'datasets/staging/source.csv',
+        nodeKind: 'file'
+      },
+      executors
+    });
+    assert.equal(firstCopy.result.path, 'datasets/staging/source.csv');
+
+    const targetNodeAfterFirst = await clientModule.withConnection((client) =>
+      nodesModule.getNodeByPath(client, backendMountId, 'datasets/staging/source.csv')
+    );
+    assert.ok(targetNodeAfterFirst);
+
+    const secondCopy = await orchestratorModule.runCommand({
+      command: {
+        type: 'copyNode',
+        backendMountId,
+        path: 'datasets/inbox/source.csv',
+        targetPath: 'datasets/staging/source.csv',
+        nodeKind: 'file'
+      },
+      executors
+    });
+    assert.equal(secondCopy.result.path, 'datasets/staging/source.csv');
+    assert.equal((secondCopy.result as Record<string, unknown>).idempotent, true);
+
+    const targetNodeAfterSecond = await clientModule.withConnection((client) =>
+      nodesModule.getNodeByPath(client, backendMountId, 'datasets/staging/source.csv')
+    );
+    assert.ok(targetNodeAfterSecond);
+    assert.equal(targetNodeAfterSecond?.id, targetNodeAfterFirst?.id);
+
+    const duplicateCount = await clientModule.withConnection(async (client) => {
+      const { rows } = await client.query<{ count: number }>(
+        'SELECT COUNT(*)::int AS count FROM nodes WHERE backend_mount_id = $1 AND path = $2',
+        [backendMountId, 'datasets/staging/source.csv']
+      );
+      return rows[0].count;
+    });
+    assert.equal(duplicateCount, 1);
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+  }
+});

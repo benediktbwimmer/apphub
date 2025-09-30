@@ -557,11 +557,40 @@ export function createS3Executor(options: CreateS3ExecutorOptions = {}): Command
           const isDirectory =
             command.nodeKind === 'directory' ||
             (command.nodeKind === undefined && (await pathRepresentsDirectory(client, bucket, baseKey)));
+          const targetDirectoryKey = `${targetKey}/`;
+          const targetFileExists = await keyExists(client, bucket, targetKey);
+          const targetDirectoryExists = await keyExists(client, bucket, targetDirectoryKey);
 
-          if (await keyExists(client, bucket, isDirectory ? `${targetKey}/` : targetKey)) {
-            throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
-              targetPath: command.targetPath
-            });
+          if (targetFileExists || targetDirectoryExists) {
+            const targetIsDirectory = targetDirectoryExists;
+            if (targetIsDirectory !== isDirectory) {
+              throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+                targetPath: command.targetPath
+              });
+            }
+
+            if (targetIsDirectory) {
+              return {
+                sizeBytes: 0,
+                lastModifiedAt: new Date()
+              } satisfies ExecutorResult;
+            }
+
+            const listing = await client.send(
+              new ListObjectsV2Command({
+                Bucket: bucket,
+                Prefix: targetKey,
+                MaxKeys: 1
+              })
+            );
+            const sizeBytes = listing.Contents && listing.Contents[0] ? listing.Contents[0].Size ?? null : null;
+            const lastModified = listing.Contents && listing.Contents[0] && listing.Contents[0].LastModified
+              ? listing.Contents[0].LastModified
+              : new Date();
+            return {
+              sizeBytes,
+              lastModifiedAt: lastModified
+            } satisfies ExecutorResult;
           }
 
           if (isDirectory) {

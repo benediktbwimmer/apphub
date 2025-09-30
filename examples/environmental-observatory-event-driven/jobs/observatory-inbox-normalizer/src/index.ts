@@ -1093,15 +1093,45 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       principal: parameters.principal
     });
   } catch (err) {
-    context.logger('Filestore move failed', {
-      error: err instanceof FilestoreClientError ? err.message : String(err),
-      code: err instanceof FilestoreClientError ? err.code : undefined,
-      statusCode: err instanceof FilestoreClientError ? err.statusCode : undefined,
-      details: err instanceof FilestoreClientError ? err.details : undefined,
-      path: inboxNode.path,
-      targetPath: archiveTargetPath
-    });
-    throw err;
+    const isFilestoreError = err instanceof FilestoreClientError;
+    const errorCode = isFilestoreError ? err.code : undefined;
+    if (errorCode === 'NODE_EXISTS') {
+      context.logger('Filestore move target already exists; skipping overwrite', {
+        path: inboxNode.path,
+        targetPath: archiveTargetPath,
+        statusCode: err.statusCode,
+        code: err.code,
+        details: err.details
+      });
+      await filestoreClient
+        .deleteNode({
+          backendMountId: parameters.filestoreBackendId,
+          path: inboxNode.path,
+          recursive: false,
+          principal: parameters.principal
+        })
+        .catch((deleteErr) => {
+          context.logger('Failed to remove staging node after move conflict', {
+            error:
+              deleteErr instanceof FilestoreClientError
+                ? deleteErr.message
+                : String(deleteErr),
+            code: deleteErr instanceof FilestoreClientError ? deleteErr.code : undefined,
+            statusCode: deleteErr instanceof FilestoreClientError ? deleteErr.statusCode : undefined,
+            path: inboxNode.path
+          });
+        });
+    } else {
+      context.logger('Filestore move failed', {
+        error: isFilestoreError ? err.message : String(err),
+        code: errorCode,
+        statusCode: isFilestoreError ? err.statusCode : undefined,
+        details: isFilestoreError ? err.details : undefined,
+        path: inboxNode.path,
+        targetPath: archiveTargetPath
+      });
+      throw err;
+    }
   }
 
   const { rows, site } = parseCsv(csvContent);

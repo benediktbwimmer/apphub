@@ -192,6 +192,125 @@ export async function insertNode(
   return mapRow(result.rows[0]);
 }
 
+export async function insertNodeIfAbsent(
+  client: PoolClient,
+  input: {
+    backendMountId: number;
+    parentId: number | null;
+    path: string;
+    kind: NodeKind;
+    checksum?: string | null;
+    contentHash?: string | null;
+    sizeBytes?: number | null;
+    metadata?: Record<string, unknown> | null;
+    isSymlink?: boolean;
+    lastModifiedAt?: Date | null;
+    state?: NodeState;
+    consistencyState?: ConsistencyState;
+    consistencyCheckedAt?: Date | null;
+    lastReconciledAt?: Date | null;
+    lastDriftDetectedAt?: Date | null;
+  }
+): Promise<{ node: NodeRecord; created: boolean }> {
+  const metadataJson = JSON.stringify(input.metadata ?? {});
+  const now = new Date();
+  const resolvedState = input.state ?? 'active';
+  const explicitConsistency = input.consistencyState ?? null;
+  const baseConsistency: ConsistencyState =
+    resolvedState === 'deleted'
+      ? 'missing'
+      : resolvedState === 'missing'
+        ? 'missing'
+        : resolvedState === 'inconsistent'
+          ? 'inconsistent'
+          : 'active';
+  const consistencyState = explicitConsistency ?? baseConsistency;
+  const consistencyCheckedAt = input.consistencyCheckedAt ?? now;
+  const lastReconciledAt = input.lastReconciledAt ?? (consistencyState === 'active' ? now : null);
+  const lastDriftDetectedAt = input.lastDriftDetectedAt ?? null;
+
+  const insertResult = await client.query(
+    `INSERT INTO nodes (
+       backend_mount_id,
+       parent_id,
+       path,
+       name,
+       depth,
+       kind,
+       size_bytes,
+       checksum,
+       content_hash,
+       metadata,
+       state,
+       is_symlink,
+       last_modified_at,
+       consistency_state,
+       consistency_checked_at,
+       last_reconciled_at,
+       last_drift_detected_at
+     ) VALUES (
+       $1,
+       $2,
+       $3,
+       $4,
+       $5,
+       $6,
+       COALESCE($7, 0),
+       $8,
+       $9,
+       $10::jsonb,
+       $11,
+       COALESCE($12, false),
+       $13,
+       $14,
+       $15,
+       $16,
+       $17
+     )
+     ON CONFLICT (backend_mount_id, path) DO NOTHING
+     RETURNING *
+    `,
+    [
+      input.backendMountId,
+      input.parentId,
+      input.path,
+      getNodeName(input.path),
+      getNodeDepth(input.path),
+      input.kind,
+      input.sizeBytes ?? 0,
+      input.checksum ?? null,
+      input.contentHash ?? null,
+      metadataJson,
+      resolvedState,
+      input.isSymlink ?? false,
+      input.lastModifiedAt ?? null,
+      consistencyState,
+      consistencyCheckedAt,
+      lastReconciledAt,
+      lastDriftDetectedAt
+    ]
+  );
+
+  if ((insertResult.rowCount ?? 0) > 0) {
+    return { node: mapRow(insertResult.rows[0]), created: true };
+  }
+
+  const existing = await getNodeByPath(client, input.backendMountId, input.path, { forUpdate: true });
+  if (!existing) {
+    throw new FilestoreError('Node not found after conflict', 'NODE_NOT_FOUND', {
+      backendMountId: input.backendMountId,
+      path: input.path
+    });
+  }
+  if (existing.state === 'deleted') {
+    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+      backendMountId: existing.backendMountId,
+      path: existing.path
+    });
+  }
+  return { node: existing, created: false };
+}
+
 export async function updateNodeState(
   client: PoolClient,
   nodeId: number,

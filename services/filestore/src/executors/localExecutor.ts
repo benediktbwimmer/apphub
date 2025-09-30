@@ -204,13 +204,6 @@ export function createLocalExecutor(): CommandExecutor {
             });
           }
 
-          const existingTarget = await statOptional(targetResolved);
-          if (existingTarget) {
-            throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
-              targetPath: command.targetPath
-            });
-          }
-
           const sourceStats = await statOptional(resolved);
           if (!sourceStats) {
             throw new FilestoreError('Source path not found for copy', 'NODE_NOT_FOUND', {
@@ -218,9 +211,24 @@ export function createLocalExecutor(): CommandExecutor {
             });
           }
 
+          const sourceIsDirectory = sourceStats.isDirectory();
+          const existingTarget = await statOptional(targetResolved);
+          if (existingTarget) {
+            const targetIsDirectory = existingTarget.isDirectory();
+            if (targetIsDirectory !== sourceIsDirectory) {
+              throw new FilestoreError('Target path already exists', 'NODE_EXISTS', {
+                targetPath: command.targetPath
+              });
+            }
+            return {
+              sizeBytes: targetIsDirectory ? 0 : existingTarget.size ?? null,
+              lastModifiedAt: existingTarget.mtime ?? new Date()
+            } satisfies ExecutorResult;
+          }
+
           await fs.mkdir(path.dirname(targetResolved), { recursive: true });
 
-          if (sourceStats.isDirectory()) {
+          if (sourceIsDirectory) {
             await copyDirectoryRecursive(resolved, targetResolved);
             return {
               sizeBytes: 0,

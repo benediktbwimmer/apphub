@@ -4,6 +4,7 @@ import { getBackendMountById } from '../db/backendMounts';
 import {
   getNodeByPath,
   insertNode,
+  insertNodeIfAbsent,
   ensureNoActiveChildren,
   updateNodeState,
   updateNodeMetadata,
@@ -839,11 +840,19 @@ async function applyCopyNode(
   }
 
   const existingTarget = await getNodeByPath(client, backend.id, normalizedTarget, { forUpdate: true });
-  if (existingTarget && existingTarget.state !== 'deleted') {
-    throw new FilestoreError('Node already exists at target path', 'NODE_EXISTS', {
+  if (existingTarget && existingTarget.state !== 'deleted' && !command.overwrite) {
+    const rollupPlan = createEmptyRollupPlan();
+    return {
+      primaryNode: existingTarget,
+      affectedNodeIds: [],
       backendMountId: backend.id,
-      path: normalizedTarget
-    });
+      result: {
+        ...buildResultPayload(existingTarget, command.type),
+        copiedFrom: normalizedSource,
+        idempotent: true
+      },
+      rollupPlan
+    } satisfies InternalCommandOutcome;
   }
 
   const targetParentPath = getParentPath(normalizedTarget);
@@ -874,7 +883,8 @@ async function applyCopyNode(
 
   const subtree = await listNodeSubtreeByPath(client, backend.id, normalizedSource);
   const newNodeMap = new Map<number, NodeRecord>();
-  const newNodeIds: number[] = [];
+  const createdNodes: NodeRecord[] = [];
+  const createdNodeIds: number[] = [];
 
   for (const node of subtree) {
     const relativePath = node.path === normalizedSource ? '' : node.path.slice(normalizedSource.length + 1);
@@ -892,8 +902,7 @@ async function applyCopyNode(
     }
 
     const metadataClone = node.metadata ? JSON.parse(JSON.stringify(node.metadata)) : {};
-
-    const inserted = await insertNode(client, {
+    const { node: inserted, created } = await insertNodeIfAbsent(client, {
       backendMountId: backend.id,
       parentId,
       path: newPath,
@@ -907,38 +916,63 @@ async function applyCopyNode(
       isSymlink: node.isSymlink
     });
 
-    await recordSnapshot(client, inserted);
+    if (created) {
+      await recordSnapshot(client, inserted);
+      createdNodes.push(inserted);
+      createdNodeIds.push(inserted.id);
+    }
     newNodeMap.set(node.id, inserted);
-    newNodeIds.push(inserted.id);
   }
 
   const copiedRoot = newNodeMap.get(existing.id)!;
 
+  if (createdNodes.length === 0) {
+    const rollupPlan = createEmptyRollupPlan();
+    return {
+      primaryNode: copiedRoot,
+      affectedNodeIds: [],
+      backendMountId: backend.id,
+      result: {
+        ...buildResultPayload(copiedRoot, command.type),
+        copiedFrom: normalizedSource,
+        idempotent: true
+      },
+      rollupPlan
+    } satisfies InternalCommandOutcome;
+  }
+
   const rollupPlan: RollupPlan = {
-    ensure: Array.from(new Set(newNodeIds)),
+    ensure: Array.from(new Set(createdNodeIds)),
     increments: [],
     invalidate: [],
-    touchedNodeIds: Array.from(new Set(newNodeIds)),
+    touchedNodeIds: Array.from(new Set(createdNodeIds)),
     scheduleCandidates: []
   };
 
-  const totals = { sizeBytes: 0, fileCount: 0, directoryCount: 0 };
-  newNodeMap.forEach((node) => {
-    const contribution = computeContribution(node);
-    totals.sizeBytes += contribution.sizeBytes;
-    totals.fileCount += contribution.fileCount;
-    totals.directoryCount += contribution.directoryCount;
-  });
+  const totals = createdNodes.reduce(
+    (acc, node) => {
+      const contribution = computeContribution(node);
+      acc.sizeBytes += contribution.sizeBytes;
+      acc.fileCount += contribution.fileCount;
+      acc.directoryCount += contribution.directoryCount;
+      return acc;
+    },
+    { sizeBytes: 0, fileCount: 0, directoryCount: 0 }
+  );
 
   if (targetParent) {
     const ancestors = await collectAncestorChain(client, targetParent);
+    const rootCreated = createdNodeIds.includes(copiedRoot.id);
     ancestors.forEach((ancestor, index) => {
+      if (totals.sizeBytes === 0 && totals.fileCount === 0 && totals.directoryCount === 0) {
+        return;
+      }
       rollupPlan.increments.push({
         nodeId: ancestor.id,
         sizeBytesDelta: totals.sizeBytes,
         fileCountDelta: totals.fileCount,
         directoryCountDelta: totals.directoryCount,
-        childCountDelta: index === 0 && copiedRoot.state === 'active' ? 1 : 0,
+        childCountDelta: index === 0 && rootCreated && copiedRoot.state === 'active' ? 1 : 0,
         markPending: false
       });
       rollupPlan.touchedNodeIds.push(ancestor.id);
@@ -961,8 +995,12 @@ async function applyCopyNode(
     depth: copiedRoot.depth,
     childCountDelta: 0
   });
+  rollupPlan.touchedNodeIds.push(copiedRoot.id);
 
-  const affectedIds = Array.from(newNodeMap.values()).map((node) => node.id);
+  rollupPlan.ensure = Array.from(new Set(rollupPlan.ensure));
+  rollupPlan.touchedNodeIds = Array.from(new Set(rollupPlan.touchedNodeIds));
+
+  const affectedIds = Array.from(new Set(createdNodeIds));
 
   return {
     primaryNode: copiedRoot,

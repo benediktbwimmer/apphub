@@ -26,7 +26,9 @@ import {
   resolveWorkflowProvisioningPlan,
   type EventDrivenObservatoryConfig,
   type WorkflowDefinitionTemplate,
-  type WorkflowProvisioningEventTrigger
+  type WorkflowProvisioningEventTrigger,
+  type WorkflowStepTemplate,
+  type WorkflowFanOutTemplateStep
 } from '@apphub/examples';
 import { validateEventEnvelope, type EventEnvelope } from '@apphub/event-bus';
 import { runE2E, scheduleForcedExit } from '@apphub/test-helpers';
@@ -134,6 +136,9 @@ const OBSERVATORY_ROWS_PER_INSTRUMENT = 6;
 const OBSERVATORY_INTERVAL_MINUTES = 1;
 const RUN_MINUTES = 5;
 const TEST_TIMEOUT_MS = Number(process.env.OBSERVATORY_BENCH_TIMEOUT_MS ?? 15 * 60 * 1000);
+const HAPPY_PATH_MAX_ATTEMPTS = resolveHappyPathRetryLimit(
+  process.env.OBSERVATORY_BENCH_MAX_ATTEMPTS ?? process.env.OBSERVATORY_BENCH_MAX_RETRIES
+);
 
 process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
   {
@@ -188,6 +193,91 @@ function applyEnvOverrides(overrides: Record<string, string>): () => void {
       }
     }
   };
+}
+
+function resolveHappyPathRetryLimit(raw: string | undefined): number {
+  const parsed = raw ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 2;
+  }
+  return Math.max(1, Math.floor(parsed));
+}
+
+function clearWorkflowSchedules(definition: WorkflowDefinitionTemplate): void {
+  const metadata = definition.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return;
+  }
+  const record = metadata as Record<string, unknown>;
+  const provisioning = record.provisioning;
+  if (!provisioning || typeof provisioning !== 'object' || Array.isArray(provisioning)) {
+    return;
+  }
+  const provisioningRecord = provisioning as Record<string, unknown>;
+  if (Array.isArray(provisioningRecord.schedules) && provisioningRecord.schedules.length > 0) {
+    provisioningRecord.schedules = [];
+  }
+}
+
+function applyHappyPathRetryLimits(
+  definition: WorkflowDefinitionTemplate,
+  maxAttempts: number
+): void {
+  if (!Array.isArray(definition.steps)) {
+    return;
+  }
+  for (const step of definition.steps as WorkflowStepTemplate[]) {
+    applyHappyPathRetryPolicy(step, maxAttempts);
+  }
+}
+
+function applyHappyPathRetryPolicy(
+  step: WorkflowStepTemplate | WorkflowFanOutTemplateStep,
+  maxAttempts: number
+): void {
+  if (!step || typeof step !== 'object') {
+    return;
+  }
+
+  const mutable = step as {
+    retryPolicy?: unknown;
+    type?: string;
+    template?: WorkflowFanOutTemplateStep;
+  };
+
+  mutable.retryPolicy = buildHappyPathRetryPolicy(mutable.retryPolicy, maxAttempts);
+
+  if (mutable.type === 'fanout' && mutable.template) {
+    applyHappyPathRetryPolicy(mutable.template, maxAttempts);
+  }
+}
+
+function buildHappyPathRetryPolicy(policy: unknown, maxAttempts: number): Record<string, unknown> {
+  const normalized =
+    policy && typeof policy === 'object' && !Array.isArray(policy)
+      ? { ...(policy as Record<string, unknown>) }
+      : {};
+
+  const current = Number((normalized as { maxAttempts?: unknown }).maxAttempts);
+  const resolved = Number.isFinite(current) && current >= 1 ? Math.min(Math.floor(current), maxAttempts) : maxAttempts;
+  normalized.maxAttempts = resolved;
+
+  if (normalized.strategy === undefined) {
+    normalized.strategy = 'fixed';
+  }
+  if (normalized.initialDelayMs === undefined) {
+    normalized.initialDelayMs = 250;
+  }
+
+  const maxDelay = (normalized as { maxDelayMs?: unknown }).maxDelayMs;
+  if (maxDelay !== undefined && maxDelay !== null) {
+    const parsed = Number(maxDelay);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      delete normalized.maxDelayMs;
+    }
+  }
+
+  return normalized;
 }
 
 async function ensureDockerAvailable(): Promise<void> {
@@ -400,7 +490,13 @@ async function setupExternalInfrastructure(): Promise<void> {
     APPHUB_BUNDLE_STORAGE_FORCE_PATH_STYLE: 'true',
     APPHUB_BUNDLE_STORAGE_ACCESS_KEY_ID: minio.rootUser,
     APPHUB_BUNDLE_STORAGE_SECRET_ACCESS_KEY: minio.rootPassword,
-    APPHUB_BUNDLE_STORAGE_SIGNING_SECRET: 'local-benchmark-secret'
+    APPHUB_BUNDLE_STORAGE_SIGNING_SECRET: 'local-benchmark-secret',
+    EVENT_TRIGGER_ATTEMPTS: String(HAPPY_PATH_MAX_ATTEMPTS),
+    INGEST_JOB_ATTEMPTS: String(HAPPY_PATH_MAX_ATTEMPTS),
+    WORKFLOW_RETRY_BASE_MS: '500',
+    WORKFLOW_RETRY_FACTOR: '1',
+    WORKFLOW_RETRY_MAX_MS: '5000',
+    WORKFLOW_RETRY_JITTER_RATIO: '0'
   });
   registerResourceCleanup(restoreOverrides);
 
@@ -1283,6 +1379,57 @@ async function runBenchmarkScenario(app: FastifyInstance, serverContext: ServerC
         workflow as unknown as WorkflowDefinitionTemplate,
         config
       );
+      applyHappyPathRetryLimits(
+        workflow as unknown as WorkflowDefinitionTemplate,
+        HAPPY_PATH_MAX_ATTEMPTS
+      );
+      if (workflow.slug === 'observatory-minute-data-generator') {
+        clearWorkflowSchedules(workflow as unknown as WorkflowDefinitionTemplate);
+      }
+      if (workflow.slug === 'observatory-minute-ingest') {
+        const desiredMaxFiles = 1;
+        const definition = workflow as WorkflowDefinitionTemplate;
+        const defaultsValue = definition.defaultParameters;
+        let defaults: Record<string, unknown>;
+        if (defaultsValue && typeof defaultsValue === 'object' && !Array.isArray(defaultsValue)) {
+          defaults = defaultsValue as Record<string, unknown>;
+        } else {
+          defaults = {};
+          definition.defaultParameters = defaults;
+        }
+        defaults.maxFiles = desiredMaxFiles;
+
+        const metadataValue = definition.metadata;
+        if (metadataValue && typeof metadataValue === 'object' && !Array.isArray(metadataValue)) {
+          const metadataRecord = metadataValue as Record<string, unknown>;
+          const provisioningValue = metadataRecord.provisioning;
+          if (provisioningValue && typeof provisioningValue === 'object' && !Array.isArray(provisioningValue)) {
+            const provisioningRecord = provisioningValue as Record<string, unknown>;
+            const triggersValue = provisioningRecord.eventTriggers;
+            if (Array.isArray(triggersValue)) {
+              for (const rawTrigger of triggersValue) {
+                if (!rawTrigger || typeof rawTrigger !== 'object' || Array.isArray(rawTrigger)) {
+                  continue;
+                }
+                const triggerRecord = rawTrigger as Record<string, unknown>;
+                const triggerMetadataValue = triggerRecord.metadata;
+                let triggerMetadata: Record<string, unknown>;
+                if (
+                  triggerMetadataValue &&
+                  typeof triggerMetadataValue === 'object' &&
+                  !Array.isArray(triggerMetadataValue)
+                ) {
+                  triggerMetadata = triggerMetadataValue as Record<string, unknown>;
+                } else {
+                  triggerMetadata = {};
+                  triggerRecord.metadata = triggerMetadata;
+                }
+                triggerMetadata.maxFiles = desiredMaxFiles;
+              }
+            }
+          }
+        }
+      }
       const triggers =
         (workflow as WorkflowDefinitionTemplate).metadata?.provisioning?.eventTriggers ?? [];
       for (const trigger of triggers) {
