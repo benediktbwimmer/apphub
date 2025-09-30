@@ -510,148 +510,162 @@ function buildCsvContent(
 }
 
 export async function handler(context: JobRunContext): Promise<JobRunResult> {
-  const parameters = parseParameters(context.parameters);
-  const { stamp, startDate } = parseMinute(parameters.minute);
-  const metastoreConfig = toMetastoreConfig(parameters);
+  try {
+    const parameters = parseParameters(context.parameters);
+    const { stamp, startDate } = parseMinute(parameters.minute);
+    const metastoreConfig = toMetastoreConfig(parameters);
 
-  const filestoreClient = new FilestoreClient({
-    baseUrl: parameters.filestoreBaseUrl,
-    token: parameters.filestoreToken,
-    userAgent: 'observatory-data-generator/0.2.0'
-  });
+    const filestoreClient = new FilestoreClient({
+      baseUrl: parameters.filestoreBaseUrl,
+      token: parameters.filestoreToken,
+      userAgent: 'observatory-data-generator/0.2.0'
+    });
 
-  await ensureFilestoreHierarchy(
-    filestoreClient,
-    parameters.filestoreBackendId,
-    parameters.inboxPrefix,
-    parameters.principal
-  );
-  await ensureFilestoreHierarchy(
-    filestoreClient,
-    parameters.filestoreBackendId,
-    parameters.stagingPrefix,
-    parameters.principal
-  );
-  await ensureFilestoreHierarchy(
-    filestoreClient,
-    parameters.filestoreBackendId,
-    parameters.archivePrefix,
-    parameters.principal
-  );
-
-  const summaries: GeneratedFileSummary[] = [];
-  let totalRows = 0;
-  let seedOffset = parameters.seed;
-
-  const normalizedInboxPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
-  const sanitizedMinuteKey = parameters.minute.replace(/:/g, '-');
-
-  for (const profile of parameters.instrumentProfiles) {
-    seedOffset += 1;
-    const rng = createRng(seedOffset);
-    const fileName = `${profile.instrumentId}_${stamp}.csv`;
-    const firstSampleDate = new Date(
-      startDate.getTime() - (parameters.rowsPerInstrument - 1) * parameters.intervalMinutes * 60_000
+    await ensureFilestoreHierarchy(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      parameters.inboxPrefix,
+      parameters.principal
     );
-    const { content, metrics } = buildCsvContent(
-      profile,
-      firstSampleDate,
-      parameters.rowsPerInstrument,
-      parameters.intervalMinutes,
-      rng
+    await ensureFilestoreHierarchy(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      parameters.stagingPrefix,
+      parameters.principal
     );
-    const filestorePath = `${normalizedInboxPrefix}/${fileName}`;
-    const uploadResult = await filestoreClient.uploadFile({
-      backendMountId: parameters.filestoreBackendId,
-      path: filestorePath,
-      content,
-      overwrite: true,
-      contentType: 'text/csv',
-      principal: parameters.principal,
-      metadata: {
-        minute: parameters.minute,
-        minuteKey: sanitizedMinuteKey,
+    await ensureFilestoreHierarchy(
+      filestoreClient,
+      parameters.filestoreBackendId,
+      parameters.archivePrefix,
+      parameters.principal
+    );
+
+    const summaries: GeneratedFileSummary[] = [];
+    let totalRows = 0;
+    let seedOffset = parameters.seed;
+
+    const normalizedInboxPrefix = parameters.inboxPrefix.replace(/\/+$/g, '');
+    const sanitizedMinuteKey = parameters.minute.replace(/:/g, '-');
+
+    for (const profile of parameters.instrumentProfiles) {
+      seedOffset += 1;
+      const rng = createRng(seedOffset);
+      const fileName = `${profile.instrumentId}_${stamp}.csv`;
+      const firstSampleDate = new Date(
+        startDate.getTime() - (parameters.rowsPerInstrument - 1) * parameters.intervalMinutes * 60_000
+      );
+      const { content, metrics } = buildCsvContent(
+        profile,
+        firstSampleDate,
+        parameters.rowsPerInstrument,
+        parameters.intervalMinutes,
+        rng
+      );
+      const filestorePath = `${normalizedInboxPrefix}/${fileName}`;
+      const uploadResult = await filestoreClient.uploadFile({
+        backendMountId: parameters.filestoreBackendId,
+        path: filestorePath,
+        content,
+        overwrite: true,
+        contentType: 'text/csv',
+        principal: parameters.principal,
+        metadata: {
+          minute: parameters.minute,
+          minuteKey: sanitizedMinuteKey,
+          instrumentId: profile.instrumentId,
+          site: profile.site,
+          rows: metrics.rows,
+          firstTimestamp: metrics.firstTimestamp,
+          lastTimestamp: metrics.lastTimestamp
+        }
+      });
+      const nodeId = uploadResult.node?.id ?? null;
+      const createdAt = new Date().toISOString();
+      if (metastoreConfig) {
+        const metadata: Record<string, unknown> = {
+          type: INGEST_RECORD_TYPE,
+          status: 'pending',
+          minute: parameters.minute,
+          minuteKey: sanitizedMinuteKey,
+          instrumentId: profile.instrumentId,
+          site: profile.site,
+          rows: metrics.rows,
+          filestorePath,
+          nodeId,
+          createdAt
+        };
+        await upsertMetastoreRecord(metastoreConfig, filestorePath, metadata);
+      }
+      totalRows += metrics.rows;
+      summaries.push({
         instrumentId: profile.instrumentId,
         site: profile.site,
+        relativePath: fileName,
+        filestorePath,
         rows: metrics.rows,
         firstTimestamp: metrics.firstTimestamp,
         lastTimestamp: metrics.lastTimestamp
+      });
+    }
+
+    const processedInstrumentCount = summaries.length;
+    const generatedAt = new Date().toISOString();
+
+    await context.update({
+      metrics: {
+        filesCreated: processedInstrumentCount,
+        rowsGenerated: totalRows,
+        instrumentCount: processedInstrumentCount
+      },
+      context: {
+        filestoreInboxPrefix: parameters.inboxPrefix,
+        minuteKey: sanitizedMinuteKey
       }
     });
-    const nodeId = uploadResult.node?.id ?? null;
-    const createdAt = new Date().toISOString();
-    if (metastoreConfig) {
-      const metadata: Record<string, unknown> = {
-        type: INGEST_RECORD_TYPE,
-        status: 'pending',
-        minute: parameters.minute,
-        minuteKey: sanitizedMinuteKey,
-        instrumentId: profile.instrumentId,
-        site: profile.site,
-        rows: metrics.rows,
-        filestorePath,
-        nodeId,
-        createdAt
-      };
-      await upsertMetastoreRecord(metastoreConfig, filestorePath, metadata);
-    }
-    totalRows += metrics.rows;
-    summaries.push({
-      instrumentId: profile.instrumentId,
-      site: profile.site,
-      relativePath: fileName,
-      filestorePath,
-      rows: metrics.rows,
-      firstTimestamp: metrics.firstTimestamp,
-      lastTimestamp: metrics.lastTimestamp
-    });
-  }
 
-  const processedInstrumentCount = summaries.length;
-  const generatedAt = new Date().toISOString();
-
-  await context.update({
-    filesCreated: summaries.length,
-    rowsGenerated: totalRows,
-    filestoreInboxPrefix: parameters.inboxPrefix,
-    minuteKey: sanitizedMinuteKey
-  });
-
-  const payload: GeneratorAssetPayload = {
-    generatedAt,
-    partitionKey: parameters.minute,
-    seed: parameters.seed,
-    files: summaries,
-    rowsGenerated: totalRows,
-    instrumentCount: processedInstrumentCount,
-    filestoreInboxPrefix: parameters.inboxPrefix,
-    minuteKey: sanitizedMinuteKey,
-    filestoreBackendId: parameters.filestoreBackendId
-  } satisfies GeneratorAssetPayload;
-
-  context.logger('Generated observatory inbox CSV files', {
-    minute: parameters.minute,
-    filesCreated: summaries.length,
-    rowsGenerated: totalRows,
-    filestoreInboxPrefix: parameters.inboxPrefix,
-    instrumentCount: processedInstrumentCount
-  });
-
-  return {
-    status: 'succeeded',
-    result: {
+    const payload: GeneratorAssetPayload = {
+      generatedAt,
       partitionKey: parameters.minute,
-      generated: payload,
-      assets: [
-        {
-          assetId: 'observatory.inbox.synthetic',
-          partitionKey: parameters.minute,
-          producedAt: generatedAt,
-          payload
-        }
-      ]
-    }
-  } satisfies JobRunResult;
+      seed: parameters.seed,
+      files: summaries,
+      rowsGenerated: totalRows,
+      instrumentCount: processedInstrumentCount,
+      filestoreInboxPrefix: parameters.inboxPrefix,
+      minuteKey: sanitizedMinuteKey,
+      filestoreBackendId: parameters.filestoreBackendId
+    } satisfies GeneratorAssetPayload;
+
+    context.logger('Generated observatory inbox CSV files', {
+      minute: parameters.minute,
+      filesCreated: summaries.length,
+      rowsGenerated: totalRows,
+      filestoreInboxPrefix: parameters.inboxPrefix,
+      instrumentCount: processedInstrumentCount
+    });
+
+    return {
+      status: 'succeeded',
+      result: {
+        partitionKey: parameters.minute,
+        generated: payload,
+        assets: [
+          {
+            assetId: 'observatory.inbox.synthetic',
+            partitionKey: parameters.minute,
+            producedAt: generatedAt,
+            payload
+          }
+        ]
+      }
+    } satisfies JobRunResult;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    context.logger('Observatory data generator failed', {
+      error: err.message,
+      stack: err.stack ?? null
+    });
+    throw err;
+  }
 }
 
 export default handler;

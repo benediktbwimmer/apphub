@@ -210,16 +210,26 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     parameters: latestRun.parameters,
     async update(updates) {
       const heartbeatAt = new Date().toISOString();
-      const updated = await updateJobRun(runId, { ...updates, heartbeatAt });
-      if (updated) {
-        const latest = applyLatestRun(updated);
-        context.run = latest;
-        context.parameters = latest.parameters;
-        return latest;
+      try {
+        const updated = await updateJobRun(runId, { ...updates, heartbeatAt });
+        if (updated) {
+          const latest = applyLatestRun(updated);
+          context.run = latest;
+          context.parameters = latest.parameters;
+          return latest;
+        }
+        context.run = latestRun;
+        context.parameters = latestRun.parameters;
+        return latestRun;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error('Job run update failed', {
+          jobRunId: runId,
+          error: message,
+          stack: err instanceof Error ? err.stack ?? null : null
+        });
+        throw err;
       }
-      context.run = latestRun;
-      context.parameters = latestRun.parameters;
-      return latestRun;
     },
     async heartbeat() {
       const heartbeatAt = new Date().toISOString();
@@ -334,7 +344,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       context.logger('Docker runner threw error', {
         jobRunId: runId,
         error: message,
-        errorName: err instanceof Error ? err.name : 'unknown'
+        errorName: err instanceof Error ? err.name : 'unknown',
+        stack: err instanceof Error ? err.stack ?? null : null
       });
       const errorContext = {
         docker: {
@@ -474,7 +485,8 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     context.logger('Job handler threw error', {
       error: errorMessage,
       handlerType: staticHandler ? 'static' : 'sandbox',
-      errorName: err instanceof Error ? err.name : 'unknown'
+      errorName: err instanceof Error ? err.name : 'unknown',
+      stack: err instanceof Error ? err.stack ?? null : null
     });
 
     const completed = await completeJobRun(runId, status, {

@@ -244,10 +244,14 @@ export class SandboxRunner {
         reject(error);
       };
 
-      child.on('error', (err) => {
-        options.logger('Sandbox process error', { taskId, error: err.message });
-        rejectOutcome(err);
+    child.on('error', (err) => {
+      options.logger('Sandbox process error', {
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack ?? null : null
       });
+      rejectOutcome(err);
+    });
 
       child.on('exit', (code, signal) => {
         if (settled) {
@@ -358,7 +362,8 @@ export class SandboxRunner {
             }
             options.logger('Sandbox reported error', {
               taskId,
-              message: err.message
+              message: err.message,
+              stack: raw.error.stack ?? null
             });
             rejectOutcome(err);
             break;

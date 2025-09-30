@@ -30,6 +30,10 @@ type ModuleWithPrivateResolve = typeof Module & {
 
 const moduleWithPrivateResolve = Module as ModuleWithPrivateResolve;
 
+if (typeof Error.stackTraceLimit === 'number') {
+  Error.stackTraceLimit = Math.max(Error.stackTraceLimit, 50);
+}
+
 const BASE_ALLOWED_MODULES = new Set<string>([
   'path',
   'node:path',
@@ -633,7 +637,8 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
     });
   } catch (err) {
     logger('error', 'Handler threw error', {
-      error: err instanceof Error ? err.message : String(err)
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack ?? null : null
     });
     throw err instanceof Error ? err : new Error(String(err));
   }

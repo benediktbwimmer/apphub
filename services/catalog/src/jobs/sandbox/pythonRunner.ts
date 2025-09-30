@@ -206,7 +206,11 @@ export class PythonSandboxRunner {
       };
 
       child.on('error', (err) => {
-        options.logger('Python sandbox process error', { taskId, error: err.message });
+        options.logger('Python sandbox process error', {
+          taskId,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack ?? null : null
+        });
         rejectOutcome(err);
       });
 
@@ -314,7 +318,8 @@ export class PythonSandboxRunner {
             }
             options.logger('Python sandbox reported error', {
               taskId,
-              message: err.message
+              message: err.message,
+              stack: raw.error.stack ?? null
             });
             rejectOutcome(err);
             break;
