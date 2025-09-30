@@ -98,6 +98,24 @@ def sanitize_for_ipc(value: Any) -> Any:
         ) from err
 
 
+def extract_error_properties(err: BaseException) -> Optional[Dict[str, Any]]:
+    properties: Dict[str, Any] = {}
+    details = getattr(err, "__dict__", None)
+    if isinstance(details, dict):
+        for key, value in details.items():
+            converted = to_json_value(value)
+            if converted is not UNSUPPORTED:
+                properties[key] = converted
+
+    args_value = getattr(err, "args", None)
+    if args_value:
+        converted_args = to_json_value(list(args_value))
+        if converted_args is not UNSUPPORTED:
+            properties.setdefault("args", converted_args)
+
+    return properties or None
+
+
 def ensure_within_bundle(bundle_dir: str, candidate: str) -> str:
     normalized_root = os.path.realpath(bundle_dir)
     normalized_candidate = os.path.realpath(candidate)
@@ -620,16 +638,39 @@ async def execute_start(payload: Dict[str, Any]) -> None:
             if not future.done():
                 future.set_exception(RuntimeError(message))
         pending_requests.clear()
-        send_message({"type": "error", "error": {"message": message}})
-    except Exception:
+        send_message(
+            {
+                "type": "error",
+                "error": {
+                    "message": message,
+                    "name": "CancelledError",
+                },
+            }
+        )
+    except Exception as err:
         error = traceback.format_exc()
         message = "Handler threw error"
-        log("error", message, {"error": error})
+        log(
+            "error",
+            message,
+            {
+                "error": error,
+                "errorType": err.__class__.__name__,
+            },
+        )
         for _request_id, (_kind, future) in list(pending_requests.items()):
             if not future.done():
                 future.set_exception(RuntimeError("Handler failed"))
         pending_requests.clear()
-        send_message({"type": "error", "error": {"message": message, "stack": error}})
+        error_payload: Dict[str, Any] = {
+            "message": message,
+            "stack": error,
+            "name": err.__class__.__name__,
+        }
+        properties = extract_error_properties(err)
+        if properties:
+            error_payload["properties"] = properties
+        send_message({"type": "error", "error": error_payload})
 
 
 async def main() -> None:

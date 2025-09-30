@@ -7,6 +7,7 @@ import {
   mergeParameters,
   resolveJsonTemplates,
   resolveTemplateString,
+  serializeContext,
   setSharedValue,
   templateValueToString,
   updateStepContext,
@@ -142,5 +143,47 @@ describe('workflow context helpers', () => {
   it('stringifies template values when required', () => {
     const value = templateValueToString({ nested: true });
     assert.equal(value, '{"nested":true}');
+  });
+
+  it('preserves stack traces and error metadata in serialized step context', () => {
+    const context = createContext();
+    const failureDetails = {
+      stack: 'SampleError: boom\n    at handler (bundle.js:1:1)',
+      name: 'SampleError',
+      properties: { hint: 'check inputs' } as Record<string, JsonValue>
+    };
+
+    const failed = updateStepContext(context, 'step-1', {
+      status: 'failed',
+      jobRunId: 'job-1',
+      errorMessage: 'boom',
+      context: {
+        stack: failureDetails.stack,
+        errorName: failureDetails.name,
+        properties: failureDetails.properties
+      } as JsonValue,
+      errorStack: failureDetails.stack,
+      errorName: failureDetails.name,
+      errorProperties: failureDetails.properties
+    });
+
+    const serialized = serializeContext(failed);
+    assert(serialized && typeof serialized === 'object', 'serialized context should be an object');
+    const serializedSteps = (serialized as { steps?: Record<string, Record<string, JsonValue>> }).steps;
+    assert(serializedSteps, 'expected serialized steps to be present');
+    const serializedStep = serializedSteps?.['step-1'];
+    assert(serializedStep, 'expected serialized step entry');
+    assert.equal(serializedStep?.errorStack, failureDetails.stack);
+    assert.equal(serializedStep?.errorName, failureDetails.name);
+    assert.deepEqual(serializedStep?.errorProperties, failureDetails.properties);
+
+    const cleared = updateStepContext(failed, 'step-1', {
+      status: 'running',
+      errorMessage: null
+    });
+    const clearedStep = cleared.steps['step-1'];
+    assert.equal(clearedStep?.errorStack, null);
+    assert.equal(clearedStep?.errorName, null);
+    assert.equal(clearedStep?.errorProperties, null);
   });
 });

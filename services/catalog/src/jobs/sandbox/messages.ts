@@ -98,5 +98,7 @@ export type SandboxChildMessage =
       error: {
         message: string;
         stack?: string;
+        name?: string | null;
+        properties?: Record<string, JsonValue>;
       };
     };

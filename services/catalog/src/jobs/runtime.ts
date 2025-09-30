@@ -25,6 +25,7 @@ import {
   sandboxRunner,
   SandboxTimeoutError,
   SandboxCrashError,
+  SandboxExecutionFailure,
   type SandboxExecutionResult
 } from './sandbox/runner';
 import { pythonSandboxRunner } from './sandbox/pythonRunner';
@@ -60,6 +61,62 @@ class BundleResolutionError extends Error {
 
 function isBundleResolutionError(err: unknown): err is BundleResolutionError {
   return err instanceof BundleResolutionError;
+}
+
+function coerceJsonValue(value: unknown): JsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return value as JsonValue;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? (value as JsonValue) : undefined;
+  }
+  if (Array.isArray(value)) {
+    const result: JsonValue[] = [];
+    for (const entry of value) {
+      const converted = coerceJsonValue(entry);
+      if (converted !== undefined) {
+        result.push(converted);
+      }
+    }
+    return result;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const result: Record<string, JsonValue> = {};
+    for (const [key, entryValue] of entries) {
+      const converted = coerceJsonValue(entryValue);
+      if (converted !== undefined) {
+        result[key] = converted;
+      }
+    }
+    return result;
+  }
+  return undefined;
+}
+
+function extractErrorProperties(error: unknown): Record<string, JsonValue> | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  const properties: Record<string, JsonValue> = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    if (key === 'name' || key === 'message' || key === 'stack') {
+      continue;
+    }
+    try {
+      const entry = (error as Record<string, unknown>)[key];
+      const converted = coerceJsonValue(entry);
+      if (converted !== undefined) {
+        properties[key] = converted;
+      }
+    } catch {
+      // ignore property access failures
+    }
+  }
+  return Object.keys(properties).length > 0 ? properties : null;
 }
 
 export type JobRunContext = {
@@ -341,17 +398,28 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
       return completed ?? currentRun;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Docker execution failed';
+      const derivedProperties = extractErrorProperties(err);
       context.logger('Docker runner threw error', {
         jobRunId: runId,
         error: message,
         errorName: err instanceof Error ? err.name : 'unknown',
-        stack: err instanceof Error ? err.stack ?? null : null
+        stack: err instanceof Error ? err.stack ?? null : null,
+        ...(derivedProperties ? { errorProperties: derivedProperties } : {})
       });
       const errorContext = {
         docker: {
           error: message
         }
       } satisfies Record<string, JsonValue>;
+      if (err instanceof Error && err.stack) {
+        errorContext.stack = err.stack;
+      }
+      if (err instanceof Error && typeof err.name === 'string' && err.name.length > 0) {
+        errorContext.errorName = err.name;
+      }
+      if (derivedProperties) {
+        errorContext.properties = derivedProperties;
+      }
       const completed = await completeJobRun(runId, 'failed', {
         errorMessage: message,
         context: errorContext
@@ -451,43 +519,81 @@ export async function executeJobRun(runId: string): Promise<JobRunRecord | null>
     return completed ?? currentRun;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Job execution failed';
+    const sandboxFailure = err instanceof SandboxExecutionFailure ? err : null;
+    const errorName = err instanceof Error && typeof err.name === 'string' && err.name.length > 0 ? err.name : 'unknown';
+
     const errorContext: Record<string, JsonValue> = {
-      error: errorMessage
+      error: errorMessage,
+      errorName
     };
     if (err instanceof Error && err.stack) {
       errorContext.stack = err.stack;
     }
 
-    let status: JobRunStatus = 'failed';
-
-    if (!staticHandler) {
-      if (bundleBinding) {
-        errorContext.bundle = {
-          slug: bundleBinding.slug,
-          version: bundleBinding.version,
-          exportName: bundleBinding.exportName ?? null
-        } satisfies Record<string, JsonValue>;
-      }
-      if (err instanceof SandboxTimeoutError) {
-        status = 'expired';
-        errorContext.timeoutMs = err.elapsedMs;
-      } else if (err instanceof SandboxCrashError) {
-        errorContext.exitCode = err.code ?? null;
-        errorContext.signal = err.signal ?? null;
-      }
-      if (sandboxTelemetry) {
-        errorContext.sandboxLogs = sanitizeSandboxLogs(sandboxTelemetry.logs);
-        errorContext.sandboxTruncatedLogCount = sandboxTelemetry.truncatedLogCount;
-        errorContext.sandboxTaskId = sandboxTelemetry.taskId;
-      }
+    const combinedProperties: Record<string, JsonValue> = {};
+    if (sandboxFailure?.properties) {
+      Object.assign(combinedProperties, sandboxFailure.properties);
+    }
+    const derivedProperties = extractErrorProperties(err);
+    if (derivedProperties) {
+      Object.assign(combinedProperties, derivedProperties);
+    }
+    if (Object.keys(combinedProperties).length > 0) {
+      errorContext.properties = combinedProperties;
     }
 
-    context.logger('Job handler threw error', {
+    let status: JobRunStatus = 'failed';
+
+    const encounteredSandboxError =
+      !staticHandler ||
+      sandboxFailure !== null ||
+      err instanceof SandboxTimeoutError ||
+      err instanceof SandboxCrashError;
+
+    if (encounteredSandboxError && bundleBinding) {
+      errorContext.bundle = {
+        slug: bundleBinding.slug,
+        version: bundleBinding.version,
+        exportName: bundleBinding.exportName ?? null
+      } satisfies Record<string, JsonValue>;
+    }
+
+    if (err instanceof SandboxTimeoutError) {
+      status = 'expired';
+      errorContext.timeoutMs = err.elapsedMs;
+    } else if (err instanceof SandboxCrashError) {
+      errorContext.exitCode = err.code ?? null;
+      errorContext.signal = err.signal ?? null;
+    }
+
+    if (sandboxFailure) {
+      errorContext.sandboxLogs = sanitizeSandboxLogs(sandboxFailure.logs);
+      errorContext.sandboxTruncatedLogCount = sandboxFailure.truncatedLogCount;
+      errorContext.sandboxTaskId = sandboxFailure.taskId;
+    } else if (sandboxTelemetry) {
+      errorContext.sandboxLogs = sanitizeSandboxLogs(sandboxTelemetry.logs);
+      errorContext.sandboxTruncatedLogCount = sandboxTelemetry.truncatedLogCount;
+      errorContext.sandboxTaskId = sandboxTelemetry.taskId;
+    }
+
+    const logMeta: Record<string, unknown> = {
       error: errorMessage,
       handlerType: staticHandler ? 'static' : 'sandbox',
-      errorName: err instanceof Error ? err.name : 'unknown',
+      errorName,
       stack: err instanceof Error ? err.stack ?? null : null
-    });
+    };
+    if (sandboxFailure) {
+      logMeta.sandboxTaskId = sandboxFailure.taskId;
+      logMeta.sandboxTruncatedLogCount = sandboxFailure.truncatedLogCount;
+    } else if (sandboxTelemetry) {
+      logMeta.sandboxTaskId = sandboxTelemetry.taskId;
+      logMeta.sandboxTruncatedLogCount = sandboxTelemetry.truncatedLogCount;
+    }
+    if (Object.keys(combinedProperties).length > 0) {
+      logMeta.errorProperties = combinedProperties;
+    }
+
+    context.logger('Job handler threw error', logMeta);
 
     const completed = await completeJobRun(runId, status, {
       errorMessage,

@@ -40,6 +40,39 @@ export class SandboxCrashError extends Error {
   }
 }
 
+export class SandboxExecutionFailure extends Error {
+  readonly taskId: string;
+  readonly logs: SandboxLogEntry[];
+  readonly truncatedLogCount: number;
+  readonly properties?: Record<string, JsonValue>;
+
+  constructor(
+    base: Error,
+    options: {
+      taskId: string;
+      logs: SandboxLogEntry[];
+      truncatedLogCount: number;
+      properties?: Record<string, JsonValue>;
+    }
+  ) {
+    super(base.message);
+    this.name = base.name || 'SandboxExecutionFailure';
+    if (base.stack) {
+      this.stack = base.stack;
+    }
+    const cause = (base as Error & { cause?: unknown }).cause;
+    if (cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = cause;
+    }
+    this.taskId = options.taskId;
+    this.logs = options.logs;
+    this.truncatedLogCount = options.truncatedLogCount;
+    if (options.properties) {
+      this.properties = options.properties;
+    }
+  }
+}
+
 export type SandboxLogEntry = {
   level: 'info' | 'warn' | 'error';
   message: string;
@@ -357,15 +390,40 @@ export class SandboxRunner {
           }
           case 'error': {
             const err = new Error(raw.error.message);
+            if (raw.error.name) {
+              err.name = raw.error.name;
+            }
             if (raw.error.stack) {
               err.stack = raw.error.stack;
             }
+            if (raw.error.properties) {
+              Object.assign(err as Record<string, unknown>, raw.error.properties);
+            }
+            const logMeta = {
+              stack: raw.error.stack ?? null,
+              errorName: raw.error.name ?? null,
+              properties: raw.error.properties ?? null
+            } satisfies Record<string, unknown>;
             options.logger('Sandbox reported error', {
               taskId,
               message: err.message,
-              stack: raw.error.stack ?? null
+              ...logMeta
             });
-            rejectOutcome(err);
+            recordLog({
+              level: 'error',
+              message: raw.error.message,
+              meta: {
+                ...logMeta,
+                taskId
+              }
+            });
+            const failure = new SandboxExecutionFailure(err, {
+              taskId,
+              logs: logs.slice(0, this.maxLogs),
+              truncatedLogCount: truncatedLogs,
+              properties: raw.error.properties
+            });
+            rejectOutcome(failure);
             break;
           }
           default:

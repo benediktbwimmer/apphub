@@ -37,6 +37,10 @@ export type WorkflowStepRuntimeContext = {
   attempt?: number;
   service?: WorkflowStepServiceContext;
   assets?: StepAssetRuntimeSummary[];
+  errorStack?: string | null;
+  errorName?: string | null;
+  errorProperties?: Record<string, JsonValue> | null;
+  context?: JsonValue | null;
 };
 
 export type WorkflowRuntimeContext = {
@@ -332,10 +336,38 @@ export function updateStepContext(
     shared: deepCopyShared(context.shared)
   };
   const previous = next.steps[stepId] ?? { status: 'pending', jobRunId: null };
-  next.steps[stepId] = {
+  const merged: WorkflowStepRuntimeContext = {
     ...previous,
     ...patch
   };
+
+  const nextStatus = merged.status;
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'context')) {
+    merged.context = patch.context ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.context = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorStack')) {
+    merged.errorStack = patch.errorStack ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorStack = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorName')) {
+    merged.errorName = patch.errorName ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorName = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorProperties')) {
+    merged.errorProperties = patch.errorProperties ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorProperties = null;
+  }
+
+  next.steps[stepId] = merged;
   return next;
 }
 

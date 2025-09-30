@@ -9,7 +9,7 @@ import type {
   SandboxExecutionResult,
   SandboxLogEntry
 } from './runner';
-import { SandboxCrashError, SandboxTimeoutError } from './runner';
+import { SandboxCrashError, SandboxExecutionFailure, SandboxTimeoutError } from './runner';
 import type { SandboxChildMessage, SandboxParentMessage } from './messages';
 import {
   serializeWorkflowEventContext,
@@ -313,15 +313,39 @@ export class PythonSandboxRunner {
           }
           case 'error': {
             const err = new Error(raw.error.message);
+            if (raw.error.name) {
+              err.name = raw.error.name;
+            }
             if (raw.error.stack) {
               err.stack = raw.error.stack;
+            }
+            if (raw.error.properties) {
+              Object.assign(err as Record<string, unknown>, raw.error.properties);
             }
             options.logger('Python sandbox reported error', {
               taskId,
               message: err.message,
-              stack: raw.error.stack ?? null
+              stack: raw.error.stack ?? null,
+              errorName: raw.error.name ?? null,
+              properties: raw.error.properties ?? null
             });
-            rejectOutcome(err);
+            recordLog({
+              level: 'error',
+              message: raw.error.message,
+              meta: {
+                taskId,
+                stack: raw.error.stack ?? null,
+                errorName: raw.error.name ?? null,
+                properties: raw.error.properties ?? null
+              }
+            });
+            const failure = new SandboxExecutionFailure(err, {
+              taskId,
+              logs: logs.slice(0, this.maxLogs),
+              truncatedLogCount: truncatedLogs,
+              properties: raw.error.properties
+            });
+            rejectOutcome(failure);
             break;
           }
           default:

@@ -223,8 +223,13 @@ async function executeNodeBundle(context: BundleContext, parameters: JsonValue):
   try {
     jobResult = await handler(localContext);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Job handler threw an error: ${message}`);
+    const error = err instanceof Error ? err : new Error(String(err));
+    const stack = error.stack ?? error.message;
+    logBuffer.push(`[job:${context.config.slug}] handler error ${stack}`);
+    (error as Error & { runContext?: ExecuteResult['runContext'] }).runContext = {
+      logs: [...logBuffer]
+    };
+    throw error;
   }
   const finished = performance.now();
   const durationMs = Math.round(finished - started);

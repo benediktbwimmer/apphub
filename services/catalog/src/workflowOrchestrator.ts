@@ -51,6 +51,12 @@ import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
 import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import { getRuntimeScalingEffectiveConcurrency } from './runtimeScaling/state';
 import { getRuntimeScalingTarget } from './runtimeScaling/targets';
+import {
+  type WorkflowRuntimeContext,
+  type WorkflowStepRuntimeContext,
+  type WorkflowStepServiceContext,
+  type StepAssetRuntimeSummary
+} from './workflow/context';
 
 function log(message: string, meta?: Record<string, unknown>) {
   const serialized = meta ? (meta as Record<string, JsonValue>) : undefined;
@@ -175,45 +181,6 @@ async function applyStepUpdateWithHistory(
 async function recordStepHeartbeat(step: WorkflowRunStepRecord): Promise<WorkflowRunStepRecord> {
   return applyStepUpdateWithHistory(step, {}, { eventType: 'heartbeat' });
 }
-
-type WorkflowStepServiceContext = {
-  slug: string;
-  status: ServiceStatus;
-  method: string;
-  path: string;
-  baseUrl?: string | null;
-  statusCode?: number | null;
-  latencyMs?: number | null;
-};
-
-type StepAssetRuntimeSummary = {
-  assetId: string;
-  producedAt: string | null;
-  partitionKey?: string | null;
-  payload?: JsonValue | null;
-  schema?: JsonValue | null;
-  freshness?: WorkflowAssetFreshness | null;
-};
-
-type WorkflowStepRuntimeContext = {
-  status: WorkflowRunStepStatus;
-  jobRunId: string | null;
-  result?: JsonValue | null;
-  errorMessage?: string | null;
-  logsUrl?: string | null;
-  metrics?: JsonValue | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  attempt?: number;
-  service?: WorkflowStepServiceContext;
-  assets?: StepAssetRuntimeSummary[];
-};
-
-type WorkflowRuntimeContext = {
-  steps: Record<string, WorkflowStepRuntimeContext>;
-  lastUpdatedAt: string;
-  shared?: Record<string, JsonValue | null>;
-};
 
 type FanOutRuntimeMetadata = {
   parentStepId: string;
@@ -907,6 +874,41 @@ function parseServiceRuntimeContext(value: JsonValue | null | undefined): Workfl
   return context;
 }
 
+function extractJobRunErrorDetails(
+  contextValue: JsonValue | null | undefined
+): {
+  context: JsonValue | null;
+  errorStack: string | null;
+  errorName: string | null;
+  errorProperties: Record<string, JsonValue> | null;
+} {
+  const context = (contextValue ?? null) as JsonValue | null;
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    return {
+      context,
+      errorStack: null,
+      errorName: null,
+      errorProperties: null
+    };
+  }
+  const record = context as Record<string, JsonValue>;
+  const stackValue = record.stack;
+  const errorStack = typeof stackValue === 'string' ? stackValue : null;
+  const nameValue = record.errorName ?? record.error_name;
+  const errorName = typeof nameValue === 'string' ? nameValue : null;
+  const propertiesValue = record.properties;
+  const errorProperties =
+    propertiesValue && typeof propertiesValue === 'object' && !Array.isArray(propertiesValue)
+      ? (propertiesValue as Record<string, JsonValue>)
+      : null;
+  return {
+    context,
+    errorStack,
+    errorName,
+    errorProperties
+  };
+}
+
 function toWorkflowContext(raw: JsonValue | null | undefined): WorkflowRuntimeContext {
   if (isJsonObject(raw)) {
     const stepsValue = raw.steps;
@@ -927,7 +929,10 @@ function toWorkflowContext(raw: JsonValue | null | undefined): WorkflowRuntimeCo
           metrics: (entry.metrics as JsonValue | null | undefined) ?? null,
           startedAt: typeof entry.startedAt === 'string' ? entry.startedAt : null,
           completedAt: typeof entry.completedAt === 'string' ? entry.completedAt : null,
-          attempt: typeof entry.attempt === 'number' ? entry.attempt : undefined
+          attempt: typeof entry.attempt === 'number' ? entry.attempt : undefined,
+          context: (entry.context as JsonValue | null | undefined) ?? null,
+          errorStack: typeof entry.errorStack === 'string' ? entry.errorStack : null,
+          errorName: typeof entry.errorName === 'string' ? entry.errorName : null
         };
         const serviceContext = parseServiceRuntimeContext(entry.service as JsonValue | null | undefined);
         if (serviceContext) {
@@ -936,6 +941,10 @@ function toWorkflowContext(raw: JsonValue | null | undefined): WorkflowRuntimeCo
         const assets = parseRuntimeAssets(entry.assets as JsonValue | null | undefined);
         if (assets) {
           normalized.assets = assets;
+        }
+        const errorPropertiesValue = entry.errorProperties as JsonValue | null | undefined;
+        if (isJsonObject(errorPropertiesValue)) {
+          normalized.errorProperties = errorPropertiesValue as Record<string, JsonValue>;
         }
         steps[key] = normalized;
       }
@@ -998,10 +1007,38 @@ function updateStepContext(
     shared: context.shared ? { ...context.shared } : undefined
   };
   const previous = next.steps[stepId] ?? { status: 'pending', jobRunId: null };
-  next.steps[stepId] = {
+  const merged: WorkflowStepRuntimeContext = {
     ...previous,
     ...patch
   };
+
+  const nextStatus = merged.status;
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'context')) {
+    merged.context = patch.context ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.context = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorStack')) {
+    merged.errorStack = patch.errorStack ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorStack = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorName')) {
+    merged.errorName = patch.errorName ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorName = null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'errorProperties')) {
+    merged.errorProperties = patch.errorProperties ?? null;
+  } else if (nextStatus !== 'failed') {
+    merged.errorProperties = null;
+  }
+
+  next.steps[stepId] = merged;
   return next;
 }
 
@@ -1227,7 +1264,11 @@ async function scheduleWorkflowStepRetry(
     attempt: updatedRecord.attempt,
     startedAt: updatedRecord.startedAt,
     completedAt: null,
-    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? [])
+    assets: toRuntimeAssetSummaries(updatedRecord.producedAssets ?? []),
+    context: null,
+    errorStack: null,
+    errorName: null,
+    errorProperties: null
   });
 
   await applyRunContextPatch(run.id, step.id, retryContext.steps[step.id], {
@@ -1906,7 +1947,11 @@ async function executeFanOutStep(
       metrics: null,
       startedAt,
       completedAt,
-      attempt: stepRecord.attempt ?? 1
+      attempt: stepRecord.attempt ?? 1,
+      context: null,
+      errorStack: null,
+      errorName: null,
+      errorProperties: null
     });
 
     await applyRunContextPatch(run.id, step.id, failureContext.steps[step.id], {
@@ -2085,6 +2130,7 @@ async function executeJobStep(
   });
 
   if (stepRecord.status === 'succeeded') {
+    const jobDetails = extractJobRunErrorDetails(stepRecord.context);
     let nextContext = updateStepContext(context, step.id, {
       status: stepRecord.status,
       jobRunId: stepRecord.jobRunId,
@@ -2095,7 +2141,11 @@ async function executeJobStep(
       startedAt: stepRecord.startedAt,
       completedAt: stepRecord.completedAt,
       attempt: stepRecord.attempt,
-      assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
+      assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+      context: jobDetails.context,
+      errorStack: jobDetails.errorStack,
+      errorName: jobDetails.errorName,
+      errorProperties: jobDetails.errorProperties
     });
     let sharedPatch: Record<string, JsonValue | null> | undefined;
     if (step.storeResultAs) {
@@ -2151,7 +2201,11 @@ async function executeJobStep(
     logsUrl: stepRecord.logsUrl ?? null,
     metrics: stepRecord.metrics ?? null,
     completedAt: stepRecord.completedAt ?? null,
-    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+    context: null,
+    errorStack: null,
+    errorName: null,
+    errorProperties: null
   });
 
   await applyRunContextPatch(run.id, step.id, nextContext.steps[step.id], {
@@ -2262,6 +2316,8 @@ async function executeJobStep(
     stepRecord = { ...stepRecord, producedAssets: [] };
   }
 
+  const executedErrorDetails = extractJobRunErrorDetails(executed.context ?? null);
+
   nextContext = updateStepContext(nextContext, step.id, {
     status: stepRecord.status,
     jobRunId: executed.id,
@@ -2271,7 +2327,11 @@ async function executeJobStep(
     metrics: executed.metrics ?? null,
     startedAt: executed.startedAt ?? startedAt,
     completedAt,
-    assets: toRuntimeAssetSummaries(stepRecord.producedAssets)
+    assets: toRuntimeAssetSummaries(stepRecord.producedAssets),
+    context: executedErrorDetails.context,
+    errorStack: executedErrorDetails.errorStack,
+    errorName: executedErrorDetails.errorName,
+    errorProperties: executedErrorDetails.errorProperties
   });
 
   if (stepRecord.status === 'succeeded') {

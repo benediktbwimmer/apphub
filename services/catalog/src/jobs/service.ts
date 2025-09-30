@@ -1043,7 +1043,17 @@ export class JobService {
       }
       const errorMessage = err instanceof Error ? err.message : 'job execution failed';
       context.logger.error({ err, slug: job.slug }, 'Failed to execute job run');
-      await this.deps.completeJobRun(run.id, 'failed', { errorMessage });
+      const errorContext: Record<string, JsonValue> = {
+        error: errorMessage,
+        errorName: err instanceof Error ? err.name ?? 'Error' : 'unknown'
+      } satisfies Record<string, JsonValue>;
+      if (err instanceof Error && err.stack) {
+        errorContext.stack = err.stack;
+      }
+      await this.deps.completeJobRun(run.id, 'failed', {
+        errorMessage,
+        context: errorContext
+      });
       throw new JobServiceError('execution_error', 502, errorMessage, errorMessage, err);
     }
 

@@ -317,6 +317,52 @@ function normalizeMeta(meta: unknown): Record<string, unknown> | undefined {
   }
 }
 
+function extractErrorProperties(error: Error): Record<string, JsonValue> | undefined {
+  const properties: Record<string, JsonValue> = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    if (key === 'name' || key === 'message' || key === 'stack') {
+      continue;
+    }
+    try {
+      const value = (error as Record<string, unknown>)[key];
+      const converted = toJsonValue(value);
+      if (converted !== undefined) {
+        properties[key] = converted;
+      }
+    } catch {
+      // ignore property access errors
+    }
+  }
+  return Object.keys(properties).length > 0 ? properties : undefined;
+}
+
+function serializeError(error: unknown): {
+  message: string;
+  stack?: string | null;
+  name?: string | null;
+  properties?: Record<string, JsonValue>;
+} {
+  if (error instanceof Error) {
+    const properties = extractErrorProperties(error);
+    const derivedName =
+      typeof error.name === 'string' && error.name.length > 0
+        ? error.name
+        : error.constructor && typeof error.constructor === 'function'
+          ? error.constructor.name
+          : null;
+    return {
+      message: error.message,
+      stack: error.stack ?? null,
+      ...(derivedName ? { name: derivedName } : {}),
+      ...(properties ? { properties } : {})
+    };
+  }
+  return {
+    message: typeof error === 'string' ? error : String(error),
+    name: null
+  };
+}
+
 function toJsonValue(value: unknown): JsonValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -638,7 +684,8 @@ async function executeStart(payload: SandboxStartPayload): Promise<void> {
   } catch (err) {
     logger('error', 'Handler threw error', {
       error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack ?? null : null
+      stack: err instanceof Error ? err.stack ?? null : null,
+      errorName: err instanceof Error ? err.name ?? null : null
     });
     throw err instanceof Error ? err : new Error(String(err));
   }
@@ -683,10 +730,7 @@ process.on('message', async (message: SandboxParentMessage) => {
     pendingRequests.clear();
     send({
       type: 'error',
-      error: {
-        message: error.message,
-        stack: error.stack
-      }
+      error: serializeError(error)
     });
   }
 });
@@ -699,10 +743,7 @@ process.on('uncaughtException', (err) => {
   pendingRequests.clear();
   send({
     type: 'error',
-    error: {
-      message: error.message,
-      stack: error.stack
-    }
+    error: serializeError(error)
   });
 });
 
@@ -714,9 +755,6 @@ process.on('unhandledRejection', (reason) => {
   pendingRequests.clear();
   send({
     type: 'error',
-    error: {
-      message: err.message,
-      stack: err.stack
-    }
+    error: serializeError(err)
   });
 });

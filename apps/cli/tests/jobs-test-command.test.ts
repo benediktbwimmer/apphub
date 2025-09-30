@@ -62,3 +62,38 @@ test('executeBundle runs a python handler', { concurrency: false }, async (t) =>
   assert.equal(jobResult?.echoed?.greet, 'bonjour');
   assert(execution.runContext.logs.some((line) => line.includes('python-handler')));
 });
+
+test('executeBundle surfaces stack traces when the handler fails', { concurrency: false }, async (t) => {
+  const dir = await createTempDir('apphub-cli-run-fail-');
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const { context } = await loadOrScaffoldBundle(dir, {});
+  await buildBundle(context);
+
+  const entryFile = context.manifest.entry ?? 'dist/index.mjs';
+  const entryPath = path.join(context.bundleDir, entryFile);
+  await writeFile(
+    entryPath,
+    [
+      "export default () => {",
+      "  throw new Error('intentional failure from test');",
+      "};",
+      ''
+    ].join('\n'),
+    'utf8'
+  );
+
+  try {
+    await executeBundle(context, {});
+    assert.fail('expected executeBundle to throw');
+  } catch (err) {
+    assert(err instanceof Error);
+    const stack = err.stack ?? '';
+    assert.match(stack, /intentional failure from test/);
+    const runContext = (err as Error & { runContext?: { logs: string[] } }).runContext;
+    assert(runContext, 'expected error to expose runContext');
+    assert(runContext.logs.some((line) => line.includes('intentional failure from test')));
+  }
+});
