@@ -360,7 +360,7 @@
               "authToken": "{{ defaultParameters.metastoreAuthToken }}"
             }
           },
-          "idempotencyKeyExpression": "{{ event.payload.instrumentId | default: 'unknown' | replace: \":\", \"-\" }}-{{ event.payload.partitionKey | replace: \":\", \"-\" }}",
+          "idempotencyKeyExpression": "{{ event.payload.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ event.payload.partitionKey | replace: ':', '-' }}",
           "status": "active"
         }
       ]

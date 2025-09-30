@@ -381,7 +381,7 @@
               "authToken": "{{ defaultParameters.calibrationsAuthToken }}"
             }
           },
-          "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ":", '-' }}",
+          "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ':', '-' }}",
           "status": "active"
         }
       ]

@@ -769,7 +769,7 @@
                     "authToken": "{{ defaultParameters.metastoreAuthToken }}"
                   }
                 },
-                "idempotencyKeyExpression": "{{ event.payload.attributes.instrumentId | default: 'unknown' | replace: \":\", \"-\" }}-{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window | replace: \":\", \"-\" }}",
+                "idempotencyKeyExpression": "{{ event.payload.attributes.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ event.payload.partitionKey | default: event.payload.partitionKeyFields.window | replace: ':', '-' }}",
                 "status": "active"
               }
             ]
