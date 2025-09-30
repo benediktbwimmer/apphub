@@ -22,13 +22,19 @@
       "partitionNamespace": { "type": "string" },
       "minute": { "type": "string", "minLength": 1 },
       "rawAsset": { "type": "object" },
-      "idempotencyKey": { "type": "string", "minLength": 1 }
+      "idempotencyKey": { "type": "string", "minLength": 1 },
+      "calibrationsBaseUrl": { "type": "string" },
+      "calibrationsNamespace": { "type": "string" },
+      "calibrationsAuthToken": { "type": "string" }
     },
     "required": ["datasetSlug", "tableName", "timestoreBaseUrl", "minute", "rawAsset"]
   },
   "defaultParameters": {
     "tableName": "observations",
-    "partitionNamespace": "observatory"
+    "partitionNamespace": "observatory",
+    "calibrationsBaseUrl": null,
+    "calibrationsNamespace": "observatory.calibrations",
+    "calibrationsAuthToken": null
   },
   "outputSchema": {
     "type": "object",
@@ -39,7 +45,10 @@
       "manifestId": { "type": "string" },
       "datasetId": { "type": "string" },
       "rowCount": { "type": "number" },
-      "storageTargetId": { "type": "string" }
+      "storageTargetId": { "type": "string" },
+      "calibrationId": { "type": ["string", "null"] },
+      "calibrationEffectiveAt": { "type": ["string", "null"], "format": "date-time" },
+      "calibrationMetastoreVersion": { "type": ["number", "null"] }
     },
     "required": ["partitionKey", "datasetSlug", "rowCount"]
   }

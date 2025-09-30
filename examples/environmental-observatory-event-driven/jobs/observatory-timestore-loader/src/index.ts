@@ -3,6 +3,14 @@ import { enforceScratchOnlyWrites } from '../../shared/scratchGuard';
 
 enforceScratchOnlyWrites();
 import { createObservatoryEventPublisher } from '../../shared/events';
+import {
+  applyCalibrationAdjustments,
+  fetchCalibrationById,
+  lookupCalibration,
+  type CalibrationLookupConfig,
+  type CalibrationLookupResult,
+  type CalibrationSnapshot
+} from '../../shared/calibrations';
 
 type JobRunStatus = 'succeeded' | 'failed' | 'canceled' | 'expired';
 
@@ -26,6 +34,7 @@ type RawAssetFile = {
   rows?: number;
   sizeBytes?: number;
   checksum?: string;
+  calibration?: CalibrationReference | null;
 };
 
 type RawAsset = {
@@ -38,6 +47,22 @@ type RawAsset = {
   instrumentCount?: number;
   recordCount?: number;
   normalizedAt?: string;
+  calibrationsApplied?: CalibrationReference[];
+};
+
+type CalibrationReference = {
+  calibrationId: string;
+  instrumentId: string;
+  effectiveAt: string;
+  metastoreVersion: number | null;
+};
+
+type InstrumentCalibrationState = {
+  reference: CalibrationReference | null;
+  snapshot: CalibrationSnapshot | null;
+  lookup?: CalibrationLookupResult;
+  warnedMissing?: boolean;
+  warnedFuture?: boolean;
 };
 
 type TimestoreLoaderParameters = {
@@ -56,6 +81,9 @@ type TimestoreLoaderParameters = {
   stagingPrefix: string;
   rawAsset: RawAsset;
   idempotencyKey?: string;
+  calibrationsBaseUrl?: string;
+  calibrationsNamespace?: string;
+  calibrationsAuthToken?: string;
 };
 
 type ObservatoryRow = {
@@ -124,6 +152,86 @@ function ensureArray<T>(value: unknown, mapper: (entry: unknown) => T | null): T
   return result;
 }
 
+function normalizeIsoString(value: string): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+}
+
+function parseOptionalInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.trunc(parsed);
+    }
+  }
+  return null;
+}
+
+function parseIsoToMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return null;
+  }
+  return timestamp;
+}
+
+function resolveCalibrationInstrument(
+  calibrationId: string,
+  candidate: string,
+  fallback: string
+): string {
+  if (candidate) {
+    return candidate;
+  }
+  if (fallback) {
+    return fallback;
+  }
+  if (!calibrationId) {
+    return 'unknown';
+  }
+  const index = calibrationId.indexOf(':');
+  if (index > 0) {
+    return calibrationId.slice(0, index);
+  }
+  return calibrationId;
+}
+
+function parseCalibrationReference(value: unknown, fallbackInstrumentId: string): CalibrationReference | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const calibrationId = ensureString(record.calibrationId ?? record.id ?? record.key);
+  const effectiveAtRaw = ensureString(record.effectiveAt ?? record.effective_at ?? record.timestamp);
+  if (!calibrationId || !effectiveAtRaw) {
+    return null;
+  }
+  const instrumentCandidate = ensureString(record.instrumentId ?? record.instrument_id ?? '');
+  const instrumentId = resolveCalibrationInstrument(calibrationId, instrumentCandidate, fallbackInstrumentId);
+  const effectiveAt = normalizeIsoString(effectiveAtRaw) ?? effectiveAtRaw;
+  const metastoreVersion = parseOptionalInteger(
+    record.metastoreVersion ?? record.version ?? record.metastore_version
+  );
+  return {
+    calibrationId,
+    instrumentId,
+    effectiveAt,
+    metastoreVersion
+  } satisfies CalibrationReference;
+}
+
 async function readStreamToString(stream: NodeJS.ReadableStream): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
@@ -171,6 +279,10 @@ function parseRawAsset(raw: unknown): RawAsset {
     const nodeIdValue = ensureNumber(entry.nodeId ?? entry.node_id ?? entry.id);
     const sizeBytesValue = ensureNumber(entry.sizeBytes ?? entry.size_bytes ?? entry.size);
     const checksum = ensureString(entry.checksum ?? '');
+    const calibration = parseCalibrationReference(
+      entry.calibration ?? entry.calibrationMetadata ?? entry.calibration_reference,
+      instrumentId
+    );
     return {
       path: pathValue,
       site: site || undefined,
@@ -178,9 +290,18 @@ function parseRawAsset(raw: unknown): RawAsset {
       rows,
       nodeId: nodeIdValue ?? undefined,
       sizeBytes: sizeBytesValue ?? undefined,
-      checksum: checksum || undefined
+      checksum: checksum || undefined,
+      calibration: calibration ?? null
     } satisfies RawAssetFile;
   });
+
+  const calibrationsApplied = ensureArray<CalibrationReference>(
+    raw.calibrationsApplied ??
+      raw.calibrations_applied ??
+      raw.calibrationReferences ??
+      raw.calibration_references,
+    (entry) => parseCalibrationReference(entry, '')
+  );
 
   if (!partitionKey || !minute) {
     throw new Error('rawAsset must include partitionKey and minute');
@@ -192,7 +313,8 @@ function parseRawAsset(raw: unknown): RawAsset {
     backendMountId: backendMountId ?? 0,
     stagingPrefix,
     stagingMinutePrefix: stagingMinutePrefix || undefined,
-    files
+    files,
+    calibrationsApplied: calibrationsApplied.length > 0 ? calibrationsApplied : undefined
   } satisfies RawAsset;
 }
 
@@ -256,6 +378,40 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
     raw.filestorePrincipal ?? raw.filestore_principal ?? raw.principal ?? ''
   );
 
+  const calibrationsBaseUrlCandidate = ensureString(
+    raw.calibrationsBaseUrl ??
+      raw.calibrations_base_url ??
+      raw.calibrationMetastoreBaseUrl ??
+      raw.calibration_metastore_base_url ??
+      process.env.OBSERVATORY_CALIBRATIONS_METASTORE_BASE_URL ??
+      process.env.OBSERVATORY_METASTORE_BASE_URL ??
+      process.env.METASTORE_BASE_URL,
+    ''
+  );
+
+  const calibrationsNamespace = ensureString(
+    raw.calibrationsNamespace ??
+      raw.calibrations_namespace ??
+      raw.calibrationMetastoreNamespace ??
+      raw.calibration_metastore_namespace ??
+      process.env.OBSERVATORY_CALIBRATIONS_NAMESPACE ??
+      'observatory.calibrations'
+  );
+
+  const calibrationsAuthTokenCandidate = ensureString(
+    raw.calibrationsAuthToken ??
+      raw.calibrations_auth_token ??
+      raw.calibrationMetastoreAuthToken ??
+      raw.calibration_metastore_auth_token ??
+      process.env.OBSERVATORY_CALIBRATIONS_METASTORE_TOKEN ??
+      process.env.OBSERVATORY_METASTORE_TOKEN ??
+      process.env.METASTORE_AUTH_TOKEN,
+    ''
+  );
+
+  const finalCalibrationsBaseUrl = calibrationsBaseUrlCandidate || '';
+  const finalCalibrationsAuthToken = calibrationsAuthTokenCandidate || '';
+
   if (!rawAsset.backendMountId || rawAsset.backendMountId <= 0) {
     rawAsset.backendMountId = filestoreBackendId;
   }
@@ -278,8 +434,58 @@ function parseParameters(raw: unknown): TimestoreLoaderParameters {
     filestorePrincipal: filestorePrincipal || undefined,
     stagingPrefix,
     rawAsset,
-    idempotencyKey: idempotencyKey || undefined
+    idempotencyKey: idempotencyKey || undefined,
+    calibrationsBaseUrl: finalCalibrationsBaseUrl
+      ? finalCalibrationsBaseUrl.replace(/\/+$/, '')
+      : undefined,
+    calibrationsNamespace:
+      (calibrationsNamespace || 'observatory.calibrations').trim() || 'observatory.calibrations',
+    calibrationsAuthToken: finalCalibrationsAuthToken || undefined
   } satisfies TimestoreLoaderParameters;
+}
+
+function toCalibrationConfig(parameters: TimestoreLoaderParameters): CalibrationLookupConfig | null {
+  if (!parameters.calibrationsBaseUrl) {
+    return null;
+  }
+  return {
+    baseUrl: parameters.calibrationsBaseUrl.replace(/\/+$/, ''),
+    namespace: parameters.calibrationsNamespace?.trim() || 'observatory.calibrations',
+    authToken: parameters.calibrationsAuthToken?.trim() || undefined
+  } satisfies CalibrationLookupConfig;
+}
+
+function deriveCalibrationAsOf(minute: string): string {
+  if (!minute) {
+    return new Date().toISOString();
+  }
+  const candidate = `${minute}:59:59.999Z`;
+  const date = new Date(candidate);
+  if (Number.isNaN(date.getTime())) {
+    const fallback = new Date(minute);
+    if (Number.isNaN(fallback.getTime())) {
+      return new Date().toISOString();
+    }
+    return fallback.toISOString();
+  }
+  return date.toISOString();
+}
+
+function findCalibrationReference(rawAsset: RawAsset, instrumentId: string): CalibrationReference | null {
+  for (const file of rawAsset.files) {
+    const fileInstrument = file.instrumentId ?? instrumentId;
+    if (fileInstrument === instrumentId && file.calibration) {
+      return file.calibration;
+    }
+  }
+
+  for (const reference of rawAsset.calibrationsApplied ?? []) {
+    if (reference && reference.instrumentId === instrumentId) {
+      return reference;
+    }
+  }
+
+  return null;
 }
 
 async function ingestableRowsFromCsv(
@@ -416,6 +622,113 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
     throw new Error('filestoreBackendId must be provided for timestore loader');
   }
 
+  const calibrationConfig = toCalibrationConfig(parameters);
+  const instrumentCalibrations = new Map<string, InstrumentCalibrationState>();
+  const calibrationAsOf = deriveCalibrationAsOf(parameters.minute);
+
+  function maybeWarnCalibrationState(
+    instrumentId: string,
+    state: InstrumentCalibrationState
+  ): void {
+    if (!state.snapshot && !state.reference && !state.warnedMissing) {
+      state.warnedMissing = true;
+      context.logger('No calibration found for instrument', {
+        instrumentId,
+        minute: parameters.minute
+      });
+    }
+
+    if (state.warnedFuture) {
+      return;
+    }
+
+    const latest = state.lookup?.latest;
+    if (!latest) {
+      return;
+    }
+    const latestMs = parseIsoToMs(latest.effectiveAt);
+    const asOfMs = parseIsoToMs(calibrationAsOf);
+    if (latestMs !== null && asOfMs !== null && latestMs > asOfMs) {
+      state.warnedFuture = true;
+      context.logger('Calibration effectiveAt is in the future', {
+        instrumentId,
+        minute: parameters.minute,
+        effectiveAt: latest.effectiveAt
+      });
+    }
+  }
+
+  async function resolveCalibrationForInstrument(
+    instrumentId: string
+  ): Promise<InstrumentCalibrationState> {
+    const key = instrumentId.trim() || 'unknown';
+    const existing = instrumentCalibrations.get(key);
+    if (existing) {
+      maybeWarnCalibrationState(key, existing);
+      return existing;
+    }
+
+    const state: InstrumentCalibrationState = {
+      reference: findCalibrationReference(parameters.rawAsset, key),
+      snapshot: null
+    };
+
+    if (!calibrationConfig) {
+      instrumentCalibrations.set(key, state);
+      maybeWarnCalibrationState(key, state);
+      return state;
+    }
+
+    try {
+      if (state.reference) {
+        state.snapshot = await fetchCalibrationById(calibrationConfig, state.reference.calibrationId);
+        if (!state.snapshot) {
+          context.logger('Calibration reference not found in metastore', {
+            instrumentId: key,
+            calibrationId: state.reference.calibrationId
+          });
+        } else if (
+          state.reference.metastoreVersion !== null &&
+          state.snapshot.metastoreVersion !== null &&
+          state.reference.metastoreVersion !== state.snapshot.metastoreVersion
+        ) {
+          context.logger('Calibration version mismatch for instrument', {
+            instrumentId: key,
+            calibrationId: state.reference.calibrationId,
+            expectedVersion: state.reference.metastoreVersion,
+            actualVersion: state.snapshot.metastoreVersion
+          });
+        }
+      }
+
+      if (!state.snapshot) {
+        state.lookup = await lookupCalibration(calibrationConfig, key, calibrationAsOf, {
+          limit: 5
+        });
+        if (!state.reference && state.lookup.active) {
+          state.reference = {
+            calibrationId: state.lookup.active.calibrationId,
+            instrumentId: state.lookup.active.instrumentId ?? key,
+            effectiveAt: state.lookup.active.effectiveAt,
+            metastoreVersion: state.lookup.active.metastoreVersion ?? null
+          } satisfies CalibrationReference;
+          state.snapshot = state.lookup.active;
+        }
+      }
+    } catch (error) {
+      context.logger('Calibration lookup failed for instrument', {
+        instrumentId: key,
+        minute: parameters.minute,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      state.warnedMissing = true;
+    }
+
+    instrumentCalibrations.set(key, state);
+    maybeWarnCalibrationState(key, state);
+    return state;
+  }
+
   try {
     const instrumentBuckets = new Map<string, InstrumentBucket>();
     let totalRows = 0;
@@ -448,8 +761,54 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         path: source.path,
         rows: rows.length
       });
+
+      const sourceInstrumentId = source.instrumentId ?? rows[0]?.instrument_id ?? 'unknown';
+      const calibrationState = await resolveCalibrationForInstrument(sourceInstrumentId);
+
+      if (calibrationState.snapshot) {
+        for (const row of rows) {
+          const adjusted = applyCalibrationAdjustments(
+            {
+              temperature_c: row.temperature_c,
+              relative_humidity_pct: row.relative_humidity_pct,
+              pm2_5_ug_m3: row.pm2_5_ug_m3,
+              battery_voltage: row.battery_voltage
+            },
+            {
+              offsets: calibrationState.snapshot.offsets,
+              scales: calibrationState.snapshot.scales
+            }
+          );
+
+          if (typeof adjusted.temperature_c === 'number') {
+            row.temperature_c = Number(adjusted.temperature_c.toFixed(6));
+          }
+          if (typeof adjusted.relative_humidity_pct === 'number') {
+            row.relative_humidity_pct = Number(adjusted.relative_humidity_pct.toFixed(6));
+          }
+          if (typeof adjusted.pm2_5_ug_m3 === 'number') {
+            row.pm2_5_ug_m3 = Number(adjusted.pm2_5_ug_m3.toFixed(6));
+          }
+          if (typeof adjusted.battery_voltage === 'number') {
+            row.battery_voltage = Number(adjusted.battery_voltage.toFixed(6));
+          }
+          row.instrument_id = row.instrument_id || sourceInstrumentId;
+        }
+
+        context.logger('Applied calibration adjustments', {
+          instrumentId: sourceInstrumentId,
+          calibrationId:
+            calibrationState.reference?.calibrationId ?? calibrationState.snapshot.calibrationId,
+          effectiveAt: calibrationState.snapshot.effectiveAt
+        });
+      } else {
+        for (const row of rows) {
+          row.instrument_id = row.instrument_id || sourceInstrumentId;
+        }
+      }
+
       for (const row of rows) {
-        const instrumentId = row.instrument_id || 'unknown';
+        const instrumentId = row.instrument_id || sourceInstrumentId || 'unknown';
         const bucket = instrumentBuckets.get(instrumentId) ?? {
           rows: [],
           minTimestamp: '',
@@ -506,6 +865,9 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         minuteKey: sanitizedMinuteKey
       } satisfies Record<string, string>;
 
+      const calibrationState = instrumentCalibrations.get(instrumentId) ?? null;
+      const calibrationReference = calibrationState?.reference ?? null;
+
       const ingestionRequest = {
         datasetSlug: parameters.datasetSlug,
         datasetName: parameters.datasetName ?? parameters.datasetSlug,
@@ -555,7 +917,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
         manifestId,
         rowCount: bucket.rows.length,
         storageTargetId: parameters.storageTargetId ?? null,
-        ingestionMode: ensureString(responseBody.mode, 'inline')
+        ingestionMode: ensureString(responseBody.mode, 'inline'),
+        calibrationId: calibrationReference?.calibrationId ?? null,
+        calibrationEffectiveAt: calibrationReference?.effectiveAt ?? null,
+        calibrationMetastoreVersion: calibrationReference?.metastoreVersion ?? null
       } satisfies Record<string, unknown>;
 
       ingestionSummaries.push({ ...summary, ingestedAt });
@@ -569,7 +934,8 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
       await context.update({
         instrumentId,
         rows: bucket.rows.length,
-        partitionKey: partitionKeyString
+        partitionKey: partitionKeyString,
+        calibrationId: calibrationReference?.calibrationId ?? null
       });
 
       publishOperations.push(
@@ -587,7 +953,10 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
               storageTargetId: parameters.storageTargetId ?? null,
               rowsIngested: bucket.rows.length,
               ingestedAt,
-              ingestionMode: summary.ingestionMode as string
+              ingestionMode: summary.ingestionMode as string,
+              calibrationId: calibrationReference?.calibrationId ?? null,
+              calibrationEffectiveAt: calibrationReference?.effectiveAt ?? null,
+              calibrationMetastoreVersion: calibrationReference?.metastoreVersion ?? null
             },
             occurredAt: ingestedAt
           })

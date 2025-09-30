@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
 import type { FastifyInstance } from 'fastify';
+import { FilestoreClient } from '@apphub/filestore-client';
 import { startTimestoreTestServer, type TimestoreTestServer } from '../helpers/timestore';
 import { startFilestoreTestServer, type FilestoreTestServer } from '../helpers/filestore';
+import { startMetastoreTestServer, type MetastoreTestServer } from '../helpers/metastore';
 import { listExampleWorkflowDefinitions } from '../helpers/examples';
 import type { WorkflowDefinitionCreateInput } from '../../../services/catalog/src/workflows/zodSchemas';
 import { runWorkflowOrchestration } from '../../../services/catalog/src/workflowOrchestrator';
@@ -300,6 +302,7 @@ async function applyWorkflowProvisioning(
 type ServerContext = {
   timestore: TimestoreTestServer;
   filestore: FilestoreTestServer;
+  metastore: MetastoreTestServer;
 };
 
 let embeddedPostgres: EmbeddedPostgres | null = null;
@@ -391,6 +394,11 @@ async function withServer(fn: (app: FastifyInstance, context: ServerContext) => 
     redisUrl
   });
 
+  const metastore = await startMetastoreTestServer({
+    databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/apphub',
+    redisUrl
+  });
+
   const storageDir = await mkdtemp(path.join(tmpdir(), 'apphub-observatory-bundles-'));
   const previousStorageDir = process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR;
   process.env.APPHUB_JOB_BUNDLE_STORAGE_DIR = storageDir;
@@ -407,11 +415,12 @@ async function withServer(fn: (app: FastifyInstance, context: ServerContext) => 
   await app.ready();
 
   try {
-    await fn(app, { timestore, filestore });
+    await fn(app, { timestore, filestore, metastore });
   } finally {
     await app.close();
     await timestore.close();
     await filestore.close();
+    await metastore.close();
     if (previousRedisUrl === undefined) {
       delete process.env.REDIS_URL;
       activeRedisUrl = null;
@@ -731,6 +740,34 @@ async function queryTimestoreRowCount(url: string, datasetSlug: string, startIso
   return Array.isArray(payload.rows) ? payload.rows.length : 0;
 }
 
+async function fetchTimestoreRows(
+  url: string,
+  datasetSlug: string,
+  startIso: string,
+  endIso: string,
+  limit = 1000
+): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(`${url}/datasets/${encodeURIComponent(datasetSlug)}/query`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      timeRange: { start: startIso, end: endIso },
+      timestampColumn: 'timestamp',
+      limit
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Timestore query failed with status ${response.status}: ${errorText}`);
+  }
+
+  const payload = (await response.json()) as { rows?: Array<Record<string, unknown>> };
+  return Array.isArray(payload.rows) ? payload.rows : [];
+}
+
 type WorkflowRunSummary = {
   id: string;
   status: string;
@@ -809,7 +846,8 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     staging: path.join(tempRoot, 'staging'),
     archive: path.join(tempRoot, 'archive'),
     plots: path.join(tempRoot, 'plots'),
-    reports: path.join(tempRoot, 'reports')
+    reports: path.join(tempRoot, 'reports'),
+    calibrations: path.join(tempRoot, 'calibrations')
   } as const;
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -821,7 +859,7 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
 
     const backendMountId = await ensureFilestoreBackendMount(pool, context.filestore.schema, tempRoot);
 
-    const config = {
+  const config = {
       paths,
       filestore: {
         baseUrl: context.filestore.url,
@@ -845,17 +883,47 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
         authToken: null
       },
       metastore: {
-        baseUrl: '',
-        namespace: 'observatory.reports',
+        baseUrl: context.metastore.url,
+        namespace: 'observatory.ingest',
         authToken: null
       },
       workflows: {
         generatorSlug: 'observatory-minute-data-generator',
         ingestSlug: 'observatory-minute-ingest',
         publicationSlug: 'observatory-daily-publication',
-        calibrationImportSlug: 'observatory-calibration-import'
+      calibrationImportSlug: 'observatory-calibration-import'
       }
     } as const;
+
+    const seededCalibrations: Array<{
+      instrumentId: string;
+      reference: string;
+      effectiveAt: string;
+      offsets: Record<string, number>;
+      scales: Record<string, number>;
+    }> = [
+      {
+        instrumentId: 'instrument_alpha',
+        reference: 'instrument_alpha_20291231T230000Z',
+        effectiveAt: '2029-12-31T23:00:00Z',
+        offsets: { temperature_c: 0.65, pm2_5_ug_m3: -1.5 },
+        scales: { temperature_c: 1.015 }
+      },
+      {
+        instrumentId: 'instrument_bravo',
+        reference: 'instrument_bravo_20291231T230000Z',
+        effectiveAt: '2029-12-31T23:00:00Z',
+        offsets: { relative_humidity_pct: -2.5 },
+        scales: { pm2_5_ug_m3: 0.97 }
+      },
+      {
+        instrumentId: 'instrument_charlie',
+        reference: 'instrument_charlie_20291231T230000Z',
+        effectiveAt: '2029-12-31T23:00:00Z',
+        offsets: { battery_voltage: 0.05 },
+        scales: { temperature_c: 0.99 }
+      }
+    ];
 
     const workflowDefinitions = listExampleWorkflowDefinitions(OBSERVATORY_WORKFLOW_SLUGS);
     for (const workflow of workflowDefinitions) {
@@ -891,6 +959,56 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
     }
 
     await importExampleWorkflows(app, workflowDefinitions);
+
+    const filestoreClient = new FilestoreClient({
+      baseUrl: config.filestore.baseUrl,
+      token: config.filestore.token ?? undefined,
+      userAgent: 'observatory-e2e-calibrations'
+    });
+
+    try {
+      await filestoreClient.createDirectory({
+        backendMountId: config.filestore.backendMountId,
+        path: config.filestore.calibrationsPrefix,
+        principal: 'observatory-calibration-importer'
+      });
+    } catch {
+      // directory may already exist in test runs
+    }
+
+    for (const calibration of seededCalibrations) {
+      const calibrationPath = `${config.filestore.calibrationsPrefix}/${calibration.reference}.json`;
+      const calibrationPayload = {
+        instrumentId: calibration.instrumentId,
+        effectiveAt: calibration.effectiveAt,
+        createdAt: calibration.effectiveAt,
+        revision: 1,
+        offsets: calibration.offsets,
+        scales: calibration.scales,
+        metadata: { seededBy: 'environmentalObservatoryIngest.e2e' }
+      } satisfies Record<string, unknown>;
+
+      await filestoreClient.uploadFile({
+        backendMountId: config.filestore.backendMountId,
+        path: calibrationPath,
+        content: `${JSON.stringify(calibrationPayload, null, 2)}\n`,
+        overwrite: true,
+        contentType: 'application/json',
+        principal: 'observatory-calibration-importer'
+      });
+
+      await runWorkflow(app, config.workflows.calibrationImportSlug, calibration.reference, {
+        calibrationPath,
+        calibrationsPrefix: config.filestore.calibrationsPrefix,
+        filestoreBaseUrl: config.filestore.baseUrl,
+        filestoreBackendId: config.filestore.backendMountId,
+        filestoreToken: config.filestore.token,
+        filestorePrincipal: 'observatory-calibration-importer',
+        metastoreBaseUrl: config.metastore.baseUrl,
+        metastoreNamespace: 'observatory.calibrations',
+        metastoreAuthToken: config.metastore.authToken
+      });
+    }
 
     const minute = '2030-01-01T03:30';
     const minuteKey = minute.replace(':', '-');
@@ -973,6 +1091,65 @@ async function runObservatoryScenario(app: FastifyInstance, context: ServerConte
       rowCount,
       18,
       `Timestore loader should append 18 rows (3 instruments × 6 rows) but received ${rowCount}`
+    );
+
+    const alphaCalibration = seededCalibrations.find((entry) => entry.instrumentId === 'instrument_alpha');
+    assert(alphaCalibration, 'Seeded calibration for instrument_alpha not found');
+    const alphaStagingFilename = stagingEntries.find((entry) => entry.startsWith('instrument_alpha_'));
+    assert(alphaStagingFilename, 'Expected staging file for instrument_alpha');
+
+    const alphaCsv = await readFile(path.join(stagingMinuteDir, alphaStagingFilename), 'utf8');
+    const alphaLines = alphaCsv.trim().split(/\r?\n/);
+    assert(alphaLines.length > 1, 'instrument_alpha staging CSV should contain data rows');
+    const alphaHeaders = alphaLines[0]!.split(',');
+    const alphaValues = alphaLines[1]!.split(',');
+    const headerIndex = (name: string) => {
+      const index = alphaHeaders.indexOf(name);
+      assert(index !== -1, `Expected column ${name} in staging CSV`);
+      return index;
+    };
+
+    const rawAlphaTemp = Number(alphaValues[headerIndex('temperature_c')]);
+    const rawAlphaPm = Number(alphaValues[headerIndex('pm2_5_ug_m3')]);
+    const rawAlphaHumidity = Number(alphaValues[headerIndex('relative_humidity_pct')]);
+
+    const expectedAlphaTemp =
+      rawAlphaTemp * (alphaCalibration.scales.temperature_c ?? 1) + (alphaCalibration.offsets.temperature_c ?? 0);
+    const expectedAlphaPm =
+      rawAlphaPm * (alphaCalibration.scales.pm2_5_ug_m3 ?? 1) + (alphaCalibration.offsets.pm2_5_ug_m3 ?? 0);
+    const expectedAlphaHumidity = Math.max(
+      0,
+      Math.min(
+        100,
+        rawAlphaHumidity * (alphaCalibration.scales.relative_humidity_pct ?? 1) +
+          (alphaCalibration.offsets.relative_humidity_pct ?? 0)
+      )
+    );
+
+    const timestoreRows = await fetchTimestoreRows(
+      config.timestore.baseUrl,
+      config.timestore.datasetSlug,
+      partitionRangeStart,
+      partitionEnd
+    );
+    const alphaRow = timestoreRows.find((row) => row.instrument_id === 'instrument_alpha');
+    assert(alphaRow, 'Expected timestore row for instrument_alpha');
+
+    const actualAlphaTemp = Number(alphaRow.temperature_c);
+    const actualAlphaPm = Number(alphaRow.pm2_5_ug_m3);
+    const actualAlphaHumidity = Number(alphaRow.relative_humidity_pct);
+
+    assert.ok(
+      Math.abs(actualAlphaTemp - expectedAlphaTemp) < 0.0001,
+      `Calibrated temperature mismatch (expected ${expectedAlphaTemp}, received ${actualAlphaTemp})`
+    );
+    assert.ok(
+      Math.abs(actualAlphaPm - expectedAlphaPm) < 0.0001,
+      `Calibrated PM2.5 mismatch (expected ${expectedAlphaPm}, received ${actualAlphaPm})`
+    );
+    assert.ok(
+      Math.abs(actualAlphaHumidity - expectedAlphaHumidity) < 0.0001,
+      `Calibrated humidity mismatch (expected ${expectedAlphaHumidity}, received ${actualAlphaHumidity})`
     );
 
     const publicationRun = await waitForWorkflowRunMatching(

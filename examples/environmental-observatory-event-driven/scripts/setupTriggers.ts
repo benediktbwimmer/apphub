@@ -160,6 +160,15 @@ async function main(): Promise<void> {
     } satisfies Record<string, unknown>;
   }
 
+  (ingestMetadata as Record<string, unknown>).calibrations = {
+    baseUrl: config.metastore?.baseUrl ?? null,
+    namespace:
+      config.metastore?.namespace && config.metastore.namespace !== 'observatory.ingest'
+        ? config.metastore.namespace
+        : 'observatory.calibrations',
+    authToken: config.metastore?.authToken ?? null
+  } satisfies Record<string, unknown>;
+
   const ingestTemplate: Record<string, unknown> = {
     minute: '{{ event.payload.node.metadata.minute }}',
     instrumentId: '{{ event.payload.node.metadata.instrumentId | default: event.payload.node.metadata.instrument_id | default: "unknown" }}',
@@ -192,6 +201,12 @@ async function main(): Promise<void> {
   }
   if (config.metastore?.authToken) {
     ingestTemplate.metastoreAuthToken = '{{ trigger.metadata.metastore.authToken }}';
+  }
+
+  ingestTemplate.calibrationsBaseUrl = '{{ trigger.metadata.calibrations.baseUrl }}';
+  ingestTemplate.calibrationsNamespace = '{{ trigger.metadata.calibrations.namespace }}';
+  if (config.metastore?.authToken) {
+    ingestTemplate.calibrationsAuthToken = '{{ trigger.metadata.calibrations.authToken }}';
   }
 
   const publicationMetadata = {

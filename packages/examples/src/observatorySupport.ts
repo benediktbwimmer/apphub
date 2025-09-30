@@ -114,6 +114,12 @@ export function applyObservatoryWorkflowDefaults(
       defaults.metastoreNamespace =
         defaults.metastoreNamespace ?? config.metastore?.namespace ?? 'observatory.ingest';
       defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
+      defaults.calibrationsBaseUrl =
+        defaults.calibrationsBaseUrl ?? config.metastore?.baseUrl ?? null;
+      defaults.calibrationsNamespace =
+        defaults.calibrationsNamespace ?? 'observatory.calibrations';
+      defaults.calibrationsAuthToken =
+        config.metastore?.authToken ?? defaults.calibrationsAuthToken ?? null;
       break;
     case 'observatory-daily-publication':
       defaults.timestoreBaseUrl = config.timestore.baseUrl;

@@ -25,7 +25,10 @@
       "principal": { "type": "string" },
       "metastoreBaseUrl": { "type": "string" },
       "metastoreNamespace": { "type": "string" },
-      "metastoreAuthToken": { "type": "string" }
+      "metastoreAuthToken": { "type": "string" },
+      "calibrationsBaseUrl": { "type": "string" },
+      "calibrationsNamespace": { "type": "string" },
+      "calibrationsAuthToken": { "type": "string" }
     },
     "required": [
       "minute",
@@ -46,7 +49,10 @@
     "principal": "observatory-inbox-normalizer",
     "metastoreBaseUrl": null,
     "metastoreNamespace": "observatory.ingest",
-    "metastoreAuthToken": null
+    "metastoreAuthToken": null,
+    "calibrationsBaseUrl": null,
+    "calibrationsNamespace": "observatory.calibrations",
+    "calibrationsAuthToken": null
   },
   "outputSchema": {
     "type": "object",
@@ -69,12 +75,35 @@
             "instrumentId": { "type": "string" },
             "rows": { "type": "number" },
             "sizeBytes": { "type": "number" },
-            "checksum": { "type": "string" }
+            "checksum": { "type": "string" },
+            "calibration": {
+              "type": ["object", "null"],
+              "properties": {
+                "calibrationId": { "type": "string" },
+                "instrumentId": { "type": "string" },
+                "effectiveAt": { "type": "string", "format": "date-time" },
+                "metastoreVersion": { "type": ["number", "null"] }
+              },
+              "required": ["calibrationId", "instrumentId", "effectiveAt"]
+            }
           },
           "required": ["path", "rows"]
         }
       },
-      "normalizedAt": { "type": "string", "format": "date-time" }
+      "normalizedAt": { "type": "string", "format": "date-time" },
+      "calibrationsApplied": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "calibrationId": { "type": "string" },
+            "instrumentId": { "type": "string" },
+            "effectiveAt": { "type": "string", "format": "date-time" },
+            "metastoreVersion": { "type": ["number", "null"] }
+          },
+          "required": ["calibrationId", "instrumentId", "effectiveAt"]
+        }
+      }
     },
     "required": [
       "partitionKey",

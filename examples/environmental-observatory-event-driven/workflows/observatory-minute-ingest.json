@@ -63,6 +63,15 @@
       },
       "timestoreAuthToken": {
         "type": "string"
+      },
+      "calibrationsBaseUrl": {
+        "type": "string"
+      },
+      "calibrationsNamespace": {
+        "type": "string"
+      },
+      "calibrationsAuthToken": {
+        "type": "string"
       }
     },
     "required": [
@@ -93,7 +102,10 @@
     "timestoreAuthToken": null,
     "metastoreBaseUrl": null,
     "metastoreNamespace": "observatory.ingest",
-    "metastoreAuthToken": null
+    "metastoreAuthToken": null,
+    "calibrationsBaseUrl": null,
+    "calibrationsNamespace": "observatory.calibrations",
+    "calibrationsAuthToken": null
   },
   "steps": [
     {
@@ -111,7 +123,13 @@
         "stagingPrefix": "{{ parameters.stagingPrefix }}",
         "archivePrefix": "{{ parameters.archivePrefix }}",
         "commandPath": "{{ parameters.commandPath }}",
-        "principal": "{{ parameters.filestorePrincipal }}"
+        "principal": "{{ parameters.filestorePrincipal }}",
+        "metastoreBaseUrl": "{{ parameters.metastoreBaseUrl }}",
+        "metastoreNamespace": "{{ parameters.metastoreNamespace }}",
+        "metastoreAuthToken": "{{ parameters.metastoreAuthToken }}",
+        "calibrationsBaseUrl": "{{ parameters.calibrationsBaseUrl }}",
+        "calibrationsNamespace": "{{ parameters.calibrationsNamespace }}",
+        "calibrationsAuthToken": "{{ parameters.calibrationsAuthToken }}"
       },
       "storeResultAs": "normalizedOutput",
       "produces": [
@@ -144,12 +162,35 @@
                     "instrumentId": { "type": "string" },
                     "rows": { "type": "number" },
                     "sizeBytes": { "type": "number" },
-                    "checksum": { "type": "string" }
+                    "checksum": { "type": "string" },
+                    "calibration": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "calibrationId": { "type": "string" },
+                        "instrumentId": { "type": "string" },
+                        "effectiveAt": { "type": "string", "format": "date-time" },
+                        "metastoreVersion": { "type": ["number", "null"] }
+                      },
+                      "required": ["calibrationId", "instrumentId", "effectiveAt"]
+                    }
                   },
                   "required": ["path", "rows"]
                 }
               },
-              "normalizedAt": { "type": "string", "format": "date-time" }
+              "normalizedAt": { "type": "string", "format": "date-time" },
+              "calibrationsApplied": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "calibrationId": { "type": "string" },
+                    "instrumentId": { "type": "string" },
+                    "effectiveAt": { "type": "string", "format": "date-time" },
+                    "metastoreVersion": { "type": ["number", "null"] }
+                  },
+                  "required": ["calibrationId", "instrumentId", "effectiveAt"]
+                }
+              }
             },
             "required": [
               "partitionKey",
@@ -187,7 +228,10 @@
         "partitionNamespace": "observatory",
         "minute": "{{ parameters.minute }}",
         "idempotencyKey": "{{ parameters.commandPath | default: parameters.minute }}",
-        "rawAsset": "{{ shared.normalizedOutput.normalized }}"
+        "rawAsset": "{{ shared.normalizedOutput.normalized }}",
+        "calibrationsBaseUrl": "{{ parameters.calibrationsBaseUrl }}",
+        "calibrationsNamespace": "{{ parameters.calibrationsNamespace }}",
+        "calibrationsAuthToken": "{{ parameters.calibrationsAuthToken }}"
       },
       "storeResultAs": "timestoreIngestion",
       "consumes": [
@@ -234,6 +278,16 @@
               },
               "storageTargetId": {
                 "type": "string"
+              },
+              "calibrationId": {
+                "type": ["string", "null"]
+              },
+              "calibrationEffectiveAt": {
+                "type": ["string", "null"],
+                "format": "date-time"
+              },
+              "calibrationMetastoreVersion": {
+                "type": ["number", "null"]
               }
             },
             "required": [
@@ -291,7 +345,10 @@
             "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
             "metastoreBaseUrl": "{{ trigger.metadata.metastore.baseUrl }}",
             "metastoreNamespace": "{{ trigger.metadata.metastore.namespace }}",
-            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}"
+            "metastoreAuthToken": "{{ trigger.metadata.metastore.authToken }}",
+            "calibrationsBaseUrl": "{{ trigger.metadata.calibrations.baseUrl }}",
+            "calibrationsNamespace": "{{ trigger.metadata.calibrations.namespace }}",
+            "calibrationsAuthToken": "{{ trigger.metadata.calibrations.authToken }}"
           },
           "runKeyTemplate": "observatory-ingest-{{ parameters.instrumentId | default: 'unknown' | replace: ':', '-' }}-{{ parameters.minute | replace: ':', '-' }}",
           "metadata": {
@@ -317,6 +374,11 @@
               "baseUrl": "{{ defaultParameters.metastoreBaseUrl }}",
               "namespace": "{{ defaultParameters.metastoreNamespace }}",
               "authToken": "{{ defaultParameters.metastoreAuthToken }}"
+            },
+            "calibrations": {
+              "baseUrl": "{{ defaultParameters.calibrationsBaseUrl }}",
+              "namespace": "{{ defaultParameters.calibrationsNamespace }}",
+              "authToken": "{{ defaultParameters.calibrationsAuthToken }}"
             }
           },
           "idempotencyKeyExpression": "{{ event.payload.node.metadata.minute }}-{{ event.payload.path | replace: '/', '_' | replace: ":", '-' }}",

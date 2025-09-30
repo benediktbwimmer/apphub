@@ -47,7 +47,10 @@ const minutePartitionReadyPayloadSchema = z
     storageTargetId: z.string().min(1).nullable(),
     rowsIngested: z.number().int().nonnegative(),
     ingestedAt: z.string().datetime({ offset: true }),
-    ingestionMode: z.string().min(1)
+    ingestionMode: z.string().min(1),
+    calibrationId: z.string().min(1).nullable().optional(),
+    calibrationEffectiveAt: z.string().datetime({ offset: true }).nullable().optional(),
+    calibrationMetastoreVersion: z.number().int().nullable().optional()
   })
   .strip();
 

@@ -90,8 +90,8 @@ Each bundle ships with an `apphub.bundle.json` and Node entry point so you can r
 
 | Asset id | Producer | Consumers | Notes |
 | -------- | -------- | --------- | ----- |
-| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes Filestore `files` metadata (paths, node ids, checksums) and staging prefixes. |
-| `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, and row counts. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
+| `observatory.timeseries.raw` | Inbox normalizer workflow step | Timestore loader | `timeWindow` partitioned by minute (format `YYYY-MM-DDTHH:mm`). Produced when new CSVs land in the inbox. Includes Filestore `files` metadata (paths, node ids, checksums), staging prefixes, and per-file calibration references plus a `calibrationsApplied` summary sourced from the Metastore. |
+| `observatory.timeseries.timestore` | Timestore loader workflow step | Visualization runner | References the curated Timestore manifest, including ingestion mode, manifest id, row counts, and the calibration id/effectiveAt/version applied during ingestion. Declares `freshness.ttlMs = 60_000` to expire after one minute if no new data arrives. |
 | `observatory.visualizations.minute` | Visualization runner workflow step | Report publisher | Lists generated plots (`temperature_trend.svg`, `air_quality_small_multiples.png`) and summary metrics. `autoMaterialize.onUpstreamUpdate = true` so new Timestore partitions retrigger plotting automatically. |
 | `observatory.reports.status` | Report publisher workflow step | Frontend/web CDN | Bundles Markdown, HTML, and JSON payloads for the site. Produces audit-friendly provenance (`generatedAt`, `plotArtifacts`) and is also a candidate for downstream notifications. |
 | `observatory.calibration.instrument` | Calibration import workflow step | Future ingest/planning flows | Stores the canonical calibration payload (instrument, effectiveAt, offsets/scales, metadata) plus metastore linkage for reprocessing planners. |
@@ -104,8 +104,8 @@ Two workflows manage the example. Their JSON definitions live in `examples/envir
 
 - **Trigger:** Manual or filesystem watcher (optional) when the minute inbox directory receives new CSVs.
 - **Steps:**
-  1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
-  2. `observatory-timestore-loader` consumes the raw asset, streams data into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence.
+  1. `observatory-inbox-normalizer` (job) produces `observatory.timeseries.raw` partitioned by minute. As part of normalization it resolves the latest Metastore calibration for each instrument, logs gaps/future-effective versions, and records the reference in both the per-file metadata and the `calibrationsApplied` summary. Declares `autoMaterialize.onUpstreamUpdate = true` so fresh raw data kicks off Timestore ingestion.
+  2. `observatory-timestore-loader` consumes the raw asset, fetches the referenced calibration snapshot (or the active calibration when ingest is re-run), applies offsets/scales to each reading before streaming into Timestore, and produces `observatory.timeseries.timestore` with `freshness.ttlMs` tuned for minute cadence plus calibration lineage in the manifest summary.
 - **Parameters:** `minute`, Filestore connection details (`filestoreBaseUrl`, `filestoreBackendId`, `inboxPrefix`, `stagingPrefix`, `archivePrefix`), optional `maxFiles`, and the Timestore dataset coordinates.
 - **Defaults:** Derived from the generated observatory config; ingestion works entirely through Filestore prefixes.
 
