@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Queue, type JobsOptions, type QueueOptions } from 'bullmq';
+import type { JobsOptions, QueueOptions } from 'bullmq';
 import { z } from 'zod';
 
 const WORKFLOW_METADATA_KEY = '__apphubWorkflow' as const;
@@ -151,7 +151,7 @@ export type EventPublisher = (
 export type EventPublisherHandle = {
   publish: EventPublisher;
   close: () => Promise<void>;
-  queue: Queue<EventIngressJobData> | null;
+  queue: BullQueueLike<EventIngressJobData> | null;
 };
 
 export type EventPublisherOptions = {
@@ -195,6 +195,30 @@ export function validateEventEnvelope(envelope: unknown): EventEnvelope {
   return eventEnvelopeSchema.parse(envelope);
 }
 
+type BullQueueLike<T> = {
+  add: (name: string, data: T, opts?: JobsOptions) => Promise<unknown>;
+  close: () => Promise<void>;
+};
+
+type BullQueueCtor<T> = new (name: string, opts?: QueueOptions) => BullQueueLike<T>;
+
+function loadBullmqQueue<T>(): BullQueueCtor<T> {
+  const req = eval('require') as NodeJS.Require;
+  const modulePath = 'bullmq/dist/cjs/classes/queue';
+  try {
+    const resolved = req(modulePath) as { Queue?: BullQueueCtor<T> };
+    if (!resolved?.Queue) {
+      throw new Error(`Module did not export Queue from ${modulePath}`);
+    }
+    return resolved.Queue;
+  } catch (error) {
+    const hint =
+      "BullMQ runtime dependency is missing. Ensure 'bullmq' is installed and packaged with the bundle or switch APPHUB_EVENTS_MODE=inline.";
+    const message = error instanceof Error ? `${error.message}. ${hint}` : `Failed to require ${modulePath}. ${hint}`;
+    throw error instanceof Error ? new Error(message, { cause: error }) : new Error(message);
+  }
+}
+
 export function createEventPublisher(options: EventPublisherOptions = {}): EventPublisherHandle {
   const queueName =
     options.queueName ?? process.env.APPHUB_EVENT_QUEUE_NAME ?? DEFAULT_EVENT_QUEUE_NAME;
@@ -227,8 +251,9 @@ export function createEventPublisher(options: EventPublisherOptions = {}): Event
     return { publish, close, queue: null };
   }
 
-  const queue =
-    options.queue ?? new Queue<EventIngressJobData>(queueName, options.queueOptions);
+  const BullQueue = loadBullmqQueue<EventIngressJobData>();
+  const queue: BullQueueLike<EventIngressJobData> =
+    options.queue ?? new BullQueue(queueName, options.queueOptions);
   const jobName = options.jobName ?? DEFAULT_EVENT_JOB_NAME;
 
   const publish: EventPublisher = async (event, overrides) => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as tar from 'tar';
 import simpleGit from 'simple-git';
 import { ExampleBundler, type ExampleDescriptorReference } from '@apphub/example-bundler';
 
@@ -65,5 +66,34 @@ test('packages descriptor from git repository clone', async () => {
     assert.ok(result.fingerprint.length > 0, 'fingerprint should not be empty');
   } finally {
     await fs.rm(tempRepoRoot, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('includes declared runtime dependencies in packaged tarball', async () => {
+  const bundle = await bundler().packageExampleBySlug('observatory-inbox-normalizer');
+  const extractRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'bundle-runtime-'));
+  try {
+    const tarballPath = path.join(extractRoot, bundle.filename);
+    await fs.writeFile(tarballPath, bundle.buffer);
+    await tar.x({ file: tarballPath, cwd: extractRoot });
+
+    const bullmqPackagePath = path.join(
+      extractRoot,
+      'dist',
+      'node_modules',
+      'bullmq',
+      'package.json'
+    );
+    let exists = false;
+    try {
+      await fs.stat(bullmqPackagePath);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+
+    assert.ok(exists, 'expected bullmq package.json in dist/node_modules/bullmq');
+  } finally {
+    await fs.rm(extractRoot, { recursive: true, force: true }).catch(() => {});
   }
 });

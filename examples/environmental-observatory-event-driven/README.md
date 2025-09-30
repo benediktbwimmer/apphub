@@ -5,7 +5,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
 - **Filestore first:** the data generator pushes CSVs through the Filestore API so every mutation is journaled; the inbox normalizer converts `filestore.command.completed` notifications into example-specific `observatory.minute.raw-uploaded` events once files are copied into the staging prefix.
 - **Workflow triggers:** catalog triggers consume the observatory events and launch the `observatory-minute-ingest` workflow with fully materialised parameters (paths, tokens, dataset slugs) captured from the shared config file.
 - **Per-instrument ingestion:** the timestore loader groups normalized rows by instrument and writes a dedicated partition (keyed by instrument + window) for each sensor, attaching the instrument id as partition attributes.
-- **Aggregate overview:** a second workflow reacts to `observatory.minute.partition-ready`, runs the new dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
+- **Aggregate overview:** a second workflow reacts to `timestore.partition.created` (with a safeguard fallback on the ingest event), waits for the Timestore partition to materialize, runs the dashboard aggregator job, and publishes an interactive HTML overview backed by live Timestore queries.
 - **Timestore + Metastore:** once ingestion completes, the timestore loader emits `observatory.minute.partition-ready`; the publication workflow regenerates plots and status reports, optionally upserting metadata into the Metastore.
 - **Shared configuration:** operators resolve folder paths, tokens, and slugs once via `scripts/materializeConfig.ts`; both services and trigger definitions read the generated `.generated/observatory-config.json`.
 - **Calibration-ready:** the materializer now provisions Filestore prefixes for `datasets/observatory/calibrations` (and `.../calibrations/plans`) so operators can stage calibration files alongside raw uploads.
@@ -43,7 +43,7 @@ This variant of the observatory example uses **Filestore** uploads as the system
    The script reads the config file, talks to the catalog API (`catalog.baseUrl`, `catalog.apiToken`), and upserts three triggers:
    - `observatory.minute.raw-uploaded` → `observatory-minute-ingest`
    - `observatory.minute.partition-ready` → `observatory-daily-publication`
-   - `observatory.minute.partition-ready` → `observatory-dashboard-aggregate`
+   - `timestore.partition.created` → `observatory-dashboard-aggregate`
 4. Seed the data generator and publication workflows through the CLI or importer (`workflows/*.json`).
 5. Launch the dashboard service:
    ```bash

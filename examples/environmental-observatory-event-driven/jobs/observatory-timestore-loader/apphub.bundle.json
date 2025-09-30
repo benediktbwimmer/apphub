@@ -6,8 +6,10 @@
   "artifactDir": "artifacts",
   "files": [
     "manifest.json",
-    "dist/**/*",
-    "node_modules/**/*"
+    "dist/**/*"
+  ],
+  "runtimeDependencies": [
+    "bullmq"
   ],
   "externals": [],
   "tests": {

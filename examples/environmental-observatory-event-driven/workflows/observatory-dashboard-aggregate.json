@@ -2,28 +2,6 @@
   "slug": "observatory-dashboard-aggregate",
   "name": "Observatory Dashboard Aggregate",
   "description": "Aggregate recent observatory readings and render the interactive overview dashboard.",
-  "tasks": [
-    {
-      "id": "aggregate-dashboard",
-      "name": "Aggregate dashboard",
-      "job": {
-        "slug": "observatory-dashboard-aggregator",
-        "input": {
-          "partitionKey": "{{ parameters.partitionKey }}",
-          "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
-          "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
-          "timestoreDatasetSlug": "{{ parameters.timestoreDatasetSlug }}",
-          "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
-          "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
-          "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
-          "filestoreToken": "{{ parameters.filestoreToken }}",
-          "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
-          "reportsPrefix": "{{ parameters.reportsPrefix }}",
-          "overviewPrefix": "{{ parameters.overviewPrefix }}"
-        }
-      }
-    }
-  ],
   "parametersSchema": {
     "type": "object",
     "properties": {
@@ -104,8 +82,8 @@
         {
           "name": "Observatory dashboard aggregate",
           "description": "Refresh the aggregate dashboard whenever new observatory partitions arrive.",
-          "eventType": "observatory.minute.partition-ready",
-          "eventSource": "observatory.timestore-loader",
+          "eventType": "timestore.partition.created",
+          "eventSource": "timestore.ingest",
           "predicates": [
             {
               "path": "$.payload.datasetSlug",
@@ -114,7 +92,7 @@
             }
           ],
           "parameterTemplate": {
-            "partitionKey": "{{ event.payload.minute }}",
+            "partitionKey": "{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}",
             "lookbackMinutes": "{{ trigger.metadata.dashboard.lookbackMinutes }}",
             "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
             "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
@@ -122,7 +100,9 @@
             "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
             "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
             "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
-            "overviewPrefix": "{{ trigger.metadata.dashboard.overviewPrefix }}"
+            "overviewPrefix": "{{ trigger.metadata.dashboard.overviewPrefix }}",
+            "filestoreToken": "{{ trigger.metadata.filestore.token }}",
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}"
           },
           "metadata": {
             "paths": {
@@ -139,10 +119,75 @@
               "overviewPrefix": "{{ defaultParameters.overviewPrefix }}"
             }
           },
-          "idempotencyKeyExpression": "dashboard-aggregate-{{ event.payload.minute }}",
+          "idempotencyKeyExpression": "dashboard-aggregate-{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}",
+          "status": "active"
+        },
+        {
+          "name": "Observatory dashboard aggregate (fallback)",
+          "description": "Fallback trigger so dashboards refresh as soon as the ingest workflow finishes staging.",
+          "eventType": "observatory.minute.partition-ready",
+          "eventSource": "observatory.timestore-loader",
+          "predicates": [
+            {
+              "path": "$.payload.datasetSlug",
+              "operator": "equals",
+              "value": "{{ defaultParameters.timestoreDatasetSlug }}"
+            }
+          ],
+          "parameterTemplate": {
+            "partitionKey": "{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}",
+            "lookbackMinutes": "{{ trigger.metadata.dashboard.lookbackMinutes }}",
+            "timestoreBaseUrl": "{{ trigger.metadata.timestore.baseUrl }}",
+            "timestoreDatasetSlug": "{{ trigger.metadata.timestore.datasetSlug }}",
+            "timestoreAuthToken": "{{ trigger.metadata.timestore.authToken }}",
+            "filestoreBaseUrl": "{{ trigger.metadata.filestore.baseUrl }}",
+            "filestoreBackendId": "{{ trigger.metadata.filestore.backendMountId }}",
+            "reportsPrefix": "{{ trigger.metadata.paths.reportsPrefix }}",
+            "overviewPrefix": "{{ trigger.metadata.dashboard.overviewPrefix }}",
+            "filestoreToken": "{{ trigger.metadata.filestore.token }}",
+            "filestorePrincipal": "{{ trigger.metadata.filestore.principal }}"
+          },
+          "metadata": {
+            "paths": {
+              "reportsPrefix": "{{ defaultParameters.reportsPrefix }}"
+            },
+            "timestore": {
+              "baseUrl": "{{ defaultParameters.timestoreBaseUrl }}",
+              "datasetSlug": "{{ defaultParameters.timestoreDatasetSlug }}",
+              "authToken": "{{ defaultParameters.timestoreAuthToken }}"
+            },
+            "dashboard": {
+              "overviewDirName": "{{ defaultParameters.overviewDirName | default: 'overview' }}",
+              "lookbackMinutes": "{{ defaultParameters.lookbackMinutes }}",
+              "overviewPrefix": "{{ defaultParameters.overviewPrefix }}"
+            }
+          },
+          "idempotencyKeyExpression": "dashboard-aggregate-{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}",
           "status": "active"
         }
       ]
     }
-  }
+  },
+  "steps": [
+    {
+      "id": "aggregate-dashboard",
+      "name": "Aggregate dashboard",
+      "type": "job",
+      "jobSlug": "observatory-dashboard-aggregator",
+      "parameters": {
+        "partitionKey": "{{ parameters.partitionKey }}",
+        "lookbackMinutes": "{{ parameters.lookbackMinutes }}",
+        "timestoreBaseUrl": "{{ parameters.timestoreBaseUrl }}",
+        "timestoreDatasetSlug": "{{ parameters.timestoreDatasetSlug }}",
+        "timestoreAuthToken": "{{ parameters.timestoreAuthToken }}",
+        "filestoreBaseUrl": "{{ parameters.filestoreBaseUrl }}",
+        "filestoreBackendId": "{{ parameters.filestoreBackendId }}",
+        "filestoreToken": "{{ parameters.filestoreToken }}",
+        "filestorePrincipal": "{{ parameters.filestorePrincipal }}",
+        "reportsPrefix": "{{ parameters.reportsPrefix }}",
+        "overviewPrefix": "{{ parameters.overviewPrefix }}"
+      }
+    }
+  ],
+  "version": 1
 }

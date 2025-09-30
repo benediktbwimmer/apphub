@@ -6,7 +6,7 @@ The event-driven flavour now partitions Timestore manifests per instrument and p
 
 > **Event-driven variant**
 >
-> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow publishes `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
+> In addition to the original file-watcher walkthrough, the repository now ships an event-driven flavour under `examples/environmental-observatory-event-driven/`. CSV uploads flow through Filestore, the inbox normalizer emits `observatory.minute.raw-uploaded`, downstream publication reacts to `observatory.minute.partition-ready`, and a dashboard aggregation workflow listens for `timestore.partition.created` (with a guarded fallback on the ingest signal) before publishing `observatory.dashboard.updated` after querying Timestore for fleet-wide stats. See the [README](../examples/environmental-observatory-event-driven/README.md) for setup instructions (`materializeConfig.ts`, `setupTriggers.ts`, and the upgraded services).
 
 ## Event-driven benchmark status (2025-09-29)
 

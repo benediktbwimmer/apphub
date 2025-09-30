@@ -817,6 +817,178 @@
       }
     },
     {
+      "slug": "observatory-dashboard-aggregator",
+      "version": "0.1.0",
+      "directory": "examples/environmental-observatory-event-driven/jobs/observatory-dashboard-aggregator",
+      "manifestPath": "examples/environmental-observatory-event-driven/jobs/observatory-dashboard-aggregator/manifest.json",
+      "jobDefinitionPath": "examples/environmental-observatory-event-driven/jobs/observatory-dashboard-aggregator/job-definition.json",
+      "manifest": {
+        "name": "Observatory Dashboard Aggregator",
+        "version": "0.1.0",
+        "entry": "dist/index.js",
+        "runtime": "node18",
+        "description": "Aggregates recent observatory measurements from Timestore and renders an interactive HTML dashboard.",
+        "capabilities": [
+          "fs",
+          "network"
+        ]
+      },
+      "definition": {
+        "slug": "observatory-dashboard-aggregator",
+        "name": "Observatory Dashboard Aggregator",
+        "type": "batch",
+        "runtime": "node",
+        "entryPoint": "bundle:observatory-dashboard-aggregator@0.1.0#handler",
+        "timeoutMs": 120000,
+        "retryPolicy": {
+          "maxAttempts": 3,
+          "strategy": "exponential",
+          "initialDelayMs": 5000
+        },
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "partitionKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lookbackMinutes": {
+              "type": "number",
+              "minimum": 5,
+              "maximum": 4320
+            },
+            "timestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreDatasetSlug": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestoreAuthToken": {
+              "type": "string"
+            },
+            "filestoreBaseUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filestoreBackendId": {
+              "type": "number",
+              "minimum": 1
+            },
+            "filestoreToken": {
+              "type": "string"
+            },
+            "filestorePrincipal": {
+              "type": "string"
+            },
+            "reportsPrefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "overviewPrefix": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "partitionKey",
+            "lookbackMinutes",
+            "timestoreBaseUrl",
+            "timestoreDatasetSlug",
+            "filestoreBaseUrl",
+            "filestoreBackendId",
+            "reportsPrefix",
+            "overviewPrefix"
+          ]
+        },
+        "defaultParameters": {
+          "lookbackMinutes": 720,
+          "filestoreToken": null,
+          "filestorePrincipal": null,
+          "timestoreAuthToken": null
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "samples": {
+              "type": "number"
+            },
+            "instrumentCount": {
+              "type": "number"
+            },
+            "siteCount": {
+              "type": "number"
+            },
+            "overviewPrefix": {
+              "type": "string"
+            },
+            "dashboard": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "number"
+                },
+                "mediaType": {
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "type": "number"
+                },
+                "checksum": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "mediaType"
+              ]
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "number"
+                },
+                "mediaType": {
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "type": "number"
+                },
+                "checksum": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "mediaType"
+              ]
+            }
+          },
+          "required": [
+            "generatedAt",
+            "samples",
+            "instrumentCount",
+            "siteCount",
+            "overviewPrefix",
+            "dashboard",
+            "data"
+          ]
+        }
+      }
+    },
+    {
       "slug": "observatory-calibration-importer",
       "version": "0.1.0",
       "directory": "examples/environmental-observatory-event-driven/jobs/observatory-calibration-importer",

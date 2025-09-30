@@ -33,15 +33,17 @@ export type BundleConfig = {
   pythonEntry?: string;
   pythonRequirementsPath?: string;
   externals?: string[];
+  runtimeDependencies?: string[];
 };
 
 export type NormalizedBundleConfig = Required<
-  Omit<BundleConfig, 'tests' | 'files' | 'pythonRequirementsPath'>
+  Omit<BundleConfig, 'tests' | 'files' | 'pythonRequirementsPath' | 'runtimeDependencies'>
 > & {
   files: string[];
   tests: BundleTestConfig;
   pythonRequirementsPath?: string;
   externals: string[];
+  runtimeDependencies: string[];
 };
 
 export type PackageResult = {

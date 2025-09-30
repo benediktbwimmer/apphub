@@ -339,7 +339,8 @@ async function main(): Promise<void> {
   };
 
   const dashboardTemplate: Record<string, unknown> = {
-    partitionKey: '{{ event.payload.minute }}',
+    partitionKey:
+      '{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}',
     filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
     filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
     reportsPrefix: '{{ trigger.metadata.filestore.reportsPrefix }}',
@@ -356,6 +357,24 @@ async function main(): Promise<void> {
     dashboardTemplate.filestoreToken = '{{ trigger.metadata.filestore.token }}';
   }
   dashboardTemplate.filestorePrincipal = '{{ trigger.metadata.filestore.principal }}';
+
+  const dashboardFallbackTemplate: Record<string, unknown> = {
+    partitionKey: '{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}',
+    filestoreBaseUrl: '{{ trigger.metadata.filestore.baseUrl }}',
+    filestoreBackendId: '{{ trigger.metadata.filestore.backendMountId }}',
+    reportsPrefix: '{{ trigger.metadata.filestore.reportsPrefix }}',
+    overviewPrefix: '{{ trigger.metadata.filestore.overviewPrefix }}',
+    lookbackMinutes: '{{ trigger.metadata.dashboard.lookbackMinutes }}',
+    timestoreBaseUrl: '{{ trigger.metadata.timestore.baseUrl }}',
+    timestoreDatasetSlug: '{{ trigger.metadata.timestore.datasetSlug }}'
+  };
+  if (config.timestore.authToken) {
+    dashboardFallbackTemplate.timestoreAuthToken = '{{ trigger.metadata.timestore.authToken }}';
+  }
+  if (config.filestore.token) {
+    dashboardFallbackTemplate.filestoreToken = '{{ trigger.metadata.filestore.token }}';
+  }
+  dashboardFallbackTemplate.filestorePrincipal = '{{ trigger.metadata.filestore.principal }}';
 
   if (!config.workflows.aggregateSlug) {
     throw new Error('Aggregate workflow slug missing in observatory config');
@@ -404,8 +423,8 @@ async function main(): Promise<void> {
       workflowSlug: config.workflows.aggregateSlug,
       name: 'Observatory dashboard aggregate',
       description: 'Refresh the aggregate dashboard after each partition is ready.',
-      eventType: 'observatory.minute.partition-ready',
-      eventSource: 'observatory.timestore-loader',
+      eventType: 'timestore.partition.created',
+      eventSource: 'timestore.ingest',
       predicates: [
         { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
       ],
@@ -414,7 +433,26 @@ async function main(): Promise<void> {
       throttleWindowMs: 0,
       throttleCount: null,
       maxConcurrency: 1,
-      idempotencyKeyExpression: 'observatory-dashboard-{{ event.payload.minute }}',
+      idempotencyKeyExpression:
+        'observatory-dashboard-{{ event.payload.partitionKeyFields.window | default: event.payload.partitionKey }}',
+      runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
+    },
+    {
+      workflowSlug: config.workflows.aggregateSlug,
+      name: 'Observatory dashboard aggregate (fallback)',
+      description: 'Fallback trigger to refresh dashboards immediately after ingest runs.',
+      eventType: 'observatory.minute.partition-ready',
+      eventSource: 'observatory.timestore-loader',
+      predicates: [
+        { path: '$.payload.datasetSlug', operator: 'equals', value: config.timestore.datasetSlug }
+      ],
+      parameterTemplate: dashboardFallbackTemplate,
+      metadata: dashboardMetadata,
+      throttleWindowMs: 0,
+      throttleCount: null,
+      maxConcurrency: 1,
+      idempotencyKeyExpression:
+        'observatory-dashboard-{{ event.payload.partitionKeyFields.window | default: event.payload.minute }}',
       runKeyTemplate: 'observatory-dashboard-{{ parameters.partitionKey | replace: ":", "-" }}'
     },
     {

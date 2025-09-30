@@ -37,6 +37,25 @@ function ensureJsonObject(value: JsonValue | undefined): JsonObject {
   return empty;
 }
 
+function ensureEventTriggers(definition: WorkflowDefinitionTemplate): JsonObject[] {
+  const metadata = ensureJsonObject(definition.metadata as JsonValue | undefined);
+  definition.metadata = metadata;
+  const provisioning = ensureJsonObject(metadata.provisioning as JsonValue | undefined);
+  metadata.provisioning = provisioning;
+  const triggers = Array.isArray(provisioning.eventTriggers)
+    ? (provisioning.eventTriggers as JsonValue[])
+    : [];
+  provisioning.eventTriggers = triggers;
+  return triggers.map((trigger, index) => {
+    if (trigger && typeof trigger === 'object' && !Array.isArray(trigger)) {
+      return trigger as JsonObject;
+    }
+    const replacement: JsonObject = {};
+    triggers[index] = replacement;
+    return replacement;
+  });
+}
+
 export type ObservatoryBootstrapLogger = {
   debug?: (meta: unknown, message?: string) => void;
   error?: (meta: unknown, message?: string) => void;
@@ -149,6 +168,34 @@ export function applyObservatoryWorkflowDefaults(
       defaults.timestoreBaseUrl = config.timestore.baseUrl;
       defaults.timestoreDatasetSlug = config.timestore.datasetSlug;
       defaults.timestoreAuthToken = config.timestore.authToken ?? null;
+
+      for (const trigger of ensureEventTriggers(definition)) {
+        const triggerMetadata = ensureJsonObject(trigger.metadata as JsonValue | undefined);
+        trigger.metadata = triggerMetadata;
+
+        const filestoreMetadata = ensureJsonObject(triggerMetadata.filestore as JsonValue | undefined);
+        filestoreMetadata.baseUrl = config.filestore.baseUrl;
+        filestoreMetadata.backendMountId = config.filestore.backendMountId;
+        filestoreMetadata.token = config.filestore.token ?? null;
+        triggerMetadata.filestore = filestoreMetadata;
+
+        const dashboardMetadata = ensureJsonObject(triggerMetadata.dashboard as JsonValue | undefined);
+        dashboardMetadata.overviewPrefix =
+          config.workflows.dashboard?.overviewPrefix ?? defaults.overviewPrefix;
+        dashboardMetadata.lookbackMinutes =
+          config.workflows.dashboard?.lookbackMinutes ?? defaults.lookbackMinutes;
+        triggerMetadata.dashboard = dashboardMetadata;
+
+        const timestoreMetadata = ensureJsonObject(triggerMetadata.timestore as JsonValue | undefined);
+        timestoreMetadata.baseUrl = config.timestore.baseUrl;
+        timestoreMetadata.datasetSlug = config.timestore.datasetSlug;
+        timestoreMetadata.authToken = config.timestore.authToken ?? null;
+        triggerMetadata.timestore = timestoreMetadata;
+
+        const pathsMetadata = ensureJsonObject(triggerMetadata.paths as JsonValue | undefined);
+        pathsMetadata.reportsPrefix = defaults.reportsPrefix;
+        triggerMetadata.paths = pathsMetadata;
+      }
       break;
     case 'observatory-calibration-import':
       defaults.filestoreBaseUrl = config.filestore.baseUrl;

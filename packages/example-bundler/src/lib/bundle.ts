@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { builtinModules } from 'node:module';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import type { Stats } from 'node:fs';
 import * as tar from 'tar';
 import fg from 'fast-glob';
 import esbuild from 'esbuild';
@@ -199,6 +201,39 @@ function getPythonEntry(context: BundleContext): string {
   throw new Error('Python runtime requires `pythonEntry` to be set in the manifest.');
 }
 
+const BUILTIN_MODULE_NAMES = new Set<string>(
+  builtinModules.flatMap((entry) => {
+    if (entry.startsWith('node:')) {
+      const stripped = entry.slice('node:'.length);
+      return stripped ? [entry, stripped] : [entry];
+    }
+    return [entry, `node:${entry}`];
+  })
+);
+
+function isBuiltinModuleName(candidate: string): boolean {
+  if (!candidate) {
+    return false;
+  }
+  return BUILTIN_MODULE_NAMES.has(candidate);
+}
+
+function normalizeRuntimeModuleSpecifier(specifier: string): string {
+  const trimmed = specifier.replace(/^node:/, '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.startsWith('@')) {
+    const segments = trimmed.split('/');
+    if (segments.length >= 2) {
+      return `${segments[0]}/${segments[1]}`;
+    }
+    return '';
+  }
+  const [head] = trimmed.split('/');
+  return head ?? '';
+}
+
 async function scaffoldTest(bundleDir: string, runtime: string): Promise<string[]> {
   const testDir = resolvePath(bundleDir, 'tests');
   await ensureDir(testDir);
@@ -395,6 +430,212 @@ async function ensureBuildTarget(context: BundleContext): Promise<void> {
   }
 }
 
+async function ensureRuntimeDependencies(context: BundleContext): Promise<void> {
+  const dependencies = context.config.runtimeDependencies;
+  if (dependencies.length === 0) {
+    return;
+  }
+
+  const runtime = resolveRuntime(context.manifest);
+  if (isPythonRuntime(runtime)) {
+    return;
+  }
+
+  const sourceRoot = path.join(context.bundleDir, 'node_modules');
+  if (!(await pathExists(sourceRoot))) {
+    throw new Error(
+      'Runtime dependencies requested, but no node_modules directory was found. Install dependencies before packaging.'
+    );
+  }
+
+  const targetRoot = path.join(context.bundleDir, context.config.outDir, 'node_modules');
+  await ensureDir(targetRoot);
+
+  const seen = new Set<string>();
+
+  const copyDependency = async (specifier: string, optional = false) => {
+    const normalized = normalizeRuntimeModuleSpecifier(specifier);
+    if (!normalized) {
+      return;
+    }
+    if (seen.has(normalized)) {
+      return;
+    }
+    if (isBuiltinModuleName(normalized) || isBuiltinModuleName(`node:${normalized}`)) {
+      return;
+    }
+
+    const segments = normalized.startsWith('@') ? normalized.split('/') : [normalized];
+    const sourceDir = path.join(sourceRoot, ...segments);
+    let stats: Stats;
+    try {
+      stats = await fs.stat(sourceDir);
+    } catch {
+      if (optional) {
+        return;
+      }
+      throw new Error(
+        `Runtime dependency "${normalized}" was not found in workspace node_modules (${sourceDir}). Install it before bundling.`
+      );
+    }
+    if (!stats.isDirectory()) {
+      return;
+    }
+
+    const targetDir = path.join(targetRoot, ...segments);
+    await ensureDir(path.dirname(targetDir));
+    await removeDir(targetDir).catch(() => {});
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      dereference: false
+    });
+
+    if (normalized === 'debug') {
+      await rewriteDebugModuleForSandbox(targetDir);
+    }
+    if (normalized === 'msgpackr') {
+      await rewriteMsgpackrModuleForSandbox(targetDir);
+    }
+    if (normalized === 'msgpackr-extract') {
+      await rewriteMsgpackrExtractForSandbox(targetDir);
+    }
+
+    seen.add(normalized);
+
+    const packageJsonPath = path.join(sourceDir, 'package.json');
+    let packageJsonRaw: string;
+    try {
+      packageJsonRaw = await fs.readFile(packageJsonPath, 'utf8');
+    } catch {
+      return;
+    }
+
+    let parsed: {
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    try {
+      parsed = JSON.parse(packageJsonRaw);
+    } catch {
+      return;
+    }
+
+    const nested = new Map<string, boolean>();
+    for (const entry of Object.keys(parsed.dependencies ?? {})) {
+      nested.set(entry, false);
+    }
+    for (const entry of Object.keys(parsed.optionalDependencies ?? {})) {
+      if (!nested.has(entry)) {
+        nested.set(entry, true);
+      }
+    }
+    for (const entry of Object.keys(parsed.peerDependencies ?? {})) {
+      if (!nested.has(entry)) {
+        nested.set(entry, true);
+      }
+    }
+    for (const [entry, isOptional] of nested) {
+      await copyDependency(entry, isOptional);
+    }
+};
+
+  for (const dependency of dependencies) {
+    await copyDependency(dependency);
+  }
+}
+
+async function rewriteDebugModuleForSandbox(moduleDir: string): Promise<void> {
+  const indexPath = path.join(moduleDir, 'src', 'index.js');
+  if (await pathExists(indexPath)) {
+    const content = "module.exports = require('./browser.js');\n";
+    await fs.writeFile(indexPath, content, 'utf8');
+  }
+
+  const packageJsonPath = path.join(moduleDir, 'package.json');
+  if (await pathExists(packageJsonPath)) {
+    try {
+      const raw = await fs.readFile(packageJsonPath, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      parsed.main = './src/browser.js';
+      await fs.writeFile(packageJsonPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+    } catch {
+      // Ignore malformed package metadata; rewrites are best-effort.
+    }
+  }
+}
+
+async function rewriteMsgpackrModuleForSandbox(moduleDir: string): Promise<void> {
+  const nodeCjsPath = path.join(moduleDir, 'dist', 'node.cjs');
+  if (await pathExists(nodeCjsPath)) {
+    try {
+      const raw = await fs.readFile(nodeCjsPath, 'utf8');
+      const patched = raw.replace(
+        "var module$1 = require('module');",
+        "var module$1 = { createRequire: function () { throw new Error('module access disabled inside sandbox'); } };"
+      );
+      if (patched !== raw) {
+        await fs.writeFile(nodeCjsPath, patched, 'utf8');
+      }
+    } catch {
+      // Ignore failures; fallback to default module code if rewrite is not possible.
+    }
+  }
+
+  const gypLoaderPath = path.join(moduleDir, '..', 'node-gyp-build-optional-packages', 'node-gyp-build.js');
+  if (await pathExists(gypLoaderPath)) {
+    try {
+      const raw = await fs.readFile(gypLoaderPath, 'utf8');
+      const pattern = "var prebuildPackage = path.dirname(require('module').createRequire";
+      if (raw.includes(pattern)) {
+        const patched = raw.replace(
+          /var prebuildPackage = path\.dirname\(require\('module'\)\.createRequire\([^)]*\)\.resolve\(platformPackage\)\);/,
+          'throw new Error("module access disabled inside sandbox");'
+        );
+        await fs.writeFile(gypLoaderPath, patched, 'utf8');
+      }
+    } catch {
+      // Ignore rewrite failures; best-effort patch.
+    }
+  }
+
+  const nodeIndexPath = path.join(moduleDir, 'node-index.js');
+  if (await pathExists(nodeIndexPath)) {
+    try {
+      const raw = await fs.readFile(nodeIndexPath, 'utf8');
+      if (raw.includes("import { createRequire } from 'module'")) {
+        const patched = raw.replace(
+          "import { createRequire } from 'module'\n",
+          "const createRequire = () => { throw new Error('module access disabled inside sandbox'); };\n"
+        );
+        await fs.writeFile(nodeIndexPath, patched, 'utf8');
+      }
+    } catch {
+      // Ignore rewrite failures.
+    }
+  }
+
+  const extractIndexPath = path.join(moduleDir, '..', 'msgpackr-extract', 'index.js');
+  if (await pathExists(extractIndexPath)) {
+    try {
+      await fs.writeFile(extractIndexPath, "module.exports = null;\n", 'utf8');
+    } catch {
+      // Ignore rewrite failures.
+    }
+  }
+}
+
+async function rewriteMsgpackrExtractForSandbox(moduleDir: string): Promise<void> {
+  const indexPath = path.join(moduleDir, 'index.js');
+  if (await pathExists(indexPath)) {
+    try {
+      await fs.writeFile(indexPath, "module.exports = null;\n", 'utf8');
+    } catch {
+      // Ignore rewrite failures.
+    }
+  }
+}
+
 export async function buildBundle(
   context: BundleContext,
   options: BuildOptions = {}
@@ -488,6 +729,10 @@ export async function packageBundle(
   options: PackageOptions = {}
 ): Promise<PackageResult> {
   await buildBundle(context, options);
+
+  if (context.config.runtimeDependencies.length > 0) {
+    await ensureRuntimeDependencies(context);
+  }
 
   const artifactDir = options.outputDir
     ? path.resolve(context.bundleDir, options.outputDir)

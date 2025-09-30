@@ -74,6 +74,8 @@ type TrendPoint = {
 };
 
 const MAX_ROWS = 50000;
+const DATASET_READY_MAX_ATTEMPTS = 24;
+const DATASET_READY_DELAY_MS = 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -191,6 +193,50 @@ function resolveTimeWindow(partitionKey: string, lookbackMinutes: number) {
     startIso: startDate.toISOString().replace(/Z$/, '') + 'Z',
     endIso: endWindow.toISOString().replace(/Z$/, '') + 'Z'
   };
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDatasetReady(
+  params: AggregatorParameters,
+  logger: JobRunContext['logger'],
+  attempts: number = DATASET_READY_MAX_ATTEMPTS,
+  delayMs: number = DATASET_READY_DELAY_MS
+): Promise<boolean> {
+  const headers: Record<string, string> = {
+    accept: 'application/json'
+  };
+  if (params.timestoreAuthToken) {
+    headers.authorization = `Bearer ${params.timestoreAuthToken}`;
+  }
+  const datasetUrl = `${params.timestoreBaseUrl}/datasets/${encodeURIComponent(params.timestoreDatasetSlug)}`;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetch(datasetUrl, { headers });
+    if (response.ok) {
+      return true;
+    }
+    if (response.status === 404) {
+      if (attempt === attempts - 1) {
+        break;
+      }
+      logger('Timestore dataset not yet available; waiting before aggregation', {
+        datasetSlug: params.timestoreDatasetSlug,
+        partitionKey: params.partitionKey,
+        attempt: attempt + 1,
+        remainingAttempts: attempts - attempt - 1
+      });
+      await sleep(delayMs);
+      continue;
+    }
+
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Dataset readiness check failed with status ${response.status}: ${errorText}`);
+  }
+
+  return false;
 }
 
 async function queryTimestore(
@@ -412,6 +458,15 @@ export async function handler(context: JobRunContext): Promise<JobRunResult> {
   const generatedAt = new Date().toISOString();
 
   try {
+    const datasetReady = await waitForDatasetReady(parameters, context.logger);
+    if (!datasetReady) {
+      throw new Error(
+        `Timestore dataset ${parameters.timestoreDatasetSlug} not ready after waiting ${
+          DATASET_READY_MAX_ATTEMPTS * DATASET_READY_DELAY_MS
+        }ms`
+      );
+    }
+
     const rows = await queryTimestore(parameters, window.startIso, window.endIso);
     context.logger('Fetched rows from Timestore for dashboard aggregation', {
       samples: rows.length,

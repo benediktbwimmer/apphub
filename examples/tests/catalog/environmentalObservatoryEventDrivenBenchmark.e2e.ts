@@ -117,7 +117,8 @@ const OBSERVATORY_BUNDLE_SLUGS = [
   'observatory-timestore-loader',
   'observatory-visualization-runner',
   'observatory-report-publisher',
-  'observatory-calibration-importer'
+  'observatory-calibration-importer',
+  'observatory-dashboard-aggregator'
 ] as const;
 const OBSERVATORY_WORKFLOW_SLUGS = [
   'observatory-minute-data-generator',
@@ -371,6 +372,13 @@ async function setupExternalInfrastructure(): Promise<void> {
   const redis = await startRedisContainer();
   registerResourceCleanup(() => stopDockerContainer(redis.name));
 
+  const instrumentCountOverride =
+    process.env.OBSERVATORY_GENERATOR_INSTRUMENT_COUNT
+      ?? process.env.OBSERVATORY_INSTRUMENT_COUNT
+      ?? process.env.OBSERVATORY_BENCH_INSTRUMENT_COUNT
+      ?? process.env.OBSERVATORY_BENCH_INSTRUMENTS
+      ?? '10';
+
   const restoreOverrides = applyEnvOverrides({
     REDIS_URL: `redis://127.0.0.1:${redis.port}`,
     OBSERVATORY_FILESTORE_S3_ENDPOINT: `http://127.0.0.1:${minio.apiPort}`,
@@ -378,8 +386,8 @@ async function setupExternalInfrastructure(): Promise<void> {
     OBSERVATORY_FILESTORE_S3_SECRET_ACCESS_KEY: minio.rootPassword,
     OBSERVATORY_FILESTORE_S3_REGION: 'us-east-1',
     OBSERVATORY_FILESTORE_S3_FORCE_PATH_STYLE: 'true',
-    OBSERVATORY_INSTRUMENT_COUNT: '10',
-    OBSERVATORY_GENERATOR_INSTRUMENT_COUNT: '10',
+    OBSERVATORY_INSTRUMENT_COUNT: instrumentCountOverride,
+    OBSERVATORY_GENERATOR_INSTRUMENT_COUNT: instrumentCountOverride,
     FILESTORE_S3_ENDPOINT: `http://127.0.0.1:${minio.apiPort}`,
     FILESTORE_S3_ACCESS_KEY_ID: minio.rootUser,
     FILESTORE_S3_SECRET_ACCESS_KEY: minio.rootPassword,
@@ -400,8 +408,8 @@ async function setupExternalInfrastructure(): Promise<void> {
     APPHUB_ALLOW_INLINE_MODE: '1',
     APPHUB_EVENTS_MODE: 'redis',
     APPHUB_DISABLE_ANALYTICS: '1',
-    OBSERVATORY_BENCH_INSTRUMENTS: '10',
-    OBSERVATORY_BENCH_INSTRUMENT_COUNT: '10'
+    OBSERVATORY_BENCH_INSTRUMENTS: instrumentCountOverride,
+    OBSERVATORY_BENCH_INSTRUMENT_COUNT: instrumentCountOverride
   });
   registerResourceCleanup(restoreDefaults);
 }

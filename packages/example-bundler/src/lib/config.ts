@@ -62,6 +62,11 @@ export function normalizeBundleConfig(
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
         .filter((value) => value.length > 0)
     : [];
+  const runtimeDependencies = Array.isArray(merged.runtimeDependencies)
+    ? merged.runtimeDependencies
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+    : [];
 
   return {
     slug,
@@ -73,7 +78,8 @@ export function normalizeBundleConfig(
     tests,
     pythonEntry,
     pythonRequirementsPath,
-    externals
+    externals,
+    runtimeDependencies
   } satisfies NormalizedBundleConfig;
 }
 

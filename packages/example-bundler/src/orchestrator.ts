@@ -381,7 +381,12 @@ export class ExampleBundler {
       emitProgress(progress, buildProgress(resolved.slug, key.fingerprint, 'failed', message));
       throw err;
     } finally {
-      await removeDir(workspaceRoot).catch(() => {});
+      const preserveWorkspace = process.env.APPHUB_EXAMPLE_PRESERVE_WORKSPACE === '1';
+      if (preserveWorkspace) {
+        console.log('[example-bundler] preserving workspace', workspaceRoot);
+      } else {
+        await removeDir(workspaceRoot).catch(() => {});
+      }
     }
   }
 
@@ -601,6 +606,23 @@ async function populateWorkspacePackages(repoRoot: string, workspaceDir: string)
       // Ignore dependency resolution errors; missing packages will surface during build.
     }
   }
+
+  const workspaceNodeModules = path.join(workspaceDir, 'node_modules');
+  if (await pathExists(workspaceNodeModules)) {
+    const parentNodeModules = path.resolve(workspaceDir, '..', 'node_modules');
+    await removeDir(parentNodeModules).catch(() => {});
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    try {
+      await fs.symlink(workspaceNodeModules, parentNodeModules, linkType);
+    } catch (error) {
+      if (!(await pathExists(parentNodeModules))) {
+        await fs.cp(workspaceNodeModules, parentNodeModules, {
+          recursive: true,
+          dereference: false
+        });
+      }
+    }
+  }
 }
 
 function isNodeModulesPath(candidate: string): boolean {
@@ -685,6 +707,17 @@ async function copyBundleSources(sourceDir: string, targetDir: string): Promise<
       return true;
     }
   });
+
+  const moduleRoot = path.resolve(sourceDir, '..', '..');
+  const sharedDir = path.join(moduleRoot, 'shared');
+  if (await pathExists(sharedDir)) {
+    const sharedTarget = path.resolve(targetDir, '..', 'shared');
+    await removeDir(sharedTarget).catch(() => {});
+    await fs.cp(sharedDir, sharedTarget, {
+      recursive: true,
+      dereference: false
+    });
+  }
 }
 
 async function determineInstallCommand(
