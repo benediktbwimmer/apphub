@@ -68,7 +68,11 @@ function sanitizePayload(value: unknown, depth = 0): unknown {
 }
 
 export async function buildServer() {
-  const app = Fastify();
+  const app = Fastify({
+    logger: {
+      level: process.env.LOG_LEVEL?.trim() || 'info'
+    }
+  });
 
   await app.register(cors, {
     origin: true,
