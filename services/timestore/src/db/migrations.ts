@@ -321,27 +321,33 @@ const migrations: Migration[] = [
 
 export async function runMigrations(): Promise<void> {
   await withConnection(async (client) => {
-    await ensureSchemaMigrationsTable(client);
+    const lockKey = 'timestore:migrations'; // Ensure only one process migrates at a time
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
+    try {
+      await ensureSchemaMigrationsTable(client);
 
-    const { rows } = await client.query<{ id: string }>('SELECT id FROM schema_migrations');
-    const applied = new Set(rows.map((row) => row.id));
+      const { rows } = await client.query<{ id: string }>('SELECT id FROM schema_migrations');
+      const applied = new Set(rows.map((row) => row.id));
 
-    for (const migration of migrations) {
-      if (applied.has(migration.id)) {
-        continue;
-      }
-
-      await client.query('BEGIN');
-      try {
-        for (const statement of migration.statements) {
-          await client.query(statement);
+      for (const migration of migrations) {
+        if (applied.has(migration.id)) {
+          continue;
         }
-        await client.query('INSERT INTO schema_migrations (id) VALUES ($1) ON CONFLICT DO NOTHING', [migration.id]);
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
+
+        await client.query('BEGIN');
+        try {
+          for (const statement of migration.statements) {
+            await client.query(statement);
+          }
+          await client.query('INSERT INTO schema_migrations (id) VALUES ($1) ON CONFLICT DO NOTHING', [migration.id]);
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK');
+          throw err;
+        }
       }
+    } finally {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey]);
     }
   });
 }
