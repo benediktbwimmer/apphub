@@ -1,6 +1,14 @@
 import { useMemo } from 'react';
 import type { WorkflowRunMetricsSummary } from '../types';
 
+const SECTION_CONTAINER = 'flex flex-col gap-4';
+const SECTION_TITLE = 'text-scale-sm font-weight-semibold text-primary';
+const SECTION_SUBTEXT = 'text-scale-xs text-secondary';
+const CARD_CONTAINER = 'rounded-xl border border-subtle bg-surface-glass p-3 shadow-elevation-sm transition-colors';
+const EMPTY_STATE_TEXT = 'flex h-32 items-center justify-center text-scale-sm text-secondary';
+const HISTORY_CARD = 'rounded-lg border border-subtle bg-surface-muted p-3 text-scale-xs text-secondary';
+const HISTORY_HEADING = 'mb-2 font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
 type WorkflowRunTrendsProps = {
   metrics: WorkflowRunMetricsSummary | null;
   history: WorkflowRunMetricsSummary[];
@@ -84,19 +92,19 @@ export default function WorkflowRunTrends({ metrics, history, selectedOutcomes }
     .join(' ');
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={SECTION_CONTAINER}>
       <div>
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Trend overview</h4>
+        <h4 className={SECTION_TITLE}>Trend overview</h4>
         {metrics ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className={SECTION_SUBTEXT}>
             Bucket: {formatBucket(metrics.bucket)} · Range: {new Date(metrics.range.from).toLocaleString()} –{' '}
             {new Date(metrics.range.to).toLocaleString()}
           </p>
         ) : (
-          <p className="text-xs text-slate-500 dark:text-slate-400">No trend data available.</p>
+          <p className={SECTION_SUBTEXT}>No trend data available.</p>
         )}
       </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700/40 dark:bg-slate-900/40">
+      <div className={CARD_CONTAINER}>
         {points.length > 0 ? (
           <svg viewBox="0 0 100 80" className="h-36 w-full">
             <polyline
@@ -108,7 +116,7 @@ export default function WorkflowRunTrends({ metrics, history, selectedOutcomes }
             />
             <polyline
               fill="none"
-              stroke="rgba(99,102,241,0.5)"
+              stroke="color-mix(in srgb, var(--color-accent-default) 55%, transparent)"
               strokeWidth="1.5"
               strokeDasharray="4 3"
               points={durationPath}
@@ -116,20 +124,20 @@ export default function WorkflowRunTrends({ metrics, history, selectedOutcomes }
             />
             <defs>
               <linearGradient id="count-gradient" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="rgb(79,70,229)" />
-                <stop offset="100%" stopColor="rgba(79,70,229,0.2)" />
+                <stop offset="0%" stopColor="var(--color-accent-default)" />
+                <stop offset="100%" stopColor="color-mix(in srgb, var(--color-accent-default) 20%, transparent)" />
               </linearGradient>
             </defs>
           </svg>
         ) : (
-          <div className="flex h-32 items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+          <div className={EMPTY_STATE_TEXT}>
             No recent runs in this range.
           </div>
         )}
       </div>
       {history.length > 0 && (
-        <div className="rounded-lg bg-slate-100/70 p-3 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
-          <p className="mb-2 font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Snapshots</p>
+        <div className={HISTORY_CARD}>
+          <p className={HISTORY_HEADING}>Snapshots</p>
           <ul className="space-y-1">
             {history.slice(-3).map((entry, index) => (
               <li key={`${entry.range.to}-${index}`}>{formatHistoryEntry(entry)}</li>

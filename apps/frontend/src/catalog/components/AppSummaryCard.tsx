@@ -1,21 +1,13 @@
 import { memo, useMemo } from 'react';
 import type { AppRecord } from '../types';
 import { highlightSegments } from '../utils';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 
 const STATUS_BADGE_BASE =
-  'inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';
-
-const STATUS_BADGE_VARIANTS: Record<string, string> = {
-  seed: 'bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200',
-  pending: 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-  processing: 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-  ready: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-  succeeded: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-  failed: 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'
-};
+  'inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
 
 const PREVIEW_CONTAINER_CLASSES =
-  'relative overflow-hidden rounded-3xl border border-slate-200/60 bg-slate-950/70 shadow-inner dark:border-slate-700/60 dark:bg-slate-900/60';
+  'relative overflow-hidden rounded-3xl border border-subtle bg-surface-sunken-glass shadow-inner';
 
 const PREVIEW_HEIGHT = 180;
 
@@ -37,17 +29,17 @@ function AppSummaryCardComponent({ app, activeTokens, highlightEnabled, onOpenDe
     [app.previewTiles]
   );
 
-  const statusBadgeClass = `${STATUS_BADGE_BASE} ${STATUS_BADGE_VARIANTS[app.ingestStatus] ?? STATUS_BADGE_VARIANTS.seed}`;
+  const statusBadgeClass = `${STATUS_BADGE_BASE} ${getStatusToneClasses(app.ingestStatus)}`;
   const updatedAtLabel = app.updatedAt ? new Date(app.updatedAt).toLocaleString() : null;
   const tags = useMemo(() => app.tags.slice(0, 4), [app.tags]);
 
   const containerClasses = [
-    'flex h-full flex-col gap-4 rounded-3xl border bg-white/80 p-4 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:bg-slate-900/70',
-    'border-slate-200/70 hover:border-violet-300 hover:bg-violet-50/80 dark:border-slate-700/70 dark:hover:border-slate-500'
+    'flex h-full flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-4 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors',
+    'hover:border-accent-soft hover:bg-accent-soft'
   ];
 
   if (isActive) {
-    containerClasses.push('border-violet-500 ring-2 ring-violet-500/40');
+    containerClasses.push('border-accent ring-2 ring-accent');
   }
 
   return (
@@ -72,12 +64,12 @@ function AppSummaryCardComponent({ app, activeTokens, highlightEnabled, onOpenDe
               loading="lazy"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-slate-900/70 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200">
+            <div className="flex h-full w-full items-center justify-center bg-surface-sunken-glass text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-inverse">
               Preview available in detail
             </div>
           )
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-900/80 text-slate-300">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-surface-sunken-glass text-secondary">
             <span className="text-4xl font-semibold">{fallbackInitial(app.name)}</span>
             <span className="text-[11px] uppercase tracking-[0.3em]">Preview pending</span>
           </div>
@@ -86,20 +78,20 @@ function AppSummaryCardComponent({ app, activeTokens, highlightEnabled, onOpenDe
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          <h3 className="text-scale-md font-weight-semibold text-primary">
             {highlightSegments(app.name, activeTokens, highlightEnabled)}
           </h3>
           <span className={statusBadgeClass}>{app.ingestStatus}</span>
         </div>
         {app.description && (
-          <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{app.description}</p>
+          <p className="text-scale-sm text-secondary line-clamp-2">{app.description}</p>
         )}
         {tags.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {tags.map((tag) => (
               <span
                 key={`${tag.key}:${tag.value}`}
-                className="rounded-full bg-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700/40 dark:text-slate-200"
+                className="rounded-full bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary"
               >
                 {highlightSegments(`${tag.key}:${tag.value}`, activeTokens, highlightEnabled)}
               </span>
@@ -108,12 +100,12 @@ function AppSummaryCardComponent({ app, activeTokens, highlightEnabled, onOpenDe
         )}
       </div>
 
-      <div className="mt-auto flex flex-col gap-3 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-auto flex flex-col gap-3 text-scale-xs text-muted">
         {updatedAtLabel && <span>Updated {updatedAtLabel}</span>}
         <button
           type="button"
           onClick={() => onOpenDetails(app.id)}
-          className="inline-flex items-center justify-center rounded-full border border-violet-300 bg-violet-500/10 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-100 dark:hover:bg-slate-200/20"
+          className="inline-flex items-center justify-center rounded-full border border-accent-soft bg-accent-soft px-4 py-2 text-scale-sm font-weight-semibold text-accent transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           Open details
         </button>

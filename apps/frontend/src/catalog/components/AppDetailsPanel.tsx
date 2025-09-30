@@ -4,6 +4,7 @@ import { buildDockerRunCommandString, createLaunchId } from '../launchCommand';
 import { API_BASE_URL } from '../constants';
 import { normalizePreviewUrl } from '../../utils/url';
 import { Spinner } from '../../components';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import {
   formatBytes,
   formatDuration,
@@ -33,44 +34,39 @@ const TAG_COLOR_PALETTE: { background: string; border: string; color: string }[]
 ];
 
 const STATUS_BADGE_BASE =
-  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';
-
-const STATUS_BADGE_VARIANTS: Record<string, string> = {
-  seed: 'border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-200',
-  pending: 'border-amber-300/70 bg-amber-50/80 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
-  processing: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  running:
-    'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200 running-badge',
-  succeeded:
-    'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  ready:
-    'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  failed:
-    'border-rose-400/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/60 dark:bg-rose-500/20 dark:text-rose-200',
-  starting: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  stopping: 'border-amber-400/70 bg-amber-500/15 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
-  stopped: 'border-slate-400/70 bg-slate-200/70 text-slate-700 dark:border-slate-500/60 dark:bg-slate-700/40 dark:text-slate-100'
-};
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
 
 const getStatusBadgeClasses = (status: string) =>
-  `${STATUS_BADGE_BASE} ${STATUS_BADGE_VARIANTS[status] ?? STATUS_BADGE_VARIANTS.seed}`;
+  `${STATUS_BADGE_BASE} ${getStatusToneClasses(status)}`;
 
 const BUTTON_BASE =
-  'inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center justify-center rounded-full px-4 py-2 text-scale-sm font-weight-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
 
-const PRIMARY_BUTTON_CLASSES = `${BUTTON_BASE} bg-violet-600 text-white shadow-lg shadow-violet-500/30 hover:bg-violet-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30`;
+const PRIMARY_BUTTON_CLASSES = `${BUTTON_BASE} bg-accent text-inverse shadow-lg shadow-accent-soft hover:bg-accent-strong`;
 
-const SECONDARY_BUTTON_CLASSES = `${BUTTON_BASE} border border-slate-200/70 bg-white/80 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
+const SECONDARY_BUTTON_CLASSES = `${BUTTON_BASE} border border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong`;
 
 const PILL_LABEL_CLASSES =
-  'inline-flex items-center gap-1 rounded-full bg-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700/60 dark:text-slate-200';
+  'inline-flex items-center gap-1 rounded-full bg-surface-glass-soft px-2.5 py-1 text-scale-xs font-weight-semibold text-secondary';
 
 const SMALL_BUTTON_BASE =
-  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60';
+  'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-scale-xs font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
 
-const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-slate-200/70 bg-white/70 text-slate-600 hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100`;
+const SMALL_BUTTON_GHOST = `${SMALL_BUTTON_BASE} border border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong`;
 
-const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_BASE} border border-rose-300/70 bg-rose-500/5 text-rose-600 hover:border-rose-400 hover:bg-rose-500/15 hover:text-rose-700 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20`;
+const SMALL_BUTTON_DANGER = `${SMALL_BUTTON_BASE} border border-status-danger bg-status-danger-soft text-status-danger hover:border-status-danger hover:bg-status-danger-soft hover:text-status-danger`;
+
+const TEXT_INPUT_BASE =
+  'rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-mono text-secondary shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const ROUNDED_INPUT_BASE =
+  'rounded-full border border-subtle bg-surface-glass px-4 py-2 text-scale-sm font-weight-medium text-secondary shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const CODE_PILL_BASE =
+  'rounded-full bg-surface-glass px-2.5 py-1 font-mono text-scale-xs text-secondary';
+
+const DURATION_PILL_CLASSES =
+  'rounded-full bg-surface-glass px-2.5 py-1 font-weight-semibold text-muted';
 
 
 const getTagColors = (key: string) => {
@@ -316,13 +312,13 @@ function ChannelPreview({
     return (
       <>
         <div
-          className="relative overflow-hidden rounded-3xl border border-emerald-300/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-emerald-500/50"
+          className="relative overflow-hidden rounded-3xl border border-status-success bg-surface-sunken shadow-elevation-xl shadow-inner"
           style={{ height: `${height}px` }}
         >
           <iframe
             src={livePreviewUrl}
             title={`${appName} live preview`}
-            className="h-full w-full border-0 bg-white"
+            className="h-full w-full border-0 bg-surface-raised"
             loading="lazy"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
             allowFullScreen
@@ -330,18 +326,18 @@ function ChannelPreview({
             onError={() => setLivePreviewStatus('failed')}
           />
           {livePreviewStatus !== 'ready' && (
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/70 text-slate-200">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-transparent" aria-hidden="true" />
-              <span className="text-xs font-semibold uppercase tracking-[0.3em]">Connecting...</span>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-overlay-scrim text-inverse">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-subtle border-t-transparent" aria-hidden="true" />
+              <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em]">Connecting...</span>
             </div>
           )}
-          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-100 shadow-lg">
+          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-status-success bg-status-success-soft px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.35em] text-status-success-on shadow-elevation-md">
             {livePreviewBannerText}
           </div>
           <button
             type="button"
             aria-label="Open fullscreen preview"
-            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-overlay-scrim p-2 text-inverse shadow-elevation-md transition-opacity hover:bg-surface-sunken focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             onClick={() => setFullscreenPreview({ type: 'live', url: livePreviewUrl, title: `${appName} live preview` })}
           >
             <FullscreenIcon />
@@ -355,12 +351,12 @@ function ChannelPreview({
   }
 
   const offlineNotice = hasLivePreview && !livePreviewAvailable ? (
-    <div className="mt-3 rounded-2xl border border-amber-300/60 bg-amber-50/70 p-4 text-sm text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+    <div className="mt-3 rounded-2xl border border-status-warning bg-status-warning-soft p-4 text-scale-sm text-status-warning shadow-sm">
       <div className="space-y-1">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-700 dark:text-amber-100">
+        <p className="text-scale-sm font-weight-semibold uppercase tracking-[0.2em] text-status-warning">
           Live preview unavailable
         </p>
-        <p className="text-xs text-amber-600/90 dark:text-amber-100/80">
+        <p className="text-scale-xs text-status-warning">
           We couldn't reach the running instance. It may have stopped or be blocking embeds.
         </p>
       </div>
@@ -389,7 +385,7 @@ function ChannelPreview({
     return (
       <>
         <div
-          className="flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-300/70 bg-slate-50/70 text-slate-400 shadow-inner dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-500"
+          className="flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-subtle bg-surface-muted text-muted shadow-inner"
           style={{ height: `${height}px` }}
         >
           <span className="text-5xl font-semibold tracking-tight">{initial}</span>
@@ -409,28 +405,32 @@ function ChannelPreview({
   return (
     <>
       <div
-        className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/80 shadow-[inset_0_0_40px_rgba(15,23,42,0.8)] dark:border-slate-700/70"
+        className="relative overflow-hidden rounded-3xl border border-subtle bg-surface-sunken shadow-elevation-xl shadow-inner"
         style={{ height: `${height}px` }}
       >
         <PreviewMedia tile={activeTile} />
         {hasLivePreview && !livePreviewAvailable && (
-          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-amber-200/70 bg-amber-500/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-100 shadow-lg">
+          <div className="pointer-events-none absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-status-warning bg-status-warning-soft px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.3em] text-status-warning-on shadow-elevation-md">
             Preview offline
           </div>
         )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent p-4 text-slate-100">
-          <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.3em]">
-            <span className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em]">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 catalog-preview-overlay p-4">
+          <div className="flex items-center gap-3 text-[11px] font-weight-semibold uppercase tracking-[0.3em]">
+            <span className="rounded-full catalog-preview-pill px-3 py-1 text-[10px] font-weight-semibold uppercase tracking-[0.35em]">
               {activeTile.kind}
             </span>
             {activeTile.source && (
-              <span className="opacity-80">{activeTile.source.replace('ingestion:', '')}</span>
+              <span className="catalog-preview-overlay-muted">{activeTile.source.replace('ingestion:', '')}</span>
             )}
           </div>
           {(activeTile.title || activeTile.description) && (
             <div className="space-y-1 text-left text-sm">
-              {activeTile.title && <h3 className="text-sm font-semibold">{activeTile.title}</h3>}
-              {activeTile.description && <p className="text-xs font-medium text-slate-200/80">{activeTile.description}</p>}
+              {activeTile.title && <h3 className="text-scale-sm font-weight-semibold">{activeTile.title}</h3>}
+              {activeTile.description && (
+                <p className="text-scale-xs font-weight-medium catalog-preview-overlay-muted">
+                  {activeTile.description}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -438,7 +438,7 @@ function ChannelPreview({
           <button
             type="button"
             aria-label="Open fullscreen preview"
-            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-slate-950/70 p-2 text-white shadow-lg transition-opacity hover:bg-slate-950/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+            className="absolute right-4 top-4 inline-flex items-center justify-center rounded-full bg-overlay-scrim p-2 text-inverse shadow-elevation-md transition-opacity hover:bg-surface-sunken focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             onClick={() => setFullscreenPreview({ type: 'tile', tile: activeTile, title: tileTitle })}
           >
             <FullscreenIcon />
@@ -450,8 +450,8 @@ function ChannelPreview({
               <button
                 key={tile.id ?? `${tile.kind}-${index}`}
                 type="button"
-                className={`h-2.5 w-2.5 rounded-full border border-white/30 transition-all ${
-                  activeIndex === index ? 'scale-110 bg-white/90' : 'bg-white/30 hover:bg-white/70'
+                className={`h-2.5 w-2.5 rounded-full border transition-all ${
+                  activeIndex === index ? 'catalog-preview-dot catalog-preview-dot-active scale-110' : 'catalog-preview-dot'
                 }`}
                 onClick={() => setActiveIndex(index)}
                 aria-label={`Show preview ${index + 1}`}
@@ -492,7 +492,7 @@ function ChevronIcon({ open, className }: { open: boolean; className?: string })
       focusable="false"
       viewBox="0 0 20 20"
       fill="none"
-      className={`${className ?? 'h-4 w-4 text-slate-500 transition-transform'} ${open ? 'rotate-180' : ''}`}
+      className={`${className ?? 'h-4 w-4 text-muted transition-transform'} ${open ? 'rotate-180' : ''}`}
       xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -504,7 +504,7 @@ function SectionIcon({ children }: { children: ReactNode }) {
   return (
     <span
       aria-hidden="true"
-      className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200/70 text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
+      className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-glass text-secondary"
     >
       {children}
     </span>
@@ -518,7 +518,7 @@ function BuildIcon() {
       focusable="false"
       viewBox="0 0 20 20"
       fill="none"
-      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      className="h-5 w-5 text-secondary"
       xmlns="http://www.w3.org/2000/svg"
     >
       <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.5" />
@@ -534,7 +534,7 @@ function TimelineIcon() {
       focusable="false"
       viewBox="0 0 20 20"
       fill="none"
-      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      className="h-5 w-5 text-secondary"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M6 4v12M14 4v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -553,7 +553,7 @@ function LaunchIcon() {
       focusable="false"
       viewBox="0 0 20 20"
       fill="none"
-      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      className="h-5 w-5 text-secondary"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path
@@ -576,7 +576,7 @@ function HistoryIcon() {
       focusable="false"
       viewBox="0 0 20 20"
       fill="none"
-      className="h-5 w-5 text-slate-600 dark:text-slate-300"
+      className="h-5 w-5 text-secondary"
       xmlns="http://www.w3.org/2000/svg"
     >
       <circle cx="10" cy="10" r="6.75" stroke="currentColor" strokeWidth="1.5" />
@@ -598,16 +598,14 @@ type CollapsibleSectionProps = {
 function CollapsibleSection({ id, title, icon, open, onToggle, children }: CollapsibleSectionProps) {
   const triggerId = `${id}-trigger`;
   return (
-    <section
-      className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/40 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/30"
-    >
+    <section className="overflow-hidden rounded-2xl border border-subtle bg-surface-glass text-scale-sm shadow-sm">
       <button
         type="button"
         id={triggerId}
         aria-controls={id}
         aria-expanded={open}
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 bg-slate-50/70 px-4 py-3 text-left font-semibold text-slate-700 transition-colors hover:bg-slate-100/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800/80"
+        className="flex w-full items-center justify-between gap-3 bg-surface-muted px-4 py-3 text-left font-weight-semibold text-primary transition-colors hover:bg-surface-glass-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         <span className="flex items-center gap-2">
           <SectionIcon>{icon}</SectionIcon>
@@ -620,7 +618,7 @@ function CollapsibleSection({ id, title, icon, open, onToggle, children }: Colla
         role="region"
         aria-labelledby={triggerId}
         aria-hidden={!open}
-        className={`${open ? 'block' : 'hidden'} border-t border-slate-200/70 bg-white/80 px-4 py-4 text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200`}
+        className={`${open ? 'block' : 'hidden'} border-t border-subtle bg-surface-glass px-4 py-4 text-secondary`}
       >
         {open ? children : null}
       </div>
@@ -631,7 +629,7 @@ function CollapsibleSection({ id, title, icon, open, onToggle, children }: Colla
 function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
   if (!build) {
     return (
-      <div className="flex flex-col gap-2 rounded-2xl border border-dashed border-slate-300/70 bg-slate-50/70 p-4 text-sm text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-300">
+      <div className="flex flex-col gap-2 rounded-2xl border border-dashed border-subtle bg-surface-muted p-4 text-scale-sm text-muted">
         <span className={getStatusBadgeClasses('pending')}>build pending</span>
         <span>Awaiting first build run.</span>
       </div>
@@ -641,46 +639,46 @@ function BuildSummarySection({ build }: { build: AppRecord['latestBuild'] }) {
   const updatedAt = build.completedAt ?? build.startedAt ?? build.updatedAt;
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
+    <div className="flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4">
       <div className="flex flex-wrap items-center gap-3">
         <span className={getStatusBadgeClasses(build.status)}>build {build.status}</span>
         {updatedAt && (
-          <time className="text-xs text-slate-500 dark:text-slate-400" dateTime={updatedAt}>
+          <time className="text-xs text-muted" dateTime={updatedAt}>
             Updated {new Date(updatedAt).toLocaleString()}
           </time>
         )}
         {build.gitBranch && (
-          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+          <code className={`${CODE_PILL_BASE}`}>
             branch: {build.gitBranch}
           </code>
         )}
         {build.gitRef && (
-          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+          <code className={`${CODE_PILL_BASE}`}>
             ref: {build.gitRef.length > 18 ? `${build.gitRef.slice(0, 18)}…` : build.gitRef}
           </code>
         )}
         {build.commitSha && (
-          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs tracking-wider text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+          <code className={`${CODE_PILL_BASE} tracking-wider`}>
             {build.commitSha.slice(0, 10)}
           </code>
         )}
         {build.imageTag && (
-          <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+          <code className={`${CODE_PILL_BASE}`}>
             {build.imageTag}
           </code>
         )}
       </div>
       {build.errorMessage && (
-        <p className="text-sm font-medium text-rose-600 dark:text-rose-300">{build.errorMessage}</p>
+        <p className="text-sm font-medium text-status-danger">{build.errorMessage}</p>
       )}
       {build.status === 'pending' && (
-        <span className="text-sm text-slate-500 dark:text-slate-400">Waiting for build worker…</span>
+        <span className="text-sm text-muted">Waiting for build worker…</span>
       )}
       {build.status === 'running' && (
-        <span className="text-sm text-slate-500 dark:text-slate-400">Docker build in progress…</span>
+        <span className="text-sm text-muted">Docker build in progress…</span>
       )}
       {build.logsPreview && (
-        <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
+        <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-xs text-inverse shadow-inner">
           {build.logsPreview}
           {build.logsTruncated ? '\n…' : ''}
         </pre>
@@ -894,13 +892,13 @@ function LaunchSummarySection({
     <div
       className={
         launch
-          ? 'flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/60 dark:bg-slate-800/60'
-          : 'flex flex-col gap-3 rounded-2xl border border-dashed border-slate-300/70 bg-slate-50/50 p-4 text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/30 dark:text-slate-300'
+          ? 'flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-glass p-4'
+          : 'flex flex-col gap-3 rounded-2xl border border-dashed border-subtle bg-surface-muted p-4 text-muted'
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className="flex items-center gap-2 text-scale-sm font-weight-semibold text-primary">
             <SectionIcon>
               <LaunchIcon />
             </SectionIcon>
@@ -910,7 +908,7 @@ function LaunchSummarySection({
             {launch ? `launch ${launch.status}` : 'launch pending'}
           </span>
           {updatedAt && (
-            <time className="text-xs text-slate-500 dark:text-slate-400" dateTime={updatedAt}>
+            <time className="text-scale-xs text-muted" dateTime={updatedAt}>
               Updated {new Date(updatedAt).toLocaleString()}
             </time>
           )}
@@ -924,26 +922,26 @@ function LaunchSummarySection({
         >
           <span className="inline-flex items-center gap-2">
             <span>{detailsOpen ? 'Hide launch options' : 'Launch options'}</span>
-            <ChevronIcon open={detailsOpen} className="h-3.5 w-3.5 text-slate-500 transition-transform" />
+            <ChevronIcon open={detailsOpen} className="h-3.5 w-3.5" />
           </span>
         </button>
       </div>
       {(launchError || launch?.errorMessage) && (
-        <p className="text-sm font-medium text-rose-600 dark:text-rose-300">
+        <p className="text-scale-sm font-weight-medium text-status-danger">
           {highlightSegments(launchError ?? launch?.errorMessage ?? '', activeTokens, highlightEnabled)}
         </p>
       )}
       {!canLaunch && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Launch requires a successful build.</p>
+        <p className="text-scale-sm text-muted">Launch requires a successful build.</p>
       )}
       {launch?.status === 'starting' && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Container starting…</p>
+        <p className="text-scale-sm text-muted">Container starting…</p>
       )}
       {launch?.status === 'stopping' && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Stopping container…</p>
+        <p className="text-scale-sm text-muted">Stopping container…</p>
       )}
       {launch?.status === 'stopped' && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">Last launch has ended.</p>
+        <p className="text-scale-sm text-muted">Last launch has ended.</p>
       )}
       <div className="flex flex-wrap gap-2">
         <button
@@ -986,33 +984,33 @@ function LaunchSummarySection({
         id={detailsRegionId}
         role="region"
         aria-hidden={!detailsOpen}
-        className={`${detailsOpen ? 'flex flex-col gap-3' : 'hidden'} text-sm text-slate-600 dark:text-slate-300`}
+        className={`${detailsOpen ? 'flex flex-col gap-3' : 'hidden'} text-scale-sm text-secondary`}
       >
         {normalizedInstanceUrl && (
-          <div className="flex flex-wrap items-center gap-2 text-violet-600 dark:text-slate-200">
-            <span className="font-semibold text-slate-600 dark:text-slate-200">Preview URL:</span>
+          <div className="flex flex-wrap items-center gap-2 text-accent">
+            <span className="font-weight-semibold text-secondary">Preview URL:</span>
             <a className="break-all underline-offset-4 hover:underline" href={normalizedInstanceUrl} target="_blank" rel="noreferrer">
               {normalizedInstanceUrl}
             </a>
           </div>
         )}
         {launch?.resourceProfile && (
-          <div className="text-slate-500 dark:text-slate-400">Profile: {launch.resourceProfile}</div>
+          <div className="text-muted">Profile: {launch.resourceProfile}</div>
         )}
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
-          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+        <div className="flex flex-col gap-2 rounded-xl border border-subtle bg-surface-glass p-3">
+          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
             Docker Command
           </span>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-scale-sm text-muted">
             Custom Docker commands are temporarily disabled. Launches will use the generated command below.
           </p>
-          <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 shadow-inner dark:bg-slate-950/70">
+          <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-scale-xs text-inverse shadow-inner">
             {generatedDefaultCommand}
           </pre>
         </div>
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/80 p-3 dark:border-slate-700/60 dark:bg-slate-900/50">
+        <div className="flex flex-col gap-2 rounded-xl border border-subtle bg-surface-glass p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+            <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
               Environment
             </span>
             {!editingDisabled && (
@@ -1027,7 +1025,7 @@ function LaunchSummarySection({
             )}
           </div>
           {envRows.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No environment variables configured.</p>
+            <p className="text-scale-sm text-muted">No environment variables configured.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {envRows.map((row) => (
@@ -1035,7 +1033,7 @@ function LaunchSummarySection({
                   <input
                     type="text"
                     placeholder="KEY"
-                    className="min-w-[8rem] flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                    className={`min-w-[8rem] flex-1 ${TEXT_INPUT_BASE}`}
                     value={row.key}
                     onChange={(event) => handleEnvKeyChange(row.id, event.target.value)}
                     disabled={editingDisabled}
@@ -1043,7 +1041,7 @@ function LaunchSummarySection({
                   <input
                     type="text"
                     placeholder="value"
-                    className="flex-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-500"
+                    className={`flex-1 ${TEXT_INPUT_BASE}`}
                     value={row.value}
                     onChange={(event) => handleEnvValueChange(row.id, event.target.value)}
                     disabled={editingDisabled}
@@ -1061,7 +1059,7 @@ function LaunchSummarySection({
             </div>
           )}
           {editingDisabled && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-scale-xs text-muted">
               Environment variables are locked while a launch is active.
             </p>
           )}
@@ -1110,15 +1108,15 @@ function BuildTimeline({
   };
 
   return (
-    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-glass p-4">
       <form
-        className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/60 dark:bg-slate-800/60"
+        className="flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4"
         onSubmit={handleTriggerBuild}
       >
         <div className="flex flex-wrap gap-2">
           <input
             type="text"
-            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={`w-full max-w-xs ${ROUNDED_INPUT_BASE}`}
             placeholder="Branch (optional)"
             value={branchValue}
             onChange={(event) => setBranchValue(event.target.value)}
@@ -1126,7 +1124,7 @@ function BuildTimeline({
           />
           <input
             type="text"
-            className="w-full max-w-xs rounded-full border border-slate-200/70 bg-white/90 px-4 py-2 text-sm font-medium text-slate-600 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={`w-full max-w-xs ${ROUNDED_INPUT_BASE}`}
             placeholder="Tag or commit (optional)"
             value={refValue}
             onChange={(event) => setRefValue(event.target.value)}
@@ -1140,27 +1138,27 @@ function BuildTimeline({
             {entry.creating ? 'Triggering…' : 'Trigger build'}
           </button>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-muted">
           Leave branch empty to use the default. Provide a git tag or commit SHA to pin the build.
         </p>
         {entry.createError && (
-          <div className="rounded-xl border border-rose-300/70 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/20 dark:text-rose-200">
+          <div className="rounded-xl border border-status-danger bg-status-danger-soft px-3 py-2 text-xs font-semibold text-status-danger">
             {entry.createError}
           </div>
         )}
       </form>
       {entry.loading && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           <Spinner label="Loading builds…" size="xs" />
         </div>
       )}
       {entry.error && !entry.loading && (
-        <div className="rounded-xl border border-rose-300/70 bg-rose-50/70 px-4 py-2 text-sm font-medium text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className="rounded-xl border border-status-danger bg-status-danger-soft px-4 py-2 text-sm font-medium text-status-danger">
           {entry.error}
         </div>
       )}
       {!entry.loading && !entry.error && builds.length === 0 && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           No builds recorded yet.
         </div>
       )}
@@ -1178,46 +1176,46 @@ function BuildTimeline({
         return (
           <div
             key={build.id}
-            className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-700/60 dark:bg-slate-800/60"
+            className="flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4"
           >
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className={getStatusBadgeClasses(build.status)}>build {build.status}</span>
               {build.gitBranch && (
-                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                <code className={`${CODE_PILL_BASE} text-[11px]`}>
                   branch: {build.gitBranch}
                 </code>
               )}
               {build.gitRef && (
-                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                <code className={`${CODE_PILL_BASE} text-[11px]`}>
                   ref: {build.gitRef.length > 18 ? `${build.gitRef.slice(0, 18)}…` : build.gitRef}
                 </code>
               )}
               {build.commitSha && (
-                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] tracking-wider text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                <code className={`${CODE_PILL_BASE} text-[11px] tracking-wider`}>
                   {build.commitSha.slice(0, 10)}
                 </code>
               )}
               {completedAt && (
-                <time className="text-slate-500 dark:text-slate-400" dateTime={completedAt}>
+                <time className="text-muted" dateTime={completedAt}>
                   {new Date(completedAt).toLocaleString()}
                 </time>
               )}
               {durationLabel && (
-                <span className="rounded-full bg-slate-200/70 px-2.5 py-1 font-semibold text-slate-500 dark:bg-slate-700/60 dark:text-slate-200">
+                <span className={DURATION_PILL_CLASSES}>
                   {durationLabel}
                 </span>
               )}
               {build.imageTag && (
-                <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                <code className={`${CODE_PILL_BASE} text-[11px]`}>
                   {build.imageTag}
                 </code>
               )}
             </div>
             {build.errorMessage && (
-              <p className="text-sm font-medium text-rose-600 dark:text-rose-300">{build.errorMessage}</p>
+              <p className="text-sm font-medium text-status-danger">{build.errorMessage}</p>
             )}
             {build.logsPreview && (
-              <pre className="max-h-40 overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100 dark:bg-slate-950/70">
+              <pre className="max-h-40 overflow-auto rounded-xl bg-surface-sunken p-4 text-xs text-inverse">
                 {build.logsPreview}
                 {build.logsTruncated ? '\n…' : ''}
               </pre>
@@ -1225,13 +1223,13 @@ function BuildTimeline({
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"
-                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+                className="inline-flex items-center rounded-full border border-subtle px-3 py-1 font-weight-semibold text-secondary transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-strong"
                 onClick={() => onToggleLogs(appId, build.id)}
               >
                 {logOpen ? 'Hide logs' : 'View logs'}
               </button>
               <a
-                className="inline-flex items-center rounded-full border border-slate-200/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+                className="inline-flex items-center rounded-full border border-subtle px-3 py-1 font-weight-semibold text-secondary transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-strong"
                 href={downloadUrl}
                 target="_blank"
                 rel="noreferrer"
@@ -1241,7 +1239,7 @@ function BuildTimeline({
               {build.status === 'failed' && (
                 <button
                   type="button"
-                  className="inline-flex items-center rounded-full border border-rose-300/70 px-3 py-1 font-semibold text-rose-600 transition-colors hover:border-rose-400 hover:bg-rose-500/10 hover:text-rose-700 disabled:opacity-60 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-500/20"
+                  className="inline-flex items-center rounded-full border border-status-danger px-3 py-1 text-scale-xs font-weight-semibold text-status-danger transition-colors hover:bg-status-danger-soft disabled:opacity-60"
                   disabled={isRetryingBuild}
                   onClick={() => onRetryBuild(appId, build.id)}
                 >
@@ -1250,24 +1248,24 @@ function BuildTimeline({
               )}
             </div>
             {logOpen && (
-              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
+              <div className="flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4">
                 {logLoading && (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                  <div className="text-sm text-muted">
                     <Spinner label="Loading logs…" size="xs" />
                   </div>
                 )}
                 {logError && !logLoading && (
-                  <div className="text-sm font-medium text-rose-600 dark:text-rose-300">{logError}</div>
+                  <div className="text-sm font-medium text-status-danger">{logError}</div>
                 )}
                 {!logLoading && !logError && (
                   <>
-                    <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-wrap gap-4 text-xs text-muted">
                       <span>Size {formatBytes(logSize)}</span>
                       {logUpdatedAt && (
                         <time dateTime={logUpdatedAt}>Updated {new Date(logUpdatedAt).toLocaleString()}</time>
                       )}
                     </div>
-                    <pre className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-4 font-mono text-xs leading-5 text-slate-100 shadow-inner dark:bg-slate-950/70">
+                    <pre className="max-h-60 overflow-auto rounded-xl bg-surface-sunken p-4 font-mono text-xs leading-5 text-inverse shadow-inner">
                       {logState?.content ?? 'No logs available yet.'}
                     </pre>
                   </>
@@ -1280,7 +1278,7 @@ function BuildTimeline({
       {entry.meta?.hasMore && (
         <button
           type="button"
-          className="self-start rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+          className="self-start rounded-full border border-subtle px-4 py-2 text-scale-sm font-weight-semibold text-secondary transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => onLoadMore(appId)}
           disabled={entry.loadingMore}
         >
@@ -1307,19 +1305,19 @@ function LaunchTimeline({
   const launches = entry.launches ?? [];
 
   return (
-    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-glass p-4">
       {entry.loading && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           <Spinner label="Loading launches…" size="xs" />
         </div>
       )}
       {entry.error && (
-        <div className="rounded-xl border border-rose-300/70 bg-rose-50/70 px-4 py-2 text-sm font-medium text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className="rounded-xl border border-status-danger bg-status-danger-soft px-4 py-2 text-sm font-medium text-status-danger">
           {entry.error}
         </div>
       )}
       {!entry.loading && !entry.error && launches.length === 0 && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           No launches recorded yet.
         </div>
       )}
@@ -1332,10 +1330,10 @@ function LaunchTimeline({
               <li key={launchItem.id}>
                 <div className="flex flex-wrap items-center gap-3 text-xs">
                   <span className={getStatusBadgeClasses(launchItem.status)}>{launchItem.status}</span>
-                  <time className="text-slate-500 dark:text-slate-400" dateTime={timestamp}>
+                  <time className="text-muted" dateTime={timestamp}>
                     {new Date(timestamp).toLocaleString()}
                   </time>
-                  <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                  <code className={`${CODE_PILL_BASE} text-[11px]`}>
                     {launchItem.buildId.slice(0, 8)}
                   </code>
                 </div>
@@ -1345,13 +1343,13 @@ function LaunchTimeline({
                       href={normalizedInstanceUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-full border border-violet-200/70 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+                      className="rounded-full border border-accent-soft px-3 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent-soft"
                     >
                       Open preview
                     </a>
                   )}
                   {launchItem.errorMessage && (
-                    <div className="text-sm font-medium text-rose-600 dark:text-rose-300">
+                    <div className="text-sm font-medium text-status-danger">
                       {highlightSegments(launchItem.errorMessage, activeTokens, highlightEnabled)}
                     </div>
                   )}
@@ -1360,7 +1358,7 @@ function LaunchTimeline({
                       {launchItem.env.map((entry, index) => (
                         <code
                           key={`${launchItem.id}-env-${entry.key}-${index}`}
-                          className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200"
+                          className={`${CODE_PILL_BASE} text-[11px]`}
                         >
                           {entry.key}={entry.value}
                         </code>
@@ -1388,19 +1386,19 @@ function HistoryTimeline({ entry }: { entry?: HistoryState[string] }) {
   const events = entry.events ?? [];
 
   return (
-    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <div className="mt-4 flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-glass p-4">
       {entry.loading && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           <Spinner label="Loading history…" size="xs" />
         </div>
       )}
       {entry.error && (
-        <div className="rounded-xl border border-rose-300/70 bg-rose-50/70 px-4 py-2 text-sm font-medium text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className="rounded-xl border border-status-danger bg-status-danger-soft px-4 py-2 text-sm font-medium text-status-danger">
           {entry.error}
         </div>
       )}
       {!entry.loading && !entry.error && events.length === 0 && (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-2 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div className="rounded-xl border border-subtle bg-surface-muted px-4 py-2 text-scale-sm text-secondary">
           No events recorded yet.
         </div>
       )}
@@ -1410,21 +1408,21 @@ function HistoryTimeline({ entry }: { entry?: HistoryState[string] }) {
             <li key={event.id}>
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 <span className={getStatusBadgeClasses(event.status)}>{event.status}</span>
-                <time className="text-slate-500 dark:text-slate-400" dateTime={event.createdAt}>
+                <time className="text-muted" dateTime={event.createdAt}>
                   {new Date(event.createdAt).toLocaleString()}
                 </time>
               </div>
-              <div className="mt-2 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                <div className="font-medium text-slate-700 dark:text-slate-200">
+              <div className="mt-2 space-y-2 text-sm text-secondary">
+                <div className="font-medium text-primary">
                   {event.message ?? 'No additional message'}
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
                   {event.attempt !== null && <span>Attempt {event.attempt}</span>}
                   {typeof event.durationMs === 'number' && (
                     <span>{`${Math.max(event.durationMs, 0)} ms`}</span>
                   )}
                   {event.commitSha && (
-                    <code className="rounded-full bg-slate-200/70 px-2.5 py-1 font-mono text-[11px] text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                    <code className={`${CODE_PILL_BASE} text-[11px]`}>
                       {event.commitSha.slice(0, 10)}
                     </code>
                   )}
@@ -1505,13 +1503,13 @@ function AppDetailsPanel({
   const hasTags = app.tags.length > 0;
 
   return (
-    <article className="flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+    <article className="flex flex-col gap-5 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] transition-colors">
       {showPreview && (
         <ChannelPreview tiles={app.previewTiles ?? []} appName={app.name} launch={app.latestLaunch} />
       )}
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          <h2 className="text-2xl font-semibold tracking-tight text-primary">
             {highlightSegments(app.name, activeTokens, highlightEnabled)}
           </h2>
           <div className="relative" ref={infoPopoverRef}>
@@ -1520,27 +1518,27 @@ function AppDetailsPanel({
               aria-haspopup="dialog"
               aria-expanded={infoOpen}
               aria-label={infoOpen ? 'Hide app info' : 'Show app info'}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 p-2 text-slate-500 transition-colors hover:border-violet-300 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
+              className="inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass p-2 text-muted transition-colors hover:border-accent hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               onClick={() => setInfoOpen((open) => !open)}
             >
               <InfoIcon />
             </button>
             {infoOpen && (
-              <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-left shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
-                <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+              <div className="absolute right-0 z-20 mt-2 w-80 rounded-2xl border border-subtle bg-surface-glass p-4 text-left shadow-xl ring-1 ring-subtle">
+                <div className="space-y-3 text-sm text-secondary">
                   {hasDescription ? (
                     <p className="leading-6">{highlightSegments(app.description, activeTokens, highlightEnabled)}</p>
                   ) : (
-                    <p className="text-sm italic text-slate-500 dark:text-slate-400">No description available.</p>
+                    <p className="text-sm italic text-muted">No description available.</p>
                   )}
                   <div className="space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-muted">
                       Tags
                     </span>
                     {hasTags ? (
                       <TagList tags={app.tags} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
                     ) : (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">No tags available.</p>
+                      <p className="text-xs text-muted">No tags available.</p>
                     )}
                   </div>
                 </div>
@@ -1550,20 +1548,20 @@ function AppDetailsPanel({
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs">
           <span className={getStatusBadgeClasses(app.ingestStatus)}>{app.ingestStatus}</span>
-          <time className="text-slate-500 dark:text-slate-400" dateTime={app.updatedAt}>
+          <time className="text-muted" dateTime={app.updatedAt}>
             Updated {new Date(app.updatedAt).toLocaleDateString()}
           </time>
           <span className={PILL_LABEL_CLASSES}>Attempts {app.ingestAttempts}</span>
         </div>
         {app.relevance && (
-          <div className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200">
+          <div className="flex flex-col gap-2 rounded-2xl border border-subtle bg-surface-muted p-4 text-scale-sm text-secondary">
             <div className="flex flex-wrap items-center gap-3 text-sm font-semibold">
               <span>Score {formatScore(app.relevance.score)}</span>
-              <span className="rounded-full bg-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
+              <span className={`${DURATION_PILL_CLASSES} px-3 text-scale-xs`}>
                 Normalized {formatNormalizedScore(app.relevance.normalizedScore)}
               </span>
             </div>
-            <div className="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap gap-3 text-xs text-muted">
               <span
                 title={`${app.relevance.components.name.hits} name hits × ${app.relevance.components.name.weight}`}
               >
@@ -1584,7 +1582,7 @@ function AppDetailsPanel({
         )}
       </div>
       {app.ingestError && (
-        <p className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm font-medium text-rose-600 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-300">
+        <p className="rounded-2xl border border-status-danger bg-status-danger-soft p-3 text-sm font-medium text-status-danger">
           {highlightSegments(app.ingestError, activeTokens, highlightEnabled)}
         </p>
       )}
@@ -1611,14 +1609,14 @@ function AppDetailsPanel({
       />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <a
-          className="rounded-full border border-violet-200/70 px-3 py-1 font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-slate-600/60 dark:text-slate-100 dark:hover:bg-slate-200/10"
+          className="rounded-full border border-accent-soft px-3 py-1 font-semibold text-accent transition-colors hover:bg-accent-soft"
           href={app.repoUrl}
           target="_blank"
           rel="noreferrer"
         >
           View repository
         </a>
-        <code className="rounded-full bg-slate-200/70 px-3 py-1 font-mono text-xs text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+        <code className={`${CODE_PILL_BASE} px-3`}>
           {highlightSegments(app.dockerfilePath, activeTokens, highlightEnabled)}
         </code>
         {app.ingestStatus === 'failed' && (
@@ -1649,7 +1647,7 @@ function AppDetailsPanel({
             onLoadMore={onLoadMoreBuilds}
           />
         ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing build history…</p>
+          <p className="text-sm text-muted">Preparing build history…</p>
         )}
       </CollapsibleSection>
       <CollapsibleSection
@@ -1662,7 +1660,7 @@ function AppDetailsPanel({
         {launchEntry ? (
           <LaunchTimeline entry={launchEntry} activeTokens={activeTokens} highlightEnabled={highlightEnabled} />
         ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing launch history…</p>
+          <p className="text-sm text-muted">Preparing launch history…</p>
         )}
       </CollapsibleSection>
       <CollapsibleSection
@@ -1673,7 +1671,7 @@ function AppDetailsPanel({
         onToggle={() => onToggleHistory(app.id)}
       >
         {historyEntry ? <HistoryTimeline entry={historyEntry} /> : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Preparing ingestion history…</p>
+          <p className="text-sm text-muted">Preparing ingestion history…</p>
         )}
       </CollapsibleSection>
     </article>

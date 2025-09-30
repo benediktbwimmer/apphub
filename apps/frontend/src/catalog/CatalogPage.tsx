@@ -215,17 +215,17 @@ function CatalogPage({ searchSeed, onSeedApplied, savedSearchSlug, onSavedSearch
       />
       <section className="flex flex-col gap-6">
         {loading && (
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+          <div className="rounded-2xl border border-subtle bg-surface-muted px-5 py-4 text-scale-sm font-weight-medium text-secondary shadow-sm">
             <Spinner label="Loading apps…" size="sm" />
           </div>
         )}
         {error && !loading && (
-          <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-5 py-4 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className="rounded-2xl border border-status-danger bg-status-danger-soft px-5 py-4 text-scale-sm font-weight-semibold text-status-danger shadow-sm">
             {error}
           </div>
         )}
         {!loading && !error && apps.length === 0 && (
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+          <div className="rounded-2xl border border-subtle bg-surface-muted px-5 py-4 text-scale-sm font-weight-medium text-secondary shadow-sm">
             No apps match your filters yet.
           </div>
         )}

@@ -1,6 +1,30 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState, type FormEventHandler } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { Spinner } from '../components';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import {
+  SETTINGS_ALERT_ERROR_CLASSES,
+  SETTINGS_ALERT_INFO_CLASSES,
+  SETTINGS_ALERT_SUCCESS_CLASSES,
+  SETTINGS_BADGE_ITEM_CLASSES,
+  SETTINGS_BADGE_ITEM_SOFT_CLASSES,
+  SETTINGS_BADGE_LIST_CLASSES,
+  SETTINGS_CARD_CONTAINER_CLASSES,
+  SETTINGS_DANGER_BUTTON_CLASSES,
+  SETTINGS_FORM_CHECKBOX_CLASSES,
+  SETTINGS_FORM_LABEL_CLASSES,
+  SETTINGS_FORM_INPUT_CLASSES,
+  SETTINGS_HEADER_SUBTITLE_CLASSES,
+  SETTINGS_HEADER_TITLE_CLASSES,
+  SETTINGS_PRIMARY_BUTTON_CLASSES,
+  SETTINGS_SECONDARY_BUTTON_CLASSES,
+  SETTINGS_SECTION_HELPER_CLASSES,
+  SETTINGS_SECTION_LABEL_CLASSES,
+  SETTINGS_SECTION_SUBTITLE_CLASSES,
+  SETTINGS_SECTION_TITLE_CLASSES
+} from './settingsTokens';
 
 const SCOPE_METADATA: Record<string, { title: string; description: string }> = {
   'metastore:read': {
@@ -106,6 +130,17 @@ function classifyKeyStatus(expiresAt: string | null, revokedAt: string | null): 
     }
   }
   return 'active';
+}
+
+function keyStatusTone(status: 'revoked' | 'expired' | 'active'): string {
+  switch (status) {
+    case 'active':
+      return getStatusToneClasses('success');
+    case 'expired':
+      return getStatusToneClasses('warning');
+    default:
+      return getStatusToneClasses('danger');
+  }
 }
 
 type CreateFormState = {
@@ -235,26 +270,26 @@ export default function ApiAccessPage() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_35px_80px_-50px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">API Access</h2>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+      <header className={SETTINGS_CARD_CONTAINER_CLASSES}>
+        <h2 className={SETTINGS_HEADER_TITLE_CLASSES}>API Access</h2>
+        <p className={SETTINGS_HEADER_SUBTITLE_CLASSES}>
           Authenticate with your organization account to manage workflow runs and issue API keys for automation.
         </p>
       </header>
 
       {identityLoading ? (
-        <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
-          Loading your session information…
+        <div className={SETTINGS_CARD_CONTAINER_CLASSES}>
+          <Spinner label="Loading your session information…" size="sm" />
         </div>
       ) : null}
 
       {identityError ? (
-        <div className="rounded-3xl border border-rose-200/70 bg-rose-50/80 p-6 text-sm text-rose-700 shadow dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-200">
+        <div className={classNames(SETTINGS_ALERT_ERROR_CLASSES, "shadow-elevation-sm")}>
           <div className="flex items-center justify-between">
             <span>{identityError}</span>
             <button
               type="button"
-              className="rounded-full border border-rose-400 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:border-rose-500/60 dark:text-rose-200 dark:hover:bg-rose-500/20"
+              className={classNames(SETTINGS_SECONDARY_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={() => {
                 void refreshIdentity();
               }}
@@ -266,17 +301,13 @@ export default function ApiAccessPage() {
       ) : null}
 
       {!identity && !identityLoading ? (
-        <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-700 shadow dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+        <div className={SETTINGS_CARD_CONTAINER_CLASSES}>
           <p>
             You\'re not signed in. Use your organization account to access protected workflows and manage API keys for
             automation.
           </p>
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-              onClick={handleLogin}
-            >
+            <button type="button" className={SETTINGS_PRIMARY_BUTTON_CLASSES} onClick={handleLogin}>
               Sign in with SSO
             </button>
           </div>
@@ -285,53 +316,52 @@ export default function ApiAccessPage() {
 
       {logoutMessage ? (
         <div
-          className={`rounded-2xl border p-4 text-sm shadow ${
-            logoutMessage.type === 'success'
-              ? 'border-emerald-300/70 bg-emerald-50/80 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-500/10 dark:text-emerald-200'
-              : 'border-rose-300/70 bg-rose-50/80 text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200'
-          }`}
+          className={classNames(
+            logoutMessage.type === 'success' ? SETTINGS_ALERT_SUCCESS_CLASSES : SETTINGS_ALERT_ERROR_CLASSES,
+            'shadow-elevation-sm'
+          )}
         >
           {logoutMessage.text}
         </div>
       ) : null}
 
       {identity ? (
-        <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow dark:border-slate-700/70 dark:bg-slate-900/70">
+        <section className={SETTINGS_CARD_CONTAINER_CLASSES}>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Signed in as</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <h3 className={SETTINGS_SECTION_TITLE_CLASSES}>Signed in as</h3>
+              <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>
                 {identity.displayName ?? identity.subject}{' '}
-                {identity.email ? <span className="text-slate-400">({identity.email})</span> : null}
+                {identity.email ? <span className={SETTINGS_SECTION_HELPER_CLASSES}>({identity.email})</span> : null}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className={SETTINGS_BADGE_LIST_CLASSES}>
               {identity.roles.length > 0 ? identity.roles.map((role) => (
-                <span key={role} className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                <span key={role} className={SETTINGS_BADGE_ITEM_SOFT_CLASSES}>
                   {role}
                 </span>
               )) : (
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                <span className={SETTINGS_BADGE_ITEM_SOFT_CLASSES}>
                   {identity.kind}
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className={SETTINGS_BADGE_LIST_CLASSES}>
               {identity.scopes.map((scope) => (
-                <span key={scope} className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 dark:border-slate-700 dark:text-slate-200">
+                <span key={scope} className={SETTINGS_BADGE_ITEM_CLASSES}>
                   {scope}
                 </span>
               ))}
             </div>
             <div className="flex flex-wrap gap-3">
               {authDisabled ? (
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                <span className={SETTINGS_SECTION_LABEL_CLASSES}>
                   Authentication disabled for local access
                 </span>
               ) : (
                 <button
                   type="button"
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className={SETTINGS_SECONDARY_BUTTON_CLASSES}
                   onClick={handleLogout}
                 >
                   Sign out
@@ -344,51 +374,51 @@ export default function ApiAccessPage() {
 
       {identity ? (
         authDisabled ? (
-          <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow dark:border-slate-700/70 dark:bg-slate-900/70">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Local access mode</h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+          <section className={SETTINGS_CARD_CONTAINER_CLASSES}>
+            <h3 className={SETTINGS_SECTION_TITLE_CLASSES}>Local access mode</h3>
+            <p className={classNames('mt-2', SETTINGS_SECTION_SUBTITLE_CLASSES)}>
               Authentication is disabled in this environment. Every request runs with full operator privileges, so API keys
               and sign-in flows are unnecessary.
             </p>
           </section>
         ) : (
-          <section className="flex flex-col gap-6 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow dark:border-slate-700/70 dark:bg-slate-900/70">
+          <section className={classNames(SETTINGS_CARD_CONTAINER_CLASSES, "gap-6")}>
             <div className="flex flex-col gap-2">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Create API key</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <h3 className={SETTINGS_SECTION_TITLE_CLASSES}>Create API key</h3>
+              <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>
                 API keys inherit your current scopes by default. Provide a label and optional expiration to generate a token
                 for CLI automation or service integration.
               </p>
             </div>
             <form className="flex flex-col gap-4" onSubmit={handleCreateKey}>
-              <label className="flex flex-col gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <label className={SETTINGS_FORM_LABEL_CLASSES}>
                 Label (optional)
                 <input
                   type="text"
                   value={createForm.name}
                   onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+                  className={SETTINGS_FORM_INPUT_CLASSES}
                   placeholder="Production automation"
                 />
               </label>
-              <fieldset className="flex flex-col gap-3 rounded-2xl border border-dashed border-slate-300 p-4 dark:border-slate-600">
-                <legend className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <fieldset className="flex flex-col gap-3 rounded-2xl border border-dashed border-subtle p-4">
+                <legend className={classNames('px-2', SETTINGS_SECTION_LABEL_CLASSES)}>
                   Scopes
                 </legend>
                 {orderedScopes.map(({ id, meta }) => (
-                  <label key={id} className="flex items-start gap-3 text-sm text-slate-600 dark:text-slate-300">
+                  <label key={id} className={classNames('flex items-start gap-3', SETTINGS_FORM_LABEL_CLASSES)}>
                     <input
                       type="checkbox"
-                      className="mt-1 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600"
+                      className={SETTINGS_FORM_CHECKBOX_CLASSES}
                       checked={selectedScopes.has(id)}
                       onChange={() => handleScopeToggle(id)}
                       disabled={!availableScopes.includes(id)}
                     />
                     <span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-100">{meta.title}</span>
-                      {meta.description ? <span className="block text-xs text-slate-500 dark:text-slate-400">{meta.description}</span> : null}
+                      <span className="font-weight-semibold text-primary">{meta.title}</span>
+                      {meta.description ? <span className={classNames('block', SETTINGS_SECTION_HELPER_CLASSES)}>{meta.description}</span> : null}
                       {!availableScopes.includes(id) ? (
-                        <span className="mt-1 block text-xs font-semibold text-slate-400">
+                        <span className={classNames('mt-1 block', SETTINGS_SECTION_HELPER_CLASSES)}>
                           Scope not currently granted to your account.
                         </span>
                       ) : null}
@@ -396,35 +426,35 @@ export default function ApiAccessPage() {
                   </label>
                 ))}
               </fieldset>
-              <label className="flex flex-col gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <label className={SETTINGS_FORM_LABEL_CLASSES}>
                 Expiration (optional)
                 <input
                   type="datetime-local"
                   value={createForm.expiresAt}
                   onChange={(event) => setCreateForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+                  className={SETTINGS_FORM_INPUT_CLASSES}
                 />
-                <span className="text-xs text-slate-400 dark:text-slate-500">Leave blank for a non-expiring key.</span>
+                <span className={SETTINGS_SECTION_HELPER_CLASSES}>Leave blank for a non-expiring key.</span>
               </label>
               {createMessage ? (
                 <p
-                  className={`text-sm font-semibold ${
-                    createMessage.type === 'success'
-                      ? 'text-emerald-600 dark:text-emerald-300'
-                      : 'text-rose-600 dark:text-rose-300'
-                  }`}
+                  className={classNames(
+                    SETTINGS_SECTION_SUBTITLE_CLASSES,
+                    'font-weight-semibold',
+                    createMessage.type === 'success' ? 'text-status-success' : 'text-status-danger'
+                  )}
                   role="alert"
                 >
                   {createMessage.text}
                 </p>
               ) : null}
               {createdSecret ? (
-                <div className="flex flex-col gap-3 rounded-2xl border border-emerald-300/70 bg-emerald-50/80 p-4 text-sm text-emerald-700 shadow dark:border-emerald-500/60 dark:bg-emerald-500/10 dark:text-emerald-200">
+                <div className={classNames(SETTINGS_ALERT_SUCCESS_CLASSES, 'shadow-elevation-sm', 'flex flex-col gap-3')}>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">New API key token</span>
+                    <span className="font-weight-semibold text-primary">New API key token</span>
                     <button
                       type="button"
-                      className="rounded-full border border-emerald-400 px-3 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 dark:border-emerald-400/70 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+                      className={SETTINGS_SECONDARY_BUTTON_CLASSES}
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(createdSecret);
@@ -436,14 +466,14 @@ export default function ApiAccessPage() {
                       Copy token
                     </button>
                   </div>
-                  <code className="break-all rounded-xl bg-white/80 px-3 py-2 text-xs shadow-inner dark:bg-slate-900/60">
+                  <code className="break-all rounded-2xl bg-surface-muted px-3 py-2 text-scale-xs text-primary shadow-inner">
                     {createdSecret}
                   </code>
                 </div>
               ) : null}
               <button
                 type="submit"
-                className="self-start rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+                className={SETTINGS_PRIMARY_BUTTON_CLASSES}
               >
                 Generate API key
               </button>
@@ -455,32 +485,32 @@ export default function ApiAccessPage() {
 
 
 
-      <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow dark:border-slate-700/70 dark:bg-slate-900/70">
+      <section className={classNames(SETTINGS_CARD_CONTAINER_CLASSES, 'gap-4')}>
         <div className="flex flex-col gap-2">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Existing API keys</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <h3 className={SETTINGS_SECTION_TITLE_CLASSES}>Existing API keys</h3>
+          <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>
             Revoke keys that are no longer needed. Expired or revoked keys stop working immediately.
           </p>
         </div>
         {authDisabled ? (
-          <p className="rounded-2xl border border-dashed border-slate-300/70 bg-white/70 p-4 text-sm text-slate-500 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-400">
+          <div className={classNames(SETTINGS_ALERT_INFO_CLASSES, 'shadow-elevation-sm')}>
             Authentication is disabled locally, so API keys cannot be created or revoked in this mode.
-          </p>
+          </div>
         ) : (
           <>
             {apiKeysError ? (
-              <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 p-4 text-sm text-rose-700 shadow dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-200">
+              <div className={classNames(SETTINGS_ALERT_ERROR_CLASSES, "shadow-elevation-sm")}>
                 {apiKeysError}
               </div>
             ) : null}
             {apiKeysLoading ? (
-              <div className="rounded-2xl border border-slate-200/70 bg-white/60 p-4 text-sm text-slate-600 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-300">
-                Loading API keys…
+              <div className={SETTINGS_CARD_CONTAINER_CLASSES}>
+                <Spinner label="Loading API keys…" size="sm" />
               </div>
             ) : apiKeys.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-slate-300/70 bg-white/70 p-4 text-sm text-slate-500 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-400">
+              <div className={classNames(SETTINGS_ALERT_INFO_CLASSES, 'shadow-elevation-sm')}>
                 No API keys yet. Generate one above to get started.
-              </p>
+              </div>
             ) : (
               <ul className="flex flex-col gap-3">
                 {apiKeys.map((key) => {
@@ -488,35 +518,32 @@ export default function ApiAccessPage() {
                   return (
                     <li
                       key={key.id}
-                      className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/90 px-4 py-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70"
+                      className={classNames(SETTINGS_CARD_CONTAINER_CLASSES, 'gap-3')}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-col gap-1">
-                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{key.name ?? 'Unnamed key'}</span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">Prefix {key.prefix}</span>
+                          <span className="text-scale-sm font-weight-semibold text-primary">{key.name ?? 'Unnamed key'}</span>
+                          <span className={SETTINGS_SECTION_HELPER_CLASSES}>Prefix {key.prefix}</span>
                         </div>
                         <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                            status === 'active'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
-                              : status === 'expired'
-                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
-                                : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
-                          }`}
+                          className={classNames(
+                            'rounded-full px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-wide',
+                            keyStatusTone(status)
+                          )}
                         >
                           {status}
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                      <div className={classNames(SETTINGS_BADGE_LIST_CLASSES, 'text-scale-xs text-secondary')}>
                         <span>Created {formatInstant(key.createdAt)}</span>
                         <span>•</span>
                         <span>Last used {formatInstant(key.lastUsedAt)}</span>
                         <span>•</span>
                         <span>Expires {formatInstant(key.expiresAt)}</span>
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <div className={SETTINGS_BADGE_LIST_CLASSES}>
                         {key.scopes.map((scope) => (
-                          <span key={`${key.id}-${scope}`} className="rounded-full border border-slate-200 px-3 py-1 dark:border-slate-700">
+                          <span key={`${key.id}-${scope}`} className={SETTINGS_BADGE_ITEM_CLASSES}>
                             {scope}
                           </span>
                         ))}
@@ -524,7 +551,7 @@ export default function ApiAccessPage() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                          className={SETTINGS_SECONDARY_BUTTON_CLASSES}
                           onClick={async () => {
                             await navigator.clipboard.writeText(key.prefix);
                           }}
@@ -534,7 +561,7 @@ export default function ApiAccessPage() {
                         {status === 'active' ? (
                           <button
                             type="button"
-                            className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 dark:border-rose-500/70 dark:text-rose-200 dark:hover:bg-rose-500/20"
+                            className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
                             onClick={() => {
                               const confirmed = window.confirm('Revoke this API key? This action cannot be undone.');
                               if (confirmed) {
@@ -557,15 +584,15 @@ export default function ApiAccessPage() {
         )}
       </section>
 
-      <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow dark:border-slate-700/70 dark:bg-slate-900/70">
+      <section className={classNames(SETTINGS_CARD_CONTAINER_CLASSES, "gap-4")}>
         <div className="flex flex-col gap-2">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Browser API token override</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <h3 className={SETTINGS_SECTION_TITLE_CLASSES}>Browser API token override</h3>
+          <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>
           Paste an API key token here to send it with subsequent API requests from this browser. Leave the field empty to
           rely on your signed-in session.
           </p>
         </div>
-        <label className="flex flex-col gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <label className={SETTINGS_FORM_LABEL_CLASSES}>
           Active token
           <input
             type="text"
@@ -573,12 +600,12 @@ export default function ApiAccessPage() {
             onChange={(event) => setActiveToken(event.target.value.trim() ? event.target.value.trim() : null)}
             placeholder="apphub_live_…"
             autoComplete="off"
-            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-slate-300"
+            className={SETTINGS_FORM_INPUT_CLASSES}
           />
         </label>
         <button
           type="button"
-          className="self-start rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={SETTINGS_SECONDARY_BUTTON_CLASSES}
           onClick={() => setActiveToken(null)}
         >
           Clear token override

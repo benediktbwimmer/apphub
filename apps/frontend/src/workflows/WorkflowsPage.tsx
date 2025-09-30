@@ -230,11 +230,11 @@ function WorkflowsPageContent() {
       />
 
       {!isAuthenticated ? (
-        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="rounded-2xl border border-status-warning bg-status-warning-soft px-4 py-3 text-scale-xs font-weight-semibold text-status-warning shadow-elevation-md">
           Sign in under Settings → API Access to run workflows and make changes.
         </div>
       ) : !canRunWorkflowsScope ? (
-        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="rounded-2xl border border-status-warning bg-status-warning-soft px-4 py-3 text-scale-xs font-weight-semibold text-status-warning shadow-elevation-md">
           Your account does not have permission to launch workflows. Contact an administrator to request access.
         </div>
       ) : null}
@@ -378,19 +378,19 @@ function WorkflowsPageContent() {
           />
 
           {workflowDetail && (
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700/50 dark:bg-slate-900/40">
-              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700/50 sm:flex-row sm:items-center sm:justify-between">
+            <div className="rounded-2xl border border-subtle bg-surface-glass shadow-elevation-md">
+              <div className="flex flex-col gap-3 border-b border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Run analytics</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <h3 className="text-scale-sm font-weight-semibold text-primary">Run analytics</h3>
+                  <p className="text-scale-xs text-secondary">
                     Live snapshots of workflow performance.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <label className="inline-flex items-center gap-2 text-scale-xs font-weight-medium text-secondary">
                     Time range
                     <select
-                      className="ml-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                      className="rounded-xl border border-subtle bg-surface-glass px-3 py-1.5 text-scale-xs font-weight-medium text-secondary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       value={analyticsRange}
                       onChange={(event) => handleRangeChange(event.target.value as '24h' | '7d' | '30d')}
                     >
@@ -402,9 +402,7 @@ function WorkflowsPageContent() {
                     </select>
                   </label>
                   {analyticsUpdatedAt && (
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      Updated {analyticsUpdatedAt}
-                    </span>
+                    <span className="text-scale-xs text-muted">Updated {analyticsUpdatedAt}</span>
                   )}
                 </div>
               </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/Modal';
 import { Spinner } from '../../../components/Spinner';
 import { useToasts } from '../../../components/toast';
+import { getStatusToneClasses } from '../../../theme/statusTokens';
 import type {
   WorkflowEventSchema,
   WorkflowEventTrigger,
@@ -65,6 +66,42 @@ const CASE_SENSITIVE_OPERATORS = new Set<WorkflowEventTriggerPredicateInput['ope
   'contains',
   'regex'
 ]);
+
+const FORM_SECTION_TITLE = 'text-scale-sm font-weight-semibold text-primary';
+
+const FORM_LABEL_CLASSES = 'flex flex-col gap-1 text-scale-xs font-weight-semibold text-secondary';
+
+const FORM_HELPER_TEXT = 'mt-1 text-scale-xs text-muted';
+
+const ERROR_TEXT_CLASSES = 'mt-1 text-scale-xs font-weight-semibold text-status-danger';
+
+const INPUT_FIELD_BASE =
+  'rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const MONO_TEXTAREA_BASE =
+  'rounded-2xl border border-subtle bg-surface-glass px-3 py-2 font-mono text-scale-xs leading-relaxed text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const PREDICATE_CARD_CLASSES = 'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm';
+
+const ACTION_BUTTON_SMALL =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-2 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const SECONDARY_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-4 py-2 text-scale-sm font-weight-semibold text-secondary shadow-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-accent bg-accent px-4 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const EMPTY_STATE_CLASSES =
+  'rounded-2xl border border-dashed border-subtle px-4 py-6 text-scale-xs text-secondary';
+
+const SCHEMA_EXPLORER_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-md';
+
+const ALERT_BOX_BASE = 'rounded-2xl border px-4 py-3 shadow-elevation-md text-scale-xs font-weight-semibold';
+
+const CHECKBOX_INPUT_CLASSES =
+  'h-4 w-4 rounded border-subtle accent-accent text-accent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-60';
 
 type FormValues = {
   name: string;
@@ -884,33 +921,31 @@ export default function EventTriggerFormModal({
     const showFlags = showRegexInput;
     const valueLabel = predicate.operator === 'regex' ? 'Pattern' : 'Value';
     return (
-      <div key={predicate.id} className="rounded-2xl border border-slate-200/70 p-4 dark:border-slate-700/60">
+      <div key={predicate.id} className={PREDICATE_CARD_CLASSES}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-1 flex-col gap-2">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              JSONPath
+            <label className={FORM_LABEL_CLASSES}>
+              <span>JSONPath</span>
               <input
                 type="text"
                 value={predicate.path}
                 onChange={(event) => handlePredicateChange(index, 'path', event.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
                 placeholder="$.payload.detail.id"
                 disabled={disableActions}
               />
             </label>
-            {predicateError?.path && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.path}</p>
-            )}
+            {predicateError?.path && <p className={ERROR_TEXT_CLASSES}>{predicateError.path}</p>}
           </div>
-          <div className="flex flex-shrink-0 flex-col">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Operator
+          <div className="flex flex-shrink-0 flex-col gap-2 sm:w-48">
+            <label className={FORM_LABEL_CLASSES}>
+              <span>Operator</span>
               <select
                 value={predicate.operator}
                 onChange={(event) =>
                   handlePredicateChange(index, 'operator', event.target.value as PredicateFormValue['operator'])
                 }
-                className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                className={`mt-1 ${INPUT_FIELD_BASE}`}
                 disabled={disableActions}
               >
                 <option value="exists">exists</option>
@@ -930,13 +965,13 @@ export default function EventTriggerFormModal({
         </div>
         {showValue && (
           <div className="mt-3">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              {valueLabel}
+            <label className={FORM_LABEL_CLASSES}>
+              <span>{valueLabel}</span>
               {showValueTextarea && (
                 <textarea
                   value={predicate.value}
                   onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
-                  className="mt-1 h-16 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  className={`mt-1 h-16 w-full ${MONO_TEXTAREA_BASE}`}
                   placeholder={
                     predicate.operator === 'contains'
                       ? '"warning" or ["warning"]'
@@ -950,7 +985,7 @@ export default function EventTriggerFormModal({
                   type="number"
                   value={predicate.value}
                   onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
                   placeholder="Numeric value"
                   disabled={disableActions}
                 />
@@ -960,62 +995,55 @@ export default function EventTriggerFormModal({
                   type="text"
                   value={predicate.value}
                   onChange={(event) => handlePredicateChange(index, 'value', event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                  className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
                   placeholder="^order-(.*)$"
                   disabled={disableActions}
                 />
               )}
             </label>
-            {predicateError?.value && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.value}</p>
-            )}
+            {predicateError?.value && <p className={ERROR_TEXT_CLASSES}>{predicateError.value}</p>}
           </div>
         )}
         {showValues && (
           <div className="mt-3">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Values
+            <label className={FORM_LABEL_CLASSES}>
+              <span>Values</span>
               <textarea
                 value={predicate.values}
                 onChange={(event) => handlePredicateChange(index, 'values', event.target.value)}
-                className="mt-1 h-24 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                className={`mt-1 h-24 w-full ${MONO_TEXTAREA_BASE}`}
                 placeholder='["critical","warning"] or critical,warning'
                 disabled={disableActions}
               />
             </label>
-            {predicateError?.values && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.values}</p>
-            )}
+            {predicateError?.values && <p className={ERROR_TEXT_CLASSES}>{predicateError.values}</p>}
           </div>
         )}
         {showFlags && (
           <div className="mt-3">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Flags
+            <label className={FORM_LABEL_CLASSES}>
+              <span>Flags</span>
               <input
                 type="text"
                 value={predicate.flags}
                 onChange={(event) => handlePredicateChange(index, 'flags', event.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
                 placeholder="gimsuy"
                 disabled={disableActions}
               />
             </label>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Leave blank for defaults. Allowed flags: g, i, m, s, u, y.
-            </p>
-            {predicateError?.flags && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{predicateError.flags}</p>
-            )}
+            <p className={FORM_HELPER_TEXT}>Leave blank for defaults. Allowed flags: g, i, m, s, u, y.</p>
+            {predicateError?.flags && <p className={ERROR_TEXT_CLASSES}>{predicateError.flags}</p>}
           </div>
         )}
         <div className="mt-3 flex items-center justify-between">
           {showCaseSensitive ? (
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <label className="inline-flex items-center gap-2 text-scale-xs font-weight-semibold text-secondary">
               <input
                 type="checkbox"
                 checked={predicate.caseSensitive}
                 onChange={(event) => handlePredicateChange(index, 'caseSensitive', event.target.checked)}
+                className={CHECKBOX_INPUT_CLASSES}
                 disabled={disableActions}
               />
               Case sensitive
@@ -1025,7 +1053,7 @@ export default function EventTriggerFormModal({
           )}
           <button
             type="button"
-            className="text-xs font-semibold text-rose-600 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300 dark:hover:text-rose-200"
+            className="text-scale-xs font-weight-semibold text-status-danger transition-colors hover:text-status-danger-on disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => handleRemovePredicate(index)}
             disabled={disableActions}
           >
@@ -1046,18 +1074,18 @@ export default function EventTriggerFormModal({
       <form className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6" onSubmit={handleSubmit}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <h2 className="text-scale-lg font-weight-semibold text-primary">{title}</h2>
+            <p className="text-scale-xs text-secondary">
               {workflowName} · {workflowSlug}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Status
+          <div className="flex flex-wrap items-center gap-2">
+            <label className={`${FORM_LABEL_CLASSES} sm:flex-row sm:items-center sm:gap-2`}>
+              <span>Status</span>
               <select
                 value={values.status}
                 onChange={(event) => handleFieldChange('status', event.target.value)}
-                className="ml-2 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                className={`mt-1 sm:mt-0 sm:w-auto ${INPUT_FIELD_BASE}`}
                 disabled={disableActions}
               >
                 <option value="active">Active</option>
@@ -1066,7 +1094,7 @@ export default function EventTriggerFormModal({
             </label>
             <button
               type="button"
-              className={`rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800`}
+              className={ACTION_BUTTON_SMALL}
               onClick={handlePreview}
               disabled={disableActions || !onPreview}
             >
@@ -1074,7 +1102,7 @@ export default function EventTriggerFormModal({
             </button>
             <button
               type="button"
-              className={`rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:hover:bg-slate-800 ${schemaExplorerOpen ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-200'}`}
+              className={`${ACTION_BUTTON_SMALL} ${schemaExplorerOpen ? 'border-accent bg-accent-soft text-accent' : ''}`}
               onClick={() => void handleToggleSchemaExplorer()}
               disabled={eventSchemaLoading}
             >
@@ -1084,102 +1112,94 @@ export default function EventTriggerFormModal({
         </div>
 
         {errors.general && (
-          <div className="rounded-2xl border border-rose-200/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/30 dark:text-rose-200">
+          <div className={`${ALERT_BOX_BASE} ${getStatusToneClasses('error')}`}>
             {errors.general}
           </div>
         )}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Name
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Name</span>
             <input
               type="text"
               value={values.name}
               onChange={(event) => handleFieldChange('name', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="Trigger label (optional)"
               disabled={disableActions}
             />
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Event type
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Event type</span>
             <input
               type="text"
               value={values.eventType}
               onChange={(event) => handleFieldChange('eventType', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="metastore.record.created"
               disabled={disableActions}
               required
             />
-            {errors.eventType && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{errors.eventType}</span>
-            )}
+            {errors.eventType && <span className={ERROR_TEXT_CLASSES}>{errors.eventType}</span>}
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300 lg:col-span-2">
-            Description
+          <label className={`${FORM_LABEL_CLASSES} lg:col-span-2`}>
+            <span>Description</span>
             <textarea
               value={values.description}
               onChange={(event) => handleFieldChange('description', event.target.value)}
-              className="mt-1 h-20 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 h-20 resize-y ${INPUT_FIELD_BASE}`}
               placeholder="Explain what this trigger does"
               disabled={disableActions}
             />
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Event source
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Event source</span>
             <input
               type="text"
               value={values.eventSource}
               onChange={(event) => handleFieldChange('eventSource', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="services.metastore"
               disabled={disableActions}
             />
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Idempotency key expression
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Idempotency key expression</span>
             <input
               type="text"
               value={values.idempotencyKeyExpression}
               onChange={(event) => handleFieldChange('idempotencyKeyExpression', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="{{ event.payload.id }}"
               disabled={disableActions}
             />
             {errors.idempotencyKeyExpression && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.idempotencyKeyExpression}
-              </span>
+              <span className={ERROR_TEXT_CLASSES}>{errors.idempotencyKeyExpression}</span>
             )}
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Run key template
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Run key template</span>
             <input
               type="text"
               value={values.runKeyTemplate}
               onChange={(event) => handleFieldChange('runKeyTemplate', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="trigger-{{ trigger.id }}-{{ parameters.partition }}"
               disabled={disableActions}
             />
-            <span className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+            <span className={FORM_HELPER_TEXT}>
               Liquid expressions may reference `event`, `trigger`, and rendered `parameters`.
             </span>
-            {errors.runKeyTemplate && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.runKeyTemplate}
-              </span>
-            )}
+            {errors.runKeyTemplate && <span className={ERROR_TEXT_CLASSES}>{errors.runKeyTemplate}</span>}
           </label>
         </div>
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Predicates</h3>
+            <h3 className={FORM_SECTION_TITLE}>Predicates</h3>
             <button
               type="button"
-              className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              className={ACTION_BUTTON_SMALL}
               onClick={handleAddPredicate}
               disabled={disableActions}
             >
@@ -1187,7 +1207,7 @@ export default function EventTriggerFormModal({
             </button>
           </div>
           {values.predicates.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-slate-300/70 px-4 py-6 text-xs text-slate-500 dark:border-slate-700/60 dark:text-slate-400">
+            <p className={EMPTY_STATE_CLASSES}>
               No predicates defined. All events of this type will match.
             </p>
           ) : (
@@ -1198,7 +1218,7 @@ export default function EventTriggerFormModal({
         </div>
 
         {schemaExplorerOpen && (
-          <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+          <div className={SCHEMA_EXPLORER_CLASSES}>
             <EventSchemaExplorer
               schema={eventSchema}
               loading={eventSchemaLoading}
@@ -1210,105 +1230,83 @@ export default function EventTriggerFormModal({
         )}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Throttle window (ms)
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Throttle window (ms)</span>
             <input
               type="number"
               min={0}
               value={values.throttleWindowMs}
               onChange={(event) => handleFieldChange('throttleWindowMs', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="60000"
               disabled={disableActions}
             />
-            {errors.throttleWindowMs && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.throttleWindowMs}
-              </span>
-            )}
+            {errors.throttleWindowMs && <span className={ERROR_TEXT_CLASSES}>{errors.throttleWindowMs}</span>}
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Throttle count
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Throttle count</span>
             <input
               type="number"
               min={0}
               value={values.throttleCount}
               onChange={(event) => handleFieldChange('throttleCount', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="5"
               disabled={disableActions}
             />
-            {errors.throttleCount && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.throttleCount}
-              </span>
-            )}
+            {errors.throttleCount && <span className={ERROR_TEXT_CLASSES}>{errors.throttleCount}</span>}
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Max concurrency
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Max concurrency</span>
             <input
               type="number"
               min={0}
               value={values.maxConcurrency}
               onChange={(event) => handleFieldChange('maxConcurrency', event.target.value)}
-              className="mt-1 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 w-full ${INPUT_FIELD_BASE}`}
               placeholder="3"
               disabled={disableActions}
             />
-            {errors.maxConcurrency && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.maxConcurrency}
-              </span>
-            )}
+            {errors.maxConcurrency && <span className={ERROR_TEXT_CLASSES}>{errors.maxConcurrency}</span>}
           </label>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Parameter template (JSON)
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Parameter template (JSON)</span>
             <textarea
               ref={parameterTemplateRef}
               value={values.parameterTemplate}
               onChange={(event) => handleFieldChange('parameterTemplate', event.target.value)}
-              className="mt-1 h-40 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 h-40 w-full ${MONO_TEXTAREA_BASE}`}
               placeholder='{"dataset":"{{ event.payload.dataset }}"}'
               disabled={disableActions}
             />
-            {errors.parameterTemplate && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                {errors.parameterTemplate}
-              </span>
-            )}
+            {errors.parameterTemplate && <span className={ERROR_TEXT_CLASSES}>{errors.parameterTemplate}</span>}
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Metadata (JSON)
+          <label className={FORM_LABEL_CLASSES}>
+            <span>Metadata (JSON)</span>
             <textarea
               value={values.metadata}
               onChange={(event) => handleFieldChange('metadata', event.target.value)}
-              className="mt-1 h-40 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className={`mt-1 h-40 w-full ${MONO_TEXTAREA_BASE}`}
               placeholder='{"owner":"workflow-team"}'
               disabled={disableActions}
             />
-            {errors.metadata && (
-              <span className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{errors.metadata}</span>
-            )}
+            {errors.metadata && <span className={ERROR_TEXT_CLASSES}>{errors.metadata}</span>}
           </label>
         </div>
 
         <div className="mt-2 flex items-center justify-end gap-3">
           <button
             type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+            className={SECONDARY_BUTTON_CLASSES}
             onClick={onClose}
             disabled={submitting}
           >
             Cancel
           </button>
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={disableActions}
-          >
+          <button type="submit" className={PRIMARY_BUTTON_CLASSES} disabled={disableActions}>
             {submitting ? (
               <>
                 <Spinner size="xs" /> Saving

@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import AppDetailsPanel from './AppDetailsPanel';
 import { collectAvailableEnvVars, mergeEnvSources } from './envUtils';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 
 type AppListProps = {
   apps: AppRecord[];
@@ -38,38 +39,21 @@ type AppListProps = {
 };
 
 const STATUS_BADGE_BASE =
-  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em]';
-
-const STATUS_BADGE_VARIANTS: Record<string, string> = {
-  seed: 'border-slate-300/70 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-200',
-  pending: 'border-amber-300/70 bg-amber-50/80 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
-  processing: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  running:
-    'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200 running-badge',
-  succeeded:
-    'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  ready:
-    'border-emerald-400/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-200',
-  failed:
-    'border-rose-400/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/60 dark:bg-rose-500/20 dark:text-rose-200',
-  starting: 'border-sky-300/70 bg-sky-50/80 text-sky-700 dark:border-sky-400/60 dark:bg-sky-500/20 dark:text-sky-200',
-  stopping: 'border-amber-400/70 bg-amber-500/15 text-amber-700 dark:border-amber-400/60 dark:bg-amber-500/20 dark:text-amber-200',
-  stopped: 'border-slate-400/70 bg-slate-200/70 text-slate-700 dark:border-slate-500/60 dark:bg-slate-700/40 dark:text-slate-100'
-};
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
 
 const PRIMARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/30 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 bg-violet-600 hover:bg-violet-500 dark:bg-slate-200/20 dark:text-slate-50 dark:hover:bg-slate-200/30';
+  'inline-flex items-center justify-center rounded-full px-3 py-1.5 text-scale-xs font-weight-semibold bg-accent text-inverse shadow-lg shadow-accent-soft transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 hover:bg-accent-strong';
 
 const SECONDARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass px-3 py-1.5 text-scale-xs font-weight-semibold text-secondary transition-all hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
 
 const TERTIARY_ACTION_BUTTON =
-  'inline-flex items-center justify-center rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-200/10 dark:hover:text-slate-100';
+  'inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass px-3 py-1.5 text-scale-xs font-weight-semibold text-secondary transition-all hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
 
 const ACTIVE_LAUNCH_STATUSES = new Set(['pending', 'starting', 'running', 'stopping']);
 
 function getStatusBadgeClasses(status: string) {
-  return `${STATUS_BADGE_BASE} ${STATUS_BADGE_VARIANTS[status] ?? STATUS_BADGE_VARIANTS.seed}`;
+  return `${STATUS_BADGE_BASE} ${getStatusToneClasses(status)}`;
 }
 
 function collectLaunchEnv(app: AppRecord): LaunchEnvVar[] {
@@ -122,9 +106,9 @@ function AppList({
   };
 
   return (
-    <div className="overflow-x-auto rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
-      <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/60">
-        <thead className="bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+    <div className="overflow-x-auto rounded-3xl border border-subtle bg-surface-glass shadow-elevation-xl backdrop-blur-md transition-colors">
+      <table className="min-w-full divide-y divide-subtle">
+        <thead className="bg-surface-muted text-left text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
           <tr>
             <th scope="col" className="px-6 py-4">App</th>
             <th scope="col" className="px-6 py-4">Ingestion</th>
@@ -133,7 +117,7 @@ function AppList({
             <th scope="col" className="px-6 py-4">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-200/70 text-sm dark:divide-slate-700/60">
+        <tbody className="divide-y divide-subtle text-scale-sm text-secondary">
           {apps.map((app) => {
             const ingestStatusBadge = (
               <span className={getStatusBadgeClasses(app.ingestStatus)}>
@@ -147,7 +131,7 @@ function AppList({
                 build {build.status}
               </span>
             ) : (
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No builds yet</span>
+              <span className="text-scale-xs font-weight-medium text-muted">No builds yet</span>
             );
             const buildDuration = build ? formatDuration(build.durationMs) : null;
             const buildStateEntry = buildState[app.id];
@@ -158,7 +142,7 @@ function AppList({
                 launch {launch.status}
               </span>
             ) : (
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">No launches yet</span>
+              <span className="text-scale-xs font-weight-medium text-muted">No launches yet</span>
             );
             const launchError = launchErrors[app.id] ?? launch?.errorMessage ?? null;
             const isLaunching = launchingId === app.id;
@@ -193,10 +177,8 @@ function AppList({
             return (
               <Fragment key={app.id}>
                 <tr
-                  className={`cursor-pointer bg-white/50 transition-colors dark:bg-slate-900/40 ${
-                    isSelected
-                      ? 'ring-1 ring-violet-300/70 dark:ring-slate-600/70'
-                      : 'hover:bg-violet-500/5 dark:hover:bg-slate-800/60'
+                  className={`cursor-pointer bg-surface-glass transition-colors ${
+                    isSelected ? 'ring-1 ring-accent' : 'hover:bg-accent-soft'
                   }`}
                   onClick={(event) => handleRowClick(event, app.id)}
                   onKeyDown={(event) => handleRowKeyDown(event, app.id)}
@@ -207,25 +189,25 @@ function AppList({
                 >
                   <td className="max-w-xs px-6 py-4 align-top">
                     <div className="space-y-2">
-                      <div className="text-base font-semibold text-slate-700 dark:text-slate-100">
+                      <div className="text-scale-md font-weight-semibold text-primary">
                         {highlightSegments(app.name, activeTokens, highlightEnabled)}
                       </div>
                       {ingestError && (
-                        <p className="text-xs font-medium text-rose-600 dark:text-rose-300">{ingestError}</p>
+                        <p className="text-scale-xs font-weight-medium text-status-danger">{ingestError}</p>
                       )}
                       {launchError && (
-                        <p className="text-xs font-medium text-rose-600 dark:text-rose-300">{launchError}</p>
+                        <p className="text-scale-xs font-weight-medium text-status-danger">{launchError}</p>
                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-col gap-2 text-scale-xs text-muted">
                       {ingestStatusBadge}
                       <time dateTime={app.updatedAt}>
                         Updated {new Date(app.updatedAt).toLocaleString()}
                       </time>
                       {retryingId === app.id ? (
-                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Retrying…</span>
+                        <span className="text-scale-xs font-weight-medium text-muted">Retrying…</span>
                       ) : app.ingestStatus === 'failed' ? (
                         <button
                           type="button"
@@ -238,7 +220,7 @@ function AppList({
                     </div>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-col gap-2 text-scale-xs text-muted">
                       {buildStatusBadge}
                       {build?.gitBranch && <span>branch: {build.gitBranch}</span>}
                       {build?.gitRef && <span>ref: {build.gitRef}</span>}
@@ -252,7 +234,7 @@ function AppList({
                     </div>
                   </td>
                   <td className="px-6 py-4 align-top">
-                    <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-col gap-2 text-scale-xs text-muted">
                       {launchStatusBadge}
                       {launch?.updatedAt && (
                         <time dateTime={launch.updatedAt}>

@@ -15,6 +15,7 @@ import type {
 import type { WorkflowGraphCanvasFilters } from '../graph/canvasModel';
 import { ROUTE_PATHS } from '../../routes/paths';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 
 type WorkflowTopologyPanelProps = {
   graph: WorkflowGraphNormalized | null;
@@ -42,23 +43,97 @@ const PANEL_THEME_DARK: WorkflowGraphCanvasThemeOverrides = {
   surfaceMuted: 'rgba(15, 23, 42, 0.62)'
 };
 
-const STATUS_TONE_BADGE_CLASSES: Record<'neutral' | 'info' | 'success' | 'warning' | 'danger', string> = {
-  neutral: 'bg-slate-200 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200',
-  info: 'bg-sky-200 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200',
-  success: 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200',
-  warning: 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
-  danger: 'bg-rose-200 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
-};
-
 const LIVE_STALE_THRESHOLD_MS = 90_000;
+type StatusLegendTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-const STATUS_LEGEND_ITEMS: Array<{ label: string; tone: keyof typeof STATUS_TONE_BADGE_CLASSES }> = [
+const STATUS_LEGEND_ITEMS: Array<{ label: string; tone: StatusLegendTone }> = [
   { label: 'Running / Pending', tone: 'info' },
   { label: 'Succeeded / Fresh / Active', tone: 'success' },
   { label: 'Degraded / Stale / Throttled', tone: 'warning' },
   { label: 'Failed / Failing', tone: 'danger' },
   { label: 'Idle / Unknown', tone: 'neutral' }
 ];
+
+const TONE_TO_STATUS: Record<StatusLegendTone, string> = {
+  neutral: 'unknown',
+  info: 'running',
+  success: 'success',
+  warning: 'warning',
+  danger: 'error'
+};
+
+const PANEL_CONTAINER_CLASSES =
+  'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const HEADER_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const HEADER_SUBTEXT_CLASSES = 'text-scale-xs text-muted';
+
+const STATUS_COLUMN_CLASSES = 'flex flex-col text-right text-[11px] text-secondary';
+
+const STATUS_COLUMN_LABEL_CLASSES = 'font-weight-semibold uppercase tracking-[0.22em] text-muted';
+
+const STATUS_COLUMN_VALUE_CLASSES = 'text-secondary';
+
+const STATUS_COLUMN_META_CLASSES = 'text-[10px] tracking-[0.16em] text-muted';
+
+const STATUS_BADGE_BASE_CLASSES =
+  'inline-flex items-center justify-end rounded-full border px-2 py-[1px] text-[10px] font-weight-semibold uppercase tracking-wide';
+
+const REFRESH_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-accent bg-accent px-4 py-2 text-scale-xs font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const STAT_BADGE_CONTAINER_CLASSES =
+  'inline-flex min-w-[96px] flex-col items-center rounded-xl border border-subtle bg-surface-glass-soft px-3 py-2 text-[11px] font-weight-semibold leading-4 text-secondary';
+
+const STAT_BADGE_VALUE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const STAT_BADGE_LABEL_CLASSES = 'uppercase tracking-[0.22em] text-[10px] text-muted';
+
+const CACHE_BADGE_CLASSES =
+  'ml-auto inline-flex items-center rounded-full border border-subtle bg-surface-glass-soft px-3 py-1 text-[10px] font-weight-semibold uppercase tracking-[0.22em] text-muted';
+
+const LEGEND_CONTAINER_CLASSES =
+  'flex flex-wrap items-center gap-2 text-[10px] font-weight-semibold uppercase tracking-[0.18em] text-muted';
+
+const LEGEND_LABEL_CLASSES = 'mr-1 text-muted';
+
+const LEGEND_BADGE_BASE_CLASSES =
+  'inline-flex items-center rounded-full border px-2 py-[1px] text-[10px] font-weight-semibold tracking-wide';
+
+const FILTER_FIELDSET_CLASSES = 'flex flex-col text-scale-xs font-weight-semibold text-secondary';
+
+const FILTER_LABEL_CLASSES = 'mb-1 uppercase tracking-[0.18em] text-[10px] text-muted';
+
+const FILTER_CONTROL_BASE_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-xs font-weight-semibold text-secondary shadow-inner transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted disabled:opacity-60';
+
+const CLEAR_FILTERS_BUTTON_CLASSES =
+  'inline-flex items-center rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.18em] text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
+
+const DETAIL_EMPTY_CLASSES =
+  'flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-subtle bg-surface-glass-soft p-4 text-center text-scale-xs font-weight-semibold text-muted';
+
+const DETAIL_CONTAINER_CLASSES =
+  'flex min-h-[200px] flex-col gap-3 rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-lg backdrop-blur-md transition-colors';
+
+const DETAIL_HEADER_TITLE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const DETAIL_HEADER_SUBTITLE_CLASSES = 'text-scale-xs text-muted';
+
+const DETAIL_BADGE_CLASSES =
+  'inline-flex items-center rounded-full bg-accent-soft px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-wide text-accent';
+
+const DETAIL_DESCRIPTION_CLASSES = 'text-scale-xs leading-relaxed text-secondary';
+
+const DETAIL_HIGHLIGHTS_CLASSES = 'mt-1 space-y-1 text-[11px] text-muted';
+
+const DETAIL_FIELDS_CLASSES = 'mt-2 space-y-2 text-scale-xs text-secondary';
+
+const DETAIL_FIELD_LABEL_CLASSES = 'uppercase tracking-[0.18em] text-[10px] text-muted';
+
+const DETAIL_ACTION_BUTTON_CLASSES =
+  'inline-flex items-center rounded-full border border-accent bg-accent px-3 py-1 text-[11px] font-weight-semibold text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 function formatTimestamp(ts: string | null): string {
   if (!ts) {
@@ -73,9 +148,9 @@ function formatTimestamp(ts: string | null): string {
 
 function StatBadge({ label, value }: { label: string; value: number }) {
   return (
-    <span className="inline-flex min-w-[96px] flex-col items-center rounded-xl bg-slate-100/70 px-3 py-2 text-[11px] font-semibold leading-4 text-slate-600 dark:bg-slate-900/50 dark:text-slate-300">
-      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{value}</span>
-      <span className="uppercase tracking-[0.22em] text-[10px] text-slate-500 dark:text-slate-400">
+    <span className={STAT_BADGE_CONTAINER_CLASSES}>
+      <span className={STAT_BADGE_VALUE_CLASSES}>{value}</span>
+      <span className={STAT_BADGE_LABEL_CLASSES}>
         {label}
       </span>
     </span>
@@ -267,56 +342,53 @@ export function WorkflowTopologyPanel({
   const multiSelectSize = (length: number) => Math.min(4, Math.max(3, length || 3));
 
   return (
-    <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/80 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-950/45">
+    <section className={PANEL_CONTAINER_CLASSES}>
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Workflow Topology Explorer</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <h2 className={HEADER_TITLE_CLASSES}>Workflow Topology Explorer</h2>
+          <p className={HEADER_SUBTEXT_CLASSES}>
             Interactive canvas combining workflows, steps, triggers, assets, and event sources.
           </p>
         </div>
         <div className="flex items-center gap-3">
-        <div className="flex flex-col text-right text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
-            Status
-          </span>
-          <span className="text-slate-600 dark:text-slate-300">{statusMessage}</span>
-          <span className="text-[10px] tracking-[0.24em] text-slate-400 dark:text-slate-500">
-            {formatTimestamp(lastLoadedAt)}
-          </span>
-          <span className="mt-3 font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
-            Live Data
-          </span>
-          <span
-            className={classNames(
-              'inline-flex items-center justify-end rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide',
-              STATUS_TONE_BADGE_CLASSES[liveTone]
-            )}
-            title={liveStatusDetail}
-          >
-            {liveStatusLabel}
-          </span>
-          <span className="text-[10px] tracking-[0.16em] text-slate-500 dark:text-slate-400">
-            {liveStatusDetail}
-            {lastEventLabel !== '—' ? ` • Last event ${lastEventLabel}` : ''}
-          </span>
-          <span className="text-[10px] tracking-[0.16em] text-slate-500 dark:text-slate-400">
-            Stream queue · {overlayQueueSize}
-          </span>
-          {droppedEvents > 0 && (
-            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-              Dropped {droppedEvents} events
+          <div className={STATUS_COLUMN_CLASSES}>
+            <span className={STATUS_COLUMN_LABEL_CLASSES}>Status</span>
+            <span className={STATUS_COLUMN_VALUE_CLASSES}>{statusMessage}</span>
+            <span className={STATUS_COLUMN_META_CLASSES}>{formatTimestamp(lastLoadedAt)}</span>
+            <span className={classNames('mt-3', STATUS_COLUMN_LABEL_CLASSES)}>Live Data</span>
+            <span
+              className={classNames(
+                STATUS_BADGE_BASE_CLASSES,
+                getStatusToneClasses(TONE_TO_STATUS[liveTone])
+              )}
+              title={liveStatusDetail}
+            >
+              {liveStatusLabel}
             </span>
-          )}
-        </div>
+            <span className={STATUS_COLUMN_META_CLASSES}>
+              {liveStatusDetail}
+              {lastEventLabel !== '—' ? ` • Last event ${lastEventLabel}` : ''}
+            </span>
+            <span className={STATUS_COLUMN_META_CLASSES}>
+              Stream queue · {overlayQueueSize}
+            </span>
+            {droppedEvents > 0 && (
+              <span className="text-[10px] font-weight-semibold text-status-warning">
+                Dropped {droppedEvents} events
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={onRefresh}
             disabled={graphRefreshing}
-            className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-500/30 transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 focus-visible:ring-2 focus-visible:ring-violet-200 disabled:cursor-not-allowed disabled:bg-violet-300"
+            className={REFRESH_BUTTON_CLASSES}
           >
             {graphRefreshing ? (
-              <span className="h-3 w-3 animate-spin rounded-full border-[2px] border-white/60 border-b-transparent" aria-hidden="true" />
+              <span
+                className="h-3 w-3 animate-spin rounded-full border-2 border-current border-b-transparent opacity-80"
+                aria-hidden="true"
+              />
             ) : (
               <span aria-hidden="true">⟳</span>
             )}
@@ -334,24 +406,20 @@ export function WorkflowTopologyPanel({
           <StatBadge label="Assets" value={stats.totalAssets} />
           <StatBadge label="Sources" value={stats.totalEventSources} />
           {(cacheHitRate !== null || cacheAgeSeconds !== null) && (
-            <span className="ml-auto inline-flex items-center rounded-full bg-slate-100/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
-              Cache {cacheHitRate !== null ? `${Math.round(cacheHitRate * 100)}% hit` : 'primed'} ·
-              {' '}
+            <span className={CACHE_BADGE_CLASSES}>
+              Cache {cacheHitRate !== null ? `${Math.round(cacheHitRate * 100)}% hit` : 'primed'} ·{' '}
               {cacheAgeSeconds !== null ? `${Math.round(cacheAgeSeconds)}s old` : 'fresh'}
             </span>
           )}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-        <span className="mr-1 text-slate-400 dark:text-slate-500">Legend</span>
+      <div className={LEGEND_CONTAINER_CLASSES}>
+        <span className={LEGEND_LABEL_CLASSES}>Legend</span>
         {STATUS_LEGEND_ITEMS.map(({ label, tone }) => (
           <span
             key={tone}
-            className={classNames(
-              'inline-flex items-center rounded-full px-2 py-[2px] text-[10px] font-semibold tracking-wide',
-              STATUS_TONE_BADGE_CLASSES[tone]
-            )}
+            className={classNames(LEGEND_BADGE_BASE_CLASSES, getStatusToneClasses(TONE_TO_STATUS[tone]))}
           >
             {label}
           </span>
@@ -360,11 +428,8 @@ export function WorkflowTopologyPanel({
 
       <div className="mt-2 flex flex-col gap-4">
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <label
-              className="mb-1 uppercase tracking-[0.18em] text-[10px] text-slate-400 dark:text-slate-500"
-              htmlFor="topology-search-input"
-            >
+          <div className={FILTER_FIELDSET_CLASSES}>
+            <label className={FILTER_LABEL_CLASSES} htmlFor="topology-search-input">
               Search
             </label>
             <input
@@ -373,15 +438,12 @@ export function WorkflowTopologyPanel({
               value={searchTermLocal}
               onChange={handleSearchChange}
               placeholder="Search nodes"
-              className="min-w-[200px] rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={classNames('min-w-[200px]', FILTER_CONTROL_BASE_CLASSES)}
             />
           </div>
 
-          <div className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <label
-              className="mb-1 uppercase tracking-[0.18em] text-[10px] text-slate-400 dark:text-slate-500"
-              htmlFor="topology-workflow-filter"
-            >
+          <div className={FILTER_FIELDSET_CLASSES}>
+            <label className={FILTER_LABEL_CLASSES} htmlFor="topology-workflow-filter">
               Workflows
             </label>
             <select
@@ -391,7 +453,7 @@ export function WorkflowTopologyPanel({
               onChange={handleWorkflowFilterChange}
               size={multiSelectSize(workflowFilterOptions.length)}
               disabled={workflowFilterOptions.length === 0}
-              className="min-w-[180px] rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={classNames('min-w-[180px]', FILTER_CONTROL_BASE_CLASSES)}
             >
               {workflowFilterOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -401,11 +463,8 @@ export function WorkflowTopologyPanel({
             </select>
           </div>
 
-          <div className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <label
-              className="mb-1 uppercase tracking-[0.18em] text-[10px] text-slate-400 dark:text-slate-500"
-              htmlFor="topology-asset-filter"
-            >
+          <div className={FILTER_FIELDSET_CLASSES}>
+            <label className={FILTER_LABEL_CLASSES} htmlFor="topology-asset-filter">
               Assets
             </label>
             <select
@@ -415,7 +474,7 @@ export function WorkflowTopologyPanel({
               onChange={handleAssetFilterChange}
               size={multiSelectSize(assetFilterOptions.length)}
               disabled={assetFilterOptions.length === 0}
-              className="min-w-[200px] rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={classNames('min-w-[200px]', FILTER_CONTROL_BASE_CLASSES)}
             >
               {assetFilterOptions.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -425,11 +484,8 @@ export function WorkflowTopologyPanel({
             </select>
           </div>
 
-          <div className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
-            <label
-              className="mb-1 uppercase tracking-[0.18em] text-[10px] text-slate-400 dark:text-slate-500"
-              htmlFor="topology-event-type-filter"
-            >
+          <div className={FILTER_FIELDSET_CLASSES}>
+            <label className={FILTER_LABEL_CLASSES} htmlFor="topology-event-type-filter">
               Event Types
             </label>
             <select
@@ -439,7 +495,7 @@ export function WorkflowTopologyPanel({
               onChange={handleEventTypeFilterChange}
               size={multiSelectSize(eventTypeFilterOptions.length)}
               disabled={eventTypeFilterOptions.length === 0}
-              className="min-w-[200px] rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-700 shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={classNames('min-w-[200px]', FILTER_CONTROL_BASE_CLASSES)}
             >
               {eventTypeFilterOptions.map((eventType) => (
                 <option key={eventType} value={eventType}>
@@ -453,7 +509,7 @@ export function WorkflowTopologyPanel({
             type="button"
             onClick={handleClearFilters}
             disabled={clearDisabled}
-            className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-600"
+            className={CLEAR_FILTERS_BUTTON_CLASSES}
           >
             Clear Filters
           </button>
@@ -790,26 +846,20 @@ function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyN
 
   if (!detail) {
     return (
-      <aside className="flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs font-semibold text-slate-400 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-500">
+      <aside className={DETAIL_EMPTY_CLASSES}>
         Select a node to explore topology details.
       </aside>
     );
   }
 
   return (
-    <aside className="flex min-h-[200px] flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/85 p-4 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-950/45">
+    <aside className={DETAIL_CONTAINER_CLASSES}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{detail.title}</p>
-          {detail.subtitle && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">{detail.subtitle}</p>
-          )}
+          <p className={DETAIL_HEADER_TITLE_CLASSES}>{detail.title}</p>
+          {detail.subtitle && <p className={DETAIL_HEADER_SUBTITLE_CLASSES}>{detail.subtitle}</p>}
         </div>
-        <button
-          type="button"
-          onClick={onClear}
-          className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 transition hover:border-slate-300 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-600"
-        >
+        <button type="button" onClick={onClear} className={CLEAR_FILTERS_BUTTON_CLASSES}>
           Clear
         </button>
       </div>
@@ -817,22 +867,17 @@ function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyN
       {detail.badges.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {detail.badges.map((badge) => (
-            <span
-              key={badge}
-              className="inline-flex items-center rounded-full bg-violet-500/12 px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:bg-violet-500/15 dark:text-violet-200"
-            >
+            <span key={badge} className={DETAIL_BADGE_CLASSES}>
               {badge}
             </span>
           ))}
         </div>
       )}
 
-      {detail.description && (
-        <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{detail.description}</p>
-      )}
+      {detail.description && <p className={DETAIL_DESCRIPTION_CLASSES}>{detail.description}</p>}
 
       {detail.highlights.length > 0 && (
-        <ul className="mt-1 space-y-1 text-[11px] text-slate-500 dark:text-slate-300">
+        <ul className={DETAIL_HIGHLIGHTS_CLASSES}>
           {detail.highlights.map((entry) => (
             <li key={entry}>{entry}</li>
           ))}
@@ -840,12 +885,10 @@ function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyN
       )}
 
       {detail.fields.length > 0 && (
-        <dl className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+        <dl className={DETAIL_FIELDS_CLASSES}>
           {detail.fields.map((field) => (
             <div key={`${field.label}:${field.value}`} className="flex justify-between gap-3">
-              <dt className="uppercase tracking-[0.18em] text-[10px] text-slate-400 dark:text-slate-500">
-                {field.label}
-              </dt>
+              <dt className={DETAIL_FIELD_LABEL_CLASSES}>{field.label}</dt>
               <dd className="text-right">{field.value}</dd>
             </div>
           ))}
@@ -855,11 +898,7 @@ function WorkflowTopologyNodeDetails({ graph, node, onClear }: WorkflowTopologyN
       {detail.actions.length > 0 && (
         <div className="mt-auto flex flex-wrap gap-2 pt-1">
           {detail.actions.map((action) => (
-            <Link
-              key={action.label}
-              to={action.to}
-              className="inline-flex items-center rounded-full bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400"
-            >
+            <Link key={action.label} to={action.to} className={DETAIL_ACTION_BUTTON_CLASSES}>
               {action.label}
             </Link>
           ))}

@@ -5,6 +5,42 @@ import type { JobBundleVersionSummary, JobDefinitionSummary, ServiceSummary } fr
 import type { WorkflowDraftStep } from '../types';
 import type { DraftValidationIssue } from './state';
 
+const CARD_CLASSES =
+  'rounded-3xl border border-subtle bg-surface-glass p-5 shadow-elevation-md transition-colors';
+
+const CARD_TITLE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const CARD_SUBTEXT_CLASSES = 'text-scale-xs text-secondary';
+
+const ACTION_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60';
+
+const REMOVE_BUTTON_CLASSES =
+  'rounded-full border border-status-danger px-3 py-1 text-scale-xs font-weight-semibold text-status-danger transition-colors hover:bg-status-danger-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-status-danger';
+
+const INPUT_FIELD_CLASSES =
+  'w-full rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const MONO_TEXTAREA_CLASSES =
+  'w-full rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-mono text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const BUNDLE_OPTION_BASE =
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-scale-xs font-weight-semibold transition-colors';
+
+const BUNDLE_OPTION_ACTIVE = 'border-accent bg-accent-soft text-accent shadow-elevation-sm';
+
+const BUNDLE_OPTION_INACTIVE =
+  'border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong';
+
+const SELECTABLE_PILL_BASE = `${BUNDLE_OPTION_BASE} cursor-pointer`;
+
+const SELECTABLE_PILL_ACTIVE = 'border-accent bg-accent-soft text-accent shadow-elevation-sm';
+
+const SELECTABLE_PILL_INACTIVE = BUNDLE_OPTION_INACTIVE;
+
+const CHECKBOX_INPUT_CLASSES =
+  'h-4 w-4 rounded border-subtle accent-accent text-accent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent focus-visible:ring-0';
+
 function generateOptionLabel(name: string | undefined, slug: string): string {
   if (!name || name === slug) {
     return slug;
@@ -498,17 +534,17 @@ export function WorkflowStepCard({
   }, [bundleStrategy, bundleVersionInfo, handleBundleVersionChange, normalizedBundleSlug, step.bundle?.version]);
 
   return (
-    <div className="rounded-3xl border border-slate-200/60 bg-white/80 p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/70">
+    <div className={CARD_CLASSES}>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Step {index + 1}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Configure workflow execution step.</p>
+          <h3 className={CARD_TITLE_CLASSES}>Step {index + 1}</h3>
+          <p className={CARD_SUBTEXT_CLASSES}>Configure workflow execution step.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onMoveUp}
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:hover:bg-white/70 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className={ACTION_BUTTON_CLASSES}
             disabled={index === 0}
           >
             Move up
@@ -516,7 +552,7 @@ export function WorkflowStepCard({
           <button
             type="button"
             onClick={onMoveDown}
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:opacity-60 disabled:hover:bg-white/70 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className={ACTION_BUTTON_CLASSES}
             disabled={index === allSteps.length - 1}
           >
             Move down
@@ -524,7 +560,7 @@ export function WorkflowStepCard({
           <button
             type="button"
             onClick={onRemove}
-            className="rounded-full border border-rose-300/70 bg-rose-50/80 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:border-rose-400 hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:border-rose-500/60 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/25"
+            className={REMOVE_BUTTON_CLASSES}
           >
             Remove
           </button>
@@ -538,10 +574,10 @@ export function WorkflowStepCard({
             type="text"
             value={step.id}
             onChange={(event) => handleIdChange(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={INPUT_FIELD_CLASSES}
           />
           {fieldErrors['id'] && (
-            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['id'][0]}</p>
+            <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['id'][0]}</p>
           )}
         </FormField>
         <FormField label="Display name" htmlFor={`step-${step.id}-name`}>
@@ -550,10 +586,10 @@ export function WorkflowStepCard({
             type="text"
             value={step.name}
             onChange={(event) => handleNameChange(event.target.value)}
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={INPUT_FIELD_CLASSES}
           />
           {fieldErrors['name'] && (
-            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['name'][0]}</p>
+            <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['name'][0]}</p>
           )}
         </FormField>
       </div>
@@ -564,7 +600,7 @@ export function WorkflowStepCard({
             id={`step-${step.id}-type`}
             value={step.type}
             onChange={(event) => handleTypeChange(event.target.value as WorkflowDraftStep['type'])}
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={INPUT_FIELD_CLASSES}
           >
             <option value="job">Job step</option>
             <option value="service">Service step</option>
@@ -577,7 +613,7 @@ export function WorkflowStepCard({
                 id={`step-${step.id}-job`}
                 value={step.jobSlug ?? ''}
                 onChange={(event) => handleJobChange(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={INPUT_FIELD_CLASSES}
               >
                 <option value="">Select a job…</option>
                 {jobOptions.map((job) => (
@@ -587,7 +623,7 @@ export function WorkflowStepCard({
                 ))}
               </select>
               {fieldErrors['jobSlug'] && (
-                <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['jobSlug'][0]}</p>
+                <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['jobSlug'][0]}</p>
               )}
             </FormField>
             <div className="md:col-span-2 space-y-4">
@@ -595,12 +631,9 @@ export function WorkflowStepCard({
                 label="Bundle version"
                 hint="Choose whether this step should always track the latest bundle or pin to a specific release."
               >
-                <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  <label className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 transition-colors ${
-                    bundleStrategy === 'latest'
-                      ? 'border-violet-400 bg-violet-500/10 text-violet-600 dark:border-slate-300 dark:text-slate-100'
-                      : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
-                  }`}
+                <div className="flex flex-wrap gap-3">
+                  <label
+                    className={`${BUNDLE_OPTION_BASE} ${bundleStrategy === 'latest' ? BUNDLE_OPTION_ACTIVE : BUNDLE_OPTION_INACTIVE}`}
                   >
                     <input
                       type="radio"
@@ -608,15 +641,12 @@ export function WorkflowStepCard({
                       value="latest"
                       checked={bundleStrategy === 'latest'}
                       onChange={() => handleBundleStrategyChange('latest')}
-                      className="h-4 w-4 text-violet-600 focus:ring-violet-500"
+                      className="accent-accent"
                     />
                     <span>Latest (default)</span>
                   </label>
-                  <label className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 transition-colors ${
-                    bundleStrategy === 'pinned'
-                      ? 'border-violet-400 bg-violet-500/10 text-violet-600 dark:border-slate-300 dark:text-slate-100'
-                      : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
-                  }`}
+                  <label
+                    className={`${BUNDLE_OPTION_BASE} ${bundleStrategy === 'pinned' ? BUNDLE_OPTION_ACTIVE : BUNDLE_OPTION_INACTIVE}`}
                   >
                     <input
                       type="radio"
@@ -624,13 +654,13 @@ export function WorkflowStepCard({
                       value="pinned"
                       checked={bundleStrategy === 'pinned'}
                       onChange={() => handleBundleStrategyChange('pinned')}
-                      className="h-4 w-4 text-violet-600 focus:ring-violet-500"
+                      className="accent-accent"
                     />
                     <span>Pin to version</span>
                   </label>
                 </div>
                 {bundleStrategy === 'latest' && selectedJob && (
-                  <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  <p className="mt-2 text-scale-xs font-weight-medium text-secondary">
                     Runs using the bundle configured on the job definition
                     {bundleDefaults.version ? ` (${bundleDefaults.version})` : ''}.
                   </p>
@@ -645,10 +675,10 @@ export function WorkflowStepCard({
                     value={bundleSlug}
                     onChange={(event) => handleBundleSlugChange(event.target.value)}
                     placeholder="bundle-slug"
-                    className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                    className={INPUT_FIELD_CLASSES}
                   />
                   {fieldErrors['bundle.slug'] && (
-                    <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['bundle.slug'][0]}</p>
+                    <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['bundle.slug'][0]}</p>
                   )}
                 </FormField>
                 {bundleStrategy === 'pinned' && (
@@ -662,7 +692,7 @@ export function WorkflowStepCard({
                       value={bundleVersion ?? ''}
                       onChange={(event) => handleBundleVersionChange(event.target.value)}
                       disabled={Boolean(bundleVersionInfo?.loading) || versionOptions.length === 0}
-                      className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:disabled:bg-slate-800"
+                      className={INPUT_FIELD_CLASSES}
                     >
                       <option value="">
                         {versionOptions.length > 0 ? 'Select a version…' : 'No versions available'}
@@ -674,17 +704,17 @@ export function WorkflowStepCard({
                       ))}
                     </select>
                     {bundleVersionInfo?.loading && (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <p className="mt-1 text-scale-xs text-secondary">
                         <Spinner label="Loading versions…" size="xs" className="gap-1" iconClassName="border" />
                       </p>
                     )}
                     {bundleVersionInfo?.error && (
-                      <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                      <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">
                         {bundleVersionInfo.error}
                       </p>
                     )}
                     {fieldErrors['bundle.version'] && (
-                      <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['bundle.version'][0]}</p>
+                      <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['bundle.version'][0]}</p>
                     )}
                   </FormField>
                 )}
@@ -701,7 +731,7 @@ export function WorkflowStepCard({
                   value={bundleExportName ?? ''}
                   onChange={(event) => handleBundleExportNameChange(event.target.value)}
                   placeholder="handlerName"
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={INPUT_FIELD_CLASSES}
                 />
               </FormField>
             </div>
@@ -712,7 +742,7 @@ export function WorkflowStepCard({
               id={`step-${step.id}-service`}
               value={step.serviceSlug ?? ''}
               onChange={(event) => handleServiceChange(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={INPUT_FIELD_CLASSES}
             >
               <option value="">Select a service…</option>
               {serviceOptions.map((service) => (
@@ -722,7 +752,7 @@ export function WorkflowStepCard({
               ))}
             </select>
             {fieldErrors['serviceSlug'] && (
-            <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">{fieldErrors['serviceSlug'][0]}</p>
+            <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">{fieldErrors['serviceSlug'][0]}</p>
             )}
           </FormField>
         )}
@@ -733,7 +763,7 @@ export function WorkflowStepCard({
           id={`step-${step.id}-description`}
           value={step.description ?? ''}
           onChange={(event) => onUpdate((current) => ({ ...current, description: event.target.value }))}
-          className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+          className={INPUT_FIELD_CLASSES}
           rows={2}
         />
       </FormField>
@@ -741,24 +771,22 @@ export function WorkflowStepCard({
       <FormField label="Depends on">
         <div className="flex flex-wrap gap-2">
           {otherSteps.length === 0 && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">No other steps yet.</span>
+            <span className="text-scale-xs text-secondary">No other steps yet.</span>
           )}
           {otherSteps.map((candidate) => {
             const checked = dependsOn.has(candidate.id);
             return (
               <label
                 key={candidate.id}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                  checked
-                    ? 'border-violet-400 bg-violet-500/10 text-violet-600 dark:border-slate-300 dark:text-slate-100'
-                    : 'border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
+                className={`${SELECTABLE_PILL_BASE} ${
+                  checked ? SELECTABLE_PILL_ACTIVE : SELECTABLE_PILL_INACTIVE
                 }`}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleDependency(candidate.id)}
-                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  className={CHECKBOX_INPUT_CLASSES}
                 />
                 <span>{candidate.name || candidate.id}</span>
               </label>
@@ -776,7 +804,7 @@ export function WorkflowStepCard({
             value={step.timeoutMs ?? ''}
             onChange={(event) => handleTimeoutChange(event.target.value)}
             placeholder="e.g. 60000"
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+            className={INPUT_FIELD_CLASSES}
           />
         </FormField>
         {step.type === 'job' && (
@@ -787,7 +815,7 @@ export function WorkflowStepCard({
               value={step.storeResultAs ?? ''}
               onChange={(event) => handleStoreResultChange(event.target.value)}
               placeholder="Optional JSON pointer"
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={INPUT_FIELD_CLASSES}
             />
           </FormField>
         )}
@@ -798,11 +826,11 @@ export function WorkflowStepCard({
           value={step.parametersText ?? ''}
           onChange={(event) => handleParametersChange(event.target.value)}
           rows={5}
-          className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+          className={MONO_TEXTAREA_CLASSES}
           spellCheck={false}
         />
         {step.parametersError && (
-          <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{step.parametersError}</p>
+          <p className="text-scale-xs font-weight-semibold text-status-danger">{step.parametersError}</p>
         )}
       </FormField>
 
@@ -814,7 +842,7 @@ export function WorkflowStepCard({
                 id={`step-${step.id}-method`}
                 value={(step.request as { method?: string } | undefined)?.method ?? 'GET'}
                 onChange={(event) => handleRequestMethodChange(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={INPUT_FIELD_CLASSES}
               >
                 <option value="GET">GET</option>
                 <option value="POST">POST</option>
@@ -831,10 +859,10 @@ export function WorkflowStepCard({
                 value={(step.request as { path?: string } | undefined)?.path ?? ''}
                 onChange={(event) => handleRequestPathChange(event.target.value)}
                 placeholder="/api/v1/run"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={INPUT_FIELD_CLASSES}
               />
               {fieldErrors['request.path'] && (
-                <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                <p className="mt-1 text-scale-xs font-weight-semibold text-status-danger">
                   {fieldErrors['request.path'][0]}
                 </p>
               )}
@@ -846,39 +874,39 @@ export function WorkflowStepCard({
               value={step.requestBodyText ?? ''}
               onChange={(event) => handleRequestBodyChange(event.target.value)}
               rows={4}
-              className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+              className={MONO_TEXTAREA_CLASSES}
               spellCheck={false}
             />
             {step.requestBodyError && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{step.requestBodyError}</p>
+              <p className="text-scale-xs font-weight-semibold text-status-danger">{step.requestBodyError}</p>
               )}
           </FormField>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <label className="inline-flex items-center gap-2 text-scale-xs font-weight-semibold text-secondary">
               <input
                 type="checkbox"
                 checked={Boolean(step.requireHealthy)}
                 onChange={(event) => handleCheckboxToggle('requireHealthy')(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                className={CHECKBOX_INPUT_CLASSES}
               />
               Require healthy
             </label>
-            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <label className="inline-flex items-center gap-2 text-scale-xs font-weight-semibold text-secondary">
               <input
                 type="checkbox"
                 checked={Boolean(step.allowDegraded)}
                 onChange={(event) => handleCheckboxToggle('allowDegraded')(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                className={CHECKBOX_INPUT_CLASSES}
               />
               Allow degraded
             </label>
-            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <label className="inline-flex items-center gap-2 text-scale-xs font-weight-semibold text-secondary">
               <input
                 type="checkbox"
                 checked={Boolean(step.captureResponse)}
                 onChange={(event) => handleCheckboxToggle('captureResponse')(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                className={CHECKBOX_INPUT_CLASSES}
               />
               Capture response payload
             </label>
@@ -891,7 +919,7 @@ export function WorkflowStepCard({
                   onUpdate((current) => ({ ...current, storeResponseAs: event.target.value.trim() || undefined }))
                 }
                 placeholder="responsePayload"
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={INPUT_FIELD_CLASSES}
               />
             </FormField>
           </div>

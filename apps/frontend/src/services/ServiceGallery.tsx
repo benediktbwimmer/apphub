@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { normalizePreviewUrl } from '../utils/url';
@@ -6,6 +7,23 @@ import { usePreviewLayout } from '../settings/previewLayoutContext';
 import { Spinner } from '../components';
 import type { ServiceSummary, ServicesResponse } from './types';
 import { usePollingResource } from '../hooks/usePollingResource';
+import {
+  SERVICE_ALERT_CLASSES,
+  SERVICE_EMPTY_STATE_CLASSES,
+  SERVICE_GRID_GAP_CLASSES,
+  SERVICE_LOADING_CARD_CLASSES,
+  SERVICE_PAGE_CONTAINER_CLASSES,
+  SERVICE_PREVIEW_CARD_CLASSES,
+  SERVICE_PREVIEW_CHIP_LABEL_CLASSES,
+  SERVICE_PREVIEW_DETAIL_VALUE_CLASSES,
+  SERVICE_PREVIEW_DETAILS_CLASSES,
+  SERVICE_PREVIEW_FULLSCREEN_BUTTON_CLASSES,
+  SERVICE_PREVIEW_METADATA_CLASSES,
+  SERVICE_PREVIEW_NOTES_CLASSES,
+  SERVICE_PREVIEW_SUBTITLE_CLASSES,
+  SERVICE_PREVIEW_TITLE_CLASSES
+} from './serviceTokens';
+import { getStatusToneClasses } from '../theme/statusTokens';
 
 const REFRESH_INTERVAL_MS = 15000;
 const STATUS_ORDER = ['healthy', 'degraded', 'unknown', 'unreachable'] as const;
@@ -75,17 +93,13 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
   }, []);
 
   return (
-    <article
-      ref={containerRef}
-      className="relative overflow-hidden rounded-3xl border border-slate-200/70 bg-slate-950/60 shadow-lg shadow-slate-900/30 dark:border-slate-700/60 dark:bg-slate-900/80"
-      aria-label={displayName}
-    >
+    <article ref={containerRef} className={SERVICE_PREVIEW_CARD_CLASSES} aria-label={displayName}>
       <div className="absolute right-3 top-3 z-10">
         <button
           type="button"
           onClick={toggleFullscreen}
           aria-pressed={isFullscreen}
-          className="rounded-full bg-slate-900/80 px-3 py-1 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-slate-100/80 focus:ring-offset-2 focus:ring-offset-slate-900/80 dark:bg-slate-800/90"
+          className={SERVICE_PREVIEW_FULLSCREEN_BUTTON_CLASSES}
         >
           {isFullscreen ? 'Exit full screen' : 'Full screen'}
         </button>
@@ -101,36 +115,34 @@ function ServicePreviewCard({ service, embedUrl }: ServicePreviewCardProps) {
           className="h-full w-full border-0"
         />
       </div>
-      <div className="border-t border-slate-200/60 bg-slate-950/70 px-5 py-4 text-left text-sm text-slate-100 dark:border-slate-700/50 dark:bg-slate-900/80">
+      <div className={SERVICE_PREVIEW_METADATA_CLASSES}>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col">
-            <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-300">Service</span>
-            <h3 className="text-base font-semibold text-white">{displayName}</h3>
-            <p className="text-xs text-slate-300">
+            <span className={SERVICE_PREVIEW_CHIP_LABEL_CLASSES}>Service</span>
+            <h3 className={SERVICE_PREVIEW_TITLE_CLASSES}>{displayName}</h3>
+            <p className={SERVICE_PREVIEW_SUBTITLE_CLASSES}>
               {service.kind ? `${service.kind} • ` : ''}base URL: {service.baseUrl ?? 'n/a'}
             </p>
           </div>
-          <dl className="grid gap-3 text-[11px] uppercase tracking-[0.2em] text-slate-400 sm:grid-cols-3">
+          <dl className={SERVICE_PREVIEW_DETAILS_CLASSES}>
             <div className="flex flex-col gap-1">
               <dt>Manifest Source</dt>
-              <dd className="text-[12px] font-medium normal-case text-slate-100">
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
                 {manifestSourceLabel}
               </dd>
             </div>
             <div className="flex flex-col gap-1">
               <dt>Runtime App</dt>
-              <dd className="text-[12px] font-medium normal-case text-slate-100">{runtimeLabel}</dd>
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>{runtimeLabel}</dd>
             </div>
             <div className="flex flex-col gap-1">
               <dt>Linked Apps</dt>
-              <dd className="text-[12px] font-medium normal-case text-slate-100">
+              <dd className={SERVICE_PREVIEW_DETAIL_VALUE_CLASSES}>
                 {linkedApps && linkedApps.length > 0 ? linkedApps.join(', ') : 'none'}
               </dd>
             </div>
           </dl>
-          {service.metadata?.notes && (
-            <p className="text-xs text-slate-300">{service.metadata.notes}</p>
-          )}
+          {service.metadata?.notes && <p className={SERVICE_PREVIEW_NOTES_CLASSES}>{service.metadata.notes}</p>}
         </div>
       </div>
       <span className="sr-only">{displayName}</span>
@@ -207,30 +219,30 @@ export default function ServiceGallery() {
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-4 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 sm:p-6">
+      <div className={SERVICE_PAGE_CONTAINER_CLASSES}>
         {errorMessage ? (
-          <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-5 py-4 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className={classNames(SERVICE_ALERT_CLASSES, getStatusToneClasses('danger'))}>
             <div className="flex items-center justify-between gap-4">
               <span>{errorMessage}</span>
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="rounded-full border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:border-rose-400/40 dark:text-rose-200"
+                className="rounded-full border border-status-danger bg-status-danger-soft px-3 py-1 text-scale-xs font-weight-semibold text-status-danger transition-colors hover:bg-status-danger-soft/80"
               >
                 Retry
               </button>
             </div>
           </div>
         ) : loading ? (
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+          <div className={SERVICE_LOADING_CARD_CLASSES}>
             <Spinner label="Loading services" size="sm" />
           </div>
         ) : previewableServices.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 text-sm font-medium text-slate-600 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300">
+          <div className={SERVICE_EMPTY_STATE_CLASSES}>
             No services with previews available yet.
           </div>
         ) : (
-          <div className="grid gap-4 sm:gap-6" style={{ gridTemplateColumns }}>
+          <div className={SERVICE_GRID_GAP_CLASSES} style={{ gridTemplateColumns }}>
             {previewableServices.map(({ service, embedUrl }) => (
               <ServicePreviewCard key={service.id} service={service} embedUrl={embedUrl} />
             ))}

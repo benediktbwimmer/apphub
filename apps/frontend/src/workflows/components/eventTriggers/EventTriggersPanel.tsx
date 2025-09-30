@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollableListContainer, Spinner } from '../../../components';
+import { getStatusToneClasses } from '../../../theme/statusTokens';
 import type {
   WorkflowDefinition,
   WorkflowEventSample,
@@ -19,6 +20,56 @@ import EventTriggerFormModal, { type EventTriggerPreviewSnapshot } from './Event
 import EventSampleDrawer from './EventSampleDrawer';
 
 const RETRY_PAGE_SIZE = 25;
+
+const PANEL_CONTAINER =
+  'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg backdrop-blur-md';
+
+const PANEL_HEADER_TITLE = 'text-scale-lg font-weight-semibold text-primary';
+
+const PANEL_HEADER_META = 'text-scale-xs text-secondary';
+
+const SIDEBAR_CONTAINER =
+  'w-full max-w-xs rounded-2xl border border-subtle bg-surface-glass shadow-elevation-sm';
+
+const SIDEBAR_HEADER =
+  'flex items-center justify-between border-b border-subtle px-4 py-3 text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const SIDEBAR_ITEM_BASE =
+  'cursor-pointer px-4 py-3 text-scale-xs transition-colors hover:bg-accent-soft';
+
+const SIDEBAR_ITEM_ACTIVE = 'bg-accent-soft text-accent shadow-elevation-sm';
+
+const SIDEBAR_ITEM_INACTIVE = 'text-secondary';
+
+const SIDEBAR_BADGE_BASE =
+  'inline-flex items-center rounded-full px-2 py-[3px] text-[10px] font-weight-semibold capitalize';
+
+const ACTION_BUTTON_SMALL =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-2 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_BUTTON =
+  'inline-flex items-center justify-center rounded-full border border-accent bg-accent px-4 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const CARD_CONTAINER =
+  'rounded-2xl border border-subtle bg-surface-glass p-5 shadow-elevation-sm';
+
+const LIGHT_CARD_CONTAINER =
+  'rounded-2xl border border-subtle bg-surface-muted px-4 py-4 text-scale-xs text-secondary shadow-inner';
+
+const SECTION_SUBTEXT = 'text-scale-xs text-secondary';
+
+const TABLE_STYLES =
+  'min-w-full divide-y divide-subtle text-left text-[11px] text-secondary';
+
+const TABLE_HEAD =
+  'bg-surface-muted text-[10px] font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const TABLE_BODY = 'divide-y divide-subtle';
+
+const BADGE_BASE =
+  'inline-flex items-center gap-1 rounded-full border px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-[0.25em]';
+
+const SECTION_LABEL = 'text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -360,32 +411,28 @@ export default function EventTriggersPanel({
 
   const renderOverdueBadge = (overdue: boolean) =>
     overdue ? (
-      <span className="inline-flex items-center rounded-full bg-rose-100 px-2 py-[2px] text-[10px] font-semibold text-rose-600 dark:bg-rose-900/30 dark:text-rose-200">
-        Overdue
-      </span>
+      <span className={`${BADGE_BASE} ${getStatusToneClasses('warning')}`}>Overdue</span>
     ) : null;
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={PANEL_CONTAINER}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Event Triggers</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Configure workflow launches based on incoming events.
-          </p>
+          <h2 className={PANEL_HEADER_TITLE}>Event Triggers</h2>
+          <p className={PANEL_HEADER_META}>Configure workflow launches based on incoming events.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onRefreshEventHealth}
-            className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+            className={ACTION_BUTTON_SMALL}
           >
             Refresh health
           </button>
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={PRIMARY_BUTTON}
             disabled={!canEdit || !workflowSlug}
             title={canEdit ? undefined : 'Requires workflows:write scope'}
           >
@@ -395,50 +442,40 @@ export default function EventTriggersPanel({
       </div>
 
       {triggersError && (
-        <div className="mt-4 rounded-2xl border border-rose-200/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/30 dark:text-rose-200">
+        <div className={`mt-4 ${ALERT_BOX_BASE} ${getStatusToneClasses('error')}`}>
           {triggersError}
         </div>
       )}
 
       <div className="mt-4 flex flex-col gap-4 lg:flex-row">
-        <aside className="w-full max-w-xs rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700/60 dark:text-slate-400">
+        <aside className={SIDEBAR_CONTAINER}>
+          <div className={SIDEBAR_HEADER}>
             <span>Triggers</span>
             {triggersLoading && <Spinner size="xs" />}
           </div>
           <div className="max-h-[420px] overflow-y-auto">
             {sortedTriggers.length === 0 ? (
-              <p className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">No triggers configured.</p>
+              <p className="px-4 py-4 text-scale-xs text-secondary">No triggers configured.</p>
             ) : (
-              <ul className="divide-y divide-slate-200/70 dark:divide-slate-800/60">
+              <ul className="divide-y divide-subtle">
                 {sortedTriggers.map((trigger) => {
                   const selected = selectedTrigger?.id === trigger.id;
                   const metrics = getTriggerHealth(eventHealth, trigger.id)?.metrics;
                   return (
                     <li
                       key={trigger.id}
-                      className={`cursor-pointer px-4 py-3 text-xs transition hover:bg-indigo-50 dark:hover:bg-slate-800 ${selected ? 'bg-indigo-50/70 text-indigo-700 dark:bg-slate-800/60 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-300'}`}
+                      className={`${SIDEBAR_ITEM_BASE} ${selected ? SIDEBAR_ITEM_ACTIVE : SIDEBAR_ITEM_INACTIVE}`}
                       onClick={() => onSelectTrigger(trigger.id)}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold">{trigger.eventType}</span>
-                        <span
-                          className={
-                            trigger.status === 'active'
-                              ? 'rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-                              : 'rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-600 dark:bg-amber-900/40 dark:text-amber-200'
-                          }
-                        >
+                        <span className="font-weight-semibold">{trigger.eventType}</span>
+                        <span className={`${SIDEBAR_BADGE_BASE} ${getStatusToneClasses(trigger.status)}`}>
                           {trigger.status}
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
-                        {trigger.eventSource ?? 'any source'}
-                      </p>
+                      <p className="mt-1 truncate text-[11px] text-muted">{trigger.eventSource ?? 'any source'}</p>
                       {metrics && (
-                        <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
-                          {summarizeCounts(metrics)}
-                        </p>
+                        <p className="mt-2 text-[10px] text-muted">{summarizeCounts(metrics)}</p>
                       )}
                     </li>
                   );
@@ -448,19 +485,15 @@ export default function EventTriggersPanel({
           </div>
         </aside>
 
-        <div className="flex-1 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+        <div className={CARD_CONTAINER}>
           {!selectedTrigger ? (
-            <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
-              Select a trigger to view details.
-            </div>
+            <div className="flex h-full items-center justify-center text-scale-xs text-secondary">Select a trigger to view details.</div>
           ) : (
             <div className="flex flex-col gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-                    {selectedTrigger.eventType}
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <h3 className="text-scale-md font-weight-semibold text-primary">{selectedTrigger.eventType}</h3>
+                  <p className={SECTION_SUBTEXT}>
                     {selectedTrigger.eventSource ?? 'Any source'} · Version {selectedTrigger.version}
                   </p>
                 </div>
@@ -468,14 +501,14 @@ export default function EventTriggersPanel({
                   <button
                     type="button"
                     onClick={() => handleOpenSamplesForTrigger(selectedTrigger)}
-                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className={ACTION_BUTTON_SMALL}
                   >
                     View samples
                   </button>
                   <button
                     type="button"
                     onClick={() => handleOpenEdit(selectedTrigger)}
-                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className={ACTION_BUTTON_SMALL}
                     disabled={!canEdit}
                     title={canEdit ? undefined : 'Requires workflows:write scope'}
                   >
@@ -484,7 +517,7 @@ export default function EventTriggersPanel({
                   <button
                     type="button"
                     onClick={() => handleToggleStatus(selectedTrigger)}
-                    className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className={ACTION_BUTTON_SMALL}
                     disabled={!canEdit}
                     title={canEdit ? undefined : 'Requires workflows:write scope'}
                   >
@@ -493,7 +526,7 @@ export default function EventTriggersPanel({
                   <button
                     type="button"
                     onClick={() => handleDelete(selectedTrigger)}
-                    className="rounded-full border border-rose-200/70 px-3 py-2 text-xs font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-900/30"
+                    className={`${ACTION_BUTTON_SMALL} border-status-danger text-status-danger hover:border-status-danger hover:text-status-danger focus-visible:outline-status-danger`}
                     disabled={!canEdit}
                     title={canEdit ? 'Remove trigger' : 'Requires workflows:write scope'}
                   >
@@ -503,16 +536,12 @@ export default function EventTriggersPanel({
               </div>
 
               <div className="grid gap-4 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Summary
-                  </h4>
-                  <dl className="mt-2 space-y-1">
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Summary</h4>
+                  <dl className="mt-2 space-y-1 text-scale-xs text-secondary">
                     <div className="flex justify-between">
                       <dt>Name</dt>
-                      <dd className="font-semibold text-slate-700 dark:text-slate-200">
-                        {selectedTrigger.name ?? '—'}
-                      </dd>
+                      <dd className="font-weight-semibold text-primary">{selectedTrigger.name ?? '—'}</dd>
                     </div>
                     <div className="flex justify-between">
                       <dt>Throttle</dt>
@@ -536,16 +565,14 @@ export default function EventTriggersPanel({
                     </div>
                   </dl>
                 </div>
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Health
-                  </h4>
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Health</h4>
                   {eventHealthLoading ? (
-                    <div className="mt-2 flex items-center gap-2 text-xs">
+                    <div className="mt-2 flex items-center gap-2 text-scale-xs text-secondary">
                       <Spinner size="xs" /> Loading snapshot…
                     </div>
                   ) : triggerHealth ? (
-                    <dl className="mt-2 space-y-1">
+                    <dl className="mt-2 space-y-1 text-scale-xs text-secondary">
                       <div className="flex justify-between">
                         <dt>Last status</dt>
                         <dd>{triggerHealth.lastStatus ?? '—'}</dd>
@@ -568,18 +595,16 @@ export default function EventTriggersPanel({
                       </div>
                     </dl>
                   ) : eventHealthError ? (
-                    <p className="mt-2 text-rose-600 dark:text-rose-300">{eventHealthError}</p>
+                    <p className={`${SECTION_SUBTEXT} mt-2 text-status-danger`}>{eventHealthError}</p>
                   ) : (
-                    <p className="mt-2 text-slate-500 dark:text-slate-400">No metrics yet.</p>
+                    <p className={`${SECTION_SUBTEXT} mt-2`}>No metrics yet.</p>
                   )}
-              </div>
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Deliveries
-                </h4>
-                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{deliveriesSummary}</p>
-                  <div className="mt-3 flex items-center gap-2">
-                    <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                </div>
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Deliveries</h4>
+                  <p className="mt-2 text-[11px] text-secondary">{deliveriesSummary}</p>
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-secondary">
+                    <label className="font-weight-semibold text-secondary">
                       Status
                       <select
                         value={deliveryStatusFilter ?? ''}
@@ -588,7 +613,7 @@ export default function EventTriggersPanel({
                             event.target.value ? (event.target.value as WorkflowTriggerDeliveriesQuery['status']) : undefined
                           )
                         }
-                        className="ml-2 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-[11px] text-slate-600 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+                        className="ml-2 rounded-xl border border-subtle bg-surface-glass px-2 py-1 text-[11px] text-secondary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         <option value="">All</option>
                         <option value="matched">matched</option>
@@ -601,7 +626,7 @@ export default function EventTriggersPanel({
                     <button
                       type="button"
                       onClick={() => onReloadDeliveries(deliveriesQuery)}
-                      className="rounded-full border border-slate-200/70 px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                      className={ACTION_BUTTON_SMALL}
                     >
                       Refresh
                     </button>
@@ -610,15 +635,11 @@ export default function EventTriggersPanel({
               </div>
 
               <div className="grid gap-4 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Event retries
-                  </h4>
-                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    {formatSummary('scheduled', eventRetryBacklog.summary)}
-                  </p>
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Event retries</h4>
+                  <p className="mt-2 text-[11px] text-secondary">{formatSummary('scheduled', eventRetryBacklog.summary)}</p>
                   {eventRetryBacklog.entries.length === 0 ? (
-                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending event retries.</p>
+                    <p className="mt-2 text-[11px] text-secondary">No pending event retries.</p>
                   ) : (
                     <ScrollableListContainer
                       className="mt-3"
@@ -628,8 +649,8 @@ export default function EventTriggersPanel({
                       itemCount={visibleEventRetries.length}
                     >
                       <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
-                          <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <table className={TABLE_STYLES}>
+                          <thead className={TABLE_HEAD}>
                             <tr>
                               <th className="px-2 py-2">Event</th>
                               <th className="px-2 py-2">Source</th>
@@ -639,16 +660,16 @@ export default function EventTriggersPanel({
                               <th className="px-2 py-2 text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          <tbody className={TABLE_BODY}>
                             {visibleEventRetries.map((entry) => {
                               const pending = pendingEventRetryId === entry.eventId || eventHealthLoading;
                               return (
-                                <tr key={entry.eventId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
-                                  <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.eventId}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.source}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.attempts}</td>
-                                  <td className="flex items-center gap-2 px-2 py-2 text-slate-500 dark:text-slate-400">
+                                <tr key={entry.eventId} className="hover:bg-accent-soft/60">
+                                  <td className="px-2 py-2 font-weight-semibold text-primary">{entry.eventId}</td>
+                                  <td className="px-2 py-2 text-secondary">{entry.source}</td>
+                                  <td className="px-2 py-2 text-secondary">{formatDate(entry.nextAttemptAt)}</td>
+                                  <td className="px-2 py-2 text-secondary">{entry.attempts}</td>
+                                  <td className="flex items-center gap-2 px-2 py-2 text-secondary">
                                     <span className="capitalize">{entry.retryState}</span>
                                     {renderOverdueBadge(entry.overdue)}
                                   </td>
@@ -656,7 +677,7 @@ export default function EventTriggersPanel({
                                     <div className="inline-flex items-center gap-2">
                                       <button
                                         type="button"
-                                        className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        className={`${ACTION_BUTTON_SMALL} px-2 py-1`}
                                         onClick={() => {
                                           void onCancelEventRetry(entry.eventId);
                                         }}
@@ -666,7 +687,7 @@ export default function EventTriggersPanel({
                                       </button>
                                       <button
                                         type="button"
-                                        className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                        className={`${ACTION_BUTTON_SMALL} border-accent text-accent hover:border-accent hover:text-accent`}
                                         onClick={() => {
                                           void onForceEventRetry(entry.eventId);
                                         }}
@@ -686,15 +707,11 @@ export default function EventTriggersPanel({
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Trigger retries
-                  </h4>
-                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    {formatSummary('scheduled', triggerRetryBacklog.summary)}
-                  </p>
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Trigger retries</h4>
+                  <p className="mt-2 text-[11px] text-secondary">{formatSummary('scheduled', triggerRetryBacklog.summary)}</p>
                   {triggerRetryBacklog.entries.length === 0 ? (
-                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending trigger deliveries.</p>
+                    <p className="mt-2 text-[11px] text-secondary">No pending trigger deliveries.</p>
                   ) : (
                     <ScrollableListContainer
                       className="mt-3"
@@ -704,8 +721,8 @@ export default function EventTriggersPanel({
                       itemCount={visibleTriggerRetries.length}
                     >
                       <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
-                          <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <table className={TABLE_STYLES}>
+                          <thead className={TABLE_HEAD}>
                             <tr>
                               <th className="px-2 py-2">Delivery</th>
                               <th className="px-2 py-2">Trigger</th>
@@ -716,21 +733,21 @@ export default function EventTriggersPanel({
                               <th className="px-2 py-2 text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          <tbody className={TABLE_BODY}>
                             {visibleTriggerRetries.map((entry) => {
                               const pending = pendingTriggerRetryId === entry.deliveryId || eventHealthLoading;
                               return (
-                                <tr key={entry.deliveryId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
-                                  <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.deliveryId}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">
+                                <tr key={entry.deliveryId} className="hover:bg-accent-soft/60">
+                                  <td className="px-2 py-2 font-weight-semibold text-primary">{entry.deliveryId}</td>
+                                  <td className="px-2 py-2 text-secondary">
                                     {entry.triggerName ?? entry.triggerId}
                                   </td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">
+                                  <td className="px-2 py-2 text-secondary">
                                     {entry.workflowSlug ?? entry.workflowDefinitionId}
                                   </td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.retryAttempts}</td>
-                                  <td className="flex items-center gap-2 px-2 py-2 text-slate-500 dark:text-slate-400">
+                                  <td className="px-2 py-2 text-secondary">{formatDate(entry.nextAttemptAt)}</td>
+                                  <td className="px-2 py-2 text-secondary">{entry.retryAttempts}</td>
+                                  <td className="flex items-center gap-2 px-2 py-2 text-secondary">
                                     <span className="capitalize">{entry.retryState}</span>
                                     {renderOverdueBadge(entry.overdue)}
                                   </td>
@@ -738,7 +755,7 @@ export default function EventTriggersPanel({
                                     <div className="inline-flex items-center gap-2">
                                       <button
                                         type="button"
-                                        className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        className={`${ACTION_BUTTON_SMALL} px-2 py-1`}
                                         onClick={() => {
                                           void onCancelTriggerRetry(entry.deliveryId);
                                         }}
@@ -748,7 +765,7 @@ export default function EventTriggersPanel({
                                       </button>
                                       <button
                                         type="button"
-                                        className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                        className={`${ACTION_BUTTON_SMALL} border-accent text-accent hover:border-accent hover:text-accent px-2 py-1`}
                                         onClick={() => {
                                           void onForceTriggerRetry(entry.deliveryId);
                                         }}
@@ -768,15 +785,11 @@ export default function EventTriggersPanel({
                   )}
                 </div>
 
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Workflow step retries
-                  </h4>
-                  <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    {formatSummary('scheduled', workflowRetryBacklog.summary)}
-                  </p>
+                <div className={LIGHT_CARD_CONTAINER}>
+                  <h4 className={SECTION_LABEL}>Workflow step retries</h4>
+                  <p className="mt-2 text-[11px] text-secondary">{formatSummary('scheduled', workflowRetryBacklog.summary)}</p>
                   {workflowRetryBacklog.entries.length === 0 ? (
-                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No pending workflow step retries.</p>
+                    <p className="mt-2 text-[11px] text-secondary">No pending workflow step retries.</p>
                   ) : (
                     <ScrollableListContainer
                       className="mt-3"
@@ -786,8 +799,8 @@ export default function EventTriggersPanel({
                       itemCount={visibleWorkflowRetries.length}
                     >
                       <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200 text-left text-[11px] dark:divide-slate-700">
-                          <thead className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <table className={TABLE_STYLES}>
+                          <thead className={TABLE_HEAD}>
                             <tr>
                               <th className="px-2 py-2">Step</th>
                               <th className="px-2 py-2">Workflow</th>
@@ -797,24 +810,24 @@ export default function EventTriggersPanel({
                               <th className="px-2 py-2 text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                          <tbody className={TABLE_BODY}>
                             {visibleWorkflowRetries.map((entry) => {
                               const pending = pendingWorkflowRetryId === entry.workflowRunStepId || eventHealthLoading;
                               return (
-                                <tr key={entry.workflowRunStepId} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/50">
-                                  <td className="px-2 py-2 font-semibold text-slate-700 dark:text-slate-200">{entry.stepId}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.workflowSlug ?? entry.workflowDefinitionId}</td>
-                                  <td className="flex items-center gap-2 px-2 py-2 text-slate-500 dark:text-slate-400">
+                                <tr key={entry.workflowRunStepId} className="hover:bg-accent-soft/60">
+                                  <td className="px-2 py-2 font-weight-semibold text-primary">{entry.stepId}</td>
+                                  <td className="px-2 py-2 text-secondary">{entry.workflowSlug ?? entry.workflowDefinitionId}</td>
+                                  <td className="flex items-center gap-2 px-2 py-2 text-secondary">
                                     <span className="capitalize">{entry.status}</span>
                                     {renderOverdueBadge(entry.overdue)}
                                   </td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{formatDate(entry.nextAttemptAt)}</td>
-                                  <td className="px-2 py-2 text-slate-500 dark:text-slate-400">{entry.retryAttempts}</td>
+                                  <td className="px-2 py-2 text-secondary">{formatDate(entry.nextAttemptAt)}</td>
+                                  <td className="px-2 py-2 text-secondary">{entry.retryAttempts}</td>
                                   <td className="px-2 py-2 text-right">
                                     <div className="inline-flex items-center gap-2">
                                       <button
                                         type="button"
-                                        className="rounded-full border border-slate-200/70 px-2 py-1 text-[10px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        className={`${ACTION_BUTTON_SMALL} px-2 py-1`}
                                         onClick={() => {
                                           void onCancelWorkflowRetry(entry.workflowRunStepId);
                                         }}
@@ -824,7 +837,7 @@ export default function EventTriggersPanel({
                                       </button>
                                       <button
                                         type="button"
-                                        className="rounded-full border border-indigo-200/70 px-2 py-1 text-[10px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-500/40 dark:text-indigo-200 dark:hover:bg-indigo-900/30"
+                                        className={`${ACTION_BUTTON_SMALL} border-accent text-accent hover:border-accent hover:text-accent px-2 py-1`}
                                         onClick={() => {
                                           void onForceWorkflowRetry(entry.workflowRunStepId);
                                         }}
@@ -845,19 +858,19 @@ export default function EventTriggersPanel({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
-                <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700/60 dark:text-slate-400">
+              <div className={CARD_CONTAINER}>
+                <div className={`${SIDEBAR_HEADER} justify-between`}>  
                   <span>Recent deliveries</span>
                   {deliveriesLoading && <Spinner size="xs" />}
                 </div>
                 <div className="max-h-64 overflow-y-auto">
                   {deliveriesError ? (
-                    <p className="px-4 py-3 text-xs text-rose-600 dark:text-rose-300">{deliveriesError}</p>
+                    <p className="px-4 py-3 text-scale-xs text-status-danger">{deliveriesError}</p>
                   ) : deliveries.length === 0 ? (
-                    <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No deliveries recorded.</p>
+                    <p className="px-4 py-3 text-scale-xs text-secondary">No deliveries recorded.</p>
                   ) : (
-                    <table className="min-w-full divide-y divide-slate-200/70 text-left text-xs dark:divide-slate-800/60">
-                      <thead className="bg-slate-50/70 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
+                    <table className={TABLE_STYLES}>
+                      <thead className={TABLE_HEAD}>
                         <tr>
                           <th className="px-3 py-2">Status</th>
                           <th className="px-3 py-2">Event ID</th>
@@ -867,15 +880,15 @@ export default function EventTriggersPanel({
                           <th className="px-3 py-2">Error</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200/70 text-[11px] dark:divide-slate-800/60">
+                      <tbody className={TABLE_BODY}>
                         {deliveries.map((delivery) => (
-                          <tr key={delivery.id} className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/40">
-                            <td className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">{delivery.status}</td>
-                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.eventId}</td>
-                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.attempts}</td>
-                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{formatDate(delivery.updatedAt)}</td>
-                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{delivery.workflowRunId ?? '—'}</td>
-                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                          <tr key={delivery.id} className="hover:bg-accent-soft/60">
+                            <td className="px-3 py-2 font-weight-semibold text-primary">{delivery.status}</td>
+                            <td className="px-3 py-2 text-secondary">{delivery.eventId}</td>
+                            <td className="px-3 py-2 text-secondary">{delivery.attempts}</td>
+                            <td className="px-3 py-2 text-secondary">{formatDate(delivery.updatedAt)}</td>
+                            <td className="px-3 py-2 text-secondary">{delivery.workflowRunId ?? '—'}</td>
+                            <td className="px-3 py-2 text-secondary">
                               {delivery.lastError ? delivery.lastError.slice(0, 80) : '—'}
                             </td>
                           </tr>

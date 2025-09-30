@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState } from 'react';
 import type { JobDefinitionSummary } from '../workflows/api';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -22,6 +23,12 @@ import { BundleEditorPanel } from './components/BundleEditorPanel';
 import { BundleHistoryPanel } from './components/BundleHistoryPanel';
 import { JobRunsPanel } from './components/JobRunsPanel';
 import { normalizeCapabilityFlags } from './utils';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import {
+  JOB_CARD_CONTAINER_CLASSES,
+  JOB_FORM_ERROR_TEXT_CLASSES,
+  JOB_SECTION_PARAGRAPH_CLASSES
+} from './jobTokens';
 
 type RuntimeFilter = 'all' | 'node' | 'python' | 'docker';
 
@@ -302,13 +309,14 @@ export default function JobsPage() {
           />
           <section className="flex-1">
             {showLoading && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              <div className={classNames(JOB_CARD_CONTAINER_CLASSES, 'flex items-center gap-3')}>
                 <Spinner label="Loading job details…" />
+                <span className={JOB_SECTION_PARAGRAPH_CLASSES}>Preparing selected job metadata…</span>
               </div>
             )}
             {showError && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/50 dark:bg-red-500/10 dark:text-red-200">
-                {jobSnapshot.detailError ?? jobSnapshot.bundleError}
+              <div className={classNames(JOB_CARD_CONTAINER_CLASSES, getStatusToneClasses('danger'))}>
+                <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{jobSnapshot.detailError ?? jobSnapshot.bundleError}</p>
               </div>
             )}
             {jobSnapshot.detail && jobSnapshot.bundle && !jobSnapshot.bundleLoading && (

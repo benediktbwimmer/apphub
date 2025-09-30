@@ -2,6 +2,26 @@ import type { AiBuilderProvider } from '../../api';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState } from '../types';
 import type { MODE_OPTIONS, PROVIDER_OPTIONS } from '../constants';
 
+const HEADER_CONTAINER =
+  'flex items-center justify-between gap-4 border-b border-subtle bg-surface-glass p-6';
+
+const TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const SUBTITLE_CLASSES = 'text-scale-sm text-secondary';
+
+const SEGMENTED_WRAPPER =
+  'inline-flex rounded-full border border-subtle bg-surface-glass p-1 text-scale-xs font-weight-semibold shadow-elevation-sm';
+
+const SEGMENT_BUTTON_BASE =
+  'rounded-full px-4 py-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const SEGMENT_BUTTON_ACTIVE = 'bg-accent text-inverse shadow-elevation-sm';
+
+const SEGMENT_BUTTON_INACTIVE = 'text-secondary hover:text-accent-strong';
+
+const ACTION_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1.5 text-scale-sm font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
 export type ProviderOption = typeof PROVIDER_OPTIONS[number];
 export type ModeOption = typeof MODE_OPTIONS[number];
 
@@ -21,16 +41,16 @@ export function AiBuilderDialogHeader({ state, handlers, helpers, providerOption
   const { providerKeyMissing } = helpers;
 
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 p-6 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <header className={HEADER_CONTAINER}>
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">AI Workflow Builder</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <h2 className={TITLE_CLASSES}>AI Workflow Builder</h2>
+        <p className={SUBTITLE_CLASSES}>
           Describe the automation you need and let {providerSelectionLabel} draft a job or workflow definition.
         </p>
       </div>
       <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
         <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
+          <div className={SEGMENTED_WRAPPER}>
             {providerOptions.map(({ value, label }) => {
               const isActive = provider === value;
               const requireKey = providerKeyMissing(value);
@@ -38,11 +58,7 @@ export function AiBuilderDialogHeader({ state, handlers, helpers, providerOption
                 <button
                   key={value}
                   type="button"
-                  className={`rounded-full px-4 py-1.5 transition-colors ${
-                    isActive
-                      ? 'bg-violet-600 text-white shadow'
-                      : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
-                  } ${requireKey ? 'opacity-70' : ''}`}
+                  className={`${SEGMENT_BUTTON_BASE} ${isActive ? SEGMENT_BUTTON_ACTIVE : SEGMENT_BUTTON_INACTIVE} ${requireKey ? 'opacity-70' : ''}`}
                   onClick={() => handleProviderChange(value)}
                 >
                   {label}
@@ -50,18 +66,14 @@ export function AiBuilderDialogHeader({ state, handlers, helpers, providerOption
               );
             })}
           </div>
-          <div className="inline-flex rounded-full border border-slate-200/80 bg-white p-1 text-xs font-semibold shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
+          <div className={SEGMENTED_WRAPPER}>
             {modeOptions.map(({ value, label }) => {
               const isActive = mode === value;
               return (
                 <button
                   key={value}
                   type="button"
-                  className={`rounded-full px-4 py-1.5 transition-colors ${
-                    isActive
-                      ? 'bg-violet-600 text-white shadow'
-                      : 'text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100'
-                  }`}
+                  className={`${SEGMENT_BUTTON_BASE} ${isActive ? SEGMENT_BUTTON_ACTIVE : SEGMENT_BUTTON_INACTIVE}`}
                   onClick={() => handleModeChange(value)}
                 >
                   {label}
@@ -71,11 +83,11 @@ export function AiBuilderDialogHeader({ state, handlers, helpers, providerOption
           </div>
         </div>
         {providerKeyHint ? (
-          <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">{providerKeyHint}</span>
+          <span className="text-[11px] font-weight-semibold text-status-warning">{providerKeyHint}</span>
         ) : null}
         <button
           type="button"
-          className="rounded-full border border-slate-200/70 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900 dark:text-slate-300"
+          className={ACTION_BUTTON_CLASSES}
           onClick={handleDismiss}
         >
           Close

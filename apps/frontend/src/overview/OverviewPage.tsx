@@ -6,6 +6,26 @@ import { Spinner } from '../components';
 import type { AppRecord, StatusFacet } from '../catalog/types';
 import type { ServiceSummary } from '../services/types';
 import type { JobRunListItem, WorkflowActivityRunEntry } from '../runs/api';
+import { getStatusToneClasses } from '../theme/statusTokens';
+
+const BADGE_BASE =
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
+
+const SECONDARY_BADGE_BASE =
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.2em]';
+
+const CARD_CONTAINER_CLASSES =
+  'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const ACCENT_LINK_CLASSES =
+  'rounded-full border border-accent-soft px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-accent transition-colors hover:bg-accent-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const EMPTY_STATE_CLASSES =
+  'flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-subtle bg-surface-muted text-scale-sm text-muted';
+
+function buildStatusBadge(status: string, baseClass = BADGE_BASE): string {
+  return `${baseClass} ${getStatusToneClasses(status)}`;
+}
 
 function totalAppsFromFacets(facets: StatusFacet[]): number {
   return facets.reduce((sum, facet) => sum + (facet.count ?? 0), 0);
@@ -29,20 +49,6 @@ function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString();
 }
 
-function getAppStatusBadge(status: string): string {
-  switch (status) {
-    case 'ready':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-    case 'failed':
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
-    case 'processing':
-    case 'pending':
-      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
-    default:
-      return 'bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200';
-  }
-}
-
 function getServiceStatusLabel(status: string): string {
   switch (status) {
     case 'healthy':
@@ -55,19 +61,6 @@ function getServiceStatusLabel(status: string): string {
       return 'Unknown';
     default:
       return status;
-  }
-}
-
-function getServiceStatusBadge(status: string): string {
-  switch (status) {
-    case 'healthy':
-      return 'bg-emerald-200/80 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200';
-    case 'degraded':
-      return 'bg-amber-200/80 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200';
-    case 'unreachable':
-      return 'bg-rose-200/80 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200';
-    default:
-      return 'bg-slate-200/80 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200';
   }
 }
 
@@ -96,20 +89,6 @@ function runsTitle(run: WorkflowActivityRunEntry | JobRunListItem): string {
   return 'Unknown';
 }
 
-function runStatusBadge(status: string): string {
-  switch (status) {
-    case 'succeeded':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-    case 'running':
-      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300 running-badge';
-    case 'failed':
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
-    case 'pending':
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200';
-    default:
-      return 'bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200';
-  }
-}
 
 export default function OverviewPage() {
   const { data, loading, error } = useOverviewData();
@@ -141,14 +120,14 @@ export default function OverviewPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Overview</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <h1 className="text-scale-xl font-weight-semibold text-primary">Overview</h1>
+        <p className="text-scale-sm text-secondary">
           Snapshot of catalog health, auxiliary services, and most recent runs.
         </p>
       </header>
 
       {error && (
-        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-sm text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="rounded-2xl border border-status-warning bg-status-warning-soft px-4 py-3 text-scale-sm text-status-warning shadow-elevation-md">
           {error}
         </div>
       )}
@@ -167,21 +146,22 @@ export default function OverviewPage() {
           ) : (
             <ul className="flex flex-col gap-3">
               {recentApps.map((app) => (
-                <li key={app.id} className="rounded-xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50/80 dark:border-slate-700/70 dark:bg-slate-900/60 dark:hover:border-slate-500">
+                <li
+                  key={app.id}
+                  className="rounded-xl border border-subtle bg-surface-glass px-4 py-3 text-scale-sm shadow-elevation-md transition-colors hover:border-accent-soft hover:bg-accent-soft"
+                >
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-800 dark:text-slate-100">{app.name}</div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${getAppStatusBadge(app.ingestStatus)}`}>
-                      {app.ingestStatus}
-                    </span>
+                    <div className="font-weight-semibold text-primary">{app.name}</div>
+                    <span className={buildStatusBadge(app.ingestStatus, SECONDARY_BADGE_BASE)}>{app.ingestStatus}</span>
                   </div>
                   {app.description && (
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{app.description}</p>
+                    <p className="mt-1 line-clamp-2 text-scale-xs text-muted">{app.description}</p>
                   )}
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.25em] text-slate-400 dark:text-slate-500">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.25em] text-muted">
                     <span>Updated {formatDateTime(app.updatedAt)}</span>
                     <Link
                       to={`${ROUTE_PATHS.catalog}?seed=${encodeURIComponent(app.id)}`}
-                      className="rounded-full border border-violet-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-violet-700 transition-colors hover:bg-violet-500/10 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/60"
+                      className={ACCENT_LINK_CLASSES}
                     >
                       Inspect
                     </Link>
@@ -198,17 +178,15 @@ export default function OverviewPage() {
           ) : (
             <ul className="flex flex-col gap-3">
               {recentServices.map((service) => (
-                <li key={service.id} className="rounded-xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+                <li key={service.id} className="rounded-xl border border-subtle bg-surface-glass px-4 py-3 text-scale-sm shadow-elevation-md">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-800 dark:text-slate-100">
-                      {service.displayName || service.slug}
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${getServiceStatusBadge(service.status)}`}>
+                    <div className="font-weight-semibold text-primary">{service.displayName || service.slug}</div>
+                    <span className={buildStatusBadge(service.status, SECONDARY_BADGE_BASE)}>
                       {getServiceStatusLabel(service.status)}
                     </span>
                   </div>
                   {service.statusMessage && (
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{service.statusMessage}</p>
+                    <p className="mt-1 text-scale-xs text-muted">{service.statusMessage}</p>
                   )}
                 </li>
               ))}
@@ -246,21 +224,16 @@ type StatCardProps = {
 };
 
 function StatCard({ label, value, description, tone = 'default', loading }: StatCardProps) {
-  const toneClasses = tone === 'warning'
-    ? 'border-rose-300/70 bg-rose-50/70 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200'
-    : 'border-slate-200/70 bg-white/80 text-slate-800 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-100';
+  const toneClasses =
+    tone === 'warning'
+      ? 'border-status-danger bg-status-danger-soft text-status-danger'
+      : 'border-subtle bg-surface-glass text-primary';
 
   return (
-    <div className={`rounded-2xl border px-4 py-5 shadow-sm ${toneClasses}`}>
-      <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-        {label}
-      </div>
-      <div className="mt-2 text-3xl font-semibold">
-        {loading ? '—' : value.toLocaleString()}
-      </div>
-      {description && (
-        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</div>
-      )}
+    <div className={`rounded-2xl border px-4 py-5 shadow-elevation-md transition-colors ${toneClasses}`}>
+      <div className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">{label}</div>
+      <div className="mt-2 text-scale-2xl font-weight-bold">{loading ? '—' : value.toLocaleString()}</div>
+      {description && <div className="mt-1 text-scale-xs text-muted">{description}</div>}
     </div>
   );
 }
@@ -275,18 +248,15 @@ type CardProps = {
 
 function Card({ title, actionLabel, actionHref, children, loading }: CardProps) {
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+    <div className={CARD_CONTAINER_CLASSES}>
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
-        <Link
-          to={actionHref}
-          className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
-        >
+        <h2 className="text-scale-md font-weight-semibold text-primary">{title}</h2>
+        <Link to={actionHref} className={ACCENT_LINK_CLASSES}>
           {actionLabel}
         </Link>
       </div>
       {loading ? (
-        <div className="flex h-32 items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+        <div className="flex h-32 items-center justify-center text-scale-sm text-muted">
           <Spinner label="Loading…" />
         </div>
       ) : (
@@ -297,11 +267,7 @@ function Card({ title, actionLabel, actionHref, children, loading }: CardProps) 
 }
 
 function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-28 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300/70 bg-slate-50/70 text-sm text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-400">
-      {message}
-    </div>
-  );
+  return <div className={EMPTY_STATE_CLASSES}>{message}</div>;
 }
 
 type RunListProps = {
@@ -315,18 +281,16 @@ function RunList({ entries, kind }: RunListProps) {
       {entries.map((entry) => {
         const run = entry.run;
         return (
-          <li key={run.id} className="rounded-xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+          <li key={run.id} className="rounded-xl border border-subtle bg-surface-glass px-4 py-3 text-scale-sm shadow-elevation-md">
             <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-slate-800 dark:text-slate-100">{runsTitle(entry)}</div>
-              <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${runStatusBadge(run.status)}`}>
-                {run.status}
-              </span>
+              <div className="font-weight-semibold text-primary">{runsTitle(entry)}</div>
+              <span className={buildStatusBadge(run.status, SECONDARY_BADGE_BASE)}>{run.status}</span>
             </div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-1 text-scale-xs text-muted">
               {kind === 'workflow' ? 'Workflow run' : 'Job run'} · Triggered {formatDateTime(run.startedAt ?? run.createdAt)}
             </div>
             {run.errorMessage && (
-              <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-300">{run.errorMessage}</p>
+              <p className="mt-2 text-scale-xs font-weight-medium text-status-danger">{run.errorMessage}</p>
             )}
           </li>
         );

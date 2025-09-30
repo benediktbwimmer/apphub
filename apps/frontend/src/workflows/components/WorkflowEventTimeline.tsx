@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { ScrollableListContainer, Spinner } from '../../components';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import StatusBadge from './StatusBadge';
 import {
   WORKFLOW_TIMELINE_RANGE_KEYS,
@@ -59,19 +60,19 @@ function timelineStatusLabel(status: WorkflowTimelineTriggerStatus): string {
 function EntryDetails({ entry }: { entry: WorkflowTimelineEntry }) {
   if (entry.kind === 'run') {
     const run = entry.run;
-    return (
-      <div className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge status={run.status} />
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Run {run.id}
-          </p>
-        </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {run.triggeredBy ? `Triggered by ${run.triggeredBy}` : 'Triggered manually'} · Started {formatTimestamp(run.startedAt)}
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={run.status} />
+        <p className="text-scale-sm font-weight-semibold text-primary">
+          Run {run.id}
         </p>
       </div>
-    );
+      <p className="text-scale-xs text-secondary">
+        {run.triggeredBy ? `Triggered by ${run.triggeredBy}` : 'Triggered manually'} · Started {formatTimestamp(run.startedAt)}
+      </p>
+    </div>
+  );
   }
 
   if (entry.kind === 'trigger') {
@@ -80,17 +81,17 @@ function EntryDetails({ entry }: { entry: WorkflowTimelineEntry }) {
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={delivery.status} />
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <p className="text-scale-sm font-weight-semibold text-primary">
             Trigger delivery {delivery.id}
           </p>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-scale-xs text-secondary">
           {trigger ? `${trigger.name ?? trigger.id} (${trigger.eventType})` : 'Unknown trigger'}
           {event ? ` · Event ${event.type}` : ''}
           {delivery.workflowRunId ? ` · Linked run ${delivery.workflowRunId}` : ''}
         </p>
         {delivery.lastError && (
-          <p className="text-xs text-rose-500 dark:text-rose-300">{delivery.lastError}</p>
+          <p className="text-scale-xs font-weight-semibold text-status-danger">{delivery.lastError}</p>
         )}
       </div>
     );
@@ -109,12 +110,12 @@ function EntryDetails({ entry }: { entry: WorkflowTimelineEntry }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-600 dark:border-amber-300/40 dark:text-amber-300">
+        <span className={`inline-flex items-center rounded-full border px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.3em] ${getStatusToneClasses('warning')}`}>
           Scheduler
         </span>
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+        <p className="text-scale-sm font-weight-semibold text-primary">{title}</p>
       </div>
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-scale-xs text-secondary">
         {reason ?? 'Recorded by scheduler.'}
         {typeof failures === 'number' ? ` · Failures: ${failures}` : ''}
         {until ? ` · Until ${formatTimestamp(until)}` : ''}
@@ -144,24 +145,24 @@ function WorkflowEventTimeline({
   const showInitialLoading = loading && entryCount === 0;
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className="rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg backdrop-blur-md transition-colors">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Event Timeline</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <h2 className="text-scale-lg font-weight-semibold text-primary">Event Timeline</h2>
+          <p className="text-scale-xs text-secondary">
             Correlate workflow runs, trigger deliveries, and scheduler activity.
           </p>
           {meta && (
-            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+            <p className="mt-1 text-scale-xs text-muted">
               {meta.counts.runs} runs · {meta.counts.triggerDeliveries} deliveries · {meta.counts.schedulerSignals} scheduler signals
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+          <label className="text-scale-xs font-weight-semibold text-secondary">
             Range
             <select
-              className="ml-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              className="ml-2 rounded-2xl border border-subtle bg-surface-glass px-3 py-1.5 text-scale-xs text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               value={range}
               onChange={(event) => onChangeRange(event.target.value as WorkflowTimelineRangeKey)}
             >
@@ -175,7 +176,7 @@ function WorkflowEventTimeline({
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex items-center rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className="inline-flex items-center rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Refresh
           </button>
@@ -190,10 +191,10 @@ function WorkflowEventTimeline({
               key={status}
               type="button"
               onClick={() => onToggleStatus(status)}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
+              className={`rounded-full border px-3 py-1 text-scale-xs font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                 active
-                  ? 'border-violet-500 bg-violet-500/10 text-violet-600 dark:border-violet-400/60 dark:text-violet-200'
-                  : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800'
+                  ? 'border-accent bg-accent-soft text-accent-strong shadow-elevation-sm'
+                  : 'border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-surface-glass-soft'
               }`}
             >
               {timelineStatusLabel(status)}
@@ -204,26 +205,26 @@ function WorkflowEventTimeline({
           type="button"
           onClick={onResetStatuses}
           disabled={activeStatusSet.size === 0}
-          className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:disabled:border-slate-700 dark:disabled:text-slate-600"
+          className="rounded-full border border-subtle px-3 py-1 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-surface-glass-soft disabled:cursor-not-allowed disabled:text-muted"
         >
           Clear
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className={`mt-4 rounded-2xl border px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('danger')}`}>
           {error}
         </div>
       )}
 
       {showInitialLoading && (
-        <div className="mt-6 text-sm text-slate-600 dark:text-slate-300">
+        <div className="mt-6 text-scale-sm text-secondary">
           <Spinner label="Loading timeline…" size="xs" />
         </div>
       )}
 
       {!showInitialLoading && !error && entryCount === 0 && (
-        <p className="mt-6 text-sm text-slate-600 dark:text-slate-300">No activity within the selected range.</p>
+        <p className="mt-6 text-scale-sm text-secondary">No activity within the selected range.</p>
       )}
 
       {!error && entryCount > 0 && (
@@ -240,9 +241,9 @@ function WorkflowEventTimeline({
             {entries.map((entry) => (
               <li
                 key={`${entry.kind}-${entry.id}-${entry.timestamp}`}
-                className="flex flex-wrap gap-4 rounded-2xl border border-slate-200/60 bg-white/80 p-4 shadow-sm transition-colors dark:border-slate-700/60 dark:bg-slate-900/60"
+                className="flex flex-wrap gap-4 rounded-2xl border border-subtle bg-surface-glass p-4 text-scale-xs text-secondary shadow-elevation-sm transition-colors"
               >
-                <div className="w-36 shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <div className="w-36 shrink-0 text-scale-xs font-weight-semibold text-muted">
                   {formatTimestamp(entry.timestamp)}
                 </div>
                 <div className="min-w-[220px] flex-1">

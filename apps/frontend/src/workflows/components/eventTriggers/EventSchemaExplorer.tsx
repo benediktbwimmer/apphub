@@ -7,6 +7,48 @@ import type {
   WorkflowEventSchemaValueType
 } from '../../types';
 
+const HEADER_TITLE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const HEADER_META_CLASSES = 'text-scale-xs text-secondary';
+
+const LOADING_STATE_CLASSES =
+  'flex h-24 items-center justify-center rounded-2xl border border-subtle bg-surface-glass text-scale-xs text-secondary shadow-elevation-sm';
+
+const EMPTY_STATE_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-xs text-secondary shadow-elevation-sm';
+
+const TREE_CONTAINER_CLASSES =
+  'max-h-64 min-w-[220px] flex-1 overflow-y-auto rounded-2xl border border-subtle bg-surface-glass shadow-elevation-sm';
+
+const DETAIL_CONTAINER_CLASSES =
+  'flex-1 rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm';
+
+const TREE_ITEM_BASE =
+  'flex items-center justify-between gap-2 rounded-xl px-2 py-1 text-scale-xs transition-colors';
+
+const TREE_ITEM_ACTIVE = 'bg-accent-soft text-accent';
+
+const TREE_ITEM_INACTIVE = 'text-secondary hover:bg-surface-glass-soft';
+
+const TREE_TOGGLE_BUTTON_CLASSES =
+  'rounded-md border border-transparent p-1 text-[10px] text-muted transition-colors hover:text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const CODE_BADGE_CLASSES = 'rounded-lg bg-surface-glass px-2 py-1 text-scale-xs text-secondary';
+
+const ACTION_CHIP_PRIMARY =
+  'rounded-full border border-accent bg-accent px-3 py-1 text-[11px] font-weight-semibold text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const ACTION_CHIP_SECONDARY =
+  'rounded-full border border-accent bg-accent-soft px-3 py-1 text-[11px] font-weight-semibold text-accent transition-colors hover:bg-accent-soft/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const ACTION_CHIP_GHOST =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1 text-[11px] font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const EXAMPLE_BUTTON_ACTIVE = 'border-accent bg-accent-soft text-accent';
+
+const EXAMPLE_BUTTON_INACTIVE =
+  'border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:text-accent-strong';
+
 type SchemaTreeNode = {
   key: string;
   segment: string;
@@ -275,7 +317,7 @@ export default function EventSchemaExplorer({
           return (
             <li key={node.key || 'root'}>
               <div
-                className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-xs transition ${isSelected ? 'bg-indigo-50 text-indigo-700 dark:bg-slate-800/70 dark:text-indigo-200' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70'}`}
+                className={`${TREE_ITEM_BASE} ${isSelected ? TREE_ITEM_ACTIVE : TREE_ITEM_INACTIVE}`}
                 style={{ paddingLeft: `${depth * 12 + 8}px` }}
               >
                 <div className="flex items-center gap-2">
@@ -283,7 +325,7 @@ export default function EventSchemaExplorer({
                     <button
                       type="button"
                       onClick={() => handleToggle(node.key)}
-                      className="rounded-md border border-transparent p-1 text-[10px] text-slate-400 transition hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      className={TREE_TOGGLE_BUTTON_CLASSES}
                     >
                       {isExpanded ? '▾' : '▸'}
                     </button>
@@ -293,12 +335,12 @@ export default function EventSchemaExplorer({
                   <button
                     type="button"
                     onClick={() => handleSelect(node.key)}
-                    className="text-left text-xs font-semibold"
+                    className="text-left text-scale-xs font-weight-semibold"
                   >
                     {node.label}
                   </button>
                 </div>
-                {displayTypes && <span className="text-[10px] uppercase text-slate-400 dark:text-slate-500">{displayTypes}</span>}
+                {displayTypes && <span className="text-[10px] uppercase text-muted">{displayTypes}</span>}
               </div>
               {hasChildren && isExpanded && renderTree(node.children, depth + 1)}
             </li>
@@ -312,62 +354,50 @@ export default function EventSchemaExplorer({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Event schema explorer</h4>
+          <h4 className={HEADER_TITLE_CLASSES}>Event schema explorer</h4>
           {schema && schema.totalSamples > 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className={HEADER_META_CLASSES}>
               Based on {schema.totalSamples} sample{schema.totalSamples === 1 ? '' : 's'}
             </p>
           ) : (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Load recent events to inspect available fields.
-            </p>
+            <p className={HEADER_META_CLASSES}>Load recent events to inspect available fields.</p>
           )}
         </div>
         {loading && <Spinner size="xs" />}
       </div>
 
       {loading && (!schema || schema.fields.length === 0) ? (
-        <div className="flex h-24 items-center justify-center rounded-xl border border-slate-200/70 bg-slate-50/70 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-400">
-          Loading event schema…
-        </div>
+        <div className={LOADING_STATE_CLASSES}>Loading event schema…</div>
       ) : !schema || schema.fields.length === 0 ? (
-        <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-4 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-400">
+        <div className={EMPTY_STATE_CLASSES}>
           No schema information available yet. Load matching events to explore fields.
         </div>
       ) : (
         <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="max-h-64 min-w-[220px] flex-1 overflow-y-auto rounded-xl border border-slate-200/70 bg-white dark:border-slate-700/60 dark:bg-slate-900">
-            {renderTree(root.children)}
-          </div>
-          <div className="flex-1 rounded-xl border border-slate-200/70 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-900">
+          <div className={TREE_CONTAINER_CLASSES}>{renderTree(root.children)}</div>
+          <div className={DETAIL_CONTAINER_CLASSES}>
             {!selectedField ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">Select a field to view details.</p>
+              <p className={HEADER_META_CLASSES}>Select a field to view details.</p>
             ) : (
               <div className="flex flex-col gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                    Field
-                  </p>
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <p className="text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted">Field</p>
+                  <p className="text-scale-sm font-weight-semibold text-primary">
                     {formatPath(selectedField.path)}
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className={HEADER_META_CLASSES}>
                     Appears in {selectedField.occurrences} of {schema.totalSamples} sample
                     {schema.totalSamples === 1 ? '' : 's'}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    JSONPath
-                  </p>
+                  <p className="text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted">JSONPath</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {selectedField.jsonPath}
-                    </code>
+                    <code className={CODE_BADGE_CLASSES}>{selectedField.jsonPath}</code>
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200/70 px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                      className={ACTION_CHIP_GHOST}
                       onClick={() => handleCopy(selectedField.jsonPath, 'JSONPath')}
                     >
                       Copy
@@ -376,7 +406,7 @@ export default function EventSchemaExplorer({
                       <>
                         <button
                           type="button"
-                          className="rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={ACTION_CHIP_PRIMARY}
                           onClick={() => handleAddPredicate('exists')}
                           disabled={disabled}
                         >
@@ -384,7 +414,7 @@ export default function EventSchemaExplorer({
                         </button>
                         <button
                           type="button"
-                          className="rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-600 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-900/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+                          className={ACTION_CHIP_SECONDARY}
                           onClick={() => handleAddPredicate('equals')}
                           disabled={disabled || selectedExample === undefined}
                         >
@@ -396,14 +426,14 @@ export default function EventSchemaExplorer({
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <p className="text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted">
                     Liquid snippet
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">{`{{ ${selectedField.liquidPath} }}`}</code>
+                    <code className={CODE_BADGE_CLASSES}>{`{{ ${selectedField.liquidPath} }}`}</code>
                     <button
                       type="button"
-                      className="rounded-full border border-slate-200/70 px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+                      className={ACTION_CHIP_GHOST}
                       onClick={() => handleCopy(`{{ ${selectedField.liquidPath} }}`, 'Liquid snippet')}
                     >
                       Copy
@@ -411,7 +441,7 @@ export default function EventSchemaExplorer({
                     {onInsertLiquid && (
                       <button
                         type="button"
-                        className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        className={ACTION_CHIP_PRIMARY}
                         onClick={handleInsertLiquid}
                         disabled={disabled}
                       >
@@ -422,11 +452,11 @@ export default function EventSchemaExplorer({
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <p className="text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted">
                     Example values
                   </p>
                   {examples.length === 0 ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">No example values captured yet.</p>
+                    <p className={HEADER_META_CLASSES}>No example values captured yet.</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {examples.map((example, index) => {
@@ -436,7 +466,9 @@ export default function EventSchemaExplorer({
                           <button
                             type="button"
                             key={`${selectedField.jsonPath}-example-${index}`}
-                            className={`rounded-xl border px-3 py-2 text-left text-xs transition ${isActive ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500/60 dark:bg-indigo-900/30 dark:text-indigo-200' : 'border-slate-200/70 bg-slate-50 text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-200'}`}
+                            className={`rounded-xl border px-3 py-2 text-left text-scale-xs transition-colors ${
+                              isActive ? EXAMPLE_BUTTON_ACTIVE : EXAMPLE_BUTTON_INACTIVE
+                            }`}
                             onClick={() => setSelectedExampleIndex(index)}
                           >
                             {label.length > 120 ? `${label.slice(0, 117)}…` : label}

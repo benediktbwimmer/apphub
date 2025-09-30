@@ -1,6 +1,16 @@
+import classNames from 'classnames';
 import { useCallback, useState } from 'react';
 import { API_BASE_URL } from '../config';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import {
+  SETTINGS_DANGER_BUTTON_CLASSES,
+  SETTINGS_DANGER_CARD_CONTAINER_CLASSES,
+  SETTINGS_DANGER_META_TEXT_CLASSES,
+  SETTINGS_DANGER_TEXT_CLASSES,
+  SETTINGS_HEADER_SUBTITLE_CLASSES,
+  SETTINGS_HEADER_TITLE_CLASSES
+} from './settingsTokens';
 
 export default function AdminToolsPage() {
   const authorizedFetch = useAuthorizedFetch();
@@ -131,28 +141,30 @@ export default function AdminToolsPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Admin tools</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+        <h2 className={SETTINGS_HEADER_TITLE_CLASSES}>Admin tools</h2>
+        <p className={SETTINGS_HEADER_SUBTITLE_CLASSES}>
           Dangerous operations that require an operator token. Changes here are irreversible.
         </p>
       </header>
 
-      <section className="flex flex-col gap-4 rounded-2xl border border-rose-400/60 bg-rose-50/80 p-6 shadow-sm dark:border-rose-500/50 dark:bg-rose-500/10">
+      <section className={SETTINGS_DANGER_CARD_CONTAINER_CLASSES}>
         <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-300">
+          <h3 className={SETTINGS_DANGER_META_TEXT_CLASSES}>
             Danger zone
           </h3>
-          <p className="text-sm text-rose-700 dark:text-rose-200">
+          <p className={SETTINGS_DANGER_TEXT_CLASSES}>
             Use these controls to delete run data (builds, launches, service network state) or wipe the entire
             catalog. There is no undo.
           </p>
         </div>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">Delete run data only</div>
+            <div className={classNames('text-scale-sm font-weight-medium', SETTINGS_DANGER_TEXT_CLASSES)}>
+              Delete run data only
+            </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeRunData}
               disabled={isBusy}
             >
@@ -160,18 +172,18 @@ export default function AdminToolsPage() {
             </button>
           </div>
           {runDataError && (
-            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+            <p className={SETTINGS_DANGER_META_TEXT_CLASSES} role="alert" aria-live="polite">
               {runDataError}
             </p>
           )}
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">
+            <div className={classNames('text-scale-sm font-weight-medium', SETTINGS_DANGER_TEXT_CLASSES)}>
               Permanently delete all catalog data
             </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeCatalog}
               disabled={isBusy}
             >
@@ -179,18 +191,18 @@ export default function AdminToolsPage() {
             </button>
           </div>
           {catalogError && (
-            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+            <p className={SETTINGS_DANGER_META_TEXT_CLASSES} role="alert" aria-live="polite">
               {catalogError}
             </p>
           )}
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm font-medium text-rose-700 dark:text-rose-200">
+            <div className={classNames('text-scale-sm font-weight-medium', SETTINGS_DANGER_TEXT_CLASSES)}>
               Reset everything (jobs, workflows, seeds, and catalog data)
             </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-500/70 bg-rose-600/10 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/50 dark:bg-rose-500/15 dark:text-rose-200 dark:hover:bg-rose-500/40"
+              className={classNames(SETTINGS_DANGER_BUTTON_CLASSES, getStatusToneClasses('danger'))}
               onClick={handleNukeEverything}
               disabled={isBusy}
             >
@@ -198,7 +210,7 @@ export default function AdminToolsPage() {
             </button>
           </div>
           {everythingError && (
-            <p className="text-xs font-semibold text-rose-700 dark:text-rose-200" role="alert" aria-live="polite">
+            <p className={SETTINGS_DANGER_META_TEXT_CLASSES} role="alert" aria-live="polite">
               {everythingError}
             </p>
           )}

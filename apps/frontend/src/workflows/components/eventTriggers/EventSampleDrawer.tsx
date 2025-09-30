@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../../../components/Modal';
 import { Spinner } from '../../../components/Spinner';
+import { getStatusToneClasses } from '../../../theme/statusTokens';
 import EventSchemaExplorer from './EventSchemaExplorer';
 import type { WorkflowEventSample, WorkflowEventSchema, WorkflowEventTrigger } from '../../types';
 import type { WorkflowEventSampleQuery, WorkflowEventTriggerPredicateInput } from '../../api';
@@ -569,14 +570,14 @@ export default function EventSampleDrawer({
       <div className="flex h-[80vh] flex-col gap-4 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Event samples</h2>
+            <h2 className="text-scale-lg font-weight-semibold text-primary">Event samples</h2>
             {source ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-scale-xs text-secondary">
                 Filtering for <span className="font-semibold">{source.eventType}</span>
                 {source.eventSource ? ` · ${source.eventSource}` : ''}
               </p>
             ) : (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-scale-xs text-secondary">
                 Select a trigger or provide preview details to evaluate events.
               </p>
             )}
@@ -585,14 +586,14 @@ export default function EventSampleDrawer({
             <button
               type="button"
               onClick={onRefresh}
-              className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="rounded-full border border-subtle bg-surface-glass px-3 py-2 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Refresh
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full border border-slate-200/70 px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="rounded-full border border-subtle bg-surface-glass px-3 py-2 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Close
             </button>
@@ -600,27 +601,27 @@ export default function EventSampleDrawer({
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <label className="flex flex-col text-scale-xs font-weight-semibold text-secondary">
             Event type
             <input
               type="text"
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
-              className="mt-1 w-60 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className="mt-1 w-60 rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               placeholder="metastore.record.created"
             />
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <label className="flex flex-col text-scale-xs font-weight-semibold text-secondary">
             Source
             <input
               type="text"
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
-              className="mt-1 w-48 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className="mt-1 w-48 rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               placeholder="services.metastore"
             />
           </label>
-          <label className="flex flex-col text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <label className="flex flex-col text-scale-xs font-weight-semibold text-secondary">
             Limit
             <input
               type="number"
@@ -628,46 +629,48 @@ export default function EventSampleDrawer({
               max={200}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
-              className="mt-1 w-24 rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700/60 dark:bg-slate-900 dark:text-slate-200"
+              className="mt-1 w-24 rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
           </label>
           <button
             type="button"
             onClick={handleLoad}
-            className="self-end rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            className="self-end rounded-full border border-accent bg-accent px-4 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Load events
           </button>
         </div>
 
         <div className="flex flex-1 gap-4 overflow-hidden">
-          <div className="flex w-80 flex-col rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-xs font-semibold text-slate-600 dark:border-slate-700/60 dark:text-slate-300">
+          <div className="flex w-80 flex-col rounded-2xl border border-subtle bg-surface-glass shadow-elevation-lg">
+            <div className="flex items-center justify-between border-b border-subtle px-4 py-3 text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
               <span>Events</span>
               {loading && <Spinner size="xs" />}
             </div>
             <div className="flex-1 overflow-y-auto">
               {error ? (
-                <p className="px-4 py-3 text-xs font-semibold text-rose-600 dark:text-rose-300">{error}</p>
+                <p className={`px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('danger')}`}>{error}</p>
               ) : samples.length === 0 ? (
-                <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No events found.</p>
+                <p className="px-4 py-3 text-scale-xs text-secondary">No events found.</p>
               ) : (
-                <ul className="divide-y divide-slate-200/70 dark:divide-slate-800/60">
+                <ul className="divide-y divide-subtle">
                   {samples.map((sample) => {
                     const isSelected = sample.id === selectedEventId;
                     return (
                       <li
                         key={sample.id}
-                        className={`cursor-pointer px-4 py-3 text-xs transition hover:bg-indigo-50 dark:hover:bg-slate-800 ${isSelected ? 'bg-indigo-50/70 text-indigo-700 dark:bg-slate-800/70 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-300'}`}
+                        className={`cursor-pointer px-4 py-3 text-scale-xs transition-colors hover:bg-surface-glass-soft ${
+                          isSelected ? 'bg-accent-soft text-accent-strong' : 'text-secondary'
+                        }`}
                         onClick={() => setSelectedEventId(sample.id)}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold">{sample.type}</span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                          <span className="font-weight-semibold text-primary">{sample.type}</span>
+                          <span className="text-[10px] text-muted">
                             {new Date(sample.occurredAt).toLocaleString()}
                           </span>
                         </div>
-                        <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{sample.source}</p>
+                        <p className="mt-1 truncate text-[11px] text-secondary">{sample.source}</p>
                       </li>
                     );
                   })}
@@ -677,17 +680,17 @@ export default function EventSampleDrawer({
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-hidden">
-            <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+            <div className="flex-1 overflow-y-auto rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-md">
               {!selectedSample || !source ? (
-                <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex h-full items-center justify-center text-scale-xs text-secondary">
                   Select a trigger and event to evaluate predicates.
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{selectedSample.type}</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <h3 className="text-scale-sm font-weight-semibold text-primary">{selectedSample.type}</h3>
+                      <p className="text-scale-xs text-secondary">
                         {selectedSample.source ?? 'unknown'} · {new Date(selectedSample.occurredAt).toLocaleString()}
                       </p>
                     </div>
@@ -695,24 +698,24 @@ export default function EventSampleDrawer({
                   </div>
 
                   {evaluation && evaluation.predicateResults.length > 0 && (
-                    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Predicates</h4>
+                    <div className="rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm">
+                      <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">Predicates</h4>
                       <ul className="mt-2 space-y-2">
                         {evaluation.predicateResults.map((result, index) => (
-                          <li key={`${result.path}-${index}`} className="flex items-start justify-between gap-3 text-xs">
+                          <li key={`${result.path}-${index}`} className="flex items-start justify-between gap-3 text-scale-xs text-secondary">
                             <div>
-                              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                              <p className="font-weight-semibold text-primary">
                                 {result.path} {result.operator}
                               </p>
                               {result.detail && (
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{result.detail}</p>
+                                <p className="text-[11px] text-muted">{result.detail}</p>
                               )}
                             </div>
                             <span
                               className={
                                 result.matched
-                                  ? 'rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
-                                  : 'rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-600 dark:bg-rose-900/40 dark:text-rose-300'
+                                  ? `${STATUS_LABEL} ${getStatusToneClasses('success')}`
+                                  : `${STATUS_LABEL} ${getStatusToneClasses('danger')}`
                               }
                             >
                               {result.matched ? 'matched' : 'no match'}
@@ -723,25 +726,23 @@ export default function EventSampleDrawer({
                     </div>
                   )}
 
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <div className="rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm">
+                    <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
                       Payload
                     </h4>
-                    <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                    <pre className={CODE_BLOCK}>
                       {JSON.stringify(selectedSample.payload, null, 2)}
                     </pre>
                   </div>
 
                   {evaluation?.parameterError ? (
-                    <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/40 dark:text-rose-200">
-                      {evaluation.parameterError}
-                    </div>
+                    <div className={ERROR_CALLOUT}>{evaluation.parameterError}</div>
                   ) : (
-                    <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <div className="rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm">
+                      <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
                         Parameter preview
                       </h4>
-                      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                      <pre className={SECONDARY_CODE_BLOCK}>
                         {evaluation?.parameterPreview === undefined
                           ? 'No parameter template defined.'
                           : JSON.stringify(evaluation.parameterPreview, null, 2)}
@@ -750,15 +751,13 @@ export default function EventSampleDrawer({
                   )}
                   {source?.runKeyTemplate ? (
                     evaluation?.runKeyError ? (
-                      <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-xs font-semibold text-rose-700 dark:border-rose-500/50 dark:bg-rose-900/40 dark:text-rose-200">
-                        {evaluation.runKeyError}
-                      </div>
+                      <div className={ERROR_CALLOUT}>{evaluation.runKeyError}</div>
                     ) : (
-                      <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-900/40">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm">
+                        <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
                           Run key preview
                         </h4>
-                        <pre className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-all text-[11px] text-slate-600 dark:text-slate-300">
+                        <pre className={`${CODE_BLOCK} max-h-24`}>
                           {evaluation?.runKeyPreview === undefined
                             ? 'No preview available.'
                             : evaluation.runKeyPreview ?? 'Template produced an empty value.'}
@@ -769,7 +768,7 @@ export default function EventSampleDrawer({
                 </div>
               )}
             </div>
-            <div className="max-h-80 overflow-y-auto rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+            <div className="max-h-80 overflow-y-auto rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm">
               <EventSchemaExplorer schema={schema} loading={loading} />
             </div>
           </div>

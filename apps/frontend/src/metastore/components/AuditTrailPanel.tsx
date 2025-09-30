@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MetastoreRecordDetail } from '../types';
 import type {
@@ -11,6 +12,24 @@ import { formatInstant, mapMetastoreError } from '../utils';
 import { Spinner } from '../../components';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import { Modal } from '../../components/Modal';
+import {
+  METASTORE_ALERT_ERROR_CLASSES,
+  METASTORE_ALERT_WARNING_CLASSES,
+  METASTORE_CARD_CONTAINER_CLASSES,
+  METASTORE_DIALOG_CONTENT_CLASSES,
+  METASTORE_DIALOG_SUBTITLE_CLASSES,
+  METASTORE_DIALOG_TITLE_CLASSES,
+  METASTORE_ERROR_TEXT_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_PRIMARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_STATUS_TONE_CLASSES,
+  METASTORE_SUMMARY_CARD_CLASSES,
+  METASTORE_SUMMARY_LABEL_CLASSES,
+  METASTORE_TABLE_CONTAINER_CLASSES,
+  METASTORE_TABLE_REFRESH_BUTTON_CLASSES,
+  METASTORE_TAG_BADGE_CLASSES
+} from '../metastoreTokens';
 
 const AUDIT_PAGE_SIZE = 20;
 
@@ -21,11 +40,11 @@ const ACTION_LABELS: Record<MetastoreAuditAction, string> = {
   restore: 'Restore'
 };
 
-const ACTION_BADGE_CLASSES: Record<MetastoreAuditAction, string> = {
-  create: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300',
-  update: 'bg-blue-500/10 text-blue-600 dark:text-blue-300',
-  delete: 'bg-rose-500/10 text-rose-600 dark:text-rose-300',
-  restore: 'bg-amber-500/10 text-amber-600 dark:text-amber-300'
+const ACTION_TONES: Record<MetastoreAuditAction, 'success' | 'info' | 'warn' | 'error'> = {
+  create: 'success',
+  update: 'info',
+  delete: 'error',
+  restore: 'warn'
 };
 
 type ToastHelpers = {
@@ -86,12 +105,6 @@ function formatVersionRange(entry: MetastoreAuditEntry): string {
     return after;
   }
   return `${before} → ${after}`;
-}
-
-function joinClassNames(...values: Array<string | null | undefined | false>) {
-  return values
-    .filter((value) => typeof value === 'string' && value.trim().length > 0)
-    .join(' ');
 }
 
 export function AuditTrailPanel({
@@ -282,33 +295,36 @@ export function AuditTrailPanel({
   const correlationAvailable = Boolean(diffState.target?.correlationId);
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-          Audit trail
-        </h4>
+        <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Audit trail</h4>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setRefreshToken((value) => value + 1)}
-            className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+            className={METASTORE_TABLE_REFRESH_BUTTON_CLASSES}
           >
             Refresh
           </button>
-          <div className="flex items-center gap-1 text-[11px] uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+          <div
+            className={classNames(
+              'flex items-center gap-2 uppercase tracking-[0.2em]',
+              METASTORE_META_TEXT_CLASSES
+            )}
+          >
             Page {Math.min(pageIndex + 1, totalPages)} of {totalPages}
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <div className={classNames('flex flex-wrap items-center gap-2', METASTORE_META_TEXT_CLASSES)}>
         <span>Filters:</span>
         <button
           type="button"
           onClick={clearFilters}
-          className={joinClassNames(
-            'rounded-full border border-slate-300/70 px-3 py-1 font-semibold transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300',
-            filters.length === 0 ? 'bg-slate-200/60 dark:bg-slate-700/40' : undefined
+          className={classNames(
+            METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+            filters.length === 0 ? 'border-accent bg-accent-soft text-accent-strong' : undefined
           )}
         >
           All
@@ -320,9 +336,9 @@ export function AuditTrailPanel({
               key={value}
               type="button"
               onClick={() => toggleFilter(value as MetastoreAuditAction)}
-              className={joinClassNames(
-                'rounded-full border border-slate-300/70 px-3 py-1 font-semibold transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300',
-                active ? 'bg-violet-500/10 text-violet-600 dark:text-violet-300 border-violet-400/70' : undefined
+              className={classNames(
+                METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                active ? 'border-accent bg-accent-soft text-accent-strong' : undefined
               )}
             >
               {label}
@@ -332,55 +348,68 @@ export function AuditTrailPanel({
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
+        <div
+          className={classNames(
+            METASTORE_CARD_CONTAINER_CLASSES,
+            'flex items-center gap-2 text-scale-sm text-secondary'
+          )}
+        >
           <Spinner size="xs" label="Loading audit history" />
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-sm text-rose-600 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
-        </div>
+        <div className={METASTORE_ALERT_ERROR_CLASSES}>{error}</div>
       ) : pagination.total === 0 ? (
-        <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-          No audit entries recorded yet.
-        </div>
+        <div className={METASTORE_ALERT_WARNING_CLASSES}>No audit entries recorded yet.</div>
       ) : (
         <div className="space-y-3">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                  <th className="px-3 py-2 font-semibold">Action</th>
-                  <th className="px-3 py-2 font-semibold">Version</th>
-                  <th className="px-3 py-2 font-semibold">Actor</th>
-                  <th className="px-3 py-2 font-semibold">Correlation</th>
-                  <th className="px-3 py-2 font-semibold">When</th>
-                  <th className="px-3 py-2 font-semibold" aria-label="actions"></th>
+          <div className={classNames(METASTORE_TABLE_CONTAINER_CLASSES, 'overflow-hidden')}>
+            <table className="min-w-full border-separate border-spacing-0 text-left">
+              <thead className="bg-surface-muted">
+                <tr
+                  className={classNames(
+                    'uppercase tracking-[0.2em]',
+                    METASTORE_META_TEXT_CLASSES
+                  )}
+                >
+                  <th className="px-4 py-3 text-left font-weight-semibold">Action</th>
+                  <th className="px-4 py-3 text-left font-weight-semibold">Version</th>
+                  <th className="px-4 py-3 text-left font-weight-semibold">Actor</th>
+                  <th className="px-4 py-3 text-left font-weight-semibold">Correlation</th>
+                  <th className="px-4 py-3 text-left font-weight-semibold">When</th>
+                  <th className="px-4 py-3 text-left font-weight-semibold" aria-label="actions" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm text-slate-600 dark:divide-slate-700 dark:text-slate-300">
+              <tbody>
                 {filteredAudits.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-slate-100/60 dark:hover:bg-slate-800/40">
-                    <td className="px-3 py-2">
+                  <tr
+                    key={entry.id}
+                    className="border-b border-subtle transition-colors last:border-b-0 hover:bg-accent-soft/40"
+                  >
+                    <td className="px-4 py-3">
                       <span
-                        className={joinClassNames(
-                          'inline-flex rounded-full px-3 py-1 text-xs font-semibold',
-                          ACTION_BADGE_CLASSES[entry.action]
+                        className={classNames(
+                          'inline-flex items-center rounded-full border px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.25em]',
+                          METASTORE_STATUS_TONE_CLASSES[ACTION_TONES[entry.action]]
                         )}
                       >
                         {ACTION_LABELS[entry.action]}
                       </span>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs">{formatVersionRange(entry)}</td>
-                    <td className="px-3 py-2">{entry.actor ?? 'system'}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    <td className="px-4 py-3 font-mono text-scale-xs text-primary">
+                      {formatVersionRange(entry)}
+                    </td>
+                    <td className="px-4 py-3 text-scale-sm text-primary">{entry.actor ?? 'system'}</td>
+                    <td className="px-4 py-3 font-mono text-scale-xs text-muted">
                       {entry.correlationId ?? '—'}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{formatInstant(entry.createdAt)}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-4 py-3 whitespace-nowrap text-scale-sm text-secondary">
+                      {formatInstant(entry.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
                       <button
                         type="button"
                         onClick={() => requestDiff(entry)}
-                        className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+                        className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                       >
                         View diff
                       </button>
@@ -391,16 +420,22 @@ export function AuditTrailPanel({
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div
+            className={classNames(
+              'flex flex-wrap items-center justify-between gap-2',
+              METASTORE_META_TEXT_CLASSES
+            )}
+          >
             <span>
-              Showing {filteredAudits.length} entries • Page {Math.min(pageIndex + 1, totalPages)} of {totalPages} • Total {pagination.total}
+              Showing {filteredAudits.length} entries • Page {Math.min(pageIndex + 1, totalPages)} of{' '}
+              {totalPages} • Total {pagination.total}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setPageIndex((value) => Math.max(value - 1, 0))}
                 disabled={pageIndex === 0}
-                className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 Previous
               </button>
@@ -410,7 +445,7 @@ export function AuditTrailPanel({
                   setPageIndex((value) => (value >= totalPages - 1 ? value : value + 1))
                 }
                 disabled={pageIndex >= totalPages - 1}
-                className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 Next
               </button>
@@ -424,29 +459,35 @@ export function AuditTrailPanel({
         onClose={closeDiff}
         labelledBy="metastore-audit-diff-title"
         className="items-start"
-        contentClassName="w-full max-w-4xl"
+        contentClassName={METASTORE_DIALOG_CONTENT_CLASSES}
       >
-        <div className="flex flex-col gap-4 p-6">
+        <div className="flex flex-col gap-5">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <h3 id="metastore-audit-diff-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              <h3 id="metastore-audit-diff-title" className={METASTORE_DIALOG_TITLE_CLASSES}>
                 Audit diff
               </h3>
               {diffState.target ? (
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+                <p className={METASTORE_DIALOG_SUBTITLE_CLASSES}>
                   {ACTION_LABELS[diffState.target.action]} • {formatVersionRange(diffState.target)} •{' '}
                   {formatInstant(diffState.target.createdAt)}
                 </p>
               ) : null}
-              {diffState.target?.actor ? (
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
-                  Actor: {diffState.target.actor}
-                </p>
-              ) : (
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">Actor: system</p>
-              )}
+              <p
+                className={classNames(
+                  'text-scale-xs uppercase tracking-[0.2em]',
+                  METASTORE_META_TEXT_CLASSES
+                )}
+              >
+                Actor: {diffState.target?.actor ?? 'system'}
+              </p>
               {correlationAvailable ? (
-                <p className="text-xs font-mono uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                <p
+                  className={classNames(
+                    'font-mono text-scale-xs uppercase tracking-[0.2em]',
+                    METASTORE_META_TEXT_CLASSES
+                  )}
+                >
                   Correlation: {diffState.target?.correlationId}
                 </p>
               ) : null}
@@ -454,42 +495,38 @@ export function AuditTrailPanel({
             <button
               type="button"
               onClick={closeDiff}
-              className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+              className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
             >
               Close
             </button>
           </header>
 
           {diffState.loading ? (
-            <div className="flex items-center justify-center py-8">
+            <div className="flex items-center justify-center py-10 text-secondary">
               <Spinner label="Loading diff" />
             </div>
           ) : diffState.error ? (
-            <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-4 py-3 text-sm text-rose-600 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
-              {diffState.error}
-            </div>
+            <div className={METASTORE_ALERT_ERROR_CLASSES}>{diffState.error}</div>
           ) : activeDiff ? (
-            <div className="space-y-4">
-              <section className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
-                <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                  Metadata changes
-                </h4>
+            <div className="space-y-4 text-scale-sm text-secondary">
+              <section className={classNames(METASTORE_SUMMARY_CARD_CLASSES, 'space-y-3 p-4')}>
+                <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Metadata changes</h4>
                 {activeDiff.metadata.added.length === 0 &&
                 activeDiff.metadata.removed.length === 0 &&
                 activeDiff.metadata.changed.length === 0 ? (
-                  <p className="mt-2 text-sm">No metadata differences.</p>
+                  <p>No metadata differences.</p>
                 ) : (
-                  <div className="mt-3 space-y-3">
+                  <div className="space-y-3">
                     {activeDiff.metadata.added.length > 0 ? (
-                      <details className="rounded-xl border border-emerald-300/60 bg-emerald-50/60 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
-                        <summary className="cursor-pointer text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                      <details className="rounded-2xl border border-status-success bg-status-success-soft p-3 text-secondary">
+                        <summary className="cursor-pointer text-scale-sm font-weight-semibold text-status-success">
                           Added paths ({activeDiff.metadata.added.length})
                         </summary>
                         <ul className="mt-2 space-y-2">
                           {activeDiff.metadata.added.map((item) => (
                             <li key={`added-${item.path}`} className="space-y-1">
-                              <div className="font-mono text-xs text-emerald-700 dark:text-emerald-300">{item.path}</div>
-                              <pre className="max-h-40 overflow-auto rounded-lg bg-white/70 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+                              <div className="font-mono text-scale-xs text-status-success">{item.path}</div>
+                              <pre className="max-h-40 overflow-auto rounded-xl border border-subtle bg-surface-sunken p-3 font-mono text-scale-xs text-primary">
                                 {stringifyValue(item.value)}
                               </pre>
                             </li>
@@ -498,15 +535,15 @@ export function AuditTrailPanel({
                       </details>
                     ) : null}
                     {activeDiff.metadata.removed.length > 0 ? (
-                      <details className="rounded-xl border border-rose-300/60 bg-rose-50/60 p-3 dark:border-rose-500/40 dark:bg-rose-500/10">
-                        <summary className="cursor-pointer text-sm font-semibold text-rose-700 dark:text-rose-300">
+                      <details className="rounded-2xl border border-status-danger bg-status-danger-soft p-3 text-secondary">
+                        <summary className="cursor-pointer text-scale-sm font-weight-semibold text-status-danger">
                           Removed paths ({activeDiff.metadata.removed.length})
                         </summary>
                         <ul className="mt-2 space-y-2">
                           {activeDiff.metadata.removed.map((item) => (
                             <li key={`removed-${item.path}`} className="space-y-1">
-                              <div className="font-mono text-xs text-rose-700 dark:text-rose-300">{item.path}</div>
-                              <pre className="max-h-40 overflow-auto rounded-lg bg-white/70 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+                              <div className="font-mono text-scale-xs text-status-danger">{item.path}</div>
+                              <pre className="max-h-40 overflow-auto rounded-xl border border-subtle bg-surface-sunken p-3 font-mono text-scale-xs text-primary">
                                 {stringifyValue(item.value)}
                               </pre>
                             </li>
@@ -515,24 +552,24 @@ export function AuditTrailPanel({
                       </details>
                     ) : null}
                     {activeDiff.metadata.changed.length > 0 ? (
-                      <details className="rounded-xl border border-amber-300/60 bg-amber-50/60 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
-                        <summary className="cursor-pointer text-sm font-semibold text-amber-700 dark:text-amber-300">
+                      <details className="rounded-2xl border border-status-warning bg-status-warning-soft p-3 text-secondary">
+                        <summary className="cursor-pointer text-scale-sm font-weight-semibold text-status-warning">
                           Changed paths ({activeDiff.metadata.changed.length})
                         </summary>
                         <ul className="mt-2 space-y-2">
                           {activeDiff.metadata.changed.map((item) => (
-                            <li key={`changed-${item.path}`} className="space-y-1">
-                              <div className="font-mono text-xs text-amber-700 dark:text-amber-300">{item.path}</div>
-                              <div className="grid gap-2 rounded-lg bg-white/80 p-2 text-xs dark:bg-slate-900/60">
-                                <div>
-                                  <span className="font-semibold text-rose-600 dark:text-rose-300">Before:</span>
-                                  <pre className="max-h-32 overflow-auto rounded bg-rose-100/70 p-2 font-mono text-xs text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">
+                            <li key={`changed-${item.path}`} className="space-y-2">
+                              <div className="font-mono text-scale-xs text-status-warning">{item.path}</div>
+                              <div className="grid gap-3 rounded-2xl border border-subtle bg-surface-glass p-3 text-scale-xs text-secondary">
+                                <div className="space-y-2">
+                                  <span className="font-weight-semibold text-status-danger">Before</span>
+                                  <pre className="max-h-32 overflow-auto rounded border border-subtle bg-surface-sunken p-3 font-mono text-scale-xs text-status-danger">
                                     {stringifyValue(item.before)}
                                   </pre>
                                 </div>
-                                <div>
-                                  <span className="font-semibold text-emerald-600 dark:text-emerald-300">After:</span>
-                                  <pre className="max-h-32 overflow-auto rounded bg-emerald-100/70 p-2 font-mono text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200">
+                                <div className="space-y-2">
+                                  <span className="font-weight-semibold text-status-success">After</span>
+                                  <pre className="max-h-32 overflow-auto rounded border border-subtle bg-surface-sunken p-3 font-mono text-scale-xs text-status-success">
                                     {stringifyValue(item.after)}
                                   </pre>
                                 </div>
@@ -547,24 +584,25 @@ export function AuditTrailPanel({
               </section>
 
               <section className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Tags
-                  </h4>
+                <div className={classNames(METASTORE_SUMMARY_CARD_CLASSES, 'space-y-2 p-4')}>
+                  <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Tags</h4>
                   {activeDiff.tags.added.length === 0 && activeDiff.tags.removed.length === 0 ? (
-                    <p className="mt-2">No tag differences.</p>
+                    <p>No tag differences.</p>
                   ) : (
-                    <div className="mt-2 space-y-2">
+                    <div className="space-y-3">
                       {activeDiff.tags.added.length > 0 ? (
-                        <div>
-                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-300">
+                        <div className="space-y-1">
+                          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-status-success">
                             Added
                           </span>
-                          <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1">
                             {activeDiff.tags.added.map((tag) => (
                               <span
                                 key={`tag-added-${tag}`}
-                                className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300"
+                                className={classNames(
+                                  METASTORE_TAG_BADGE_CLASSES,
+                                  'border-status-success bg-status-success-soft text-status-success'
+                                )}
                               >
                                 {tag}
                               </span>
@@ -573,15 +611,18 @@ export function AuditTrailPanel({
                         </div>
                       ) : null}
                       {activeDiff.tags.removed.length > 0 ? (
-                        <div>
-                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-300">
+                        <div className="space-y-1">
+                          <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-status-danger">
                             Removed
                           </span>
-                          <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1">
                             {activeDiff.tags.removed.map((tag) => (
                               <span
                                 key={`tag-removed-${tag}`}
-                                className="rounded-full bg-rose-500/10 px-2 py-1 text-xs font-semibold text-rose-600 dark:text-rose-300"
+                                className={classNames(
+                                  METASTORE_TAG_BADGE_CLASSES,
+                                  'border-status-danger bg-status-danger-soft text-status-danger'
+                                )}
                               >
                                 {tag}
                               </span>
@@ -594,82 +635,70 @@ export function AuditTrailPanel({
                 </div>
 
                 <div className="grid gap-3">
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                      Owner
-                    </h4>
+                  <div className={classNames(METASTORE_SUMMARY_CARD_CLASSES, 'space-y-2 p-4')}>
+                    <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Owner</h4>
                     {activeDiff.owner.changed ? (
-                      <div className="mt-2 space-y-2">
-                        <div className="text-xs text-rose-600 dark:text-rose-300">{activeDiff.owner.before ?? '—'}</div>
-                        <div className="text-xs text-emerald-600 dark:text-emerald-300">{activeDiff.owner.after ?? '—'}</div>
+                      <div className="space-y-2 text-scale-xs font-mono">
+                        <div className="text-status-danger">{activeDiff.owner.before ?? '—'}</div>
+                        <div className="text-status-success">{activeDiff.owner.after ?? '—'}</div>
                       </div>
                     ) : (
-                      <p className="mt-2 text-sm">No owner change.</p>
+                      <p>No owner change.</p>
                     )}
                   </div>
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 text-sm text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-300">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                      Schema hash
-                    </h4>
+                  <div className={classNames(METASTORE_SUMMARY_CARD_CLASSES, 'space-y-2 p-4')}>
+                    <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Schema hash</h4>
                     {activeDiff.schemaHash.changed ? (
-                      <div className="mt-2 space-y-2 font-mono text-xs">
-                        <div className="text-rose-600 dark:text-rose-300">{activeDiff.schemaHash.before ?? '—'}</div>
-                        <div className="text-emerald-600 dark:text-emerald-300">{activeDiff.schemaHash.after ?? '—'}</div>
+                      <div className="space-y-2 font-mono text-scale-xs">
+                        <div className="text-status-danger">{activeDiff.schemaHash.before ?? '—'}</div>
+                        <div className="text-status-success">{activeDiff.schemaHash.after ?? '—'}</div>
                       </div>
                     ) : (
-                      <p className="mt-2 text-sm">No schema hash change.</p>
+                      <p>No schema hash change.</p>
                     )}
                   </div>
                 </div>
               </section>
 
               <section className="grid gap-3 md:grid-cols-2">
-                <details className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/80" open={false}>
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                <details className="rounded-2xl border border-subtle bg-surface-glass p-4 text-secondary">
+                  <summary className={classNames('cursor-pointer', METASTORE_SUMMARY_LABEL_CLASSES)}>
                     Snapshot after change
                   </summary>
-                  <div className="mt-3 max-h-72 overflow-auto rounded-xl bg-slate-900/90 p-3">
+                  <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-subtle bg-surface-sunken p-3">
                     <JsonSyntaxHighlighter value={activeDiff.snapshots.current.metadata ?? {}} />
                   </div>
-                  <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                    Tags: {activeDiff.snapshots.current.tags.join(', ') || '—'}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Owner: {activeDiff.snapshots.current.owner ?? '—'}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Schema hash: {activeDiff.snapshots.current.schemaHash ?? '—'}
+                  <div className="mt-3 space-y-1 text-scale-xs text-muted">
+                    <div>Tags: {activeDiff.snapshots.current.tags.join(', ') || '—'}</div>
+                    <div>Owner: {activeDiff.snapshots.current.owner ?? '—'}</div>
+                    <div>Schema hash: {activeDiff.snapshots.current.schemaHash ?? '—'}</div>
                   </div>
                 </details>
-                <details className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-inner dark:border-slate-700/70 dark:bg-slate-900/80" open={false}>
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                <details className="rounded-2xl border border-subtle bg-surface-glass p-4 text-secondary">
+                  <summary className={classNames('cursor-pointer', METASTORE_SUMMARY_LABEL_CLASSES)}>
                     Snapshot before change
                   </summary>
-                  <div className="mt-3 max-h-72 overflow-auto rounded-xl bg-slate-900/90 p-3">
+                  <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-subtle bg-surface-sunken p-3">
                     <JsonSyntaxHighlighter value={activeDiff.snapshots.previous.metadata ?? {}} />
                   </div>
-                  <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                    Tags: {activeDiff.snapshots.previous.tags.join(', ') || '—'}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Owner: {activeDiff.snapshots.previous.owner ?? '—'}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Schema hash: {activeDiff.snapshots.previous.schemaHash ?? '—'}
+                  <div className="mt-3 space-y-1 text-scale-xs text-muted">
+                    <div>Tags: {activeDiff.snapshots.previous.tags.join(', ') || '—'}</div>
+                    <div>Owner: {activeDiff.snapshots.previous.owner ?? '—'}</div>
+                    <div>Schema hash: {activeDiff.snapshots.previous.schemaHash ?? '—'}</div>
                   </div>
                 </details>
               </section>
             </div>
           ) : (
-            <div className="text-sm text-slate-600 dark:text-slate-300">Select an audit entry to view details.</div>
+            <div className="text-scale-sm text-secondary">Select an audit entry to view details.</div>
           )}
 
           {hasWriteScope && diffState.target ? (
-            <div className="mt-2 space-y-3 rounded-2xl border border-violet-300/70 bg-violet-50/60 p-4 text-sm text-slate-700 dark:border-violet-500/60 dark:bg-violet-500/10 dark:text-slate-200">
+            <div className="space-y-3 rounded-2xl border border-status-warning bg-status-warning-soft px-4 py-4 text-scale-sm text-secondary">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-300">
-                    Restore
-                  </h4>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                <div className="space-y-1">
+                  <h4 className={METASTORE_SUMMARY_LABEL_CLASSES}>Restore</h4>
+                  <p className="text-scale-xs text-secondary">
                     Replays metadata, tags, owner, and schema hash from this version with optimistic locking against v{record.version}.
                   </p>
                 </div>
@@ -679,7 +708,7 @@ export function AuditTrailPanel({
                     onClick={() =>
                       setDiffState((previous) => ({ ...previous, showRestoreConfirm: true, restoreError: null }))
                     }
-                    className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:opacity-40"
+                    className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                   >
                     Restore this version
                   </button>
@@ -687,21 +716,23 @@ export function AuditTrailPanel({
               </div>
 
               {diffState.showRestoreConfirm ? (
-                <div className="rounded-xl border border-violet-400/70 bg-white/80 p-3 text-xs text-slate-600 shadow-inner dark:border-violet-400/40 dark:bg-slate-900/70 dark:text-slate-200">
+                <div className="rounded-2xl border border-subtle bg-surface-glass p-4 text-scale-sm text-secondary">
                   <p>
                     Confirm to overwrite the current record with the snapshot captured at{' '}
                     {formatInstant(diffState.target.createdAt)}. If a newer version exists, the restore will fail and you
                     can refresh to retry.
                   </p>
                   {diffState.restoreError ? (
-                    <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{diffState.restoreError}</p>
+                    <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'mt-2')}>
+                      {diffState.restoreError}
+                    </p>
                   ) : null}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={handleRestore}
                       disabled={diffState.restoreLoading}
-                      className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                      className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                     >
                       {diffState.restoreLoading ? 'Restoring…' : 'Confirm restore'}
                     </button>
@@ -715,7 +746,7 @@ export function AuditTrailPanel({
                         }))
                       }
                       disabled={diffState.restoreLoading}
-                      className="rounded-full border border-slate-300/70 px-4 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                      className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                     >
                       Cancel
                     </button>

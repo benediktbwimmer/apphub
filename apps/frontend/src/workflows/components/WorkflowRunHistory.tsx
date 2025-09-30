@@ -1,7 +1,38 @@
 import { formatDuration, formatTimestamp } from '../formatters';
 import StatusBadge from './StatusBadge';
 import { Spinner, CopyButton } from '../../components';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRuntimeSummary } from '../types';
+
+const SECTION_CLASSES =
+  'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const HEADER_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const HEADER_SUBTEXT_CLASSES = 'text-scale-xs text-muted';
+
+const REFRESH_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const MESSAGE_TEXT_CLASSES = 'mt-3 text-scale-sm text-muted';
+
+const TABLE_WRAPPER_CLASSES = 'mt-4 overflow-hidden rounded-2xl border border-subtle';
+
+const TABLE_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm';
+
+const TABLE_HEAD_CLASSES = 'bg-surface-muted';
+
+const TABLE_HEAD_CELL_CLASSES =
+  'px-4 py-3 text-left text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
+
+const TABLE_CELL_CLASSES = 'px-4 py-3 text-scale-sm text-secondary';
+
+const SMALL_BADGE_BASE =
+  'inline-flex items-center rounded-full border px-2 py-[1px] text-[10px] font-weight-semibold uppercase tracking-wide';
+
+function toneBadge(status: string, base: string = SMALL_BADGE_BASE): string {
+  return `${base} ${getStatusToneClasses(status)}`;
+}
 
 type WorkflowRunHistoryProps = {
   workflow: WorkflowDefinition | null;
@@ -23,12 +54,12 @@ export default function WorkflowRunHistory({
   onRefresh
 }: WorkflowRunHistoryProps) {
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={SECTION_CLASSES}>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Run History</h2>
+          <h2 className={HEADER_TITLE_CLASSES}>Run History</h2>
           {workflow && runtimeSummary && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className={HEADER_SUBTEXT_CLASSES}>
               Latest run started {formatTimestamp(runtimeSummary.startedAt ?? null)}
             </p>
           )}
@@ -36,7 +67,7 @@ export default function WorkflowRunHistory({
         {workflow && onRefresh && (
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className={REFRESH_BUTTON_CLASSES}
             onClick={onRefresh}
           >
             Refresh runs
@@ -44,107 +75,95 @@ export default function WorkflowRunHistory({
         )}
       </div>
       {loading && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+        <p className={MESSAGE_TEXT_CLASSES}>
           <Spinner label="Loading runs…" size="xs" />
         </p>
       )}
       {!loading && runs.length === 0 && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">No runs yet.</p>
+        <p className={MESSAGE_TEXT_CLASSES}>No runs yet.</p>
       )}
       {!loading && runs.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead className="bg-slate-50/80 dark:bg-slate-800/80">
+        <div className={TABLE_WRAPPER_CLASSES}>
+          <table className={TABLE_CLASSES}>
+            <thead className={TABLE_HEAD_CLASSES}>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Run Key / ID
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Started
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Completed
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Duration
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Retries
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Current Step
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Triggered By
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+            <tbody className="divide-y divide-subtle">
               {runs.map((run) => {
                 const isActive = run.id === selectedRunId;
                 return (
                   <tr
                     key={run.id}
                     className={`cursor-pointer transition-colors ${
-                      isActive ? 'bg-violet-500/5 dark:bg-violet-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/70'
+                      isActive ? 'bg-accent-soft' : 'hover:bg-surface-glass-soft'
                     }`}
                     onClick={() => onSelectRun(run.id)}
                   >
-                    <td className="px-4 py-3 text-sm">
+                    <td className={TABLE_CELL_CLASSES}>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={run.status} />
                         {run.health === 'degraded' && (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:bg-amber-900/40 dark:text-amber-200">
-                            Degraded
-                          </span>
+                          <span className={toneBadge('degraded')}>Degraded</span>
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                    <td className="px-4 py-3 text-scale-xs text-secondary">
                       <div className="flex flex-col gap-1">
                         {run.runKey ? (
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                            <span className="text-[10px] font-weight-semibold uppercase tracking-[0.3em] text-muted">
                               Key
                             </span>
-                            <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{run.runKey}</code>
+                            <code className="break-all font-mono text-[11px] text-secondary">{run.runKey}</code>
                             <CopyButton value={run.runKey} ariaLabel="Copy run key" />
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                          <span className="text-[11px] text-muted">—</span>
                         )}
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                          <span className="text-[10px] font-weight-semibold uppercase tracking-[0.3em] text-muted">
                             ID
                           </span>
-                          <code className="font-mono text-[11px] text-slate-700 dark:text-slate-100 break-all">{run.id}</code>
+                          <code className="break-all font-mono text-[11px] text-secondary">{run.id}</code>
                           <CopyButton value={run.id} ariaLabel="Copy run id" />
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatTimestamp(run.startedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatTimestamp(run.completedAt)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {formatDuration(run.durationMs)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <td className={TABLE_CELL_CLASSES}>{formatTimestamp(run.startedAt)}</td>
+                    <td className={TABLE_CELL_CLASSES}>{formatTimestamp(run.completedAt)}</td>
+                    <td className={TABLE_CELL_CLASSES}>{formatDuration(run.durationMs)}</td>
+                    <td className={TABLE_CELL_CLASSES}>
                       {run.retrySummary.pendingSteps > 0
                         ? `${run.retrySummary.pendingSteps} pending · next ${formatTimestamp(run.retrySummary.nextAttemptAt)}`
                         : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {run.currentStepId ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                      {run.triggeredBy ?? '—'}
-                    </td>
+                    <td className={TABLE_CELL_CLASSES}>{run.currentStepId ?? '—'}</td>
+                    <td className={TABLE_CELL_CLASSES}>{run.triggeredBy ?? '—'}</td>
                   </tr>
                 );
               })}

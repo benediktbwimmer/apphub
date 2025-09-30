@@ -1,7 +1,36 @@
+import { getStatusToneClasses } from '../../../theme/statusTokens';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState, JobDraft } from '../types';
 import { formatSummary } from '../utils';
 
-const dividerClass = 'rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200';
+const PANEL_SECTION = 'flex flex-col gap-4';
+
+const DIVIDER_CARD =
+  'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-xs text-secondary shadow-elevation-sm transition-colors';
+
+const SECTION_CARD = 'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm transition-colors';
+
+const SECTION_LABEL = 'mt-3 block text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const TEXTAREA_BASE =
+  'mt-1 w-full rounded-2xl border border-subtle bg-surface-muted p-3 text-scale-xs leading-relaxed text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-70';
+
+const PRIMARY_ACTION_SMALL =
+  'rounded-full border border-accent bg-accent px-3 py-1.5 text-scale-xs font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_ACTION_MEDIUM =
+  'inline-flex items-center gap-2 rounded-full border border-accent bg-accent px-4 py-1.5 text-scale-xs font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_SUBMIT_BUTTON =
+  'inline-flex items-center justify-center gap-2 rounded-full border border-accent bg-accent px-5 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const SECONDARY_BUTTON =
+  'rounded-full border border-subtle bg-surface-glass px-4 py-2 text-scale-sm font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:text-muted';
+
+const STATUS_TEXT_PENDING = 'text-muted';
+const STATUS_TEXT_READY = 'text-accent';
+const STATUS_TEXT_SUCCESS = 'text-status-success';
+
+const CODE_CHIP = 'rounded bg-surface-muted px-1 py-[2px] font-mono text-[10px] text-primary';
 
 type Props = {
   state: Pick<
@@ -89,12 +118,12 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
     const isBundle = draft.mode === 'job-with-bundle';
     const hasResult = draft.value.trim().length > 0;
     const statusClass = draft.generating
-      ? 'text-violet-600 dark:text-violet-300'
+      ? 'text-accent'
       : isBundle && draft.created
-      ? 'text-emerald-600 dark:text-emerald-300'
+      ? STATUS_TEXT_SUCCESS
       : hasResult
-      ? 'text-slate-600 dark:text-slate-300'
-      : 'text-slate-500 dark:text-slate-400';
+      ? STATUS_TEXT_READY
+      : STATUS_TEXT_PENDING;
     const statusText = draft.generating
       ? 'Generating…'
       : isBundle && draft.created
@@ -121,51 +150,48 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       canCreateJob;
 
     return (
-      <div
-        key={draft.id}
-        className="rounded-xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/80"
-      >
+      <div key={draft.id} className={SECTION_CARD}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h5 className="text-sm font-semibold text-slate-700 dark:text-slate-100">
+            <h5 className="text-scale-sm font-weight-semibold text-primary">
               {dependency && 'name' in dependency && dependency.name
                 ? `${dependency.name} (${draft.slug})`
                 : draft.slug}
             </h5>
             {dependency && 'summary' in dependency && dependency.summary && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">{dependency.summary}</p>
+              <p className="text-[11px] text-secondary">{dependency.summary}</p>
             )}
             {dependency && 'dependsOn' in dependency && dependency.dependsOn && dependency.dependsOn.length > 0 && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-secondary">
                 Depends on: {dependency.dependsOn.join(', ')}
               </p>
             )}
           </div>
-          <span className={`text-xs font-semibold ${statusClass}`}>{statusText}</span>
+          <span className={`text-scale-xs font-weight-semibold ${statusClass}`}>{statusText}</span>
         </div>
 
-        <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <label className={SECTION_LABEL}>
           Prompt
         </label>
         <textarea
-          className="mt-1 h-32 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 text-[11px] leading-relaxed text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+          className={`${TEXTAREA_BASE} h-32`}
           value={draft.promptDraft}
           onChange={(event) => handleJobPromptChange(draft.id, event.target.value)}
           disabled={pending || submitting || draft.generating}
         />
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-secondary">
           <button
             type="button"
-            className="rounded-full border border-violet-500/80 bg-violet-600 px-3 py-1.5 font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={PRIMARY_ACTION_SMALL}
             onClick={() => void handleGenerateDependency(draft.id)}
             disabled={!canGenerate}
           >
             {draft.generating ? 'Generating…' : 'Generate job'}
           </button>
           {draft.bundle && (
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="text-[11px] text-secondary">
               Suggested bundle{' '}
-              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+              <code className={CODE_CHIP}>
                 {draft.bundle.slug}@{draft.bundle.version}
               </code>
             </span>
@@ -173,18 +199,18 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
         </div>
 
         {draft.generationError && (
-          <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] font-weight-semibold ${getStatusToneClasses('danger')}`}>
             {draft.generationError}
           </div>
         )}
 
         {hasResult && (
           <>
-            <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <label className={SECTION_LABEL}>
               Job definition
             </label>
             <textarea
-              className="mt-1 h-40 w-full rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+              className={`${TEXTAREA_BASE} h-40 font-mono`}
               value={draft.value}
               onChange={(event) => handleJobDraftChange(draft.id, event.target.value)}
               spellCheck={false}
@@ -194,7 +220,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
         )}
 
         {draft.validation.errors.length > 0 && (
-          <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] font-weight-semibold ${getStatusToneClasses('warning')}`}>
             <p className="mb-1">Validation issues:</p>
             <ul className="list-disc pl-5">
               {draft.validation.errors.map((issue) => (
@@ -205,13 +231,13 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
         )}
 
         {isBundle && draft.bundle && (
-          <div className="mt-2 rounded-lg border border-slate-200/70 bg-slate-50/80 p-3 text-[11px] text-slate-600 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-300">
+          <div className="mt-2 rounded-lg border border-subtle bg-surface-glass p-3 text-[11px] text-secondary">
             Bundle{' '}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <code className={CODE_CHIP}>
               {draft.bundle.slug}@{draft.bundle.version}
             </code>
             , entry{' '}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <code className={CODE_CHIP}>
               {draft.bundle.entryPoint}
             </code>{' '}
             · {draft.bundle.files.length} file{draft.bundle.files.length === 1 ? '' : 's'}
@@ -219,7 +245,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
         )}
 
         {draft.bundleErrors.length > 0 && (
-          <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50/70 p-3 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] font-weight-semibold ${getStatusToneClasses('warning')}`}>
             <p className="mb-1">Bundle issues:</p>
             <ul className="list-disc pl-5">
               {draft.bundleErrors.map((issue) => (
@@ -230,7 +256,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
         )}
 
         {draft.creationError && (
-          <div className="mt-2 rounded-lg border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] font-weight-semibold ${getStatusToneClasses('danger')}`}>
             {draft.creationError}
           </div>
         )}
@@ -239,7 +265,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
           <div className="mt-3 flex justify-end">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className={PRIMARY_ACTION_MEDIUM}
               onClick={() => void handleCreateDraftJob(draft.id)}
               disabled={!canCreate}
             >
@@ -252,15 +278,15 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
   };
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className={PANEL_SECTION}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <h3 className="text-scale-sm font-weight-semibold uppercase tracking-[0.3em] text-muted">
           Suggestion Preview
         </h3>
         {hasSuggestion && (
           <span
-            className={`text-xs font-semibold ${
-              validation.valid ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300'
+            className={`text-scale-xs font-weight-semibold ${
+              validation.valid ? 'text-status-success' : 'text-status-warning'
             }`}
           >
             {validation.valid ? 'Schema valid' : 'Needs fixes'}
@@ -269,7 +295,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       </div>
 
       <textarea
-        className="min-h-[320px] flex-1 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 font-mono text-xs text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+        className={`${TEXTAREA_BASE} min-h-[320px] flex-1 font-mono`}
         value={editorValue}
         onChange={(event) => handleEditorChange(event.target.value)}
         spellCheck={false}
@@ -278,7 +304,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       />
 
       {validation.errors.length > 0 && (
-        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className={`rounded-2xl border px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('warning')}`}>
           <p className="mb-1">Validation issues:</p>
           <ul className="list-disc pl-5">
             {validation.errors.map((issue) => (
@@ -289,16 +315,16 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       )}
 
       {mode === 'workflow-with-jobs' && plan && (
-        <div className={dividerClass}>
+        <div className={DIVIDER_CARD}>
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Dependency plan</h4>
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <h4 className="text-scale-sm font-weight-semibold text-primary">Dependency plan</h4>
+            <span className="text-scale-xs font-weight-semibold text-secondary">
               {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle' && draft.created).length}/
               {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle').length} bundles published
             </span>
           </div>
           {plan.notes && (
-            <p className="mt-2 rounded-xl border border-slate-200/60 bg-slate-50/70 p-3 text-[11px] leading-relaxed text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-300">
+            <p className="mt-2 rounded-2xl border border-subtle bg-surface-glass p-3 text-[11px] leading-relaxed text-secondary">
               {plan.notes}
             </p>
           )}
@@ -308,12 +334,12 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
               const isBundle = dependency.kind === 'job-with-bundle';
               const badge =
                 dependency.kind === 'existing-job'
-                  ? { text: 'Existing job', className: 'text-emerald-600 dark:text-emerald-300' }
+                  ? { text: 'Existing job', className: STATUS_TEXT_SUCCESS }
                   : draft?.mode === 'job-with-bundle' && draft.created
-                  ? { text: 'Bundle published', className: 'text-emerald-600 dark:text-emerald-300' }
+                  ? { text: 'Bundle published', className: STATUS_TEXT_SUCCESS }
                   : draft?.value.trim()
-                  ? { text: 'Draft ready', className: 'text-violet-600 dark:text-violet-300' }
-                  : { text: 'Pending', className: 'text-slate-500 dark:text-slate-400' };
+                  ? { text: 'Draft ready', className: STATUS_TEXT_READY }
+                  : { text: 'Pending', className: STATUS_TEXT_PENDING };
               const displayName =
                 'name' in dependency && dependency.name
                   ? `${dependency.jobSlug} · ${dependency.name}`
@@ -321,32 +347,30 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
               return (
                 <div
                   key={`${dependency.kind}-${dependency.jobSlug}`}
-                  className="rounded-xl border border-slate-200/60 bg-white/80 p-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/80"
+                  className="rounded-2xl border border-subtle bg-surface-glass p-3 shadow-elevation-sm"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-100">{displayName}</p>
+                      <p className="text-scale-sm font-weight-semibold text-primary">{displayName}</p>
                       {'summary' in dependency && dependency.summary && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{dependency.summary}</p>
+                        <p className="text-[11px] text-secondary">{dependency.summary}</p>
                       )}
                     </div>
-                    <span className={`text-xs font-semibold ${badge.className}`}>{badge.text}</span>
+                    <span className={`text-scale-xs font-weight-semibold ${badge.className}`}>{badge.text}</span>
                   </div>
                   {'rationale' in dependency && dependency.rationale && (
-                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-                      {dependency.rationale}
-                    </p>
+                    <p className="mt-2 text-[11px] leading-relaxed text-secondary">{dependency.rationale}</p>
                   )}
                   {'dependsOn' in dependency && dependency.dependsOn && dependency.dependsOn.length > 0 && (
-                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="mt-2 text-[11px] text-secondary">
                       Depends on: {dependency.dependsOn.join(', ')}
                     </p>
                   )}
                   {isBundle && 'bundleOutline' in dependency && dependency.bundleOutline && (
                     <div className="mt-2 space-y-1">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-[11px] text-secondary">
                         Target entry point{' '}
-                        <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <code className={CODE_CHIP}>
                           {dependency.bundleOutline.entryPoint}
                         </code>
                         {dependency.bundleOutline.files && dependency.bundleOutline.files.length > 0 && (
@@ -358,7 +382,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
                         )}
                       </p>
                       {dependency.bundleOutline.capabilities && dependency.bundleOutline.capabilities.length > 0 && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        <p className="text-[11px] text-secondary">
                           Required capabilities: {dependency.bundleOutline.capabilities.join(', ')}
                         </p>
                       )}
@@ -372,19 +396,19 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       )}
 
       {mode === 'workflow-with-jobs' && jobDrafts.length > 0 && (
-        <div className={dividerClass}>
+        <div className={DIVIDER_CARD}>
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Generate required jobs</h4>
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <h4 className="text-scale-sm font-weight-semibold text-primary">Generate required jobs</h4>
+            <span className="text-scale-xs font-weight-semibold text-secondary">
               {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle' && draft.created).length}/
               {jobDrafts.filter((draft) => draft.mode === 'job-with-bundle').length} bundles published
             </span>
           </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+          <p className="mt-1 text-[11px] leading-relaxed text-secondary">
             Iterate on each prompt, generate the job specification, and publish bundle-backed jobs before submitting the workflow.
           </p>
           {!canCreateJob && (
-            <div className="mt-3 rounded-xl border border-rose-300/70 bg-rose-50/70 p-3 text-[11px] font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className={`mt-3 rounded-xl border px-3 py-2 text-[11px] font-weight-semibold ${getStatusToneClasses('danger')}`}>
               Add a token with <code>job-bundles:write</code> scope to publish AI-generated jobs automatically.
             </div>
           )}
@@ -393,7 +417,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       )}
 
       {mode === 'job-with-bundle' && hasSuggestion && bundleValidation.errors.length > 0 && (
-        <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className={`rounded-2xl border px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('warning')}`}>
           <p className="mb-1">Bundle issues:</p>
           <ul className="list-disc pl-5">
             {bundleValidation.errors.map((issue) => (
@@ -404,74 +428,74 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       )}
 
       {mode === 'job-with-bundle' && hasSuggestion && !canCreateJob && (
-        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className={`rounded-2xl border px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('danger')}`}>
           Add a token with <code>job-bundles:write</code> scope to publish AI-generated bundles automatically.
         </div>
       )}
 
       {metadataSummary && (
-        <details className={dividerClass}>
-          <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
+        <details className={DIVIDER_CARD}>
+          <summary className="cursor-pointer font-weight-semibold text-primary">
             Catalog snapshot shared with {activeProviderLabel}
           </summary>
-          <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+          <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">
             {formatSummary(metadataSummary)}
           </pre>
         </details>
       )}
 
       {summaryText && (
-        <details className={dividerClass}>
-          <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-100">
+        <details className={DIVIDER_CARD}>
+          <summary className="cursor-pointer font-weight-semibold text-primary">
             {activeProviderLabel} summary notes
           </summary>
-          <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+          <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">
             {summaryText}
           </pre>
         </details>
       )}
 
       {workflowNotes && (
-        <div className={dividerClass}>
-          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Operator follow-up notes</h4>
-          <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+        <div className={DIVIDER_CARD}>
+          <h4 className="text-scale-sm font-weight-semibold text-primary">Operator follow-up notes</h4>
+          <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">
             {workflowNotes}
           </p>
         </div>
       )}
 
       {providerHasLogs && (stdout || stderr) && (
-        <div className={dividerClass}>
+        <div className={DIVIDER_CARD}>
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">{providerLogTitle}</h4>
+            <h4 className="text-scale-sm font-weight-semibold text-primary">{providerLogTitle}</h4>
             {generation?.status === 'running' && (
-              <span className="text-xs font-semibold text-violet-600 dark:text-violet-300">
+              <span className="text-scale-xs font-weight-semibold text-accent">
                 <span className="running-indicator">Running…</span>
               </span>
             )}
             {generation?.status === 'succeeded' && (
-              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">Completed</span>
+              <span className="text-scale-xs font-weight-semibold text-status-success">Completed</span>
             )}
             {generation?.status === 'failed' && (
-              <span className="text-xs font-semibold text-rose-500 dark:text-rose-300">Failed</span>
+              <span className="text-scale-xs font-weight-semibold text-status-danger">Failed</span>
             )}
           </div>
           {stdout && (
             <div className="mt-2">
-              <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h5 className="text-[11px] font-weight-semibold uppercase tracking-[0.3em] text-muted">
                 stdout
               </h5>
-              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-slate-600 dark:text-slate-300">
+              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-secondary">
                 {stdout}
               </pre>
             </div>
           )}
           {stderr && (
             <div className="mt-2">
-              <h5 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h5 className="text-[11px] font-weight-semibold uppercase tracking-[0.3em] text-muted">
                 stderr
               </h5>
-              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-rose-500 dark:text-rose-300">
+              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[11px] text-status-danger">
                 {stderr}
               </pre>
             </div>
@@ -480,7 +504,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <div className="text-xs text-slate-500 dark:text-slate-400">
+        <div className="text-scale-xs text-secondary">
           {hasSuggestion
             ? isEdited
               ? 'You have modified the generated spec.'
@@ -491,7 +515,7 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
           {mode === 'workflow' && (
             <button
               type="button"
-              className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+              className={SECONDARY_BUTTON}
               onClick={handleOpenInBuilder}
               disabled={!hasSuggestion || pending || submitting}
             >
@@ -500,9 +524,9 @@ export function AiBuilderSuggestionPanel({ state, handlers }: Props) {
           )}
           <button
             type="button"
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={PRIMARY_SUBMIT_BUTTON}
             onClick={mode === 'workflow' || mode === 'workflow-with-jobs' ? handleSubmitWorkflow : handleSubmitJob}
-            disabled={!canSubmit}
+            disabled={!canSubmit || pending || submitting}
           >
             {submitting
               ? 'Submitting…'

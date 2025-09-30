@@ -54,7 +54,7 @@ export function FullscreenOverlay({ preview, onClose }: FullscreenOverlayProps) 
         key={preview.url}
         src={preview.url}
         title={preview.title}
-        className="h-full w-full border-0 bg-white"
+        className="h-full w-full border-0 bg-surface-raised"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; geolocation; gyroscope; picture-in-picture"
         allowFullScreen
       />
@@ -68,7 +68,7 @@ export function FullscreenOverlay({ preview, onClose }: FullscreenOverlayProps) 
             key={tile.embedUrl}
             src={tile.embedUrl}
             title={tile.title ?? preview.title}
-            className="h-full w-full border-0 bg-white"
+            className="h-full w-full border-0 bg-surface-raised"
             loading="lazy"
             allow="autoplay; fullscreen"
             sandbox="allow-scripts allow-same-origin allow-popups"
@@ -94,16 +94,16 @@ export function FullscreenOverlay({ preview, onClose }: FullscreenOverlayProps) 
     <div
       ref={containerRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex flex-col catalog-fullscreen-backdrop text-inverse backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
     >
       <div className="flex h-full w-full flex-col gap-6 px-6 pb-6 pt-6" onClick={(event) => event.stopPropagation()}>
         <Navbar variant="overlay" onExitFullscreen={onClose} />
-        <div className="relative flex-1 overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-950/60 shadow-[inset_0_0_40px_rgba(15,23,42,0.85)]">
+        <div className="relative flex-1 overflow-hidden rounded-3xl border catalog-fullscreen-frame">
           {content ?? (
-            <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-300">
+            <div className="flex h-full w-full items-center justify-center px-6 text-center text-scale-sm catalog-fullscreen-message">
               Preview unavailable. Try opening the app preview in a new tab from the card instead.
             </div>
           )}

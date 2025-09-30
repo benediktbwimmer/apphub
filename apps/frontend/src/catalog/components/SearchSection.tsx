@@ -10,6 +10,21 @@ const SORT_OPTIONS: { key: SearchSort; label: string }[] = [
   { key: 'name', label: 'Name A→Z' }
 ];
 
+const SEARCH_PANEL_CLASSES =
+  'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const SEARCH_INPUT_CLASSES =
+  'w-full rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-md text-primary shadow-sm outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const SUGGESTION_LIST_CLASSES =
+  'absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-subtle bg-surface-glass p-1 shadow-elevation-xl ring-1 ring-subtle';
+
+const SUGGESTION_ITEM_BASE =
+  'flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-scale-sm font-weight-medium text-secondary transition-colors';
+
+const META_PILL_CLASSES =
+  'rounded-full bg-surface-glass px-3 py-1 font-mono text-scale-xs uppercase tracking-wider text-secondary';
+
 type SearchSectionProps = {
   inputValue: string;
   onInputChange: (value: string) => void;
@@ -60,7 +75,7 @@ function SearchSection({
   const highlightToggleDisabled = activeTokens.length === 0;
 
   return (
-    <section className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.7)] backdrop-blur-md transition-colors dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={SEARCH_PANEL_CLASSES}>
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-6">
         <div className="relative flex-1">
           <input
@@ -71,15 +86,17 @@ function SearchSection({
             placeholder="Type tags like framework:nextjs runtime:node18 or free text"
             spellCheck={false}
             autoFocus
-            className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition-colors focus:border-violet-500 focus:ring-4 focus:ring-violet-200/40 dark:border-slate-700/70 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
+            className={SEARCH_INPUT_CLASSES}
           />
           {suggestions.length > 0 && (
-            <ul className="absolute left-0 right-0 top-full z-10 mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-1 shadow-xl ring-1 ring-slate-900/5 dark:border-slate-700/70 dark:bg-slate-900/95">
+            <ul className={SUGGESTION_LIST_CLASSES}>
               {suggestions.map((suggestion, index) => (
                 <li
                   key={`${suggestion.type}-${suggestion.value}`}
-                  className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-violet-500/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100 ${
-                    index === highlightIndex ? 'bg-violet-500/10 text-violet-700 dark:bg-slate-600/50 dark:text-slate-100' : ''
+                  className={`${SUGGESTION_ITEM_BASE} ${
+                    index === highlightIndex
+                      ? 'bg-accent-soft text-accent-strong ring-1 ring-accent'
+                      : 'hover:bg-accent-soft hover:text-accent-strong'
                   }`}
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -87,7 +104,7 @@ function SearchSection({
                   }}
                 >
                   <span className="font-mono text-sm">{suggestion.label}</span>
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                  <span className="text-scale-xs uppercase tracking-[0.2em] text-muted">
                     {suggestion.type === 'key' ? 'key' : 'tag'}
                   </span>
                 </li>
@@ -97,18 +114,18 @@ function SearchSection({
         </div>
         <div className="flex flex-col gap-3 md:w-auto md:flex-none md:items-end">
           <div className="flex flex-col gap-2 md:items-end">
-            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 md:hidden">
+            <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted md:hidden">
               Sort by
             </span>
-            <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/70 bg-slate-100/70 p-1 dark:border-slate-700/60 dark:bg-slate-800/60">
+            <div className="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-muted p-1">
               {SORT_OPTIONS.map((option) => (
                 <button
                   key={option.key}
                   type="button"
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
+                  className={`rounded-full px-4 py-1.5 text-scale-sm font-weight-semibold transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                     sortMode === option.key
-                      ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30 dark:bg-slate-200/20 dark:text-slate-50 dark:shadow-[0_20px_50px_-28px_rgba(15,23,42,0.85)]'
-                      : 'text-slate-600 hover:bg-violet-600/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100'
+                      ? 'bg-accent text-on-accent shadow-elevation-md'
+                      : 'text-secondary hover:bg-accent-soft hover:text-accent-strong'
                   }`}
                   onClick={() => onSortChange(option.key)}
                 >
@@ -121,7 +138,7 @@ function SearchSection({
       </div>
       <div className="flex justify-end">
         <label
-          className={`flex items-center gap-3 text-sm font-medium text-slate-600 transition-opacity dark:text-slate-300 ${
+          className={`flex items-center gap-3 text-scale-sm font-weight-medium text-secondary transition-opacity ${
             highlightToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
           }`}
         >
@@ -130,7 +147,7 @@ function SearchSection({
             checked={showHighlights}
             onChange={(event) => onToggleHighlights(event.target.checked)}
             disabled={highlightToggleDisabled}
-            className="size-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:cursor-not-allowed dark:border-slate-600 dark:bg-slate-800"
+            className="size-4 rounded border-subtle accent-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
           />
           Highlight matches
         </label>
@@ -147,38 +164,38 @@ function SearchSection({
         onShare={onShareSavedSearch}
       />
       {activeTokens.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/60 bg-slate-50/60 p-4 dark:border-slate-700/60 dark:bg-slate-800/60">
+        <div className="flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4">
           <div className="flex flex-wrap gap-2">
             {activeTokens.map((token) => (
               <span
                 key={token}
-                className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-500/10 px-3 py-1 text-sm font-medium text-violet-700 dark:border-slate-600/60 dark:bg-slate-800/60 dark:text-slate-100"
+                className="inline-flex items-center gap-2 rounded-full border border-accent-soft bg-accent-soft px-3 py-1 text-scale-sm font-weight-medium text-accent"
               >
                 {token}
               </span>
             ))}
           </div>
           {searchMeta && (
-            <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-400">
-              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+            <div className="flex flex-wrap gap-2 text-scale-xs text-muted">
+              <span className={META_PILL_CLASSES}>
                 name × {formatWeight(searchMeta.weights.name)}
               </span>
-              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+              <span className={META_PILL_CLASSES}>
                 description × {formatWeight(searchMeta.weights.description)}
               </span>
-              <span className="rounded-full bg-slate-200/60 px-3 py-1 font-mono text-xs uppercase tracking-wider dark:bg-slate-700/60">
+              <span className={META_PILL_CLASSES}>
                 tags × {formatWeight(searchMeta.weights.tags)}
               </span>
             </div>
           )}
         </div>
       )}
-      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-        <span className="inline-flex items-center justify-center rounded-md bg-slate-200/70 px-2 py-1 font-mono text-[11px] uppercase tracking-widest dark:bg-slate-700/60">
+      <div className="flex items-center gap-2 text-scale-xs text-muted">
+        <span className="inline-flex items-center justify-center rounded-md bg-surface-glass px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-secondary">
           Tab
         </span>
         accepts highlighted suggestion ·
-        <span className="inline-flex items-center justify-center rounded-md bg-slate-200/70 px-2 py-1 font-mono text-[11px] uppercase tracking-widest dark:bg-slate-700/60">
+        <span className="inline-flex items-center justify-center rounded-md bg-surface-glass px-2 py-1 font-mono text-[11px] uppercase tracking-widest text-secondary">
           Esc
         </span>
         clears suggestions

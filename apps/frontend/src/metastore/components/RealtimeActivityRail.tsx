@@ -1,8 +1,18 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { METASTORE_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/useAuth';
 import { Spinner } from '../../components/Spinner';
 import { formatInstant } from '../utils';
+import {
+  METASTORE_ALERT_WARNING_CLASSES,
+  METASTORE_CARD_CONTAINER_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_STATUS_DOT_CLASSES,
+  METASTORE_STATUS_ROW_TEXT_CLASSES,
+  METASTORE_STATUS_TONE_CLASSES
+} from '../metastoreTokens';
 import {
   useMetastoreRecordStream,
   type MetastoreStreamEntry,
@@ -35,36 +45,20 @@ function describeStatus(status: MetastoreStreamStatus): StatusDescriptor {
   }
 }
 
-function toneClasses(tone: StatusDescriptor['tone']): string {
-  switch (tone) {
-    case 'success':
-      return 'bg-emerald-500';
-    case 'info':
-      return 'bg-sky-500';
-    case 'warn':
-      return 'bg-amber-500';
-    case 'error':
-      return 'bg-rose-500';
-    case 'neutral':
-    default:
-      return 'bg-slate-400';
-  }
-}
-
-function describeAction(entry: MetastoreStreamEntry): { label: string; className: string } {
+function describeAction(entry: MetastoreStreamEntry): { label: string; tone: StatusDescriptor['tone'] } {
   const { action, mode } = entry.payload;
   switch (action) {
     case 'created':
-      return { label: 'Created', className: 'text-emerald-600 dark:text-emerald-300' };
+      return { label: 'Created', tone: 'success' };
     case 'updated':
-      return { label: 'Updated', className: 'text-sky-600 dark:text-sky-300' };
+      return { label: 'Updated', tone: 'info' };
     case 'deleted':
       if (mode === 'hard') {
-        return { label: 'Purged', className: 'text-rose-600 dark:text-rose-300' };
+        return { label: 'Purged', tone: 'error' };
       }
-      return { label: 'Deleted', className: 'text-amber-600 dark:text-amber-300' };
+      return { label: 'Deleted', tone: 'warn' };
     default:
-      return { label: action, className: 'text-slate-600 dark:text-slate-300' };
+      return { label: action, tone: 'neutral' };
   }
 }
 
@@ -166,53 +160,53 @@ export function RealtimeActivityRail({ namespace, enabled }: RealtimeActivityRai
   const entries = displayed.slice(0, 30);
 
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.45)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70">
+    <aside className={classNames('flex w-full shrink-0 flex-col gap-4 p-5', METASTORE_CARD_CONTAINER_CLASSES)}>
       <header className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Realtime activity</h2>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <h2 className="text-scale-sm font-weight-semibold text-primary">Realtime activity</h2>
+            <span className={METASTORE_META_TEXT_CLASSES}>
               Namespace {namespace || 'default'}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <span className={`h-2.5 w-2.5 rounded-full ${toneClasses(statusDescriptor.tone)}`} />
+            <span className="flex items-center gap-2 text-scale-xs font-weight-semibold text-secondary">
+              <span
+                className={classNames('h-2.5 w-2.5 rounded-full', METASTORE_STATUS_DOT_CLASSES[statusDescriptor.tone])}
+              />
               {statusDescriptor.label}
               {status === 'connecting' ? <Spinner size="xs" /> : null}
             </span>
             <button
               type="button"
               onClick={() => setPaused((value) => !value)}
-              className="rounded-full border border-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               disabled={!enabled}
             >
               {paused ? 'Resume' : 'Pause'}
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+        <div className={classNames('flex flex-wrap items-center gap-2', METASTORE_META_TEXT_CLASSES)}>
           <button
             type="button"
             onClick={handleCopyCommand}
-            className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600/60 dark:text-slate-300 dark:hover:bg-slate-800"
+            className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
           >
             {copied ? 'Copied curl command' : 'Copy curl command'}
           </button>
           <span className="truncate">{curlCommand}</span>
         </div>
-        {copyError ? (
-          <p className="text-xs text-rose-500 dark:text-rose-300">{copyError}</p>
-        ) : null}
+        {copyError ? <p className={METASTORE_ERROR_TEXT_CLASSES}>{copyError}</p> : null}
         {!enabled ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className={METASTORE_META_TEXT_CLASSES}>
             Provide a metastore access token with <code className="font-mono text-[11px]">metastore:read</code> scope to enable live
             updates.
           </p>
         ) : null}
-        {error ? <p className="text-xs text-rose-500 dark:text-rose-300">{error}</p> : null}
+        {error ? <p className={METASTORE_ERROR_TEXT_CLASSES}>{error}</p> : null}
         {paused && pendingCount > 0 ? (
-          <div className="flex items-center justify-between rounded-xl border border-amber-300/70 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-700 dark:border-amber-400/50 dark:bg-amber-500/10 dark:text-amber-200">
+          <div className={classNames('flex items-center justify-between gap-3', METASTORE_ALERT_WARNING_CLASSES)}>
             <span>{pendingCount} new event{pendingCount === 1 ? '' : 's'} while paused</span>
             <button
               type="button"
@@ -220,7 +214,7 @@ export function RealtimeActivityRail({ namespace, enabled }: RealtimeActivityRai
                 setPaused(false);
                 setDisplayed(relevantEvents);
               }}
-              className="rounded-full border border-amber-400/60 px-2.5 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-400/20 dark:border-amber-300/40 dark:text-amber-200"
+              className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
             >
               Catch up
             </button>
@@ -230,7 +224,7 @@ export function RealtimeActivityRail({ namespace, enabled }: RealtimeActivityRai
 
       <section className="flex flex-col gap-3">
         {entries.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className={classNames('text-scale-sm', METASTORE_META_TEXT_CLASSES)}>
             {status === 'open'
               ? 'Awaiting activity for this namespace…'
               : 'No recent activity recorded.'}
@@ -242,20 +236,23 @@ export function RealtimeActivityRail({ namespace, enabled }: RealtimeActivityRai
               return (
                 <li
                   key={buildEventKey(entry)}
-                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 text-sm text-slate-700 transition-shadow hover:shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={classNames(
+                    'rounded-2xl border p-4 text-scale-sm transition-shadow hover:shadow-sm',
+                    METASTORE_STATUS_TONE_CLASSES[action.tone]
+                  )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-semibold uppercase tracking-[0.25em] ${action.className}`}>
+                    <span className="text-scale-xs font-weight-semibold uppercase tracking-[0.25em]">
                       {action.label}
                     </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className={METASTORE_META_TEXT_CLASSES}>
                       Observed {formatInstant(entry.payload.occurredAt)}
                     </span>
                   </div>
-                  <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <div className="mt-2 text-scale-sm font-weight-semibold text-primary">
                     {entry.payload.key}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                  <div className={classNames('mt-1 flex flex-wrap items-center gap-3', METASTORE_STATUS_ROW_TEXT_CLASSES)}>
                     <span>Version {entry.payload.version ?? '—'}</span>
                     <span>Actor {entry.payload.actor ?? 'system'}</span>
                     {entry.payload.deletedAt ? (

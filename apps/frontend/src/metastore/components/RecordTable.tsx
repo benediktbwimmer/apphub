@@ -1,5 +1,24 @@
 import type { MetastoreRecordSummary } from '../types';
+import classNames from 'classnames';
 import { formatInstant } from '../utils';
+import {
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_STATUS_ROW_TEXT_CLASSES,
+  METASTORE_STATUS_TONE_CLASSES,
+  METASTORE_TAG_BADGE_CLASSES,
+  METASTORE_TABLE_BODY_CLASSES,
+  METASTORE_TABLE_CONTAINER_CLASSES,
+  METASTORE_TABLE_EMPTY_CLASSES,
+  METASTORE_TABLE_ERROR_CONTAINER_CLASSES,
+  METASTORE_TABLE_HEADER_CLASSES,
+  METASTORE_TABLE_HEADER_META_CLASSES,
+  METASTORE_TABLE_HEADER_TITLE_CLASSES,
+  METASTORE_TABLE_REFRESH_BUTTON_CLASSES,
+  METASTORE_TABLE_ROW_ACTIVE_CLASSES,
+  METASTORE_TABLE_ROW_CLASSES,
+  METASTORE_TABLE_ROW_INACTIVE_CLASSES
+} from '../metastoreTokens';
 
 interface RecordTableProps {
   records: MetastoreRecordSummary[];
@@ -13,61 +32,57 @@ interface RecordTableProps {
 
 export function RecordTable({ records, selectedId, onSelect, loading, error, onRetry, total }: RecordTableProps) {
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_25px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+    <div className={METASTORE_TABLE_CONTAINER_CLASSES}>
+      <header className={METASTORE_TABLE_HEADER_CLASSES}>
         <div>
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Records</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{total} total records</p>
+          <h2 className={METASTORE_TABLE_HEADER_TITLE_CLASSES}>Records</h2>
+          <p className={METASTORE_TABLE_HEADER_META_CLASSES}>{total} total records</p>
         </div>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-        >
+        <button type="button" onClick={onRetry} className={METASTORE_TABLE_REFRESH_BUTTON_CLASSES}>
           Refresh
         </button>
       </header>
-      <div className="max-h-[520px] overflow-y-auto">
+      <div className={METASTORE_TABLE_BODY_CLASSES}>
         {loading ? (
-          <div className="flex items-center justify-center px-5 py-6 text-sm text-slate-600 dark:text-slate-400">Loading records…</div>
+          <div className={classNames('flex items-center justify-center px-5 py-6', METASTORE_META_TEXT_CLASSES)}>
+            Loading records…
+          </div>
         ) : error ? (
-          <div className="flex flex-col gap-3 px-5 py-6 text-sm text-rose-600 dark:text-rose-300">
+          <div className={METASTORE_TABLE_ERROR_CONTAINER_CLASSES}>
             <span>{error}</span>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="self-start rounded-full border border-rose-400/60 px-3 py-1 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 dark:border-rose-400/40 dark:text-rose-200"
-            >
+            <button type="button" onClick={onRetry} className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}>
               Retry
             </button>
           </div>
         ) : records.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-slate-600 dark:text-slate-400">No records found.</div>
+          <div className={METASTORE_TABLE_EMPTY_CLASSES}>No records found.</div>
         ) : (
           <ul className="flex flex-col">
             {records.map((record) => {
               const isActive = record.id === selectedId;
               const isDeleted = Boolean(record.deletedAt);
+              const tone = isDeleted ? 'danger' : 'neutral';
               return (
                 <li key={record.id}>
                   <button
                     type="button"
                     onClick={() => onSelect(record.id)}
-                    className={`flex w-full flex-col items-start gap-1 border-b border-slate-200/50 px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-violet-500/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 ${
-                      isActive
-                        ? 'bg-violet-500/10 text-violet-700 dark:text-violet-200'
-                        : 'text-slate-700 dark:text-slate-200'
-                    } ${isDeleted ? 'opacity-70' : ''}`}
+                    className={classNames(
+                      METASTORE_TABLE_ROW_CLASSES,
+                      METASTORE_STATUS_TONE_CLASSES[tone === 'danger' ? 'error' : 'neutral'],
+                      isActive ? METASTORE_TABLE_ROW_ACTIVE_CLASSES : METASTORE_TABLE_ROW_INACTIVE_CLASSES,
+                      isDeleted ? 'opacity-70' : undefined
+                    )}
                   >
                     <div className="flex w-full items-center justify-between">
-                      <span className="text-sm font-semibold">{record.recordKey}</span>
+                      <span className="text-scale-sm font-weight-semibold text-primary">{record.recordKey}</span>
                       {isDeleted && (
-                        <span className="rounded-full bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-600 dark:bg-rose-500/20 dark:text-rose-300">
+                        <span className={METASTORE_CHIP_WARNING_CLASSES}>
                           Deleted
                         </span>
                       )}
                     </div>
-                    <div className="flex w-full flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                    <div className={classNames('flex w-full flex-wrap items-center justify-between gap-2', METASTORE_STATUS_ROW_TEXT_CLASSES)}>
                       <span>{record.namespace}</span>
                       <span>v{record.version}</span>
                       <span>{formatInstant(record.updatedAt)}</span>
@@ -75,12 +90,12 @@ export function RecordTable({ records, selectedId, onSelect, loading, error, onR
                     {record.tags && record.tags.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {record.tags.slice(0, 6).map((tag) => (
-                          <span key={tag} className="rounded-full bg-slate-200/60 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-700/60 dark:text-slate-200">
+                          <span key={tag} className={METASTORE_TAG_BADGE_CLASSES}>
                             {tag}
                           </span>
                         ))}
                         {record.tags.length > 6 && (
-                          <span className="text-xs text-slate-500 dark:text-slate-400">+{record.tags.length - 6} more</span>
+                          <span className={METASTORE_META_TEXT_CLASSES}>+{record.tags.length - 6} more</span>
                         )}
                       </div>
                     )}

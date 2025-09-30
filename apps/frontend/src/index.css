@@ -173,6 +173,46 @@
     color: var(--color-status-neutral-on);
   }
 
+  .border-status-info {
+    border-color: var(--color-status-info);
+  }
+
+  .border-status-success {
+    border-color: var(--color-status-success);
+  }
+
+  .border-status-warning {
+    border-color: var(--color-status-warning);
+  }
+
+  .border-status-danger {
+    border-color: var(--color-status-danger);
+  }
+
+  .border-status-neutral {
+    border-color: var(--color-status-neutral);
+  }
+
+  .bg-status-info-soft {
+    background-color: color-mix(in srgb, var(--color-status-info) 14%, var(--color-surface-raised));
+  }
+
+  .bg-status-success-soft {
+    background-color: color-mix(in srgb, var(--color-status-success) 14%, var(--color-surface-raised));
+  }
+
+  .bg-status-warning-soft {
+    background-color: color-mix(in srgb, var(--color-status-warning) 14%, var(--color-surface-raised));
+  }
+
+  .bg-status-danger-soft {
+    background-color: color-mix(in srgb, var(--color-status-danger) 14%, var(--color-surface-raised));
+  }
+
+  .bg-status-neutral-soft {
+    background-color: color-mix(in srgb, var(--color-status-neutral) 16%, var(--color-surface-raised));
+  }
+
   .text-scale-xs {
     font-size: var(--font-size-xs);
   }
@@ -305,6 +345,61 @@
     background-color: var(--color-surface-backdrop);
   }
 
+  .catalog-preview-overlay {
+    background-image: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--color-surface-sunken) 88%, transparent) 0%,
+      color-mix(in srgb, var(--color-surface-sunken) 52%, transparent) 50%,
+      transparent 100%
+    );
+    color: var(--color-text-inverse);
+  }
+
+  .catalog-preview-pill {
+    background-color: color-mix(in srgb, var(--color-text-inverse) 18%, transparent);
+    color: var(--color-text-inverse);
+  }
+
+  .catalog-preview-overlay-muted {
+    color: color-mix(in srgb, var(--color-text-inverse) 68%, transparent);
+  }
+
+  .catalog-preview-dot {
+    border-color: color-mix(in srgb, var(--color-text-inverse) 35%, transparent);
+    background-color: color-mix(in srgb, var(--color-text-inverse) 28%, transparent);
+    transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  }
+
+  .catalog-preview-dot:hover,
+  .catalog-preview-dot:focus-visible {
+    border-color: color-mix(in srgb, var(--color-text-inverse) 58%, transparent);
+    background-color: color-mix(in srgb, var(--color-text-inverse) 48%, transparent);
+  }
+
+  .catalog-preview-dot-active {
+    border-color: color-mix(in srgb, var(--color-text-inverse) 78%, transparent);
+    background-color: color-mix(in srgb, var(--color-text-inverse) 88%, transparent);
+  }
+
+  .catalog-fullscreen-backdrop {
+    background-color: color-mix(in srgb, var(--color-surface-backdrop, rgba(15, 23, 42, 0.9)) 96%, transparent);
+  }
+
+  .catalog-fullscreen-frame {
+    background-color: color-mix(in srgb, var(--color-surface-sunken) 88%, transparent);
+    border-color: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+    box-shadow: inset 0 0 40px color-mix(in srgb, var(--color-surface-sunken) 78%, transparent);
+  }
+
+  .catalog-fullscreen-message {
+    color: color-mix(in srgb, var(--color-text-inverse) 68%, transparent);
+  }
+
+  .workflow-dialog-backdrop {
+    background-color: color-mix(in srgb, var(--color-surface-backdrop, rgba(15, 23, 42, 0.85)) 94%, transparent);
+    color: var(--color-text-inverse);
+  }
+
   .bg-accent {
     background-color: var(--color-accent-default);
   }
@@ -339,6 +434,26 @@
 
   .focus-visible\:outline-accent:focus-visible {
     outline-color: var(--color-border-focus, var(--color-accent-default));
+  }
+
+  .focus-visible\:outline-status-info:focus-visible {
+    outline-color: var(--color-status-info);
+  }
+
+  .focus-visible\:outline-status-success:focus-visible {
+    outline-color: var(--color-status-success);
+  }
+
+  .focus-visible\:outline-status-warning:focus-visible {
+    outline-color: var(--color-status-warning);
+  }
+
+  .focus-visible\:outline-status-danger:focus-visible {
+    outline-color: var(--color-status-danger);
+  }
+
+  .focus-visible\:outline-subtle:focus-visible {
+    outline-color: var(--color-border-default);
   }
 
   .hover\:bg-accent-soft:hover {
@@ -481,6 +596,18 @@
 
   .focus\:ring-violet-500:focus {
     --tw-ring-color: var(--color-accent-default, rgb(139 92 246 / 1));
+  }
+
+  .divide-subtle > :not([hidden]) ~ :not([hidden]) {
+    border-color: var(--color-border-subtle);
+  }
+
+  .ring-subtle {
+    --tw-ring-color: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  }
+
+  .accent-accent {
+    accent-color: var(--color-accent-default);
   }
 
   .text-violet-600 {

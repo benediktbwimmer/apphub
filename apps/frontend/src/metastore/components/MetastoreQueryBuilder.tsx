@@ -1,5 +1,15 @@
+import classNames from 'classnames';
 import type { QueryClause, QueryField, QueryOperator } from '../queryComposer';
 import { createEmptyClause, sanitizeClauses } from '../queryComposer';
+import {
+  METASTORE_FORM_FIELD_CONTAINER_CLASSES,
+  METASTORE_INPUT_FIELD_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_PRIMARY_BUTTON_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SECTION_LABEL_CLASSES,
+  METASTORE_SELECT_CLASSES
+} from '../metastoreTokens';
 
 type QueryBuilderProps = {
   clauses: QueryClause[];
@@ -104,13 +114,13 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
           return (
             <li
               key={clause.id}
-              className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/80 p-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70"
+              className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'flex flex-col gap-3')}
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                  Field
+                <label className="flex w-full flex-col gap-2 text-secondary">
+                  <span className={METASTORE_SECTION_LABEL_CLASSES}>Field</span>
                   <select
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    className={classNames(METASTORE_SELECT_CLASSES, 'w-full')}
                     value={clause.field}
                     onChange={(event) => handleFieldChange(clause.id, event.target.value as QueryField)}
                   >
@@ -121,10 +131,10 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
                     ))}
                   </select>
                 </label>
-                <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                  Operator
+                <label className="flex w-full flex-col gap-2 text-secondary">
+                  <span className={METASTORE_SECTION_LABEL_CLASSES}>Operator</span>
                   <select
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    className={classNames(METASTORE_SELECT_CLASSES, 'w-full')}
                     value={clause.operator}
                     onChange={(event) => handleOperatorChange(clause.id, event.target.value as QueryOperator)}
                   >
@@ -138,11 +148,11 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 {requiresPath && (
-                  <label className="flex w-full flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                    Path
+                  <label className="flex w-full flex-col gap-2 text-secondary">
+                    <span className={METASTORE_SECTION_LABEL_CLASSES}>Path</span>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'w-full')}
                       placeholder="metadata.status"
                       value={clause.path ?? ''}
                       onChange={(event) => handlePathChange(clause.id, event.target.value)}
@@ -150,11 +160,11 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
                   </label>
                 )}
                 {requiresValue && (
-                  <label className="flex w-full flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                    Value
+                  <label className="flex w-full flex-col gap-2 text-secondary">
+                    <span className={METASTORE_SECTION_LABEL_CLASSES}>Value</span>
                     <input
                       type="text"
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'w-full')}
                       placeholder={FIELD_PLACEHOLDERS[clause.field]}
                       value={clause.value}
                       onChange={(event) => handleValueChange(clause.id, event.target.value)}
@@ -162,7 +172,7 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
                   </label>
                 )}
               </div>
-              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <div className={classNames('flex items-center justify-between gap-3', METASTORE_META_TEXT_CLASSES)}>
                 <span>
                   {clause.field === 'tags'
                     ? 'Separate multiple tags with commas.'
@@ -173,7 +183,10 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
                 <button
                   type="button"
                   onClick={() => handleRemove(clause.id)}
-                  className="rounded-full px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+                  className={classNames(
+                    METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                    'border-status-danger text-status-danger hover:border-status-danger hover:bg-status-danger-soft/40 hover:text-status-danger'
+                  )}
                 >
                   Remove
                 </button>
@@ -185,7 +198,7 @@ export function MetastoreQueryBuilder({ clauses, onChange }: QueryBuilderProps) 
       <button
         type="button"
         onClick={handleAdd}
-        className="self-start rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+        className={classNames(METASTORE_PRIMARY_BUTTON_CLASSES, 'self-start')}
       >
         Add condition
       </button>

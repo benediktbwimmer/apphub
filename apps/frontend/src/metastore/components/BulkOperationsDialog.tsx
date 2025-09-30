@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import {
   useEffect,
   useMemo,
@@ -17,6 +18,42 @@ import {
   type BulkValidationResult
 } from '../bulkOperations';
 import type { BulkRequestPayload, BulkResponsePayload } from '../types';
+import {
+  METASTORE_ALERT_ERROR_CLASSES,
+  METASTORE_DIALOG_CONTENT_CLASSES,
+  METASTORE_DIALOG_SUBTITLE_CLASSES,
+  METASTORE_DIALOG_TITLE_CLASSES,
+  METASTORE_ERROR_TEXT_CLASSES,
+  METASTORE_LINK_ACCENT_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_PRIMARY_BUTTON_CLASSES,
+  METASTORE_PRIMARY_BUTTON_SMALL_CLASSES,
+  METASTORE_RESULT_BADGE_BASE_CLASSES,
+  METASTORE_RESULT_BADGE_ERROR_CLASSES,
+  METASTORE_RESULT_BADGE_SUCCESS_CLASSES,
+  METASTORE_RESULT_LIST_CONTAINER_CLASSES,
+  METASTORE_RESULT_META_CLASSES,
+  METASTORE_RESULT_TITLE_CLASSES,
+  METASTORE_SECONDARY_BUTTON_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SEGMENTED_BUTTON_ACTIVE_CLASSES,
+  METASTORE_SEGMENTED_BUTTON_BASE_CLASSES,
+  METASTORE_SEGMENTED_BUTTON_INACTIVE_CLASSES,
+  METASTORE_SEGMENTED_CONTAINER_CLASSES,
+  METASTORE_SELECT_CLASSES,
+  METASTORE_STEPPER_BADGE_ACTIVE_CLASSES,
+  METASTORE_STEPPER_BADGE_BASE_CLASSES,
+  METASTORE_STEPPER_BADGE_COMPLETED_CLASSES,
+  METASTORE_STEPPER_BADGE_PENDING_CLASSES,
+  METASTORE_STEPPER_LIST_CLASSES,
+  METASTORE_SUMMARY_CARD_CLASSES,
+  METASTORE_SUMMARY_LABEL_CLASSES,
+  METASTORE_SUMMARY_VALUE_DANGER_CLASSES,
+  METASTORE_SUMMARY_VALUE_NEUTRAL_CLASSES,
+  METASTORE_SUMMARY_VALUE_SUCCESS_CLASSES,
+  METASTORE_TEXT_AREA_MONO_CLASSES,
+  METASTORE_CHECKBOX_CLASSES
+} from '../metastoreTokens';
 
 interface BulkOperationsDialogProps {
   open: boolean;
@@ -340,41 +377,42 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
       onClose={handleClose}
       labelledBy={dialogTitleId}
       className="items-start justify-center px-4 py-6 sm:items-center"
-      contentClassName="w-full max-w-4xl rounded-3xl border border-slate-200/70 bg-white/95 p-6 shadow-xl dark:border-slate-700/60 dark:bg-slate-900/80"
+      contentClassName={METASTORE_DIALOG_CONTENT_CLASSES}
     >
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <div className="flex items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <h2 id={dialogTitleId} className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              <h2 id={dialogTitleId} className={METASTORE_DIALOG_TITLE_CLASSES}>
                 Metastore bulk operations studio
               </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <p className={METASTORE_DIALOG_SUBTITLE_CLASSES}>
                 Import CSV or JSONL data, validate it against metastore schemas, then submit with per-operation previews.
               </p>
             </div>
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-full border border-slate-300/70 px-3 py-1 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+              className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
             >
               Close
             </button>
           </div>
-          <ol className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+          <ol className={METASTORE_STEPPER_LIST_CLASSES}>
             {STEP_ORDER.map((entry, index) => {
               const isActive = index === currentStepIndex;
               const isCompleted = index < currentStepIndex;
               return (
                 <li
                   key={entry.id}
-                  className={`flex items-center gap-2 rounded-full border px-3 py-1 ${
+                  className={classNames(
+                    METASTORE_STEPPER_BADGE_BASE_CLASSES,
                     isActive
-                      ? 'border-violet-500 text-violet-600 dark:border-violet-500 dark:text-violet-300'
+                      ? METASTORE_STEPPER_BADGE_ACTIVE_CLASSES
                       : isCompleted
-                      ? 'border-emerald-500 text-emerald-600 dark:border-emerald-500 dark:text-emerald-300'
-                      : 'border-slate-300/70 text-slate-500 dark:border-slate-700/70 dark:text-slate-400'
-                  }`}
+                      ? METASTORE_STEPPER_BADGE_COMPLETED_CLASSES
+                      : METASTORE_STEPPER_BADGE_PENDING_CLASSES
+                  )}
                 >
                   <span className="font-mono text-[0.65rem]">{index + 1}</span>
                   <span>{entry.label}</span>
@@ -386,33 +424,29 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
 
         {step === 'input' && (
           <section className="flex flex-col gap-5">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => setMode('guided')}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                  mode === 'guided'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'border border-slate-300/70 text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300'
-                }`}
+                className={classNames(
+                  mode === 'guided' ? METASTORE_PRIMARY_BUTTON_CLASSES : METASTORE_SECONDARY_BUTTON_CLASSES
+                )}
               >
                 Guided import
               </button>
               <button
                 type="button"
                 onClick={() => setMode('raw')}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                  mode === 'raw'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'border border-slate-300/70 text-slate-600 hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300'
-                }`}
+                className={classNames(
+                  mode === 'raw' ? METASTORE_PRIMARY_BUTTON_CLASSES : METASTORE_SECONDARY_BUTTON_CLASSES
+                )}
               >
                 Raw JSON
               </button>
-              <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
+              <span className={classNames('ml-auto', METASTORE_META_TEXT_CLASSES)}>
                 Need a refresher?{' '}
                 <a
-                  className="font-semibold text-violet-600 underline decoration-dotted hover:decoration-solid dark:text-violet-300"
+                  className={METASTORE_LINK_ACCENT_CLASSES}
                   href="https://github.com/apphub/apphub/blob/main/docs/metastore.md#post-records-bulk"
                   target="_blank"
                   rel="noreferrer"
@@ -425,29 +459,29 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
             {mode === 'guided' ? (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                    Source format
-                  </span>
-                  <div className="flex overflow-hidden rounded-full border border-slate-300/70 dark:border-slate-700/70">
+                  <span className={METASTORE_SUMMARY_LABEL_CLASSES}>Source format</span>
+                  <div className={METASTORE_SEGMENTED_CONTAINER_CLASSES}>
                     <button
                       type="button"
                       onClick={() => setGuidedFormat('csv')}
-                      className={`px-4 py-1 text-sm font-semibold transition-colors ${
+                      className={classNames(
+                        METASTORE_SEGMENTED_BUTTON_BASE_CLASSES,
                         guidedFormat === 'csv'
-                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-200/60 dark:text-slate-300'
-                      }`}
+                          ? METASTORE_SEGMENTED_BUTTON_ACTIVE_CLASSES
+                          : METASTORE_SEGMENTED_BUTTON_INACTIVE_CLASSES
+                      )}
                     >
                       CSV
                     </button>
                     <button
                       type="button"
                       onClick={() => setGuidedFormat('jsonl')}
-                      className={`px-4 py-1 text-sm font-semibold transition-colors ${
+                      className={classNames(
+                        METASTORE_SEGMENTED_BUTTON_BASE_CLASSES,
                         guidedFormat === 'jsonl'
-                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-200/60 dark:text-slate-300'
-                      }`}
+                          ? METASTORE_SEGMENTED_BUTTON_ACTIVE_CLASSES
+                          : METASTORE_SEGMENTED_BUTTON_INACTIVE_CLASSES
+                      )}
                     >
                       JSONL
                     </button>
@@ -463,11 +497,11 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                      className={METASTORE_SECONDARY_BUTTON_CLASSES}
                     >
                       Upload file…
                     </button>
-                    {fileName && <span className="text-xs text-slate-500 dark:text-slate-400">{fileName}</span>}
+                    {fileName && <span className={METASTORE_META_TEXT_CLASSES}>{fileName}</span>}
                   </div>
                 </div>
                 <textarea
@@ -476,23 +510,21 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   rows={12}
                   placeholder={guidedFormat === 'csv' ? CSV_TEMPLATE : JSONL_TEMPLATE}
                   aria-label={guidedFormat === 'csv' ? 'Bulk operations CSV input' : 'Bulk operations JSONL input'}
-                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 font-mono text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={METASTORE_TEXT_AREA_MONO_CLASSES}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                    Templates
-                  </span>
+                  <span className={METASTORE_SUMMARY_LABEL_CLASSES}>Templates</span>
                   <button
                     type="button"
                     onClick={() => setGuidedInput(CSV_TEMPLATE)}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                    className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                   >
                     CSV upsert + delete
                   </button>
                   <button
                     type="button"
                     onClick={() => setGuidedInput(JSONL_TEMPLATE)}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                    className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                   >
                     JSONL sample batch
                   </button>
@@ -506,13 +538,13 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   rows={14}
                   placeholder={RAW_JSON_TEMPLATE}
                   aria-label="Bulk operations raw JSON input"
-                  className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 font-mono text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                  className={METASTORE_TEXT_AREA_MONO_CLASSES}
                 />
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setRawInput(RAW_JSON_TEMPLATE)}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                    className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                   >
                     Insert sample payload
                   </button>
@@ -520,20 +552,20 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
               </div>
             )}
 
-            {validationError && <p className="rounded-2xl border border-rose-200/70 bg-rose-50/60 px-3 py-2 text-sm text-rose-600 dark:border-rose-700/60 dark:bg-rose-900/30 dark:text-rose-300">{validationError}</p>}
+            {validationError && <p className={METASTORE_ALERT_ERROR_CLASSES}>{validationError}</p>}
 
             <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={handleClose}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_CLASSES}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleValidate}
-                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500"
+                className={METASTORE_PRIMARY_BUTTON_CLASSES}
               >
                 Validate payload
               </button>
@@ -544,17 +576,17 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
         {step === 'validation' && validationResult && (
           <section className="flex flex-col gap-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Valid</p>
-                <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-300">{validationResult.validRows.length}</p>
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Valid</p>
+                <p className={METASTORE_SUMMARY_VALUE_SUCCESS_CLASSES}>{validationResult.validRows.length}</p>
               </div>
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Invalid</p>
-                <p className="text-lg font-semibold text-rose-600 dark:text-rose-300">{validationResult.invalidRows.length}</p>
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Invalid</p>
+                <p className={METASTORE_SUMMARY_VALUE_DANGER_CLASSES}>{validationResult.invalidRows.length}</p>
               </div>
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Types</p>
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Types</p>
+                <p className={METASTORE_SUMMARY_VALUE_NEUTRAL_CLASSES}>
                   Upserts: {typeSummary.upsert} · Deletes: {typeSummary.delete}
                 </p>
               </div>
@@ -565,7 +597,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                 type="button"
                 onClick={handleCopyValidated}
                 disabled={!validatedJson}
-                className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 {copyState === 'copied' ? 'Copied payload' : 'Copy validated JSON'}
               </button>
@@ -573,44 +605,58 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                 type="button"
                 onClick={handleDownloadValidated}
                 disabled={!validatedJson}
-                className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 Download validated JSON
               </button>
-              {copyError && <span className="text-xs text-rose-600 dark:text-rose-300">{copyError}</span>}
+              {copyError && <span className={METASTORE_ERROR_TEXT_CLASSES}>{copyError}</span>}
             </div>
 
-            <div className="max-h-80 overflow-auto rounded-2xl border border-slate-200/70 bg-white/70 dark:border-slate-700/60 dark:bg-slate-900/30">
-              <table className="min-w-full border-collapse text-left text-sm text-slate-700 dark:text-slate-200">
-                <thead className="sticky top-0 bg-white/90 text-xs uppercase tracking-[0.3em] text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+            <div className="max-h-80 overflow-auto rounded-2xl border border-subtle bg-surface-glass">
+              <table className="min-w-full border-collapse text-left text-scale-sm text-secondary">
+                <thead
+                  className={classNames(
+                    'sticky top-0 bg-surface-muted text-scale-xs font-weight-semibold uppercase tracking-[0.3em]',
+                    METASTORE_META_TEXT_CLASSES
+                  )}
+                >
                   <tr>
-                    <th className="px-3 py-2 font-semibold">Row</th>
-                    <th className="px-3 py-2 font-semibold">Type</th>
-                    <th className="px-3 py-2 font-semibold">Namespace</th>
-                    <th className="px-3 py-2 font-semibold">Key</th>
-                    <th className="px-3 py-2 font-semibold">Status</th>
-                    <th className="px-3 py-2 font-semibold">Error</th>
+                    <th className="px-3 py-2 font-weight-semibold">Row</th>
+                    <th className="px-3 py-2 font-weight-semibold">Type</th>
+                    <th className="px-3 py-2 font-weight-semibold">Namespace</th>
+                    <th className="px-3 py-2 font-weight-semibold">Key</th>
+                    <th className="px-3 py-2 font-weight-semibold">Status</th>
+                    <th className="px-3 py-2 font-weight-semibold">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {validationResult.rows.map((row) => (
-                    <tr key={`${row.label}-${row.index}`} className="border-t border-slate-200/60 dark:border-slate-700/60">
-                      <td className="px-3 py-2 font-mono text-xs text-slate-500 dark:text-slate-400">{row.label}</td>
-                      <td className="px-3 py-2">{row.operation?.type ?? '—'}</td>
-                      <td className="px-3 py-2">{row.operation?.namespace ?? '—'}</td>
-                      <td className="px-3 py-2">{row.operation?.key ?? '—'}</td>
+                    <tr
+                      key={`${row.label}-${row.index}`}
+                      className={classNames(
+                        'border-t border-subtle',
+                        row.status === 'valid' ? 'bg-status-success-soft' : 'bg-status-danger-soft'
+                      )}
+                    >
+                      <td className={classNames('px-3 py-2 font-mono text-scale-xs', METASTORE_META_TEXT_CLASSES)}>
+                        {row.label}
+                      </td>
+                      <td className="px-3 py-2 text-primary">{row.operation?.type ?? '—'}</td>
+                      <td className="px-3 py-2 text-primary">{row.operation?.namespace ?? '—'}</td>
+                      <td className="px-3 py-2 text-primary">{row.operation?.key ?? '—'}</td>
                       <td className="px-3 py-2">
                         <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          className={classNames(
+                            METASTORE_RESULT_BADGE_BASE_CLASSES,
                             row.status === 'valid'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-                          }`}
+                              ? METASTORE_RESULT_BADGE_SUCCESS_CLASSES
+                              : METASTORE_RESULT_BADGE_ERROR_CLASSES
+                          )}
                         >
                           {row.status === 'valid' ? 'Valid' : 'Error'}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-xs text-rose-600 dark:text-rose-300">{row.error ?? '—'}</td>
+                      <td className="px-3 py-2 text-scale-xs text-secondary">{row.error ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -621,7 +667,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
               <button
                 type="button"
                 onClick={() => setStep('input')}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_CLASSES}
               >
                 Back to editor
               </button>
@@ -629,7 +675,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                  className={METASTORE_SECONDARY_BUTTON_CLASSES}
                 >
                   Cancel
                 </button>
@@ -637,7 +683,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   type="button"
                   onClick={() => setStep('confirm')}
                   disabled={validationResult.invalidRows.length > 0 || validationResult.validRows.length === 0}
-                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  className={METASTORE_PRIMARY_BUTTON_CLASSES}
                 >
                   Continue to confirmation
                 </button>
@@ -648,29 +694,29 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
 
         {step === 'confirm' && validationResult && (
           <section className="flex flex-col gap-5">
-            <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Ready to submit</h3>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+            <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+              <h3 className={METASTORE_RESULT_TITLE_CLASSES}>Ready to submit</h3>
+              <p className={METASTORE_DIALOG_SUBTITLE_CLASSES}>
                 {validationResult.validRows.length} operations ({typeSummary.upsert} upserts · {typeSummary.delete} deletes) will be sent to the metastore API.
               </p>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <label className="inline-flex items-center gap-2 text-scale-sm text-secondary">
               <input
                 type="checkbox"
                 checked={continueOnError}
                 onChange={(event) => setContinueOnError(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                className={METASTORE_CHECKBOX_CLASSES}
               />
               Continue on error (process all operations even if some fail)
             </label>
 
-            {globalError && <p className="rounded-2xl border border-rose-200/70 bg-rose-50/60 px-3 py-2 text-sm text-rose-600 dark:border-rose-700/60 dark:bg-rose-900/30 dark:text-rose-300">{globalError}</p>}
+            {globalError && <p className={METASTORE_ALERT_ERROR_CLASSES}>{globalError}</p>}
 
             <div className="flex justify-between gap-3">
               <button
                 type="button"
                 onClick={() => setStep('validation')}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_CLASSES}
               >
                 Back to validation
               </button>
@@ -678,7 +724,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                  className={METASTORE_SECONDARY_BUTTON_CLASSES}
                 >
                   Cancel
                 </button>
@@ -686,7 +732,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   type="button"
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  className={METASTORE_PRIMARY_BUTTON_CLASSES}
                 >
                   {submitting ? 'Submitting…' : 'Submit bulk operations'}
                 </button>
@@ -698,26 +744,26 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
         {step === 'results' && result && (
           <section className="flex flex-col gap-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-sm dark:border-slate-700/60 dark:bg-slate-800/60">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Processed</p>
-                <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">{result.operations.length}</p>
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Processed</p>
+                <p className={METASTORE_SUMMARY_VALUE_NEUTRAL_CLASSES}>{result.operations.length}</p>
               </div>
-              <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-3 text-sm dark:border-emerald-700/50 dark:bg-emerald-900/30">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600 dark:text-emerald-300">Succeeded</p>
-                <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-300">{successOperations.length}</p>
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Succeeded</p>
+                <p className={METASTORE_SUMMARY_VALUE_SUCCESS_CLASSES}>{successOperations.length}</p>
               </div>
-              <div className="rounded-2xl border border-rose-200/80 bg-rose-50/70 p-3 text-sm dark:border-rose-700/50 dark:bg-rose-900/30">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-rose-600 dark:text-rose-300">Failed</p>
-                <p className="text-lg font-semibold text-rose-600 dark:text-rose-300">{errorOperations.length}</p>
+              <div className={METASTORE_SUMMARY_CARD_CLASSES}>
+                <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Failed</p>
+                <p className={METASTORE_SUMMARY_VALUE_DANGER_CLASSES}>{errorOperations.length}</p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Sort by</span>
+              <span className={METASTORE_SUMMARY_LABEL_CLASSES}>Sort by</span>
               <select
                 value={resultsSortKey}
                 onChange={(event) => setResultsSortKey(event.target.value as ResultSortKey)}
-                className="rounded-full border border-slate-300/70 bg-white px-3 py-1 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-200"
+                className={METASTORE_SELECT_CLASSES}
               >
                 <option value="namespace">Namespace</option>
                 <option value="key">Key</option>
@@ -725,7 +771,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
               <button
                 type="button"
                 onClick={() => setResultsSortDirection(resultsSortDirection === 'asc' ? 'desc' : 'asc')}
-                className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 {resultsSortDirection === 'asc' ? 'Ascending' : 'Descending'}
               </button>
@@ -734,7 +780,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   <button
                     type="button"
                     onClick={handleDownloadFailures}
-                    className="rounded-full border border-slate-300/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                    className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                   >
                     Download failure report
                   </button>
@@ -743,7 +789,7 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
                   <button
                     type="button"
                     onClick={handleRetryFailures}
-                    className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow transition-colors hover:bg-violet-500"
+                    className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                   >
                     Retry failed operations
                   </button>
@@ -760,14 +806,14 @@ export function BulkOperationsDialog({ open, onClose, onSubmit }: BulkOperations
               <button
                 type="button"
                 onClick={handleClose}
-                className="rounded-full border border-slate-300/70 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_CLASSES}
               >
                 Close
               </button>
               <button
                 type="button"
                 onClick={resetState}
-                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500"
+                className={METASTORE_PRIMARY_BUTTON_CLASSES}
               >
                 Start new batch
               </button>
@@ -787,33 +833,33 @@ type ResultListProps = {
 };
 
 function ResultList({ title, emptyMessage, operations, tone }: ResultListProps) {
-  const badgeClass =
-    tone === 'success'
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-      : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300';
+  const badgeClass = classNames(
+    METASTORE_RESULT_BADGE_BASE_CLASSES,
+    tone === 'success' ? METASTORE_RESULT_BADGE_SUCCESS_CLASSES : METASTORE_RESULT_BADGE_ERROR_CLASSES
+  );
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 text-sm dark:border-slate-700/60 dark:bg-slate-900/30">
-      <h4 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h4>
+    <div className={METASTORE_RESULT_LIST_CONTAINER_CLASSES}>
+      <h4 className={classNames('mb-3', METASTORE_RESULT_TITLE_CLASSES)}>{title}</h4>
       {operations.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">{emptyMessage}</p>
+        <p className={classNames('text-scale-sm', METASTORE_META_TEXT_CLASSES)}>{emptyMessage}</p>
       ) : (
         <ul className="space-y-3">
           {operations.map((operation, index) => (
             <li key={`${operation.namespace ?? 'unknown'}-${operation.key ?? index}`} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <span className={`rounded-full px-2 py-1 text-xs font-semibold ${badgeClass}`}>
+                <span className={badgeClass}>
                   {tone === 'success' ? 'Success' : 'Error'}
                 </span>
-                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <span className={METASTORE_RESULT_TITLE_CLASSES}>
                   {operation.namespace ?? 'unknown'} / {operation.key ?? '—'}
                 </span>
               </div>
               {tone === 'error' && operation.error && (
-                <p className="text-xs text-rose-600 dark:text-rose-300">{operation.error.message ?? 'Operation failed'}</p>
+                <p className={METASTORE_ERROR_TEXT_CLASSES}>{operation.error.message ?? 'Operation failed'}</p>
               )}
               {tone === 'success' && operation.record && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className={METASTORE_RESULT_META_CLASSES}>
                   version {operation.record.version} · updated {operation.record.updatedAt}
                 </p>
               )}

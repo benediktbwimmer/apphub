@@ -20,7 +20,7 @@ export default function AiBuilderDialog(props: AiBuilderDialogProps) {
       onClose={handlers.handleDismiss}
       closeOnBackdrop={false}
       className="items-center justify-center p-4"
-      contentClassName="flex h-full w-full max-w-6xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
+      contentClassName="flex h-full w-full max-w-6xl flex-col overflow-hidden border border-subtle bg-surface-glass shadow-elevation-xl"
     >
       <AiBuilderDialogHeader
         state={state}

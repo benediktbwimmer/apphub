@@ -1,7 +1,52 @@
+import classNames from 'classnames';
 import { useEffect, useState } from 'react';
-import { useRuntimeScalingSettings } from './runtimeScaling/useRuntimeScalingSettings';
-import type { RuntimeScalingTarget } from './runtimeScaling/types';
+
 import { Spinner } from '../components/Spinner';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import {
+  SETTINGS_ALERT_ERROR_CLASSES,
+  SETTINGS_ALERT_WARNING_CLASSES,
+  SETTINGS_CARD_CONTAINER_CLASSES,
+  SETTINGS_FORM_LABEL_CLASSES,
+  SETTINGS_FORM_TEXTAREA_CLASSES,
+  SETTINGS_HEADER_SUBTITLE_CLASSES,
+  SETTINGS_HEADER_TITLE_CLASSES,
+  SETTINGS_INLINE_BADGE_CLASSES,
+  SETTINGS_INPUT_NUMBER_CLASSES,
+  SETTINGS_INPUT_RANGE_CLASSES,
+  SETTINGS_PRIMARY_BUTTON_CLASSES,
+  SETTINGS_SECONDARY_BUTTON_CLASSES,
+  SETTINGS_SECTION_HELPER_CLASSES,
+  SETTINGS_SECTION_SUBTITLE_CLASSES,
+  SETTINGS_SECTION_TITLE_CLASSES,
+  SETTINGS_TABLE_HEADER_CLASSES,
+  SETTINGS_TABLE_META_TEXT_CLASSES,
+  SETTINGS_TABLE_ROW_TEXT_CLASSES
+} from './settingsTokens';
+import type { RuntimeScalingTarget } from './runtimeScaling/types';
+import { useRuntimeScalingSettings } from './runtimeScaling/useRuntimeScalingSettings';
+
+const TARGET_CARD_CLASSES = classNames(
+  SETTINGS_CARD_CONTAINER_CLASSES,
+  'gap-5 rounded-3xl p-6 shadow-elevation-xl'
+);
+
+const TARGET_METRICS_CARD_CLASSES =
+  'flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-muted p-4 text-scale-sm text-secondary shadow-inner transition-colors';
+
+const STATUS_BADGE_BASE_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-scale-xs font-weight-semibold capitalize';
+
+const PRIMARY_BUTTON_LARGE_CLASSES = classNames(SETTINGS_PRIMARY_BUTTON_CLASSES, 'px-4 py-2');
+
+const SECONDARY_BUTTON_LARGE_CLASSES = classNames(SETTINGS_SECONDARY_BUTTON_CLASSES, 'px-4 py-2 text-scale-sm');
+
+const TABLE_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm';
+const TABLE_BODY_CLASSES = 'divide-y divide-subtle';
+const TABLE_HEADER_CELL_CLASSES = classNames('px-3 py-2', SETTINGS_TABLE_HEADER_CLASSES);
+const TABLE_ROW_CLASSES = classNames('text-scale-sm', SETTINGS_TABLE_ROW_TEXT_CLASSES);
+const TABLE_CELL_CLASSES = 'px-3 py-2';
+const TABLE_META_CELL_CLASSES = classNames('px-3 py-2', SETTINGS_TABLE_META_TEXT_CLASSES);
 
 function formatInstant(value: string | null): string {
   if (!value) {
@@ -40,12 +85,12 @@ function formatRateLimit(ms: number): string {
 function statusBadgeClasses(status: 'ok' | 'pending' | 'error'): string {
   switch (status) {
     case 'ok':
-      return 'bg-emerald-50/70 text-emerald-600 border border-emerald-200/80 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/40';
+      return getStatusToneClasses('success');
     case 'pending':
-      return 'bg-amber-50/70 text-amber-600 border border-amber-200/80 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/40';
+      return getStatusToneClasses('warning');
     case 'error':
     default:
-      return 'bg-rose-50/70 text-rose-600 border border-rose-200/80 dark:bg-rose-500/10 dark:text-rose-200 dark:border-rose-500/40';
+      return getStatusToneClasses('danger');
   }
 }
 
@@ -293,36 +338,29 @@ export default function RuntimeScalingSettingsPage() {
     const sortedCounts = Object.entries(target.queue.counts).filter(([, value]) => Number.isFinite(value));
 
     return (
-      <article
-        key={target.target}
-        className="flex flex-col gap-5 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-45px_rgba(15,23,42,0.55)] dark:border-slate-700/60 dark:bg-slate-900/60"
-      >
+      <article key={target.target} className={TARGET_CARD_CLASSES}>
         <header className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div className="flex flex-col gap-1">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{target.displayName}</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300">{target.description}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <h2 className={SETTINGS_SECTION_TITLE_CLASSES}>{target.displayName}</h2>
+            <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>{target.description}</p>
+            <p className={SETTINGS_SECTION_HELPER_CLASSES}>
               Queue {target.queue.name} · Mode {target.queue.mode}
               {target.queue.error ? ` · ${target.queue.error}` : ''}
             </p>
           </div>
-          <div className="flex flex-col items-start gap-1 text-sm text-slate-600 dark:text-slate-300 md:items-end">
+          <div className="flex flex-col items-start gap-1 text-scale-sm text-secondary md:items-end">
             <span>
               Effective concurrency{' '}
-              <strong className="font-semibold text-slate-900 dark:text-slate-100">
-                {target.effectiveConcurrency}
-              </strong>{' '}
+              <strong className="font-weight-semibold text-primary">{target.effectiveConcurrency}</strong>{' '}
               ({differenceLabel(target)} vs desired)
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Updated {formatInstant(lastUpdatedAt)}
-            </span>
+            <span className={SETTINGS_SECTION_HELPER_CLASSES}>Updated {formatInstant(lastUpdatedAt)}</span>
           </div>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-4">
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <label className={SETTINGS_FORM_LABEL_CLASSES}>
               Desired concurrency
               <div className="flex items-center gap-3">
                 <input
@@ -335,7 +373,7 @@ export default function RuntimeScalingSettingsPage() {
                   onMouseUp={() => handleBlur(target)}
                   onTouchEnd={() => handleBlur(target)}
                   disabled={!writesEnabled || isUpdating}
-                  className="h-1 w-full cursor-pointer rounded-full bg-slate-200 accent-violet-600 dark:bg-slate-700"
+                  className={classNames('w-full cursor-pointer', SETTINGS_INPUT_RANGE_CLASSES)}
                 />
                 <input
                   type="number"
@@ -346,16 +384,16 @@ export default function RuntimeScalingSettingsPage() {
                   onChange={(event) => handleDesiredChange(target.target, event.target.value)}
                   onBlur={() => handleBlur(target)}
                   disabled={!writesEnabled || isUpdating}
-                  className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  className={SETTINGS_INPUT_NUMBER_CLASSES}
                 />
               </div>
             </label>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className={SETTINGS_SECTION_HELPER_CLASSES}>
               Min {target.minConcurrency} · Max {target.maxConcurrency} · Default {target.defaultConcurrency}{' '}
               (env {target.defaultEnvVar})
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{formatRateLimit(target.rateLimitMs)}</p>
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <p className={SETTINGS_SECTION_HELPER_CLASSES}>{formatRateLimit(target.rateLimitMs)}</p>
+            <label className={SETTINGS_FORM_LABEL_CLASSES}>
               Change reason (optional)
               <textarea
                 rows={3}
@@ -363,7 +401,7 @@ export default function RuntimeScalingSettingsPage() {
                 onChange={(event) => handleReasonChange(target.target, event.target.value)}
                 disabled={!writesEnabled || isUpdating}
                 placeholder="Explain why you're adjusting this queue's concurrency"
-                className="min-h-[3rem] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={SETTINGS_FORM_TEXTAREA_CLASSES}
               />
             </label>
             <div className="flex flex-wrap items-center gap-3">
@@ -371,11 +409,7 @@ export default function RuntimeScalingSettingsPage() {
                 type="button"
                 onClick={() => submitUpdate(target)}
                 disabled={disableActions}
-                className={`rounded-full px-4 py-2 text-sm font-semibold text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                  disableActions
-                    ? 'cursor-not-allowed bg-violet-400/60'
-                    : 'bg-violet-600 hover:bg-violet-700'
-                }`}
+                className={PRIMARY_BUTTON_LARGE_CLASSES}
               >
                 {isUpdating ? 'Saving…' : 'Save update'}
               </button>
@@ -383,17 +417,16 @@ export default function RuntimeScalingSettingsPage() {
                 type="button"
                 onClick={() => resetDraft(target)}
                 disabled={!writesEnabled || isUpdating}
-                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                className={SECONDARY_BUTTON_LARGE_CLASSES}
               >
                 Reset to default
               </button>
               {message ? (
                 <span
-                  className={`text-sm font-medium ${
-                    message.type === 'success'
-                      ? 'text-emerald-600 dark:text-emerald-300'
-                      : 'text-rose-600 dark:text-rose-300'
-                  }`}
+                  className={classNames(
+                    'text-scale-sm font-weight-semibold',
+                    message.type === 'success' ? 'text-status-success' : 'text-status-danger'
+                  )}
                 >
                   {message.text}
                 </span>
@@ -401,65 +434,65 @@ export default function RuntimeScalingSettingsPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 text-sm text-slate-600 shadow-inner dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Queue metrics</h3>
+          <div className={TARGET_METRICS_CARD_CLASSES}>
+            <h3 className={SETTINGS_SECTION_SUBTITLE_CLASSES}>Queue metrics</h3>
             {target.queue.mode === 'inline' ? (
-              <p>Queue operates in inline mode; jobs execute synchronously.</p>
+              <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>
+                Queue operates in inline mode; jobs execute synchronously.
+              </p>
             ) : sortedCounts.length === 0 ? (
-              <p>No queue counts reported.</p>
+              <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>No queue counts reported.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {sortedCounts.map(([state, value]) => (
-                  <span
-                    key={state}
-                    className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm dark:bg-slate-800/70 dark:text-slate-200"
-                  >
+                  <span key={state} className={classNames(SETTINGS_INLINE_BADGE_CLASSES, 'gap-1')}>
                     {state}: {value}
                   </span>
                 ))}
               </div>
             )}
             {target.queue.metrics ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Avg wait {target.queue.metrics.waitingAvgMs ?? '—'} ms · Avg processing {target.queue.metrics.processingAvgMs ?? '—'} ms
+              <p className={SETTINGS_SECTION_HELPER_CLASSES}>
+                Avg wait {target.queue.metrics.waitingAvgMs ?? '—'} ms · Avg processing{' '}
+                {target.queue.metrics.processingAvgMs ?? '—'} ms
               </p>
             ) : null}
             {target.queue.error ? (
-              <p className="text-xs text-rose-500 dark:text-rose-300">{target.queue.error}</p>
+              <p className="text-scale-xs font-weight-semibold text-status-danger">{target.queue.error}</p>
             ) : null}
           </div>
         </div>
 
         <section className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent acknowledgements</h3>
+          <h3 className={SETTINGS_SECTION_SUBTITLE_CLASSES}>Recent acknowledgements</h3>
           {target.acknowledgements.length === 0 ? (
-            <p className="text-sm text-slate-600 dark:text-slate-300">No worker acknowledgements recorded yet.</p>
+            <p className={SETTINGS_SECTION_SUBTITLE_CLASSES}>No worker acknowledgements recorded yet.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-                <thead className="bg-slate-100/80 dark:bg-slate-800/60">
-                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    <th className="px-3 py-2">Instance</th>
-                    <th className="px-3 py-2">Applied</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Updated</th>
-                    <th className="px-3 py-2">Notes</th>
+              <table className={TABLE_CLASSES}>
+                <thead className="bg-surface-muted">
+                  <tr>
+                    <th className={TABLE_HEADER_CELL_CLASSES}>Instance</th>
+                    <th className={TABLE_HEADER_CELL_CLASSES}>Applied</th>
+                    <th className={TABLE_HEADER_CELL_CLASSES}>Status</th>
+                    <th className={TABLE_HEADER_CELL_CLASSES}>Updated</th>
+                    <th className={TABLE_HEADER_CELL_CLASSES}>Notes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                <tbody className={TABLE_BODY_CLASSES}>
                   {target.acknowledgements.map((ack) => (
-                    <tr key={`${ack.instanceId}-${ack.updatedAt}`} className="text-slate-600 dark:text-slate-300">
-                      <td className="px-3 py-2 font-mono text-xs">{ack.instanceId}</td>
-                      <td className="px-3 py-2">{ack.appliedConcurrency}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClasses(ack.status)}`}>
+                    <tr key={`${ack.instanceId}-${ack.updatedAt}`} className={TABLE_ROW_CLASSES}>
+                      <td className={classNames(TABLE_META_CELL_CLASSES, 'font-mono')}>{ack.instanceId}</td>
+                      <td className={classNames(TABLE_CELL_CLASSES, 'font-weight-semibold text-primary')}>
+                        {ack.appliedConcurrency}
+                      </td>
+                      <td className={TABLE_CELL_CLASSES}>
+                        <span className={classNames(STATUS_BADGE_BASE_CLASSES, statusBadgeClasses(ack.status))}>
                           {ack.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-xs">{formatInstant(ack.updatedAt)}</td>
-                      <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
-                        {ack.error ?? '—'}
-                      </td>
+                      <td className={TABLE_META_CELL_CLASSES}>{formatInstant(ack.updatedAt)}</td>
+                      <td className={TABLE_META_CELL_CLASSES}>{ack.error ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -475,8 +508,8 @@ export default function RuntimeScalingSettingsPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Runtime scaling</h1>
-          <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+          <h1 className={SETTINGS_HEADER_TITLE_CLASSES}>Runtime scaling</h1>
+          <p className={classNames('max-w-2xl', SETTINGS_HEADER_SUBTITLE_CLASSES)}>
             Monitor queue depth and concurrency across ingestion, build, and workflow workers. Updates propagate to
             running workers in near real time.
           </p>
@@ -486,31 +519,35 @@ export default function RuntimeScalingSettingsPage() {
           onClick={() => {
             void refresh();
           }}
-          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={SECONDARY_BUTTON_LARGE_CLASSES}
         >
           Refresh
         </button>
       </header>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 px-4 py-3 text-sm font-medium text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+        <div className={classNames(SETTINGS_ALERT_ERROR_CLASSES, 'shadow-elevation-sm font-weight-semibold')}>
           {error}
         </div>
       ) : null}
 
       {!writesEnabled ? (
-        <div className="rounded-2xl border border-amber-200/70 bg-amber-50/80 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className={classNames(SETTINGS_ALERT_WARNING_CLASSES, 'shadow-elevation-sm')}>
           Runtime scaling writes are disabled in this environment. You can still review metrics, but adjustments require
-          enabling <code className="rounded bg-amber-500/20 px-1 py-0.5 text-xs">APPHUB_RUNTIME_SCALING_WRITES_ENABLED</code>.
+          enabling{' '}
+          <code className="rounded bg-surface-muted px-1 py-0.5 font-mono text-scale-xs text-secondary">
+            APPHUB_RUNTIME_SCALING_WRITES_ENABLED
+          </code>
+          .
         </div>
       ) : null}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <div className="flex items-center gap-2 text-scale-sm text-secondary">
           <Spinner size="sm" /> Loading runtime scaling data…
         </div>
       ) : targets.length === 0 ? (
-        <p className="text-sm text-slate-600 dark:text-slate-300">No runtime scaling targets are configured.</p>
+        <p className="text-scale-sm text-secondary">No runtime scaling targets are configured.</p>
       ) : (
         <div className="flex flex-col gap-6">
           {targets.map((target) => renderTargetCard(target))}

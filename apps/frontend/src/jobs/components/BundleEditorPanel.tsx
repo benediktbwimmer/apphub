@@ -1,10 +1,62 @@
 import { useMemo } from 'react';
 import { Editor } from '../../components/Editor';
 import DiffViewer from '../../components/DiffViewer';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import {
   inferLanguage,
   type FileState
 } from '../utils';
+
+const PANEL_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass shadow-elevation-xl transition-colors';
+
+const HEADER_CONTAINER_CLASSES = 'border-b border-subtle px-6 py-4';
+
+const HEADER_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const HEADER_SUBTEXT_CLASSES = 'text-scale-xs text-muted';
+
+const TOOLBAR_BUTTON_BASE =
+  'rounded-full border px-3 py-1 text-scale-xs font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const TOOLBAR_BUTTON_MUTED =
+  `${TOOLBAR_BUTTON_BASE} border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong`;
+
+const TOOLBAR_BUTTON_ACCENT =
+  `${TOOLBAR_BUTTON_BASE} border-accent bg-transparent text-accent hover:bg-accent-soft`;
+
+const TOOLBAR_BUTTON_PRIMARY =
+  'rounded-full bg-accent px-3 py-1 text-scale-xs font-weight-semibold text-on-accent shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const CHIP_BASE =
+  'inline-flex items-center gap-2 rounded-full border px-2 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.25em]';
+
+const FILE_LIST_BUTTON_BASE =
+  'w-full rounded-lg border border-transparent px-2 py-1.5 text-left text-scale-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const FILE_LIST_BUTTON_ACTIVE = 'border-accent bg-accent text-on-accent shadow-elevation-md';
+
+const FILE_LIST_BUTTON_INACTIVE = 'hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong text-secondary';
+
+const FILE_BADGE_CLASSES =
+  'ml-2 rounded-full border border-accent-soft bg-accent-soft px-2 py-0.5 text-[10px] font-weight-semibold uppercase tracking-wide text-accent';
+
+const FIELD_LABEL_CLASSES = 'text-scale-xs font-weight-semibold uppercase tracking-wide text-muted';
+
+const INPUT_BASE_CLASSES =
+  'rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const TEXTAREA_BASE_CLASSES = `${INPUT_BASE_CLASSES} min-h-[72px]`; 
+
+const MESSAGE_BLOCK_CLASSES =
+  'rounded-lg border border-dashed border-subtle bg-surface-muted p-8 text-center text-scale-sm text-muted';
+
+const DANGER_BUTTON_CLASSES =
+  'rounded-full border border-status-danger px-3 py-1 text-scale-xs font-weight-semibold text-status-danger transition-colors hover:bg-status-danger-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+function buildStatusBadge(status: string): string {
+  return `${CHIP_BASE} ${getStatusToneClasses(status)}`;
+}
 
 type BundleEditorPanelProps = {
   files: FileState[];
@@ -141,19 +193,19 @@ export function BundleEditorPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+    <div className={PANEL_CLASSES}>
+      <div className={HEADER_CONTAINER_CLASSES}>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Bundle editor</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <h3 className={HEADER_TITLE_CLASSES}>Bundle editor</h3>
+            <p className={HEADER_SUBTEXT_CLASSES}>
               Edit bundle source files and manifest. Regenerate to publish a new version.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={TOOLBAR_BUTTON_MUTED}
               onClick={onReset}
               disabled={!isDirty || regenerating || aiBusy}
             >
@@ -161,7 +213,7 @@ export function BundleEditorPanel({
             </button>
             <button
               type="button"
-              className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-violet-400 dark:text-violet-200 dark:hover:bg-violet-400/20"
+              className={TOOLBAR_BUTTON_ACCENT}
               onClick={onOpenAiEdit}
               disabled={aiBusy || regenerating}
             >
@@ -169,7 +221,7 @@ export function BundleEditorPanel({
             </button>
             <button
               type="button"
-              className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-violet-500 dark:hover:bg-violet-400"
+              className={TOOLBAR_BUTTON_PRIMARY}
               onClick={onRegenerate}
               disabled={regenerating || aiBusy}
             >
@@ -177,39 +229,34 @@ export function BundleEditorPanel({
             </button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-scale-xs text-muted">
           <label className="inline-flex items-center gap-2">
             <input
               type="checkbox"
               checked={showDiff}
               onChange={(event) => onShowDiffChange(event.target.checked)}
+              className="accent-accent"
             />
             Show diff view
           </label>
           {aiReviewPending && (
-            <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-700 dark:bg-amber-500/30 dark:text-amber-200">
-              Review AI changes
-            </span>
+            <span className={buildStatusBadge('warning')}>Review AI changes</span>
           )}
           {regenerateSuccess && (
-            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
-              {regenerateSuccess}
-            </span>
+            <span className={buildStatusBadge('success')}>{regenerateSuccess}</span>
           )}
           {regenerateError && (
-            <span className="rounded-full bg-rose-100 px-2 py-1 font-semibold text-rose-700 dark:bg-rose-500/20 dark:text-rose-200">
-              {regenerateError}
-            </span>
+            <span className={buildStatusBadge('failed')}>{regenerateError}</span>
           )}
         </div>
       </div>
       <div className="grid gap-6 px-6 py-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <div>
-          <div className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="mb-3 flex items-center justify-between text-scale-xs font-weight-semibold uppercase tracking-wide text-muted">
             <span>Files</span>
             <button
               type="button"
-              className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={`${TOOLBAR_BUTTON_MUTED} px-2`}
               onClick={onAddFile}
               disabled={regenerating || aiBusy}
             >
@@ -225,17 +272,15 @@ export function BundleEditorPanel({
                   <button
                     type="button"
                     onClick={() => onSelectFile(item.path)}
-                    className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${active ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-200' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    className={`${FILE_LIST_BUTTON_BASE} ${active ? FILE_LIST_BUTTON_ACTIVE : FILE_LIST_BUTTON_INACTIVE}`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="truncate font-medium">{item.path}</span>
+                      <span className="truncate font-weight-medium text-primary">{item.path}</span>
                       {status && (
-                        <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                          {status}
-                        </span>
+                        <span className={FILE_BADGE_CLASSES}>{status}</span>
                       )}
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className="text-[11px] text-muted">
                       {item.current?.encoding === 'base64' || item.baseline?.encoding === 'base64'
                         ? 'Binary'
                         : item.current?.executable ?? item.baseline?.executable
@@ -247,9 +292,7 @@ export function BundleEditorPanel({
               );
             })}
             {visibleItems.length === 0 && (
-              <li className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                No files in bundle
-              </li>
+              <li className="rounded-lg border border-dashed border-subtle bg-surface-muted px-3 py-4 text-center text-scale-xs text-muted">No files in bundle</li>
             )}
           </ul>
         </div>
@@ -257,9 +300,7 @@ export function BundleEditorPanel({
           {showDiff ? (
             activeItem ? (
               diffUnavailable ? (
-                <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
-                  Binary files cannot be diffed. Exit diff view to make manual adjustments.
-                </div>
+                <div className={MESSAGE_BLOCK_CLASSES}>Binary files cannot be diffed. Exit diff view to make manual adjustments.</div>
               ) : (
                 <DiffViewer
                   original={diffOriginal}
@@ -270,32 +311,31 @@ export function BundleEditorPanel({
                 />
               )
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
-                Select a file to compare the AI changes.
-              </div>
+              <div className={MESSAGE_BLOCK_CLASSES}>Select a file to compare the AI changes.</div>
             )
           ) : activeFile ? (
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                  className={`${INPUT_BASE_CLASSES} flex-1`}
                   value={activeFile.path}
                   onChange={(event) => onRenameFile(activeFile.path, event.target.value)}
                   disabled={activeFile.readOnly || regenerating || aiBusy}
                 />
-                <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                <label className="flex items-center gap-1 text-scale-xs text-secondary">
                   <input
                     type="checkbox"
                     checked={activeFile.executable}
                     onChange={() => onToggleExecutable(activeFile.path)}
                     disabled={activeFile.readOnly || regenerating || aiBusy}
+                    className="accent-accent"
                   />
                   Executable
                 </label>
                 <button
                   type="button"
-                  className="rounded-full border border-red-300 px-3 py-1 text-xs text-red-600 transition-colors hover:bg-red-50 dark:border-red-500 dark:text-red-300 dark:hover:bg-red-500/10"
+                  className={DANGER_BUTTON_CLASSES}
                   onClick={() => onRemoveFile(activeFile.path)}
                   disabled={regenerating || aiBusy}
                 >
@@ -311,57 +351,55 @@ export function BundleEditorPanel({
                 ariaLabel={`Edit ${activeFile.path}`}
               />
               {activeFile.readOnly && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-scale-xs text-muted">
                   This file is stored as binary data. Convert it to UTF-8 if you need to edit it here.
                 </p>
               )}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
-              Select a file to view or edit its contents.
-            </div>
+            <div className={MESSAGE_BLOCK_CLASSES}>Select a file to view or edit its contents.</div>
           )}
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <label className={FIELD_LABEL_CLASSES}>
                 Entry point
               </label>
               <input
                 type="text"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={INPUT_BASE_CLASSES}
                 value={entryPoint}
                 onChange={(event) => onEntryPointChange(event.target.value)}
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <label className={FIELD_LABEL_CLASSES}>
                 Manifest path
               </label>
               <input
                 type="text"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={INPUT_BASE_CLASSES}
                 value={manifestPath}
                 onChange={(event) => onManifestPathChange(event.target.value)}
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <label className={FIELD_LABEL_CLASSES}>
                 Capability flags
               </label>
               <textarea
-                className="min-h-[72px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={TEXTAREA_BASE_CLASSES}
                 value={capabilityFlagsInput}
                 onChange={(event) => onCapabilityFlagsChange(event.target.value)}
                 placeholder="comma-separated"
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <label className={FIELD_LABEL_CLASSES}>
                 Explicit version (optional)
               </label>
               <input
                 type="text"
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={INPUT_BASE_CLASSES}
                 value={versionInput}
                 onChange={(event) => onVersionInputChange(event.target.value)}
                 placeholder="auto increment"
@@ -369,7 +407,7 @@ export function BundleEditorPanel({
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <label className={FIELD_LABEL_CLASSES}>
               Manifest
             </label>
             <Editor
@@ -380,7 +418,7 @@ export function BundleEditorPanel({
               ariaLabel="Edit bundle manifest"
             />
             {manifestError && (
-              <p className="text-xs text-red-600 dark:text-red-400">{manifestError}</p>
+              <p className="text-scale-xs text-status-danger">{manifestError}</p>
             )}
           </div>
         </div>

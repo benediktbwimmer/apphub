@@ -24,6 +24,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useTheme } from '../../theme';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import {
   createWorkflowGraphTheme,
   type WorkflowGraphCanvasTheme,
@@ -175,24 +176,73 @@ function describeNodeKind(kind: WorkflowGraphCanvasNodeKind): string {
 }
 
 const CONTROL_BUTTON_CLASS =
-  'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white/90 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800/70';
+  'inline-flex h-8 w-8 items-center justify-center rounded-md border border-subtle bg-surface-glass px-1.5 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
 
 const CONTROL_BUTTON_WIDE_CLASS =
-  'inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white/90 px-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800/70';
+  'inline-flex h-8 items-center justify-center rounded-md border border-subtle bg-surface-glass px-2 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PANEL_CONTAINER_CLASSES =
+  'flex flex-col gap-2 rounded-2xl border border-subtle bg-surface-glass p-2 shadow-elevation-lg backdrop-blur-md transition-colors';
+
+const OVERLAY_BASE_CLASSES = 'absolute inset-0 z-10 flex items-center justify-center text-scale-sm font-weight-semibold';
+
+const LOADING_OVERLAY_CLASSES = `${OVERLAY_BASE_CLASSES} bg-surface-glass-soft text-secondary`;
+
+const ERROR_OVERLAY_CLASSES =
+  'absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-surface-glass p-6 text-center text-scale-sm text-status-danger';
+
+const ERROR_OVERLAY_SUBTEXT_CLASSES = 'text-scale-xs text-status-danger';
+
+const EMPTY_OVERLAY_CLASSES =
+  'absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-surface-glass p-6 text-center text-scale-sm text-secondary';
+
+const EMPTY_OVERLAY_SUBTEXT_CLASSES = 'text-scale-xs text-muted';
+
+const TOOLTIP_CONTAINER_CLASSES =
+  'pointer-events-none absolute z-30 w-64 max-w-[260px] rounded-2xl border border-subtle bg-surface-sunken px-4 py-3 text-scale-xs font-weight-semibold text-inverse shadow-elevation-xl';
+
+const TOOLTIP_KIND_CLASSES = 'mt-1 text-[10px] uppercase tracking-[0.22em] text-accent';
+
+const TOOLTIP_SUBTITLE_CLASSES = 'mt-1 text-[11px] text-secondary';
+
+const TOOLTIP_BADGE_CLASSES =
+  'inline-flex items-center rounded-full bg-accent-soft px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-wide text-accent';
+
+const TOOLTIP_META_LIST_CLASSES = 'mt-2 space-y-1 text-[11px] font-weight-regular text-secondary';
+
+const STATUS_BADGE_BASE_CLASSES =
+  'inline-flex max-w-[140px] items-center justify-center rounded-full border px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-wide';
+
+const PRIMARY_BADGE_CLASSES =
+  'inline-flex max-w-[120px] items-center justify-center rounded-full px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-wide';
+
+const SECONDARY_BADGE_CLASSES =
+  'inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-weight-semibold uppercase tracking-wide';
+
+const NODE_CONTAINER_BASE_CLASSES =
+  'flex h-full w-full flex-col justify-between rounded-2xl border p-4 text-left transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const NODE_CONTAINER_BACKGROUND_CLASSES = 'bg-surface-glass';
+
+const NODE_HIGHLIGHT_CLASSES = 'ring-2 ring-accent shadow-elevation-md';
+
+const CANVAS_CONTAINER_CLASSES =
+  'relative overflow-hidden rounded-3xl border border-subtle bg-surface-glass shadow-elevation-xl backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNodeData>) {
   const theme = useWorkflowGraphCanvasTheme();
   const variant = theme.nodes[data.kind];
   const isHighlighted = data.highlighted || selected;
   const status = data.status;
-  const statusClassName = status ? STATUS_TONE_CLASSES[status.tone] ?? STATUS_TONE_CLASSES.neutral : null;
+  const statusClassName = status ? STATUS_BADGE_TONE_CLASSES[status.tone] ?? STATUS_BADGE_TONE_CLASSES.neutral : null;
   const primaryBadge = !status && data.badges.length > 0 ? data.badges[0] : null;
   const secondaryBadges = status ? data.badges : data.badges.slice(primaryBadge ? 1 : 0);
   return (
     <div
       className={classNames(
-        'flex h-full w-full flex-col justify-between rounded-2xl border bg-white/90 p-4 text-left transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:bg-slate-950/60',
-        isHighlighted ? 'ring-2 ring-violet-300 dark:ring-violet-500/60' : 'ring-0'
+        NODE_CONTAINER_BASE_CLASSES,
+        NODE_CONTAINER_BACKGROUND_CLASSES,
+        isHighlighted ? NODE_HIGHLIGHT_CLASSES : 'ring-0'
       )}
       style={{
         background: variant.background,
@@ -234,17 +284,14 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
         </div>
         {status ? (
           <span
-            className={classNames(
-              'inline-flex max-w-[140px] items-center justify-center rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide',
-              statusClassName
-            )}
+            className={classNames(STATUS_BADGE_BASE_CLASSES, statusClassName)}
             title={status.tooltip ?? status.label}
           >
             {status.label}
           </span>
         ) : primaryBadge ? (
           <span
-            className="inline-flex max-w-[120px] items-center justify-center rounded-full px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide"
+            className={PRIMARY_BADGE_CLASSES}
             style={{ background: variant.badgeBackground, color: variant.badgeText }}
           >
             {primaryBadge}
@@ -256,7 +303,7 @@ function WorkflowGraphNode({ data, selected }: NodeProps<WorkflowGraphCanvasNode
           {secondaryBadges.map((badge) => (
             <span
               key={badge}
-              className="inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold uppercase tracking-wide"
+              className={SECONDARY_BADGE_CLASSES}
               style={{ background: variant.badgeBackground, color: variant.badgeText }}
             >
               {badge}
@@ -279,15 +326,15 @@ const NODE_TYPES = {
   'workflow-graph-node': WorkflowGraphNode
 };
 
-const STATUS_TONE_CLASSES: Record<
+const STATUS_BADGE_TONE_CLASSES: Record<
   NonNullable<WorkflowGraphCanvasNodeData['status']>['tone'],
   string
 > = {
-  neutral: 'bg-slate-200 text-slate-700 dark:bg-slate-700/70 dark:text-slate-200',
-  info: 'bg-sky-200 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200',
-  success: 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200',
-  warning: 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200',
-  danger: 'bg-rose-200 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
+  neutral: getStatusToneClasses('neutral'),
+  info: getStatusToneClasses('info'),
+  success: getStatusToneClasses('success'),
+  warning: getStatusToneClasses('warning'),
+  danger: getStatusToneClasses('danger')
 };
 
 type WorkflowGraphCanvasProps = {
@@ -665,7 +712,7 @@ export function WorkflowGraphCanvas({
     <WorkflowGraphCanvasThemeContext.Provider value={mergedTheme}>
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-3xl border border-slate-200/70 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 dark:border-slate-700/60 dark:bg-slate-950/40"
+        className={CANVAS_CONTAINER_CLASSES}
         style={containerStyle}
         tabIndex={0}
         role="region"
@@ -674,32 +721,32 @@ export function WorkflowGraphCanvas({
         onMouseLeave={handleContainerMouseLeave}
       >
         {showLoadingOverlay && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 text-sm font-semibold text-slate-500 dark:bg-slate-950/60 dark:text-slate-300">
+          <div className={LOADING_OVERLAY_CLASSES}>
             Rendering workflow topology…
           </div>
         )}
         {showErrorOverlay && (
           <div
             data-testid="workflow-topology-error-overlay"
-            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 p-6 text-center text-sm text-rose-600 dark:bg-slate-950/70 dark:text-rose-300"
+            className={ERROR_OVERLAY_CLASSES}
           >
             <p>Unable to render workflow topology.</p>
-            <p className="text-xs text-rose-500/80 dark:text-rose-200/80">{error}</p>
+            <p className={ERROR_OVERLAY_SUBTEXT_CLASSES}>{error}</p>
           </div>
         )}
         {showEmptyState && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/70 p-6 text-center text-sm text-slate-500 dark:bg-slate-950/60 dark:text-slate-300">
+          <div className={EMPTY_OVERLAY_CLASSES}>
             {filteredEmpty ? (
               <>
                 <p>No matches for the current filters.</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className={EMPTY_OVERLAY_SUBTEXT_CLASSES}>
                   Adjust the search or filter selections to reveal workflow topology nodes.
                 </p>
               </>
             ) : (
               <>
                 <p>No workflow topology data available yet.</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
+                <p className={EMPTY_OVERLAY_SUBTEXT_CLASSES}>
                   Define workflows, triggers, and assets to populate the explorer.
                 </p>
               </>
@@ -708,24 +755,24 @@ export function WorkflowGraphCanvas({
         )}
         {tooltip && tooltipStyle && (
           <div
-            className="pointer-events-none absolute z-30 w-64 max-w-[260px] rounded-2xl bg-slate-900/95 px-4 py-3 text-xs font-semibold text-slate-100 shadow-[0_18px_40px_-22px_rgba(15,23,42,0.9)]"
+            className={TOOLTIP_CONTAINER_CLASSES}
             style={tooltipStyle}
             role="presentation"
             aria-hidden="true"
           >
-            <p className="text-sm font-semibold text-white">{tooltip.node.label}</p>
-            <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-violet-200/80">
+            <p className="text-scale-sm font-weight-semibold text-inverse">{tooltip.node.label}</p>
+            <p className={TOOLTIP_KIND_CLASSES}>
               {describeNodeKind(tooltip.node.kind)}
             </p>
             {tooltip.node.subtitle && (
-              <p className="mt-1 text-[11px] text-slate-200/80">{tooltip.node.subtitle}</p>
+              <p className={TOOLTIP_SUBTITLE_CLASSES}>{tooltip.node.subtitle}</p>
             )}
             {tooltip.node.badges.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {tooltip.node.badges.map((badge) => (
                   <span
                     key={badge}
-                    className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-[2px] text-[10px] font-semibold uppercase tracking-wide text-violet-200"
+                    className={TOOLTIP_BADGE_CLASSES}
                   >
                     {badge}
                   </span>
@@ -733,7 +780,7 @@ export function WorkflowGraphCanvas({
               </div>
             )}
             {tooltip.node.meta.length > 0 && (
-              <ul className="mt-2 space-y-1 text-[11px] font-normal text-slate-200/80">
+              <ul className={TOOLTIP_META_LIST_CLASSES}>
                 {tooltip.node.meta.map((entry) => (
                   <li key={entry}>{entry}</li>
                 ))}
@@ -779,10 +826,7 @@ export function WorkflowGraphCanvas({
           }}
         >
           <Background color={mergedTheme.gridColor} gap={26} size={1} />
-          <Panel
-            position="bottom-right"
-            className="flex flex-col gap-2 rounded-2xl border border-slate-200/60 bg-white/85 p-2 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70"
-          >
+          <Panel position="bottom-right" className={PANEL_CONTAINER_CLASSES}>
             <div className="grid grid-cols-3 gap-1">
               <span aria-hidden="true" />
               <button

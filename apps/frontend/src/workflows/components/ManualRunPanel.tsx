@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import type { WorkflowDefinition, WorkflowRun } from '../types';
 import { Editor } from '../../components/Editor';
 
@@ -19,6 +20,61 @@ type ManualRunPanelProps = {
 };
 
 type FormMode = 'form' | 'json';
+
+const PANEL_CONTAINER =
+  'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg backdrop-blur-md transition-colors';
+
+const PANEL_HEADER_TITLE = 'text-scale-lg font-weight-semibold text-primary';
+
+const PANEL_HEADER_SUBTEXT = 'text-scale-xs text-secondary';
+
+const INFO_WARNING_CARD = (tone: 'warning' | 'danger' | 'info' | 'success') =>
+  `rounded-2xl border px-4 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses(tone)}`;
+
+const GUIDANCE_CARD = 'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-xs text-secondary';
+
+const SECTION_TITLE = 'text-scale-sm font-weight-semibold text-primary';
+
+const SECTION_DESCRIPTION = 'text-scale-xs text-secondary';
+
+const INPUT_FIELD =
+  'rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const SELECT_FIELD = INPUT_FIELD;
+
+const ARRAY_NOTICE =
+  `flex flex-col gap-1 rounded-2xl border px-3 py-3 text-scale-xs font-weight-semibold ${getStatusToneClasses('warning')}`;
+
+const SMALL_BUTTON =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const REMOVE_BUTTON =
+  'rounded-full border border-subtle bg-surface-glass px-2 py-1 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-status-danger hover:text-status-danger focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const FIELDSET_CONTAINER =
+  'flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-glass p-4';
+
+const FIELDSET_LEGEND = 'px-2 text-scale-sm font-weight-semibold text-primary';
+
+const CODE_BLOCK =
+  'mt-1 max-h-48 overflow-auto rounded-xl bg-surface-sunken px-3 py-2 font-mono text-scale-xs text-primary';
+
+const MODE_TOGGLE_BASE =
+  'rounded-full px-4 py-2 text-scale-xs font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const MODE_TOGGLE_ACTIVE = 'bg-accent text-inverse shadow-elevation-sm';
+
+const MODE_TOGGLE_INACTIVE =
+  'border border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong';
+
+const PRIMARY_SUBMIT_BUTTON =
+  'inline-flex items-center justify-center rounded-full border border-accent bg-accent px-5 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const SECONDARY_LINK =
+  'mt-2 inline-flex items-center text-scale-xs font-weight-semibold text-accent underline-offset-2 transition-colors hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const CHECKBOX_INPUT =
+  'mt-1 h-4 w-4 rounded border-subtle accent-accent text-accent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent focus-visible:ring-0';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -136,14 +192,14 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           type="checkbox"
           checked={checked}
           onChange={(event) => handlePrimitiveChange(event.target.checked)}
-          className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+          className={CHECKBOX_INPUT}
         />
         <div className="flex flex-col">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <span className={SECTION_TITLE}>
             {title}
-            {required ? <span className="ml-1 text-rose-500">*</span> : null}
+            {required ? <span className={REQUIRED_MARK}>*</span> : null}
           </span>
-          {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+          {description && <span className={SECTION_DESCRIPTION}>{description}</span>}
         </div>
       </label>
     );
@@ -153,15 +209,15 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
     if (enumValues && enumValues.length > 0) {
       return (
         <div className="flex flex-col gap-1">
-          <label htmlFor={fieldId} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <label htmlFor={fieldId} className={SECTION_TITLE}>
             {title}
-            {required ? <span className="ml-1 text-rose-500">*</span> : null}
+            {required ? <span className={REQUIRED_MARK}>*</span> : null}
           </label>
           <select
             id={fieldId}
             value={value as string | number | undefined}
             onChange={(event) => handlePrimitiveChange(event.target.value)}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+            className={SELECT_FIELD}
           >
             <option value="">Select…</option>
             {enumValues.map((entry) => (
@@ -170,7 +226,7 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
               </option>
             ))}
           </select>
-          {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+          {description && <span className={SECTION_DESCRIPTION}>{description}</span>}
         </div>
       );
     }
@@ -186,9 +242,9 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
           : undefined;
     return (
       <div className="flex flex-col gap-1">
-        <label htmlFor={fieldId} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <label htmlFor={fieldId} className={SECTION_TITLE}>
           {title}
-          {required ? <span className="ml-1 text-rose-500">*</span> : null}
+          {required ? <span className={REQUIRED_MARK}>*</span> : null}
         </label>
         <input
           id={fieldId}
@@ -202,9 +258,9 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
               handlePrimitiveChange(numeric === '' ? undefined : Number(numeric));
             }
           }}
-          className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+          className={INPUT_FIELD}
         />
-        {description && <span className="text-xs text-slate-500 dark:text-slate-400">{description}</span>}
+        {description && <span className={SECTION_DESCRIPTION}>{description}</span>}
       </div>
     );
   }
@@ -216,8 +272,8 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
 
     if (!itemsSchema || (itemType !== 'string' && itemType !== 'number')) {
       return (
-        <div className="flex flex-col gap-1 rounded-2xl border border-amber-300/50 bg-amber-50/40 px-3 py-3 text-xs text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          <span className="font-semibold">{title}</span>
+        <div className={ARRAY_NOTICE}>
+          <span>{title}</span>
           <span>
             Complex array schemas are best edited via the JSON editor. Switch to the JSON tab to modify this value.
           </span>
@@ -229,15 +285,15 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <span className={SECTION_TITLE}>
               {title}
-              {required ? <span className="ml-1 text-rose-500">*</span> : null}
+              {required ? <span className={REQUIRED_MARK}>*</span> : null}
             </span>
-            {description && <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+            {description && <p className={SECTION_DESCRIPTION}>{description}</p>}
           </div>
           <button
             type="button"
-            className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+            className={SMALL_BUTTON}
             onClick={() => onChange(path, [...currentItems, itemType === 'number' ? 0 : ''])}
           >
             Add value
@@ -255,11 +311,11 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
                   nextItems[index] = nextValue;
                   onChange(path, nextItems);
                 }}
-                className="flex-1 rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+                className={`${INPUT_FIELD} flex-1`}
               />
               <button
                 type="button"
-                className="rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-xs font-semibold text-slate-500 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-rose-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
+                className={REMOVE_BUTTON}
                 onClick={() => {
                   const nextItems = [...currentItems];
                   nextItems.splice(index, 1);
@@ -285,9 +341,9 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
     const currentObject = isRecord(value) ? value : {};
 
     return (
-      <fieldset className="flex flex-col gap-4 rounded-2xl border border-slate-200/60 bg-slate-50/40 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
-        <legend className="px-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</legend>
-        {description && <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>}
+      <fieldset className={FIELDSET_CONTAINER}>
+        <legend className={FIELDSET_LEGEND}>{title}</legend>
+        {description && <p className={SECTION_DESCRIPTION}>{description}</p>}
         {propertyEntries.map(([key, childSchema]) => (
           <FieldRenderer
             key={key}
@@ -303,8 +359,8 @@ function FieldRenderer({ schema, path, value, onChange, required }: FieldRendere
   }
 
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-slate-200/60 bg-slate-50/40 px-3 py-3 text-xs text-slate-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300">
-      <span className="font-semibold text-slate-600 dark:text-slate-200">{title}</span>
+    <div className={`${SECTION_CARD} gap-1 text-scale-xs`}>
+      <span className="font-weight-semibold text-primary">{title}</span>
       <span>
         This field uses a schema type that is not supported by the visual editor. Switch to the JSON tab to modify it directly.
       </span>
@@ -453,46 +509,44 @@ export function ManualRunPanel({
 
   const canUseForm = schema ? getSchemaType(schema) === 'object' : typeof defaultParameters === 'object';
   const editorClassName = `overflow-hidden rounded-2xl border ${
-    parseError
-      ? 'border-rose-400 ring-2 ring-rose-400 ring-offset-2 ring-offset-rose-50 dark:border-rose-500/70 dark:ring-rose-500/50 dark:ring-offset-slate-900'
-      : 'border-slate-200/70 dark:border-slate-700/60'
-  } bg-white/80 dark:bg-slate-900/60`;
+    parseError ? 'border-status-danger' : 'border-subtle'
+  } bg-surface-glass shadow-elevation-sm`;
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={PANEL_CONTAINER}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Manual Run</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <h2 className={PANEL_HEADER_TITLE}>Manual Run</h2>
+        <p className={PANEL_HEADER_SUBTEXT}>
           Launch a workflow run with parameters validated against the registered JSON schema.
         </p>
       </div>
       {!workflow && (
-        <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">Select a workflow to launch.</p>
+        <p className="mt-4 text-scale-sm text-secondary">Select a workflow to launch.</p>
       )}
       {workflow && (
         <form className="mt-4 flex flex-col gap-4" onSubmit={handleSubmit}>
           {!authorized && (
-            <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-xs font-semibold text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className={INFO_WARNING_CARD('warning')}>
               Add an operator token under Settings → API Access before launching workflows.
             </div>
           )}
           {unreachableServices.length > 0 && (
-            <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className={INFO_WARNING_CARD('danger')}>
               Cannot launch while the following services are unreachable: {unreachableServices.join(', ')}.
             </div>
           )}
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-xs text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
-            <p className="font-semibold text-slate-700 dark:text-slate-200">Parameter format</p>
+          <div className={GUIDANCE_CARD}>
+            <p className={SECTION_TITLE}>Parameter format</p>
             <p className="mt-1 leading-relaxed">
               Provide a JSON payload that matches the workflow&apos;s parameter schema before launching a run.
               {requiredKeys.length > 0 ? ` Required keys: ${requiredKeys.join(', ')}.` : ' No required keys are defined.'}
             </p>
-            <p className="mt-2 font-semibold text-slate-700 dark:text-slate-200">Example payload</p>
-            <pre className="mt-1 max-h-48 overflow-auto rounded-xl bg-slate-900/90 px-3 py-2 font-mono text-[11px] text-slate-100 dark:bg-slate-800/80">
+            <p className={`mt-2 ${SECTION_TITLE}`}>Example payload</p>
+            <pre className={CODE_BLOCK}>
               <code>{examplePayloadText}</code>
             </pre>
             <a
-              className="mt-2 inline-flex items-center text-[11px] font-semibold text-violet-600 underline-offset-2 transition-colors hover:text-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-violet-300 dark:hover:text-violet-200"
+              className={SECONDARY_LINK}
               href="https://docs.apphub.run/workflows/manual-runs"
               target="_blank"
               rel="noreferrer noopener"
@@ -504,10 +558,8 @@ export function ManualRunPanel({
             {canUseForm && (
               <button
                 type="button"
-                className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                  mode === 'form'
-                    ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
-                    : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
+                className={`${MODE_TOGGLE_BASE} ${
+                  mode === 'form' ? MODE_TOGGLE_ACTIVE : MODE_TOGGLE_INACTIVE
                 }`}
                 onClick={() => setMode('form')}
               >
@@ -516,10 +568,8 @@ export function ManualRunPanel({
             )}
             <button
               type="button"
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                mode === 'json' || !canUseForm
-                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30'
-                  : 'border border-slate-200/70 bg-white/70 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300'
+              className={`${MODE_TOGGLE_BASE} ${
+                mode === 'json' || !canUseForm ? MODE_TOGGLE_ACTIVE : MODE_TOGGLE_INACTIVE
               }`}
               onClick={() => setMode('json')}
             >
@@ -527,26 +577,24 @@ export function ManualRunPanel({
             </button>
           </div>
 
-          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-700/70 dark:bg-slate-900/60">
+          <div className={SECTION_CARD}>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                Triggered by
-              </span>
+              <span className={SECTION_LABEL}>Triggered by</span>
               <input
                 type="text"
                 value={triggeredBy}
                 onChange={(event) => setTriggeredBy(event.target.value)}
                 placeholder="you@example.com"
-                className="rounded-2xl border border-slate-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:focus:border-slate-300 dark:focus:ring-slate-500/40"
+                className={INPUT_FIELD}
               />
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="text-[11px] text-secondary">
                 Optional operator identity recorded with the run.
               </span>
             </label>
           </div>
 
           {mode === 'form' && canUseForm && schema && (
-            <div className="flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/70 dark:bg-slate-900/70">
+            <div className={`${SECTION_CARD} flex flex-col gap-4`}>
               <FieldRenderer
                 schema={schema}
                 path={[]}
@@ -555,7 +603,7 @@ export function ManualRunPanel({
               />
               <button
                 type="button"
-                className="self-start rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                className={`${SMALL_BUTTON} self-start`}
                 onClick={() => {
                   setFormData(defaultParameters);
                   setJsonValue(JSON.stringify(defaultParameters ?? {}, null, 2));
@@ -580,7 +628,7 @@ export function ManualRunPanel({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
-                  className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                  className={SMALL_BUTTON}
                   onClick={() => {
                     const text = JSON.stringify(defaultParameters ?? {}, null, 2);
                     setJsonValue(text);
@@ -590,7 +638,7 @@ export function ManualRunPanel({
                   Reset to defaults
                 </button>
                 {parseError && (
-                  <span role="alert" aria-live="assertive" className="text-xs font-semibold text-rose-600 dark:text-rose-300">
+                  <span role="alert" aria-live="assertive" className="text-scale-xs font-weight-semibold text-status-danger">
                     Unable to parse JSON: {parseError}
                   </span>
                 )}
@@ -599,13 +647,13 @@ export function ManualRunPanel({
           )}
 
           {validationErrors.length > 0 && (
-            <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className={INFO_WARNING_CARD('danger')}>
               <p>Validation issues:</p>
               <ul className="list-disc pl-4">
                 {validationErrors.map((issue, index) => (
                   <li key={issue.path ?? index}>
                     {issue.message}
-                    {issue.path && <span className="ml-1 text-[10px] uppercase tracking-widest text-rose-400">{issue.path}</span>}
+                    {issue.path && <span className="ml-1 text-[10px] uppercase tracking-[0.3em] text-status-danger">{issue.path}</span>}
                   </li>
                 ))}
               </ul>
@@ -613,14 +661,14 @@ export function ManualRunPanel({
           )}
 
           {error && (
-            <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+            <div className={INFO_WARNING_CARD('danger')}>
               {error}
             </div>
           )}
 
           {lastRun && (
-            <div className="rounded-2xl border border-emerald-300/60 bg-emerald-50/70 px-4 py-3 text-xs text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <p className="font-semibold">Triggered run {lastRun.id}</p>
+            <div className={INFO_WARNING_CARD('success')}>
+              <p className="font-weight-semibold">Triggered run {lastRun.id}</p>
               <p>Status: {lastRun.status}</p>
             </div>
           )}
@@ -628,7 +676,7 @@ export function ManualRunPanel({
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              className="inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className={PRIMARY_SUBMIT_BUTTON}
               disabled={
                 !authorized ||
                 pending ||
@@ -639,7 +687,7 @@ export function ManualRunPanel({
             >
               {pending ? 'Launching…' : 'Launch workflow'}
             </button>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-scale-xs text-secondary">
               Runs are enqueued immediately and appear in the history panel.
             </span>
           </div>

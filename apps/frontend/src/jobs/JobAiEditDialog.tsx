@@ -1,9 +1,29 @@
+import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AuthorizedFetch } from '../workflows/api';
 import { Modal } from '../components';
 import { useAiBuilderSettings } from '../ai/useAiBuilderSettings';
 import type { AiBuilderProvider } from '../ai/types';
 import { aiEditJobBundle, type BundleEditorData, type BundleAiEditInput } from './api';
+import {
+  JOB_DIALOG_BODY_CLASSES,
+  JOB_DIALOG_CLOSE_BUTTON_CLASSES,
+  JOB_DIALOG_CONTAINER_BASE,
+  JOB_DIALOG_HEADER_CLASSES,
+  JOB_DIALOG_SUBTITLE_CLASSES,
+  JOB_DIALOG_TITLE_CLASSES,
+  JOB_FORM_LABEL_CLASSES,
+  JOB_FORM_ACTION_PRIMARY_CLASSES,
+  JOB_FORM_ACTION_SECONDARY_CLASSES,
+  JOB_FORM_ERROR_TEXT_CLASSES,
+  JOB_FORM_PROVIDER_CARD_ACTIVE,
+  JOB_FORM_PROVIDER_CARD_BASE,
+  JOB_FORM_PROVIDER_CARD_DISABLED,
+  JOB_FORM_PROVIDER_CARD_INACTIVE,
+  JOB_FORM_PROVIDER_SUBTITLE_CLASSES,
+  JOB_FORM_SECTION_LABEL_CLASSES,
+  JOB_FORM_TEXTAREA_CLASSES
+} from './jobTokens';
 
 type JobAiEditDialogProps = {
   open: boolean;
@@ -216,32 +236,32 @@ export default function JobAiEditDialog({
       onClose={close}
       labelledBy="job-ai-edit-title"
       className="items-start justify-center p-4 pt-10 sm:items-center sm:p-6"
-      contentClassName="flex max-w-2xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900"
+      contentClassName={classNames('max-w-2xl', JOB_DIALOG_CONTAINER_BASE)}
     >
-      <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+      <header className={JOB_DIALOG_HEADER_CLASSES}>
         <div>
-          <h2 id="job-ai-edit-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <h2 id="job-ai-edit-title" className={JOB_DIALOG_TITLE_CLASSES}>
             Edit bundle with AI
           </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+          <p className={JOB_DIALOG_SUBTITLE_CLASSES}>
             {job.name} · {bundle.slug}@{bundle.version}
           </p>
         </div>
         <button
           type="button"
-          className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          className={JOB_DIALOG_CLOSE_BUTTON_CLASSES}
           onClick={close}
         >
           Close
         </button>
       </header>
 
-      <form className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5" onSubmit={handleSubmit}>
+      <form className={JOB_DIALOG_BODY_CLASSES} onSubmit={handleSubmit}>
         <section className="flex flex-col gap-2">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <label className={JOB_FORM_LABEL_CLASSES}>
             Describe the changes
             <textarea
-              className="mt-2 h-40 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2 text-sm text-slate-800 shadow-sm transition-colors focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100"
+              className={classNames('mt-2 h-40', JOB_FORM_TEXTAREA_CLASSES)}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Example: Update the handler to validate inputs, log job progress, and return a structured result."
@@ -251,7 +271,7 @@ export default function JobAiEditDialog({
         </section>
 
         <section className="flex flex-col gap-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <span className={JOB_FORM_SECTION_LABEL_CLASSES}>
             Model provider
           </span>
           <div className="flex flex-col gap-2">
@@ -267,29 +287,29 @@ export default function JobAiEditDialog({
                 <button
                   key={choice.value}
                   type="button"
-                  className={`flex flex-col rounded-2xl border px-4 py-3 text-left transition-colors ${
-                    isActive
-                      ? 'border-violet-500 bg-violet-600/10 text-violet-900 dark:border-violet-400 dark:bg-violet-500/10 dark:text-violet-100'
-                      : 'border-slate-300 text-slate-700 hover:border-violet-400 hover:bg-violet-500/5 dark:border-slate-600 dark:text-slate-200 dark:hover:border-violet-300'
-                  } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                  className={classNames(
+                    JOB_FORM_PROVIDER_CARD_BASE,
+                    isActive ? JOB_FORM_PROVIDER_CARD_ACTIVE : JOB_FORM_PROVIDER_CARD_INACTIVE,
+                    disabled ? JOB_FORM_PROVIDER_CARD_DISABLED : null
+                  )}
                   onClick={() => !disabled && handleProviderChange(choice.value)}
                   disabled={disabled}
                   title={title}
                 >
                   <span className="text-sm font-semibold">{choice.label}</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{choice.description}</span>
+                  <span className={JOB_FORM_PROVIDER_SUBTITLE_CLASSES}>{choice.description}</span>
                 </button>
               );
             })}
           </div>
         </section>
 
-        {error && <p className="text-xs text-rose-600 dark:text-rose-300">{error}</p>}
+        {error && <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{error}</p>}
 
         <div className="flex items-center justify-end gap-3">
           <button
             type="button"
-            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+            className={JOB_FORM_ACTION_SECONDARY_CLASSES}
             onClick={close}
             disabled={submitting}
           >
@@ -297,7 +317,7 @@ export default function JobAiEditDialog({
           </button>
           <button
             type="submit"
-            className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className={JOB_FORM_ACTION_PRIMARY_CLASSES}
             disabled={submitDisabled}
           >
             {submitting ? 'Generating…' : 'Generate update'}

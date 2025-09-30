@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
@@ -31,6 +32,24 @@ import {
 } from './queryComposer';
 import { MetastoreQueryBuilder } from './components/MetastoreQueryBuilder';
 import { useSchemaDefinition } from './useSchemaDefinition';
+import {
+  METASTORE_ALERT_ERROR_CLASSES,
+  METASTORE_CARD_CONTAINER_CLASSES,
+  METASTORE_CHECKBOX_CLASSES,
+  METASTORE_ERROR_TEXT_CLASSES,
+  METASTORE_FORM_FIELD_CONTAINER_CLASSES,
+  METASTORE_INPUT_FIELD_CLASSES,
+  METASTORE_LINK_ACCENT_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_PILL_BADGE_NEUTRAL_CLASSES,
+  METASTORE_PRIMARY_BUTTON_CLASSES,
+  METASTORE_PRIMARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SECTION_LABEL_CLASSES,
+  METASTORE_SECONDARY_BUTTON_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SELECT_CLASSES,
+  METASTORE_TEXT_AREA_MONO_CLASSES
+} from './metastoreTokens';
 
 const POLL_INTERVAL = 20000;
 const PAGE_SIZE = 25;
@@ -628,7 +647,7 @@ export default function MetastoreExplorerPage() {
 
   if (!hasReadScope) {
     return (
-      <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+      <section className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'text-scale-sm text-secondary')}>
         Access denied. The active token is missing the <code className="font-mono">metastore:read</code> scope.
       </section>
     );
@@ -636,128 +655,116 @@ export default function MetastoreExplorerPage() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-col gap-2">
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Metastore Explorer</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                Search, update, and audit metadata records across namespaces.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <NamespacePicker value={namespace} onChange={handleNamespaceChange} />
-              <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={includeDeleted}
-                  onChange={(event) => handleIncludeDeletedChange(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                />
-                Include deleted
-              </label>
-              <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                Preset
-                <select
-                  value={builderPreset ?? ''}
-                  onChange={(event) => handlePresetChange(event.target.value)}
-                  className="mt-1 w-52 rounded-full border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="">No preset</option>
-                  {METASTORE_PRESETS.map((preset) => (
-                    <option key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {activePreset && (
-                <span className="max-w-xs text-xs text-slate-500 dark:text-slate-400">{activePreset.description}</span>
-              )}
-            </div>
+      <header className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'flex flex-col gap-6')}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-scale-lg font-weight-semibold text-primary">Metastore Explorer</h2>
+            <p className="text-scale-sm text-secondary">Search, update, and audit metadata records across namespaces.</p>
           </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70">
-            <MetastoreQueryBuilder clauses={builderClauses} onChange={setBuilderClauses} />
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={applyBuilder}
-                className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            <NamespacePicker value={namespace} onChange={handleNamespaceChange} />
+            <label className="inline-flex items-center gap-2 text-scale-sm text-secondary">
+              <input
+                type="checkbox"
+                checked={includeDeleted}
+                onChange={(event) => handleIncludeDeletedChange(event.target.checked)}
+                className={METASTORE_CHECKBOX_CLASSES}
+              />
+              Include deleted
+            </label>
+            <label className="flex flex-col gap-1 text-secondary">
+              <span className={METASTORE_SECTION_LABEL_CLASSES}>Preset</span>
+              <select
+                value={builderPreset ?? ''}
+                onChange={(event) => handlePresetChange(event.target.value)}
+                className={classNames(METASTORE_SELECT_CLASSES, 'mt-1 w-52')}
               >
-                Apply builder query
-              </button>
-              <button
-                type="button"
-                onClick={resetBuilder}
-                className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-600 dark:text-slate-200"
-              >
-                Reset builder
-              </button>
-              <button
-                type="button"
-                onClick={openAdvancedEditor}
-                className="rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
-              >
-                Advanced DSL
-              </button>
-              {appliedQuery.mode === 'advanced' && (
-                <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">
-                  Advanced mode active
-                </span>
-              )}
-            </div>
-            {builderSummary && appliedQuery.mode === 'builder' && (
-              <p className="mt-3 whitespace-pre-wrap break-words text-xs text-slate-500 dark:text-slate-400">{builderSummary}</p>
+                <option value="">No preset</option>
+                {METASTORE_PRESETS.map((preset) => (
+                  <option key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {activePreset && (
+              <span className={classNames('max-w-xs', METASTORE_META_TEXT_CLASSES)}>{activePreset.description}</span>
             )}
           </div>
-          {advancedOpen && (
-            <div className="rounded-2xl border border-violet-200/70 bg-violet-50/70 p-4 shadow-sm dark:border-violet-500/60 dark:bg-violet-500/10">
-              <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-violet-600 dark:text-violet-300">
-                DSL JSON
-                <textarea
-                  rows={8}
-                  value={advancedDraft}
-                  onChange={(event) => setAdvancedDraft(event.target.value)}
-                  className="rounded-2xl border border-violet-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-inner focus:border-violet-500 focus:outline-none dark:border-violet-600 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
-                />
-              </label>
-              {advancedError ? (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                  {advancedError}{' '}
-                  <a
-                    href="https://docs.apphub.dev/metastore/search"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:text-rose-500 dark:hover:text-rose-200"
-                  >
-                    View documentation
-                  </a>
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
-                </p>
+        </div>
+        <div className={classNames(METASTORE_FORM_FIELD_CONTAINER_CLASSES, 'space-y-4')}>
+          <MetastoreQueryBuilder clauses={builderClauses} onChange={setBuilderClauses} />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={applyBuilder} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+              Apply builder query
+            </button>
+            <button type="button" onClick={resetBuilder} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
+              Reset builder
+            </button>
+            <button
+              type="button"
+              onClick={openAdvancedEditor}
+              className={classNames(
+                METASTORE_SECONDARY_BUTTON_CLASSES,
+                'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
               )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={applyAdvanced}
-                  className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
-                >
-                  Apply DSL
-                </button>
-                <button
-                  type="button"
-                  onClick={closeAdvancedEditor}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-600 dark:text-slate-200"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+            >
+              Advanced DSL
+            </button>
+            {appliedQuery.mode === 'advanced' && (
+              <span className={classNames(METASTORE_PILL_BADGE_NEUTRAL_CLASSES, 'border-accent text-accent')}>
+                Advanced mode active
+              </span>
+            )}
+          </div>
+          {builderSummary && appliedQuery.mode === 'builder' && (
+            <p className={classNames('whitespace-pre-wrap break-words', METASTORE_META_TEXT_CLASSES)}>{builderSummary}</p>
           )}
         </div>
+        {advancedOpen && (
+          <div
+            className={classNames(
+              METASTORE_FORM_FIELD_CONTAINER_CLASSES,
+              'space-y-3 border-accent-soft bg-accent-soft/40'
+            )}
+          >
+            <label className="flex flex-col gap-2">
+              <span className={METASTORE_SECTION_LABEL_CLASSES}>DSL JSON</span>
+              <textarea
+                rows={8}
+                value={advancedDraft}
+                onChange={(event) => setAdvancedDraft(event.target.value)}
+                className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[192px]')}
+                placeholder={'{ "field": "metadata.status", "operator": "eq", "value": "active" }'}
+              />
+            </label>
+            {advancedError ? (
+              <p className={classNames(METASTORE_ERROR_TEXT_CLASSES, 'flex flex-wrap items-center gap-2')}>
+                {advancedError}
+                <a
+                  href="https://docs.apphub.dev/metastore/search"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={METASTORE_LINK_ACCENT_CLASSES}
+                >
+                  View documentation
+                </a>
+              </p>
+            ) : (
+              <p className={METASTORE_META_TEXT_CLASSES}>
+                Provide a filter tree matching the metastore search DSL. Apply to replace the builder query.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={applyAdvanced} className={METASTORE_PRIMARY_BUTTON_CLASSES}>
+                Apply DSL
+              </button>
+              <button type="button" onClick={closeAdvancedEditor} className={METASTORE_SECONDARY_BUTTON_CLASSES}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)] xl:grid-cols-[minmax(0,320px),minmax(0,1fr),minmax(280px,1fr)]">
@@ -771,7 +778,7 @@ export default function MetastoreExplorerPage() {
             onRetry={refetchSearch}
             total={namespaceTotal}
           />
-          <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <div className={classNames('flex flex-col gap-2', METASTORE_META_TEXT_CLASSES)}>
             <div className="flex items-center justify-between">
               <span>
                 Showing {records.length} records • Page {Math.min(page + 1, totalPages)} of {totalPages} • Total {namespaceTotal}
@@ -781,7 +788,7 @@ export default function MetastoreExplorerPage() {
                   type="button"
                   onClick={handlePreviousPage}
                   disabled={page === 0 || namespaceTotal === 0}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                  className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                 >
                   Previous
                 </button>
@@ -789,7 +796,7 @@ export default function MetastoreExplorerPage() {
                   type="button"
                   onClick={handleNextPage}
                   disabled={namespaceTotal === 0 || page >= totalPages - 1}
-                  className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors disabled:opacity-40 dark:border-slate-700/70 dark:text-slate-300"
+                  className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                 >
                   Next
                 </button>
@@ -800,7 +807,10 @@ export default function MetastoreExplorerPage() {
             <button
               type="button"
               onClick={() => setShowBulkDialog(true)}
-              className="rounded-full border border-violet-500 px-4 py-2 text-sm font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+              className={classNames(
+                METASTORE_SECONDARY_BUTTON_CLASSES,
+                'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
+              )}
             >
               Bulk operations
             </button>
@@ -809,23 +819,21 @@ export default function MetastoreExplorerPage() {
 
         <div className="flex flex-col gap-6">
           {detailLoading && !currentRecord ? (
-            <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+            <div className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'text-scale-sm text-secondary')}>
               <div className="flex items-center justify-center py-10">
                 <Spinner label="Loading record" />
               </div>
             </div>
           ) : detailError ? (
-            <div className="rounded-3xl border border-rose-300/70 bg-rose-50/80 p-6 text-sm text-rose-600 shadow-[0_30px_70px_-45px_rgba(244,63,94,0.45)] backdrop-blur-md dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
-              {detailError}
-            </div>
+            <div className={METASTORE_ALERT_ERROR_CLASSES}>{detailError}</div>
           ) : currentRecord ? (
             <>
-              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+              <div className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'space-y-6')}>
                 <header className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Record</span>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{currentRecord.recordKey}</h3>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                    <span className={METASTORE_SECTION_LABEL_CLASSES}>Record</span>
+                    <h3 className="text-scale-lg font-weight-semibold text-primary">{currentRecord.recordKey}</h3>
+                    <p className={classNames('uppercase tracking-[0.2em]', METASTORE_META_TEXT_CLASSES)}>
                       {currentRecord.namespace} • v{currentRecord.version}
                     </p>
                   </div>
@@ -834,7 +842,7 @@ export default function MetastoreExplorerPage() {
                       type="button"
                       onClick={handleRecordUpdate}
                       disabled={!hasWriteScope || schemaBlockingErrors}
-                      className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+                      className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                     >
                       Save record
                     </button>
@@ -842,7 +850,10 @@ export default function MetastoreExplorerPage() {
                       type="button"
                       onClick={handlePatch}
                       disabled={!hasWriteScope}
-                      className="rounded-full border border-violet-500 px-4 py-2 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-violet-400 dark:text-violet-300"
+                      className={classNames(
+                        METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                        'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
+                      )}
                     >
                       Apply patch
                     </button>
@@ -850,7 +861,10 @@ export default function MetastoreExplorerPage() {
                       <button
                         type="button"
                         onClick={handleRestore}
-                        className="rounded-full border border-emerald-500 px-4 py-2 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-500/10 dark:border-emerald-400 dark:text-emerald-300"
+                        className={classNames(
+                          METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                          'border-status-success text-status-success hover:bg-status-success-soft/40 hover:text-status-success'
+                        )}
                       >
                         Restore
                       </button>
@@ -859,7 +873,10 @@ export default function MetastoreExplorerPage() {
                         type="button"
                         onClick={handleDelete}
                         disabled={!hasDeleteScope}
-                        className="rounded-full border border-rose-500 px-4 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-400 dark:text-rose-300"
+                        className={classNames(
+                          METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                          'border-status-danger text-status-danger hover:bg-status-danger-soft/40 hover:text-status-danger'
+                        )}
                       >
                         Delete
                       </button>
@@ -868,21 +885,24 @@ export default function MetastoreExplorerPage() {
                       type="button"
                       onClick={handlePurge}
                       disabled={!hasAdminScope}
-                      className="rounded-full border border-rose-700 px-4 py-2 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-600/10 disabled:cursor-not-allowed disabled:opacity-40 dark:border-rose-500 dark:text-rose-300"
+                      className={classNames(
+                        METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                        'border-status-danger text-status-danger hover:bg-status-danger-soft/40 hover:text-status-danger'
+                      )}
                     >
                       Purge
                     </button>
                     {detailLoading && (
-                      <span className="rounded-full border border-slate-300/60 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:border-slate-700/60 dark:text-slate-300">
+                      <span className={classNames(METASTORE_PILL_BADGE_NEUTRAL_CLASSES, 'text-secondary')}>
                         Refreshing…
                       </span>
                     )}
                   </div>
                 </header>
 
-                {metadataError && <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{metadataError}</p>}
+                {metadataError && <p className="mt-3 text-scale-sm text-status-danger">{metadataError}</p>}
 
-                <section className="mt-4 flex flex-col gap-6">
+                <section className="flex flex-col gap-6">
                   <SchemaAwareMetadataEditor
                     schemaHash={schemaHashDisplay ? schemaHashDisplay : null}
                     schemaState={schemaState}
@@ -899,84 +919,95 @@ export default function MetastoreExplorerPage() {
                   />
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,320px),minmax(0,1fr)]">
                     <div className="flex flex-col gap-4">
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Tags</span>
+                      <label className="flex flex-col gap-1 text-scale-sm text-secondary">
+                        <span className={METASTORE_SECTION_LABEL_CLASSES}>Tags</span>
                         <input
                           type="text"
                           value={tagsText}
                           onChange={(event) => setTagsText(event.target.value)}
                           placeholder="Comma-separated list"
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'rounded-full')}
                         />
                       </label>
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Owner</span>
+                      <label className="flex flex-col gap-1 text-scale-sm text-secondary">
+                        <span className={METASTORE_SECTION_LABEL_CLASSES}>Owner</span>
                         <input
                           type="text"
                           value={ownerText}
                           onChange={(event) => setOwnerText(event.target.value)}
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'rounded-full')}
                         />
                       </label>
-                      <label className="flex flex-col gap-1 text-sm text-slate-700 dark:text-slate-200">
-                        <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Schema hash</span>
+                      <label className="flex flex-col gap-1 text-scale-sm text-secondary">
+                        <span className={METASTORE_SECTION_LABEL_CLASSES}>Schema hash</span>
                         <input
                           type="text"
                           value={schemaHashText}
                           onChange={(event) => setSchemaHashText(event.target.value)}
-                          className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                          className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'rounded-full')}
                         />
                       </label>
                     </div>
-                    <section className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 text-xs text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-                      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Patch payload (advanced)</h4>
+                    <section
+                      className={classNames(
+                        METASTORE_FORM_FIELD_CONTAINER_CLASSES,
+                        'space-y-3 text-scale-xs text-secondary'
+                      )}
+                    >
+                      <h4 className={METASTORE_SECTION_LABEL_CLASSES}>Patch payload (advanced)</h4>
                       <textarea
                         value={patchText}
                         onChange={(event) => setPatchText(event.target.value)}
                         rows={6}
                         placeholder='{ "metadata": { "path": "value" } }'
-                        className="w-full rounded-xl border border-slate-300/60 bg-white/80 px-3 py-2 font-mono text-xs text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-100"
+                        className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'min-h-[168px]')}
                       />
                       <input
                         type="text"
                         value={metadataUnsetText}
                         onChange={(event) => setMetadataUnsetText(event.target.value)}
                         placeholder="Metadata keys to unset (comma separated, e.g. details.foo)"
-                        className="mt-2 w-full rounded-full border border-slate-300/60 bg-white/80 px-3 py-2 text-xs text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-100"
+                        className={classNames(METASTORE_INPUT_FIELD_CLASSES, 'mt-2 rounded-full text-scale-xs')}
                       />
                       <textarea
                         value={tagPatchText}
                         onChange={(event) => setTagPatchText(event.target.value)}
                         rows={3}
                         placeholder='{ "add": ["tag"] }'
-                        className="mt-2 w-full rounded-xl border border-slate-300/60 bg-white/80 px-3 py-2 font-mono text-xs text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/80 dark:text-slate-100"
+                        className={classNames(METASTORE_TEXT_AREA_MONO_CLASSES, 'mt-2 min-h-[120px]')}
                       />
                     </section>
                   </div>
                 </section>
 
-                <section className="mt-6 space-y-3 text-sm text-slate-700 dark:text-slate-200">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Cross-links</h4>
+                <section className="space-y-3 text-scale-sm text-secondary">
+                  <h4 className={METASTORE_SECTION_LABEL_CLASSES}>Cross-links</h4>
                   <div className="flex flex-wrap gap-2">
                     {crossLinks.datasetSlug ? (
                       <Link
                         to={`${ROUTE_PATHS.servicesTimestoreDatasets}?dataset=${encodeURIComponent(crossLinks.datasetSlug)}`}
-                        className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+                        className={classNames(
+                          METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                          'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
+                        )}
                       >
                         View dataset {crossLinks.datasetSlug}
                       </Link>
                     ) : (
-                      <span className="text-xs text-slate-500 dark:text-slate-400">No dataset link</span>
+                      <span className={METASTORE_META_TEXT_CLASSES}>No dataset link</span>
                     )}
                     {crossLinks.assetId ? (
                       <Link
                         to={`${ROUTE_PATHS.assets}?asset=${encodeURIComponent(crossLinks.assetId)}`}
-                        className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+                        className={classNames(
+                          METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+                          'border-accent text-accent hover:border-accent-soft hover:bg-accent-soft/60 hover:text-accent-strong'
+                        )}
                       >
                         View asset {crossLinks.assetId}
                       </Link>
                     ) : (
-                      <span className="text-xs text-slate-500 dark:text-slate-400">No asset link</span>
+                      <span className={METASTORE_META_TEXT_CLASSES}>No asset link</span>
                     )}
                   </div>
                 </section>
@@ -995,15 +1026,15 @@ export default function MetastoreExplorerPage() {
                 />
               </div>
 
-              <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-                <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">Record preview</h4>
+              <div className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'space-y-3')}>
+                <h4 className={METASTORE_SECTION_LABEL_CLASSES}>Record preview</h4>
                 <div className="mt-3 overflow-x-auto">
                   <JsonSyntaxHighlighter value={currentRecord.metadata} />
                 </div>
               </div>
             </>
           ) : (
-            <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 text-sm text-slate-600 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300">
+            <div className={classNames(METASTORE_CARD_CONTAINER_CLASSES, 'text-scale-sm text-secondary')}>
               Select a record to edit metadata, tags, and retention settings.
             </div>
           )}

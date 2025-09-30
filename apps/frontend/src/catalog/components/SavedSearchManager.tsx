@@ -10,6 +10,26 @@ const STATUS_LABELS: Record<SavedCatalogSearch['statusFilters'][number], string>
   failed: 'Failed'
 };
 
+const PANEL_CLASSES =
+  'flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-md transition-colors';
+
+const INPUT_CLASSES =
+  'w-40 rounded-lg border border-subtle bg-surface-glass px-3 py-1.5 text-scale-sm text-primary shadow-sm outline-none transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_BUTTON_CLASSES =
+  'rounded-lg bg-accent px-3 py-1.5 text-scale-sm font-weight-semibold text-on-accent shadow-elevation-md transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60';
+
+const MESSAGE_ERROR_CLASSES =
+  'rounded-lg border border-status-danger bg-status-danger-soft px-3 py-2 text-scale-xs font-weight-medium text-status-danger';
+
+const LIST_ITEM_CLASSES = 'flex flex-col gap-2 rounded-2xl border border-subtle bg-surface-muted p-3';
+
+const ACTION_BUTTON_BASE =
+  'rounded-md px-2 py-1 text-scale-xs font-weight-medium text-secondary transition-colors hover:bg-accent-soft hover:text-accent-strong disabled:cursor-not-allowed disabled:text-muted';
+
+const DELETE_BUTTON_CLASSES =
+  'rounded-md px-2 py-1 text-scale-xs font-weight-medium text-status-danger transition-colors hover:bg-status-danger-soft disabled:cursor-not-allowed disabled:text-status-danger';
+
 type SavedSearchManagerProps = {
   savedSearches: SavedCatalogSearch[];
   loading: boolean;
@@ -54,11 +74,11 @@ export function SavedSearchManager({
   const disableCreate = mutationState.creating || !newName.trim();
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/70 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <section className={PANEL_CLASSES}>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Saved searches</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <h3 className="text-scale-sm font-weight-semibold text-primary">Saved searches</h3>
+          <p className="text-scale-xs text-muted">
             Capture frequently used filters and reapply them with a click.
           </p>
         </div>
@@ -68,7 +88,7 @@ export function SavedSearchManager({
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
             placeholder="Name this search"
-            className="w-40 rounded-lg border border-slate-200/80 bg-white px-3 py-1.5 text-sm text-slate-800 shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200/40 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/30"
+            className={INPUT_CLASSES}
             disabled={mutationState.creating}
           />
           <button
@@ -77,21 +97,21 @@ export function SavedSearchManager({
               void handleCreate();
             }}
             disabled={disableCreate}
-            className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-500/60"
+            className={PRIMARY_BUTTON_CLASSES}
           >
             {mutationState.creating ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
       {error && (
-        <div className="rounded-lg border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-xs font-medium text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className={MESSAGE_ERROR_CLASSES}>
           {error}
         </div>
       )}
       {loading ? (
-        <div className="text-sm text-slate-500 dark:text-slate-400">Loading saved searches…</div>
+        <div className="text-scale-sm text-muted">Loading saved searches…</div>
       ) : savedSearches.length === 0 ? (
-        <div className="text-sm text-slate-500 dark:text-slate-400">
+        <div className="text-scale-sm text-muted">
           You haven’t saved any catalog searches yet.
         </div>
       ) : (
@@ -105,7 +125,7 @@ export function SavedSearchManager({
             return (
               <li
                 key={search.id}
-                className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-slate-50/60 p-3 dark:border-slate-700/60 dark:bg-slate-800/60"
+                className={LIST_ITEM_CLASSES}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex flex-col">
@@ -115,11 +135,11 @@ export function SavedSearchManager({
                         void onApply(search);
                       }}
                       disabled={isApplying || isDeleting}
-                      className="max-w-full text-left text-sm font-semibold text-violet-700 transition-colors hover:text-violet-800 disabled:cursor-not-allowed disabled:text-violet-500/70 dark:text-slate-100 dark:hover:text-slate-50 dark:disabled:text-slate-400"
+                      className="max-w-full text-left text-scale-sm font-weight-semibold text-accent transition-colors hover:text-accent-strong disabled:cursor-not-allowed disabled:text-muted"
                     >
                       {search.name}
                     </button>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                    <span className="text-scale-xs text-muted">
                       {formatStatusFilters(search.statusFilters)} · sorted by {search.sort}
                     </span>
                   </div>
@@ -134,7 +154,7 @@ export function SavedSearchManager({
                         void onRename(search, nextName);
                       }}
                       disabled={isUpdating || isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
+                      className={ACTION_BUTTON_BASE}
                     >
                       Rename
                     </button>
@@ -144,7 +164,7 @@ export function SavedSearchManager({
                         void onShare(search);
                       }}
                       disabled={isSharing || isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
+                      className={ACTION_BUTTON_BASE}
                     >
                       {isSharing ? 'Sharing…' : 'Share'}
                     </button>
@@ -158,13 +178,13 @@ export function SavedSearchManager({
                         void onDelete(search);
                       }}
                       disabled={isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-rose-500 transition-colors hover:bg-rose-100/60 hover:text-rose-600 disabled:cursor-not-allowed disabled:text-rose-300 dark:text-rose-300 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
+                      className={DELETE_BUTTON_CLASSES}
                     >
                       {isDeleting ? 'Deleting…' : 'Delete'}
                     </button>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+                <div className="flex flex-wrap items-center gap-3 text-scale-xs text-muted">
                   <span>Used {search.appliedCount}×</span>
                   <span>Shared {search.sharedCount}×</span>
                 </div>

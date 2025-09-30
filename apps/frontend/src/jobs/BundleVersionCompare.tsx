@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState } from 'react';
 import DiffViewer from '../components/DiffViewer';
 import { Spinner } from '../components';
@@ -7,6 +8,22 @@ import type { AuthorizedFetch } from '../workflows/api';
 import type { BundleEditorData } from './api';
 import { fetchBundleVersionDetail } from './api';
 import { extractBundleArchive, type BundleArchiveFile } from './bundleArchive';
+import { getStatusToneClasses } from '../theme/statusTokens';
+import {
+  JOB_CARD_CONTAINER_CLASSES,
+  JOB_EMPTY_STATE_CONTAINER_CLASSES,
+  JOB_FILE_META_TEXT_CLASSES,
+  JOB_FORM_ERROR_TEXT_CLASSES,
+  JOB_FORM_LABEL_BADGE_TITLE_CLASSES,
+  JOB_FORM_LABEL_SMALL_CLASSES,
+  JOB_FORM_INPUT_CLASSES,
+  JOB_LIST_BUTTON_ACTIVE_CLASSES,
+  JOB_LIST_BUTTON_BASE_CLASSES,
+  JOB_LIST_BUTTON_INACTIVE_CLASSES,
+  JOB_SECTION_PARAGRAPH_CLASSES,
+  JOB_SECTION_TITLE_SMALL_CLASSES,
+  JOB_STATUS_BADGE_BASE_CLASSES
+} from './jobTokens';
 
 type VersionSnapshot = {
   version: string;
@@ -118,16 +135,16 @@ function summarizeDiffStatus(status: DiffStatus): string {
   }
 }
 
-function statusBadgeClasses(status: DiffStatus): string {
+function diffStatusTone(status: DiffStatus): string {
   switch (status) {
     case 'added':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200';
+      return getStatusToneClasses('success');
     case 'removed':
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200';
+      return getStatusToneClasses('danger');
     case 'changed':
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200';
+      return getStatusToneClasses('warning');
     default:
-      return 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
+      return getStatusToneClasses('neutral');
   }
 }
 
@@ -248,30 +265,25 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
   const loading = (selection.left ? leftState.loading : false) || (selection.right ? rightState.loading : false);
   const hasEnoughVersions = versions.length >= 2;
 
-  const containerClass = [
-    'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900',
-    className
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const containerClass = classNames(JOB_CARD_CONTAINER_CLASSES, className);
 
   return (
     <div className={containerClass}>
-      <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Compare versions</h4>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+      <h4 className={JOB_SECTION_TITLE_SMALL_CLASSES}>Compare versions</h4>
+      <p className={classNames('mt-1', JOB_SECTION_PARAGRAPH_CLASSES)}>
         Select two bundle versions to review changes in their files.
       </p>
       {!hasEnoughVersions ? (
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+        <p className={classNames('mt-3', JOB_SECTION_PARAGRAPH_CLASSES)}>
           Register at least two bundle versions to enable comparisons.
         </p>
       ) : (
         <>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
-              <span className="font-semibold uppercase tracking-wide">Version A</span>
+            <label className={JOB_FORM_LABEL_SMALL_CLASSES}>
+              <span className={JOB_FORM_LABEL_BADGE_TITLE_CLASSES}>Version A</span>
               <select
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={classNames('w-full', JOB_FORM_INPUT_CLASSES)}
                 value={selection.left ?? ''}
                 onChange={(event) => {
                   const value = event.target.value.trim();
@@ -286,10 +298,10 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
-              <span className="font-semibold uppercase tracking-wide">Version B</span>
+            <label className={JOB_FORM_LABEL_SMALL_CLASSES}>
+              <span className={JOB_FORM_LABEL_BADGE_TITLE_CLASSES}>Version B</span>
               <select
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-violet-400"
+                className={classNames('w-full', JOB_FORM_INPUT_CLASSES)}
                 value={selection.right ?? ''}
                 onChange={(event) => {
                   const value = event.target.value.trim();
@@ -306,15 +318,15 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
             </label>
           </div>
           {combinedError && (
-            <p className="mt-3 text-xs text-rose-600 dark:text-rose-300">{combinedError}</p>
+            <p className={classNames('mt-3', JOB_FORM_ERROR_TEXT_CLASSES)}>{combinedError}</p>
           )}
           {loading && (
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className={classNames('mt-3 inline-flex items-center gap-2', JOB_SECTION_PARAGRAPH_CLASSES)}>
               <Spinner label="Loading bundle artifacts…" size="xs" />
-            </p>
+            </div>
           )}
           {!loading && diffItems.length === 0 && (
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            <p className={classNames('mt-3', JOB_SECTION_PARAGRAPH_CLASSES)}>
               No differences detected between the selected versions.
             </p>
           )}
@@ -329,23 +341,24 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
                         <button
                           type="button"
                           onClick={() => setSelectedPath(item.path)}
-                          className={`w-full rounded-xl px-3 py-2 text-left transition-colors ${
-                            isActive
-                              ? 'bg-violet-100 text-violet-900 dark:bg-violet-600/20 dark:text-violet-200'
-                              : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                          }`}
+                          className={classNames(
+                            JOB_LIST_BUTTON_BASE_CLASSES,
+                            isActive ? JOB_LIST_BUTTON_ACTIVE_CLASSES : JOB_LIST_BUTTON_INACTIVE_CLASSES
+                          )}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate font-medium">{item.path}</span>
                             <span
-                              className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClasses(
-                                item.status
-                              )}`}
+                              className={classNames(
+                                'whitespace-nowrap px-2 py-0.5',
+                                JOB_STATUS_BADGE_BASE_CLASSES,
+                                diffStatusTone(item.status)
+                              )}
                             >
                               {summarizeDiffStatus(item.status)}
                             </span>
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          <div className={JOB_FILE_META_TEXT_CLASSES}>
                             {describeFile(item.left)} → {describeFile(item.right)}
                           </div>
                         </button>
@@ -365,14 +378,14 @@ export function BundleVersionCompare({ bundle, className }: BundleVersionCompare
                       ariaLabel={`Diff for ${selectedItem.path}`}
                     />
                   ) : (
-                    <div className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                    <div className={JOB_EMPTY_STATE_CONTAINER_CLASSES}>
                       {selectedItem.left?.encoding === 'base64' || selectedItem.right?.encoding === 'base64'
                         ? 'Binary files cannot be displayed in the diff viewer. Download the bundle artifact to inspect the file.'
                         : 'No textual content available for comparison.'}
                     </div>
                   )
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                  <div className={JOB_EMPTY_STATE_CONTAINER_CLASSES}>
                     Select a file from the list to preview its changes.
                   </div>
                 )}

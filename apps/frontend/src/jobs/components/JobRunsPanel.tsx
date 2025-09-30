@@ -1,5 +1,21 @@
 import type { JobDetailResponse } from '../api';
 import { formatDate } from '../utils';
+import { getStatusToneClasses } from '../../theme/statusTokens';
+
+const PANEL_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass p-6 shadow-elevation-md transition-colors';
+
+const TABLE_HEAD_CLASSES =
+  'bg-surface-muted text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
+
+const TABLE_CELL_BASE = 'px-3 py-2 text-scale-xs text-secondary';
+
+const BADGE_BASE =
+  'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-scale-xs font-weight-semibold uppercase tracking-[0.25em]';
+
+function buildStatusBadge(status: string): string {
+  return `${BADGE_BASE} ${getStatusToneClasses(status)}`;
+}
 
 type JobRunsPanelProps = {
   detail: JobDetailResponse;
@@ -8,16 +24,16 @@ type JobRunsPanelProps = {
 export function JobRunsPanel({ detail }: JobRunsPanelProps) {
   const runs = detail.runs.slice(0, 8);
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className={PANEL_CLASSES}>
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Recent runs</h3>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
+        <h3 className="text-scale-lg font-weight-semibold text-primary">Recent runs</h3>
+        <span className="text-scale-xs text-muted">
           Showing {runs.length} of {detail.runs.length}
         </span>
       </div>
       <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+        <table className="min-w-full divide-y divide-subtle text-scale-sm">
+          <thead className={TABLE_HEAD_CLASSES}>
             <tr>
               <th className="px-3 py-2 text-left">Run ID</th>
               <th className="px-3 py-2 text-left">Status</th>
@@ -26,20 +42,20 @@ export function JobRunsPanel({ detail }: JobRunsPanelProps) {
               <th className="px-3 py-2 text-left">Duration</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+          <tbody className="divide-y divide-subtle">
             {runs.map((run) => {
               const started = run.startedAt ? new Date(run.startedAt).getTime() : null;
               const completed = run.completedAt ? new Date(run.completedAt).getTime() : null;
               const durationMs = started && completed ? completed - started : null;
               return (
-                <tr key={run.id} className="bg-white dark:bg-slate-900">
-                  <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-400">{run.id}</td>
-                  <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                    {run.status}
+                <tr key={run.id} className="bg-surface-glass">
+                  <td className={`${TABLE_CELL_BASE} font-mono text-muted`}>{run.id}</td>
+                  <td className={`${TABLE_CELL_BASE}`}>
+                    <span className={buildStatusBadge(run.status)}>{run.status}</span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{formatDate(run.startedAt)}</td>
-                  <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{formatDate(run.completedAt)}</td>
-                  <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                  <td className={TABLE_CELL_BASE}>{formatDate(run.startedAt)}</td>
+                  <td className={TABLE_CELL_BASE}>{formatDate(run.completedAt)}</td>
+                  <td className={TABLE_CELL_BASE}>
                     {durationMs !== null ? `${Math.round(durationMs / 1000)}s` : '—'}
                   </td>
                 </tr>
@@ -47,7 +63,7 @@ export function JobRunsPanel({ detail }: JobRunsPanelProps) {
             })}
             {runs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                <td colSpan={5} className="px-3 py-4 text-center text-scale-xs text-muted">
                   No runs recorded for this job yet.
                 </td>
               </tr>

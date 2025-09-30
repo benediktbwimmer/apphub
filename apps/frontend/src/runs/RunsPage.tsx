@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthorizedFetch } from '../auth/useAuthorizedFetch';
@@ -22,6 +23,7 @@ import { listWorkflowRunSteps } from '../workflows/api';
 import type { WorkflowRun, WorkflowRunStep } from '../workflows/types';
 import { useSavedSearches } from '../savedSearches/useSavedSearches';
 import type { SavedSearch, SavedSearchMutationState } from '../savedSearches/types';
+import { getStatusToneClasses } from '../theme/statusTokens';
 
 type RunsTabKey = 'workflows' | 'jobs';
 
@@ -48,6 +50,172 @@ type JobStatusOption = (typeof JOB_STATUS_OPTIONS)[number];
 
 const JOB_RUNTIME_OPTIONS = ['node', 'python', 'docker'] as const;
 type JobRuntimeOption = (typeof JOB_RUNTIME_OPTIONS)[number];
+
+const PAGE_HEADER_TITLE_CLASSES = 'text-scale-2xl font-weight-semibold text-primary';
+
+const PAGE_HEADER_SUBTITLE_CLASSES = 'text-scale-sm text-secondary';
+
+const TAB_SWITCHER_CONTAINER_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass p-1 shadow-elevation-sm transition-colors';
+
+const TAB_BUTTON_BASE_CLASSES =
+  'rounded-full px-4 py-2 text-scale-sm font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const TAB_BUTTON_ACTIVE_CLASSES = 'bg-accent text-inverse shadow-elevation-sm';
+
+const TAB_BUTTON_INACTIVE_CLASSES = 'text-secondary hover:bg-accent-soft hover:text-accent-strong';
+
+const TAB_DESCRIPTION_CLASSES = 'text-scale-xs uppercase tracking-[0.2em] text-muted';
+
+const STATUS_CHIP_BASE_CLASSES =
+  'inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold capitalize';
+
+const FILTER_PANEL_CLASSES =
+  'flex flex-col gap-3 rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm transition-colors';
+
+const FILTER_SEARCH_INPUT_CLASSES =
+  'min-w-[220px] flex-1 rounded-lg border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const FILTER_RESET_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1.5 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const FILTER_SECTION_LABEL_CLASSES = 'text-scale-xs font-weight-semibold uppercase tracking-[0.24em] text-muted';
+
+const FILTER_CHIP_BASE_CLASSES =
+  'rounded-full border px-3 py-1 text-scale-xs font-weight-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const FILTER_CHIP_ACTIVE_CLASSES = 'border-accent bg-accent text-inverse shadow-elevation-sm';
+
+const FILTER_CHIP_INACTIVE_CLASSES =
+  'border-subtle bg-surface-glass text-secondary hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong';
+
+const SAVED_VIEW_SECTION_CLASSES = FILTER_PANEL_CLASSES;
+
+const SAVED_VIEW_TITLE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const SAVED_VIEW_SUBTITLE_CLASSES = 'text-scale-xs text-secondary';
+
+const SAVED_VIEW_REFRESH_BUTTON_CLASSES = FILTER_RESET_BUTTON_CLASSES;
+
+const SAVED_VIEW_PRIMARY_BUTTON_CLASSES =
+  'rounded-full border border-accent bg-accent px-3 py-1.5 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const SAVED_VIEW_EMPTY_TEXT_CLASSES = 'text-scale-sm text-secondary';
+
+const SAVED_VIEW_ERROR_CLASSES =
+  'rounded-lg border border-status-danger bg-status-danger-soft px-3 py-2 text-scale-xs font-weight-semibold text-status-danger';
+
+const SAVED_VIEW_ITEM_CLASSES =
+  'flex flex-col gap-2 rounded-xl border border-subtle bg-surface-glass px-3 py-2 shadow-elevation-sm';
+
+const SAVED_VIEW_LINK_BUTTON_CLASSES =
+  'text-left text-scale-sm font-weight-semibold text-accent transition-colors hover:text-accent-strong disabled:cursor-not-allowed disabled:text-muted';
+
+const SAVED_VIEW_ACTION_BUTTON_BASE =
+  'rounded-md px-2 py-1 text-scale-xs font-weight-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:text-muted';
+
+const SAVED_VIEW_ACTION_BUTTON_NEUTRAL =
+  'border border-transparent text-secondary hover:bg-accent-soft hover:text-accent-strong';
+
+const SAVED_VIEW_ACTION_BUTTON_DELETE =
+  'border border-transparent text-status-danger hover:bg-status-danger-soft hover:text-status-danger';
+
+const SAVED_VIEW_SUMMARY_TEXT_CLASSES = 'flex flex-col gap-1 text-scale-xs text-secondary';
+
+const TABLE_CARD_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass shadow-elevation-sm transition-colors';
+
+const TABLE_HEADER_BAR_CLASSES =
+  'flex items-center justify-between border-b border-subtle px-4 py-3 text-scale-sm text-secondary';
+
+const TABLE_ELEMENT_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm';
+
+const TABLE_HEAD_CELL_CLASSES =
+  'px-4 py-3 text-left text-scale-xs font-weight-semibold uppercase tracking-[0.24em] text-muted';
+
+const TABLE_BODY_ROW_BASE_CLASSES = 'cursor-pointer transition-colors';
+
+const TABLE_BODY_ROW_SELECTED_CLASSES = 'bg-accent-soft shadow-elevation-sm';
+
+const TABLE_BODY_ROW_DEFAULT_CLASSES = 'bg-surface-glass hover:bg-accent-soft/60';
+
+const TABLE_META_TEXT_CLASSES = 'text-scale-xs text-secondary';
+
+const TABLE_BADGE_LABEL_CLASSES = 'text-[10px] font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const TABLE_STACK_TEXT_CLASSES = 'flex flex-col gap-1 text-scale-xs text-secondary';
+
+const TABLE_EMPTY_TEXT_CLASSES = 'px-4 py-6 text-center text-scale-sm text-muted';
+
+const TABLE_ERROR_BAR_CLASSES = 'border-t border-status-warning bg-status-warning-soft px-4 py-3 text-scale-xs text-status-warning';
+
+const TABLE_LOAD_MORE_CONTAINER_CLASSES = 'border-t border-subtle bg-surface-glass px-4 py-3 text-right';
+
+const TERTIARY_BUTTON_CLASSES = 'inline-flex items-center justify-center rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_RETRY_BUTTON_CLASSES =
+  'self-start rounded-full border border-accent bg-accent px-3 py-1 text-scale-xs font-weight-semibold text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const ERROR_PANEL_CLASSES =
+  'flex flex-col gap-3 rounded-2xl border border-status-danger bg-status-danger-soft p-6 text-scale-sm text-status-danger';
+
+const LOADING_PANEL_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass p-6 text-scale-sm text-secondary';
+
+const DETAIL_PANEL_CONTAINER_CLASSES =
+  'flex flex-col gap-4 rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg transition-colors';
+
+const DETAIL_PANEL_HEADER_LABEL_CLASSES = 'text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-muted';
+
+const DETAIL_PANEL_HEADER_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const DETAIL_PANEL_ACTION_PRIMARY =
+  'rounded-full border border-accent bg-accent px-4 py-1.5 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-inverse shadow-elevation-sm transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const DETAIL_PANEL_ACTION_SECONDARY =
+  'rounded-full border border-subtle bg-surface-glass px-4 py-1.5 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const DETAIL_PANEL_BODY_TEXT_CLASSES = 'text-scale-xs text-secondary';
+
+const JSON_PREVIEW_CONTAINER_CLASSES =
+  'flex flex-col gap-2 rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-secondary';
+
+const JSON_PREVIEW_TITLE_CLASSES = 'text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted';
+
+const JSON_PREVIEW_CONTENT_CLASSES = 'max-h-48 overflow-auto rounded-lg bg-surface-sunken px-3 py-2 text-scale-xs text-primary';
+
+const JSON_PREVIEW_EMPTY_TEXT_CLASSES = 'text-scale-xs text-muted';
+
+const INFO_ROW_CONTAINER_CLASSES =
+  'flex flex-col gap-1 rounded-xl border border-subtle bg-surface-muted px-3 py-2 text-scale-sm text-secondary';
+
+const INFO_ROW_LABEL_CLASSES = 'text-[11px] font-weight-semibold uppercase tracking-[0.25em] text-muted';
+
+const INFO_ROW_VALUE_CLASSES = 'font-weight-medium text-primary';
+
+const INFO_ROW_MONO_VALUE_CLASSES = 'break-all font-mono text-scale-xs';
+
+const DETAIL_PANEL_ALERT_BASE_CLASSES = 'rounded-2xl border px-3 py-2 text-scale-sm font-weight-medium';
+
+const DETAIL_PANEL_EMPTY_STATE_CLASSES =
+  'rounded-xl border border-subtle bg-surface-muted px-3 py-2 text-scale-sm text-secondary';
+
+const DETAIL_PANEL_STEP_CARD_CLASSES =
+  'rounded-xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-secondary shadow-elevation-sm';
+
+const DETAIL_PANEL_STEP_TITLE_CLASSES = 'font-weight-semibold text-primary';
+
+const DETAIL_PANEL_STEP_META_CLASSES = 'text-scale-xs text-secondary';
+
+
+
+
+
+
+
+
+
+
 
 type RunSavedSearchConfig =
   | {
@@ -226,15 +394,16 @@ type FilterChipProps = {
 };
 
 function FilterChip({ label, active, onToggle }: FilterChipProps) {
+  const chipClasses = classNames(
+    FILTER_CHIP_BASE_CLASSES,
+    active ? FILTER_CHIP_ACTIVE_CLASSES : FILTER_CHIP_INACTIVE_CLASSES
+  );
+
   return (
     <button
       type="button"
       onClick={onToggle}
-      className={`rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-        active
-          ? 'border-violet-500 bg-violet-600 text-white shadow-sm'
-          : 'border-slate-200 bg-white text-slate-600 hover:border-violet-300 hover:text-violet-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-violet-400 dark:hover:text-violet-200'
-      }`}
+      className={chipClasses}
       aria-pressed={active}
     >
       {label}
@@ -253,25 +422,25 @@ type WorkflowFilterControlsProps = {
 
 function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTriggerToggle, onKindToggle, onReset }: WorkflowFilterControlsProps) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+    <section className={FILTER_PANEL_CLASSES}>
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
           value={filters.search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search by run key, run ID, workflow, or trigger"
-          className="min-w-[220px] flex-1 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200/50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/40"
+          className={FILTER_SEARCH_INPUT_CLASSES}
         />
         <button
           type="button"
           onClick={onReset}
-          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+          className={FILTER_RESET_BUTTON_CLASSES}
         >
           Reset
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Status</span>
+        <span className={FILTER_SECTION_LABEL_CLASSES}>Status</span>
         {WORKFLOW_STATUS_OPTIONS.map((status) => (
           <FilterChip
             key={status}
@@ -282,7 +451,7 @@ function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTri
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Trigger</span>
+        <span className={FILTER_SECTION_LABEL_CLASSES}>Trigger</span>
         {WORKFLOW_TRIGGER_OPTIONS.map((trigger) => (
           <FilterChip
             key={trigger}
@@ -293,7 +462,7 @@ function WorkflowFilterControls({ filters, onSearchChange, onStatusToggle, onTri
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Include</span>
+        <span className={FILTER_SECTION_LABEL_CLASSES}>Include</span>
         {WORKFLOW_KIND_OPTIONS.map((kind) => (
           <FilterChip
             key={kind}
@@ -317,25 +486,25 @@ type JobFilterControlsProps = {
 
 function JobFilterControls({ filters, onSearchChange, onStatusToggle, onRuntimeToggle, onReset }: JobFilterControlsProps) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+    <section className={FILTER_PANEL_CLASSES}>
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
           value={filters.search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search by run ID or job"
-          className="min-w-[220px] flex-1 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200/50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-slate-400 dark:focus:ring-slate-500/40"
+          className={FILTER_SEARCH_INPUT_CLASSES}
         />
         <button
           type="button"
           onClick={onReset}
-          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+          className={FILTER_RESET_BUTTON_CLASSES}
         >
           Reset
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Status</span>
+        <span className={FILTER_SECTION_LABEL_CLASSES}>Status</span>
         {JOB_STATUS_OPTIONS.map((status) => (
           <FilterChip
             key={status}
@@ -346,7 +515,7 @@ function JobFilterControls({ filters, onSearchChange, onStatusToggle, onRuntimeT
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Runtime</span>
+        <span className={FILTER_SECTION_LABEL_CLASSES}>Runtime</span>
         {JOB_RUNTIME_OPTIONS.map((runtime) => (
           <FilterChip
             key={runtime}
@@ -394,11 +563,11 @@ function SavedViewToolbar({
       : 'Save job filters to monitor targeted executions.';
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-700/70 dark:bg-slate-900/60">
+    <section className={SAVED_VIEW_SECTION_CLASSES}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>
+          <h3 className={SAVED_VIEW_TITLE_CLASSES}>{title}</h3>
+          <p className={SAVED_VIEW_SUBTITLE_CLASSES}>{description}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -407,7 +576,7 @@ function SavedViewToolbar({
               void onRefresh();
             }}
             disabled={loading}
-            className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+            className={SAVED_VIEW_REFRESH_BUTTON_CLASSES}
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -415,21 +584,21 @@ function SavedViewToolbar({
             type="button"
             onClick={onSaveCurrent}
             disabled={mutationState.creating}
-            className="rounded-full bg-violet-600 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-400"
+            className={SAVED_VIEW_PRIMARY_BUTTON_CLASSES}
           >
             {mutationState.creating ? 'Saving…' : 'Save current view'}
           </button>
         </div>
       </div>
       {error && (
-        <div className="rounded-lg border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-xs font-medium text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className={SAVED_VIEW_ERROR_CLASSES}>
           {error}
         </div>
       )}
       {loading && savedViews.length === 0 ? (
-        <div className="text-sm text-slate-500 dark:text-slate-400">Loading saved views…</div>
+        <div className={SAVED_VIEW_EMPTY_TEXT_CLASSES}>Loading saved views…</div>
       ) : savedViews.length === 0 ? (
-        <div className="text-sm text-slate-500 dark:text-slate-400">No saved views yet.</div>
+        <div className={SAVED_VIEW_EMPTY_TEXT_CLASSES}>No saved views yet.</div>
       ) : (
         <ul className="flex flex-col gap-2">
           {savedViews.map(({ entry, config }) => {
@@ -448,16 +617,13 @@ function SavedViewToolbar({
             const searchSummary = (config.filters.search ?? entry.searchInput ?? '').trim();
 
             return (
-              <li
-                key={entry.id}
-                className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-slate-50/70 p-3 dark:border-slate-700/60 dark:bg-slate-800/60"
-              >
+              <li key={entry.id} className={SAVED_VIEW_ITEM_CLASSES}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <button
                     type="button"
                     onClick={() => onApply(entry, config)}
                     disabled={isApplying || isDeleting}
-                    className="text-left text-sm font-semibold text-violet-700 transition hover:text-violet-800 disabled:cursor-not-allowed disabled:text-violet-400 dark:text-slate-100 dark:hover:text-slate-50 dark:disabled:text-slate-500"
+                    className={SAVED_VIEW_LINK_BUTTON_CLASSES}
                   >
                     {isApplying ? 'Applying…' : entry.name}
                   </button>
@@ -466,7 +632,7 @@ function SavedViewToolbar({
                       type="button"
                       onClick={() => onShare(entry)}
                       disabled={isSharing || isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
+                      className={classNames(SAVED_VIEW_ACTION_BUTTON_BASE, SAVED_VIEW_ACTION_BUTTON_NEUTRAL)}
                     >
                       {isSharing ? 'Sharing…' : 'Share'}
                     </button>
@@ -474,7 +640,7 @@ function SavedViewToolbar({
                       type="button"
                       onClick={() => onRename(entry)}
                       disabled={isRenaming || isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-700/70 dark:hover:text-slate-100"
+                      className={classNames(SAVED_VIEW_ACTION_BUTTON_BASE, SAVED_VIEW_ACTION_BUTTON_NEUTRAL)}
                     >
                       {isRenaming ? 'Renaming…' : 'Rename'}
                     </button>
@@ -482,13 +648,13 @@ function SavedViewToolbar({
                       type="button"
                       onClick={() => onDelete(entry)}
                       disabled={isDeleting}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition hover:bg-rose-100 hover:text-rose-700 disabled:cursor-not-allowed disabled:text-rose-400 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                      className={classNames(SAVED_VIEW_ACTION_BUTTON_BASE, SAVED_VIEW_ACTION_BUTTON_DELETE)}
                     >
                       {isDeleting ? 'Deleting…' : 'Delete'}
                     </button>
                   </div>
                 </div>
-                <div className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
+                <div className={SAVED_VIEW_SUMMARY_TEXT_CLASSES}>
                   <span>Status: {statusList.length > 0 ? statusList.map(formatFilterLabel).join(', ') : 'All statuses'}</span>
                   <span>
                     {config.kind === 'workflows'
@@ -605,29 +771,7 @@ function formatDuration(durationMs: number | null): string {
 }
 
 function statusChipClass(status: string): string {
-  switch (status) {
-    case 'succeeded':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-    case 'running':
-      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
-    case 'failed':
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300';
-    case 'canceled':
-    case 'cancelled':
-      return 'bg-slate-200 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
-    case 'expired':
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200';
-    case 'matched':
-      return 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300';
-    case 'launched':
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300';
-    case 'throttled':
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200';
-    case 'skipped':
-      return 'bg-slate-200 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
-    default:
-      return 'bg-slate-100 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
-  }
+  return getStatusToneClasses(status);
 }
 
 export default function RunsPage() {
@@ -1319,14 +1463,14 @@ export default function RunsPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Runs</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
+        <h1 className={PAGE_HEADER_TITLE_CLASSES}>Runs</h1>
+        <p className={PAGE_HEADER_SUBTITLE_CLASSES}>
           Monitor recent workflow and job runs, inspect timing, and retrigger executions when needed.
         </p>
       </header>
 
       <div className="flex flex-col gap-4">
-        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 p-1 dark:border-slate-700/70 dark:bg-slate-900/60">
+        <div className={TAB_SWITCHER_CONTAINER_CLASSES}>
           {TABS.map((tab) => {
             const isActive = tab.key === activeTab;
             return (
@@ -1334,11 +1478,10 @@ export default function RunsPage() {
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-                  isActive
-                    ? 'bg-violet-600 text-white shadow-md dark:bg-violet-500'
-                    : 'text-slate-600 hover:bg-violet-600/10 hover:text-violet-700 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-white'
-                }`}
+                className={classNames(
+                  TAB_BUTTON_BASE_CLASSES,
+                  isActive ? TAB_BUTTON_ACTIVE_CLASSES : TAB_BUTTON_INACTIVE_CLASSES
+                )}
                 aria-pressed={isActive}
               >
                 {tab.label}
@@ -1346,7 +1489,7 @@ export default function RunsPage() {
             );
           })}
         </div>
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+        <p className={TAB_DESCRIPTION_CLASSES}>
           {activeTabConfig.description}
         </p>
       </div>
@@ -1488,7 +1631,7 @@ function WorkflowRunsTable({
 
   if (loading && !state.loaded) {
     return (
-      <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">
+      <div className={LOADING_PANEL_CLASSES}>
         <Spinner label="Loading workflow runs…" />
       </div>
     );
@@ -1496,11 +1639,11 @@ function WorkflowRunsTable({
 
   if (error && items.length === 0) {
     return (
-      <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-6 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
+      <div className={ERROR_PANEL_CLASSES}>
         <span>{error}</span>
         <button
           type="button"
-          className="self-start rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+          className={PRIMARY_RETRY_BUTTON_CLASSES}
           onClick={onReload}
           disabled={loading}
         >
@@ -1511,43 +1654,41 @@ function WorkflowRunsTable({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50">
-      <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
+    <div className={TABLE_CARD_CLASSES}>
+      <div className={TABLE_HEADER_BAR_CLASSES}>
         <span>Workflow runs</span>
         {loading && state.loaded && (
-          <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Updating…</span>
+          <span className={TABLE_META_TEXT_CLASSES}>Updating…</span>
         )}
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
-          <thead className="bg-slate-50/60 dark:bg-slate-900/60">
+        <table className={TABLE_ELEMENT_CLASSES}>
+          <thead className="bg-surface-muted">
             <tr>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Type
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Workflow
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Identifiers
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Context
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Timing
               </th>
-              <th scope="col" className="px-4 py-3 text-right font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={`${TABLE_HEAD_CELL_CLASSES} text-right`}>
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+          <tbody className="divide-y divide-subtle">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  No workflow activity recorded yet.
-                </td>
+                <td colSpan={6} className={TABLE_EMPTY_TEXT_CLASSES}>No workflow activity recorded yet.</td>
               </tr>
             ) : (
               items.map((entry) => {
@@ -1577,78 +1718,73 @@ function WorkflowRunsTable({
                 return (
                   <Fragment key={rowKey}>
                     <tr
-                      className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'bg-violet-100/70 dark:bg-violet-500/20'
-                          : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
-                      }`}
+                      className={classNames(
+                        TABLE_BODY_ROW_BASE_CLASSES,
+                        isSelected ? TABLE_BODY_ROW_SELECTED_CLASSES : TABLE_BODY_ROW_DEFAULT_CLASSES
+                      )}
                       onClick={() => onSelect(entry)}
                       aria-selected={isSelected}
                     >
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-col gap-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                          <span className="text-[11px] font-weight-semibold uppercase tracking-[0.3em] text-muted">
                             {isRun ? 'Run' : 'Delivery'}
                           </span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(
-                              entry.status
-                            )}`}
-                          >
+                          <span className={`${STATUS_CHIP_BASE_CLASSES} ${statusChipClass(entry.status)}`}>
                             {formatFilterLabel(entry.status)}
                           </span>
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="flex flex-col text-sm">
-                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        <div className="flex flex-col text-scale-sm">
+                          <span className="font-weight-semibold text-primary">
                             {entry.workflow.name}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{entry.workflow.slug}</span>
+                          <span className={TABLE_META_TEXT_CLASSES}>{entry.workflow.slug}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {runEntry ? (
-                          <div className="flex flex-col gap-1">
+                          <div className={TABLE_STACK_TEXT_CLASSES}>
                             {runEntry.run.runKey ? (
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                                <span className={TABLE_BADGE_LABEL_CLASSES}>
                                   Key
                                 </span>
-                                <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                                <code className="break-all font-mono text-[11px] text-secondary">
                                   {runEntry.run.runKey}
                                 </code>
                                 <CopyButton value={runEntry.run.runKey} ariaLabel="Copy run key" />
                               </div>
                             ) : (
-                              <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>
+                          <span className={TABLE_META_TEXT_CLASSES}>—</span>
                             )}
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              <span className={TABLE_BADGE_LABEL_CLASSES}>
                                 ID
                               </span>
-                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                              <code className="break-all font-mono text-[11px] text-secondary">
                                 {runEntry.run.id}
                               </code>
                               <CopyButton value={runEntry.run.id} ariaLabel="Copy run id" />
                             </div>
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-1">
+                          <div className={TABLE_STACK_TEXT_CLASSES}>
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              <span className={TABLE_BADGE_LABEL_CLASSES}>
                                 Delivery
                               </span>
-                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                              <code className="break-all font-mono text-[11px] text-secondary">
                                 {deliveryEntry!.delivery.id}
                               </code>
                               <CopyButton value={deliveryEntry!.delivery.id} ariaLabel="Copy delivery id" />
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              <span className={TABLE_BADGE_LABEL_CLASSES}>
                                 Event
                               </span>
-                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                              <code className="break-all font-mono text-[11px] text-secondary">
                                 {deliveryEntry!.delivery.eventId ?? '—'}
                               </code>
                               {deliveryEntry!.delivery.eventId && (
@@ -1656,10 +1792,10 @@ function WorkflowRunsTable({
                               )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
+                              <span className={TABLE_BADGE_LABEL_CLASSES}>
                                 Dedupe
                               </span>
-                              <code className="break-all font-mono text-[11px] text-slate-700 dark:text-slate-100">
+                              <code className="break-all font-mono text-[11px] text-secondary">
                                 {deliveryEntry!.delivery.dedupeKey ?? '—'}
                               </code>
                               {deliveryEntry!.delivery.dedupeKey && (
@@ -1669,14 +1805,14 @@ function WorkflowRunsTable({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {runEntry ? (
-                          <div className="flex flex-col gap-1">
+                          <div className={TABLE_STACK_TEXT_CLASSES}>
                             <span>Triggered by: {runEntry.run.triggeredBy ?? '—'}</span>
                             <span>Partition: {runEntry.run.partitionKey ?? '—'}</span>
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-1">
+                          <div className={TABLE_STACK_TEXT_CLASSES}>
                             <span>
                               Trigger:{' '}
                               {entry.trigger
@@ -1688,8 +1824,8 @@ function WorkflowRunsTable({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
-                        <div className="flex flex-col gap-1">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
+                        <div className={TABLE_STACK_TEXT_CLASSES}>
                           <span>
                             {runEntry
                               ? `Started: ${formatDateTime(runEntry.run.startedAt)}`
@@ -1710,7 +1846,7 @@ function WorkflowRunsTable({
                         {runEntry ? (
                           <button
                             type="button"
-                            className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={PRIMARY_RETRY_BUTTON_CLASSES}
                             onClick={(event) => {
                               event.stopPropagation();
                               onRetry(runEntry);
@@ -1720,12 +1856,12 @@ function WorkflowRunsTable({
                             {isPending ? 'Retriggering…' : 'Retrigger'}
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                          <span className="text-scale-xs text-muted">—</span>
                         )}
                       </td>
                     </tr>
                     {runEntry && isSelected && (
-                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                      <tr className="bg-accent-soft/60">
                         <td colSpan={6} className="px-4 pb-6 pt-2 text-left align-top">
                           <WorkflowRunDetailPanel
                             entry={runEntry}
@@ -1739,7 +1875,7 @@ function WorkflowRunsTable({
                       </tr>
                     )}
                     {deliveryEntry && isSelected && (
-                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                      <tr className="bg-accent-soft/60">
                         <td colSpan={6} className="px-4 pb-6 pt-2 text-left align-top">
                           <WorkflowDeliveryDetailPanel
                             entry={deliveryEntry}
@@ -1756,16 +1892,12 @@ function WorkflowRunsTable({
           </tbody>
         </table>
       </div>
-      {error && items.length > 0 && (
-        <div className="border-t border-amber-300/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          {error}
-        </div>
-      )}
+      {error && items.length > 0 && <div className={TABLE_ERROR_BAR_CLASSES}>{error}</div>}
       {hasMore && (
-        <div className="border-t border-slate-200/70 bg-slate-50/60 px-4 py-3 text-right dark:border-slate-800 dark:bg-slate-900/40">
+        <div className={TABLE_LOAD_MORE_CONTAINER_CLASSES}>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            className={TERTIARY_BUTTON_CLASSES}
             onClick={onLoadMore}
             disabled={loadingMore || loading}
           >
@@ -1792,30 +1924,20 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
   const duration = computeDurationMs(run.startedAt, run.completedAt, run.durationMs);
 
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+    <div className={DETAIL_PANEL_CONTAINER_CLASSES}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-            Workflow run detail
-          </span>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{entry.workflow.name}</h3>
+        <div className={TABLE_STACK_TEXT_CLASSES}>
+          <span className={DETAIL_PANEL_HEADER_LABEL_CLASSES}>Workflow run detail</span>
+          <h3 className={DETAIL_PANEL_HEADER_TITLE_CLASSES}>{entry.workflow.name}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(run.status)}`}>
+          <span className={`${STATUS_CHIP_BASE_CLASSES} px-4 ${statusChipClass(run.status)}`}>
             {run.status}
           </span>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
-            onClick={onViewWorkflow}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_PRIMARY} onClick={onViewWorkflow}>
             View workflow
           </button>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
-            onClick={onClose}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={onClose}>
             Close
           </button>
         </div>
@@ -1829,12 +1951,12 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
         <InfoRow label="Partition" value={run.partitionKey ?? '—'} />
         <InfoRow label="Started" value={formatDateTime(run.startedAt)} />
         <InfoRow label="Completed" value={formatDateTime(run.completedAt)} />
-        <InfoRow label="Duration" value={formatDuration(duration) ?? '—'} />
+        <InfoRow label="Duration" value={formatDuration(duration)} />
         <InfoRow label="Current step" value={run.currentStepId ?? '—'} />
       </div>
 
       {run.errorMessage && (
-        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+        <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('failed')}`}>
           {run.errorMessage}
         </div>
       )}
@@ -1848,49 +1970,54 @@ function WorkflowRunDetailPanel({ entry, detail, loading, error, onClose, onView
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Step timeline</h4>
+          <h4 className={DETAIL_PANEL_STEP_TITLE_CLASSES}>Step timeline</h4>
           {loading && (
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className={DETAIL_PANEL_STEP_META_CLASSES}>
               <Spinner label="Loading steps…" size="xs" />
             </span>
           )}
         </div>
         {error && (
-          <div className="rounded-xl border border-amber-300/70 bg-amber-50/70 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('warning')}`}>
             {error}
           </div>
         )}
         {!loading && steps.length === 0 && !error && (
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-            No steps recorded yet.
-          </div>
+          <div className={DETAIL_PANEL_EMPTY_STATE_CLASSES}>No steps recorded yet.</div>
         )}
         {steps.length > 0 && (
           <ul className="flex flex-col gap-2">
             {steps.map((step) => {
               const stepDuration = computeDurationMs(step.startedAt, step.completedAt, null);
               return (
-                <li
-                  key={step.id}
-                  className="rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50"
-                >
+                <li key={step.id} className={DETAIL_PANEL_STEP_CARD_CLASSES}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-col">
-                      <span className="font-semibold text-slate-800 dark:text-slate-100">{step.stepId}</span>
+                      <span className={DETAIL_PANEL_STEP_TITLE_CLASSES}>{step.stepId}</span>
                       {step.parentStepId && (
-                        <span className="text-xs text-slate-500 dark:text-slate-400">Parent: {step.parentStepId}</span>
+                        <span className={DETAIL_PANEL_STEP_META_CLASSES}>Parent: {step.parentStepId}</span>
                       )}
                     </div>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(step.status)}`}>
-                      {step.status}
+                    <span className={`${STATUS_CHIP_BASE_CLASSES} ${statusChipClass(step.status)}`}>
+                      {formatFilterLabel(step.status ?? 'unknown')}
                     </span>
                   </div>
-                  <div className="mt-2 grid gap-2 text-xs text-slate-500 dark:text-slate-400 md:grid-cols-2">
+                  <div className={classNames('mt-2 grid gap-2 md:grid-cols-2', DETAIL_PANEL_BODY_TEXT_CLASSES)}>
                     <span>Started {formatDateTime(step.startedAt)}</span>
                     <span>Completed {formatDateTime(step.completedAt)}</span>
-                    <span>Duration {formatDuration(stepDuration) ?? '—'}</span>
-                    {step.errorMessage && <span className="text-rose-600 dark:text-rose-300">Error: {step.errorMessage}</span>}
+                    <span>Duration {formatDuration(stepDuration)}</span>
                   </div>
+                  {step.errorMessage && (
+                    <div
+                      className={classNames(
+                        'mt-2',
+                        DETAIL_PANEL_ALERT_BASE_CLASSES,
+                        getStatusToneClasses('failed')
+                      )}
+                    >
+                      Error: {step.errorMessage}
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -1911,30 +2038,20 @@ function JobRunDetailPanel({ entry, onClose, onViewJob }: JobRunDetailPanelProps
   const duration = computeDurationMs(entry.run.startedAt, entry.run.completedAt, entry.run.durationMs);
 
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+    <div className={DETAIL_PANEL_CONTAINER_CLASSES}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-            Job run detail
-          </span>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{entry.job.name}</h3>
+        <div className={TABLE_STACK_TEXT_CLASSES}>
+          <span className={DETAIL_PANEL_HEADER_LABEL_CLASSES}>Job run detail</span>
+          <h3 className={DETAIL_PANEL_HEADER_TITLE_CLASSES}>{entry.job.name}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}>
+          <span className={`${STATUS_CHIP_BASE_CLASSES} px-4 ${statusChipClass(entry.run.status)}`}>
             {entry.run.status}
           </span>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
-            onClick={onViewJob}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_PRIMARY} onClick={onViewJob}>
             View jobs
           </button>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
-            onClick={onClose}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={onClose}>
             Close
           </button>
         </div>
@@ -1946,13 +2063,13 @@ function JobRunDetailPanel({ entry, onClose, onViewJob }: JobRunDetailPanelProps
         <InfoRow label="Runtime" value={entry.job.runtime} />
         <InfoRow label="Started" value={formatDateTime(entry.run.startedAt)} />
         <InfoRow label="Completed" value={formatDateTime(entry.run.completedAt)} />
-        <InfoRow label="Duration" value={formatDuration(duration) ?? '—'} />
+        <InfoRow label="Duration" value={formatDuration(duration)} />
         <InfoRow label="Attempt" value={`${entry.run.attempt} of ${entry.run.maxAttempts ?? '∞'}`} />
         <InfoRow label="Timeout" value={entry.run.timeoutMs ? `${Math.round(entry.run.timeoutMs / 1000)}s` : '—'} />
       </div>
 
       {entry.run.errorMessage && (
-        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+        <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('failed')}`}>
           {entry.run.errorMessage}
         </div>
       )}
@@ -1976,14 +2093,10 @@ type InfoRowProps = {
 
 function InfoRow({ label, value, copyValue, monospace = false }: InfoRowProps) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl border border-slate-200/70 bg-slate-50/70 p-3 text-sm text-slate-600 dark:border-slate-700/60 dark:bg-slate-800/60 dark:text-slate-300">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
-        {label}
-      </span>
+    <div className={INFO_ROW_CONTAINER_CLASSES}>
+      <span className={INFO_ROW_LABEL_CLASSES}>{label}</span>
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`font-medium text-slate-800 dark:text-slate-100 ${monospace ? 'break-all font-mono' : ''}`}
-        >
+        <span className={classNames(INFO_ROW_VALUE_CLASSES, monospace ? INFO_ROW_MONO_VALUE_CLASSES : undefined)}>
           {value}
         </span>
         {copyValue ? <CopyButton value={copyValue} ariaLabel={`Copy ${label.toLowerCase()}`} /> : null}
@@ -2008,16 +2121,12 @@ function JsonPreview({ title, value }: JsonPreviewProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-slate-200/70 bg-white/70 p-3 text-sm text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-slate-500 dark:text-slate-400">
-        {title}
-      </span>
+    <div className={JSON_PREVIEW_CONTAINER_CLASSES}>
+      <span className={JSON_PREVIEW_TITLE_CLASSES}>{title}</span>
       {content ? (
-        <pre className="max-h-48 overflow-auto rounded-lg bg-slate-950/80 p-3 text-xs text-slate-100 dark:bg-slate-950/60">
-          {content}
-        </pre>
+        <pre className={JSON_PREVIEW_CONTENT_CLASSES}>{content}</pre>
       ) : (
-        <span className="text-xs text-slate-500 dark:text-slate-400">No data</span>
+        <span className={JSON_PREVIEW_EMPTY_TEXT_CLASSES}>No data</span>
       )}
     </div>
   );
@@ -2037,30 +2146,20 @@ function WorkflowDeliveryDetailPanel({ entry, onClose, onViewWorkflow }: Workflo
       : null;
 
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_25px_60px_-35px_rgba(15,23,42,0.55)] dark:border-slate-700/70 dark:bg-slate-900/60">
+    <div className={DETAIL_PANEL_CONTAINER_CLASSES}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-            Delivery detail
-          </span>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{workflow.name}</h3>
+        <div className={TABLE_STACK_TEXT_CLASSES}>
+          <span className={DETAIL_PANEL_HEADER_LABEL_CLASSES}>Delivery detail</span>
+          <h3 className={DETAIL_PANEL_HEADER_TITLE_CLASSES}>{workflow.name}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded-full px-4 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.status)}`}>
+          <span className={`${STATUS_CHIP_BASE_CLASSES} px-4 ${statusChipClass(entry.status)}`}>
             {formatFilterLabel(entry.status)}
           </span>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-violet-300 hover:bg-violet-500/10 hover:text-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-200/10 dark:hover:text-slate-100"
-            onClick={onViewWorkflow}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_PRIMARY} onClick={onViewWorkflow}>
             View workflow
           </button>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200/70 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:border-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-800"
-            onClick={onClose}
-          >
+          <button type="button" className={DETAIL_PANEL_ACTION_SECONDARY} onClick={onClose}>
             Close
           </button>
         </div>
@@ -2080,7 +2179,7 @@ function WorkflowDeliveryDetailPanel({ entry, onClose, onViewWorkflow }: Workflo
       </div>
 
       {delivery.lastError && (
-        <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 p-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+        <div className={`${DETAIL_PANEL_ALERT_BASE_CLASSES} ${getStatusToneClasses('failed')}`}>
           {delivery.lastError}
         </div>
       )}
@@ -2117,7 +2216,7 @@ function JobRunsTable({
 
   if (loading && !state.loaded) {
     return (
-      <div className="rounded-2xl border border-slate-200/60 p-6 text-sm text-slate-600 dark:border-slate-700/70 dark:text-slate-300">
+      <div className={LOADING_PANEL_CLASSES}>
         <Spinner label="Loading job runs…" />
       </div>
     );
@@ -2125,11 +2224,11 @@ function JobRunsTable({
 
   if (error && items.length === 0) {
     return (
-      <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-6 text-sm text-rose-700 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
+      <div className={ERROR_PANEL_CLASSES}>
         <span>{error}</span>
         <button
           type="button"
-          className="self-start rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+          className={PRIMARY_RETRY_BUTTON_CLASSES}
           onClick={onReload}
           disabled={loading}
         >
@@ -2140,98 +2239,89 @@ function JobRunsTable({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/70 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/50">
-      <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300">
+    <div className={TABLE_CARD_CLASSES}>
+      <div className={TABLE_HEADER_BAR_CLASSES}>
         <span>Job runs</span>
-        {loading && state.loaded && (
-          <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Updating…</span>
-        )}
+        {loading && state.loaded && <span className={TABLE_META_TEXT_CLASSES}>Updating…</span>}
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
-          <thead className="bg-slate-50/60 dark:bg-slate-900/60">
+        <table className={TABLE_ELEMENT_CLASSES}>
+          <thead className="bg-surface-muted">
             <tr>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Status
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Job
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Runtime
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Started
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Completed
               </th>
-              <th scope="col" className="px-4 py-3 text-left font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={TABLE_HEAD_CELL_CLASSES}>
                 Duration
               </th>
-              <th scope="col" className="px-4 py-3 text-right font-semibold text-slate-500 dark:text-slate-400">
+              <th scope="col" className={`${TABLE_HEAD_CELL_CLASSES} text-right`}>
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+          <tbody className="divide-y divide-subtle">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                <td colSpan={7} className={TABLE_EMPTY_TEXT_CLASSES}>
                   No job runs recorded yet.
                 </td>
               </tr>
             ) : (
               items.map((entry) => {
-                const durationMs = computeDurationMs(
-                  entry.run.startedAt,
-                  entry.run.completedAt,
-                  entry.run.durationMs
-                );
+                const durationMs = computeDurationMs(entry.run.startedAt, entry.run.completedAt, entry.run.durationMs);
                 const isPending = pendingRunId === entry.run.id;
                 const isSelected = selectedRunId === entry.run.id;
                 return (
                   <Fragment key={entry.run.id}>
                     <tr
-                      className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'bg-violet-100/70 dark:bg-violet-500/20'
-                          : 'bg-white/70 hover:bg-violet-50/70 dark:bg-slate-900/40 dark:hover:bg-violet-500/10'
-                      }`}
+                      className={classNames(
+                        TABLE_BODY_ROW_BASE_CLASSES,
+                        isSelected ? TABLE_BODY_ROW_SELECTED_CLASSES : TABLE_BODY_ROW_DEFAULT_CLASSES
+                      )}
                       onClick={() => onSelect(entry)}
                       aria-selected={isSelected}
                     >
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusChipClass(entry.run.status)}`}
-                        >
+                        <span className={`${STATUS_CHIP_BASE_CLASSES} ${statusChipClass(entry.run.status)}`}>
                           {entry.run.status}
                         </span>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="flex flex-col text-sm">
-                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        <div className="flex flex-col text-scale-sm">
+                          <span className="font-weight-semibold text-primary">
                             {entry.job.name}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{entry.job.slug}</span>
+                          <span className={TABLE_META_TEXT_CLASSES}>{entry.job.slug}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {entry.job.runtime}
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {formatDateTime(entry.run.startedAt)}
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {formatDateTime(entry.run.completedAt)}
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                      <td className="px-4 py-3 text-scale-xs text-secondary">
                         {formatDuration(durationMs)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          className={PRIMARY_RETRY_BUTTON_CLASSES}
                           onClick={(event) => {
                             event.stopPropagation();
                             onRetry(entry);
@@ -2243,7 +2333,7 @@ function JobRunsTable({
                       </td>
                     </tr>
                     {isSelected && (
-                      <tr className="bg-violet-50/50 dark:bg-slate-900/70">
+                      <tr className="bg-accent-soft/60">
                         <td colSpan={7} className="px-4 pb-6 pt-2 text-left align-top">
                           <JobRunDetailPanel entry={entry} onClose={onCloseDetail} onViewJob={onViewJob} />
                         </td>
@@ -2257,15 +2347,13 @@ function JobRunsTable({
         </table>
       </div>
       {error && items.length > 0 && (
-        <div className="border-t border-amber-300/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-          {error}
-        </div>
+        <div className={TABLE_ERROR_BAR_CLASSES}>{error}</div>
       )}
       {hasMore && (
-        <div className="border-t border-slate-200/70 bg-slate-50/60 px-4 py-3 text-right dark:border-slate-800 dark:bg-slate-900/40">
+        <div className={TABLE_LOAD_MORE_CONTAINER_CLASSES}>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            className={TERTIARY_BUTTON_CLASSES}
             onClick={onLoadMore}
             disabled={loadingMore || loading}
           >

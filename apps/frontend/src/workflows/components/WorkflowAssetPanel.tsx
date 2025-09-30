@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { Spinner } from '../../components';
 import { formatDuration, formatTimestamp } from '../formatters';
+import { getStatusToneClasses } from '../../theme/statusTokens';
 import StatusBadge from './StatusBadge';
 import type {
   WorkflowAssetDetail,
@@ -84,35 +85,105 @@ function buildRoleMetadataChips(role: WorkflowAssetRoleDescriptor) {
   return chips;
 }
 
+const PANEL_CONTAINER =
+  'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-lg backdrop-blur-md transition-colors';
+
+const PANEL_TITLE = 'text-scale-lg font-weight-semibold text-primary';
+
+const PANEL_SUBTEXT = 'text-scale-xs text-secondary';
+
+const REFRESH_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary shadow-elevation-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const CLEAR_BUTTON_CLASSES =
+  `${REFRESH_BUTTON_CLASSES} border-status-danger text-status-danger hover:border-status-danger hover:text-status-danger focus-visible:outline-status-danger`;
+
+const ERROR_TEXT_CLASSES = 'mt-3 text-scale-sm font-weight-semibold text-status-danger';
+
+const MESSAGE_TEXT_CLASSES = 'mt-3 text-scale-sm text-secondary';
+
+const TABLE_WRAPPER_CLASSES = 'mt-4 overflow-hidden rounded-2xl border border-subtle';
+
+const TABLE_CLASSES = 'min-w-full divide-y divide-subtle text-scale-sm';
+
+const TABLE_HEAD_CLASSES = 'bg-surface-muted';
+
+const TABLE_HEAD_CELL_CLASSES =
+  'px-4 py-3 text-left text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const TABLE_BODY_CLASSES = 'divide-y divide-subtle';
+
+const TABLE_CELL_CLASSES = 'px-4 py-3 text-scale-sm text-secondary';
+
+const TABLE_CELL_EMPHASIS = `${TABLE_CELL_CLASSES} font-weight-semibold text-primary`;
+
+const TABLE_META_TEXT = 'text-scale-xs text-muted';
+
+const TABLE_ROW_BASE = 'cursor-pointer transition-colors hover:bg-surface-glass-soft';
+
+const TABLE_ROW_SELECTED = 'bg-accent-soft shadow-elevation-sm';
+
+const SECTION_HEADING = 'text-scale-sm font-weight-semibold text-primary';
+
+const DETAIL_CARD_CONTAINER =
+  'mt-6 rounded-2xl border border-subtle bg-surface-glass p-5 shadow-elevation-md transition-colors';
+
+const DETAIL_MESSAGE_TEXT = 'mt-2 text-scale-sm text-secondary';
+
+const ROLE_GROUP_LIST = 'space-y-2';
+
+const ROLE_LIST_EMPTY_TEXT = 'text-scale-sm text-secondary';
+
+const ROLE_CARD =
+  'inline-flex min-w-[200px] max-w-full flex-col gap-2 rounded-2xl border border-subtle bg-surface-muted px-3 py-2 text-scale-xs font-weight-medium text-secondary';
+
+const ROLE_CARD_TITLE = 'font-weight-semibold text-primary';
+
+const ROLE_CARD_META = 'uppercase tracking-[0.3em] text-muted';
+
+const ROLE_METADATA_CHIP =
+  'inline-flex items-center rounded-full border border-subtle bg-surface-glass px-2 py-[2px] text-[10px] font-weight-semibold uppercase tracking-[0.25em] text-secondary';
+
+const DETAIL_TABLE_WRAPPER = 'overflow-hidden rounded-xl border border-subtle';
+
+const DETAIL_TABLE_ROW_HIGHLIGHT = 'bg-status-warning-soft';
+
+const STALE_BADGE_BASE =
+  'inline-flex w-fit items-center rounded-full border px-2 py-[2px] text-[11px] font-weight-semibold uppercase tracking-[0.25em]';
+
+const STATUS_META_TEXT = 'text-scale-xs text-muted';
+
+const PARTITION_SECTION_DIVIDER = 'mt-4 border-t border-subtle pt-4';
+
 function renderRoleList(label: string, roles: WorkflowAssetRoleDescriptor[]) {
   if (roles.length === 0) {
     return (
-      <li className="text-sm text-slate-500 dark:text-slate-400">
+      <li className={ROLE_LIST_EMPTY_TEXT}>
         {label}: none declared
       </li>
     );
   }
   return (
-    <li className="text-sm text-slate-600 dark:text-slate-300">
-      <span className="font-semibold text-slate-700 dark:text-slate-200">{label}:</span>
+    <li className="text-scale-sm text-secondary">
+      <span className="font-weight-semibold text-primary">{label}:</span>
       <ul className="mt-1 flex flex-wrap gap-2 pl-0">
         {roles.map((role) => {
           const metadataChips = buildRoleMetadataChips(role);
           return (
             <li
               key={`${role.stepId}-${role.stepType}`}
-              className="inline-flex min-w-[200px] max-w-full flex-col gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-600 dark:border-slate-700/70 dark:bg-slate-800/60 dark:text-slate-200"
+              className={ROLE_CARD}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-slate-700 dark:text-slate-100">{role.stepName}</span>
-                <span className="uppercase tracking-wide text-slate-500 dark:text-slate-400">{role.stepType}</span>
+                <span className={ROLE_CARD_TITLE}>{role.stepName}</span>
+                <span className={ROLE_CARD_META}>{role.stepType}</span>
               </div>
               {metadataChips.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {metadataChips.map((chip) => (
                     <span
                       key={`${role.stepId}-${chip}`}
-                      className="inline-flex items-center rounded-full bg-slate-200/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-700/70 dark:text-slate-200"
+                      className={ROLE_METADATA_CHIP}
                     >
                       {chip}
                     </span>
@@ -152,11 +223,11 @@ export default function WorkflowAssetPanel({
   }, [onRefreshAssetDetail, selectedAssetId]);
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
+    <section className={PANEL_CONTAINER}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Asset Inventory</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <h2 className={PANEL_TITLE}>Asset Inventory</h2>
+          <p className={PANEL_SUBTEXT}>
             Discover the producers, consumers, and freshness of workflow data assets.
           </p>
         </div>
@@ -164,14 +235,14 @@ export default function WorkflowAssetPanel({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+              className={REFRESH_BUTTON_CLASSES}
               onClick={handleRefreshAssetDetail}
             >
               Refresh history
             </button>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200/60 bg-white/70 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+              className={CLEAR_BUTTON_CLASSES}
               onClick={onClearSelection}
             >
               Clear selection
@@ -180,79 +251,75 @@ export default function WorkflowAssetPanel({
         )}
       </div>
 
-      {error && (
-        <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{error}</p>
-      )}
+      {error && <p className={ERROR_TEXT_CLASSES}>{error}</p>}
 
       {loading && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+        <p className={MESSAGE_TEXT_CLASSES}>
           <Spinner label="Loading assets…" size="xs" />
         </p>
       )}
 
       {!loading && !error && !hasAssets && (
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">No assets declared for this workflow.</p>
+        <p className={MESSAGE_TEXT_CLASSES}>No assets declared for this workflow.</p>
       )}
 
       {!loading && !error && hasAssets && (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead className="bg-slate-50/80 dark:bg-slate-800/80">
+        <div className={TABLE_WRAPPER_CLASSES}>
+          <table className={TABLE_CLASSES}>
+            <thead className={TABLE_HEAD_CLASSES}>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Asset
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Producers
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Consumers
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Partition
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className={TABLE_HEAD_CELL_CLASSES}>
                   Latest Snapshot
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+            <tbody className={TABLE_BODY_CLASSES}>
               {assets.map((asset) => {
                 const isSelected = asset.assetId === selectedAssetId;
                 const latest = asset.latest;
                 return (
                   <tr
                     key={asset.assetId}
-                    className={`cursor-pointer transition-colors ${
-                      isSelected ? 'bg-violet-500/5 dark:bg-violet-500/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/70'
-                    }`}
+                    className={`${TABLE_ROW_BASE} ${isSelected ? TABLE_ROW_SELECTED : ''}`}
                     onClick={() => onSelectAsset(asset.assetId)}
                   >
-                    <td className="px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-100">
+                    <td className={TABLE_CELL_EMPHASIS}>
                       {asset.assetId}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <td className={TABLE_CELL_CLASSES}>
                       {asset.producers.length > 0 ? asset.producers.map((role) => role.stepName).join(', ') : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <td className={TABLE_CELL_CLASSES}>
                       {asset.consumers.length > 0 ? asset.consumers.map((role) => role.stepName).join(', ') : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <td className={TABLE_CELL_CLASSES}>
                       {latest?.partitionKey ?? '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <td className={TABLE_CELL_CLASSES}>
                       {latest ? (
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2">
                             <StatusBadge status={latest.runStatus} />
-                            <span className="text-xs text-slate-500 dark:text-slate-400">{latest.stepName}</span>
+                            <span className={TABLE_META_TEXT}>{latest.stepName}</span>
                           </div>
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                          <span className={TABLE_META_TEXT}>
                             Produced {formatTimestamp(latest.producedAt)}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-500 dark:text-slate-400">No runs yet</span>
+                        <span className={TABLE_META_TEXT}>No runs yet</span>
                       )}
                     </td>
                   </tr>
@@ -264,65 +331,63 @@ export default function WorkflowAssetPanel({
       )}
 
       {hasSelection && (
-        <div className="mt-6 rounded-2xl border border-slate-200/60 bg-white/70 p-5 dark:border-slate-700/60 dark:bg-slate-900/40">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Asset history · {selectedAssetId}
-          </h3>
+        <div className={DETAIL_CARD_CONTAINER}>
+          <h3 className={SECTION_HEADING}>Asset history · {selectedAssetId}</h3>
           {assetDetailError && (
-            <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{assetDetailError}</p>
+            <p className="mt-2 text-scale-sm font-weight-semibold text-status-danger">{assetDetailError}</p>
           )}
           {assetDetailLoading && (
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <p className={DETAIL_MESSAGE_TEXT}>
               <Spinner label="Loading history…" size="xs" />
             </p>
           )}
           {!assetDetailLoading && !assetDetailError && assetDetail && (
             <div className="mt-3 space-y-4">
-              <ul className="space-y-2">
+              <ul className={ROLE_GROUP_LIST}>
                 {renderRoleList('Producers', assetDetail.producers)}
                 {renderRoleList('Consumers', assetDetail.consumers)}
               </ul>
 
               {assetDetail.history.length === 0 ? (
-                <p className="text-sm text-slate-600 dark:text-slate-300">No production history yet.</p>
+                <p className="text-scale-sm text-secondary">No production history yet.</p>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead className="bg-slate-50/80 dark:bg-slate-800/80">
+                <div className={DETAIL_TABLE_WRAPPER}>
+                  <table className={TABLE_CLASSES}>
+                    <thead className={TABLE_HEAD_CLASSES}>
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <th className={TABLE_HEAD_CELL_CLASSES}>
                           Produced
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <th className={TABLE_HEAD_CELL_CLASSES}>
                           Run Status
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <th className={TABLE_HEAD_CELL_CLASSES}>
                           Step
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <th className={TABLE_HEAD_CELL_CLASSES}>
                           Partition
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <th className={TABLE_HEAD_CELL_CLASSES}>
                           Step Status
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                    <tbody className={TABLE_BODY_CLASSES}>
                       {assetDetail.history.map((entry) => (
                         <tr key={`${entry.runId}-${entry.stepId}-${entry.producedAt}`}>
-                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                          <td className={TABLE_CELL_CLASSES}>
                             {formatTimestamp(entry.producedAt)}
                           </td>
-                          <td className="px-4 py-3 text-sm">
+                          <td className={TABLE_CELL_CLASSES}>
                             <StatusBadge status={entry.runStatus} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                          <td className={TABLE_CELL_CLASSES}>
                             {entry.stepName}
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                          <td className={TABLE_CELL_CLASSES}>
                             {entry.partitionKey ?? '—'}
                           </td>
-                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                          <td className={TABLE_CELL_CLASSES}>
                             {entry.stepStatus}
                           </td>
                         </tr>
@@ -334,66 +399,68 @@ export default function WorkflowAssetPanel({
             </div>
           )}
 
-          <div className="mt-4 border-t border-slate-200/60 pt-4 dark:border-slate-700/60">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className={PARTITION_SECTION_DIVIDER}>
+            <h4 className="text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted">
               Partitions
             </h4>
             {assetPartitionsError && (
-              <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{assetPartitionsError}</p>
+              <p className="mt-2 text-scale-sm font-weight-semibold text-status-danger">{assetPartitionsError}</p>
             )}
             {assetPartitionsLoading && (
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              <p className={DETAIL_MESSAGE_TEXT}>
                 <Spinner label="Loading partitions…" size="xs" />
               </p>
             )}
             {!assetPartitionsLoading && !assetPartitionsError && assetPartitions && (
               <div className="mt-3 space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className={STATUS_META_TEXT}>
                   {summarizePartitioning(assetPartitions.partitioning) ?? 'No partitioning declared.'}
                 </p>
                 {assetPartitions.partitions.length === 0 ? (
-                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                  <p className="text-scale-sm text-secondary">
                     No partition materializations yet.
                   </p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                      <thead className="bg-slate-50/80 dark:bg-slate-800/80">
+                  <div className={DETAIL_TABLE_WRAPPER}>
+                    <table className={TABLE_CLASSES}>
+                      <thead className={TABLE_HEAD_CLASSES}>
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className={TABLE_HEAD_CELL_CLASSES}>
                             Partition
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className={TABLE_HEAD_CELL_CLASSES}>
                             Status
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className={TABLE_HEAD_CELL_CLASSES}>
                             Materializations
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className={TABLE_HEAD_CELL_CLASSES}>
                             Latest Run
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          <th className={TABLE_HEAD_CELL_CLASSES}>
                             Produced
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      <tbody className={TABLE_BODY_CLASSES}>
                         {assetPartitions.partitions.map((partition) => (
                           <tr
                             key={partition.partitionKey ?? 'default'}
-                            className={partition.isStale ? 'bg-amber-50/70 dark:bg-amber-500/10' : undefined}
+                            className={partition.isStale ? DETAIL_TABLE_ROW_HIGHLIGHT : undefined}
                           >
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            <td className={TABLE_CELL_CLASSES}>
                               {partition.partitionKey ?? '—'}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            <td className={TABLE_CELL_CLASSES}>
                               {partition.isStale ? (
                                 <div className="flex flex-col gap-1">
-                                  <span className="inline-flex w-fit items-center rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
+                                  <span
+                                    className={`${STALE_BADGE_BASE} ${getStatusToneClasses('warning')}`}
+                                  >
                                     Stale
                                   </span>
                                   {partition.staleMetadata && (
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                                    <span className={STATUS_META_TEXT}>
                                       Since {formatTimestamp(partition.staleMetadata.requestedAt)}
                                       {partition.staleMetadata.note
                                         ? ` · ${partition.staleMetadata.note}`
@@ -404,30 +471,30 @@ export default function WorkflowAssetPanel({
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">Fresh</span>
+                                <span className={STATUS_META_TEXT}>Fresh</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            <td className={TABLE_CELL_CLASSES}>
                               {partition.materializations}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            <td className={TABLE_CELL_CLASSES}>
                               {partition.latest ? (
                                 <div className="flex flex-col gap-1">
                                   <div className="flex items-center gap-2">
                                     <StatusBadge status={partition.latest.runStatus} />
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                                    <span className={STATUS_META_TEXT}>
                                       {partition.latest.stepName}
                                     </span>
                                   </div>
-                                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                                  <span className={STATUS_META_TEXT}>
                                     Step {partition.latest.stepStatus}
                                   </span>
                                 </div>
                               ) : (
-                                <span className="text-xs text-slate-500 dark:text-slate-400">No runs yet</span>
+                                <span className={STATUS_META_TEXT}>No runs yet</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            <td className={TABLE_CELL_CLASSES}>
                               {partition.latest ? formatTimestamp(partition.latest.producedAt) : '—'}
                             </td>
                           </tr>
@@ -439,7 +506,7 @@ export default function WorkflowAssetPanel({
               </div>
             )}
             {!assetPartitionsLoading && !assetPartitionsError && !assetPartitions && (
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              <p className={DETAIL_MESSAGE_TEXT}>
                 This asset has no recorded partition metadata.
               </p>
             )}

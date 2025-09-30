@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState } from 'react';
 import JsonSyntaxHighlighter from '../../components/JsonSyntaxHighlighter';
 import type { WorkflowDefinition, WorkflowRun, WorkflowRunStep, WorkflowRuntimeSummary } from '../types';
@@ -67,6 +68,98 @@ type Edge = {
 
 const FANOUT_STATUS_ORDER = ['failed', 'running', 'pending', 'canceled', 'skipped', 'succeeded', 'unknown'] as const;
 const FANOUT_CHILD_PREVIEW_LIMIT = 200;
+
+const EDGE_STROKE_COLOR = 'var(--color-border-subtle)';
+
+const GRAPH_SECTION_CLASSES =
+  'rounded-3xl border border-subtle bg-surface-glass p-6 shadow-elevation-xl backdrop-blur-md transition-colors';
+
+const GRAPH_HEADER_CONTAINER_CLASSES = 'mb-4 flex flex-col gap-1';
+
+const GRAPH_HEADER_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const GRAPH_HEADER_SUBTEXT_CLASSES = 'text-scale-xs text-secondary';
+
+const GRAPH_EMPTY_TEXT_CLASSES = 'text-scale-sm text-secondary';
+
+const GRAPH_NODE_CARD_BASE_CLASSES =
+  'absolute flex w-[240px] flex-col gap-2 rounded-2xl border bg-surface-glass p-4 text-scale-xs shadow-elevation-lg transition-colors hover:bg-surface-glass-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const GRAPH_NODE_CARD_SELECTED_CLASSES = 'border-accent ring-2 ring-accent';
+
+const GRAPH_NODE_CARD_UNSELECTED_CLASSES = 'border-subtle';
+
+const GRAPH_NODE_TITLE_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const GRAPH_NODE_TYPE_CLASSES = 'text-[11px] uppercase tracking-[0.34em] text-muted';
+
+const GRAPH_NODE_META_TEXT_CLASSES = 'truncate text-[11px] text-muted';
+
+const GRAPH_NODE_INFO_LIST_CLASSES = 'grid grid-cols-2 gap-1 text-[11px] text-muted';
+
+const GRAPH_NODE_INFO_LABEL_CLASSES = 'font-weight-semibold uppercase tracking-widest text-muted';
+
+const GRAPH_NODE_LOG_LINK_CLASSES =
+  'text-[11px] font-weight-semibold text-accent underline-offset-2 transition-colors hover:text-accent-strong hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const GRAPH_NODE_ERROR_CLASSES = 'text-[11px] font-weight-semibold text-status-danger';
+
+const STATUS_PILL_BASE_CLASSES =
+  'inline-flex items-center gap-1 rounded-full border px-2 py-[2px] text-[10px] font-weight-semibold capitalize';
+
+const STEP_DETAILS_CONTAINER_CLASSES =
+  'mt-6 rounded-2xl border border-subtle bg-surface-glass p-5 text-scale-sm transition-colors';
+
+const STEP_DETAILS_HEADER_TITLE_CLASSES = 'text-scale-md font-weight-semibold text-primary';
+
+const STEP_DETAILS_HEADER_SUBTEXT_CLASSES = 'text-scale-xs text-muted';
+
+const STEP_DETAILS_INFO_GRID_CLASSES = 'grid gap-3 text-scale-xs text-secondary sm:grid-cols-2';
+
+const STEP_DETAILS_INFO_LABEL_CLASSES = 'font-weight-semibold uppercase tracking-widest text-muted';
+
+const STEP_DETAILS_LOG_LINK_CLASSES =
+  'w-fit text-scale-xs font-weight-semibold text-accent underline-offset-2 transition-colors hover:text-accent-strong hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const STEP_DETAILS_ERROR_CLASSES = 'text-scale-xs font-weight-semibold text-status-danger';
+
+const FANOUT_SUMMARY_CONTAINER_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass px-4 py-4 text-scale-xs text-secondary';
+
+const FANOUT_SUMMARY_GRID_CLASSES = 'grid gap-3 sm:grid-cols-2';
+
+const FANOUT_SUMMARY_LABEL_CLASSES = 'font-weight-semibold uppercase tracking-widest text-[10px] text-muted';
+
+const FANOUT_SUMMARY_VALUE_PRIMARY_CLASSES = 'text-scale-sm font-weight-semibold text-primary';
+
+const FANOUT_SUMMARY_VALUE_SECONDARY_CLASSES = 'text-scale-sm text-secondary';
+
+const FANOUT_SUMMARY_NOTE_CLASSES = 'text-[11px] text-muted';
+
+const FANOUT_CHILD_LIST_CONTAINER_CLASSES =
+  'max-h-64 overflow-auto rounded-2xl border border-subtle bg-surface-glass';
+
+const FANOUT_CHILD_LIST_CLASSES = 'divide-y divide-subtle text-scale-xs';
+
+const FANOUT_CHILD_ITEM_CLASSES = 'flex items-start justify-between gap-3 p-3';
+
+const FANOUT_CHILD_ITEM_TITLE_CLASSES = 'text-scale-xs font-weight-semibold text-primary';
+
+const FANOUT_CHILD_ITEM_META_CLASSES = 'text-[11px] text-muted';
+
+const FANOUT_CHILD_ERROR_CLASSES = 'text-[11px] font-weight-semibold text-status-danger';
+
+const FANOUT_CHILD_LINK_CLASSES =
+  'text-[11px] font-weight-semibold text-accent underline-offset-2 transition-colors hover:text-accent-strong hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const JSON_SECTION_TITLE_CLASSES = 'text-scale-xs font-weight-semibold uppercase tracking-widest text-muted';
+
+const JSON_SECTION_CODE_CLASSES =
+  'max-h-60 overflow-auto rounded-xl bg-surface-sunken px-3 py-2 font-mono text-[11px] text-primary';
+
+const JSON_SECTION_EMPTY_TEXT_CLASSES = 'text-scale-xs text-muted';
+
+const STEP_PROMPT_TEXT_CLASSES = 'text-scale-sm text-secondary';
 
 function normalizeStatusOrder(status: string): number {
   const index = FANOUT_STATUS_ORDER.indexOf(status as (typeof FANOUT_STATUS_ORDER)[number]);
@@ -392,20 +485,20 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
   const fanoutChildrenOverflow = fanoutChildren.length > fanoutChildrenPreview.length;
 
   return (
-    <section className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 shadow-[0_30px_70px_-45px_rgba(15,23,42,0.65)] backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/70">
-      <div className="mb-4 flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow DAG</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+    <section className={GRAPH_SECTION_CLASSES}>
+      <div className={GRAPH_HEADER_CONTAINER_CLASSES}>
+        <h2 className={GRAPH_HEADER_TITLE_CLASSES}>Workflow DAG</h2>
+        <p className={GRAPH_HEADER_SUBTEXT_CLASSES}>
           Dependencies, current statuses, and timing information for the selected workflow.
         </p>
         {runtimeSummary?.status && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Latest run status: <span className="font-semibold text-slate-700 dark:text-slate-200">{runtimeSummary.status}</span>
+          <p className={GRAPH_HEADER_SUBTEXT_CLASSES}>
+            Latest run status: <span className="font-weight-semibold text-primary">{runtimeSummary.status}</span>
           </p>
         )}
       </div>
       {workflow.steps.length === 0 ? (
-        <p className="text-sm text-slate-600 dark:text-slate-300">This workflow has no steps defined yet.</p>
+        <p className={GRAPH_EMPTY_TEXT_CLASSES}>This workflow has no steps defined yet.</p>
       ) : (
         <div className="relative overflow-x-auto">
           <div
@@ -436,7 +529,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                   <path
                     key={`${edge.from.id}-${edge.to.id}-${index}`}
                     d={path}
-                    stroke="#94a3b8"
+                    stroke={EDGE_STROKE_COLOR}
                     strokeWidth={2}
                     fill="none"
                     strokeDasharray="4 4"
@@ -458,17 +551,18 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       setSelectedStepId(step.id);
                     }
                   }}
-                  className={`absolute flex w-[240px] flex-col gap-2 rounded-2xl border bg-white/90 p-4 text-xs shadow-lg shadow-slate-500/10 transition-colors focus:outline-none dark:bg-slate-900/80 ${
+                  className={classNames(
+                    GRAPH_NODE_CARD_BASE_CLASSES,
                     selectedStepId === step.id
-                      ? 'border-violet-500 ring-2 ring-violet-200 dark:border-violet-400 dark:ring-violet-500/40'
-                      : 'border-slate-200/60 dark:border-slate-700/60'
-                  }`}
+                      ? GRAPH_NODE_CARD_SELECTED_CLASSES
+                      : GRAPH_NODE_CARD_UNSELECTED_CLASSES
+                  )}
                   style={{ left: x, top: y }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{step.name}</h3>
-                      <p className="text-[11px] uppercase tracking-widest text-slate-400">
+                      <h3 className={GRAPH_NODE_TITLE_CLASSES}>{step.name}</h3>
+                      <p className={GRAPH_NODE_TYPE_CLASSES}>
                         {step.type === 'service'
                           ? 'Service'
                           : step.type === 'job'
@@ -481,35 +575,33 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                     <StatusBadge status={step.status} />
                   </div>
                   {(step.jobSlug || step.serviceSlug) && (
-                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                      {step.jobSlug ?? step.serviceSlug}
-                    </p>
+                    <p className={GRAPH_NODE_META_TEXT_CLASSES}>{step.jobSlug ?? step.serviceSlug}</p>
                   )}
                   {step.type === 'fanout' && step.fanout?.templateName && (
-                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className={GRAPH_NODE_META_TEXT_CLASSES}>
                       Template: {step.fanout.templateName}
                     </p>
                   )}
-                  <dl className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <dl className={GRAPH_NODE_INFO_LIST_CLASSES}>
                     {step.type === 'fanout' ? (
                       <>
                         <div>
-                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Children</dt>
+                          <dt className={GRAPH_NODE_INFO_LABEL_CLASSES}>Children</dt>
                           <dd>{step.fanout?.totalChildren ?? 0}</dd>
                         </div>
                         <div>
-                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                          <dt className={GRAPH_NODE_INFO_LABEL_CLASSES}>Duration</dt>
                           <dd>{formatDuration(step.durationMs)}</dd>
                         </div>
                       </>
                     ) : (
                       <>
                         <div>
-                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
+                          <dt className={GRAPH_NODE_INFO_LABEL_CLASSES}>Started</dt>
                           <dd>{formatTimestamp(step.startedAt)}</dd>
                         </div>
                         <div>
-                          <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                          <dt className={GRAPH_NODE_INFO_LABEL_CLASSES}>Duration</dt>
                           <dd>{formatDuration(step.durationMs)}</dd>
                         </div>
                       </>
@@ -520,7 +612,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       {step.fanout.statusCounts.map(({ status, count }) => (
                         <span
                           key={`${step.id}-${status}`}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-[2px] text-[10px] font-semibold capitalize ${getStatusBadgeClasses(status)}`}
+                          className={classNames(STATUS_PILL_BASE_CLASSES, getStatusBadgeClasses(status))}
                         >
                           <span>{count}</span>
                           <span>{status}</span>
@@ -533,13 +625,13 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       href={step.logsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[11px] font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
+                      className={GRAPH_NODE_LOG_LINK_CLASSES}
                     >
                       View logs
                     </a>
                   )}
                   {step.errorMessage && (
-                    <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
+                    <p className={GRAPH_NODE_ERROR_CLASSES}>
                       {step.errorMessage}
                     </p>
                   )}
@@ -549,42 +641,39 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
           </div>
         </div>
       )}
-      <div
-        data-testid="workflow-step-details"
-        className="mt-6 rounded-2xl border border-slate-200/60 bg-white/70 p-5 text-sm dark:border-slate-700/60 dark:bg-slate-900/70"
-      >
+      <div data-testid="workflow-step-details" className={STEP_DETAILS_CONTAINER_CLASSES}>
         {selectedStep ? (
           <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">{selectedStep.name}</h3>
+                <h3 className={STEP_DETAILS_HEADER_TITLE_CLASSES}>{selectedStep.name}</h3>
                 {(selectedStep.jobSlug || selectedStep.serviceSlug) && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className={STEP_DETAILS_HEADER_SUBTEXT_CLASSES}>
                     {selectedStep.jobSlug ?? selectedStep.serviceSlug}
                   </p>
                 )}
               </div>
               <StatusBadge status={selectedStep.status} />
             </div>
-            <dl className="grid gap-3 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+            <dl className={STEP_DETAILS_INFO_GRID_CLASSES}>
               <div>
-                <dt className="font-semibold uppercase tracking-widest text-slate-400">Started</dt>
+                <dt className={STEP_DETAILS_INFO_LABEL_CLASSES}>Started</dt>
                 <dd>{formatTimestamp(selectedStep.startedAt)}</dd>
               </div>
               <div>
-                <dt className="font-semibold uppercase tracking-widest text-slate-400">Completed</dt>
+                <dt className={STEP_DETAILS_INFO_LABEL_CLASSES}>Completed</dt>
                 <dd>{formatTimestamp(selectedStep.completedAt)}</dd>
               </div>
               <div>
-                <dt className="font-semibold uppercase tracking-widest text-slate-400">Duration</dt>
+                <dt className={STEP_DETAILS_INFO_LABEL_CLASSES}>Duration</dt>
                 <dd>{formatDuration(selectedStep.durationMs)}</dd>
               </div>
               <div>
-                <dt className="font-semibold uppercase tracking-widest text-slate-400">Attempt</dt>
+                <dt className={STEP_DETAILS_INFO_LABEL_CLASSES}>Attempt</dt>
                 <dd>{selectedStep.attempt ?? '—'}</dd>
               </div>
               <div>
-                <dt className="font-semibold uppercase tracking-widest text-slate-400">Job run</dt>
+                <dt className={STEP_DETAILS_INFO_LABEL_CLASSES}>Job run</dt>
                 <dd>{selectedStep.jobRunId ?? '—'}</dd>
               </div>
             </dl>
@@ -593,47 +682,47 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                 href={selectedStep.logsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="w-fit text-xs font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
+                className={STEP_DETAILS_LOG_LINK_CLASSES}
               >
                 Open logs
               </a>
             )}
             {selectedStep.errorMessage && (
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{selectedStep.errorMessage}</p>
+              <p className={STEP_DETAILS_ERROR_CLASSES}>{selectedStep.errorMessage}</p>
             )}
             {selectedStep.type === 'fanout' && selectedFanout && (
               <div className="flex flex-col gap-3">
-                <div className="rounded-2xl border border-slate-200/50 bg-white/60 p-4 text-xs text-slate-600 dark:border-slate-700/50 dark:bg-slate-900/60 dark:text-slate-300">
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div className={FANOUT_SUMMARY_CONTAINER_CLASSES}>
+                  <div className={FANOUT_SUMMARY_GRID_CLASSES}>
                     <div>
-                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Children</p>
-                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      <p className={FANOUT_SUMMARY_LABEL_CLASSES}>Children</p>
+                      <p className={FANOUT_SUMMARY_VALUE_PRIMARY_CLASSES}>
                         {selectedFanout.totalChildren}
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Template</p>
-                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                      <p className={FANOUT_SUMMARY_LABEL_CLASSES}>Template</p>
+                      <p className={FANOUT_SUMMARY_VALUE_SECONDARY_CLASSES}>
                         {selectedFanout.templateName ?? '—'}
                       </p>
                       {(selectedFanout.templateJobSlug || selectedFanout.templateServiceSlug) && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        <p className={FANOUT_SUMMARY_NOTE_CLASSES}>
                           {selectedFanout.templateJobSlug ?? selectedFanout.templateServiceSlug}
                         </p>
                       )}
                     </div>
                     <div>
-                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Store results as</p>
-                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                      <p className={FANOUT_SUMMARY_LABEL_CLASSES}>Store results as</p>
+                      <p className={FANOUT_SUMMARY_VALUE_SECONDARY_CLASSES}>
                         {selectedFanout.storeResultsAs ?? '—'}
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold uppercase tracking-widest text-[10px] text-slate-400">Fan-out limits</p>
-                      <p className="text-sm text-slate-700 dark:text-slate-200">
+                      <p className={FANOUT_SUMMARY_LABEL_CLASSES}>Fan-out limits</p>
+                      <p className={FANOUT_SUMMARY_VALUE_SECONDARY_CLASSES}>
                         {selectedFanout.maxItems ? `${selectedFanout.maxItems} max items` : 'No max items'}
                       </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className={FANOUT_SUMMARY_NOTE_CLASSES}>
                         {selectedFanout.maxConcurrency ? `${selectedFanout.maxConcurrency} max concurrency` : 'Default concurrency'}
                       </p>
                     </div>
@@ -643,7 +732,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                       {fanoutStatusCounts.map(({ status, count }) => (
                         <span
                           key={`fanout-summary-${status}`}
-                          className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-semibold capitalize ${getStatusBadgeClasses(status)}`}
+                          className={classNames(STATUS_PILL_BASE_CLASSES, 'px-3', getStatusBadgeClasses(status))}
                         >
                           <span>{status}</span>
                           <span>{count}</span>
@@ -653,43 +742,39 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                   ) : null}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Child runs</h4>
+                  <h4 className={JSON_SECTION_TITLE_CLASSES}>Child runs</h4>
                   {fanoutChildren.length === 0 ? (
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      No child runs have been recorded yet.
-                    </p>
+                    <p className={JSON_SECTION_EMPTY_TEXT_CLASSES}>No child runs have been recorded yet.</p>
                   ) : (
                     <>
-                      <div className="max-h-64 overflow-auto rounded-2xl border border-slate-200/60 bg-white/70 dark:border-slate-700/60 dark:bg-slate-900/70">
-                        <ul className="divide-y divide-slate-200 text-xs dark:divide-slate-800">
+                      <div className={FANOUT_CHILD_LIST_CONTAINER_CLASSES}>
+                        <ul className={FANOUT_CHILD_LIST_CLASSES}>
                           {fanoutChildrenPreview.map((child) => {
                             const label = child.templateStepId ?? child.stepId;
                             const indexLabel =
                               typeof child.fanoutIndex === 'number' ? `Index #${child.fanoutIndex}` : 'Index unknown';
                             const statusLabel = child.status ?? 'unknown';
                             return (
-                              <li key={child.id} className="flex items-start justify-between gap-3 p-3">
+                              <li key={child.id} className={FANOUT_CHILD_ITEM_CLASSES}>
                                 <div className="flex flex-col gap-1">
-                                  <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{label}</p>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  <p className={FANOUT_CHILD_ITEM_TITLE_CLASSES}>{label}</p>
+                                  <p className={FANOUT_CHILD_ITEM_META_CLASSES}>
                                     {indexLabel} • Attempt {child.attempt}
                                   </p>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  <p className={FANOUT_CHILD_ITEM_META_CLASSES}>
                                     Started {formatTimestamp(child.startedAt)}
                                     {child.completedAt ? ` · Completed ${formatTimestamp(child.completedAt)}` : ''}
                                   </p>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  <p className={FANOUT_CHILD_ITEM_META_CLASSES}>
                                     Duration {formatDuration(child.durationMs)}
                                   </p>
                                   {child.errorMessage && (
-                                    <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                                      {child.errorMessage}
-                                    </p>
+                                    <p className={FANOUT_CHILD_ERROR_CLASSES}>{child.errorMessage}</p>
                                   )}
                                 </div>
                                 <div className="flex flex-col items-end gap-2">
                                   <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-[2px] text-[10px] font-semibold capitalize ${getStatusBadgeClasses(statusLabel)}`}
+                                    className={classNames(STATUS_PILL_BASE_CLASSES, getStatusBadgeClasses(statusLabel))}
                                   >
                                     {statusLabel}
                                   </span>
@@ -698,7 +783,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                                       href={child.logsUrl}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="text-[11px] font-semibold text-violet-600 underline-offset-2 hover:underline dark:text-violet-300"
+                                      className={FANOUT_CHILD_LINK_CLASSES}
                                     >
                                       Logs
                                     </a>
@@ -710,7 +795,7 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
                         </ul>
                       </div>
                       {fanoutChildrenOverflow && (
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        <p className={FANOUT_SUMMARY_NOTE_CLASSES}>
                           Showing first {fanoutChildrenPreview.length} of {fanoutChildren.length} child runs.
                         </p>
                       )}
@@ -720,41 +805,30 @@ export function WorkflowGraph({ workflow, run, steps, runtimeSummary }: Workflow
               </div>
             )}
             <div className="flex flex-col gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Input</h4>
+              <h4 className={JSON_SECTION_TITLE_CLASSES}>Input</h4>
               {hasInput ? (
-                <JsonSyntaxHighlighter
-                  value={selectedInput}
-                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
-                />
+                <JsonSyntaxHighlighter value={selectedInput} className={JSON_SECTION_CODE_CLASSES} />
               ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">Input was not captured for this step.</p>
+                <p className={JSON_SECTION_EMPTY_TEXT_CLASSES}>Input was not captured for this step.</p>
               )}
             </div>
             <div className="flex flex-col gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Output</h4>
+              <h4 className={JSON_SECTION_TITLE_CLASSES}>Output</h4>
               {hasOutput ? (
-                <JsonSyntaxHighlighter
-                  value={selectedOutput}
-                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
-                />
+                <JsonSyntaxHighlighter value={selectedOutput} className={JSON_SECTION_CODE_CLASSES} />
               ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">No output has been recorded for this step.</p>
+                <p className={JSON_SECTION_EMPTY_TEXT_CLASSES}>No output has been recorded for this step.</p>
               )}
             </div>
             {hasMetrics && (
               <div className="flex flex-col gap-2">
-                <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-400">Metrics</h4>
-                <JsonSyntaxHighlighter
-                  value={metricsValue}
-                  className="max-h-60 overflow-auto rounded-xl bg-slate-900/90 p-3 text-[11px] text-slate-100"
-                />
+                <h4 className={JSON_SECTION_TITLE_CLASSES}>Metrics</h4>
+                <JsonSyntaxHighlighter value={metricsValue} className={JSON_SECTION_CODE_CLASSES} />
               </div>
             )}
           </div>
         ) : (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Select a step to inspect its run details.
-          </p>
+          <p className={STEP_PROMPT_TEXT_CLASSES}>Select a step to inspect its run details.</p>
         )}
       </div>
     </section>

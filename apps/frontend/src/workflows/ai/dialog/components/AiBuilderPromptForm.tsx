@@ -1,7 +1,48 @@
 import type { FormEvent } from 'react';
 import { Spinner } from '../../../../components';
+import { getStatusToneClasses } from '../../../../theme/statusTokens';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState } from '../types';
 import { formatBytes, formatTokenCount } from '../utils';
+
+const FORM_LABEL_CLASSES = 'flex flex-col gap-2 text-scale-sm font-weight-semibold text-primary';
+
+const TEXTAREA_BASE =
+  'rounded-2xl border border-subtle bg-surface-glass px-3 py-3 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const CONTEXT_CARD_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-xs text-secondary shadow-elevation-md';
+
+const CONTEXT_SECTION_HEADING = 'text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary';
+
+const CONTEXT_DETAIL_CLASSES =
+  'rounded-xl border border-subtle bg-surface-muted px-3 py-3 transition-colors';
+
+const CONTEXT_SUMMARY_CLASSES = 'flex items-center justify-between gap-3 font-weight-semibold text-primary';
+
+const CONTEXT_META_TEXT = 'text-scale-xs font-weight-medium text-muted';
+
+const CONTEXT_PREVIEW_TEXT =
+  'mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-scale-xs leading-relaxed text-secondary';
+
+const ADVANCED_DETAILS_CLASSES =
+  'rounded-2xl border border-subtle bg-surface-glass px-4 py-3 text-scale-xs text-secondary shadow-elevation-md transition-colors';
+
+const ADVANCED_SUMMARY_CLASSES =
+  'cursor-pointer text-scale-sm font-weight-semibold text-primary focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const ADVANCED_TEXTAREA_CLASSES =
+  'rounded-xl border border-subtle bg-surface-muted px-3 py-3 font-mono text-scale-xs leading-relaxed text-primary shadow-inner transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-70 disabled:text-muted';
+
+const TERTIARY_BUTTON_CLASSES =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-1 text-scale-xs font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const PRIMARY_BUTTON_CLASSES =
+  'inline-flex items-center justify-center gap-2 rounded-full border border-accent bg-accent px-5 py-2 text-scale-sm font-weight-semibold text-inverse shadow-elevation-md transition-colors hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const SECONDARY_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-4 py-2 text-scale-sm font-weight-semibold text-secondary shadow-sm transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60';
+
+const ALERT_BASE_CLASSES = 'rounded-2xl border px-4 py-3 shadow-elevation-md transition-colors';
 
 type Props = {
   state: Pick<
@@ -78,10 +119,10 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
   return (
     <section className="flex flex-col gap-4">
       <form className="flex flex-1 flex-col gap-4" onSubmit={onSubmit}>
-        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <label className={FORM_LABEL_CLASSES}>
           Describe the automation
           <textarea
-            className="h-40 rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm font-normal text-slate-800 shadow-sm transition-colors focus:border-violet-500 focus:outline-none dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+            className={`${TEXTAREA_BASE} h-40`}
             placeholder="Example: Build a workflow that validates service health and triggers the ai-orchestrator job when repositories are ingested."
             value={prompt}
             onChange={(event) => handlePromptChange(event.target.value)}
@@ -89,10 +130,10 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
           />
         </label>
 
-        <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <label className={FORM_LABEL_CLASSES}>
           Additional notes (optional)
           <textarea
-            className="h-24 rounded-2xl border border-slate-200/70 bg-white/80 p-3 text-sm font-normal text-slate-800 shadow-sm transition-colors focus:border-violet-500 focus:outline-none dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+            className={`${TEXTAREA_BASE} h-24`}
             placeholder="Constraints, secrets, manual review requirements…"
             value={additionalNotes}
             onChange={(event) => handleAdditionalNotesChange(event.target.value)}
@@ -100,10 +141,10 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
           />
         </label>
 
-        <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
+        <div className={CONTEXT_CARD_CLASSES}>
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-100">Model context preview</h4>
-            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+            <h4 className="text-scale-sm font-weight-semibold text-primary">Model context preview</h4>
+            <span className={CONTEXT_META_TEXT}>
               {contextLoading ? (
                 <Spinner label="Loading…" size="xs" className="gap-1" iconClassName="border" />
               ) : (
@@ -113,56 +154,56 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
           </div>
           <div className="mt-2 max-h-80 space-y-3 overflow-y-auto pr-1">
             {contextLoading && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-scale-xs text-secondary">
                 <Spinner label="Loading context…" size="xs" className="gap-1" iconClassName="border" />
               </p>
             )}
             {!contextLoading && contextError && (
-              <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">{contextError}</p>
+              <p className="text-scale-xs font-weight-semibold text-status-danger">{contextError}</p>
             )}
             {!contextLoading && !contextError && contextPreview && (
               <>
                 <div className="space-y-2">
-                  <h5 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <h5 className={CONTEXT_SECTION_HEADING}>
                     Messages
                   </h5>
                   {contextPreview.messages.map((message, index) => (
                     <details
                       key={`${message.role}-${index}`}
-                      className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-950/50"
+                      className={CONTEXT_DETAIL_CLASSES}
                     >
-                      <summary className="flex items-center justify-between gap-3 font-semibold text-slate-700 dark:text-slate-100">
+                      <summary className={CONTEXT_SUMMARY_CLASSES}>
                         <span>{message.role === 'system' ? 'System prompt' : 'User prompt'}</span>
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        <span className={CONTEXT_META_TEXT}>
                           {formatTokenCount(message.tokens)}
                         </span>
                       </summary>
-                      <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                      <pre className={CONTEXT_PREVIEW_TEXT}>
                         {message.content}
                       </pre>
                     </details>
                   ))}
                 </div>
                 <div className="space-y-2">
-                  <h5 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <h5 className={CONTEXT_SECTION_HEADING}>
                     Context files ({sortedContextFiles.length})
                   </h5>
                   {sortedContextFiles.map((file) => (
                     <details
                       key={file.path}
-                      className="rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 dark:border-slate-700/70 dark:bg-slate-950/50"
+                      className={CONTEXT_DETAIL_CLASSES}
                     >
-                      <summary className="flex items-center justify-between gap-3 font-semibold text-slate-700 dark:text-slate-100">
-                        <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      <summary className={CONTEXT_SUMMARY_CLASSES}>
+                        <code className="rounded bg-surface-glass px-1 py-0.5 text-scale-xs text-secondary">
                           {file.path}
                         </code>
-                        <span className="flex items-center gap-2 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center gap-2 text-scale-xs font-weight-medium text-muted">
                           <span>{formatTokenCount(file.tokens)}</span>
                           <span aria-hidden="true">•</span>
                           <span>{formatBytes(file.bytes)}</span>
                         </span>
                       </summary>
-                      <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                      <pre className={CONTEXT_PREVIEW_TEXT}>
                         {file.contents}
                       </pre>
                     </details>
@@ -171,42 +212,42 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
               </>
             )}
             {!contextLoading && !contextError && !contextPreview && (
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Context preview unavailable.</p>
+              <p className="text-scale-xs text-secondary">Context preview unavailable.</p>
             )}
           </div>
         </div>
 
-        <details className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 text-xs shadow-sm transition-colors dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-700 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:text-slate-100">
+        <details className={ADVANCED_DETAILS_CLASSES}>
+          <summary className={ADVANCED_SUMMARY_CLASSES}>
             Advanced prompt configuration
           </summary>
           <div className="mt-3 flex flex-col gap-3">
-            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <label className="flex flex-col gap-2 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
               System prompt
               <textarea
-                className="h-20 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] leading-relaxed text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                className={`${ADVANCED_TEXTAREA_CLASSES} h-20`}
                 value={systemPrompt}
                 onChange={(event) => handleSystemPromptChange(event.target.value)}
                 spellCheck={false}
                 disabled={pending || submitting}
               />
             </label>
-            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <label className="flex flex-col gap-2 text-scale-xs font-weight-semibold uppercase tracking-[0.2em] text-secondary">
               Response instructions
               <textarea
-                className="h-20 rounded-xl border border-slate-200/70 bg-slate-50/80 p-3 font-mono text-[11px] leading-relaxed text-slate-800 shadow-inner transition-colors focus:border-violet-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700/70 dark:bg-slate-950/70 dark:text-slate-100"
+                className={`${ADVANCED_TEXTAREA_CLASSES} h-20`}
                 value={responseInstructions}
                 onChange={(event) => handleResponseInstructionsChange(event.target.value)}
                 spellCheck={false}
                 disabled={pending || submitting}
               />
             </label>
-            <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-scale-xs text-secondary">
               <span>Adjust prompts before generating to steer the AI builder.</span>
               {promptsCustomized && (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white px-3 py-1 font-semibold text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:text-slate-100"
+                  className={TERTIARY_BUTTON_CLASSES}
                   onClick={handleResetPrompts}
                   disabled={pending || submitting}
                 >
@@ -218,21 +259,13 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
         </details>
 
         {error && (
-          <div className="rounded-2xl border border-rose-300/70 bg-rose-50/70 px-4 py-3 text-sm font-semibold text-rose-600 shadow-sm dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className={`${ALERT_BASE_CLASSES} text-scale-sm font-weight-semibold ${getStatusToneClasses('error')}`}>
             {error}
           </div>
         )}
 
         {generation && (
-          <div
-            className={`rounded-2xl border px-4 py-3 text-xs font-semibold shadow-sm transition-colors ${
-              generation.status === 'running'
-                ? 'border-violet-300/70 bg-violet-50/70 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-200'
-                : generation.status === 'succeeded'
-                ? 'border-emerald-300/70 bg-emerald-50/70 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
-                : 'border-rose-300/70 bg-rose-50/70 text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300'
-            }`}
-          >
+          <div className={`${ALERT_BASE_CLASSES} text-scale-xs font-weight-semibold ${getStatusToneClasses(generation.status)}`}>
             {generation.status === 'running' &&
               `${state.activeProviderLabel} is generating a suggestion. You can close the dialog and return later to resume.`}
             {generation.status === 'succeeded' && `Latest ${state.activeProviderLabel} generation completed.`}
@@ -243,7 +276,7 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
         <div className="mt-auto flex items-center gap-3">
           <button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-full border border-violet-500/80 bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className={PRIMARY_BUTTON_CLASSES}
             disabled={pending || submitting || providerRequiresKey}
           >
             {pending ? 'Generating…' : 'Generate suggestion'}
@@ -251,7 +284,7 @@ export function AiBuilderPromptForm({ state, handlers }: Props) {
           {hasSuggestion && (
             <button
               type="button"
-              className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-200"
+              className={SECONDARY_BUTTON_CLASSES}
               onClick={() => void handleGenerate()}
               disabled={pending || submitting || providerRequiresKey}
             >

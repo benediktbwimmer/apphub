@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import {
   useCallback,
   useEffect,
@@ -21,6 +22,33 @@ import {
 } from '../types';
 import { formatInstant } from '../utils';
 import { ROUTE_PATHS } from '../../routes/paths';
+import {
+  METASTORE_CONTROL_ICON_CLASSES,
+  METASTORE_CONTROL_TRIGGER_CLASSES,
+  METASTORE_DROPDOWN_EMPTY_TEXT_CLASSES,
+  METASTORE_DROPDOWN_PANEL_CLASSES,
+  METASTORE_DROPDOWN_SEARCH_CLASSES,
+  METASTORE_DROPDOWN_SEARCH_INPUT_CLASSES,
+  METASTORE_DROPDOWN_SECTION_HEADER_CLASSES,
+  METASTORE_ERROR_TEXT_CLASSES,
+  METASTORE_FAVORITE_BUTTON_ACTIVE_CLASSES,
+  METASTORE_FAVORITE_BUTTON_BASE_CLASSES,
+  METASTORE_HELPER_ROW_CLASSES,
+  METASTORE_INLINE_BUTTON_CLASSES,
+  METASTORE_INPUT_COMPACT_CLASSES,
+  METASTORE_MANUAL_ENTRY_BUTTON_CLASSES,
+  METASTORE_MANUAL_ENTRY_CONTAINER_CLASSES,
+  METASTORE_OPTION_BADGE_ACTIVE_CLASSES,
+  METASTORE_OPTION_BUTTON_ACTIVE_CLASSES,
+  METASTORE_OPTION_BUTTON_AUTHORIZED_CLASSES,
+  METASTORE_OPTION_BUTTON_BASE_CLASSES,
+  METASTORE_OPTION_BUTTON_DISABLED_CLASSES,
+  METASTORE_OPTION_SECONDARY_TEXT_CLASSES,
+  METASTORE_OPTION_WARNING_TEXT_CLASSES,
+  METASTORE_SECTION_LABEL_CLASSES,
+  METASTORE_WARNING_LINK_CLASSES,
+  METASTORE_WARNING_NOTE_CLASSES
+} from '../metastoreTokens';
 
 const FAVORITES_STORAGE_KEY = 'apphub.metastore.namespaceFavorites';
 const RECENTS_STORAGE_KEY = 'apphub.metastore.namespaceRecents';
@@ -288,7 +316,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
         }
       }
     },
-    [authorizedFetch, showError]
+    [authorizedFetch, discoveryEnabled, showError]
   );
 
   useEffect(() => {
@@ -400,10 +428,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
     return (
       <div className="relative flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <label
-            htmlFor={labelId}
-            className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400"
-          >
+          <label htmlFor={labelId} className={METASTORE_SECTION_LABEL_CLASSES}>
             Namespace
           </label>
           <input
@@ -412,19 +437,15 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
             disabled={disabled}
             value={trimmedValue}
             onChange={handleManualChange}
-            className="w-48 rounded-full border border-slate-300/80 bg-white/80 px-3 py-1 text-sm text-slate-700 shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+            className={METASTORE_INPUT_COMPACT_CLASSES}
           />
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <div className={METASTORE_HELPER_ROW_CLASSES}>
           <span>Namespace discovery unavailable.</span>
-          <button
-            type="button"
-            onClick={handleRetryDiscovery}
-            className="rounded-full border border-slate-300/80 px-3 py-1 font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 dark:border-slate-700/70 dark:text-slate-300"
-          >
+          <button type="button" onClick={handleRetryDiscovery} className={METASTORE_INLINE_BUTTON_CLASSES}>
             Retry
           </button>
-          {lastError && <span className="text-[11px] text-rose-500 dark:text-rose-300">{lastError}</span>}
+          {lastError ? <span className={METASTORE_ERROR_TEXT_CLASSES}>{lastError}</span> : null}
         </div>
       </div>
     );
@@ -432,10 +453,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
 
   return (
     <div className="relative flex flex-col gap-2" ref={containerRef}>
-      <label
-        id={labelId}
-        className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400"
-      >
+      <label id={labelId} className={METASTORE_SECTION_LABEL_CLASSES}>
         Namespace
       </label>
       <button
@@ -444,34 +462,32 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
         onClick={handleControlClick}
         onFocus={handleFocus}
         aria-labelledby={labelId}
-        className={`flex w-48 items-center justify-between gap-3 rounded-full border border-slate-300/80 bg-white/80 px-4 py-2 text-left text-sm text-slate-700 shadow-sm transition-colors hover:border-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100 ${
-          open ? 'border-violet-500' : ''
-        }`}
+        className={classNames(METASTORE_CONTROL_TRIGGER_CLASSES, open ? 'border-accent' : undefined)}
       >
-        <span className="truncate font-semibold">{trimmedValue}</span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">▼</span>
+        <span className="truncate font-weight-semibold">{trimmedValue}</span>
+        <span className={METASTORE_CONTROL_ICON_CLASSES}>▼</span>
       </button>
       {!hasAccessToSelected && (
-        <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-300">
+        <div className={classNames('flex items-center gap-2', METASTORE_WARNING_NOTE_CLASSES)}>
           <span>No access to {trimmedValue}. Request access to view records.</span>
           <Link
             to={ROUTE_PATHS.settingsApiAccess}
-            className="rounded-full border border-amber-500 px-2 py-1 font-semibold text-amber-600 transition-colors hover:bg-amber-500/10 dark:border-amber-300 dark:text-amber-200"
+            className={METASTORE_WARNING_LINK_CLASSES}
           >
             Manage scopes
           </Link>
         </div>
       )}
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-3xl border border-slate-200/80 bg-white/95 shadow-xl backdrop-blur-md dark:border-slate-700/70 dark:bg-slate-900/95">
-          <div className="flex items-center gap-2 border-b border-slate-200/60 px-4 py-3 dark:border-slate-700/60">
+        <div className={METASTORE_DROPDOWN_PANEL_CLASSES}>
+          <div className={METASTORE_DROPDOWN_SEARCH_CLASSES}>
             <input
               type="search"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search namespaces"
-              className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-100"
+              className={METASTORE_DROPDOWN_SEARCH_INPUT_CLASSES}
               autoFocus
             />
             {loading && <Spinner size="xs" />}
@@ -481,7 +497,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
               <div className="flex flex-col gap-3">
                 {filteredFavorites.length > 0 && (
                   <section>
-                    <header className="px-3 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    <header className={METASTORE_DROPDOWN_SECTION_HEADER_CLASSES}>
                       Favorites
                     </header>
                     <ul className="mt-2 space-y-1">
@@ -499,7 +515,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
                 )}
                 {filteredRecents.length > 0 && (
                   <section>
-                    <header className="px-3 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                    <header className={METASTORE_DROPDOWN_SECTION_HEADER_CLASSES}>
                       Recent
                     </header>
                     <ul className="mt-2 space-y-1">
@@ -518,7 +534,7 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
                 {filteredAll.length > 0 && (
                   <section>
                     {filteredFavorites.length > 0 || filteredRecents.length > 0 ? (
-                      <header className="px-3 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+                      <header className={METASTORE_DROPDOWN_SECTION_HEADER_CLASSES}>
                         All namespaces
                       </header>
                     ) : null}
@@ -537,21 +553,21 @@ export function NamespacePicker({ value, onChange, disabled = false }: Namespace
                 )}
               </div>
             ) : (
-              <div className="px-4 py-6 text-sm text-slate-600 dark:text-slate-300">
+              <div className={METASTORE_DROPDOWN_EMPTY_TEXT_CLASSES}>
                 No namespaces found. Adjust your search or add manually below.
               </div>
             )}
             {manualEntryCandidate && (
-              <div className="mt-2 border-t border-slate-200/60 pt-3 text-sm text-slate-600 dark:border-slate-700/60 dark:text-slate-300">
+              <div className={METASTORE_MANUAL_ENTRY_CONTAINER_CLASSES}>
                 <button
                   type="button"
-                  className="flex w-full items-center justify-between rounded-2xl border border-dashed border-slate-300/80 px-4 py-2 text-left transition-colors hover:border-violet-500 hover:bg-violet-500/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70"
+                  className={METASTORE_MANUAL_ENTRY_BUTTON_CLASSES}
                   onClick={() => handleSelect(manualEntryCandidate.name)}
                 >
                   <span>
                     Use namespace <strong>{manualEntryCandidate.name}</strong>
                   </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Enter</span>
+                  <span className={METASTORE_OPTION_SECONDARY_TEXT_CLASSES}>Enter</span>
                 </button>
               </div>
             )}
@@ -593,32 +609,28 @@ function NamespaceOptionRow({ option, onSelect, onToggleFavorite, isActive }: Na
     onSelect(name);
   };
 
-  const selectionClasses = [
-    'flex flex-1 flex-col gap-1 rounded-2xl px-4 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500',
-    authorized
-      ? 'border border-transparent hover:bg-violet-500/10 text-slate-700 dark:text-slate-200'
-      : 'border border-dashed border-amber-400/60 bg-amber-50/60 text-amber-700 cursor-not-allowed dark:border-amber-400/50 dark:bg-amber-400/10 dark:text-amber-200',
-    isActive && authorized ? 'border border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-200' : ''
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const selectionClasses = classNames(
+    METASTORE_OPTION_BUTTON_BASE_CLASSES,
+    authorized ? METASTORE_OPTION_BUTTON_AUTHORIZED_CLASSES : METASTORE_OPTION_BUTTON_DISABLED_CLASSES,
+    isActive && authorized ? METASTORE_OPTION_BUTTON_ACTIVE_CLASSES : undefined
+  );
 
   return (
     <li>
       <div className="flex w-full items-start gap-3">
         <button type="button" onClick={handleClick} className={selectionClasses} disabled={!authorized}>
           <div className="flex items-center gap-2">
-            <span className="font-semibold">{name}</span>
+            <span className="font-weight-semibold text-primary">{name}</span>
             {isActive && authorized && (
-              <span className="rounded-full bg-violet-500/10 px-2 py-[2px] text-[11px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-300">
+              <span className={METASTORE_OPTION_BADGE_ACTIVE_CLASSES}>
                 Active
               </span>
             )}
           </div>
           {authorized ? (
-            secondary ? <span className="text-xs text-slate-500 dark:text-slate-400">{secondary}</span> : null
+            secondary ? <span className={METASTORE_OPTION_SECONDARY_TEXT_CLASSES}>{secondary}</span> : null
           ) : (
-            <span className="text-xs text-amber-600 dark:text-amber-300">
+            <span className={METASTORE_OPTION_WARNING_TEXT_CLASSES}>
               No access. Request additional scopes from settings.
             </span>
           )}
@@ -626,9 +638,10 @@ function NamespaceOptionRow({ option, onSelect, onToggleFavorite, isActive }: Na
         <button
           type="button"
           onClick={(event) => onToggleFavorite(event, name)}
-          className={`mt-1 flex h-8 w-8 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
-            isFavorite ? 'text-yellow-500' : 'text-slate-400 hover:text-violet-500 dark:text-slate-500 dark:hover:text-violet-300'
-          }`}
+          className={classNames(
+            METASTORE_FAVORITE_BUTTON_BASE_CLASSES,
+            isFavorite ? METASTORE_FAVORITE_BUTTON_ACTIVE_CLASSES : undefined
+          )}
           aria-label={isFavorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
         >
           <StarIcon filled={isFavorite} />

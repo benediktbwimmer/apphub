@@ -1,9 +1,26 @@
+import classNames from 'classnames';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import FormField from '../../components/form/FormField';
 import { Spinner } from '../../components';
 import { formatInstant, parseMetadataInput, stringifyMetadata } from '../utils';
 import type { SchemaDefinitionHookState } from '../useSchemaDefinition';
 import type { MetastoreSchemaDefinition, MetastoreSchemaFieldDefinition } from '../types';
+import {
+  METASTORE_ALERT_ERROR_CLASSES,
+  METASTORE_ALERT_WARNING_CLASSES,
+  METASTORE_CARD_CONTAINER_CLASSES,
+  METASTORE_CHECKBOX_CLASSES,
+  METASTORE_CHIP_WARNING_CLASSES,
+  METASTORE_FORM_FIELD_CONTAINER_CLASSES,
+  METASTORE_INPUT_FIELD_CLASSES,
+  METASTORE_LINK_ACCENT_CLASSES,
+  METASTORE_META_TEXT_CLASSES,
+  METASTORE_PILL_BADGE_NEUTRAL_CLASSES,
+  METASTORE_PRIMARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SECONDARY_BUTTON_SMALL_CLASSES,
+  METASTORE_SUMMARY_LABEL_CLASSES,
+  METASTORE_TEXT_AREA_MONO_CLASSES
+} from '../metastoreTokens';
 
 type MetadataValue = Record<string, unknown>;
 
@@ -573,10 +590,10 @@ export default function SchemaAwareMetadataEditor({
             key={field.path}
             label={labelPieces.join(' ')}
             hint={description}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60"
+            className={METASTORE_FORM_FIELD_CONTAINER_CLASSES}
           >
             <div className="flex flex-col gap-3">
-              {entries.length === 0 && <p className="text-xs text-slate-500 dark:text-slate-400">No values defined.</p>}
+              {entries.length === 0 && <p className={METASTORE_META_TEXT_CLASSES}>No values defined.</p>}
               {entries.map((entry, index) => (
                 <div key={`${field.path}-${index}`} className="flex items-center gap-2">
                   <input
@@ -584,13 +601,13 @@ export default function SchemaAwareMetadataEditor({
                     disabled={!hasWriteScope}
                     value={toDisplayValue(field, entry)}
                     onChange={(event) => handleRepeatedChange(field, index, event.target.value)}
-                    className="flex-1 rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+                    className={classNames('flex-1', METASTORE_INPUT_FIELD_CLASSES)}
                   />
                   <button
                     type="button"
                     onClick={() => handleRepeatedChange(field, index, '')}
                     disabled={!hasWriteScope}
-                    className="rounded-full border border-rose-400 px-3 py-1 text-xs font-semibold text-rose-500 transition-colors hover:bg-rose-400/10 disabled:opacity-40 dark:border-rose-500/70 dark:text-rose-300"
+                    className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
                   >
                     Remove
                   </button>
@@ -601,11 +618,11 @@ export default function SchemaAwareMetadataEditor({
                   type="button"
                   onClick={() => addRepeatedEntry(field)}
                   disabled={!hasWriteScope}
-                  className="rounded-full border border-violet-500 px-3 py-1 text-xs font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 disabled:opacity-40 dark:border-violet-400 dark:text-violet-300"
+                  className={METASTORE_PRIMARY_BUTTON_SMALL_CLASSES}
                 >
                   Add value
                 </button>
-                {error && <span className="text-xs text-rose-500 dark:text-rose-300">{error}</span>}
+                {error && <span className={METASTORE_ERROR_TEXT_CLASSES}>{error}</span>}
               </div>
             </div>
           </FormField>
@@ -622,14 +639,14 @@ export default function SchemaAwareMetadataEditor({
             label={label}
             hint={description}
             htmlFor={inputId}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60"
+            className={METASTORE_FORM_FIELD_CONTAINER_CLASSES}
           >
             <select
               id={inputId}
               disabled={!hasWriteScope}
               value={toDisplayValue(field, value)}
               onChange={(event) => handleEnumChange(field, event.target.value)}
-              className="rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={METASTORE_SELECT_CLASSES}
             >
               {!field.required && <option value="">—</option>}
               {enumOptions.map((option) => (
@@ -638,7 +655,7 @@ export default function SchemaAwareMetadataEditor({
                 </option>
               ))}
             </select>
-            {error && <span className="text-xs text-rose-500 dark:text-rose-300">{error}</span>}
+            {error && <span className={METASTORE_ERROR_TEXT_CLASSES}>{error}</span>}
           </FormField>
         );
       }
@@ -647,8 +664,7 @@ export default function SchemaAwareMetadataEditor({
       const baseInputProps = {
         id: inputId,
         disabled: !hasWriteScope,
-        className:
-          'rounded-full border border-slate-300/70 bg-white/80 px-3 py-2 text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100'
+        className: METASTORE_INPUT_FIELD_CLASSES
       } as const;
 
       if (fieldType === 'boolean') {
@@ -658,27 +674,33 @@ export default function SchemaAwareMetadataEditor({
             key={field.path}
             label={label}
             hint={description}
-            className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60"
+            className={METASTORE_FORM_FIELD_CONTAINER_CLASSES}
           >
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200" htmlFor={inputId}>
+            <label className="flex items-center gap-2 text-scale-sm text-secondary" htmlFor={inputId}>
               <input
                 id={inputId}
                 type="checkbox"
                 checked={boolValue}
                 onChange={(event) => handleBooleanChange(field, event.target.checked)}
                 disabled={!hasWriteScope}
-                className="h-4 w-4 rounded border border-slate-300/70 text-violet-600 focus:ring-violet-500 dark:border-slate-700/70"
+                className={METASTORE_CHECKBOX_CLASSES}
               />
               <span>{boolValue ? 'Enabled' : 'Disabled'}</span>
             </label>
-            {error && <span className="text-xs text-rose-500 dark:text-rose-300">{error}</span>}
+            {error && <span className={METASTORE_ERROR_TEXT_CLASSES}>{error}</span>}
           </FormField>
         );
       }
 
       if (fieldType === 'number' || fieldType === 'integer' || fieldType === 'double' || fieldType === 'float' || fieldType === 'decimal') {
         return (
-          <FormField key={field.path} label={label} hint={description} htmlFor={inputId} className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+          <FormField
+            key={field.path}
+            label={label}
+            hint={description}
+            htmlFor={inputId}
+            className={METASTORE_FORM_FIELD_CONTAINER_CLASSES}
+          >
             <input
               {...baseInputProps}
               type="number"
@@ -686,39 +708,45 @@ export default function SchemaAwareMetadataEditor({
               onChange={(event) => handleNumberBlur(field, event.target.value)}
               onBlur={(event) => handleNumberBlur(field, event.target.value)}
             />
-            <div className="mt-2 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className={classNames('mt-2 flex items-center gap-3', METASTORE_META_TEXT_CLASSES)}>
               <button
                 type="button"
                 onClick={() => clearFieldValue(field)}
                 disabled={!hasWriteScope}
-                className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-600/70 dark:text-slate-300"
+                className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
               >
                 Clear
               </button>
-              {error && <span className="text-rose-500 dark:text-rose-300">{error}</span>}
+              {error && <span className={METASTORE_ERROR_TEXT_CLASSES}>{error}</span>}
             </div>
           </FormField>
         );
       }
 
       return (
-        <FormField key={field.path} label={label} hint={description} htmlFor={inputId} className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+        <FormField
+          key={field.path}
+          label={label}
+          hint={description}
+          htmlFor={inputId}
+          className={METASTORE_FORM_FIELD_CONTAINER_CLASSES}
+        >
           <input
             {...baseInputProps}
             type="text"
             value={toDisplayValue(field, value)}
             onChange={(event) => handleScalarInputChange(field, event.target.value)}
           />
-          <div className="mt-2 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+          <div className={classNames('mt-2 flex items-center gap-3', METASTORE_META_TEXT_CLASSES)}>
             <button
               type="button"
               onClick={() => clearFieldValue(field)}
               disabled={!hasWriteScope}
-              className="rounded-full border border-slate-300/70 px-3 py-1 font-semibold text-slate-600 transition-colors hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-600/70 dark:text-slate-300"
+              className={METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
             >
               Clear
             </button>
-            {error && <span className="text-rose-500 dark:text-rose-300">{error}</span>}
+            {error && <span className={METASTORE_ERROR_TEXT_CLASSES}>{error}</span>}
           </div>
         </FormField>
       );
@@ -732,40 +760,30 @@ export default function SchemaAwareMetadataEditor({
   return (
     <section className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => handleModeSwitch('schema')}
             disabled={!schemaReady}
-            className={`rounded-full px-3 py-1 transition-colors ${
-              metadataMode === 'schema'
-                ? 'bg-violet-600 text-white shadow'
-                : 'border border-slate-300/70 text-slate-600 hover:bg-slate-200/60 disabled:opacity-40 dark:border-slate-600/70 dark:text-slate-300'
-            }`}
+            className={metadataMode === 'schema' ? METASTORE_PRIMARY_BUTTON_SMALL_CLASSES : METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
           >
             Structured form
           </button>
           <button
             type="button"
             onClick={() => handleModeSwitch('json')}
-            className={`rounded-full px-3 py-1 transition-colors ${
-              metadataMode === 'json'
-                ? 'bg-violet-600 text-white shadow'
-                : 'border border-slate-300/70 text-slate-600 hover:bg-slate-200/60 dark:border-slate-600/70 dark:text-slate-300'
-            }`}
+            className={metadataMode === 'json' ? METASTORE_PRIMARY_BUTTON_SMALL_CLASSES : METASTORE_SECONDARY_BUTTON_SMALL_CLASSES}
           >
             Raw JSON
           </button>
         </div>
         {schemaHash && (
-          <span className="rounded-full border border-slate-300/60 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-500 dark:border-slate-700/60 dark:text-slate-300">
-            Schema {schemaHash}
-          </span>
+          <span className={METASTORE_PILL_BADGE_NEUTRAL_CLASSES}>Schema {schemaHash}</span>
         )}
       </header>
 
       {schemaState.status === 'loading' && (
-        <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/70">
+        <div className={METASTORE_CARD_CONTAINER_CLASSES}>
           <div className="flex items-center justify-center py-10">
             <Spinner label="Loading schema" />
           </div>
@@ -773,21 +791,21 @@ export default function SchemaAwareMetadataEditor({
       )}
 
       {schemaState.status === 'error' && (
-        <div className="rounded-3xl border border-rose-300/70 bg-rose-50/80 p-4 text-sm text-rose-600 dark:border-rose-500/60 dark:bg-rose-500/10 dark:text-rose-200">
+        <div className={METASTORE_ALERT_ERROR_CLASSES}>
           {schemaState.error}
         </div>
       )}
 
       {metadataMode === 'schema' && schemaReady && (
         <div className="flex flex-col gap-4">
-          <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/70">
-            <div className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-300">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-500 dark:text-violet-300">Schema overview</span>
-              <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <div className={METASTORE_CARD_CONTAINER_CLASSES}>
+            <div className="flex flex-col gap-1 text-scale-sm text-secondary">
+              <span className={METASTORE_SUMMARY_LABEL_CLASSES}>Schema overview</span>
+              <h4 className="text-scale-md font-weight-semibold text-primary">
                 {schema.name ?? 'Unnamed schema'}
               </h4>
               {schema.description && <p>{schema.description}</p>}
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <div className={classNames('flex flex-wrap items-center gap-3', METASTORE_META_TEXT_CLASSES)}>
                 {schema.version && <span>v{schema.version}</span>}
                 <span>Updated {formatInstant(schema.updatedAt)}</span>
                 {docsUrl && (
@@ -795,7 +813,7 @@ export default function SchemaAwareMetadataEditor({
                     href={docsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-full border border-violet-500 px-3 py-1 font-semibold text-violet-600 transition-colors hover:bg-violet-500/10 dark:border-violet-400 dark:text-violet-300"
+                    className={METASTORE_LINK_ACCENT_CLASSES}
                   >
                     Docs
                   </a>
@@ -805,11 +823,11 @@ export default function SchemaAwareMetadataEditor({
           </div>
 
           {unknownFields.length > 0 && (
-            <div className="rounded-3xl border border-amber-400/70 bg-amber-50/80 p-4 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200">
-              <p className="font-semibold uppercase tracking-[0.3em]">Unknown fields preserved</p>
+            <div className={METASTORE_ALERT_WARNING_CLASSES}>
+              <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Unknown fields preserved</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {unknownFields.map((path) => (
-                  <span key={path} className="rounded-full border border-amber-400 px-2 py-1 font-medium">
+                  <span key={path} className={METASTORE_CHIP_WARNING_CLASSES}>
                     {path}
                   </span>
                 ))}
@@ -819,9 +837,7 @@ export default function SchemaAwareMetadataEditor({
 
           {Array.from(groupedFields.entries()).map(([groupKey, fields]) => (
             <section key={groupKey} className="flex flex-col gap-3">
-              <h5 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400">
-                {renderGroupLabel(groupKey)}
-              </h5>
+              <h5 className={METASTORE_SUMMARY_LABEL_CLASSES}>{renderGroupLabel(groupKey)}</h5>
               <div className="grid gap-3 lg:grid-cols-2">
                 {fields.map((field) => (
                   <Fragment key={field.path}>{renderField(field)}</Fragment>
@@ -835,12 +851,12 @@ export default function SchemaAwareMetadataEditor({
       {(metadataMode === 'json' || !schemaReady) && (
         <div className="flex flex-col gap-3">
           {schemaState.status === 'missing' && schemaState.missingMessage && (
-            <div className="rounded-3xl border border-amber-400/70 bg-amber-50/80 p-4 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className={METASTORE_ALERT_WARNING_CLASSES}>
               {schemaState.missingMessage}
             </div>
           )}
-          <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Metadata JSON</span>
+          <label className="flex flex-col gap-2 text-scale-sm text-secondary">
+            <span className={METASTORE_SUMMARY_LABEL_CLASSES}>Metadata JSON</span>
             <textarea
               value={metadataText}
               onChange={(event) => {
@@ -856,17 +872,19 @@ export default function SchemaAwareMetadataEditor({
                 }
               }}
               rows={metadataMode === 'json' ? 14 : 8}
-              className="w-full rounded-2xl border border-slate-300/70 bg-white/80 px-3 py-2 font-mono text-sm text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-700/70 dark:bg-slate-900/80 dark:text-slate-100"
+              className={METASTORE_TEXT_AREA_MONO_CLASSES}
             />
           </label>
-          {parseError && <span className="text-xs text-rose-500 dark:text-rose-300">{parseError}</span>}
+          {parseError && <span className={METASTORE_ERROR_TEXT_CLASSES}>{parseError}</span>}
           {schemaReady && unknownFields.length > 0 && (
-            <div className="rounded-3xl border border-amber-400/70 bg-amber-50/80 p-4 text-xs text-amber-700 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200">
-              <p className="font-semibold uppercase tracking-[0.3em]">Unknown fields</p>
-              <p className="mt-1">These properties are not described in the schema but will be saved as-is:</p>
+            <div className={METASTORE_ALERT_WARNING_CLASSES}>
+              <p className={METASTORE_SUMMARY_LABEL_CLASSES}>Unknown fields</p>
+              <p className={classNames('mt-1', METASTORE_META_TEXT_CLASSES)}>
+                These properties are not described in the schema but will be saved as-is:
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {unknownFields.map((path) => (
-                  <span key={path} className="rounded-full border border-amber-400 px-2 py-1 font-medium">
+                  <span key={path} className={METASTORE_CHIP_WARNING_CLASSES}>
                     {path}
                   </span>
                 ))}

@@ -33,6 +33,36 @@ import {
 } from './state';
 import WorkflowStepCard, { type BundleVersionState } from './WorkflowStepCard';
 
+const MODAL_BACKDROP_CLASSES =
+  'workflow-dialog-backdrop z-[999] items-start justify-center overflow-y-auto px-4 py-10 backdrop-blur-sm sm:px-8';
+
+const SECTION_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-primary';
+
+const SECTION_SUBTEXT_CLASSES = 'text-scale-sm text-secondary';
+
+const INPUT_FIELD_CLASSES =
+  'w-full rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
+
+const TEXTAREA_FIELD_CLASSES = `${INPUT_FIELD_CLASSES} min-h-[72px]`;
+
+const HEADER_TITLE_CLASSES = 'text-scale-xl font-weight-semibold text-inverse';
+
+const HEADER_SUBTEXT_CLASSES = 'text-scale-sm text-inverse opacity-80';
+
+const CLOSE_BUTTON_CLASSES =
+  'rounded-full border border-subtle bg-surface-glass px-3 py-1.5 text-scale-sm font-weight-semibold text-secondary transition-colors hover:border-accent-soft hover:bg-accent-soft hover:text-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const STEPS_TITLE_CLASSES = 'text-scale-lg font-weight-semibold text-inverse';
+
+const MONO_TEXTAREA_CLASSES =
+  'w-full rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm font-mono text-primary shadow-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+
+const PREVIEW_CODE_CLASSES =
+  'w-full min-h-[320px] overflow-auto rounded-2xl border border-subtle bg-surface-sunken px-3 py-2 text-scale-xs font-mono text-inverse focus:outline-none';
+
+const FOOTER_TEXT_CLASSES = 'text-scale-xs text-muted';
+
+
 const CREATE_AUTOSAVE_KEY = 'apphub.workflowBuilder.create';
 const EDIT_AUTOSAVE_PREFIX = 'apphub.workflowBuilder.edit.';
 
@@ -400,22 +430,22 @@ export function WorkflowBuilderDialog({
       onClose={onClose}
       closeOnBackdrop={false}
       labelledBy={dialogTitleId}
-      className="z-[999] items-start justify-center overflow-y-auto bg-slate-950/70 px-4 py-10 backdrop-blur-sm sm:px-8"
+      className={MODAL_BACKDROP_CLASSES}
       contentClassName="mx-auto flex w-full max-w-5xl flex-col gap-6 border-0 bg-transparent p-0 shadow-none"
     >
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <h2 id={dialogTitleId} className="text-2xl font-semibold text-white">
+          <h2 id={dialogTitleId} className={HEADER_TITLE_CLASSES}>
             {mode === 'create' ? 'Create workflow' : `Edit workflow: ${workflow?.name ?? draft.name}`}
           </h2>
-          <p className="text-sm text-slate-200">
+          <p className={HEADER_SUBTEXT_CLASSES}>
             Define workflow metadata, configure execution steps, and preview the resulting specification before saving.
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full border border-slate-200/60 bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
+          className={CLOSE_BUTTON_CLASSES}
         >
           Close
         </button>
@@ -435,8 +465,8 @@ export function WorkflowBuilderDialog({
 
       <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
           <FormSection>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow details</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <h3 className={SECTION_TITLE_CLASSES}>Workflow details</h3>
+            <p className={SECTION_SUBTEXT_CLASSES}>
               Provide identifying information so operators can locate and manage this workflow.
             </p>
             <div className="grid gap-4 md:grid-cols-2">
@@ -447,7 +477,7 @@ export function WorkflowBuilderDialog({
                   value={draft.slug}
                   onChange={(event) => setDraft((current) => ({ ...current, slug: event.target.value }))}
                   disabled={mode === 'edit'}
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200 dark:disabled:bg-slate-800"
+                  className={INPUT_FIELD_CLASSES}
                 />
               </FormField>
               <FormField label="Display name" htmlFor="workflow-name">
@@ -456,7 +486,7 @@ export function WorkflowBuilderDialog({
                   type="text"
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={INPUT_FIELD_CLASSES}
                 />
               </FormField>
             </div>
@@ -466,7 +496,7 @@ export function WorkflowBuilderDialog({
                 value={draft.description ?? ''}
                 onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
                 rows={3}
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={TEXTAREA_FIELD_CLASSES}
               />
             </FormField>
             <div className="grid gap-4 md:grid-cols-2">
@@ -477,7 +507,7 @@ export function WorkflowBuilderDialog({
                   value={draft.ownerName}
                   onChange={(event) => setDraft((current) => ({ ...current, ownerName: event.target.value }))}
                   placeholder="Team or primary owner"
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={INPUT_FIELD_CLASSES}
                 />
               </FormField>
               <FormField label="Owner contact" htmlFor="workflow-owner-contact" hint="Email or Slack channel">
@@ -487,7 +517,7 @@ export function WorkflowBuilderDialog({
                   value={draft.ownerContact}
                   onChange={(event) => setDraft((current) => ({ ...current, ownerContact: event.target.value }))}
                   placeholder="ops@apphub.example"
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={INPUT_FIELD_CLASSES}
                 />
               </FormField>
             </div>
@@ -501,7 +531,7 @@ export function WorkflowBuilderDialog({
                 value={draft.tagsInput ?? ''}
                 onChange={(event) => handleTagsChange(event.target.value)}
                 rows={2}
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={TEXTAREA_FIELD_CLASSES}
               />
             </FormField>
             <FormField label="Version note" htmlFor="workflow-version-note" hint="Document why this revision changes">
@@ -510,13 +540,13 @@ export function WorkflowBuilderDialog({
                 value={draft.versionNote}
                 onChange={(event) => setDraft((current) => ({ ...current, versionNote: event.target.value }))}
                 rows={2}
-                className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                className={TEXTAREA_FIELD_CLASSES}
               />
             </FormField>
           </FormSection>
 
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-white">Steps</h3>
+            <h3 className={STEPS_TITLE_CLASSES}>Steps</h3>
             <FormButton type="button" variant="secondary" onClick={addStep}>
               Add step
             </FormButton>
@@ -554,18 +584,18 @@ export function WorkflowBuilderDialog({
           </div>
 
           <FormSection>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow inputs</h3>
+            <h3 className={SECTION_TITLE_CLASSES}>Workflow inputs</h3>
             <div className="grid gap-6 md:grid-cols-2">
               <FormField label="Parameters schema" hint="JSON schema describing workflow parameters.">
                 <textarea
                   value={draft.parametersSchemaText ?? ''}
                   onChange={(event) => handleSchemaChange(event.target.value)}
                   rows={10}
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={MONO_TEXTAREA_CLASSES}
                   spellCheck={false}
                 />
                 {draft.parametersSchemaError && (
-                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{draft.parametersSchemaError}</p>
+                  <p className="text-scale-xs font-weight-semibold text-status-danger">{draft.parametersSchemaError}</p>
                 )}
               </FormField>
               <FormField label="Default parameters" hint="Optional defaults applied when launching the workflow.">
@@ -573,19 +603,19 @@ export function WorkflowBuilderDialog({
                   value={draft.defaultParametersText ?? ''}
                   onChange={(event) => handleDefaultParametersChange(event.target.value)}
                   rows={10}
-                  className="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm font-mono text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-200/50 dark:border-slate-700/60 dark:bg-slate-900/60 dark:text-slate-200"
+                  className={MONO_TEXTAREA_CLASSES}
                   spellCheck={false}
                 />
                 {draft.defaultParametersError && (
-                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-300">{draft.defaultParametersError}</p>
+                  <p className="text-scale-xs font-weight-semibold text-status-danger">{draft.defaultParametersError}</p>
                 )}
               </FormField>
             </div>
           </FormSection>
 
           <FormSection>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Workflow preview</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <h3 className={SECTION_TITLE_CLASSES}>Workflow preview</h3>
+            <p className={SECTION_SUBTEXT_CLASSES}>
               Review the derived workflow specification. Save to persist the configuration to the catalog.
             </p>
             {diffEntries.length > 0 && (
@@ -602,7 +632,7 @@ export function WorkflowBuilderDialog({
             <JsonSyntaxHighlighter
               value={previewSpec}
               ariaLabel="Workflow preview JSON"
-              className="w-full min-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 bg-slate-950/90 px-3 py-2 text-xs font-mono text-emerald-100 focus:outline-none dark:border-slate-700/60"
+              className={PREVIEW_CODE_CLASSES}
             />
           </FormSection>
 
@@ -616,7 +646,7 @@ export function WorkflowBuilderDialog({
           {submitError && <FormFeedback tone="error">{submitError}</FormFeedback>}
 
           <FormActions className="items-center justify-between">
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className={FOOTER_TEXT_CLASSES}>
               {lastSavedLabel ? `Draft saved ${lastSavedLabel}` : 'Draft autosaves locally as you edit.'}
             </div>
             <div className="flex items-center gap-3">

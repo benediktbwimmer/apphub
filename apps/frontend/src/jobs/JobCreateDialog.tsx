@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AuthorizedFetch, JobDefinitionSummary } from '../workflows/api';
 import { createJobDefinition } from '../workflows/api';
@@ -11,6 +12,27 @@ import {
   type PythonSnippetPreview,
   type SchemaPreview
 } from './api';
+import {
+  JOB_DIALOG_BODY_CLASSES,
+  JOB_DIALOG_CLOSE_BUTTON_CLASSES,
+  JOB_DIALOG_CONTAINER_BASE,
+  JOB_DIALOG_HEADER_CLASSES,
+  JOB_DIALOG_SUBTITLE_CLASSES,
+  JOB_DIALOG_TITLE_CLASSES,
+  JOB_FORM_ACTION_PRIMARY_CLASSES,
+  JOB_FORM_ACTION_SECONDARY_CLASSES,
+  JOB_FORM_BADGE_BUTTON_ACTIVE,
+  JOB_FORM_BADGE_BUTTON_BASE,
+  JOB_FORM_BADGE_BUTTON_INACTIVE,
+  JOB_FORM_ERROR_TEXT_CLASSES,
+  JOB_FORM_HELPER_TEXT_CLASSES,
+  JOB_FORM_INPUT_CLASSES,
+  JOB_FORM_LABEL_CLASSES,
+  JOB_FORM_MONO_TEXTAREA_CLASSES,
+  JOB_FORM_SECTION_LABEL_CLASSES,
+  JOB_RUNTIME_BADGE_BASE_CLASSES
+} from './jobTokens';
+import { getStatusToneClasses } from '../theme/statusTokens';
 
 const JOB_TYPES: Array<{ value: 'batch' | 'service-triggered' | 'manual'; label: string }> = [
   { value: 'batch', label: 'Batch' },
@@ -399,43 +421,46 @@ export default function JobCreateDialog({
       onClose={onClose}
       labelledBy="job-create-title"
       className="items-start justify-center p-4 pt-10 sm:items-center sm:p-6"
-      contentClassName="flex max-w-3xl flex-col overflow-hidden border border-slate-200/70 bg-white shadow-2xl dark:border-slate-700/70 dark:bg-slate-900 max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]"
+      contentClassName={classNames(
+        'max-w-3xl max-h-[calc(100vh-4rem)] sm:max-h-[calc(100vh-6rem)]',
+        JOB_DIALOG_CONTAINER_BASE
+      )}
     >
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200/60 bg-slate-50/60 px-6 py-4 dark:border-slate-700/60 dark:bg-slate-900/60">
+        <header className={JOB_DIALOG_HEADER_CLASSES}>
           <div>
-            <h2 id="job-create-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id="job-create-title" className={JOB_DIALOG_TITLE_CLASSES}>
               Create job definition
             </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            <p className={JOB_DIALOG_SUBTITLE_CLASSES}>
               Provide the entry point and default metadata for a new job.
             </p>
           </div>
           <button
             type="button"
-            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+            className={JOB_DIALOG_CLOSE_BUTTON_CLASSES}
             onClick={onClose}
           >
             Close
           </button>
         </header>
 
-        <form className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5" onSubmit={handleSubmit}>
+        <form className={JOB_DIALOG_BODY_CLASSES} onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={JOB_FORM_LABEL_CLASSES}>
               Name
               <input
                 type="text"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={JOB_FORM_INPUT_CLASSES}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 required
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={JOB_FORM_LABEL_CLASSES}>
               Slug
               <input
                 type="text"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={JOB_FORM_INPUT_CLASSES}
                 value={slug}
                 onChange={(event) => handleSlugChange(event.target.value)}
                 required
@@ -444,7 +469,7 @@ export default function JobCreateDialog({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={classNames(JOB_FORM_LABEL_CLASSES, 'gap-2')}>
               Type
               <div className="flex flex-wrap gap-2">
                 {JOB_TYPES.map((option) => {
@@ -453,11 +478,10 @@ export default function JobCreateDialog({
                     <button
                       key={option.value}
                       type="button"
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                        isActive
-                          ? 'border-violet-500 bg-violet-600 text-white shadow'
-                          : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
-                      }`}
+                      className={classNames(
+                        JOB_FORM_BADGE_BUTTON_BASE,
+                        isActive ? JOB_FORM_BADGE_BUTTON_ACTIVE : JOB_FORM_BADGE_BUTTON_INACTIVE
+                      )}
                       onClick={() => setJobType(option.value)}
                     >
                       {option.label}
@@ -466,33 +490,33 @@ export default function JobCreateDialog({
                 })}
               </div>
             </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={classNames(JOB_FORM_LABEL_CLASSES, 'gap-2')}>
               Runtime
               <div className="flex flex-wrap gap-2">
                 {(['node', 'python'] as const).map((option) => {
                   const status = runtimeStatusMap.get(option);
-                  const ready = status ? status.ready : true;
                   const disabled = option === 'python' && status ? !status.ready : false;
                   const isActive = runtime === option;
-                  const badgeClass = ready
-                    ? 'text-emerald-600 dark:text-emerald-300'
-                    : 'text-rose-600 dark:text-rose-300';
                   return (
                     <div key={option} className="flex flex-col gap-1">
                       <button
                         type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                          isActive
-                            ? 'border-violet-500 bg-violet-600 text-white shadow'
-                            : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
-                        } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                        className={classNames(
+                          JOB_FORM_BADGE_BUTTON_BASE,
+                          isActive ? JOB_FORM_BADGE_BUTTON_ACTIVE : JOB_FORM_BADGE_BUTTON_INACTIVE
+                        )}
                         onClick={() => !disabled && handleRuntimeChange(option)}
                         disabled={disabled}
                       >
                         {option === 'python' ? 'Python' : 'Node'}
                       </button>
                       {status && (
-                        <span className={`text-[11px] font-medium ${badgeClass}`}>
+                        <span
+                          className={classNames(
+                            JOB_RUNTIME_BADGE_BASE_CLASSES,
+                            getStatusToneClasses(status.ready ? 'ready' : 'error')
+                          )}
+                        >
                           {status.ready ? 'Ready' : status.reason ? status.reason : 'Unavailable'}
                         </span>
                       )}
@@ -504,11 +528,11 @@ export default function JobCreateDialog({
           </div>
 
           {runtime === 'node' && (
-            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={JOB_FORM_LABEL_CLASSES}>
               Entry point
               <input
                 type="text"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={JOB_FORM_INPUT_CLASSES}
                 value={entryPoint}
                 onChange={(event) => setEntryPoint(event.target.value)}
                 required={runtime === 'node'}
@@ -519,7 +543,7 @@ export default function JobCreateDialog({
 
           {runtime === 'python' && (
             <div className="flex flex-col gap-3">
-              <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <label className={classNames(JOB_FORM_LABEL_CLASSES, 'gap-2')}>
                 Python snippet
                 <Editor
                   value={pythonSnippet}
@@ -532,25 +556,25 @@ export default function JobCreateDialog({
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className={classNames(JOB_FORM_BADGE_BUTTON_BASE, JOB_FORM_BADGE_BUTTON_INACTIVE)}
                   onClick={handlePythonPreview}
                   disabled={pythonPreviewPending}
                 >
                   {pythonPreviewPending ? 'Analyzing…' : 'Analyze snippet'}
                 </button>
                 {pythonPreview && (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                  <span className={JOB_FORM_HELPER_TEXT_CLASSES}>
                     Handler {pythonPreview.handlerName} · {pythonPreview.inputModel.name} → {pythonPreview.outputModel.name}
                   </span>
                 )}
               </div>
               {pythonPreviewError && (
-                <p className="text-xs text-rose-600 dark:text-rose-300">{pythonPreviewError}</p>
+                <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{pythonPreviewError}</p>
               )}
-              <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <label className={JOB_FORM_SECTION_LABEL_CLASSES}>
                 Dependencies (one per line, optional)
                 <textarea
-                  className="min-h-[100px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  className={classNames('min-h-[100px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                   value={pythonDependenciesText}
                   onChange={(event) => setPythonDependenciesText(event.target.value)}
                   placeholder="requests>=2.31.0"
@@ -561,22 +585,22 @@ export default function JobCreateDialog({
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={JOB_FORM_LABEL_CLASSES}>
               Version (optional)
               <input
                 type="number"
                 min={1}
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={JOB_FORM_INPUT_CLASSES}
                 value={version}
                 onChange={(event) => setVersion(event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className={JOB_FORM_LABEL_CLASSES}>
               Timeout (ms, optional)
               <input
                 type="number"
                 min={1000}
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className={JOB_FORM_INPUT_CLASSES}
                 value={timeoutMs}
                 onChange={(event) => setTimeoutMs(event.target.value)}
               />
@@ -586,92 +610,84 @@ export default function JobCreateDialog({
           {runtime === 'node' ? (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-3">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Schemas</h3>
+                <h3 className="text-scale-sm font-weight-semibold text-primary">Schemas</h3>
                 <button
                   type="button"
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className={classNames(JOB_FORM_BADGE_BUTTON_BASE, JOB_FORM_BADGE_BUTTON_INACTIVE)}
                   onClick={handleAutoDetect}
                   disabled={autoDetectPending}
                 >
                   {autoDetectPending ? 'Detecting…' : 'Auto-detect from entry point'}
                 </button>
               </div>
-              {autoDetectError && (
-                <p className="text-xs text-rose-600 dark:text-rose-300">{autoDetectError}</p>
-              )}
+              {autoDetectError && <p className={JOB_FORM_ERROR_TEXT_CLASSES}>{autoDetectError}</p>}
               <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <label className={JOB_FORM_SECTION_LABEL_CLASSES}>
                   Parameters schema
                   <textarea
-                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className={classNames('min-h-[140px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                     value={parametersSchemaText}
                     onChange={(event) => setParametersSchemaText(event.target.value)}
                     spellCheck={false}
                   />
                   {schemaSources.parameters && (
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className={JOB_FORM_HELPER_TEXT_CLASSES}>
                       Detected from {schemaSources.parameters}
                     </span>
                   )}
                   {parametersSchemaError && (
-                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                      {parametersSchemaError}
-                    </span>
+                    <span className={JOB_FORM_ERROR_TEXT_CLASSES}>{parametersSchemaError}</span>
                   )}
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <label className={JOB_FORM_SECTION_LABEL_CLASSES}>
                   Default parameters
                   <textarea
-                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className={classNames('min-h-[140px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                     value={defaultParametersText}
                     onChange={(event) => setDefaultParametersText(event.target.value)}
                     spellCheck={false}
                   />
                   {defaultParametersError && (
-                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                      {defaultParametersError}
-                    </span>
+                    <span className={JOB_FORM_ERROR_TEXT_CLASSES}>{defaultParametersError}</span>
                   )}
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:col-span-2">
+                <label className={classNames(JOB_FORM_SECTION_LABEL_CLASSES, 'md:col-span-2')}>
                   Output schema
                   <textarea
-                    className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    className={classNames('min-h-[140px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                     value={outputSchemaText}
                     onChange={(event) => setOutputSchemaText(event.target.value)}
                     spellCheck={false}
                   />
                   {schemaSources.output && (
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className={JOB_FORM_HELPER_TEXT_CLASSES}>
                       Detected from {schemaSources.output}
                     </span>
                   )}
                   {outputSchemaError && (
-                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-300">
-                      {outputSchemaError}
-                    </span>
+                    <span className={JOB_FORM_ERROR_TEXT_CLASSES}>{outputSchemaError}</span>
                   )}
                 </label>
               </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Generated schemas</h3>
+              <h3 className="text-scale-sm font-weight-semibold text-primary">Generated schemas</h3>
               {pythonPreview ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <label className={JOB_FORM_SECTION_LABEL_CLASSES}>
                     Parameters schema
                     <textarea
-                      className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      className={classNames('min-h-[140px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                       value={formatSchema(pythonPreview.inputModel.schema)}
                       readOnly
                       spellCheck={false}
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <label className={JOB_FORM_SECTION_LABEL_CLASSES}>
                     Output schema
                     <textarea
-                      className="min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 font-mono text-xs text-slate-800 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      className={classNames('min-h-[140px]', JOB_FORM_MONO_TEXTAREA_CLASSES)}
                       value={formatSchema(pythonPreview.outputModel.schema)}
                       readOnly
                       spellCheck={false}
@@ -679,7 +695,7 @@ export default function JobCreateDialog({
                   </label>
                 </div>
               ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className={JOB_FORM_HELPER_TEXT_CLASSES}>
                   Run the snippet analysis to generate input and output schemas.
                 </p>
               )}
@@ -687,13 +703,13 @@ export default function JobCreateDialog({
           )}
 
           {formError && (
-            <p className="text-sm font-semibold text-rose-600 dark:text-rose-300">{formError}</p>
+            <p className={classNames('text-scale-sm', JOB_FORM_ERROR_TEXT_CLASSES)}>{formError}</p>
           )}
 
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"
-              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              className={JOB_FORM_ACTION_SECONDARY_CLASSES}
               onClick={onClose}
               disabled={submitting}
             >
@@ -701,20 +717,20 @@ export default function JobCreateDialog({
             </button>
             <button
               type="submit"
-              className="rounded-full bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className={JOB_FORM_ACTION_PRIMARY_CLASSES}
               disabled={submitting}
             >
               {submitting ? 'Creating…' : 'Create job'}
             </button>
           </div>
 
-          <div className="grid gap-2 border-t border-slate-200/70 pt-4 text-[11px] text-slate-500 dark:border-slate-700/60 dark:text-slate-400 sm:grid-cols-2">
+          <div className="grid gap-2 border-t border-subtle pt-4 text-scale-xs text-muted sm:grid-cols-2">
             <div>
-              <strong className="font-semibold text-slate-600 dark:text-slate-300">Node runtime</strong>
+              <strong className="font-weight-semibold text-primary">Node runtime</strong>
               <p>{nodeRuntimeMessage}</p>
             </div>
             <div>
-              <strong className="font-semibold text-slate-600 dark:text-slate-300">Python runtime</strong>
+              <strong className="font-weight-semibold text-primary">Python runtime</strong>
               <p>{pythonRuntimeMessage}</p>
             </div>
           </div>
