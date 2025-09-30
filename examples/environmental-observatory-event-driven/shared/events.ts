@@ -1,4 +1,9 @@
-import { createEventPublisher, type EventEnvelope, type EventPublisherOptions, type JsonValue } from '@apphub/event-bus';
+import {
+  createEventProxyPublisher,
+  type EventEnvelope,
+  type EventProxyPublisherOptions,
+  type JsonValue
+} from '@apphub/event-bus/proxy';
 import { z } from 'zod';
 import { calibrationFileSchema } from './calibrations';
 
@@ -192,7 +197,7 @@ export function isObservatoryEvent(value: unknown): value is ObservatoryEvent {
 
 export type ObservatoryEventPublisherOptions = {
   source?: string;
-  publisherOptions?: EventPublisherOptions;
+  publisherOptions?: EventProxyPublisherOptions;
 };
 
 export function createObservatoryEventPublisher(
@@ -205,7 +210,7 @@ export function createObservatoryEventPublisher(
 } {
   const candidateSource = options.source?.trim() ?? '';
   const source = candidateSource.length > 0 ? candidateSource : 'observatory.events';
-  const handle = createEventPublisher(options.publisherOptions);
+  const handle = createEventProxyPublisher(options.publisherOptions);
 
   async function publish<TType extends ObservatoryEventType>(
     event: PublishableObservatoryEvent<TType>

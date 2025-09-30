@@ -164,14 +164,11 @@ npm install --prefix examples/environmental-observatory-event-driven/jobs/observ
 
    > ⚠️ **Event proxy configuration**
    >
-   > The sandboxed bundles publish events through the new HTTP proxy. Before running the watcher or ingest workflow, export the proxy variables so both the catalog and the bundle agree on the endpoint/token:
-   > ```bash
-   > export APPHUB_EVENT_PROXY_URL="http://127.0.0.1:4000/internal/events/publish"
-   > export APPHUB_EVENT_PROXY_TOKEN="prototype-secret"
-   > # Catalog only: accept the same token (comma-separated list for multiple values)
-   > export APPHUB_EVENT_PROXY_TOKENS="prototype-secret"
-   > ```
-   > Ensure the observatory bundles keep the `network` capability enabled so `fetch` is available inside the sandbox.
+   > The sandboxed bundles publish events through the HTTP proxy. The catalog now injects
+   > `APPHUB_EVENT_PROXY_URL` automatically for every job run and forwards
+   > `APPHUB_EVENT_PROXY_TOKEN` when configured. Export these variables only when running
+   > bundles outside of the catalog sandbox (for example, calling the proxy from a custom
+   > script) or when you need to override the defaults.
 
 4. Launch the filestore ingest watcher so new inbox files land in MinIO and trigger `observatory-minute-ingest` automatically (configured via the observatory service manifest described above):
    ```bash

@@ -1,0 +1,7 @@
+timestamp,instrument_id,site,temperature_c,relative_humidity_pct,pm2_5_ug_m3,battery_voltage
+2025-09-30T17:13:00Z,instrument_bravo,east-ridge,21.74,58.7,14.9,3.92
+2025-09-30T17:23:00Z,instrument_bravo,east-ridge,22.30,61.9,13.6,3.91
+2025-09-30T17:33:00Z,instrument_bravo,east-ridge,22.83,59.8,13.8,3.90
+2025-09-30T17:43:00Z,instrument_bravo,east-ridge,23.35,62.8,14.7,3.92
+2025-09-30T17:53:00Z,instrument_bravo,east-ridge,22.73,61.3,14.6,3.90
+2025-09-30T18:03:00Z,instrument_bravo,east-ridge,22.96,61.1,15.3,3.92

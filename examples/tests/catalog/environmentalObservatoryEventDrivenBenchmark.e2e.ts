@@ -164,6 +164,7 @@ process.env.APPHUB_OPERATOR_TOKENS = JSON.stringify([
 ]);
 process.env.APPHUB_EVENTS_MODE = 'redis';
 process.env.APPHUB_DISABLE_ANALYTICS = '1';
+process.env.APPHUB_EVENT_PROXY_URL = 'http://127.0.0.1:4000/internal/events/publish';
 
 let activeRedisUrl: string | null = null;
 let embeddedPostgres: EmbeddedPostgres | null = null;

@@ -1,0 +1,7 @@
+timestamp,instrument_id,site,temperature_c,relative_humidity_pct,pm2_5_ug_m3,battery_voltage
+2025-09-30T17:13:00Z,instrument_charlie,north-forest,20.94,61.2,9.9,3.89
+2025-09-30T17:23:00Z,instrument_charlie,north-forest,22.46,64.9,9.9,3.89
+2025-09-30T17:33:00Z,instrument_charlie,north-forest,21.45,61.1,11.7,3.89
+2025-09-30T17:43:00Z,instrument_charlie,north-forest,22.25,64.7,11.0,3.89
+2025-09-30T17:53:00Z,instrument_charlie,north-forest,21.34,63.0,12.4,3.90
+2025-09-30T18:03:00Z,instrument_charlie,north-forest,21.11,60.9,9.5,3.90

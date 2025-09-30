@@ -1,0 +1,7 @@
+timestamp,instrument_id,site,temperature_c,relative_humidity_pct,pm2_5_ug_m3,battery_voltage
+2025-09-30T17:12:00Z,instrument_alpha,west-basin,23.89,60.4,10.7,3.92
+2025-09-30T17:22:00Z,instrument_alpha,west-basin,24.25,56.5,14.5,3.93
+2025-09-30T17:32:00Z,instrument_alpha,west-basin,23.72,59.0,13.6,3.93
+2025-09-30T17:42:00Z,instrument_alpha,west-basin,23.42,57.8,12.4,3.93
+2025-09-30T17:52:00Z,instrument_alpha,west-basin,24.30,59.8,14.2,3.93
+2025-09-30T18:02:00Z,instrument_alpha,west-basin,24.92,59.5,14.0,3.94

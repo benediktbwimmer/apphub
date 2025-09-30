@@ -20,6 +20,60 @@ import {
 
 const DEFAULT_MAX_SANDBOX_LOGS = Number(process.env.APPHUB_JOB_BUNDLE_SANDBOX_MAX_LOGS ?? 200);
 
+function normalizeString(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeBaseUrl(candidate: string | null | undefined): string | null {
+  const value = normalizeString(candidate);
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    url.search = '';
+    if (url.pathname && url.pathname !== '/' && url.pathname.endsWith('/')) {
+      url.pathname = url.pathname.replace(/\/+$/, '');
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function resolveEventProxyUrl(): string | null {
+  const explicit = normalizeString(process.env.APPHUB_EVENT_PROXY_URL);
+  if (explicit) {
+    return explicit;
+  }
+
+  const baseCandidates = [
+    process.env.CATALOG_INTERNAL_BASE_URL,
+    process.env.APPHUB_CATALOG_BASE_URL,
+    process.env.CATALOG_BASE_URL,
+    process.env.CATALOG_PUBLIC_BASE_URL
+  ];
+
+  for (const candidate of baseCandidates) {
+    const normalized = normalizeBaseUrl(candidate ?? null);
+    if (normalized) {
+      return new URL('/internal/events/publish', `${normalized}/`).toString();
+    }
+  }
+
+  const port = normalizeString(process.env.PORT) ?? '4000';
+  return `http://127.0.0.1:${port}/internal/events/publish`;
+}
+
+function resolveEventProxyToken(): string | null {
+  return normalizeString(process.env.APPHUB_EVENT_PROXY_TOKEN ?? null);
+}
+
 export class SandboxTimeoutError extends Error {
   readonly elapsedMs: number;
   constructor(message: string, elapsedMs: number) {
@@ -164,6 +218,21 @@ export class SandboxRunner {
       ...process.env,
       APPHUB_SANDBOX_TASK_ID: taskId
     };
+
+    if (!childEnv.APPHUB_EVENT_PROXY_URL) {
+      const proxyUrl = resolveEventProxyUrl();
+      if (proxyUrl) {
+        childEnv.APPHUB_EVENT_PROXY_URL = proxyUrl;
+      }
+    }
+
+    if (!childEnv.APPHUB_EVENT_PROXY_TOKEN) {
+      const proxyToken = resolveEventProxyToken();
+      if (proxyToken) {
+        childEnv.APPHUB_EVENT_PROXY_TOKEN = proxyToken;
+      }
+    }
+
     if (options.workflowEventContext) {
       childEnv[WORKFLOW_EVENT_CONTEXT_ENV] = serializeWorkflowEventContext(
         options.workflowEventContext

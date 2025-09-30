@@ -71,6 +71,11 @@ export APPHUB_EVENT_PROXY_TOKEN="prototype-secret"
 export APPHUB_EVENT_PROXY_TOKENS="prototype-secret"
 ```
 
+> Sandbox job runs now inject a proxy URL automatically. The catalog passes
+> `APPHUB_EVENT_PROXY_URL=http://127.0.0.1:<port>/internal/events/publish` to every
+> sandboxed bundle and forwards `APPHUB_EVENT_PROXY_TOKEN` when it is configured, so
+> most local setups require no additional wiring.
+
 `POST /internal/events/publish`
 
 - **Headers**
