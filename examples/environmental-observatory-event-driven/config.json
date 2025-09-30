@@ -41,6 +41,30 @@
     {
       "path": "./jobs/observatory-calibration-reprocessor/apphub.bundle.json",
       "kind": "bundle"
+    },
+    {
+      "path": "./workflows/observatory-minute-data-generator.json",
+      "kind": "workflow"
+    },
+    {
+      "path": "./workflows/observatory-minute-ingest.json",
+      "kind": "workflow"
+    },
+    {
+      "path": "./workflows/observatory-daily-publication.json",
+      "kind": "workflow"
+    },
+    {
+      "path": "./workflows/observatory-dashboard-aggregate.json",
+      "kind": "workflow"
+    },
+    {
+      "path": "./workflows/observatory-calibration-import.json",
+      "kind": "workflow"
+    },
+    {
+      "path": "./workflows/observatory-calibration-reprocess.json",
+      "kind": "workflow"
     }
   ],
   "placeholders": [

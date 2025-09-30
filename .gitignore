@@ -37,5 +37,6 @@ job-bundles/**/artifacts/*.tgz.sha256
 
 # Event-driven observatory generated config
 examples/environmental-observatory-event-driven/.generated/
+services/examples/environmental-observatory-event-driven/.generated/
 # Event-driven observatory service runtime data
 services/examples/environmental-observatory-event-driven/data/

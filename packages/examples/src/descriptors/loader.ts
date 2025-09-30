@@ -17,6 +17,10 @@ export type BundleManifestReference = ExampleDescriptorManifest & {
   absolutePath: string;
 };
 
+export type WorkflowManifestReference = ExampleDescriptorManifest & {
+  absolutePath: string;
+};
+
 export async function readExampleDescriptor(configPath: string): Promise<ExampleDescriptorFile> {
   const absoluteConfigPath = path.resolve(configPath);
   const contents = await fs.readFile(absoluteConfigPath, 'utf8');
@@ -32,6 +36,15 @@ export function resolveBundleManifests(file: ExampleDescriptorFile): BundleManif
   const manifests = file.descriptor.manifests ?? [];
   const bundleEntries = manifests.filter((entry) => entry.kind === 'bundle' || !entry.kind);
   return bundleEntries.map((entry) => ({
+    ...entry,
+    absolutePath: path.resolve(file.directory, entry.path)
+  }));
+}
+
+export function resolveWorkflowManifests(file: ExampleDescriptorFile): WorkflowManifestReference[] {
+  const manifests = file.descriptor.manifests ?? [];
+  const workflowEntries = manifests.filter((entry) => entry.kind === 'workflow');
+  return workflowEntries.map((entry) => ({
     ...entry,
     absolutePath: path.resolve(file.directory, entry.path)
   }));

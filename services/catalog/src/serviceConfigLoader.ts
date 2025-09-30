@@ -19,6 +19,7 @@ import {
   type ResolvedManifestEnvVar
 } from './serviceManifestTypes';
 import { bootstrapPlanSchema, type BootstrapPlanSpec, type BootstrapActionSpec } from './bootstrap';
+import { workflowDefinitionCreateSchema, type WorkflowDefinitionCreateInput } from './workflows/zodSchemas';
 import { extractDockerImageFilesystem } from './dockerImageLoader';
 
 const git = simpleGit();
@@ -96,7 +97,7 @@ const placeholderDescriptorSchema = z
 const manifestReferenceSchema = z
   .object({
     path: z.string().min(1),
-    kind: z.enum(['services', 'networks', 'bundle']).optional(),
+    kind: z.enum(['services', 'networks', 'bundle', 'workflow']).optional(),
     description: z.string().optional()
   })
   .strict();
@@ -126,6 +127,12 @@ export type LoadedManifestEntry = Omit<ManifestEntryInput, 'env'> & {
   env?: ResolvedManifestEnvVar[];
   sources: string[];
   baseUrlSource: 'manifest' | 'env';
+};
+
+export type LoadedWorkflowDefinition = {
+  slug: string;
+  definition: WorkflowDefinitionCreateInput;
+  sources: string[];
 };
 
 type LoadedNetworkService = Omit<ManifestServiceNetworkInput['services'][number], 'env' | 'app'> & {
@@ -166,6 +173,7 @@ type ConfigLoadResult = {
   networks: LoadedServiceNetwork[];
   errors: ManifestLoadError[];
   bootstrap: BootstrapPlanSpec | null;
+  workflows: LoadedWorkflowDefinition[];
 };
 
 type PlaceholderValueSource = 'default' | 'variable';
@@ -874,7 +882,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     config = await readServiceConfig(filePath);
   } catch (err) {
     errors.push({ source: sourceLabel, error: err as Error });
-    return { moduleId: null, entries: [], networks: [], errors, bootstrap: null };
+    return { moduleId: null, entries: [], networks: [], workflows: [], errors, bootstrap: null };
   }
 
   const moduleId = config.module.trim();
@@ -886,13 +894,15 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
   }
 
   if (visitedModules.has(moduleId)) {
-    return { moduleId, entries: [], networks: [], errors, bootstrap: null };
+    return { moduleId, entries: [], networks: [], workflows: [], errors, bootstrap: null };
   }
 
   visitedModules.set(moduleId, sourceLabel);
 
   const entries: LoadedManifestEntry[] = [];
   const networks: LoadedServiceNetwork[] = [];
+  const workflows: LoadedWorkflowDefinition[] = [];
+  const workflowSlugs = new Set<string>();
   const bootstrapActions: BootstrapActionSpec[] = [...(config.bootstrap?.actions ?? [])];
   const moduleSource = `module:${moduleId}`;
   const metadataLookup: PlaceholderMetadataLookup = (name) =>
@@ -928,6 +938,39 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
         placeholderMode,
         errors
       });
+    } catch (err) {
+      errors.push({ source: manifestSourceLabel, error: err as Error });
+    }
+  };
+
+  const loadWorkflowManifest = async (manifestRelativePath: string) => {
+    const trimmed = manifestRelativePath.trim();
+    if (!trimmed) {
+      return;
+    }
+    const manifestFullPath = path.resolve(configDir, trimmed);
+    const manifestSourceLabel = joinSourceLabel(sourceLabel, toRepoRelativePath(manifestFullPath, repoRoot));
+    try {
+      const contents = await fs.readFile(manifestFullPath, 'utf8');
+      const parsed = workflowDefinitionCreateSchema.parse(JSON.parse(contents));
+      const slug = parsed.slug.trim();
+      if (!slug) {
+        throw new Error('workflow manifest slug is empty');
+      }
+      const normalizedSlug = slug.toLowerCase();
+      if (workflowSlugs.has(normalizedSlug)) {
+        errors.push({
+          source: manifestSourceLabel,
+          error: new Error(`workflow manifest for slug ${slug} already processed`)
+        });
+        return;
+      }
+      workflows.push({
+        slug,
+        definition: parsed,
+        sources: [moduleSource, manifestSourceLabel]
+      });
+      workflowSlugs.add(normalizedSlug);
     } catch (err) {
       errors.push({ source: manifestSourceLabel, error: err as Error });
     }
@@ -972,6 +1015,10 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
         // Bundles are handled by the job importer; skip them here so service manifest imports do not fail.
         continue;
       }
+      if (manifest.kind === 'workflow') {
+        await loadWorkflowManifest(manifest.path);
+        continue;
+      }
       await loadManifestFile(manifest.path);
     }
   }
@@ -993,6 +1040,14 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
     entries.push(...childResult.entries);
     networks.push(...childResult.networks);
     errors.push(...childResult.errors);
+    for (const workflow of childResult.workflows) {
+      const normalizedSlug = workflow.slug.trim().toLowerCase();
+      if (workflowSlugs.has(normalizedSlug)) {
+        continue;
+      }
+      workflows.push(workflow);
+      workflowSlugs.add(normalizedSlug);
+    }
     if (childResult.bootstrap?.actions?.length) {
       bootstrapActions.push(...childResult.bootstrap.actions);
     }
@@ -1000,7 +1055,7 @@ async function loadConfigRecursive(options: ConfigLoadOptions): Promise<ConfigLo
 
   const bootstrapPlan = bootstrapActions.length > 0 ? { actions: bootstrapActions } : null;
 
-  return { moduleId, entries, networks, errors, bootstrap: bootstrapPlan };
+  return { moduleId, entries, networks, workflows, errors, bootstrap: bootstrapPlan };
 }
 
 async function loadConfigImport(
@@ -1018,6 +1073,7 @@ async function loadConfigImport(
   let moduleId: string | null = null;
   let entries: LoadedManifestEntry[] = [];
   let networks: LoadedServiceNetwork[] = [];
+  let workflows: LoadedWorkflowDefinition[] = [];
   let resolvedCommit: string | null = null;
   let bootstrap: BootstrapPlanSpec | null = null;
   try {
@@ -1101,6 +1157,7 @@ async function loadConfigImport(
     moduleId = result.moduleId;
     entries = result.entries;
     networks = result.networks;
+    workflows = result.workflows;
     errors.push(...result.errors);
     bootstrap = result.bootstrap;
   } catch (err) {
@@ -1119,7 +1176,7 @@ async function loadConfigImport(
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 
-  return { moduleId, entries, networks, errors, resolvedCommit, bootstrap };
+  return { moduleId, entries, networks, workflows, errors, resolvedCommit, bootstrap };
 }
 
 export type ServiceConfigImportRequest = {
@@ -1139,6 +1196,7 @@ export type ServiceConfigImportPreview = {
   resolvedCommit: string | null;
   entries: LoadedManifestEntry[];
   networks: LoadedServiceNetwork[];
+  workflows: LoadedWorkflowDefinition[];
   errors: ManifestLoadError[];
   placeholders: ManifestPlaceholderSummary[];
   bootstrap: BootstrapPlanSpec | null;
@@ -1200,6 +1258,7 @@ export async function previewServiceConfigImport(
     resolvedCommit: result.resolvedCommit ?? null,
     entries: result.entries,
     networks: result.networks,
+    workflows: result.workflows,
     errors: result.errors,
     placeholders,
     bootstrap: result.bootstrap ?? null

@@ -209,6 +209,27 @@ export function applyObservatoryWorkflowDefaults(
         defaults.metastoreNamespace ?? config.metastore?.namespace ?? DEFAULT_CALIBRATION_NAMESPACE;
       defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
       break;
+    case 'observatory-calibration-reprocess':
+      defaults.mode = defaults.mode ?? 'all';
+      defaults.selectedPartitions = Array.isArray(defaults.selectedPartitions)
+        ? defaults.selectedPartitions
+        : [];
+      defaults.maxConcurrency = defaults.maxConcurrency ?? 3;
+      defaults.pollIntervalMs = defaults.pollIntervalMs ?? 1500;
+      defaults.catalogBaseUrl = config.catalog?.baseUrl ?? defaults.catalogBaseUrl ?? null;
+      defaults.catalogApiToken = config.catalog?.apiToken ?? defaults.catalogApiToken ?? null;
+      defaults.filestoreBaseUrl = config.filestore.baseUrl;
+      defaults.filestoreBackendId = config.filestore.backendMountId;
+      defaults.filestoreToken = config.filestore.token ?? null;
+      defaults.filestorePrincipal = defaults.filestorePrincipal ?? 'observatory-calibration-reprocessor';
+      defaults.metastoreBaseUrl = config.metastore?.baseUrl ?? defaults.metastoreBaseUrl ?? null;
+      const planNamespace =
+        (config.metastore as { planNamespace?: string } | undefined)?.planNamespace ??
+        config.metastore?.namespace ??
+        'observatory.reprocess.plans';
+      defaults.metastoreNamespace = defaults.metastoreNamespace ?? planNamespace;
+      defaults.metastoreAuthToken = config.metastore?.authToken ?? defaults.metastoreAuthToken ?? null;
+      break;
     default:
       break;
   }

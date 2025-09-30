@@ -43,6 +43,7 @@ export type {
 export {
   readExampleDescriptor,
   resolveBundleManifests,
+  resolveWorkflowManifests,
   discoverLocalDescriptorConfigs,
   readBundleSlugFromConfig
 } from './descriptors/loader';
@@ -51,3 +52,4 @@ export type {
   ExampleDescriptorImport,
   ExampleDescriptorManifest
 } from './descriptors/schema';
+export type { WorkflowManifestReference } from './descriptors/loader';

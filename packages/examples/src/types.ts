@@ -251,7 +251,10 @@ export type WorkflowProvisioningPlanTemplate = {
 export type ExampleWorkflowSlug =
   | 'observatory-minute-data-generator'
   | 'observatory-minute-ingest'
-  | 'observatory-daily-publication';
+  | 'observatory-daily-publication'
+  | 'observatory-dashboard-aggregate'
+  | 'observatory-calibration-import'
+  | 'observatory-calibration-reprocess';
 
 export type ExampleWorkflow = {
   slug: ExampleWorkflowSlug;

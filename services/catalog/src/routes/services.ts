@@ -11,22 +11,30 @@ import {
   type ServiceStatusUpdate,
   type ServiceUpsertInput
 } from '../db/index';
+import {
+  createWorkflowDefinition,
+  updateWorkflowDefinition,
+  getWorkflowDefinitionBySlug
+} from '../db/workflows';
 import { fetchFromService } from '../clients/serviceClient';
 import {
   previewServiceConfigImport,
   type LoadedManifestEntry,
-  type LoadedServiceNetwork
+  type LoadedServiceNetwork,
+  type LoadedWorkflowDefinition
 } from '../serviceConfigLoader';
 import { serializeService } from './shared/serializers';
 import { jsonValueSchema } from '../workflows/zodSchemas';
 import { mergeServiceMetadata, serviceMetadataUpdateSchema } from '../serviceMetadata';
-import { executeBootstrapPlan, registerWorkflowDefaults } from '../bootstrap';
+import { executeBootstrapPlan, registerWorkflowDefaults, getWorkflowDefaultParameters } from '../bootstrap';
+import { buildWorkflowDagMetadata, applyDagMetadataToSteps } from '../workflows/dag';
 import {
   applyPlaceholderValuesToManifest,
   buildBootstrapContext,
   updatePlaceholderSummaries
 } from '../serviceManifestHelpers';
 import { getServiceHealthSnapshot, getServiceHealthSnapshots } from '../serviceRegistry';
+import type { WorkflowStepDefinition, WorkflowTriggerDefinition } from '../db/types';
 
 const SERVICE_REGISTRY_TOKEN = process.env.SERVICE_REGISTRY_TOKEN ?? '';
 
@@ -72,6 +80,97 @@ function normalizeVariables(input?: Record<string, string> | null): Record<strin
     normalized[key] = value;
   }
   return normalized;
+}
+
+async function upsertModuleWorkflows(
+  workflows: LoadedWorkflowDefinition[],
+  options: { moduleId: string; logger: FastifyBaseLogger }
+): Promise<void> {
+  if (workflows.length === 0) {
+    return;
+  }
+
+  const failures: Array<{ slug: string; error: Error }> = [];
+
+  for (const workflow of workflows) {
+    try {
+      const parsed = workflow.definition;
+      const slug = parsed.slug.trim();
+      const name = parsed.name;
+      const description = parsed.description ?? null;
+      const version = parsed.version ?? undefined;
+
+      const existingDefaults =
+        parsed.defaultParameters && typeof parsed.defaultParameters === 'object' && !Array.isArray(parsed.defaultParameters)
+          ? { ...(parsed.defaultParameters as Record<string, JsonValue>) }
+          : {};
+      const moduleDefaults = getWorkflowDefaultParameters(slug);
+      if (moduleDefaults) {
+        for (const [key, value] of Object.entries(moduleDefaults)) {
+          existingDefaults[key] = value;
+        }
+      }
+      const mergedDefaults = Object.keys(existingDefaults).length > 0 ? existingDefaults : null;
+
+      const steps = (parsed.steps ?? []) as WorkflowStepDefinition[];
+      const triggers = parsed.triggers as WorkflowTriggerDefinition[] | undefined;
+      const dagMetadata = buildWorkflowDagMetadata(steps);
+      const stepsWithDag = applyDagMetadataToSteps(steps, dagMetadata) as WorkflowStepDefinition[];
+      const parametersSchema = parsed.parametersSchema ?? {};
+      const outputSchema = parsed.outputSchema ?? {};
+      const metadata = parsed.metadata ?? null;
+
+      const existing = await getWorkflowDefinitionBySlug(slug);
+      if (!existing) {
+        await createWorkflowDefinition({
+          slug,
+          name,
+          version,
+          description,
+          steps: stepsWithDag,
+          triggers,
+          parametersSchema,
+          defaultParameters: mergedDefaults,
+          outputSchema,
+          metadata,
+          dag: dagMetadata
+        });
+        options.logger.info(
+          { workflow: slug, moduleId: options.moduleId, sources: workflow.sources },
+          'Imported workflow definition from module'
+        );
+      } else {
+        await updateWorkflowDefinition(slug, {
+          name,
+          version,
+          description,
+          steps: stepsWithDag,
+          triggers,
+          parametersSchema,
+          defaultParameters: mergedDefaults,
+          outputSchema,
+          metadata,
+          dag: dagMetadata
+        });
+        options.logger.info(
+          { workflow: slug, moduleId: options.moduleId, sources: workflow.sources },
+          'Updated workflow definition from module'
+        );
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      options.logger.error(
+        { err: error, workflow: workflow.slug, moduleId: options.moduleId, sources: workflow.sources },
+        'Failed to import workflow definition'
+      );
+      failures.push({ slug: workflow.slug, error });
+    }
+  }
+
+  if (failures.length > 0) {
+    const detail = failures.map((entry) => `${entry.slug}: ${entry.error.message}`).join('; ');
+    throw new Error(`failed to import ${failures.length} workflow definitions: ${detail}`);
+  }
 }
 
 const serviceStatusSchema = z.enum(['unknown', 'healthy', 'degraded', 'unreachable']);
@@ -290,6 +389,9 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
           logger: request.log
         });
         placeholderValues = bootstrapResult.placeholders;
+        if (bootstrapResult.workflowDefaults.size) {
+          registerWorkflowDefaults(preview.moduleId, bootstrapResult.workflowDefaults);
+        }
       } catch (err) {
         request.log.error(
           { err, module: preview.moduleId },
@@ -309,15 +411,22 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
     applyPlaceholderValuesToManifest(preview.placeholders, preview.entries, preview.networks, placeholderValues);
 
     try {
+      await upsertModuleWorkflows(preview.workflows, {
+        moduleId: preview.moduleId,
+        logger: request.log
+      });
+    } catch (err) {
+      request.log.error({ err, module: preview.moduleId }, 'failed to import workflows for module');
+      reply.status(500);
+      return { error: 'failed to import workflows for module' };
+    }
+
+    try {
       await registry.importManifestModule({
         moduleId: preview.moduleId,
         entries: preview.entries,
         networks: preview.networks
       });
-
-      if (bootstrapResult?.workflowDefaults.size) {
-        registerWorkflowDefaults(preview.moduleId, bootstrapResult.workflowDefaults);
-      }
     } catch (err) {
       request.log.error(
         { err, module: preview.moduleId },
@@ -333,7 +442,8 @@ async function processServiceManifestImport(request: FastifyRequest, reply: Fast
         module: preview.moduleId,
         resolvedCommit: preview.resolvedCommit ?? commit ?? image ?? null,
         servicesDiscovered: preview.entries.length,
-        networksDiscovered: preview.networks.length
+        networksDiscovered: preview.networks.length,
+        workflowsDiscovered: preview.workflows.length
       }
     };
   }

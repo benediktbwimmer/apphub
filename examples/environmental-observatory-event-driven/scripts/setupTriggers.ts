@@ -1,4 +1,11 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { fetch } from 'undici';
+import {
+  applyObservatoryWorkflowDefaults,
+  type EventDrivenObservatoryConfig,
+  type WorkflowDefinitionTemplate
+} from '@apphub/examples';
 import { loadObservatoryConfig } from '../shared/config';
 
 type TriggerDefinition = {
@@ -15,12 +22,90 @@ type TriggerDefinition = {
   }>;
   parameterTemplate: Record<string, unknown>;
   metadata: Record<string, unknown>;
-  throttleWindowMs?: number;
-  throttleCount?: number;
-  maxConcurrency?: number;
+  throttleWindowMs?: number | null;
+  throttleCount?: number | null;
+  maxConcurrency?: number | null;
   idempotencyKeyExpression?: string;
   runKeyTemplate?: string;
 };
+
+function sanitizeTriggerDefinition(definition: TriggerDefinition): TriggerDefinition {
+  const normalized: TriggerDefinition = { ...definition };
+
+  if (!(typeof normalized.throttleWindowMs === 'number' && normalized.throttleWindowMs > 0)) {
+    delete normalized.throttleWindowMs;
+  }
+
+  if (!(typeof normalized.throttleCount === 'number' && normalized.throttleCount > 0)) {
+    delete normalized.throttleCount;
+  }
+
+  if (!(typeof normalized.maxConcurrency === 'number' && normalized.maxConcurrency > 0)) {
+    delete normalized.maxConcurrency;
+  }
+
+  return normalized;
+}
+
+async function getWorkflow(baseUrl: string, token: string, slug: string): Promise<unknown | null> {
+  const response = await fetch(new URL(`/workflows/${slug}`, baseUrl), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Catalog request failed (${response.status}): ${text}`);
+  }
+
+  return response.json();
+}
+
+async function ensureWorkflow(
+  baseUrl: string,
+  token: string,
+  slug: string,
+  config: EventDrivenObservatoryConfig
+): Promise<void> {
+  const workflowFiles: Record<string, string> = {
+    'observatory-minute-data-generator': 'workflows/observatory-minute-data-generator.json',
+    'observatory-minute-ingest': 'workflows/observatory-minute-ingest.json',
+    'observatory-daily-publication': 'workflows/observatory-daily-publication.json',
+    'observatory-dashboard-aggregate': 'workflows/observatory-dashboard-aggregate.json',
+    'observatory-calibration-import': 'workflows/observatory-calibration-import.json',
+    'observatory-calibration-reprocess': 'workflows/observatory-calibration-reprocess.json'
+  } as const;
+
+  const relativePath = workflowFiles[slug];
+  if (!relativePath) {
+    return;
+  }
+
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const absolutePath = path.resolve(repoRoot, 'examples', 'environmental-observatory-event-driven', relativePath);
+  const contents = await readFile(absolutePath, 'utf8');
+  const definition = JSON.parse(contents) as WorkflowDefinitionTemplate;
+  applyObservatoryWorkflowDefaults(definition, config);
+
+  const existing = await getWorkflow(baseUrl, token, slug);
+  if (!existing) {
+    await request(baseUrl, token, 'POST', '/workflows', definition);
+    console.log(`Created workflow ${slug}`);
+    return;
+  }
+
+  await request(baseUrl, token, 'PATCH', `/workflows/${slug}`, {
+    defaultParameters: definition.defaultParameters,
+    metadata: definition.metadata ?? null
+  });
+  console.log(`Updated workflow ${slug}`);
+}
 
 async function request<T>(
   baseUrl: string,
@@ -121,12 +206,30 @@ async function ensureTrigger(
 }
 
 async function main(): Promise<void> {
-  const config = loadObservatoryConfig();
+  const rawConfig = loadObservatoryConfig();
+  const config = rawConfig as EventDrivenObservatoryConfig;
   const catalogBaseUrl = config.catalog?.baseUrl ?? 'http://127.0.0.1:4000';
   const catalogToken = config.catalog?.apiToken;
 
   if (!catalogToken) {
     throw new Error('Catalog API token missing. Set catalog.apiToken in the observatory config.');
+  }
+
+  const workflowSlugs = new Set<string>();
+  if (config.workflows.aggregateSlug) {
+    workflowSlugs.add(config.workflows.aggregateSlug);
+  }
+  if (config.workflows.calibrationImportSlug) {
+    workflowSlugs.add(config.workflows.calibrationImportSlug);
+  }
+  const calibrationReprocessSlug =
+    config.workflows.reprocessSlug && config.workflows.reprocessSlug.trim().length > 0
+      ? config.workflows.reprocessSlug
+      : 'observatory-calibration-reprocess';
+  workflowSlugs.add(calibrationReprocessSlug);
+
+  for (const slug of workflowSlugs) {
+    await ensureWorkflow(catalogBaseUrl, catalogToken, slug, config);
   }
 
   const ingestMetadata: Record<string, unknown> = {
@@ -477,7 +580,9 @@ async function main(): Promise<void> {
     }
   ];
 
-  for (const trigger of triggers) {
+  const normalizedTriggers = triggers.map((trigger) => sanitizeTriggerDefinition(trigger));
+
+  for (const trigger of normalizedTriggers) {
     await ensureTrigger(catalogBaseUrl, catalogToken, trigger);
   }
 

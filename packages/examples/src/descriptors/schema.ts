@@ -3,7 +3,7 @@ import { z } from 'zod';
 const manifestReferenceSchema = z
   .object({
     path: z.string().min(1),
-    kind: z.enum(['services', 'networks', 'bundle']).optional(),
+    kind: z.enum(['services', 'networks', 'bundle', 'workflow']).optional(),
     description: z.string().optional()
   })
   .strict();
