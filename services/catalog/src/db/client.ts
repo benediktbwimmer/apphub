@@ -15,7 +15,7 @@ function buildPool(options: PoolOptions = {}) {
   return createPostgresPool({
     connectionString:
       options.connectionString ?? process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
-    max: options.max ?? Number(process.env.PGPOOL_MAX ?? 20),
+    max: options.max ?? Number(process.env.PGPOOL_MAX ?? 5),
     idleTimeoutMillis: options.idleTimeoutMillis ?? Number(process.env.PGPOOL_IDLE_TIMEOUT_MS ?? 30_000),
     connectionTimeoutMillis:
       options.connectionTimeoutMillis ?? Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS ?? 10_000)

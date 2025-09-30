@@ -128,7 +128,7 @@ export function loadServiceConfig(): ServiceConfig {
   const logLevel = resolveLogLevel(env.FILESTORE_LOG_LEVEL);
   const databaseUrl = env.FILESTORE_DATABASE_URL || env.DATABASE_URL || 'postgres://apphub:apphub@127.0.0.1:5432/apphub';
   const schema = env.FILESTORE_PG_SCHEMA || 'filestore';
-  const maxConnections = parseNumber(env.FILESTORE_PGPOOL_MAX || env.PGPOOL_MAX, 10);
+  const maxConnections = parseNumber(env.FILESTORE_PGPOOL_MAX || env.PGPOOL_MAX, 5);
   const idleTimeoutMs = parseNumber(env.FILESTORE_PGPOOL_IDLE_TIMEOUT_MS || env.PGPOOL_IDLE_TIMEOUT_MS, 30_000);
   const connectionTimeoutMs = parseNumber(
     env.FILESTORE_PGPOOL_CONNECTION_TIMEOUT_MS || env.PGPOOL_CONNECTION_TIMEOUT_MS,

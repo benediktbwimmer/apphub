@@ -358,7 +358,7 @@ export function loadServiceConfig(): ServiceConfig {
   const defaultNamespace = process.env.APPHUB_METASTORE_DEFAULT_NAMESPACE ?? 'default';
   const metricsEnabled = parseBoolean(process.env.APPHUB_METRICS_ENABLED, true);
   const schema = process.env.APPHUB_METASTORE_PG_SCHEMA ?? 'metastore';
-  const maxConnections = parseNumber(process.env.APPHUB_METASTORE_PGPOOL_MAX ?? process.env.PGPOOL_MAX, 10);
+  const maxConnections = parseNumber(process.env.APPHUB_METASTORE_PGPOOL_MAX ?? process.env.PGPOOL_MAX, 5);
   const idleTimeoutMs = parseNumber(
     process.env.APPHUB_METASTORE_PGPOOL_IDLE_TIMEOUT_MS ?? process.env.PGPOOL_IDLE_TIMEOUT_MS,
     30_000

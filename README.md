@@ -273,7 +273,7 @@ Update as needed for different deployment targets.
 PORT=4000                              # API port
 HOST=::                                # Bind address (set 0.0.0.0 when containerised)
 DATABASE_URL=postgres://apphub:apphub@127.0.0.1:5432/apphub
-PGPOOL_MAX=20
+PGPOOL_MAX=5
 PGPOOL_IDLE_TIMEOUT_MS=30000
 PGPOOL_CONNECTION_TIMEOUT_MS=10000
 SERVICE_REGISTRY_TOKEN=
