@@ -26,7 +26,7 @@ The MCP server reuses the ticket store directly, so all changes immediately appe
 
 | Tool | Purpose | Input Schema |
 | --- | --- | --- |
-| `ticket_create` | Create a ticket from the shared schema. | `{ title, description, id?, status?, priority?, assignees?, tags?, dependencies?, dueAt?, links?, metadata?, fields?, history?, actor?, message?, authToken? }` |
+| `ticket_create` | Create a ticket from the shared schema. | `{ title, description, id?, status?, priority?, assignees?, tags?, dependencies?, dueAt?, actor?, message?, authToken? }` |
 | `ticket_update_status` | Change a ticket status with optional comment. | `{ id, status, comment?, expectedRevision?, actor?, authToken? }` |
 | `ticket_add_dependency` | Append a dependency, rejecting self-references. | `{ id, dependencyId, expectedRevision?, actor?, authToken? }` |
 | `ticket_comment` | Add a history comment without mutating other fields. | `{ id, comment, expectedRevision?, actor?, authToken? }` |
@@ -47,4 +47,6 @@ All tool responses include a JSON payload plus a short text summary, which most 
 1. Set `TICKETING_MCP_TOKENS` in a local `.env.local` or agent manifest.
 2. Configure your MCP-capable agent to run `npm run mcp --workspace @apphub/ticketing-service` from the repo root.
 3. Confirm that `ticket_list` returns data and `ticket_create` writes `tickets/*.ticket.yaml` files.
+
+> Note: Advanced fields such as links, metadata, or seed history are currently omitted from the MCP contract to satisfy Codex CLI parsing quirks. The HTTP API continues to support these fields.
 4. Coordinate token distribution with teammates before enabling in shared environments.

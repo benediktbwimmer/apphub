@@ -3,7 +3,6 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   TicketStore,
   newTicketInputSchema,
-  ticketActivityActionSchema,
   ticketIdSchema,
   ticketPrioritySchema,
   ticketStatusSchema,
@@ -36,32 +35,6 @@ const createTicketShape = {
   tags: z.array(z.string().trim().min(1)).optional(),
   dependencies: z.array(createTicketIdInput()).optional(),
   dueAt: z.string().trim().datetime({ message: 'dueAt must be an ISO-8601 timestamp' }).optional(),
-  links: z
-    .array(
-      z.object({
-        label: z.string().trim().min(1),
-        url: z.string().trim().url(),
-        kind: z
-          .enum(['doc', 'issue', 'pr', 'design', 'spec', 'other'])
-          .optional(),
-        metadata: z.record(z.string(), z.unknown()).optional()
-      })
-    )
-    .optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  fields: z.record(z.string(), z.unknown()).optional(),
-  history: z
-    .array(
-      z.object({
-        id: z.string().trim().min(8),
-        actor: z.string().trim().min(1),
-        action: ticketActivityActionSchema,
-        at: z.string().trim().datetime({ message: 'Activity timestamp must be ISO-8601' }),
-        message: z.string().trim().optional(),
-        payload: z.record(z.string(), z.unknown()).optional()
-      })
-    )
-    .optional(),
   actor: z.string().trim().min(1).optional(),
   message: z.string().trim().optional()
 } as const;
