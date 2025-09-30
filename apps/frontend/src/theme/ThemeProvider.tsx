@@ -288,6 +288,61 @@ function applyThemeClasses(theme: ThemeDefinition, previousThemeId: string | nul
   }
 }
 
+function applyThemeVariables(theme: ThemeDefinition): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const root = document.documentElement;
+  const setVar = (name: string, value: string | number) => {
+    root.style.setProperty(name, String(value));
+  };
+
+  setVar('color-scheme', theme.scheme);
+  setVar('--theme-id', JSON.stringify(theme.id));
+  setVar('--theme-label', JSON.stringify(theme.label));
+
+  const { typography, spacing, radius, shadow, semantics } = theme;
+
+  for (const [token, value] of Object.entries(typography.fontFamily)) {
+    setVar(`--font-family-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(typography.fontSize)) {
+    setVar(`--font-size-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(typography.fontWeight)) {
+    setVar(`--font-weight-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(typography.lineHeight)) {
+    setVar(`--line-height-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(typography.letterSpacing)) {
+    setVar(`--letter-spacing-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(spacing)) {
+    setVar(`--space-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(radius)) {
+    setVar(`--radius-${toKebabCase(token)}`, value);
+  }
+
+  for (const [token, value] of Object.entries(shadow)) {
+    setVar(`--shadow-${toKebabCase(token)}`, value);
+  }
+
+  for (const [group, groupValues] of Object.entries(semantics)) {
+    for (const [token, value] of Object.entries(groupValues as Record<string, string>)) {
+      setVar(`--color-${toKebabCase(group)}-${toKebabCase(token)}`, value);
+    }
+  }
+}
+
 export function ThemeProvider({
   children,
   themes = defaultThemeRegistry,
@@ -379,6 +434,7 @@ export function ThemeProvider({
 
   useEffect(() => {
     applyThemeClasses(activeTheme, previousThemeIdRef.current);
+    applyThemeVariables(activeTheme);
     previousThemeIdRef.current = activeTheme.id;
   }, [activeTheme]);
 

@@ -2,14 +2,28 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { useEffect, useContext, type ReactNode } from 'react';
-import { ThemeProvider } from '../../theme';
-import { createTheme, defaultThemeRegistry } from '@apphub/shared/designTokens';
+import { ThemeProvider, useTheme, type ThemePreference } from '../../theme';
+import { generateThemeCss } from '../../theme/generateThemeCss';
+import { createTheme, defaultThemeRegistry, foundation } from '@apphub/shared/designTokens';
 import Navbar from '../Navbar';
 import { PRIMARY_NAV_ITEMS } from '../../routes/paths';
 import FormButton from '../form/FormButton';
 import { Modal } from '../Modal';
 import { ToastProvider } from '../toast/ToastProvider';
 import { ToastContext, type ToastTone } from '../toast/ToastContext';
+
+const themeCss = generateThemeCss({
+  foundation,
+  themes: defaultThemeRegistry,
+  options: { defaultThemeId: 'apphub-light' }
+});
+
+beforeAll(() => {
+  const style = document.createElement('style');
+  style.setAttribute('data-testid', 'theme-css-test');
+  style.textContent = themeCss;
+  document.head.appendChild(style);
+});
 
 const highContrastTheme = createTheme({
   base: defaultThemeRegistry['apphub-dark'],
@@ -87,6 +101,19 @@ function TriggerToast({ tone }: { tone: ToastTone }) {
   return null;
 }
 
+function PreferenceSetter({ themeId }: { themeId: ThemePreference }) {
+  const { setPreference } = useTheme();
+  useEffect(() => {
+    setPreference(themeId);
+  }, [setPreference, themeId]);
+  return null;
+}
+
+function ThemeIdProbe() {
+  const { theme } = useTheme();
+  return <span data-testid="theme-id">{theme.id}</span>;
+}
+
 describe('Semantic theming primitives', () => {
   it('applies semantic classes to the active nav item across themes', async () => {
     const { unmount } = renderWithTheme(
@@ -148,6 +175,33 @@ describe('Semantic theming primitives', () => {
     );
 
     expect(screen.getByTestId('primary').className).toContain('bg-accent');
+  });
+
+  it('switches to new dark themes and updates root attributes', async () => {
+    renderWithTheme(
+      <>
+        <PreferenceSetter themeId="apphub-nebula" />
+        <ThemeIdProbe />
+        <FormButton data-testid="accent-button" variant="primary">
+          Launch
+        </FormButton>
+      </>
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('data-theme')).toBe('apphub-nebula');
+    });
+    expect(screen.getByTestId('theme-id').textContent).toBe('apphub-nebula');
+    expect(document.documentElement.classList.contains('theme-apphub-nebula')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-dark')).toBe(true);
+    const computed = getComputedStyle(document.documentElement);
+    expect(computed.getPropertyValue('--color-accent-default').trim()).toBe(
+      defaultThemeRegistry['apphub-nebula']!.semantics.accent.default
+    );
+    expect(computed.getPropertyValue('--color-surface-canvas').trim()).toBe(
+      defaultThemeRegistry['apphub-nebula']!.semantics.surface.canvas
+    );
+    expect(screen.getByTestId('accent-button').className).toContain('bg-accent');
   });
 
   it('uses semantic tokens for modal surfaces', () => {
