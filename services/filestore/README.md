@@ -36,6 +36,9 @@ Environment variables:
 | `FILESTORE_EVENTS_MODE` | inferred | `inline` to disable Redis pub/sub for tests, `redis` to require Redis. |
 | `FILESTORE_EVENTS_CHANNEL` | `${FILESTORE_REDIS_KEY_PREFIX}:filestore` | Redis pub/sub channel for filestore events. |
 | `FILESTORE_EVENTS_MODE` | `inline` when `REDIS_URL=inline` else `redis` | Controls event delivery strategy for SDK/CLI consumers. |
+| `FILESTORE_JOURNAL_RETENTION_DAYS` | `30` | Days to retain journal entries used for idempotency replay (`0` disables pruning). |
+| `FILESTORE_JOURNAL_PRUNE_BATCH_SIZE` | `500` | Maximum journal entries deleted per pruning pass. |
+| `FILESTORE_JOURNAL_PRUNE_INTERVAL_MS` | `60000` | Minimum interval between prune attempts (`0` checks after every command). |
 
 ## Events
 
@@ -83,5 +86,7 @@ For local development without Redis, use the SSE endpoint exposed at `/v1/events
   - `pathPrefix=<prefix>` limits payloads to paths starting with the provided prefix.
   - `events=<type>` (repeatable) restricts the stream to specific `filestore.*` event types.
   The stream applies a token-bucket rate limiter (200 frames/sec with bounded buffering) and respects Node's backpressure signals to keep chatty mounts from overwhelming clients.
+
+All mutating endpoints accept an `idempotencyKey` in the JSON payload (or the `Idempotency-Key`/`X-Idempotency-Key` headers) so retries can safely reuse prior results without creating duplicate nodes.
 
 Migrations run automatically during startup; the service terminates if schema creation or migration fails.

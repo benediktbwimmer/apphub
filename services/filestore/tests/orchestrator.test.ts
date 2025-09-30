@@ -23,6 +23,7 @@ let migrationsModule: typeof import('../src/db/migrations');
 let configModule: typeof import('../src/config/serviceConfig');
 let nodesModule: typeof import('../src/db/nodes');
 let orchestratorModule: typeof import('../src/commands/orchestrator');
+let journalModule: typeof import('../src/db/journal');
 let rollupManagerModule: typeof import('../src/rollup/manager');
 let eventsModule: typeof import('../src/events/publisher');
 let reconciliationManagerModule: typeof import('../src/reconciliation/manager');
@@ -67,7 +68,8 @@ before(async () => {
     '../src/config/serviceConfig',
     '../src/rollup/manager',
     '../src/reconciliation/manager',
-    '../src/events/publisher'
+    '../src/events/publisher',
+    '../src/db/journal'
   ];
 
   for (const modulePath of modulePaths) {
@@ -86,6 +88,7 @@ before(async () => {
   rollupManagerModule = await import('../src/rollup/manager');
   reconciliationManagerModule = await import('../src/reconciliation/manager');
   eventsModule = await import('../src/events/publisher');
+  journalModule = await import('../src/db/journal');
   rollupManagerModule.resetRollupManagerForTests();
   reconciliationManagerModule.resetReconciliationManagerForTests();
   eventsModule.resetFilestoreEventsForTests();
@@ -580,6 +583,17 @@ test('deleteNode marks node as deleted', async () => {
   assert.ok(parentRollup);
   assert.equal(parentRollup?.directoryCount, 0);
   assert.equal(parentRollup?.childCount, 0);
+
+  const secondDelete = await orchestratorModule.runCommand({
+    command: {
+      type: 'deleteNode',
+      backendMountId,
+      path: 'datasets/to-delete'
+    },
+    executors
+  });
+  assert.equal(secondDelete.idempotent, true);
+  assert.equal(secondDelete.result.state, 'deleted');
 });
 
 test('copyNode is idempotent when target already exists', async () => {
@@ -645,6 +659,7 @@ test('copyNode is idempotent when target already exists', async () => {
     });
     assert.equal(secondCopy.result.path, 'datasets/staging/source.csv');
     assert.equal((secondCopy.result as Record<string, unknown>).idempotent, true);
+    assert.equal(secondCopy.idempotent, true);
 
     const targetNodeAfterSecond = await clientModule.withConnection((client) =>
       nodesModule.getNodeByPath(client, backendMountId, 'datasets/staging/source.csv')
@@ -663,4 +678,50 @@ test('copyNode is idempotent when target already exists', async () => {
   } finally {
     await rm(stagingDir, { recursive: true, force: true });
   }
+});
+
+test('pruneJournalEntriesOlderThan deletes rows older than cutoff', async () => {
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const cutoff = new Date(now - 30 * dayMs);
+  const timestamps = [
+    new Date(now - 40 * dayMs),
+    new Date(now - 10 * dayMs),
+    new Date(now - 5 * dayMs)
+  ] as const;
+  const [ts1, ts2, ts3] = timestamps;
+
+  await clientModule.withConnection(async (client) => {
+    await client.query(
+      `INSERT INTO journal_entries (command, status, executor_kind, created_at, started_at)
+       VALUES
+         ('uploadFile', 'succeeded', 'local', $1, $1),
+         ('deleteNode', 'succeeded', 'local', $2, $2),
+         ('moveNode', 'running', 'local', $3, $3)
+      `,
+      [ts1, ts2, ts3]
+    );
+  });
+
+  const beforeCount = await getJournalCount();
+  assert.ok(beforeCount >= 3);
+
+  const deleted = await journalModule.pruneJournalEntriesOlderThan(cutoff, 100);
+  assert.equal(deleted, 1);
+
+  const afterCount = await getJournalCount();
+  assert.equal(afterCount, beforeCount - 1);
+
+  const remainingOlderThanCutoff = await clientModule.withConnection(async (client) => {
+    const { rows } = await client.query<{ count: number }>(
+      'SELECT COUNT(*)::int AS count FROM journal_entries WHERE created_at < $1',
+      [cutoff]
+    );
+    return rows[0].count;
+  });
+  assert.equal(remainingOlderThanCutoff, 0);
+
+  await clientModule.withConnection(async (client) => {
+    await client.query('DELETE FROM journal_entries WHERE started_at IN ($1, $2, $3)', [ts1, ts2, ts3]);
+  });
 });

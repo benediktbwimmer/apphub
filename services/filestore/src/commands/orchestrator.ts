@@ -28,6 +28,8 @@ import {
   computeContribution
 } from '../rollup/manager';
 import { createEmptyRollupPlan, type AppliedRollupPlan, type RollupPlan } from '../rollup/types';
+import { loadServiceConfig } from '../config/serviceConfig';
+import { pruneJournalEntriesOlderThan } from '../db/journal';
 
 export type RunCommandOptions = {
   command: unknown;
@@ -53,6 +55,7 @@ type InternalCommandOutcome = {
   backendMountId: number;
   result: CommandResultPayload;
   rollupPlan: RollupPlan;
+  idempotent: boolean;
 };
 
 type Contribution = ReturnType<typeof computeContribution>;
@@ -64,6 +67,45 @@ function diffContribution(before: Contribution, after: Contribution) {
     directoryCountDelta: after.directoryCount - before.directoryCount,
     childCountDelta: (after.active ? 1 : 0) - (before.active ? 1 : 0)
   };
+}
+
+const MS_PER_DAY = 86_400_000;
+let lastJournalPruneAt = 0;
+let journalPruneInFlight: Promise<void> | null = null;
+
+function scheduleJournalPrune(): void {
+  const config = loadServiceConfig();
+  const retentionDays = config.journal.retentionDays;
+  if (retentionDays <= 0) {
+    return;
+  }
+
+  const now = Date.now();
+  if (config.journal.pruneIntervalMs > 0 && now - lastJournalPruneAt < config.journal.pruneIntervalMs) {
+    return;
+  }
+
+  if (journalPruneInFlight) {
+    return;
+  }
+
+  lastJournalPruneAt = now;
+  const cutoff = new Date(now - retentionDays * MS_PER_DAY);
+  const limit = config.journal.pruneBatchSize;
+
+  journalPruneInFlight = pruneJournalEntriesOlderThan(cutoff, limit)
+    .then((deleted) => {
+      if (deleted >= limit) {
+        // If we hit the limit, immediately allow another pass so we don't lag behind.
+        lastJournalPruneAt = 0;
+      }
+    })
+    .catch((err) => {
+      console.warn('[filestore] failed to prune journal entries', { err });
+    })
+    .finally(() => {
+      journalPruneInFlight = null;
+    });
 }
 
 async function applyCreateDirectory(
@@ -192,7 +234,8 @@ async function applyCreateDirectory(
     affectedNodeIds: [node.id],
     backendMountId: backend.id,
     result: buildResultPayload(node, command.type),
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -324,7 +367,8 @@ async function applyUploadFile(
       mimeType: command.mimeType ?? null,
       originalName: command.originalName ?? null
     },
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -447,7 +491,8 @@ async function applyWriteFile(
       previousVersion: existing.version,
       previousSizeBytes: existing.sizeBytes
     },
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -486,7 +531,8 @@ async function applyDeleteNode(
         invalidate: [],
         touchedNodeIds: [],
         scheduleCandidates: []
-      }
+      },
+      idempotent: true
     };
   }
 
@@ -549,7 +595,8 @@ async function applyDeleteNode(
     affectedNodeIds: [updated.id],
     backendMountId: backend.id,
     result: buildResultPayload(updated, command.type),
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -602,7 +649,8 @@ async function applyMoveNode(
         invalidate: [],
         touchedNodeIds: [node.id],
         scheduleCandidates: []
-      }
+      },
+      idempotent: true
     };
   }
 
@@ -759,7 +807,8 @@ async function applyMoveNode(
       ...buildResultPayload(updatedRoot, command.type),
       movedFrom: normalizedSource
     },
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -804,7 +853,8 @@ async function applyUpdateNodeMetadata(
     affectedNodeIds: [updated.id],
     backendMountId: backend.id,
     result: buildResultPayload(updated, command.type),
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -851,7 +901,8 @@ async function applyCopyNode(
         copiedFrom: normalizedSource,
         idempotent: true
       },
-      rollupPlan
+      rollupPlan,
+      idempotent: true
     } satisfies InternalCommandOutcome;
   }
 
@@ -937,7 +988,8 @@ async function applyCopyNode(
         copiedFrom: normalizedSource,
         idempotent: true
       },
-      rollupPlan
+      rollupPlan,
+      idempotent: true
     } satisfies InternalCommandOutcome;
   }
 
@@ -1010,7 +1062,8 @@ async function applyCopyNode(
       ...buildResultPayload(copiedRoot, command.type),
       copiedFrom: normalizedSource
     },
-    rollupPlan
+    rollupPlan,
+    idempotent: false
   };
 }
 
@@ -1150,18 +1203,22 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     const journalEntryId = journalInsert.rows[0].id;
     const startTime = process.hrtime.bigint();
 
-    emitted = await executeCommand(client, backend, parsed, runtimeExecutor);
-    rollupPlan = emitted.rollupPlan;
+    const execution = await executeCommand(client, backend, parsed, runtimeExecutor);
+    emitted = execution;
+    rollupPlan = execution.rollupPlan;
     appliedRollupPlan = await applyRollupPlanWithinTransaction(client, rollupPlan);
 
     const durationNs = Number(process.hrtime.bigint() - startTime);
     const durationMs = Math.round(durationNs / 1_000_000);
 
     const resultWithDuration: CommandResultPayload = {
-      ...emitted.result,
+      ...execution.result,
       durationMs
     };
-    emitted.result = resultWithDuration;
+    if (execution.idempotent && resultWithDuration.idempotent !== true) {
+      resultWithDuration.idempotent = true;
+    }
+    execution.result = resultWithDuration;
 
     await client.query(
       `UPDATE journal_entries
@@ -1173,7 +1230,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
         WHERE id = $4`,
       [
         JSON.stringify(resultWithDuration),
-        emitted.affectedNodeIds,
+        execution.affectedNodeIds,
         durationMs,
         journalEntryId
       ]
@@ -1181,9 +1238,9 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
 
     const runResult: RunCommandResult = {
       journalEntryId,
-      node: emitted.primaryNode,
+      node: execution.primaryNode,
       result: resultWithDuration,
-      idempotent: false,
+      idempotent: execution.idempotent,
       command: parsed
     };
     return runResult;
@@ -1208,6 +1265,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
       node: outcome.node ?? null,
       result: outcome.result
     });
+    scheduleJournalPrune();
   }
 
   return outcome;

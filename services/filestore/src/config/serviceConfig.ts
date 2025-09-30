@@ -44,6 +44,11 @@ const configSchema = z.object({
     queueConcurrency: z.number().int().positive(),
     auditIntervalMs: z.number().int().nonnegative(),
     auditBatchSize: z.number().int().positive()
+  }),
+  journal: z.object({
+    retentionDays: z.number().int().nonnegative(),
+    pruneBatchSize: z.number().int().positive(),
+    pruneIntervalMs: z.number().int().nonnegative()
   })
 });
 
@@ -149,6 +154,9 @@ export function loadServiceConfig(): ServiceConfig {
   const reconcileQueueConcurrency = parseNumber(env.FILESTORE_RECONCILE_QUEUE_CONCURRENCY, 1);
   const reconcileAuditInterval = parseNumber(env.FILESTORE_RECONCILE_AUDIT_INTERVAL_MS, 300_000);
   const reconcileAuditBatchSize = parseNumber(env.FILESTORE_RECONCILE_AUDIT_BATCH_SIZE, 100);
+  const journalRetentionDays = parseNumber(env.FILESTORE_JOURNAL_RETENTION_DAYS, 30);
+  const journalPruneBatchSize = parseNumber(env.FILESTORE_JOURNAL_PRUNE_BATCH_SIZE, 500);
+  const journalPruneIntervalMs = parseNumber(env.FILESTORE_JOURNAL_PRUNE_INTERVAL_MS, 60_000);
   const eventsModeEnv = (env.FILESTORE_EVENTS_MODE || '').trim().toLowerCase();
   const derivedRedisInline = redisUrl === 'inline';
   if (derivedRedisInline) {
@@ -202,6 +210,11 @@ export function loadServiceConfig(): ServiceConfig {
       queueConcurrency: reconcileQueueConcurrency > 0 ? reconcileQueueConcurrency : 1,
       auditIntervalMs: Math.max(0, reconcileAuditInterval),
       auditBatchSize: reconcileAuditBatchSize > 0 ? reconcileAuditBatchSize : 100
+    },
+    journal: {
+      retentionDays: Math.max(0, journalRetentionDays),
+      pruneBatchSize: journalPruneBatchSize > 0 ? journalPruneBatchSize : 100,
+      pruneIntervalMs: Math.max(0, journalPruneIntervalMs)
     }
   };
 

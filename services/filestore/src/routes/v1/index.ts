@@ -446,7 +446,8 @@ const reconciliationRequestSchema = z.object({
 const updateMetadataBodySchema = z.object({
   backendMountId: z.number().int().positive(),
   set: z.record(z.string(), z.unknown()).optional(),
-  unset: z.array(z.string()).optional()
+  unset: z.array(z.string()).optional(),
+  idempotencyKey: z.string().min(1).optional()
 });
 
 const moveNodeBodySchema = z.object({
@@ -454,7 +455,8 @@ const moveNodeBodySchema = z.object({
   path: z.string().min(1),
   targetPath: z.string().min(1),
   targetBackendMountId: z.number().int().positive().optional(),
-  overwrite: z.boolean().optional()
+  overwrite: z.boolean().optional(),
+  idempotencyKey: z.string().min(1).optional()
 });
 
 const copyNodeBodySchema = z.object({
@@ -462,7 +464,8 @@ const copyNodeBodySchema = z.object({
   path: z.string().min(1),
   targetPath: z.string().min(1),
   targetBackendMountId: z.number().int().positive().optional(),
-  overwrite: z.boolean().optional()
+  overwrite: z.boolean().optional(),
+  idempotencyKey: z.string().min(1).optional()
 });
 
 const nodeStateFilterSchema = z.enum(['active', 'inconsistent', 'missing', 'deleted']);
@@ -1645,7 +1648,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
     const payload = parseResult.data;
     const principal = resolvePrincipal(request.headers);
-    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+    const idempotencyKey = resolveIdempotencyKey(payload.idempotencyKey, request.headers);
 
     try {
       const result = await runCommand({
@@ -1689,7 +1692,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
     const payload = parseResult.data;
     const principal = resolvePrincipal(request.headers);
-    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+    const idempotencyKey = resolveIdempotencyKey(payload.idempotencyKey, request.headers);
 
     try {
       const result = await runCommand({
@@ -1743,7 +1746,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
     const payload = parseResult.data;
     const principal = resolvePrincipal(request.headers);
-    const idempotencyKey = resolveIdempotencyKey(undefined, request.headers);
+    const idempotencyKey = resolveIdempotencyKey(payload.idempotencyKey, request.headers);
 
     try {
       const result = await runCommand({
