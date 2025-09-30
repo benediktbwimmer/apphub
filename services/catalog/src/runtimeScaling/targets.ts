@@ -1,4 +1,4 @@
-import { INGEST_QUEUE_NAME, BUILD_QUEUE_NAME, WORKFLOW_QUEUE_NAME, QUEUE_KEYS } from '../queue';
+import { INGEST_QUEUE_NAME, BUILD_QUEUE_NAME, WORKFLOW_QUEUE_NAME, QUEUE_KEYS } from '../queueConstants';
 
 export type RuntimeScalingTargetConfig = {
   key: RuntimeScalingTargetKey;

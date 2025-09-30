@@ -46,6 +46,7 @@ import { scheduleWorkflowRetryJob } from './queue';
 import { logger } from './observability/logger';
 import { handleWorkflowFailureAlert } from './observability/alerts';
 import { buildWorkflowDagMetadata } from './workflows/dag';
+import { createStepExecutor } from './workflow/executors';
 import { computeExponentialBackoff } from '@apphub/shared/retries/backoff';
 import { resolveRetryBackoffConfig } from '@apphub/shared/retries/config';
 import { getRuntimeScalingEffectiveConcurrency } from './runtimeScaling/state';
@@ -572,6 +573,32 @@ async function ensureJobHandler(slug: string): Promise<void> {
       loadedHandlers.add(slug);
   }
 }
+
+const executeWorkflowStep = createStepExecutor({
+  loadOrCreateStepRecord,
+  applyStepUpdateWithHistory,
+  recordStepHeartbeat,
+  applyRunContextPatch,
+  scheduleWorkflowRetryJob,
+  clearStepAssets,
+  persistStepAssets,
+  resolveSecret,
+  maskSecret,
+  describeSecret,
+  createJobRunForSlug,
+  executeJobRun,
+  ensureJobHandler,
+  getServiceBySlug,
+  fetchFromService: async (service, request) => {
+    const { response } = await fetchFromService(service, request.path, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      signal: request.signal
+    });
+    return response;
+  }
+});
 
 function isJsonObject(value: JsonValue | null | undefined): value is Record<string, JsonValue> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -1819,40 +1846,7 @@ async function executeStep(
   stepIndex: number,
   runtimeStep?: RuntimeStep
 ): Promise<StepExecutionResult> {
-  const dependencies = step.dependsOn ?? [];
-  const blocked = dependencies.filter((dependencyId) => {
-    const summary = context.steps[dependencyId];
-    return !summary || summary.status !== 'succeeded';
-  });
-  if (blocked.length > 0) {
-    throw new Error(
-      `Step ${step.id} is blocked by incomplete dependencies: ${blocked.join(', ')}`
-    );
-  }
-
-  const baseScope = buildTemplateScope(run, context);
-
-  if (step.type === 'fanout') {
-    const fanOutScope = runtimeStep?.fanOut
-      ? withStepScope(baseScope, step.id, null, runtimeStep.fanOut)
-      : withStepScope(baseScope, step.id, null);
-    return executeFanOutStep(run, definition, step, context, stepIndex, null, fanOutScope);
-  }
-
-  const mergedParameters = mergeParameters(run.parameters, step.parameters ?? null);
-  const resolutionScope = runtimeStep?.fanOut
-    ? withStepScope(baseScope, step.id, mergedParameters as JsonValue, runtimeStep.fanOut)
-    : withStepScope(baseScope, step.id, mergedParameters as JsonValue);
-  const resolvedParameters = resolveJsonTemplates(mergedParameters as JsonValue, resolutionScope);
-  const stepScope = runtimeStep?.fanOut
-    ? withStepScope(baseScope, step.id, resolvedParameters, runtimeStep.fanOut)
-    : withStepScope(baseScope, step.id, resolvedParameters);
-
-  if (step.type === 'service') {
-    return executeServiceStep(run, definition, step, context, stepIndex, resolvedParameters, stepScope, runtimeStep?.fanOut);
-  }
-
-  return executeJobStep(run, definition, step, context, stepIndex, resolvedParameters, runtimeStep?.fanOut);
+  return executeWorkflowStep(run, definition, step, context, stepIndex, runtimeStep);
 }
 
 async function executeFanOutStep(
