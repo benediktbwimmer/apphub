@@ -71,6 +71,8 @@ const BADGE_BASE =
 
 const SECTION_LABEL = 'text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
 
+const ALERT_BOX_BASE = 'rounded-2xl border px-4 py-3 shadow-elevation-md text-scale-xs font-weight-semibold';
+
 function formatDate(value: string | null): string {
   if (!value) {
     return '—';

@@ -1,6 +1,17 @@
+import classNames from 'classnames';
 import { useEffect, useMemo, useState, type FormEventHandler } from 'react';
 import { useAiBuilderSettings } from '../ai/useAiBuilderSettings';
 import type { AiBuilderProvider } from '../ai/types';
+import {
+  SETTINGS_CARD_CONTAINER_CLASSES,
+  SETTINGS_FORM_INPUT_CLASSES,
+  SETTINGS_FORM_LABEL_CLASSES,
+  SETTINGS_PRIMARY_BUTTON_CLASSES,
+  SETTINGS_SECONDARY_BUTTON_CLASSES,
+  SETTINGS_SECTION_HELPER_CLASSES,
+  SETTINGS_SECTION_LABEL_CLASSES,
+  SETTINGS_SECTION_TITLE_CLASSES
+} from './settingsTokens';
 
 const PROVIDER_OPTIONS: ReadonlyArray<{ value: AiBuilderProvider; label: string; description: string }> = [
   {

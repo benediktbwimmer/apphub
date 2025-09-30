@@ -37,6 +37,10 @@ const SECTION_TITLE = 'text-scale-sm font-weight-semibold text-primary';
 
 const SECTION_DESCRIPTION = 'text-scale-xs text-secondary';
 
+const SECTION_LABEL = 'text-scale-xs font-weight-semibold uppercase tracking-[0.3em] text-muted';
+
+const REQUIRED_MARK = 'ml-1 text-status-danger';
+
 const INPUT_FIELD =
   'rounded-2xl border border-subtle bg-surface-glass px-3 py-2 text-scale-sm text-primary shadow-elevation-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted';
 
@@ -55,6 +59,9 @@ const FIELDSET_CONTAINER =
   'flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-glass p-4';
 
 const FIELDSET_LEGEND = 'px-2 text-scale-sm font-weight-semibold text-primary';
+
+const SECTION_CARD =
+  'rounded-2xl border border-subtle bg-surface-glass p-4 shadow-elevation-sm transition-colors';
 
 const CODE_BLOCK =
   'mt-1 max-h-48 overflow-auto rounded-xl bg-surface-sunken px-3 py-2 font-mono text-scale-xs text-primary';

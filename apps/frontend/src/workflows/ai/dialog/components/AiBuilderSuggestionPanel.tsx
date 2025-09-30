@@ -1,4 +1,4 @@
-import { getStatusToneClasses } from '../../../theme/statusTokens';
+import { getStatusToneClasses } from '../../../../theme/statusTokens';
 import type { AiBuilderDialogHandlers, AiBuilderDialogState, JobDraft } from '../types';
 import { formatSummary } from '../utils';
 

@@ -50,6 +50,18 @@ type EvaluationSource = {
   runKeyTemplate?: string | null;
 };
 
+const STATUS_LABEL =
+  'inline-flex items-center gap-2 rounded-full border border-subtle bg-surface-glass px-3 py-[3px] text-[10px] font-weight-semibold uppercase tracking-[0.3em]';
+
+const CODE_BLOCK =
+  'mt-1 max-h-48 overflow-auto rounded-xl bg-surface-sunken px-3 py-2 font-mono text-scale-xs text-primary shadow-inner';
+
+const SECONDARY_CODE_BLOCK =
+  'mt-1 max-h-48 overflow-auto rounded-xl border border-dashed border-subtle bg-surface-muted px-3 py-2 font-mono text-scale-xs text-secondary';
+
+const ERROR_CALLOUT =
+  'rounded-2xl border border-status-danger bg-status-danger-soft px-3 py-2 text-scale-xs font-weight-semibold text-status-danger';
+
 function assertUnreachable(_value: never, message: string): never {
   throw new Error(message);
 }

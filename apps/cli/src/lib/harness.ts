@@ -225,9 +225,9 @@ async function executeNodeBundle(context: BundleContext, parameters: JsonValue):
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     const stack = error.stack ?? error.message;
-    logBuffer.push(`[job:${context.config.slug}] handler error ${stack}`);
+    logs.push(`[job:${context.config.slug}] handler error ${stack}`);
     (error as Error & { runContext?: ExecuteResult['runContext'] }).runContext = {
-      logs: [...logBuffer]
+      logs: [...logs]
     };
     throw error;
   }
